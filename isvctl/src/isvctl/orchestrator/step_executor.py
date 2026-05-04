@@ -117,6 +117,30 @@ def _write_full_stderr(step_name: str, stderr: str) -> None:
     sys.stderr.write(f"\n--- stderr from step '{step_name}' ---\n{redacted}\n--- end stderr ---\n")
 
 
+def _resolve_python_script_path(cmd_parts: list[str], cwd: Path) -> list[str]:
+    """Resolve repo-root-relative Python script paths before changing cwd."""
+    if len(cmd_parts) < 2:
+        return cmd_parts
+    if not Path(cmd_parts[0]).name.startswith("python"):
+        return cmd_parts
+
+    script_arg = cmd_parts[1]
+    if script_arg.startswith("-"):
+        return cmd_parts
+
+    script_path = Path(script_arg)
+    if script_path.is_absolute() or (cwd / script_path).exists():
+        return cmd_parts
+
+    cwd_relative = Path.cwd() / script_path
+    if not cwd_relative.exists():
+        return cmd_parts
+
+    updated = cmd_parts.copy()
+    updated[1] = str(cwd_relative.resolve())
+    return updated
+
+
 def _find_missing_step_path(arg: str, steps_data: dict[str, Any]) -> str | None:
     """Return the first ``steps.X.Y`` path in ``arg`` that is unresolved.
 
@@ -319,6 +343,7 @@ class StepExecutor:
 
         # Determine working directory
         cwd = Path(step.working_dir) if step.working_dir else self.working_dir
+        cmd_parts = _resolve_python_script_path(cmd_parts, cwd)
 
         # Build environment
         env = os.environ.copy()

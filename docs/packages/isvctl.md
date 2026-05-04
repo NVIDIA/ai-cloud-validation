@@ -39,6 +39,9 @@ isvctl test run -f isvctl/configs/providers/k3s.yaml
 # Validate a Slurm cluster
 isvctl test run -f isvctl/configs/suites/slurm.yaml
 
+# Create a provider scaffold
+isvctl provider scaffold acme
+
 # Pass extra pytest args
 isvctl test run -f isvctl/configs/suites/k8s.yaml -- -v -s -k "NodeCount"
 ```
@@ -167,11 +170,11 @@ This output is validated and becomes the `{{inventory.*}}` available in template
 
 ### Directory Organization
 
-Place your provider-specific lifecycle scripts under `configs/providers/<your-isv-name>/scripts/`, mirroring the structure of the `providers/my-isv/scripts/` scaffold (e.g. `configs/providers/acme/scripts/k8s/setup.sh`). The providers directory contains:
+Generate provider-specific lifecycle scripts with `isvctl provider scaffold <your-isv-name>`, then implement the TODO blocks under `isvctl/configs/providers/<your-isv-name>/scripts/` (e.g. `isvctl/configs/providers/acme/scripts/k8s/setup.sh`). The providers directory contains:
 
-- `providers/my-isv/scripts/` - copy-and-fill-in template scripts for every domain
-- `providers/aws/scripts/` - fully-implemented AWS reference (follow its layout and JSON output contracts)
-- `providers/shared/` - cross-provider YAML-invoked scripts (`deploy_nim.py`, `teardown_nim.py`)
+- `isvctl/configs/providers/my-isv/scripts/` - source template scripts for every scaffolded domain
+- `isvctl/configs/providers/aws/scripts/` - fully-implemented AWS reference (follow its layout and JSON output contracts)
+- `isvctl/configs/providers/shared/` - cross-provider YAML-invoked scripts (`deploy_nim.py`, `teardown_nim.py`)
 
 Stubs can be written in any language. They must:
 

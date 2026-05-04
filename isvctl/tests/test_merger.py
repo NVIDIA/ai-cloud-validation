@@ -234,6 +234,33 @@ class TestImportDirective:
         result = merge_yaml_files([str(child)])
         assert result == {"val": "overridden"}
 
+    def test_import_falls_back_to_current_working_directory(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Checkout-root-relative imports work for out-of-tree provider configs."""
+        repo_root = tmp_path / "repo"
+        template = repo_root / "isvctl" / "configs" / "suites" / "vm.yaml"
+        template.parent.mkdir(parents=True)
+        template.write_text(
+            "tests:\n  cluster_name: template\n  suite_only: inherited\n",
+            encoding="utf-8",
+        )
+
+        provider_dir = tmp_path / "provider" / "config"
+        provider_dir.mkdir(parents=True)
+        provider = provider_dir / "vm.yaml"
+        provider.write_text(
+            "import:\n  - isvctl/configs/suites/vm.yaml\ntests:\n  cluster_name: provider\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(repo_root / "isvctl")
+
+        result = merge_yaml_files([str(provider)])
+        assert result == {"tests": {"cluster_name": "provider", "suite_only": "inherited"}}
+
     def test_multiple_imports(self, tmp_path: Path) -> None:
         """Multiple imports are merged in order, child wins."""
         (tmp_path / "a.yaml").write_text("x: 1\ny: from_a")
@@ -289,6 +316,14 @@ class TestImportDirective:
         child.write_text("import:\n  - missing.yaml\nx: 1")
 
         with pytest.raises(FileNotFoundError):
+            merge_yaml_files([str(child)])
+
+    def test_import_entry_must_be_string_or_path(self, tmp_path: Path) -> None:
+        """Invalid import entry types raise a config-specific ValueError."""
+        child = tmp_path / "child.yaml"
+        child.write_text("import:\n  - 123\nx: 1")
+
+        with pytest.raises(ValueError, match=r"Import entries must be strings or paths.*child\.yaml"):
             merge_yaml_files([str(child)])
 
     def test_import_with_f_flag_merge(self, tmp_path: Path) -> None:

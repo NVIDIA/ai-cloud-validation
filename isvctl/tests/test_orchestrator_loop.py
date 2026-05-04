@@ -18,6 +18,7 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
 from isvtest.core.resolution import (
     ErrorReason,
     ResolvedEntry,
@@ -40,6 +41,7 @@ from isvctl.orchestrator.step_executor import (
     StepExecutor,
     _find_missing_step_path,
     _format_stderr_excerpt,
+    _resolve_python_script_path,
 )
 
 _INVENTORY_SCRIPT = (
@@ -58,6 +60,27 @@ done
 echo "AWS_SECRET_ACCESS_KEY=super-secret" >&2
 exit 7
 """
+
+
+def test_python_script_path_falls_back_to_current_working_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repo-root-relative Python commands still work with config-relative cwd."""
+    repo_root = tmp_path / "repo"
+    script = repo_root / "isvctl" / "configs" / "providers" / "shared" / "deploy_nim.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+    provider_config_dir = tmp_path / "provider" / "config"
+    provider_config_dir.mkdir(parents=True)
+
+    monkeypatch.chdir(repo_root)
+
+    resolved = _resolve_python_script_path(
+        ["python", "isvctl/configs/providers/shared/deploy_nim.py"],
+        provider_config_dir,
+    )
+    assert resolved[1] == str(script.resolve())
 
 
 def _write_script(tmp_path: Path, name: str, content: str) -> str:

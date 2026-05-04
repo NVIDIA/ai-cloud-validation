@@ -21,7 +21,7 @@ import typer
 from isvreporter.main import app as report_app
 from isvreporter.version import get_version
 
-from isvctl.cli import catalog, clean, deploy, docs, test
+from isvctl.cli import catalog, clean, deploy, docs, provider, test
 
 app = typer.Typer(
     name="isvctl",
@@ -52,6 +52,7 @@ app.add_typer(catalog.app, name="catalog")
 app.add_typer(clean.app, name="clean")
 app.add_typer(deploy.app, name="deploy")
 app.add_typer(docs.app, name="docs")
+app.add_typer(provider.app, name="provider")
 app.add_typer(test.app, name="test")
 app.add_typer(report_app, name="report")
 

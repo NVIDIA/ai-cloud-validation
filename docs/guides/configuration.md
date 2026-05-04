@@ -50,7 +50,7 @@ Pre-built configs are provided in `isvctl/configs/`:
 
 | Config | Description |
 | ------ | ----------- |
-| `providers/my-isv/config/*.yaml` | [my-isv scaffold](../../isvctl/configs/providers/my-isv/scripts/README.md) - copy-and-fill-in for your own platform (runs end-to-end under `ISVCTL_DEMO_MODE=1`) |
+| `providers/my-isv/config/*.yaml` | [my-isv scaffold](../../isvctl/configs/providers/my-isv/scripts/README.md) - source template for `isvctl provider scaffold <provider-name>` (runs end-to-end under `ISVCTL_DEMO_MODE=1`) |
 | `providers/aws/config/control-plane.yaml` | AWS API health, access key lifecycle, tenant management |
 | `providers/aws/config/network.yaml` | AWS VPC network validation (6 test suites) |
 | `providers/aws/config/vm.yaml` | AWS EC2 GPU instance tests |
@@ -62,6 +62,9 @@ Pre-built configs are provided in `isvctl/configs/`:
 ## Basic Usage
 
 ```bash
+# Generate a provider scaffold
+isvctl provider scaffold acme
+
 # Run a config
 isvctl test run -f isvctl/configs/providers/aws/config/control-plane.yaml
 

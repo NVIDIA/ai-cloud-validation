@@ -41,6 +41,22 @@ No credentials, no cloud resources created. Great sanity check after
 install, and the starting point if you're adding a new platform --
 see [`providers/my-isv/scripts/`](../isvctl/configs/providers/my-isv/scripts/).
 
+Create a ready-to-edit scaffold for your own provider:
+
+```bash
+uv run isvctl provider scaffold acme
+```
+
+Provider implementations can live in private repositories and be run by path;
+see the [my-isv scaffold README](../isvctl/configs/providers/my-isv/scripts/README.md#private-provider-repositories)
+for the current workflow.
+
+Then preview the generated VM flow without cloud access:
+
+```bash
+ISVCTL_DEMO_MODE=1 uv run isvctl test run -f isvctl/configs/providers/acme/config/vm.yaml
+```
+
 ### Running Validation Tests
 
 **From source (development):**
@@ -133,7 +149,7 @@ See [Remote Deployment Guide](guides/remote-deployment.md) for details.
 
 ## Next Steps
 
-- [my-isv Scaffold](../isvctl/configs/providers/my-isv/scripts/README.md) - Adding your own platform? Start here
+- [my-isv Scaffold](../isvctl/configs/providers/my-isv/scripts/README.md) - Adding your own platform? Start with `isvctl provider scaffold`
 - [Validation Test Suites](../isvctl/configs/suites/README.md) - The platform-agnostic validation contract
 - [AWS Reference Implementation](references/aws.md) - Working AWS examples to study
 - [Configuration Guide](guides/configuration.md) - Config file format and options
