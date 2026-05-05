@@ -51,13 +51,12 @@ def main() -> int:
     """Least-privilege policy test (template) and emit structured JSON result."""
     parser = argparse.ArgumentParser(description="Least-privilege policy test (template)")
     parser.add_argument("--region", required=True, help="Cloud region")
-    args = parser.parse_args()
+    parser.parse_args()
 
     result: dict[str, Any] = {
         "success": False,
         "platform": "security",
         "test_name": "least_privilege_test",
-        "region": args.region,
         "test_identity": "",
         "allowed_resource": "",
         "allowed_source_cidr": "",

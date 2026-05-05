@@ -850,7 +850,7 @@ class AuditLogRetentionCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
-        audit_log_bucket or audit_log_destination: Required non-empty audit log destination
+        audit_log_destination: Required non-empty audit log destination
         minimum_retention_days: Required int >= 30, or "unbounded"
         tests: dict with audit_log_trail_logging_enabled,
                audit_log_retention_at_least_30_days
@@ -874,8 +874,8 @@ class AuditLogRetentionCheck(BaseValidation):
         if not check_required_tests(self, required, "Audit-log retention tests failed"):
             return
 
-        bucket = step_output.get("audit_log_bucket") or step_output.get("audit_log_destination")
-        if not isinstance(bucket, str) or not bucket.strip():
+        destination = step_output.get("audit_log_destination")
+        if not isinstance(destination, str) or not destination.strip():
             self.set_failed("Audit-log retention output missing non-empty audit log destination")
             return
 
@@ -887,4 +887,4 @@ class AuditLogRetentionCheck(BaseValidation):
         else:
             self.set_failed("Audit-log retention output missing retention >= 30 days or 'unbounded'")
             return
-        self.set_passed(f"Audit log retention verified for {bucket} (minimum retention {retention_summary})")
+        self.set_passed(f"Audit log retention verified for {destination} (minimum retention {retention_summary})")

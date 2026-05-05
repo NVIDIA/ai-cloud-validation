@@ -55,13 +55,12 @@ def main() -> int:
     """Audit logging test (template) and emit structured JSON result."""
     parser = argparse.ArgumentParser(description="Audit logging test (template)")
     parser.add_argument("--region", required=True, help="Cloud region")
-    args = parser.parse_args()
+    parser.parse_args()
 
     result: dict[str, Any] = {
         "success": False,
         "platform": "security",
         "test_name": "audit_logging_test",
-        "region": args.region,
         "event_name": "",
         "request_id": "",
         "audit_log_destination": "",

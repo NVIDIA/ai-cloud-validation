@@ -1147,7 +1147,7 @@ def test_audit_logging_retention_skips_when_lifecycle_access_denied(
     assert exit_code == 0
     assert payload["success"] is True
     assert payload["audit_log_retention_skipped"] is True
-    assert "cannot inspect lifecycle configuration" in payload["audit_log_retention_skip_reason"]
+    assert payload["audit_log_retention_skip_reason"] == "cannot inspect audit log retention policy"
     assert payload["tests"]["audit_log_entry_found"]["passed"] is True
 
 
@@ -1225,9 +1225,12 @@ def test_audit_logging_retention_falls_back_to_single_region_trail(
 
     assert exit_code == 0
     assert payload["success"] is True
-    assert payload["audit_log_bucket"] == "regional-audit-logs"
+    assert payload["audit_log_destination"] == "audit_log_store"
     assert payload["minimum_retention_days"] == "unbounded"
     assert "single-region" in payload["tests"]["audit_log_trail_logging_enabled"]["message"]
+    assert "audit_log_bucket" not in payload
+    assert "audit_log_prefix" not in payload
+    assert "audit_log_trail_arn" not in payload
 
 
 class FakeIpResponse:
@@ -1276,10 +1279,13 @@ def test_least_privilege_dimension_results_require_denied_bucket_and_source_cidr
 
     resource_result, network_result = module._policy_dimension_scope_results(
         allowed_result={"passed": True},
-        denied_bucket_result={"name": "s3_list_denied_bucket_denied", "passed": True, "code": "AccessDenied"},
+        denied_resource_result={
+            "name": "storage_list_unscoped_resource_denied",
+            "passed": True,
+            "code": "AccessDenied",
+        },
         policy_document=policy_document,
         allowed_bucket="allowed-bucket",
-        denied_bucket="denied-bucket",
         source_cidr="2001:db8::1/128",
     )
 
@@ -1289,10 +1295,9 @@ def test_least_privilege_dimension_results_require_denied_bucket_and_source_cidr
 
     failed_resource_result, failed_network_result = module._policy_dimension_scope_results(
         allowed_result={"passed": True},
-        denied_bucket_result={"name": "s3_list_denied_bucket_denied", "passed": False, "error": "allowed"},
+        denied_resource_result={"name": "storage_list_unscoped_resource_denied", "passed": False, "error": "allowed"},
         policy_document=policy_document,
         allowed_bucket="allowed-bucket",
-        denied_bucket="denied-bucket",
         source_cidr="203.0.113.10/32",
     )
 

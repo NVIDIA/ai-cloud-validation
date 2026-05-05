@@ -65,17 +65,14 @@ AUDIT_RETENTION_TEST_KEYS = (
 )
 
 
-def _base_result(region: str, lookup_timeout_seconds: int) -> dict[str, Any]:
+def _base_result() -> dict[str, Any]:
     """Return the initial result envelope with all SEC08 tests unset."""
     return {
         "success": False,
         "platform": "security",
         "test_name": TEST_NAME,
-        "region": region,
         "event_name": EVENT_NAME,
-        "event_source": EVENT_SOURCE,
         "request_id": "",
-        "lookup_timeout_seconds": lookup_timeout_seconds,
         "tests": {key: {"passed": False} for key in (*AUDIT_ENTRY_TEST_KEYS, *AUDIT_RETENTION_TEST_KEYS)},
     }
 
@@ -206,17 +203,11 @@ def _record_event_metadata_tests(
     event_region = payload.get("awsRegion", "")
     event_source = payload.get("eventSource", "")
 
-    result["cloudtrail_event_id"] = lookup_event.get("EventId", "")
-    result["cloudtrail_event_time"] = payload.get("eventTime", "")
-    result["cloudtrail_user_identity_arn"] = user_identity_arn
-    result["cloudtrail_source_ip_address"] = source_ip
-    result["cloudtrail_user_agent_suffix"] = user_agent_suffix
-
     window_start = call_start - timedelta(minutes=1)
     window_end = max(call_end + timedelta(minutes=15), datetime.now(UTC) + timedelta(minutes=1))
     result["tests"]["audit_log_entry_found"] = {
         "passed": True,
-        "message": f"matched CloudTrail event for request id {request_id}",
+        "message": "matched audit event for emitted management call",
     }
     result["tests"]["audit_log_event_name_matches"] = {"passed": payload.get("eventName") == EVENT_NAME}
     result["tests"]["audit_log_event_time_in_window"] = {
@@ -278,7 +269,7 @@ def _evaluate_lifecycle_retention(
         lifecycle = s3.get_bucket_lifecycle_configuration(Bucket=bucket)
     except ClientError as exc:
         if exc.response.get("Error", {}).get("Code") == "NoSuchLifecycleConfiguration":
-            return {"passed": True, "message": "no lifecycle expiration rules configured"}, "unbounded"
+            return {"passed": True, "message": "no audit log expiration policy configured"}, "unbounded"
         raise
 
     enabled_expiration_rules: list[dict[str, Any]] = []
@@ -302,7 +293,7 @@ def _evaluate_lifecycle_retention(
     if not enabled_expiration_rules:
         return {
             "passed": True,
-            "message": f"no enabled current-object expiration rules apply to CloudTrail log prefix {log_prefix}",
+            "message": "no enabled current-object expiration rules apply to audit logs",
         }, "unbounded"
 
     failures: list[str] = []
@@ -343,14 +334,14 @@ def main() -> int:
     region = args.region
     lookup_timeout_seconds = max(1, args.lookup_timeout_seconds)
 
-    result = _base_result(region, lookup_timeout_seconds)
+    result = _base_result()
     cloudtrail = boto3.client("cloudtrail", region_name=region)
     s3 = boto3.client("s3", region_name=region)
 
     try:
         logging_trails, multi_region_logging_trails = _find_logging_trails(cloudtrail)
         if not logging_trails:
-            reason = "no active CloudTrail logging trail found"
+            reason = "no active audit logging trail found"
             _mark_entry_skipped(result, reason)
             _mark_retention_skipped(result, reason)
             result["success"] = True
@@ -370,8 +361,7 @@ def main() -> int:
         if lookup_event is None:
             _mark_entry_skipped(
                 result,
-                f"CloudTrail event for {EVENT_NAME} request {request_id} did not propagate within "
-                f"{lookup_timeout_seconds}s",
+                "audit event did not propagate within the poll budget",
             )
         else:
             _record_event_metadata_tests(
@@ -387,19 +377,15 @@ def main() -> int:
         trail_candidates = multi_region_logging_trails or logging_trails
         trail = next((candidate for candidate in trail_candidates if candidate.get("S3BucketName")), None)
         if trail is None:
-            _mark_retention_skipped(result, "no active CloudTrail logging trail with an S3 destination found")
+            _mark_retention_skipped(result, "no active audit logging trail with a log destination found")
         else:
             bucket = trail.get("S3BucketName", "")
             log_prefix = _trail_log_prefix(trail)
             is_multi_region = trail.get("IsMultiRegionTrail") is True
-            result["audit_log_trail_arn"] = trail.get("TrailARN", trail.get("Name", ""))
-            result["audit_log_bucket"] = bucket
-            result["audit_log_prefix"] = log_prefix
+            result["audit_log_destination"] = "audit_log_store"
             result["tests"]["audit_log_trail_logging_enabled"] = {
                 "passed": bool(bucket),
-                "message": (
-                    f"active {'multi-region' if is_multi_region else 'single-region'} trail writes to {bucket}"
-                ),
+                "message": (f"active {'multi-region' if is_multi_region else 'single-region'} audit trail writes logs"),
             }
             if bucket:
                 try:
@@ -410,7 +396,7 @@ def main() -> int:
                         raise
                     _mark_retention_skipped(
                         result,
-                        f"cannot inspect lifecycle configuration for CloudTrail log bucket {bucket}: {exc}",
+                        "cannot inspect audit log retention policy",
                     )
                 else:
                     result["tests"]["audit_log_retention_at_least_30_days"] = retention_result
@@ -418,7 +404,7 @@ def main() -> int:
             else:
                 result["tests"]["audit_log_retention_at_least_30_days"] = {
                     "passed": False,
-                    "error": "active multi-region trail did not report S3BucketName",
+                    "error": "active audit trail did not report an audit log destination",
                 }
 
         result["success"] = all(test.get("passed") for test in result["tests"].values())

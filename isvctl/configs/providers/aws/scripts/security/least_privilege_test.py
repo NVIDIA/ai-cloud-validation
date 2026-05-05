@@ -86,7 +86,7 @@ def _detect_source_cidr() -> str:
         with urllib.request.urlopen(CALLER_IP_URL, timeout=5) as response:
             ip_address = response.read().decode("utf-8").strip()
     except (OSError, urllib.error.URLError) as exc:
-        msg = f"cannot determine caller public IP for aws:SourceIp condition: {exc}"
+        msg = f"cannot determine caller public IP for source condition: {exc}"
         raise RuntimeError(msg) from exc
     try:
         parsed_ip = ipaddress.ip_address(ip_address)
@@ -261,25 +261,24 @@ def _policy_has_source_cidr_condition(policy_document: str, allowed_bucket: str,
 def _policy_dimension_scope_results(
     *,
     allowed_result: dict[str, Any],
-    denied_bucket_result: dict[str, Any],
+    denied_resource_result: dict[str, Any],
     policy_document: str,
     allowed_bucket: str,
-    denied_bucket: str,
     source_cidr: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build resource- and network-scope SEC04 result entries from concrete evidence."""
     allowed_passed = bool(allowed_result.get("passed"))
     source_condition_matches = _policy_has_source_cidr_condition(policy_document, allowed_bucket, source_cidr)
     resource_result = {
-        "passed": allowed_passed and bool(denied_bucket_result.get("passed")),
-        "message": f"allowed bucket {allowed_bucket}; denied bucket {denied_bucket} probe returned {denied_bucket_result}",
-        "probes": [denied_bucket_result],
+        "passed": allowed_passed and bool(denied_resource_result.get("passed")),
+        "message": "allowed scoped resource and denied unscoped resource",
+        "probes": [denied_resource_result],
     }
     network_result = {
         "passed": allowed_passed and source_condition_matches,
         "message": (
-            f"policy statement for arn:aws:s3:::{allowed_bucket} "
-            f"{'contains' if source_condition_matches else 'does not contain'} aws:SourceIp={source_cidr}"
+            "minimal policy "
+            f"{'contains' if source_condition_matches else 'does not contain'} the expected source CIDR condition"
         ),
     }
     return resource_result, network_result
@@ -360,10 +359,10 @@ def _probe_allowed_bucket(s3_user: Any, allowed_bucket: str) -> dict[str, Any]:
             if code in DENY_CODES and attempt < IAM_PROPAGATION_MAX_ATTEMPTS - 1:
                 time.sleep(min(2 ** (attempt + 1), IAM_PROPAGATION_BACKOFF_CAP))
                 continue
-            return {"passed": False, "error": f"s3:ListBucket on scoped bucket failed: {exc}", "code": code}
+            return {"passed": False, "error": "allowed scoped-resource action failed", "code": code}
         else:
-            return {"passed": True, "message": f"s3:ListBucket allowed on scoped bucket {allowed_bucket}"}
-    return {"passed": False, "error": "s3:ListBucket did not become allowed before propagation timeout"}
+            return {"passed": True, "message": "allowed scoped-resource action succeeded"}
+    return {"passed": False, "error": "allowed scoped-resource action did not become available before timeout"}
 
 
 def _is_denied(exc: ClientError) -> bool:
@@ -390,7 +389,7 @@ def _expect_ec2_dry_run_denied(name: str, fn: Callable[[], Any]) -> dict[str, An
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
         if code == DRY_RUN_ALLOWED_CODE:
-            return {"name": name, "passed": False, "code": code, "error": "DryRun reported the action would be allowed"}
+            return {"name": name, "passed": False, "code": code, "error": "authorization probe reported action allowed"}
         return {"name": name, "passed": _is_denied(exc), "code": code}
     except BotoCoreError as exc:
         return {"name": name, "passed": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -428,7 +427,7 @@ def main() -> int:
     parser.add_argument(
         "--source-cidr",
         default=os.environ.get("SEC04_ALLOWED_SOURCE_CIDR", ""),
-        help="Allowed aws:SourceIp CIDR. Defaults to caller public IPv4 /32.",
+        help="Allowed source CIDR. Defaults to the caller public host CIDR.",
     )
     args = parser.parse_args()
     region = args.region
@@ -461,10 +460,8 @@ def main() -> int:
         "success": False,
         "platform": "security",
         "test_name": TEST_NAME,
-        "region": region,
-        "test_identity": username,
-        "allowed_resource": allowed_bucket,
-        "denied_resource": denied_bucket,
+        "test_identity": "temporary_test_principal",
+        "allowed_resource": "scoped_storage_resource",
         "allowed_source_cidr": source_cidr,
         "tests": {
             "policy_dimensions_user_based": {"passed": False},
@@ -553,28 +550,27 @@ def main() -> int:
         allowed_result = _probe_allowed_bucket(clients["s3"], allowed_bucket)
         result["tests"]["policy_dimensions_allowed_action_succeeds"] = allowed_result
         allowed_passed = bool(allowed_result.get("passed"))
-        denied_bucket_result = _expect_denied(
-            "s3_list_denied_bucket_denied",
+        denied_resource_result = _expect_denied(
+            "storage_list_unscoped_resource_denied",
             lambda: clients["s3"].list_objects_v2(Bucket=denied_bucket, MaxKeys=1),
         )
         resource_scope_result, network_scope_result = _policy_dimension_scope_results(
             allowed_result=allowed_result,
-            denied_bucket_result=denied_bucket_result,
+            denied_resource_result=denied_resource_result,
             policy_document=policy_document,
             allowed_bucket=allowed_bucket,
-            denied_bucket=denied_bucket,
             source_cidr=source_cidr,
         )
         result["tests"]["policy_dimensions_user_based"] = {
             "passed": allowed_passed and username in caller_arn,
-            "message": f"temporary user ARN: {caller_arn}",
+            "message": "temporary principal identity verified",
         }
         result["tests"]["policy_dimensions_resource_based"] = resource_scope_result
         result["tests"]["policy_dimensions_network_based"] = network_scope_result
 
         compute_probes = [
             _expect_ec2_dry_run_denied(
-                "ec2_run_instances_denied",
+                "compute_launch_denied",
                 lambda: clients["ec2"].run_instances(
                     ImageId=probe_ami_id,
                     InstanceType="t3.micro",
@@ -586,27 +582,27 @@ def main() -> int:
                 ),
             ),
             _expect_ec2_dry_run_denied(
-                "ec2_terminate_instances_denied",
+                "compute_terminate_denied",
                 lambda: clients["ec2"].terminate_instances(InstanceIds=[probe_instance_id], DryRun=True),
             ),
         ]
         storage_probes = [
             _expect_denied(
-                "s3_delete_bucket_denied",
+                "storage_delete_denied",
                 lambda: clients["s3"].delete_bucket(Bucket=denied_bucket),
             ),
             _expect_denied(
-                "s3_get_object_denied",
+                "storage_read_denied",
                 lambda: clients["s3"].get_object(Bucket=denied_bucket, Key=DENIED_OBJECT_KEY),
             ),
         ]
         network_probes = [
             _expect_ec2_dry_run_denied(
-                "ec2_create_vpc_denied",
+                "network_create_denied",
                 lambda: clients["ec2"].create_vpc(CidrBlock="10.99.0.0/24", DryRun=True),
             ),
             _expect_ec2_dry_run_denied(
-                "ec2_authorize_security_group_ingress_denied",
+                "network_rule_update_denied",
                 lambda: clients["ec2"].authorize_security_group_ingress(
                     GroupId=probe_sg_id,
                     IpPermissions=[
