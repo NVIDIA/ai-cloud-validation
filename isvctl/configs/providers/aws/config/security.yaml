@@ -16,7 +16,9 @@
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/aws/config/security.yaml
 #
-# Estimated runtime: ~10-15 minutes (CloudTrail propagation may consume most of this)
+# Estimated runtime: ~10-15 minutes typical.
+# CloudTrail propagation and tenant-isolation fixture cleanup can make slow-path
+# runs take substantially longer.
 #
 # Security tests (SEC* requirements):
 #   1. BMC Management Network  - Verify BMC management is dedicated/restricted
