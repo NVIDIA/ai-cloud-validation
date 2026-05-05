@@ -36,6 +36,7 @@ rather than fabricate a pass.
 """
 
 import argparse
+import ipaddress
 import json
 import os
 import sys
@@ -80,17 +81,20 @@ def _skipped_result(reason: str) -> dict[str, Any]:
 
 
 def _detect_source_cidr() -> str:
-    """Return the caller's public IPv4 address as a /32 CIDR."""
+    """Return the caller's public IP address as an IPv4/IPv6 host CIDR."""
     try:
         with urllib.request.urlopen(CALLER_IP_URL, timeout=5) as response:
             ip_address = response.read().decode("utf-8").strip()
     except (OSError, urllib.error.URLError) as exc:
         msg = f"cannot determine caller public IP for aws:SourceIp condition: {exc}"
         raise RuntimeError(msg) from exc
-    if not ip_address or any(part == "" for part in ip_address.split(".")):
+    try:
+        parsed_ip = ipaddress.ip_address(ip_address)
+    except ValueError as exc:
         msg = f"unexpected caller public IP response: {ip_address!r}"
-        raise RuntimeError(msg)
-    return f"{ip_address}/32"
+        raise RuntimeError(msg) from exc
+    prefix_len = 32 if parsed_ip.version == 4 else 128
+    return f"{parsed_ip}/{prefix_len}"
 
 
 def _create_bucket(s3: Any, bucket: str, region: str) -> None:
@@ -216,6 +220,69 @@ def _policy_document(allowed_bucket: str, source_cidr: str) -> str:
             ],
         }
     )
+
+
+def _policy_has_source_cidr_condition(policy_document: str, allowed_bucket: str, source_cidr: str) -> bool:
+    """Return True when the S3 allow statement is scoped to the expected SourceIp CIDR."""
+    expected_resource = f"arn:aws:s3:::{allowed_bucket}"
+    try:
+        document = json.loads(policy_document)
+    except json.JSONDecodeError:
+        return False
+
+    statements = document.get("Statement", [])
+    if isinstance(statements, dict):
+        statements = [statements]
+    if not isinstance(statements, list):
+        return False
+
+    for statement in statements:
+        if not isinstance(statement, dict):
+            continue
+        actions = statement.get("Action", [])
+        if isinstance(actions, str):
+            actions = [actions]
+        resources = statement.get("Resource", [])
+        if isinstance(resources, str):
+            resources = [resources]
+        source_ips = statement.get("Condition", {}).get("IpAddress", {}).get("aws:SourceIp", [])
+        if isinstance(source_ips, str):
+            source_ips = [source_ips]
+        if (
+            statement.get("Effect") == "Allow"
+            and "s3:ListBucket" in actions
+            and expected_resource in resources
+            and source_cidr in source_ips
+        ):
+            return True
+    return False
+
+
+def _policy_dimension_scope_results(
+    *,
+    allowed_result: dict[str, Any],
+    denied_bucket_result: dict[str, Any],
+    policy_document: str,
+    allowed_bucket: str,
+    denied_bucket: str,
+    source_cidr: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build resource- and network-scope SEC04 result entries from concrete evidence."""
+    allowed_passed = bool(allowed_result.get("passed"))
+    source_condition_matches = _policy_has_source_cidr_condition(policy_document, allowed_bucket, source_cidr)
+    resource_result = {
+        "passed": allowed_passed and bool(denied_bucket_result.get("passed")),
+        "message": f"allowed bucket {allowed_bucket}; denied bucket {denied_bucket} probe returned {denied_bucket_result}",
+        "probes": [denied_bucket_result],
+    }
+    network_result = {
+        "passed": allowed_passed and source_condition_matches,
+        "message": (
+            f"policy statement for arn:aws:s3:::{allowed_bucket} "
+            f"{'contains' if source_condition_matches else 'does not contain'} aws:SourceIp={source_cidr}"
+        ),
+    }
+    return resource_result, network_result
 
 
 def _cleanup_buckets(s3: Any, buckets: list[str]) -> list[str]:
@@ -429,10 +496,11 @@ def main() -> int:
                 sg_id=probe_sg_id,
                 name=username,
             )
+            policy_document = _policy_document(allowed_bucket, source_cidr)
             iam.put_user_policy(
                 UserName=username,
                 PolicyName=INLINE_POLICY_NAME,
-                PolicyDocument=_policy_document(allowed_bucket, source_cidr),
+                PolicyDocument=policy_document,
             )
             key_response = iam.create_access_key(UserName=username)
             access_key_id = key_response["AccessKey"]["AccessKeyId"]
@@ -485,18 +553,24 @@ def main() -> int:
         allowed_result = _probe_allowed_bucket(clients["s3"], allowed_bucket)
         result["tests"]["policy_dimensions_allowed_action_succeeds"] = allowed_result
         allowed_passed = bool(allowed_result.get("passed"))
+        denied_bucket_result = _expect_denied(
+            "s3_list_denied_bucket_denied",
+            lambda: clients["s3"].list_objects_v2(Bucket=denied_bucket, MaxKeys=1),
+        )
+        resource_scope_result, network_scope_result = _policy_dimension_scope_results(
+            allowed_result=allowed_result,
+            denied_bucket_result=denied_bucket_result,
+            policy_document=policy_document,
+            allowed_bucket=allowed_bucket,
+            denied_bucket=denied_bucket,
+            source_cidr=source_cidr,
+        )
         result["tests"]["policy_dimensions_user_based"] = {
             "passed": allowed_passed and username in caller_arn,
             "message": f"temporary user ARN: {caller_arn}",
         }
-        result["tests"]["policy_dimensions_resource_based"] = {
-            "passed": allowed_passed,
-            "message": f"policy grants only arn:aws:s3:::{allowed_bucket}",
-        }
-        result["tests"]["policy_dimensions_network_based"] = {
-            "passed": allowed_passed,
-            "message": f"policy requires aws:SourceIp={source_cidr}",
-        }
+        result["tests"]["policy_dimensions_resource_based"] = resource_scope_result
+        result["tests"]["policy_dimensions_network_based"] = network_scope_result
 
         compute_probes = [
             _expect_ec2_dry_run_denied(

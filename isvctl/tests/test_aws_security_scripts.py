@@ -1151,6 +1151,155 @@ def test_audit_logging_retention_skips_when_lifecycle_access_denied(
     assert payload["tests"]["audit_log_entry_found"]["passed"] is True
 
 
+def test_audit_logging_retention_falls_back_to_single_region_trail(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """SEC08-02 evaluates an active single-region trail when no multi-region trail exists."""
+    module = _load_security_script("audit_logging_test.py")
+
+    class FakeCloudTrail:
+        def describe_trails(self, includeShadowTrails: bool) -> dict[str, list[dict[str, Any]]]:
+            """Return one active single-region trail with an S3 destination."""
+            assert includeShadowTrails is True
+            return {
+                "trailList": [
+                    {
+                        "Name": "regional-trail",
+                        "TrailARN": "arn:aws:cloudtrail:us-west-2:123456789012:trail/regional-trail",
+                        "IsMultiRegionTrail": False,
+                        "S3BucketName": "regional-audit-logs",
+                    }
+                ]
+            }
+
+        def get_trail_status(self, Name: str) -> dict[str, bool]:
+            """Report the regional trail as actively logging."""
+            assert Name == "arn:aws:cloudtrail:us-west-2:123456789012:trail/regional-trail"
+            return {"IsLogging": True}
+
+    class FakeS3:
+        def get_bucket_lifecycle_configuration(self, Bucket: str) -> dict[str, list[dict[str, Any]]]:
+            """Return no applicable expiration rules for unbounded retention."""
+            assert Bucket == "regional-audit-logs"
+            return {"Rules": []}
+
+    def fake_client(service_name: str, **_kwargs: Any) -> Any:
+        """Return fake clients used by the audit script."""
+        if service_name == "cloudtrail":
+            return FakeCloudTrail()
+        if service_name == "s3":
+            return FakeS3()
+        raise AssertionError(service_name)
+
+    def fake_lookup_management_event(*_args: Any, **kwargs: Any) -> dict[str, str]:
+        """Return a matched CloudTrail event using the generated user-agent suffix."""
+        user_agent_suffix = kwargs["user_agent_suffix"]
+        return {
+            "EventId": "event-1",
+            "CloudTrailEvent": json.dumps(
+                {
+                    "requestID": "request-1",
+                    "eventName": module.EVENT_NAME,
+                    "eventTime": datetime.now(UTC).isoformat(),
+                    "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test"},
+                    "sourceIPAddress": "203.0.113.10",
+                    "userAgent": f"botocore {user_agent_suffix}",
+                    "awsRegion": "us-west-2",
+                    "eventSource": module.EVENT_SOURCE,
+                }
+            ),
+        }
+
+    monkeypatch.setattr(module.boto3, "client", fake_client)
+    monkeypatch.setattr(
+        module,
+        "_emit_management_call",
+        lambda _region, _suffix: ("request-1", datetime.now(UTC), datetime.now(UTC)),
+    )
+    monkeypatch.setattr(module, "_lookup_management_event", fake_lookup_management_event)
+    monkeypatch.setattr(module.sys, "argv", ["audit_logging_test.py", "--region", "us-west-2"])
+
+    exit_code = module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["success"] is True
+    assert payload["audit_log_bucket"] == "regional-audit-logs"
+    assert payload["minimum_retention_days"] == "unbounded"
+    assert "single-region" in payload["tests"]["audit_log_trail_logging_enabled"]["message"]
+
+
+class FakeIpResponse:
+    """Context manager returned by fake URL open calls."""
+
+    def __init__(self, body: str) -> None:
+        """Store the fake response body."""
+        self.body = body
+
+    def __enter__(self) -> FakeIpResponse:
+        """Return this fake response."""
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        """Close the fake response."""
+
+    def read(self) -> bytes:
+        """Return the configured response body."""
+        return self.body.encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    ("raw_ip", "expected_cidr"),
+    [
+        ("203.0.113.10\n", "203.0.113.10/32"),
+        ("2001:db8::1\n", "2001:db8::1/128"),
+    ],
+)
+def test_least_privilege_detect_source_cidr_handles_ipv4_and_ipv6(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_ip: str,
+    expected_cidr: str,
+) -> None:
+    """Source CIDR detection normalizes IPv4 and IPv6 host addresses."""
+    module = _load_security_script("least_privilege_test.py")
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeIpResponse(raw_ip))
+
+    assert module._detect_source_cidr() == expected_cidr
+
+
+def test_least_privilege_dimension_results_require_denied_bucket_and_source_cidr() -> None:
+    """SEC04 dimension flags require denied-resource evidence and the SourceIp policy condition."""
+    module = _load_security_script("least_privilege_test.py")
+    policy_document = module._policy_document("allowed-bucket", "2001:db8::1/128")
+
+    resource_result, network_result = module._policy_dimension_scope_results(
+        allowed_result={"passed": True},
+        denied_bucket_result={"name": "s3_list_denied_bucket_denied", "passed": True, "code": "AccessDenied"},
+        policy_document=policy_document,
+        allowed_bucket="allowed-bucket",
+        denied_bucket="denied-bucket",
+        source_cidr="2001:db8::1/128",
+    )
+
+    assert resource_result["passed"] is True
+    assert resource_result["probes"][0]["code"] == "AccessDenied"
+    assert network_result["passed"] is True
+
+    failed_resource_result, failed_network_result = module._policy_dimension_scope_results(
+        allowed_result={"passed": True},
+        denied_bucket_result={"name": "s3_list_denied_bucket_denied", "passed": False, "error": "allowed"},
+        policy_document=policy_document,
+        allowed_bucket="allowed-bucket",
+        denied_bucket="denied-bucket",
+        source_cidr="203.0.113.10/32",
+    )
+
+    assert failed_resource_result["passed"] is False
+    assert failed_network_result["passed"] is False
+
+
 class FakeIamTags:
     """Small fake for IAM list_user_tags responses."""
 

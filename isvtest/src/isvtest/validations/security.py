@@ -702,6 +702,9 @@ class LeastPrivilegePolicyCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
+        test_identity: Required non-empty identity used for the policy probe
+        allowed_resource: Required non-empty resource identifier that should be allowed
+        allowed_source_cidr: Required non-empty source CIDR used for network-scope enforcement
         tests: dict with policy_dimensions_user_based,
                policy_dimensions_resource_based,
                policy_dimensions_network_based,
@@ -747,6 +750,7 @@ class MinimalRoleEnforcementCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
+        test_identity: Required non-empty identity used for the minimal-role probe
         tests: dict with out_of_scope_compute_denied,
                out_of_scope_storage_denied,
                out_of_scope_network_denied
@@ -788,6 +792,8 @@ class AuditLogEntryCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
+        event_name: Required non-empty management event name being validated
+        request_id: Required non-empty request identifier correlated to the event
         tests: dict with audit_log_entry_found,
                audit_log_event_name_matches,
                audit_log_event_time_in_window,
@@ -844,6 +850,8 @@ class AuditLogRetentionCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
+        audit_log_bucket or audit_log_destination: Required non-empty audit log destination
+        minimum_retention_days: Required int >= 30, or "unbounded"
         tests: dict with audit_log_trail_logging_enabled,
                audit_log_retention_at_least_30_days
     """

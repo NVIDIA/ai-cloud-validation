@@ -384,18 +384,22 @@ def main() -> int:
                 call_end=call_end,
             )
 
-        if not multi_region_logging_trails:
-            _mark_retention_skipped(result, "no active multi-region CloudTrail logging trail found")
+        trail_candidates = multi_region_logging_trails or logging_trails
+        trail = next((candidate for candidate in trail_candidates if candidate.get("S3BucketName")), None)
+        if trail is None:
+            _mark_retention_skipped(result, "no active CloudTrail logging trail with an S3 destination found")
         else:
-            trail = multi_region_logging_trails[0]
             bucket = trail.get("S3BucketName", "")
             log_prefix = _trail_log_prefix(trail)
+            is_multi_region = trail.get("IsMultiRegionTrail") is True
             result["audit_log_trail_arn"] = trail.get("TrailARN", trail.get("Name", ""))
             result["audit_log_bucket"] = bucket
             result["audit_log_prefix"] = log_prefix
             result["tests"]["audit_log_trail_logging_enabled"] = {
                 "passed": bool(bucket),
-                "message": f"active multi-region trail writes to {bucket}",
+                "message": (
+                    f"active {'multi-region' if is_multi_region else 'single-region'} trail writes to {bucket}"
+                ),
             }
             if bucket:
                 try:
