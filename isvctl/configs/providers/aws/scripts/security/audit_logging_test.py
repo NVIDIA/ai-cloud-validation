@@ -398,9 +398,19 @@ def main() -> int:
                 "message": f"active multi-region trail writes to {bucket}",
             }
             if bucket:
-                retention_result, minimum_retention = _evaluate_lifecycle_retention(s3, bucket, log_prefix)
-                result["tests"]["audit_log_retention_at_least_30_days"] = retention_result
-                result["minimum_retention_days"] = minimum_retention
+                try:
+                    retention_result, minimum_retention = _evaluate_lifecycle_retention(s3, bucket, log_prefix)
+                except ClientError as exc:
+                    code = exc.response.get("Error", {}).get("Code", "")
+                    if code not in {"AccessDenied", "AccessDeniedException"}:
+                        raise
+                    _mark_retention_skipped(
+                        result,
+                        f"cannot inspect lifecycle configuration for CloudTrail log bucket {bucket}: {exc}",
+                    )
+                else:
+                    result["tests"]["audit_log_retention_at_least_30_days"] = retention_result
+                    result["minimum_retention_days"] = minimum_retention
             else:
                 result["tests"]["audit_log_retention_at_least_30_days"] = {
                     "passed": False,

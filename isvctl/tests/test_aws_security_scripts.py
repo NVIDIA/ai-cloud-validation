@@ -1072,6 +1072,85 @@ def test_audit_logging_retention_ignores_unrelated_lifecycle_prefixes() -> None:
     assert minimum_retention == 90
 
 
+def test_audit_logging_retention_skips_when_lifecycle_access_denied(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing bucket lifecycle permission must skip retention instead of failing SEC08-01."""
+    module = _load_security_script("audit_logging_test.py")
+
+    class FakeCloudTrail:
+        def describe_trails(self, includeShadowTrails: bool) -> dict[str, list[dict[str, Any]]]:
+            """Return one active multi-region trail."""
+            assert includeShadowTrails is True
+            return {
+                "trailList": [
+                    {
+                        "Name": "org-trail",
+                        "TrailARN": "arn:aws:cloudtrail:us-east-1:123456789012:trail/org-trail",
+                        "IsMultiRegionTrail": True,
+                        "S3BucketName": "audit-logs",
+                    }
+                ]
+            }
+
+        def get_trail_status(self, Name: str) -> dict[str, bool]:
+            """Report the trail as actively logging."""
+            assert Name == "arn:aws:cloudtrail:us-east-1:123456789012:trail/org-trail"
+            return {"IsLogging": True}
+
+    class FakeS3:
+        def get_bucket_lifecycle_configuration(self, Bucket: str) -> dict[str, list[dict[str, Any]]]:
+            """Deny lifecycle reads for the audit-log bucket."""
+            assert Bucket == "audit-logs"
+            raise _client_error("GetBucketLifecycleConfiguration", code="AccessDenied")
+
+    def fake_client(service_name: str, **_kwargs: Any) -> Any:
+        """Return fake clients used by the audit script."""
+        if service_name == "cloudtrail":
+            return FakeCloudTrail()
+        if service_name == "s3":
+            return FakeS3()
+        raise AssertionError(service_name)
+
+    def fake_lookup_management_event(*_args: Any, **kwargs: Any) -> dict[str, str]:
+        """Return a matched CloudTrail event using the generated user-agent suffix."""
+        user_agent_suffix = kwargs["user_agent_suffix"]
+        return {
+            "EventId": "event-1",
+            "CloudTrailEvent": json.dumps(
+                {
+                    "requestID": "request-1",
+                    "eventName": module.EVENT_NAME,
+                    "eventTime": datetime.now(UTC).isoformat(),
+                    "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test"},
+                    "sourceIPAddress": "203.0.113.10",
+                    "userAgent": f"botocore {user_agent_suffix}",
+                    "awsRegion": "us-west-2",
+                    "eventSource": module.EVENT_SOURCE,
+                }
+            ),
+        }
+
+    monkeypatch.setattr(module.boto3, "client", fake_client)
+    monkeypatch.setattr(
+        module,
+        "_emit_management_call",
+        lambda _region, _suffix: ("request-1", datetime.now(UTC), datetime.now(UTC)),
+    )
+    monkeypatch.setattr(module, "_lookup_management_event", fake_lookup_management_event)
+    monkeypatch.setattr(module.sys, "argv", ["audit_logging_test.py", "--region", "us-west-2"])
+
+    exit_code = module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["success"] is True
+    assert payload["audit_log_retention_skipped"] is True
+    assert "cannot inspect lifecycle configuration" in payload["audit_log_retention_skip_reason"]
+    assert payload["tests"]["audit_log_entry_found"]["passed"] is True
+
+
 class FakeIamTags:
     """Small fake for IAM list_user_tags responses."""
 
