@@ -726,8 +726,14 @@ class LeastPrivilegePolicyCheck(BaseValidation):
         if not check_required_tests(self, required, "Least-privilege policy tests failed"):
             return
 
-        identity = step_output.get("test_identity", "temporary test identity")
-        resource = step_output.get("allowed_resource", "scoped resource")
+        for field in ("test_identity", "allowed_resource", "allowed_source_cidr"):
+            value = step_output.get(field)
+            if not isinstance(value, str) or not value.strip():
+                self.set_failed(f"Least-privilege policy output missing non-empty '{field}'")
+                return
+
+        identity = step_output["test_identity"]
+        resource = step_output["allowed_resource"]
         self.set_passed(f"Least-privilege policy dimensions verified for {identity} on {resource}")
 
 
@@ -763,7 +769,10 @@ class MinimalRoleEnforcementCheck(BaseValidation):
         if not check_required_tests(self, required, "Minimal-role enforcement tests failed"):
             return
 
-        identity = step_output.get("test_identity", "temporary test identity")
+        identity = step_output.get("test_identity")
+        if not isinstance(identity, str) or not identity.strip():
+            self.set_failed("Minimal-role enforcement output missing non-empty 'test_identity'")
+            return
         self.set_passed(f"Minimal role denied out-of-scope compute, storage, and network APIs for {identity}")
 
 
@@ -813,8 +822,14 @@ class AuditLogEntryCheck(BaseValidation):
         if not check_required_tests(self, required, "Audit-log entry tests failed"):
             return
 
-        event_name = step_output.get("event_name", "management API call")
-        request_id = step_output.get("request_id", "unknown request id")
+        for field in ("event_name", "request_id"):
+            value = step_output.get(field)
+            if not isinstance(value, str) or not value.strip():
+                self.set_failed(f"Audit-log entry output missing non-empty '{field}'")
+                return
+
+        event_name = step_output["event_name"]
+        request_id = step_output["request_id"]
         self.set_passed(f"Audit log entry verified for {event_name} request {request_id}")
 
 
@@ -851,12 +866,17 @@ class AuditLogRetentionCheck(BaseValidation):
         if not check_required_tests(self, required, "Audit-log retention tests failed"):
             return
 
-        bucket = step_output.get("audit_log_bucket") or step_output.get(
-            "audit_log_destination", "audit log destination"
-        )
-        retention_days = step_output.get("minimum_retention_days", ">=30")
-        if isinstance(retention_days, int):
+        bucket = step_output.get("audit_log_bucket") or step_output.get("audit_log_destination")
+        if not isinstance(bucket, str) or not bucket.strip():
+            self.set_failed("Audit-log retention output missing non-empty audit log destination")
+            return
+
+        retention_days = step_output.get("minimum_retention_days")
+        if type(retention_days) is int and retention_days >= 30:
             retention_summary = f"{retention_days} days"
+        elif retention_days == "unbounded":
+            retention_summary = "unbounded"
         else:
-            retention_summary = str(retention_days)
+            self.set_failed("Audit-log retention output missing retention >= 30 days or 'unbounded'")
+            return
         self.set_passed(f"Audit log retention verified for {bucket} (minimum retention {retention_summary})")

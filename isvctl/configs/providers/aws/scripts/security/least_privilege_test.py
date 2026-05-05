@@ -409,7 +409,7 @@ def main() -> int:
             "out_of_scope_network_denied": {"passed": False},
         },
     }
-    skip_payload: dict[str, Any] | None = None
+    cleanup_performed = False
 
     try:
         try:
@@ -445,26 +445,33 @@ def main() -> int:
                 _cleanup_probe_network(ec2, probe_instance_id, probe_sg_id, probe_subnet_id, probe_vpc_id)
             )
             cleanup_errors.extend(_cleanup_buckets(s3, buckets_created))
+            cleanup_performed = True
             if cleanup_errors:
                 result["error"] = f"setup failed: {exc}; cleanup failed: {'; '.join(cleanup_errors)}"
                 result["cleanup_errors"] = cleanup_errors
             elif code in SKIPPABLE_SETUP_ERRORS and not partial_resources_created:
-                skip_payload = _skipped_result(
-                    f"cannot provision SEC04 test IAM user: {exc}; orchestrator principal needs "
-                    "iam:CreateUser, iam:PutUserPolicy, iam:CreateAccessKey, and matching delete permissions"
+                print(
+                    json.dumps(
+                        _skipped_result(
+                            f"cannot provision SEC04 test IAM user: {exc}; orchestrator principal needs "
+                            "iam:CreateUser, iam:PutUserPolicy, iam:CreateAccessKey, and matching delete permissions"
+                        ),
+                        indent=2,
+                    )
                 )
+                return 0
             elif code in SKIPPABLE_SETUP_ERRORS:
-                skip_payload = _skipped_result(
-                    f"SEC04 fixture setup was denied and partial resources were cleaned up: {exc}"
+                print(
+                    json.dumps(
+                        _skipped_result(f"SEC04 fixture setup was denied and partial resources were cleaned up: {exc}"),
+                        indent=2,
+                    )
                 )
+                return 0
             else:
                 raise
-            return_code = 0 if skip_payload is not None and not cleanup_errors else 1
-            if skip_payload is not None:
-                print(json.dumps(skip_payload, indent=2))
-            else:
-                print(json.dumps(result, indent=2))
-            return return_code
+            print(json.dumps(result, indent=2))
+            return 1
 
         if access_key_id is None or secret_key is None:
             msg = "access key was not created for SEC04 test user"
@@ -549,17 +556,18 @@ def main() -> int:
         result["error"] = f"[{error_type}] {error_msg}"
         result["success"] = False
     finally:
-        cleanup_errors = _cleanup_test_user(iam, username, access_key_id, user_created)
-        cleanup_errors.extend(
-            _cleanup_probe_network(ec2, probe_instance_id, probe_sg_id, probe_subnet_id, probe_vpc_id)
-        )
-        cleanup_errors.extend(_cleanup_buckets(s3, buckets_created))
-        if cleanup_errors:
-            result["cleanup_errors"] = cleanup_errors
-            cleanup_msg = f"Cleanup failed: {'; '.join(cleanup_errors)}"
-            existing = result.get("error")
-            result["error"] = f"{existing}; {cleanup_msg}" if existing else cleanup_msg
-            result["success"] = False
+        if not cleanup_performed:
+            cleanup_errors = _cleanup_test_user(iam, username, access_key_id, user_created)
+            cleanup_errors.extend(
+                _cleanup_probe_network(ec2, probe_instance_id, probe_sg_id, probe_subnet_id, probe_vpc_id)
+            )
+            cleanup_errors.extend(_cleanup_buckets(s3, buckets_created))
+            if cleanup_errors:
+                result["cleanup_errors"] = cleanup_errors
+                cleanup_msg = f"Cleanup failed: {'; '.join(cleanup_errors)}"
+                existing = result.get("error")
+                result["error"] = f"{existing}; {cleanup_msg}" if existing else cleanup_msg
+                result["success"] = False
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1

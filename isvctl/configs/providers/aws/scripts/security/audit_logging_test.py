@@ -49,6 +49,21 @@ EVENT_NAME = "DescribeRegions"
 EVENT_SOURCE = "ec2.amazonaws.com"
 DEFAULT_LOOKUP_TIMEOUT_SECONDS = 600
 RETENTION_DAYS = 30
+LOOKUP_PAGES_PER_POLL = 5
+AUDIT_ENTRY_TEST_KEYS = (
+    "audit_log_entry_found",
+    "audit_log_event_name_matches",
+    "audit_log_event_time_in_window",
+    "audit_log_user_identity_present",
+    "audit_log_source_ip_present",
+    "audit_log_user_agent_matches",
+    "audit_log_region_matches",
+    "audit_log_event_source_matches",
+)
+AUDIT_RETENTION_TEST_KEYS = (
+    "audit_log_trail_logging_enabled",
+    "audit_log_retention_at_least_30_days",
+)
 
 
 def _base_result(region: str, lookup_timeout_seconds: int) -> dict[str, Any]:
@@ -62,18 +77,7 @@ def _base_result(region: str, lookup_timeout_seconds: int) -> dict[str, Any]:
         "event_source": EVENT_SOURCE,
         "request_id": "",
         "lookup_timeout_seconds": lookup_timeout_seconds,
-        "tests": {
-            "audit_log_entry_found": {"passed": False},
-            "audit_log_event_name_matches": {"passed": False},
-            "audit_log_event_time_in_window": {"passed": False},
-            "audit_log_user_identity_present": {"passed": False},
-            "audit_log_source_ip_present": {"passed": False},
-            "audit_log_user_agent_matches": {"passed": False},
-            "audit_log_region_matches": {"passed": False},
-            "audit_log_event_source_matches": {"passed": False},
-            "audit_log_trail_logging_enabled": {"passed": False},
-            "audit_log_retention_at_least_30_days": {"passed": False},
-        },
+        "tests": {key: {"passed": False} for key in (*AUDIT_ENTRY_TEST_KEYS, *AUDIT_RETENTION_TEST_KEYS)},
     }
 
 
@@ -81,16 +85,7 @@ def _mark_entry_skipped(result: dict[str, Any], reason: str) -> None:
     """Mark SEC08-01 tests as skipped while keeping the command exit clean."""
     result["audit_log_entry_skipped"] = True
     result["audit_log_entry_skip_reason"] = reason
-    for key in (
-        "audit_log_entry_found",
-        "audit_log_event_name_matches",
-        "audit_log_event_time_in_window",
-        "audit_log_user_identity_present",
-        "audit_log_source_ip_present",
-        "audit_log_user_agent_matches",
-        "audit_log_region_matches",
-        "audit_log_event_source_matches",
-    ):
+    for key in AUDIT_ENTRY_TEST_KEYS:
         result["tests"][key] = {"passed": True, "skipped": True, "skip_reason": reason}
 
 
@@ -98,7 +93,7 @@ def _mark_retention_skipped(result: dict[str, Any], reason: str) -> None:
     """Mark SEC08-02 tests as skipped while keeping the command exit clean."""
     result["audit_log_retention_skipped"] = True
     result["audit_log_retention_skip_reason"] = reason
-    for key in ("audit_log_trail_logging_enabled", "audit_log_retention_at_least_30_days"):
+    for key in AUDIT_RETENTION_TEST_KEYS:
         result["tests"][key] = {"passed": True, "skipped": True, "skip_reason": reason}
 
 
@@ -170,15 +165,23 @@ def _lookup_management_event(
     deadline = time.monotonic() + timeout_seconds
     delay = 5
     while True:
-        response = cloudtrail.lookup_events(
-            LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": EVENT_NAME}],
-            StartTime=call_start - timedelta(minutes=5),
-            EndTime=datetime.now(UTC) + timedelta(minutes=1),
-            MaxResults=50,
-        )
-        for event in response.get("Events", []):
-            if _cloudtrail_event_matches(event, request_id, user_agent_suffix):
-                return event
+        next_token: str | None = None
+        for _ in range(LOOKUP_PAGES_PER_POLL):
+            kwargs: dict[str, Any] = {
+                "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": EVENT_NAME}],
+                "StartTime": call_start - timedelta(minutes=5),
+                "EndTime": datetime.now(UTC) + timedelta(minutes=1),
+                "MaxResults": 50,
+            }
+            if next_token:
+                kwargs["NextToken"] = next_token
+            response = cloudtrail.lookup_events(**kwargs)
+            for event in response.get("Events", []):
+                if _cloudtrail_event_matches(event, request_id, user_agent_suffix):
+                    return event
+            next_token = response.get("NextToken")
+            if not next_token:
+                break
         if time.monotonic() >= deadline:
             return None
         time.sleep(min(delay, max(0, deadline - time.monotonic())))
