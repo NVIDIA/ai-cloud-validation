@@ -37,9 +37,10 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import boto3
 from botocore.exceptions import ClientError, WaiterError
@@ -121,7 +122,7 @@ def _resource_has_owned_name(tags: list[dict[str, str]] | None) -> bool:
     return any(t.get("Key") == "Name" and (t.get("Value") or "").startswith(OWNED_RESOURCE_PREFIXES) for t in tags)
 
 
-def _cleanup_sec11_instances(ec2: Any) -> list[str]:
+def _cleanup_owned_instances(ec2: Any) -> list[str]:
     """Terminate leftover owned EC2 instances and wait for the terminated state."""
     errors: list[str] = []
     instance_ids: list[str] = []
@@ -156,7 +157,7 @@ def _cleanup_sec11_instances(ec2: Any) -> list[str]:
     return errors
 
 
-def _cleanup_sec11_volumes(ec2: Any) -> list[str]:
+def _cleanup_owned_volumes(ec2: Any) -> list[str]:
     """Delete leftover owned EBS volumes (must run AFTER instance termination)."""
     errors: list[str] = []
     paginator = ec2.get_paginator("describe_volumes")
@@ -174,7 +175,7 @@ def _cleanup_sec11_volumes(ec2: Any) -> list[str]:
     return errors
 
 
-def _cleanup_sec11_vpcs(ec2: Any) -> list[str]:
+def _cleanup_owned_vpcs(ec2: Any) -> list[str]:
     """Delete leftover owned VPCs and their dependencies (security groups, subnets)."""
     errors: list[str] = []
     vpcs = ec2.describe_vpcs(Filters=ISVTEST_TAG_FILTER).get("Vpcs", [])
@@ -214,7 +215,7 @@ def _cleanup_sec11_vpcs(ec2: Any) -> list[str]:
     return errors
 
 
-def _cleanup_sec11_kms(kms: Any) -> list[str]:
+def _cleanup_owned_kms(kms: Any) -> list[str]:
     """Schedule SEC11 KMS keys for deletion and remove their aliases."""
     errors: list[str] = []
     paginator = kms.get_paginator("list_aliases")
@@ -240,7 +241,7 @@ def _cleanup_sec11_kms(kms: Any) -> list[str]:
     return errors
 
 
-def _cleanup_sec11_buckets(s3: Any) -> list[str]:
+def _cleanup_owned_buckets(s3: Any) -> list[str]:
     """Empty and delete leftover owned S3 buckets."""
     errors: list[str] = []
     try:
@@ -335,11 +336,11 @@ def main() -> int:
     # Order matters: instances first (so volumes can be deleted), then
     # volumes, then VPCs (which need empty subnets/SGs).
     try:
-        resource_errors.extend(_cleanup_sec11_instances(ec2))
-        resource_errors.extend(_cleanup_sec11_volumes(ec2))
-        resource_errors.extend(_cleanup_sec11_vpcs(ec2))
-        resource_errors.extend(_cleanup_sec11_kms(kms))
-        resource_errors.extend(_cleanup_sec11_buckets(s3))
+        resource_errors.extend(_cleanup_owned_instances(ec2))
+        resource_errors.extend(_cleanup_owned_volumes(ec2))
+        resource_errors.extend(_cleanup_owned_vpcs(ec2))
+        resource_errors.extend(_cleanup_owned_kms(kms))
+        resource_errors.extend(_cleanup_owned_buckets(s3))
     except ClientError as e:
         resource_errors.append(str(e))
 

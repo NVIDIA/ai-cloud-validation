@@ -3816,8 +3816,8 @@ class FakeSec11Ec2:
         self.deleted_vpcs.append(VpcId)
 
 
-def test_teardown_cleanup_sec11_instances_only_terminates_matching_prefix() -> None:
-    """`_cleanup_sec11_instances` skips non-SEC11 instances and ignores terminated ones."""
+def test_teardown_cleanup_owned_instances_only_terminates_matching_prefix() -> None:
+    """`_cleanup_owned_instances` skips non-owned instances and ignores terminated ones."""
     module = _load_security_script("teardown.py")
     ec2 = FakeSec11Ec2(
         instances=[
@@ -3845,7 +3845,7 @@ def test_teardown_cleanup_sec11_instances_only_terminates_matching_prefix() -> N
         ]
     )
 
-    errors = module._cleanup_sec11_instances(ec2)
+    errors = module._cleanup_owned_instances(ec2)
 
     assert errors == []
     assert ec2.terminated == ["i-sec11-active"]
@@ -3882,8 +3882,8 @@ def test_teardown_cleanup_sec04_ec2_fixtures_by_owned_name_prefix() -> None:
         sgs=[{"GroupId": "sg-sec04", "GroupName": "isv-sec04-test-aaaa1111-sg"}],
     )
 
-    instance_errors = module._cleanup_sec11_instances(ec2)
-    vpc_errors = module._cleanup_sec11_vpcs(ec2)
+    instance_errors = module._cleanup_owned_instances(ec2)
+    vpc_errors = module._cleanup_owned_vpcs(ec2)
 
     assert instance_errors == []
     assert vpc_errors == []
@@ -3893,8 +3893,8 @@ def test_teardown_cleanup_sec04_ec2_fixtures_by_owned_name_prefix() -> None:
     assert ec2.deleted_vpcs == ["vpc-sec04"]
 
 
-def test_teardown_cleanup_sec11_buckets_skips_untagged_buckets() -> None:
-    """`_cleanup_sec11_buckets` deletes owned SEC04/SEC11 buckets and skips unowned buckets."""
+def test_teardown_cleanup_owned_buckets_skips_untagged_buckets() -> None:
+    """`_cleanup_owned_buckets` deletes owned SEC04/SEC11 buckets and skips unowned buckets."""
     module = _load_security_script("teardown.py")
     deleted_buckets: list[str] = []
 
@@ -3924,14 +3924,14 @@ def test_teardown_cleanup_sec11_buckets_skips_untagged_buckets() -> None:
         def delete_bucket(self, Bucket: str) -> None:
             deleted_buckets.append(Bucket)
 
-    errors = module._cleanup_sec11_buckets(FakeS3())
+    errors = module._cleanup_owned_buckets(FakeS3())
 
     assert errors == []
     assert deleted_buckets == ["isv-sec04-test-aaaa1111-allowed", "isv-sec11-test-aaaa-abcdef"]
 
 
-def test_teardown_cleanup_sec11_kms_deletes_alias_and_schedules_key_deletion() -> None:
-    """`_cleanup_sec11_kms` deletes only ``alias/isv-sec11-test-*`` aliases and schedules their target keys."""
+def test_teardown_cleanup_owned_kms_deletes_alias_and_schedules_key_deletion() -> None:
+    """`_cleanup_owned_kms` deletes only ``alias/isv-sec11-test-*`` aliases and schedules their target keys."""
     module = _load_security_script("teardown.py")
     deleted_aliases: list[str] = []
     scheduled_keys: list[str] = []
@@ -3959,7 +3959,7 @@ def test_teardown_cleanup_sec11_kms_deletes_alias_and_schedules_key_deletion() -
             assert PendingWindowInDays == 7
             scheduled_keys.append(KeyId)
 
-    errors = module._cleanup_sec11_kms(FakeKms())
+    errors = module._cleanup_owned_kms(FakeKms())
 
     assert errors == []
     assert deleted_aliases == [
