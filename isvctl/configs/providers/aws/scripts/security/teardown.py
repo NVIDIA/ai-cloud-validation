@@ -20,9 +20,9 @@ test scripts may have leaked on a hard crash:
     * ``isv-sec02-test-*``  - short_lived_credentials_test.py
     * ``isv-sec04-test-*``  - least_privilege_test.py
     * ``isv-sec11-test-*``  - tenant_isolation_test.py
-* SEC11 fixture (``isv-sec11-test-*`` prefix + ``CreatedBy=isvtest`` tag):
+* SEC04/SEC11 fixtures (owned prefix + ``CreatedBy=isvtest`` tag):
     * EC2 instances, EBS volumes, security groups, subnets, VPCs
-    * KMS aliases (and the keys they target)
+    * KMS aliases (SEC11 only, and the keys they target)
     * S3 buckets
 
 All deletes go through ``delete_with_retry`` so a transient throttling
@@ -47,9 +47,9 @@ from common.errors import delete_with_retry, handle_aws_errors
 
 OWNED_USER_PREFIXES: tuple[str, ...] = ("isv-sa-test-", "isv-sec02-test-", "isv-sec04-test-", "isv-sec11-test-")
 
-# SEC11 tenant-isolation fixture prefix. Used to scope EC2/KMS/S3 sweeps
-# so we never touch resources outside the suite's namespace.
+SEC04_PREFIX = "isv-sec04-test-"
 SEC11_PREFIX = "isv-sec11-test-"
+OWNED_RESOURCE_PREFIXES: tuple[str, ...] = (SEC04_PREFIX, SEC11_PREFIX)
 SEC11_KMS_ALIAS_PREFIX = f"alias/{SEC11_PREFIX}"
 ISVTEST_TAG_FILTER = [
     {"Name": "tag:CreatedBy", "Values": ["isvtest"]},
@@ -114,15 +114,15 @@ def _cleanup_owned_user(iam: Any, username: str) -> list[str]:
     return cleanup_errors
 
 
-def _resource_has_sec11_name(tags: list[dict[str, str]] | None) -> bool:
-    """Return True if the EC2 ``Tags`` contain a Name with the SEC11 prefix."""
+def _resource_has_owned_name(tags: list[dict[str, str]] | None) -> bool:
+    """Return True if the EC2 ``Tags`` contain a Name with an owned security-test prefix."""
     if not tags:
         return False
-    return any(t.get("Key") == "Name" and (t.get("Value") or "").startswith(SEC11_PREFIX) for t in tags)
+    return any(t.get("Key") == "Name" and (t.get("Value") or "").startswith(OWNED_RESOURCE_PREFIXES) for t in tags)
 
 
 def _cleanup_sec11_instances(ec2: Any) -> list[str]:
-    """Terminate any leftover SEC11 EC2 instances and wait for the terminated state."""
+    """Terminate leftover owned EC2 instances and wait for the terminated state."""
     errors: list[str] = []
     instance_ids: list[str] = []
     paginator = ec2.get_paginator("describe_instances")
@@ -131,7 +131,7 @@ def _cleanup_sec11_instances(ec2: Any) -> list[str]:
             for instance in reservation.get("Instances", []):
                 if instance.get("State", {}).get("Name") == "terminated":
                     continue
-                if not _resource_has_sec11_name(instance.get("Tags")):
+                if not _resource_has_owned_name(instance.get("Tags")):
                     continue
                 instance_ids.append(instance["InstanceId"])
 
@@ -157,12 +157,12 @@ def _cleanup_sec11_instances(ec2: Any) -> list[str]:
 
 
 def _cleanup_sec11_volumes(ec2: Any) -> list[str]:
-    """Delete leftover SEC11 EBS volumes (must run AFTER instance termination)."""
+    """Delete leftover owned EBS volumes (must run AFTER instance termination)."""
     errors: list[str] = []
     paginator = ec2.get_paginator("describe_volumes")
     for page in paginator.paginate(Filters=ISVTEST_TAG_FILTER):
         for volume in page.get("Volumes", []):
-            if not _resource_has_sec11_name(volume.get("Tags")):
+            if not _resource_has_owned_name(volume.get("Tags")):
                 continue
             volume_id = volume["VolumeId"]
             if not delete_with_retry(
@@ -175,11 +175,11 @@ def _cleanup_sec11_volumes(ec2: Any) -> list[str]:
 
 
 def _cleanup_sec11_vpcs(ec2: Any) -> list[str]:
-    """Delete leftover SEC11 VPCs and their dependencies (security groups, subnets)."""
+    """Delete leftover owned VPCs and their dependencies (security groups, subnets)."""
     errors: list[str] = []
     vpcs = ec2.describe_vpcs(Filters=ISVTEST_TAG_FILTER).get("Vpcs", [])
     for vpc in vpcs:
-        if not _resource_has_sec11_name(vpc.get("Tags")):
+        if not _resource_has_owned_name(vpc.get("Tags")):
             continue
         vpc_id = vpc["VpcId"]
 
@@ -241,7 +241,7 @@ def _cleanup_sec11_kms(kms: Any) -> list[str]:
 
 
 def _cleanup_sec11_buckets(s3: Any) -> list[str]:
-    """Empty and delete leftover SEC11 S3 buckets."""
+    """Empty and delete leftover owned S3 buckets."""
     errors: list[str] = []
     try:
         buckets = s3.list_buckets().get("Buckets", [])
@@ -250,7 +250,7 @@ def _cleanup_sec11_buckets(s3: Any) -> list[str]:
 
     for bucket in buckets:
         name = bucket.get("Name", "")
-        if not name.startswith(SEC11_PREFIX):
+        if not name.startswith(OWNED_RESOURCE_PREFIXES):
             continue
         # Verified-ownership check: only delete buckets carrying our tag.
         try:
@@ -330,18 +330,18 @@ def main() -> int:
     kms = boto3.client("kms", region_name=args.region)
     s3 = boto3.client("s3", region_name=args.region)
 
-    sec11_errors: list[str] = []
+    resource_errors: list[str] = []
 
     # Order matters: instances first (so volumes can be deleted), then
     # volumes, then VPCs (which need empty subnets/SGs).
     try:
-        sec11_errors.extend(_cleanup_sec11_instances(ec2))
-        sec11_errors.extend(_cleanup_sec11_volumes(ec2))
-        sec11_errors.extend(_cleanup_sec11_vpcs(ec2))
-        sec11_errors.extend(_cleanup_sec11_kms(kms))
-        sec11_errors.extend(_cleanup_sec11_buckets(s3))
+        resource_errors.extend(_cleanup_sec11_instances(ec2))
+        resource_errors.extend(_cleanup_sec11_volumes(ec2))
+        resource_errors.extend(_cleanup_sec11_vpcs(ec2))
+        resource_errors.extend(_cleanup_sec11_kms(kms))
+        resource_errors.extend(_cleanup_sec11_buckets(s3))
     except ClientError as e:
-        sec11_errors.append(str(e))
+        resource_errors.append(str(e))
 
     cleaned = 0
     skipped_unowned = 0
@@ -353,12 +353,12 @@ def main() -> int:
 
     result["resources_cleaned"] = cleaned
     result["resources_skipped_unowned"] = skipped_unowned
-    if sec11_errors:
-        result["sec11_cleanup_errors"] = sec11_errors
+    if resource_errors:
+        result["security_resource_cleanup_errors"] = resource_errors
     if failed_resources:
         result["resources_failed"] = failed_resources
 
-    if failed_resources or sec11_errors:
+    if failed_resources or resource_errors:
         result["success"] = False
         existing_error = result.get("error", "")
         msgs: list[str] = []
@@ -367,8 +367,8 @@ def main() -> int:
                 f"Failed to clean up {len(failed_resources)} owned IAM user(s): "
                 + "; ".join(f"{item['username']}: {', '.join(item['errors'])}" for item in failed_resources)
             )
-        if sec11_errors:
-            msgs.append("SEC11 sweep errors: " + "; ".join(sec11_errors))
+        if resource_errors:
+            msgs.append("security resource sweep errors: " + "; ".join(resource_errors))
         combined = "; ".join(msgs)
         result["error"] = f"{existing_error}; {combined}" if existing_error else combined
     elif "error" not in result:

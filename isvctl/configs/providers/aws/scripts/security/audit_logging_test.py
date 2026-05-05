@@ -49,7 +49,6 @@ EVENT_NAME = "DescribeRegions"
 EVENT_SOURCE = "ec2.amazonaws.com"
 DEFAULT_LOOKUP_TIMEOUT_SECONDS = 600
 RETENTION_DAYS = 30
-LOOKUP_PAGES_PER_POLL = 5
 AUDIT_ENTRY_TEST_KEYS = (
     "audit_log_entry_found",
     "audit_log_event_name_matches",
@@ -99,7 +98,7 @@ def _mark_retention_skipped(result: dict[str, Any], reason: str) -> None:
 
 def _find_logging_trails(cloudtrail: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return active logging trails and the active multi-region subset."""
-    response = cloudtrail.describe_trails(includeShadowTrails=False)
+    response = cloudtrail.describe_trails(includeShadowTrails=True)
     logging_trails: list[dict[str, Any]] = []
     multi_region_logging_trails: list[dict[str, Any]] = []
     for trail in response.get("trailList", []):
@@ -166,7 +165,7 @@ def _lookup_management_event(
     delay = 5
     while True:
         next_token: str | None = None
-        for _ in range(LOOKUP_PAGES_PER_POLL):
+        while True:
             kwargs: dict[str, Any] = {
                 "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": EVENT_NAME}],
                 "StartTime": call_start - timedelta(minutes=5),
@@ -230,7 +229,50 @@ def _record_event_metadata_tests(
     result["tests"]["audit_log_event_source_matches"] = {"passed": event_source == EVENT_SOURCE}
 
 
-def _evaluate_lifecycle_retention(s3: Any, bucket: str) -> tuple[dict[str, Any], str | int]:
+def _trail_log_prefix(trail: dict[str, Any]) -> str:
+    """Return the S3 key prefix where CloudTrail writes log objects for a trail."""
+    s3_key_prefix = str(trail.get("S3KeyPrefix") or "").strip("/")
+    if s3_key_prefix:
+        return f"{s3_key_prefix}/AWSLogs/"
+    return "AWSLogs/"
+
+
+def _lifecycle_rule_prefix(rule: dict[str, Any]) -> str:
+    """Return the lifecycle rule's prefix filter, or empty string for bucket-wide rules."""
+    if "Prefix" in rule:
+        return str(rule.get("Prefix") or "").strip("/")
+
+    rule_filter = rule.get("Filter")
+    if not isinstance(rule_filter, dict) or not rule_filter:
+        return ""
+    if "Prefix" in rule_filter:
+        return str(rule_filter.get("Prefix") or "").strip("/")
+
+    and_filter = rule_filter.get("And")
+    if isinstance(and_filter, dict) and "Prefix" in and_filter:
+        return str(and_filter.get("Prefix") or "").strip("/")
+
+    return ""
+
+
+def _prefixes_overlap(rule_prefix: str, log_prefix: str) -> bool:
+    """Return True when a lifecycle prefix can match CloudTrail log objects."""
+    normalized_rule = rule_prefix.strip("/")
+    normalized_log = log_prefix.strip("/")
+    if not normalized_rule:
+        return True
+    if not normalized_log:
+        return True
+    if normalized_rule == normalized_log:
+        return True
+    return normalized_log.startswith(f"{normalized_rule}/") or normalized_rule.startswith(f"{normalized_log}/")
+
+
+def _evaluate_lifecycle_retention(
+    s3: Any,
+    bucket: str,
+    log_prefix: str = "AWSLogs/",
+) -> tuple[dict[str, Any], str | int]:
     """Evaluate current-object expiration rules for the CloudTrail destination bucket."""
     try:
         lifecycle = s3.get_bucket_lifecycle_configuration(Bucket=bucket)
@@ -252,10 +294,16 @@ def _evaluate_lifecycle_retention(s3: Any, bucket: str) -> tuple[dict[str, Any],
             and "Date" not in expiration
         ):
             continue
+        rule_prefix = _lifecycle_rule_prefix(rule)
+        if not _prefixes_overlap(rule_prefix, log_prefix):
+            continue
         enabled_expiration_rules.append({"id": rule.get("ID", "<unnamed>"), "expiration": expiration})
 
     if not enabled_expiration_rules:
-        return {"passed": True, "message": "no enabled current-object expiration rules configured"}, "unbounded"
+        return {
+            "passed": True,
+            "message": f"no enabled current-object expiration rules apply to CloudTrail log prefix {log_prefix}",
+        }, "unbounded"
 
     failures: list[str] = []
     minimum_days: int | None = None
@@ -341,14 +389,16 @@ def main() -> int:
         else:
             trail = multi_region_logging_trails[0]
             bucket = trail.get("S3BucketName", "")
+            log_prefix = _trail_log_prefix(trail)
             result["audit_log_trail_arn"] = trail.get("TrailARN", trail.get("Name", ""))
             result["audit_log_bucket"] = bucket
+            result["audit_log_prefix"] = log_prefix
             result["tests"]["audit_log_trail_logging_enabled"] = {
                 "passed": bool(bucket),
                 "message": f"active multi-region trail writes to {bucket}",
             }
             if bucket:
-                retention_result, minimum_retention = _evaluate_lifecycle_retention(s3, bucket)
+                retention_result, minimum_retention = _evaluate_lifecycle_retention(s3, bucket, log_prefix)
                 result["tests"]["audit_log_retention_at_least_30_days"] = retention_result
                 result["minimum_retention_days"] = minimum_retention
             else:
