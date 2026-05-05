@@ -16,7 +16,7 @@
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/aws/config/security.yaml
 #
-# Estimated runtime: ~2-3 minutes
+# Estimated runtime: ~10-15 minutes (CloudTrail propagation may consume most of this)
 #
 # Security tests (SEC* requirements):
 #   1. BMC Management Network - Verify BMC management is dedicated/restricted
@@ -29,10 +29,12 @@
 #   8. KMS Options            - Verify provider- and customer-managed keys (SEC09-02)
 #   9. Centralized KMS        - Verify encrypted resources resolve to KMS (SEC09-03)
 #  10. Customer Managed Key   - Verify customer-managed key encryption (SEC09-04)
-#  11. SA Credential Auth     - Verify IAM user + long-lived access key auth
-#  12. OIDC User Auth         - Probe configured OIDC-protected platform endpoint (SEC01-01)
-#  13. Short-Lived Credentials - Verify STS issues node + workload creds with bounded TTL (SEC02-01)
-#  14. Tenant Isolation       - Verify hard tenant isolation across network/data/compute/storage (SEC11-01)
+#  11. Least Privilege       - Verify scoped user/resource/network policies (SEC04-01/02)
+#  12. Audit Logging         - Verify management-event logging and retention (SEC08-01/02)
+#  13. SA Credential Auth     - Verify IAM user + long-lived access key auth
+#  14. OIDC User Auth         - Probe configured OIDC-protected platform endpoint (SEC01-01)
+#  15. Short-Lived Credentials - Verify STS issues node + workload creds with bounded TTL (SEC02-01)
+#  16. Tenant Isolation       - Verify hard tenant isolation across network/data/compute/storage (SEC11-01)
 #
 # Note: SEC12-* (BMC) tests cannot be fully validated on AWS because the
 # Nitro/hypervisor BMC plane is provider-hidden. The references inspect the
@@ -131,14 +133,58 @@ commands:
           - "--key-id={{customer_managed_key_id}}"
         timeout: 120
 
-      # Test 11: Service Account Credential Auth (~30s, includes IAM propagation wait)
+      # Test 11: Least-Privilege Policy + Minimal Role Enforcement (SEC04-01/02)
+      # Self-contained: provisions a temporary IAM user and two tagged
+      # buckets plus a minimal VPC/subnet/security-group/instance fixture
+      # for EC2 DryRun probes, attaches one inline policy scoped by
+      # identity, resource, and aws:SourceIp, then verifies the allowed S3
+      # ListBucket path and denied out-of-scope compute/storage/network API
+      # probes. Cleans up the user, access key, inline policy, buckets,
+      # object, and EC2 fixture in a finally block.
+      #
+      # Orchestrator principal needs:
+      #   iam:CreateUser, iam:PutUserPolicy, iam:CreateAccessKey,
+      #   iam:DeleteUserPolicy, iam:DeleteAccessKey, iam:DeleteUser,
+      #   s3:CreateBucket, s3:PutBucketTagging, s3:PutObject,
+      #   s3:DeleteObject, s3:DeleteBucket, ec2:DescribeImages,
+      #   ec2:CreateVpc, ec2:CreateSubnet, ec2:CreateSecurityGroup,
+      #   ec2:RunInstances, ec2:TerminateInstances, ec2:CreateTags,
+      #   and matching delete permissions
+      # When IAM create-user permissions are missing the step emits a
+      # structured skip.
+      - name: least_privilege_test
+        phase: test
+        command: "python3 ../scripts/security/least_privilege_test.py"
+        args: ["--region", "{{region}}"]
+        timeout: 420
+
+      # Test 12: Audit Logging + Retention (SEC08-01/02)
+      # Emits one EC2 DescribeRegions management call with a unique
+      # User-Agent suffix, polls CloudTrail LookupEvents for the matching
+      # request id, then verifies metadata fields. Separately resolves an
+      # active multi-region trail's S3 destination and confirms lifecycle
+      # expiration, when present, is >= 30 days. CloudTrail event ingestion
+      # may legitimately exceed the poll budget; that case is a structured
+      # skip rather than a fabricated pass.
+      #
+      # Orchestrator principal needs:
+      #   ec2:DescribeRegions, cloudtrail:DescribeTrails,
+      #   cloudtrail:GetTrailStatus, cloudtrail:LookupEvents,
+      #   s3:GetBucketLifecycleConfiguration
+      - name: audit_logging_test
+        phase: test
+        command: "python3 ../scripts/security/audit_logging_test.py"
+        args: ["--region", "{{region}}"]
+        timeout: 780
+
+      # Test 13: Service Account Credential Auth (~30s, includes IAM propagation wait)
       - name: sa_credential_test
         phase: test
         command: "python3 ../scripts/security/sa_credential_test.py"
         args: ["--region", "{{region}}"]
         timeout: 120
 
-      # Test 12: OIDC User Authentication
+      # Test 14: OIDC User Authentication
       # Requires a real issuer, audience, protected target endpoint, and token
       # fixtures. Non-sensitive endpoint settings can come from tests.settings
       # below; token fixtures are read by the script from OIDC_*_TOKEN env vars
@@ -160,7 +206,7 @@ commands:
           - "--missing-required-claim-token"
         timeout: 60
 
-      # Test 13: Short-Lived Credentials (SEC02-01)
+      # Test 15: Short-Lived Credentials (SEC02-01)
       # Self-contained: provisions a fresh IAM user with an inline policy
       # granting just sts:GetSessionToken + sts:GetFederationToken, mints
       # an access key, probes both APIs to assert each returned credential
@@ -184,7 +230,7 @@ commands:
         # waits on IAM->STS propagation (worst case ~46s of backoff).
         timeout: 120
 
-      # Test 14: Tenant Isolation (SEC11-01)
+      # Test 16: Tenant Isolation (SEC11-01)
       # Self-contained: provisions two ephemeral tenants (each with VPC,
       # IAM user with scoped inline policy, KMS CMK, S3 bucket, t3.micro
       # EC2, and EBS volume) and runs cross-tenant negative probes from

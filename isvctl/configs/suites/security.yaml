@@ -104,6 +104,26 @@ tests:
         ShortLivedCredentialsCheck:
           step: short_lived_credentials_test
 
+    least_privilege_policy:
+      checks:
+        LeastPrivilegePolicyCheck:
+          step: least_privilege_test
+
+    minimal_role_enforcement:
+      checks:
+        MinimalRoleEnforcementCheck:
+          step: least_privilege_test
+
+    audit_log_entry:
+      checks:
+        AuditLogEntryCheck:
+          step: audit_logging_test
+
+    audit_log_retention:
+      checks:
+        AuditLogRetentionCheck:
+          step: audit_logging_test
+
     tenant_isolation:
       checks:
         TenantIsolationCheck:

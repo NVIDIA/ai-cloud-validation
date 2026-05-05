@@ -18,6 +18,7 @@ test scripts may have leaked on a hard crash:
 * IAM users
     * ``isv-sa-test-*``     - sa_credential_test.py
     * ``isv-sec02-test-*``  - short_lived_credentials_test.py
+    * ``isv-sec04-test-*``  - least_privilege_test.py
     * ``isv-sec11-test-*``  - tenant_isolation_test.py
 * SEC11 fixture (``isv-sec11-test-*`` prefix + ``CreatedBy=isvtest`` tag):
     * EC2 instances, EBS volumes, security groups, subnets, VPCs
@@ -44,7 +45,7 @@ import boto3
 from botocore.exceptions import ClientError, WaiterError
 from common.errors import delete_with_retry, handle_aws_errors
 
-OWNED_USER_PREFIXES: tuple[str, ...] = ("isv-sa-test-", "isv-sec02-test-", "isv-sec11-test-")
+OWNED_USER_PREFIXES: tuple[str, ...] = ("isv-sa-test-", "isv-sec02-test-", "isv-sec04-test-", "isv-sec11-test-")
 
 # SEC11 tenant-isolation fixture prefix. Used to scope EC2/KMS/S3 sweeps
 # so we never touch resources outside the suite's namespace.
