@@ -941,210 +941,13 @@ def test_bmc_bastion_access_main_emits_sec12_03_contract(
 # --- Audit logging (SEC08-01/02) tests -------------------------------------
 
 
-def test_audit_logging_includes_cloudtrail_shadow_trails() -> None:
-    """Audit logging discovery must include multi-region shadow trails in non-home regions."""
-    module = _load_security_script("audit_logging_test.py")
-
-    class FakeCloudTrail:
-        def __init__(self) -> None:
-            """Track the requested shadow-trail setting."""
-            self.include_shadow_trails: bool | None = None
-            self.status_names: list[str] = []
-
-        def describe_trails(self, includeShadowTrails: bool) -> dict[str, list[dict[str, Any]]]:
-            """Return the fake org trail only when shadow trails are requested."""
-            self.include_shadow_trails = includeShadowTrails
-            if not includeShadowTrails:
-                return {"trailList": []}
-            return {
-                "trailList": [
-                    {
-                        "Name": "org-trail",
-                        "TrailARN": "arn:aws:cloudtrail:us-east-1:123456789012:trail/org-trail",
-                        "IsMultiRegionTrail": True,
-                        "S3BucketName": "audit-logs",
-                    }
-                ]
-            }
-
-        def get_trail_status(self, Name: str) -> dict[str, bool]:
-            """Report the shadow trail as actively logging."""
-            self.status_names.append(Name)
-            return {"IsLogging": True}
-
-    cloudtrail = FakeCloudTrail()
-
-    logging_trails, multi_region_logging_trails = module._find_logging_trails(cloudtrail)
-
-    assert cloudtrail.include_shadow_trails is True
-    assert len(logging_trails) == 1
-    assert len(multi_region_logging_trails) == 1
-    assert cloudtrail.status_names == ["arn:aws:cloudtrail:us-east-1:123456789012:trail/org-trail"]
-
-
-def test_audit_logging_lookup_scans_all_lookup_event_pages(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A matching CloudTrail event on a later page must be found before the next poll delay."""
-    module = _load_security_script("audit_logging_test.py")
-    request_id = "request-later-page"
-    user_agent_suffix = "isv-sec08-unit"
-    target_event = {
-        "EventId": "event-target",
-        "CloudTrailEvent": json.dumps({"requestID": request_id, "userAgent": f"botocore {user_agent_suffix}"}),
-    }
-
-    class FakePagedCloudTrail:
-        def __init__(self) -> None:
-            """Build five non-matching pages followed by the target event."""
-            self.calls: list[dict[str, Any]] = []
-            self.pages = [
-                {
-                    "Events": [
-                        {
-                            "EventId": f"event-{index}",
-                            "CloudTrailEvent": json.dumps({"requestID": f"other-{index}", "userAgent": "botocore"}),
-                        }
-                    ],
-                    "NextToken": f"token-{index + 1}",
-                }
-                for index in range(5)
-            ]
-            self.pages.append({"Events": [target_event]})
-
-        def lookup_events(self, **kwargs: Any) -> dict[str, Any]:
-            """Return one configured LookupEvents page and verify token sequencing."""
-            index = len(self.calls)
-            self.calls.append(kwargs)
-            if index == 0:
-                assert "NextToken" not in kwargs
-            else:
-                assert kwargs["NextToken"] == f"token-{index}"
-            if index >= len(self.pages):
-                raise AssertionError("lookup restarted polling before scanning all pages")
-            return self.pages[index]
-
-    cloudtrail = FakePagedCloudTrail()
-    monkeypatch.setattr(
-        module.time,
-        "sleep",
-        lambda _seconds: (_ for _ in ()).throw(AssertionError("matching event was on a later page")),
-    )
-
-    event = module._lookup_management_event(
-        cloudtrail,
-        request_id=request_id,
-        user_agent_suffix=user_agent_suffix,
-        call_start=datetime(2026, 5, 5, tzinfo=UTC),
-        timeout_seconds=60,
-    )
-
-    assert event == target_event
-    assert len(cloudtrail.calls) == 6
-    first_call = cloudtrail.calls[0]
-    for call in cloudtrail.calls[1:]:
-        assert call["LookupAttributes"] == first_call["LookupAttributes"]
-        assert call["StartTime"] == first_call["StartTime"]
-        assert call["EndTime"] == first_call["EndTime"]
-        assert call["MaxResults"] == first_call["MaxResults"]
-
-
-def test_audit_logging_retention_ignores_unrelated_lifecycle_prefixes() -> None:
-    """A short expiration rule for another prefix must not fail CloudTrail log retention."""
-    module = _load_security_script("audit_logging_test.py")
-
-    class FakeLifecycleS3:
-        def get_bucket_lifecycle_configuration(self, Bucket: str) -> dict[str, list[dict[str, Any]]]:
-            """Return both unrelated short retention and applicable long retention rules."""
-            assert Bucket == "audit-logs"
-            return {
-                "Rules": [
-                    {
-                        "ID": "tmp-short",
-                        "Status": "Enabled",
-                        "Filter": {"Prefix": "tmp/"},
-                        "Expiration": {"Days": 7},
-                    },
-                    {
-                        "ID": "cloudtrail-long",
-                        "Status": "Enabled",
-                        "Filter": {"Prefix": "AWSLogs/"},
-                        "Expiration": {"Days": 90},
-                    },
-                ]
-            }
-
-    retention_result, minimum_retention = module._evaluate_lifecycle_retention(FakeLifecycleS3(), "audit-logs")
-
-    assert retention_result["passed"] is True
-    assert minimum_retention == 90
-
-
-def test_audit_logging_retention_skips_when_lifecycle_access_denied(
+def test_audit_logging_main_emits_structured_skip(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Missing bucket lifecycle permission must skip retention instead of failing SEC08-01."""
+    """AWS SEC08 reference emits a clean skip without provider-specific top-level fields."""
     module = _load_security_script("audit_logging_test.py")
 
-    class FakeCloudTrail:
-        def describe_trails(self, includeShadowTrails: bool) -> dict[str, list[dict[str, Any]]]:
-            """Return one active multi-region trail."""
-            assert includeShadowTrails is True
-            return {
-                "trailList": [
-                    {
-                        "Name": "org-trail",
-                        "TrailARN": "arn:aws:cloudtrail:us-east-1:123456789012:trail/org-trail",
-                        "IsMultiRegionTrail": True,
-                        "S3BucketName": "audit-logs",
-                    }
-                ]
-            }
-
-        def get_trail_status(self, Name: str) -> dict[str, bool]:
-            """Report the trail as actively logging."""
-            assert Name == "arn:aws:cloudtrail:us-east-1:123456789012:trail/org-trail"
-            return {"IsLogging": True}
-
-    class FakeS3:
-        def get_bucket_lifecycle_configuration(self, Bucket: str) -> dict[str, list[dict[str, Any]]]:
-            """Deny lifecycle reads for the audit-log bucket."""
-            assert Bucket == "audit-logs"
-            raise _client_error("GetBucketLifecycleConfiguration", code="AccessDenied")
-
-    def fake_client(service_name: str, **_kwargs: Any) -> Any:
-        """Return fake clients used by the audit script."""
-        if service_name == "cloudtrail":
-            return FakeCloudTrail()
-        if service_name == "s3":
-            return FakeS3()
-        raise AssertionError(service_name)
-
-    def fake_lookup_management_event(*_args: Any, **kwargs: Any) -> dict[str, str]:
-        """Return a matched CloudTrail event using the generated user-agent suffix."""
-        user_agent_suffix = kwargs["user_agent_suffix"]
-        return {
-            "EventId": "event-1",
-            "CloudTrailEvent": json.dumps(
-                {
-                    "requestID": "request-1",
-                    "eventName": module.EVENT_NAME,
-                    "eventTime": datetime.now(UTC).isoformat(),
-                    "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test"},
-                    "sourceIPAddress": "203.0.113.10",
-                    "userAgent": f"botocore {user_agent_suffix}",
-                    "awsRegion": "us-west-2",
-                    "eventSource": module.EVENT_SOURCE,
-                }
-            ),
-        }
-
-    monkeypatch.setattr(module.boto3, "client", fake_client)
-    monkeypatch.setattr(
-        module,
-        "_emit_management_call",
-        lambda _region, _suffix: ("request-1", datetime.now(UTC), datetime.now(UTC)),
-    )
-    monkeypatch.setattr(module, "_lookup_management_event", fake_lookup_management_event)
     monkeypatch.setattr(module.sys, "argv", ["audit_logging_test.py", "--region", "us-west-2"])
 
     exit_code = module.main()
@@ -1152,89 +955,21 @@ def test_audit_logging_retention_skips_when_lifecycle_access_denied(
 
     assert exit_code == 0
     assert payload["success"] is True
+    assert payload["audit_log_entry_skipped"] is True
     assert payload["audit_log_retention_skipped"] is True
-    assert payload["audit_log_retention_skip_reason"] == "cannot inspect audit log retention policy"
-    assert payload["tests"]["audit_log_entry_found"]["passed"] is True
-
-
-def test_audit_logging_retention_falls_back_to_single_region_trail(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """SEC08-02 evaluates an active single-region trail when no multi-region trail exists."""
-    module = _load_security_script("audit_logging_test.py")
-
-    class FakeCloudTrail:
-        def describe_trails(self, includeShadowTrails: bool) -> dict[str, list[dict[str, Any]]]:
-            """Return one active single-region trail with an S3 destination."""
-            assert includeShadowTrails is True
-            return {
-                "trailList": [
-                    {
-                        "Name": "regional-trail",
-                        "TrailARN": "arn:aws:cloudtrail:us-west-2:123456789012:trail/regional-trail",
-                        "IsMultiRegionTrail": False,
-                        "S3BucketName": "regional-audit-logs",
-                    }
-                ]
-            }
-
-        def get_trail_status(self, Name: str) -> dict[str, bool]:
-            """Report the regional trail as actively logging."""
-            assert Name == "arn:aws:cloudtrail:us-west-2:123456789012:trail/regional-trail"
-            return {"IsLogging": True}
-
-    class FakeS3:
-        def get_bucket_lifecycle_configuration(self, Bucket: str) -> dict[str, list[dict[str, Any]]]:
-            """Return no applicable expiration rules for unbounded retention."""
-            assert Bucket == "regional-audit-logs"
-            return {"Rules": []}
-
-    def fake_client(service_name: str, **_kwargs: Any) -> Any:
-        """Return fake clients used by the audit script."""
-        if service_name == "cloudtrail":
-            return FakeCloudTrail()
-        if service_name == "s3":
-            return FakeS3()
-        raise AssertionError(service_name)
-
-    def fake_lookup_management_event(*_args: Any, **kwargs: Any) -> dict[str, str]:
-        """Return a matched CloudTrail event using the generated user-agent suffix."""
-        user_agent_suffix = kwargs["user_agent_suffix"]
-        return {
-            "EventId": "event-1",
-            "CloudTrailEvent": json.dumps(
-                {
-                    "requestID": "request-1",
-                    "eventName": module.EVENT_NAME,
-                    "eventTime": datetime.now(UTC).isoformat(),
-                    "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test"},
-                    "sourceIPAddress": "203.0.113.10",
-                    "userAgent": f"botocore {user_agent_suffix}",
-                    "awsRegion": "us-west-2",
-                    "eventSource": module.EVENT_SOURCE,
-                }
-            ),
-        }
-
-    monkeypatch.setattr(module.boto3, "client", fake_client)
-    monkeypatch.setattr(
-        module,
-        "_emit_management_call",
-        lambda _region, _suffix: ("request-1", datetime.now(UTC), datetime.now(UTC)),
-    )
-    monkeypatch.setattr(module, "_lookup_management_event", fake_lookup_management_event)
-    monkeypatch.setattr(module.sys, "argv", ["audit_logging_test.py", "--region", "us-west-2"])
-
-    exit_code = module.main()
-    payload = json.loads(capsys.readouterr().out)
-
-    assert exit_code == 0
-    assert payload["success"] is True
-    assert "single-region" in payload["tests"]["audit_log_trail_logging_enabled"]["message"]
-    assert payload["tests"]["audit_log_retention_at_least_30_days"]["probes"] == [
-        {"minimum_retention_days": "unbounded"}
-    ]
+    assert payload["audit_log_entry_skip_reason"] == module.SKIP_REASON
+    assert payload["audit_log_retention_skip_reason"] == module.SKIP_REASON
+    assert set(payload) == {
+        "success",
+        "platform",
+        "test_name",
+        "audit_log_entry_skipped",
+        "audit_log_entry_skip_reason",
+        "audit_log_retention_skipped",
+        "audit_log_retention_skip_reason",
+        "tests",
+    }
+    assert all(test["passed"] is True and test["skipped"] is True for test in payload["tests"].values())
     assert "audit_log_destination" not in payload
     assert "minimum_retention_days" not in payload
     assert "audit_log_bucket" not in payload
