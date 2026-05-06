@@ -60,6 +60,7 @@ class SSHClient:
         port: int = 22,
         jumphost: str | None = None,
         timeout: int = 30,
+        quiet: bool = True,
     ) -> None:
         """Initialize SSH client.
 
@@ -69,21 +70,23 @@ class SSHClient:
             port: SSH port (default: 22)
             jumphost: Optional jump host in format "host" or "host:port"
             timeout: Connection timeout in seconds
+            quiet: Suppress non-fatal SSH diagnostics for routine commands
         """
         self.host = host
         self.user = user
         self.port = port
         self.jumphost = jumphost
         self.timeout = timeout
+        self.quiet = quiet
 
-    def _build_ssh_options(self) -> list[str]:
+    def _build_ssh_options(self, *, quiet: bool | None = None) -> list[str]:
         """Build common SSH options.
 
         Returns:
             List of SSH command-line options
         """
+        effective_quiet = self.quiet if quiet is None else quiet
         opts = [
-            "-q",  # Quiet mode
             "-o",
             "StrictHostKeyChecking=accept-new",
             "-o",
@@ -91,6 +94,9 @@ class SSHClient:
             "-o",
             "BatchMode=yes",  # Disable password prompts
         ]
+
+        if effective_quiet:
+            opts.insert(0, "-q")
 
         if self.port != 22:
             opts.extend(["-p", str(self.port)])
@@ -113,6 +119,7 @@ class SSHClient:
         command: str,
         stream: bool = False,
         env: dict[str, str] | None = None,
+        quiet: bool | None = None,
     ) -> SSHResult:
         """Execute a command on the remote host.
 
@@ -120,11 +127,12 @@ class SSHClient:
             command: Shell command to execute (can be a multi-line script)
             stream: If True, stream output to stdout/stderr in real-time
             env: Optional environment variables to pass to the remote command
+            quiet: Override whether SSH suppresses non-fatal diagnostics
 
         Returns:
             SSHResult with execution details
         """
-        cmd = ["ssh", "-T"] + self._build_ssh_options() + [self._build_target()]
+        cmd = ["ssh", "-T"] + self._build_ssh_options(quiet=quiet) + [self._build_target()]
 
         # Build the remote command with optional env vars
         remote_cmd = command
@@ -304,7 +312,7 @@ class SSHClient:
         Returns:
             SSHResult with connection test details
         """
-        return self.execute("echo ok")
+        return self.execute("echo ok", quiet=False)
 
     def is_connection_error(self, result: SSHResult) -> bool:
         """Check if an SSHResult indicates a connection failure.

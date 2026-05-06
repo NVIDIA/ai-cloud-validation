@@ -317,7 +317,7 @@ def run(
     )
 
     # Create SSH and SCP clients
-    ssh = SSHClient(host=remote_ip, user=user, port=port, jumphost=jumphost)
+    ssh = SSHClient(host=remote_ip, user=user, port=port, jumphost=jumphost, quiet=not verbose)
     scp = SCPTransfer(host=remote_ip, user=user, port=port, jumphost=jumphost)
 
     # Create temporary archive
