@@ -556,6 +556,8 @@ def main() -> int:
             storage_probes = [
                 _expect_denied(
                     "storage_delete_denied",
+                    # denied_bucket has an object; a spurious s3:DeleteBucket allow would return
+                    # BucketNotEmpty (not AccessDenied), so passed=False either way.
                     lambda: clients["s3"].delete_bucket(Bucket=denied_bucket),
                 ),
                 _expect_denied(

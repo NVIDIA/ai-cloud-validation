@@ -172,7 +172,7 @@ commands:
         phase: test
         command: "python3 ../scripts/security/audit_logging_test.py"
         args: ["--region", "{{region}}"]
-        timeout: 780
+        timeout: 30
 
       # Test 13: Service Account Credential Auth (~30s, includes IAM propagation wait)
       - name: sa_credential_test
