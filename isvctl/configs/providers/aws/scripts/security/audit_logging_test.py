@@ -71,8 +71,6 @@ def _base_result() -> dict[str, Any]:
         "success": False,
         "platform": "security",
         "test_name": TEST_NAME,
-        "event_name": EVENT_NAME,
-        "request_id": "",
         "tests": {key: {"passed": False} for key in (*AUDIT_ENTRY_TEST_KEYS, *AUDIT_RETENTION_TEST_KEYS)},
     }
 
@@ -162,11 +160,13 @@ def _lookup_management_event(
     delay = 5
     while True:
         next_token: str | None = None
+        start_time = call_start - timedelta(minutes=5)
+        end_time = datetime.now(UTC) + timedelta(minutes=1)
         while True:
             kwargs: dict[str, Any] = {
                 "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": EVENT_NAME}],
-                "StartTime": call_start - timedelta(minutes=5),
-                "EndTime": datetime.now(UTC) + timedelta(minutes=1),
+                "StartTime": start_time,
+                "EndTime": end_time,
                 "MaxResults": 50,
             }
             if next_token:
@@ -350,7 +350,6 @@ def main() -> int:
 
         user_agent_suffix = f"isv-sec08-{uuid.uuid4().hex[:12]}"
         request_id, call_start, call_end = _emit_management_call(region, user_agent_suffix)
-        result["request_id"] = request_id
         lookup_event = _lookup_management_event(
             cloudtrail,
             request_id=request_id,
@@ -382,7 +381,6 @@ def main() -> int:
             bucket = trail.get("S3BucketName", "")
             log_prefix = _trail_log_prefix(trail)
             is_multi_region = trail.get("IsMultiRegionTrail") is True
-            result["audit_log_destination"] = "audit_log_store"
             result["tests"]["audit_log_trail_logging_enabled"] = {
                 "passed": bool(bucket),
                 "message": (f"active {'multi-region' if is_multi_region else 'single-region'} audit trail writes logs"),
@@ -399,8 +397,8 @@ def main() -> int:
                         "cannot inspect audit log retention policy",
                     )
                 else:
+                    retention_result["probes"] = [{"minimum_retention_days": minimum_retention}]
                     result["tests"]["audit_log_retention_at_least_30_days"] = retention_result
-                    result["minimum_retention_days"] = minimum_retention
             else:
                 result["tests"]["audit_log_retention_at_least_30_days"] = {
                     "passed": False,

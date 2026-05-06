@@ -792,8 +792,6 @@ class AuditLogEntryCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
-        event_name: Required non-empty management event name being validated
-        request_id: Required non-empty request identifier correlated to the event
         tests: dict with audit_log_entry_found,
                audit_log_event_name_matches,
                audit_log_event_time_in_window,
@@ -828,15 +826,7 @@ class AuditLogEntryCheck(BaseValidation):
         if not check_required_tests(self, required, "Audit-log entry tests failed"):
             return
 
-        for field in ("event_name", "request_id"):
-            value = step_output.get(field)
-            if not isinstance(value, str) or not value.strip():
-                self.set_failed(f"Audit-log entry output missing non-empty '{field}'")
-                return
-
-        event_name = step_output["event_name"]
-        request_id = step_output["request_id"]
-        self.set_passed(f"Audit log entry verified for {event_name} request {request_id}")
+        self.set_passed("Audit log entry verified for emitted management call")
 
 
 class AuditLogRetentionCheck(BaseValidation):
@@ -850,8 +840,6 @@ class AuditLogRetentionCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
-        audit_log_destination: Required non-empty audit log destination
-        minimum_retention_days: Required int >= 30, or "unbounded"
         tests: dict with audit_log_trail_logging_enabled,
                audit_log_retention_at_least_30_days
     """
@@ -874,17 +862,4 @@ class AuditLogRetentionCheck(BaseValidation):
         if not check_required_tests(self, required, "Audit-log retention tests failed"):
             return
 
-        destination = step_output.get("audit_log_destination")
-        if not isinstance(destination, str) or not destination.strip():
-            self.set_failed("Audit-log retention output missing non-empty audit log destination")
-            return
-
-        retention_days = step_output.get("minimum_retention_days")
-        if type(retention_days) is int and retention_days >= 30:
-            retention_summary = f"{retention_days} days"
-        elif retention_days == "unbounded":
-            retention_summary = "unbounded"
-        else:
-            self.set_failed("Audit-log retention output missing retention >= 30 days or 'unbounded'")
-            return
-        self.set_passed(f"Audit log retention verified for {destination} (minimum retention {retention_summary})")
+        self.set_passed("Audit log retention verified")

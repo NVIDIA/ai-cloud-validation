@@ -1039,6 +1039,12 @@ def test_audit_logging_lookup_scans_all_lookup_event_pages(monkeypatch: pytest.M
 
     assert event == target_event
     assert len(cloudtrail.calls) == 6
+    first_call = cloudtrail.calls[0]
+    for call in cloudtrail.calls[1:]:
+        assert call["LookupAttributes"] == first_call["LookupAttributes"]
+        assert call["StartTime"] == first_call["StartTime"]
+        assert call["EndTime"] == first_call["EndTime"]
+        assert call["MaxResults"] == first_call["MaxResults"]
 
 
 def test_audit_logging_retention_ignores_unrelated_lifecycle_prefixes() -> None:
@@ -1225,9 +1231,12 @@ def test_audit_logging_retention_falls_back_to_single_region_trail(
 
     assert exit_code == 0
     assert payload["success"] is True
-    assert payload["audit_log_destination"] == "audit_log_store"
-    assert payload["minimum_retention_days"] == "unbounded"
     assert "single-region" in payload["tests"]["audit_log_trail_logging_enabled"]["message"]
+    assert payload["tests"]["audit_log_retention_at_least_30_days"]["probes"] == [
+        {"minimum_retention_days": "unbounded"}
+    ]
+    assert "audit_log_destination" not in payload
+    assert "minimum_retention_days" not in payload
     assert "audit_log_bucket" not in payload
     assert "audit_log_prefix" not in payload
     assert "audit_log_trail_arn" not in payload

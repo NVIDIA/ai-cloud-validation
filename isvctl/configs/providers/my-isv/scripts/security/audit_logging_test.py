@@ -20,10 +20,6 @@ Required JSON output fields:
     "success": true,
     "platform": "security",
     "test_name": "audit_logging_test",
-    "event_name": "<management API verb>",
-    "request_id": "<request id or correlation id>",
-    "audit_log_destination": "<audit log destination>",
-    "minimum_retention_days": 30,
     "tests": {
       "audit_log_entry_found":              {"passed": true},
       "audit_log_event_name_matches":       {"passed": true},
@@ -61,10 +57,6 @@ def main() -> int:
         "success": False,
         "platform": "security",
         "test_name": "audit_logging_test",
-        "event_name": "",
-        "request_id": "",
-        "audit_log_destination": "",
-        "minimum_retention_days": 0,
         "tests": {
             "audit_log_entry_found": {"passed": False},
             "audit_log_event_name_matches": {"passed": False},
@@ -100,10 +92,6 @@ def main() -> int:
     # reason and exit 0.
 
     if DEMO_MODE:
-        result["event_name"] = "DescribeControlPlane"
-        result["request_id"] = "demo-sec08-request"
-        result["audit_log_destination"] = "demo-audit-log-store"
-        result["minimum_retention_days"] = 90
         result["tests"] = {
             "audit_log_entry_found": {"passed": True, "message": "demo: matching audit entry found"},
             "audit_log_event_name_matches": {"passed": True},
@@ -114,7 +102,11 @@ def main() -> int:
             "audit_log_region_matches": {"passed": True},
             "audit_log_event_source_matches": {"passed": True},
             "audit_log_trail_logging_enabled": {"passed": True, "message": "demo: audit logging enabled"},
-            "audit_log_retention_at_least_30_days": {"passed": True, "message": "demo: retention is 90 days"},
+            "audit_log_retention_at_least_30_days": {
+                "passed": True,
+                "message": "demo: retention is >= 30 days",
+                "probes": [{"minimum_retention_days": 90}],
+            },
         }
         result["success"] = True
     else:
