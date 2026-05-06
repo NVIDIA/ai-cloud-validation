@@ -62,12 +62,6 @@ def main() -> int:
     """Emit structured skip JSON for SEC08 audit logging and retention."""
     parser = argparse.ArgumentParser(description="Audit logging and retention test (SEC08-01/02)")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
-    parser.add_argument(
-        "--lookup-timeout-seconds",
-        type=int,
-        default=600,
-        help="Accepted for compatibility; not used by the AWS reference skip.",
-    )
     parser.parse_args()
 
     print(json.dumps(_base_result(), indent=2))

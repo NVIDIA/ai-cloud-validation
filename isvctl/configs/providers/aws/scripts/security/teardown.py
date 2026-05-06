@@ -216,7 +216,11 @@ def _cleanup_owned_vpcs(ec2: Any) -> list[str]:
 
 
 def _cleanup_owned_kms(kms: Any) -> list[str]:
-    """Schedule SEC11 KMS keys for deletion and remove their aliases."""
+    """Schedule owned KMS keys for deletion and remove their aliases.
+
+    Scope is currently SEC11 only (``alias/isv-sec11-test-*``); SEC04 does not
+    create KMS resources.
+    """
     errors: list[str] = []
     paginator = kms.get_paginator("list_aliases")
     for page in paginator.paginate():

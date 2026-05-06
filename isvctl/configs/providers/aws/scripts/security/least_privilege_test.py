@@ -370,30 +370,24 @@ def _is_denied(exc: ClientError) -> bool:
     return exc.response.get("Error", {}).get("Code", "") in DENY_CODES
 
 
-def _expect_denied(name: str, fn: Callable[[], Any]) -> dict[str, Any]:
-    """Run one probe and return passed=True only when IAM denies it."""
+def _expect_denied(name: str, fn: Callable[[], Any], *, dry_run: bool = False) -> dict[str, Any]:
+    """Run one probe and return passed=True only when IAM denies it.
+
+    When ``dry_run=True`` the probe is an EC2 ``DryRun=True`` call: a
+    ``DryRunOperation`` response means the action would have been allowed
+    (a SEC04-02 failure), not denied.
+    """
     try:
         fn()
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
-        return {"name": name, "passed": _is_denied(exc), "code": code}
-    except BotoCoreError as exc:
-        return {"name": name, "passed": False, "error": f"{type(exc).__name__}: {exc}"}
-    return {"name": name, "passed": False, "error": "action unexpectedly succeeded"}
-
-
-def _expect_ec2_dry_run_denied(name: str, fn: Callable[[], Any]) -> dict[str, Any]:
-    """Run an EC2 DryRun probe and distinguish denied from unexpectedly allowed."""
-    try:
-        fn()
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code == DRY_RUN_ALLOWED_CODE:
+        if dry_run and code == DRY_RUN_ALLOWED_CODE:
             return {"name": name, "passed": False, "code": code, "error": "authorization probe reported action allowed"}
         return {"name": name, "passed": _is_denied(exc), "code": code}
     except BotoCoreError as exc:
         return {"name": name, "passed": False, "error": f"{type(exc).__name__}: {exc}"}
-    return {"name": name, "passed": False, "error": "DryRun returned no authorization result"}
+    no_result_error = "DryRun returned no authorization result" if dry_run else "action unexpectedly succeeded"
+    return {"name": name, "passed": False, "error": no_result_error}
 
 
 def _aggregate(probes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -460,8 +454,8 @@ def main() -> int:
         "success": False,
         "platform": "security",
         "test_name": TEST_NAME,
-        "test_identity": "temporary_test_principal",
-        "allowed_resource": "scoped_storage_resource",
+        "test_identity": username,
+        "allowed_resource": allowed_bucket,
         "allowed_source_cidr": source_cidr,
         "tests": {
             "policy_dimensions_user_based": {"passed": False},
@@ -473,7 +467,9 @@ def main() -> int:
             "out_of_scope_network_denied": {"passed": False},
         },
     }
-    cleanup_performed = False
+    setup_error: ClientError | None = None
+    setup_partial = False
+    policy_document = ""
 
     try:
         try:
@@ -503,141 +499,132 @@ def main() -> int:
             access_key_id = key_response["AccessKey"]["AccessKeyId"]
             secret_key = key_response["AccessKey"]["SecretAccessKey"]
         except ClientError as exc:
-            code = exc.response.get("Error", {}).get("Code", "")
-            partial_resources_created = user_created or bool(buckets_created) or access_key_id is not None
-            cleanup_errors = _cleanup_test_user(iam, username, access_key_id, user_created)
-            cleanup_errors.extend(
-                _cleanup_probe_network(ec2, probe_instance_id, probe_sg_id, probe_subnet_id, probe_vpc_id)
+            setup_error = exc
+            setup_partial = user_created or bool(buckets_created) or access_key_id is not None
+
+        if setup_error is None:
+            if access_key_id is None or secret_key is None:
+                msg = "access key was not created for SEC04 test user"
+                raise RuntimeError(msg)
+
+            clients = _build_user_clients(access_key_id, secret_key, region)
+            _wait_for_iam_propagation(clients["sts"])
+            caller = clients["sts"].get_caller_identity()
+            caller_arn = caller.get("Arn", "")
+
+            allowed_result = _probe_allowed_bucket(clients["s3"], allowed_bucket)
+            result["tests"]["policy_dimensions_allowed_action_succeeds"] = allowed_result
+            allowed_passed = bool(allowed_result.get("passed"))
+            denied_resource_result = _expect_denied(
+                "storage_list_unscoped_resource_denied",
+                lambda: clients["s3"].list_objects_v2(Bucket=denied_bucket, MaxKeys=1),
             )
-            cleanup_errors.extend(_cleanup_buckets(s3, buckets_created))
-            cleanup_performed = True
-            if cleanup_errors:
-                result["error"] = f"setup failed: {exc}; cleanup failed: {'; '.join(cleanup_errors)}"
-                result["cleanup_errors"] = cleanup_errors
-            elif code in SKIPPABLE_SETUP_ERRORS and not partial_resources_created:
-                print(
-                    json.dumps(
-                        _skipped_result(
-                            f"cannot provision SEC04 test IAM user: {exc}; orchestrator principal needs "
-                            "iam:CreateUser, iam:PutUserPolicy, iam:CreateAccessKey, and matching delete permissions"
-                        ),
-                        indent=2,
-                    )
-                )
-                return 0
-            elif code in SKIPPABLE_SETUP_ERRORS:
-                print(
-                    json.dumps(
-                        _skipped_result(f"SEC04 fixture setup was denied and partial resources were cleaned up: {exc}"),
-                        indent=2,
-                    )
-                )
-                return 0
-            else:
-                raise
-            print(json.dumps(result, indent=2))
-            return 1
+            resource_scope_result, network_scope_result = _policy_dimension_scope_results(
+                allowed_result=allowed_result,
+                denied_resource_result=denied_resource_result,
+                policy_document=policy_document,
+                allowed_bucket=allowed_bucket,
+                source_cidr=source_cidr,
+            )
+            result["tests"]["policy_dimensions_user_based"] = {
+                "passed": allowed_passed and username in caller_arn,
+                "message": "temporary principal identity verified",
+            }
+            result["tests"]["policy_dimensions_resource_based"] = resource_scope_result
+            result["tests"]["policy_dimensions_network_based"] = network_scope_result
 
-        if access_key_id is None or secret_key is None:
-            msg = "access key was not created for SEC04 test user"
-            raise RuntimeError(msg)
-
-        clients = _build_user_clients(access_key_id, secret_key, region)
-        _wait_for_iam_propagation(clients["sts"])
-        caller = clients["sts"].get_caller_identity()
-        caller_arn = caller.get("Arn", "")
-
-        allowed_result = _probe_allowed_bucket(clients["s3"], allowed_bucket)
-        result["tests"]["policy_dimensions_allowed_action_succeeds"] = allowed_result
-        allowed_passed = bool(allowed_result.get("passed"))
-        denied_resource_result = _expect_denied(
-            "storage_list_unscoped_resource_denied",
-            lambda: clients["s3"].list_objects_v2(Bucket=denied_bucket, MaxKeys=1),
-        )
-        resource_scope_result, network_scope_result = _policy_dimension_scope_results(
-            allowed_result=allowed_result,
-            denied_resource_result=denied_resource_result,
-            policy_document=policy_document,
-            allowed_bucket=allowed_bucket,
-            source_cidr=source_cidr,
-        )
-        result["tests"]["policy_dimensions_user_based"] = {
-            "passed": allowed_passed and username in caller_arn,
-            "message": "temporary principal identity verified",
-        }
-        result["tests"]["policy_dimensions_resource_based"] = resource_scope_result
-        result["tests"]["policy_dimensions_network_based"] = network_scope_result
-
-        compute_probes = [
-            _expect_ec2_dry_run_denied(
-                "compute_launch_denied",
-                lambda: clients["ec2"].run_instances(
-                    ImageId=probe_ami_id,
-                    InstanceType="t3.micro",
-                    MinCount=1,
-                    MaxCount=1,
-                    SubnetId=probe_subnet_id,
-                    SecurityGroupIds=[probe_sg_id],
-                    DryRun=True,
+            compute_probes = [
+                _expect_denied(
+                    "compute_launch_denied",
+                    lambda: clients["ec2"].run_instances(
+                        ImageId=probe_ami_id,
+                        InstanceType="t3.micro",
+                        MinCount=1,
+                        MaxCount=1,
+                        SubnetId=probe_subnet_id,
+                        SecurityGroupIds=[probe_sg_id],
+                        DryRun=True,
+                    ),
+                    dry_run=True,
                 ),
-            ),
-            _expect_ec2_dry_run_denied(
-                "compute_terminate_denied",
-                lambda: clients["ec2"].terminate_instances(InstanceIds=[probe_instance_id], DryRun=True),
-            ),
-        ]
-        storage_probes = [
-            _expect_denied(
-                "storage_delete_denied",
-                lambda: clients["s3"].delete_bucket(Bucket=denied_bucket),
-            ),
-            _expect_denied(
-                "storage_read_denied",
-                lambda: clients["s3"].get_object(Bucket=denied_bucket, Key=DENIED_OBJECT_KEY),
-            ),
-        ]
-        network_probes = [
-            _expect_ec2_dry_run_denied(
-                "network_create_denied",
-                lambda: clients["ec2"].create_vpc(CidrBlock="10.99.0.0/24", DryRun=True),
-            ),
-            _expect_ec2_dry_run_denied(
-                "network_rule_update_denied",
-                lambda: clients["ec2"].authorize_security_group_ingress(
-                    GroupId=probe_sg_id,
-                    IpPermissions=[
-                        {
-                            "IpProtocol": "tcp",
-                            "FromPort": 22,
-                            "ToPort": 22,
-                            "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
-                        }
-                    ],
-                    DryRun=True,
+                _expect_denied(
+                    "compute_terminate_denied",
+                    lambda: clients["ec2"].terminate_instances(InstanceIds=[probe_instance_id], DryRun=True),
+                    dry_run=True,
                 ),
-            ),
-        ]
-        result["tests"]["out_of_scope_compute_denied"] = _aggregate(compute_probes)
-        result["tests"]["out_of_scope_storage_denied"] = _aggregate(storage_probes)
-        result["tests"]["out_of_scope_network_denied"] = _aggregate(network_probes)
-        result["success"] = all(test.get("passed") for test in result["tests"].values())
+            ]
+            storage_probes = [
+                _expect_denied(
+                    "storage_delete_denied",
+                    lambda: clients["s3"].delete_bucket(Bucket=denied_bucket),
+                ),
+                _expect_denied(
+                    "storage_read_denied",
+                    lambda: clients["s3"].get_object(Bucket=denied_bucket, Key=DENIED_OBJECT_KEY),
+                ),
+            ]
+            network_probes = [
+                _expect_denied(
+                    "network_create_denied",
+                    lambda: clients["ec2"].create_vpc(CidrBlock="10.99.0.0/24", DryRun=True),
+                    dry_run=True,
+                ),
+                _expect_denied(
+                    "network_rule_update_denied",
+                    lambda: clients["ec2"].authorize_security_group_ingress(
+                        GroupId=probe_sg_id,
+                        IpPermissions=[
+                            {
+                                "IpProtocol": "tcp",
+                                "FromPort": 22,
+                                "ToPort": 22,
+                                "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+                            }
+                        ],
+                        DryRun=True,
+                    ),
+                    dry_run=True,
+                ),
+            ]
+            result["tests"]["out_of_scope_compute_denied"] = _aggregate(compute_probes)
+            result["tests"]["out_of_scope_storage_denied"] = _aggregate(storage_probes)
+            result["tests"]["out_of_scope_network_denied"] = _aggregate(network_probes)
+            result["success"] = all(test.get("passed") for test in result["tests"].values())
     except (ClientError, BotoCoreError, RuntimeError) as exc:
         error_type, error_msg = classify_aws_error(exc)
         result["error"] = f"[{error_type}] {error_msg}"
         result["success"] = False
     finally:
-        if not cleanup_performed:
-            cleanup_errors = _cleanup_test_user(iam, username, access_key_id, user_created)
-            cleanup_errors.extend(
-                _cleanup_probe_network(ec2, probe_instance_id, probe_sg_id, probe_subnet_id, probe_vpc_id)
+        cleanup_errors = _cleanup_test_user(iam, username, access_key_id, user_created)
+        cleanup_errors.extend(
+            _cleanup_probe_network(ec2, probe_instance_id, probe_sg_id, probe_subnet_id, probe_vpc_id)
+        )
+        cleanup_errors.extend(_cleanup_buckets(s3, buckets_created))
+        if cleanup_errors:
+            result["cleanup_errors"] = cleanup_errors
+            cleanup_msg = f"Cleanup failed: {'; '.join(cleanup_errors)}"
+            existing = result.get("error")
+            result["error"] = f"{existing}; {cleanup_msg}" if existing else cleanup_msg
+            result["success"] = False
+
+    if setup_error is not None:
+        code = setup_error.response.get("Error", {}).get("Code", "")
+        if code in SKIPPABLE_SETUP_ERRORS and not result.get("cleanup_errors"):
+            reason = (
+                f"SEC04 fixture setup was denied and partial resources were cleaned up: {setup_error}"
+                if setup_partial
+                else (
+                    f"cannot provision SEC04 test IAM user: {setup_error}; orchestrator principal needs "
+                    "iam:CreateUser, iam:PutUserPolicy, iam:CreateAccessKey, and matching delete permissions"
+                )
             )
-            cleanup_errors.extend(_cleanup_buckets(s3, buckets_created))
-            if cleanup_errors:
-                result["cleanup_errors"] = cleanup_errors
-                cleanup_msg = f"Cleanup failed: {'; '.join(cleanup_errors)}"
-                existing = result.get("error")
-                result["error"] = f"{existing}; {cleanup_msg}" if existing else cleanup_msg
-                result["success"] = False
+            print(json.dumps(_skipped_result(reason), indent=2))
+            return 0
+        error_type, error_msg = classify_aws_error(setup_error)
+        setup_msg = f"setup failed: [{error_type}] {error_msg}"
+        existing = result.get("error", "")
+        result["error"] = f"{setup_msg}; {existing}" if existing else setup_msg
+        result["success"] = False
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
