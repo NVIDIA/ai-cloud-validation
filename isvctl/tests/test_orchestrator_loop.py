@@ -10,7 +10,6 @@
 
 """Tests for orchestrator loop."""
 
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,6 +22,30 @@ from isvctl.orchestrator.step_executor import (
     _find_missing_step_path,
     _format_stderr_excerpt,
 )
+
+_INVENTORY_SCRIPT = (
+    '#!/bin/bash\necho \'{"success": true, "platform": "kubernetes", '
+    '"cluster_name": "test", "node_count": 1, "kubernetes": {"node_count": 1}}\'\n'
+)
+
+_OK_SCRIPT = "#!/bin/bash\necho '{\"success\": true}'\n"
+
+_NOISY_FAILING_SCRIPT = """#!/bin/sh
+i=0
+while [ "$i" -le 104 ]; do
+  echo "stderr line $i" >&2
+  i=$((i + 1))
+done
+echo "AWS_SECRET_ACCESS_KEY=super-secret" >&2
+exit 7
+"""
+
+
+def _write_script(tmp_path: Path, name: str, content: str) -> str:
+    path = tmp_path / name
+    path.write_text(content)
+    path.chmod(0o755)
+    return str(path)
 
 
 class TestOrchestrator:
@@ -43,45 +66,39 @@ class TestOrchestrator:
         platform = orchestrator._detect_platform()
         assert platform == "kubernetes"
 
-    def test_run_setup_phase_success(self) -> None:
+    def test_run_setup_phase_success(self, tmp_path: Path) -> None:
         """Test successful setup phase execution."""
-        # Create a script that outputs valid JSON inventory
         # Must match the "cluster" schema: success, platform, cluster_name, node_count (at root)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(
-                """#!/bin/bash
+        script_path = _write_script(
+            tmp_path,
+            "setup_cluster.sh",
+            """#!/bin/bash
 cat << 'EOF'
 {"success": true, "platform": "kubernetes", "cluster_name": "test-cluster", "node_count": 4, "kubernetes": {"node_count": 4}}
 EOF
-"""
-            )
-            script_path = f.name
+""",
+        )
 
-        try:
-            Path(script_path).chmod(0o755)
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(name="setup_cluster", command=script_path, phase="setup"),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+        orchestrator = Orchestrator(config)
 
-            config = RunConfig(
-                commands={
-                    "kubernetes": PlatformCommands(
-                        steps=[
-                            StepConfig(name="setup_cluster", command=script_path, phase="setup"),
-                        ]
-                    )
-                },
-                tests=ValidationConfig(platform="kubernetes"),
-            )
-            orchestrator = Orchestrator(config)
+        result = orchestrator.run(phases=[Phase.SETUP])
 
-            result = orchestrator.run(phases=[Phase.SETUP])
-
-            assert result.success
-            assert len(result.phases) == 1
-            assert result.phases[0].phase == Phase.SETUP
-            assert result.phases[0].success
-            assert result.inventory is not None
-            assert "setup_cluster" in result.inventory
-        finally:
-            Path(script_path).unlink(missing_ok=True)
+        assert result.success
+        assert len(result.phases) == 1
+        assert result.phases[0].phase == Phase.SETUP
+        assert result.phases[0].success
+        assert result.inventory is not None
+        assert "setup_cluster" in result.inventory
 
     def test_run_setup_phase_command_failure(self) -> None:
         """Test setup phase with command failure."""
@@ -205,50 +222,40 @@ EOF
         assert not result.success
         assert "Cannot determine platform" in result.phases[0].message
 
-    def test_teardown_runs_when_setup_validation_fails(self) -> None:
+    def test_teardown_runs_when_setup_validation_fails(self, tmp_path: Path) -> None:
         """Teardown must run when setup steps succeed but setup validations fail.
 
         Regression test for issue where validation failures in setup caused
         teardown to be skipped, leaking cloud resources.
         """
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(
-                '#!/bin/bash\necho \'{"success": true, "platform": "kubernetes", '
-                '"cluster_name": "test", "node_count": 1, "kubernetes": {"node_count": 1}}\'\n'
-            )
-            setup_script = f.name
+        setup_script = _write_script(tmp_path, "setup.sh", _INVENTORY_SCRIPT)
 
-        try:
-            Path(setup_script).chmod(0o755)
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(name="setup_cluster", command=setup_script, phase="setup"),
+                        StepConfig(name="cleanup", command="echo", args=["done"], phase="teardown"),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+        orchestrator = Orchestrator(config)
 
-            config = RunConfig(
-                commands={
-                    "kubernetes": PlatformCommands(
-                        steps=[
-                            StepConfig(name="setup_cluster", command=setup_script, phase="setup"),
-                            StepConfig(name="cleanup", command="echo", args=["done"], phase="teardown"),
-                        ]
-                    )
-                },
-                tests=ValidationConfig(platform="kubernetes"),
-            )
-            orchestrator = Orchestrator(config)
+        failing_validations = [{"name": "FakeCheck", "passed": False, "error": "simulated"}]
+        with patch.object(
+            orchestrator.step_executor,
+            "run_validations_for_phase",
+            side_effect=lambda phase, *a, **kw: failing_validations if phase == "setup" else [],
+        ):
+            result = orchestrator.run(teardown_on_failure=True)
 
-            failing_validations = [{"name": "FakeCheck", "passed": False, "error": "simulated"}]
-            with patch.object(
-                orchestrator.step_executor,
-                "run_validations_for_phase",
-                side_effect=lambda phase, *a, **kw: failing_validations if phase == "setup" else [],
-            ):
-                result = orchestrator.run(teardown_on_failure=True)
-
-            assert not result.success
-            teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
-            assert len(teardown_phases) == 1, "teardown phase must run even when setup validations fail"
-            teardown_step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
-            assert "cleanup" in teardown_step_names, "teardown step must have executed"
-        finally:
-            Path(setup_script).unlink(missing_ok=True)
+        assert not result.success
+        teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
+        assert len(teardown_phases) == 1, "teardown phase must run even when setup validations fail"
+        teardown_step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
+        assert "cleanup" in teardown_step_names, "teardown step must have executed"
 
     def test_teardown_skipped_when_setup_steps_did_not_run(self) -> None:
         """Teardown must be skipped when no setup steps executed."""
@@ -272,52 +279,37 @@ EOF
         assert "SKIPPED" in teardown_phases[0].message
         assert "setup steps did not run" in teardown_phases[0].message
 
-    def test_teardown_continues_after_step_failure(self) -> None:
+    def test_teardown_continues_after_step_failure(self, tmp_path: Path) -> None:
         """All teardown steps must run even if an earlier teardown step fails.
 
         Regression test for issue where the first failing teardown step caused
         remaining teardown steps to be skipped (e.g., VM not deleted after
         NIM teardown failed).
         """
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(
-                '#!/bin/bash\necho \'{"success": true, "platform": "kubernetes", '
-                '"cluster_name": "test", "node_count": 1, "kubernetes": {"node_count": 1}}\'\n'
-            )
-            setup_script = f.name
+        setup_script = _write_script(tmp_path, "setup.sh", _INVENTORY_SCRIPT)
+        teardown_ok_script = _write_script(tmp_path, "teardown_ok.sh", _OK_SCRIPT)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write("#!/bin/bash\necho '{\"success\": true}'\n")
-            teardown_ok_script = f.name
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(name="setup_cluster", command=setup_script, phase="setup"),
+                        StepConfig(name="teardown_nim", command="false", phase="teardown"),
+                        StepConfig(name="teardown_vm", command=teardown_ok_script, phase="teardown"),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+        orchestrator = Orchestrator(config)
+        result = orchestrator.run(teardown_on_failure=True)
 
-        try:
-            Path(setup_script).chmod(0o755)
-            Path(teardown_ok_script).chmod(0o755)
+        teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
+        assert len(teardown_phases) == 1
 
-            config = RunConfig(
-                commands={
-                    "kubernetes": PlatformCommands(
-                        steps=[
-                            StepConfig(name="setup_cluster", command=setup_script, phase="setup"),
-                            StepConfig(name="teardown_nim", command="false", phase="teardown"),
-                            StepConfig(name="teardown_vm", command=teardown_ok_script, phase="teardown"),
-                        ]
-                    )
-                },
-                tests=ValidationConfig(platform="kubernetes"),
-            )
-            orchestrator = Orchestrator(config)
-            result = orchestrator.run(teardown_on_failure=True)
-
-            teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
-            assert len(teardown_phases) == 1
-
-            step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
-            assert "teardown_nim" in step_names, "first teardown step must be recorded"
-            assert "teardown_vm" in step_names, "second teardown step must run despite first failure"
-        finally:
-            Path(setup_script).unlink(missing_ok=True)
-            Path(teardown_ok_script).unlink(missing_ok=True)
+        step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
+        assert "teardown_nim" in step_names, "first teardown step must be recorded"
+        assert "teardown_vm" in step_names, "second teardown step must run despite first failure"
 
 
 class TestTeardownOnlyPhase:
@@ -375,36 +367,29 @@ class TestTeardownOnlyPhase:
         setup_phases = [p for p in result.phases if p.phase == Phase.SETUP]
         assert len(setup_phases) == 0, "setup phase must not appear when only teardown is requested"
 
-    def test_teardown_only_best_effort_continues_past_failures(self) -> None:
+    def test_teardown_only_best_effort_continues_past_failures(self, tmp_path: Path) -> None:
         """Teardown-only run must use best-effort so all cleanup steps execute."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write("#!/bin/bash\necho '{\"success\": true}'\n")
-            ok_script = f.name
+        ok_script = _write_script(tmp_path, "teardown_ok.sh", _OK_SCRIPT)
 
-        try:
-            Path(ok_script).chmod(0o755)
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(name="teardown_nim", command="false", phase="teardown"),
+                        StepConfig(name="teardown_vm", command=ok_script, phase="teardown"),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+        orchestrator = Orchestrator(config)
+        result = orchestrator.run(phases=[Phase.TEARDOWN])
 
-            config = RunConfig(
-                commands={
-                    "kubernetes": PlatformCommands(
-                        steps=[
-                            StepConfig(name="teardown_nim", command="false", phase="teardown"),
-                            StepConfig(name="teardown_vm", command=ok_script, phase="teardown"),
-                        ]
-                    )
-                },
-                tests=ValidationConfig(platform="kubernetes"),
-            )
-            orchestrator = Orchestrator(config)
-            result = orchestrator.run(phases=[Phase.TEARDOWN])
-
-            teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
-            assert len(teardown_phases) == 1
-            step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
-            assert "teardown_nim" in step_names, "failing teardown step must be recorded"
-            assert "teardown_vm" in step_names, "second teardown step must run despite first failure"
-        finally:
-            Path(ok_script).unlink(missing_ok=True)
+        teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
+        assert len(teardown_phases) == 1
+        step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
+        assert "teardown_nim" in step_names, "failing teardown step must be recorded"
+        assert "teardown_vm" in step_names, "second teardown step must run despite first failure"
 
     def test_teardown_still_skipped_when_setup_requested_but_did_not_run(self) -> None:
         """When both setup and teardown are requested, teardown is still gated on setup execution.

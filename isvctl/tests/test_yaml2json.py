@@ -12,10 +12,8 @@
 
 import json
 import os
-import stat
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -33,57 +31,48 @@ def run_yaml2json(yaml_file: str) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
+def _write_yaml(tmp_path: Path, content: str, name: str = "input.yaml") -> str:
+    path = tmp_path / name
+    path.write_text(content)
+    return str(path)
+
+
 class TestYaml2Json:
     """Tests for yaml2json script."""
 
-    def test_valid_yaml(self) -> None:
+    def test_valid_yaml(self, tmp_path: Path) -> None:
         """Test converting valid YAML to JSON."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("key: value\nnumber: 42\n")
-            yaml_file = f.name
+        yaml_file = _write_yaml(tmp_path, "key: value\nnumber: 42\n")
 
-        try:
-            exit_code, stdout, stderr = run_yaml2json(yaml_file)
-            assert exit_code == 0
-            assert stderr == ""
-            data = json.loads(stdout)
-            assert data == {"key": "value", "number": 42}
-        finally:
-            Path(yaml_file).unlink(missing_ok=True)
+        exit_code, stdout, stderr = run_yaml2json(yaml_file)
+        assert exit_code == 0
+        assert stderr == ""
+        data = json.loads(stdout)
+        assert data == {"key": "value", "number": 42}
 
-    def test_empty_yaml(self) -> None:
+    def test_empty_yaml(self, tmp_path: Path) -> None:
         """Test handling empty YAML file."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("")
-            yaml_file = f.name
+        yaml_file = _write_yaml(tmp_path, "")
 
-        try:
-            exit_code, stdout, stderr = run_yaml2json(yaml_file)
-            assert exit_code == 0
-            assert stderr == ""
-            data = json.loads(stdout)
-            assert data == {}
-        finally:
-            Path(yaml_file).unlink(missing_ok=True)
+        exit_code, stdout, stderr = run_yaml2json(yaml_file)
+        assert exit_code == 0
+        assert stderr == ""
+        data = json.loads(stdout)
+        assert data == {}
 
-    def test_yaml_with_datetime(self) -> None:
+    def test_yaml_with_datetime(self, tmp_path: Path) -> None:
         """Test handling unquoted YAML timestamp (datetime type)."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            # Unquoted dates in YAML are parsed as datetime objects
-            f.write("created: 2025-01-14\nupdated: 2025-01-14T10:30:00\n")
-            yaml_file = f.name
+        # Unquoted dates in YAML are parsed as datetime objects
+        yaml_file = _write_yaml(tmp_path, "created: 2025-01-14\nupdated: 2025-01-14T10:30:00\n")
 
-        try:
-            exit_code, stdout, stderr = run_yaml2json(yaml_file)
-            assert exit_code == 0
-            assert stderr == ""
-            data = json.loads(stdout)
-            # datetime objects should be serialized as strings
-            assert "created" in data
-            assert "updated" in data
-            assert "2025-01-14" in data["created"]
-        finally:
-            Path(yaml_file).unlink(missing_ok=True)
+        exit_code, stdout, stderr = run_yaml2json(yaml_file)
+        assert exit_code == 0
+        assert stderr == ""
+        data = json.loads(stdout)
+        # datetime objects should be serialized as strings
+        assert "created" in data
+        assert "updated" in data
+        assert "2025-01-14" in data["created"]
 
     def test_file_not_found(self) -> None:
         """Test handling non-existent file."""
@@ -92,43 +81,28 @@ class TestYaml2Json:
         assert "File not found" in stderr
 
     @pytest.mark.skipif(os.geteuid() == 0, reason="Root can read any file regardless of permissions")
-    def test_permission_error(self) -> None:
+    def test_permission_error(self, tmp_path: Path) -> None:
         """Test handling file permission errors."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("key: value\n")
-            yaml_file = f.name
+        yaml_file = _write_yaml(tmp_path, "key: value\n")
+        os.chmod(yaml_file, 0)
 
-        try:
-            # Remove read permissions
-            os.chmod(yaml_file, 0)
+        exit_code, _stdout, stderr = run_yaml2json(yaml_file)
+        assert exit_code == 1
+        assert "Cannot read file" in stderr or "Permission denied" in stderr
 
-            exit_code, _stdout, stderr = run_yaml2json(yaml_file)
-            assert exit_code == 1
-            assert "Cannot read file" in stderr or "Permission denied" in stderr
-        finally:
-            # Restore permissions for cleanup
-            os.chmod(yaml_file, stat.S_IRUSR | stat.S_IWUSR)
-            Path(yaml_file).unlink(missing_ok=True)
-
-    def test_invalid_yaml(self) -> None:
+    def test_invalid_yaml(self, tmp_path: Path) -> None:
         """Test handling invalid YAML syntax."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("key: [unclosed bracket\n")
-            yaml_file = f.name
+        yaml_file = _write_yaml(tmp_path, "key: [unclosed bracket\n")
 
-        try:
-            exit_code, _stdout, stderr = run_yaml2json(yaml_file)
-            assert exit_code == 1
-            assert "Invalid YAML" in stderr
-        finally:
-            Path(yaml_file).unlink(missing_ok=True)
+        exit_code, _stdout, stderr = run_yaml2json(yaml_file)
+        assert exit_code == 1
+        assert "Invalid YAML" in stderr
 
-    def test_is_a_directory(self) -> None:
+    def test_is_a_directory(self, tmp_path: Path) -> None:
         """Test handling when path is a directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            exit_code, _stdout, stderr = run_yaml2json(tmpdir)
-            assert exit_code == 1
-            assert "Cannot read file" in stderr or "Is a directory" in stderr
+        exit_code, _stdout, stderr = run_yaml2json(str(tmp_path))
+        assert exit_code == 1
+        assert "Cannot read file" in stderr or "Is a directory" in stderr
 
     def test_no_arguments(self) -> None:
         """Test handling missing arguments."""

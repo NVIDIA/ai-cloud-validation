@@ -10,7 +10,6 @@
 
 """Tests for platform module."""
 
-import tempfile
 from pathlib import Path
 
 from isvreporter.platform import (
@@ -22,6 +21,12 @@ from isvreporter.platform import (
     is_valid_platform,
     normalize_platform,
 )
+
+
+def _write_config(tmp_path: Path, content: str) -> Path:
+    path = tmp_path / "config.yaml"
+    path.write_text(content)
+    return path
 
 
 class TestNormalizePlatform:
@@ -98,55 +103,37 @@ class TestIsValidPlatform:
 class TestGetPlatformFromConfig:
     """Tests for get_platform_from_config function."""
 
-    def test_valid_config_with_platform(self) -> None:
+    def test_valid_config_with_platform(self, tmp_path: Path) -> None:
         """Test reading platform from valid config."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("tests:\n  platform: slurm\n")
-            f.flush()
-            result = get_platform_from_config(f.name)
-            assert result == SLURM
+        config = _write_config(tmp_path, "tests:\n  platform: slurm\n")
+        assert get_platform_from_config(str(config)) == SLURM
 
-    def test_config_with_k8s_alias(self) -> None:
+    def test_config_with_k8s_alias(self, tmp_path: Path) -> None:
         """Test reading k8s alias from config."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("tests:\n  platform: k8s\n")
-            f.flush()
-            result = get_platform_from_config(f.name)
-            assert result == KUBERNETES
+        config = _write_config(tmp_path, "tests:\n  platform: k8s\n")
+        assert get_platform_from_config(str(config)) == KUBERNETES
 
-    def test_config_without_tests_section(self) -> None:
+    def test_config_without_tests_section(self, tmp_path: Path) -> None:
         """Test that missing tests section returns default."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("commands:\n  setup: echo hello\n")
-            f.flush()
-            result = get_platform_from_config(f.name)
-            assert result == DEFAULT_PLATFORM
+        config = _write_config(tmp_path, "commands:\n  setup: echo hello\n")
+        assert get_platform_from_config(str(config)) == DEFAULT_PLATFORM
 
-    def test_config_without_platform(self) -> None:
+    def test_config_without_platform(self, tmp_path: Path) -> None:
         """Test that missing platform field returns default."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("tests:\n  markers: [unit]\n")
-            f.flush()
-            result = get_platform_from_config(f.name)
-            assert result == DEFAULT_PLATFORM
+        config = _write_config(tmp_path, "tests:\n  markers: [unit]\n")
+        assert get_platform_from_config(str(config)) == DEFAULT_PLATFORM
 
     def test_nonexistent_file_returns_default(self) -> None:
         """Test that nonexistent file returns default."""
         result = get_platform_from_config("/nonexistent/path/config.yaml")
         assert result == DEFAULT_PLATFORM
 
-    def test_invalid_yaml_returns_default(self) -> None:
+    def test_invalid_yaml_returns_default(self, tmp_path: Path) -> None:
         """Test that invalid YAML returns default."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("this is not: valid: yaml: content:\n  - bad")
-            f.flush()
-            result = get_platform_from_config(f.name)
-            assert result == DEFAULT_PLATFORM
+        config = _write_config(tmp_path, "this is not: valid: yaml: content:\n  - bad")
+        assert get_platform_from_config(str(config)) == DEFAULT_PLATFORM
 
-    def test_accepts_path_object(self) -> None:
+    def test_accepts_path_object(self, tmp_path: Path) -> None:
         """Test that Path objects are accepted."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("tests:\n  platform: kubernetes\n")
-            f.flush()
-            result = get_platform_from_config(Path(f.name))
-            assert result == KUBERNETES
+        config = _write_config(tmp_path, "tests:\n  platform: kubernetes\n")
+        assert get_platform_from_config(config) == KUBERNETES

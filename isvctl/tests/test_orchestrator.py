@@ -11,7 +11,6 @@
 """Tests for orchestration components."""
 
 import logging
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -19,6 +18,13 @@ import pytest
 from isvctl.config.schema import CommandConfig, CommandOutput, RunConfig
 from isvctl.orchestrator.commands import CommandExecutor
 from isvctl.orchestrator.context import Context
+
+
+def _write_script(tmp_path: Path, name: str, content: str) -> str:
+    path = tmp_path / name
+    path.write_text(content)
+    path.chmod(0o755)
+    return str(path)
 
 
 class TestCommandExecutor:
@@ -66,33 +72,26 @@ class TestCommandExecutor:
         assert result.success
         assert "nodes=8" in result.stdout
 
-    def test_validate_json_output(self) -> None:
+    def test_validate_json_output(self, tmp_path: Path) -> None:
         """Test JSON output validation."""
         executor = CommandExecutor()
-
-        # Create a script that outputs valid JSON
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(
-                """#!/bin/bash
+        script_path = _write_script(
+            tmp_path,
+            "valid_json.sh",
+            """#!/bin/bash
 cat << 'EOF'
 {"platform": "kubernetes", "cluster_name": "test-123", "kubernetes": {"node_count": 4}}
 EOF
-"""
-            )
-            script_path = f.name
+""",
+        )
 
-        try:
-            Path(script_path).chmod(0o755)
+        config = CommandConfig(command=script_path)
+        result = executor.execute(config, validate_output=True)
 
-            config = CommandConfig(command=script_path)
-            result = executor.execute(config, validate_output=True)
-
-            assert result.success
-            assert result.output is not None
-            assert result.output.platform == "kubernetes"
-            assert result.output.cluster_name == "test-123"
-        finally:
-            Path(script_path).unlink(missing_ok=True)
+        assert result.success
+        assert result.output is not None
+        assert result.output.platform == "kubernetes"
+        assert result.output.cluster_name == "test-123"
 
     def test_validate_invalid_json(self) -> None:
         """Test handling of invalid JSON output."""
@@ -166,31 +165,24 @@ EOF
         assert not result.success
         assert "no output" in result.error
 
-    def test_validate_output_validation_error(self) -> None:
+    def test_validate_output_validation_error(self, tmp_path: Path) -> None:
         """Test handling of pydantic validation errors."""
         executor = CommandExecutor()
-
-        # Create a script that outputs JSON but doesn't match schema
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(
-                """#!/bin/bash
+        script_path = _write_script(
+            tmp_path,
+            "wrong_schema.sh",
+            """#!/bin/bash
 cat << 'EOF'
 {"invalid": "schema"}
 EOF
-"""
-            )
-            script_path = f.name
+""",
+        )
 
-        try:
-            Path(script_path).chmod(0o755)
+        config = CommandConfig(command=script_path)
+        result = executor.execute(config, validate_output=True)
 
-            config = CommandConfig(command=script_path)
-            result = executor.execute(config, validate_output=True)
-
-            assert not result.success
-            assert "validation failed" in result.error
-        finally:
-            Path(script_path).unlink(missing_ok=True)
+        assert not result.success
+        assert "validation failed" in result.error
 
 
 class TestContext:

@@ -10,7 +10,6 @@
 
 """Tests for JUnit XML parser."""
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -58,11 +57,11 @@ Test is not ready yet
 
 
 @pytest.fixture
-def junit_xml_file(sample_junit_xml: str) -> Path:
+def junit_xml_file(sample_junit_xml: str, tmp_path: Path) -> Path:
     """Create a temporary JUnit XML file."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
-        f.write(sample_junit_xml)
-        return Path(f.name)
+    path = tmp_path / "report.xml"
+    path.write_text(sample_junit_xml)
+    return path
 
 
 def test_parse_junit_xml_basic(junit_xml_file: Path) -> None:
@@ -210,7 +209,7 @@ def test_junit_report_to_dict(junit_xml_file: Path) -> None:
     assert len(report_dict["testResults"]) == 5
 
 
-def test_parse_single_testsuite() -> None:
+def test_parse_single_testsuite(tmp_path: Path) -> None:
     """Test parsing XML with single testsuite (no testsuites wrapper)."""
     xml_content = """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="single-suite" errors="0" failures="1" skipped="0" tests="2" time="0.5">
@@ -220,9 +219,8 @@ def test_parse_single_testsuite() -> None:
   </testcase>
 </testsuite>"""
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
-        f.write(xml_content)
-        xml_file = Path(f.name)
+    xml_file = tmp_path / "single.xml"
+    xml_file.write_text(xml_content)
 
     report = parse_junit_xml(xml_file)
 
@@ -232,16 +230,15 @@ def test_parse_single_testsuite() -> None:
     assert len(report.suites) == 1
 
 
-def test_empty_junit_xml() -> None:
+def test_empty_junit_xml(tmp_path: Path) -> None:
     """Test parsing empty test suite."""
     xml_content = """<?xml version="1.0" encoding="utf-8"?>
 <testsuites>
   <testsuite name="empty" errors="0" failures="0" skipped="0" tests="0" time="0"></testsuite>
 </testsuites>"""
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
-        f.write(xml_content)
-        xml_file = Path(f.name)
+    xml_file = tmp_path / "empty.xml"
+    xml_file.write_text(xml_content)
 
     report = parse_junit_xml(xml_file)
 
