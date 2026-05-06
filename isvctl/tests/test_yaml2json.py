@@ -32,6 +32,16 @@ def run_yaml2json(yaml_file: str) -> tuple[int, str, str]:
 
 
 def _write_yaml(tmp_path: Path, content: str, name: str = "input.yaml") -> str:
+    """Write YAML content to a temporary file and return its path.
+
+    Args:
+        tmp_path: Temporary directory where the YAML file is written.
+        content: YAML content to write.
+        name: YAML filename to create.
+
+    Returns:
+        String path to the written YAML file.
+    """
     path = tmp_path / name
     path.write_text(content)
     return str(path)

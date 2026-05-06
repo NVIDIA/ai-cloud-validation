@@ -24,6 +24,15 @@ from isvreporter.platform import (
 
 
 def _write_config(tmp_path: Path, content: str) -> Path:
+    """Write content to config.yaml under tmp_path and return the file path.
+
+    Args:
+        tmp_path: Temporary directory where config.yaml is written.
+        content: Config content to write.
+
+    Returns:
+        Path to the written config.yaml file.
+    """
     path = tmp_path / "config.yaml"
     path.write_text(content)
     return path

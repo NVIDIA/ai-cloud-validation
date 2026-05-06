@@ -21,6 +21,19 @@ from isvctl.orchestrator.context import Context
 
 
 def _write_script(tmp_path: Path, name: str, content: str) -> str:
+    """Create an executable script file under tmp_path and return its path.
+
+    Args:
+        tmp_path: Temporary directory where the script is written.
+        name: Script filename to create.
+        content: Script contents to write.
+
+    Returns:
+        String path to the created script.
+
+    Side effects:
+        Writes the file and sets executable mode 0o755.
+    """
     path = tmp_path / name
     path.write_text(content)
     path.chmod(0o755)
