@@ -26,6 +26,7 @@ class TestSSHClient:
         assert ssh.port == 22
         assert ssh.jumphost is None
         assert ssh.timeout == 30
+        assert ssh.quiet is True
 
     def test_init_with_all_options(self) -> None:
         """Test initialization with all options."""
@@ -35,12 +36,14 @@ class TestSSHClient:
             port=2222,
             jumphost="bastion:2260",
             timeout=60,
+            quiet=False,
         )
         assert ssh.host == "192.168.1.100"
         assert ssh.user == "ubuntu"
         assert ssh.port == 2222
         assert ssh.jumphost == "bastion:2260"
         assert ssh.timeout == 60
+        assert ssh.quiet is False
 
     def test_build_ssh_options_basic(self) -> None:
         """Test SSH options for basic connection."""
@@ -51,6 +54,22 @@ class TestSSHClient:
         assert "StrictHostKeyChecking=accept-new" in " ".join(opts)
         assert "BatchMode=yes" in " ".join(opts)
         assert "-p" not in opts  # Default port, no -p flag
+
+    def test_build_ssh_options_not_quiet(self) -> None:
+        """Test SSH options can leave diagnostics enabled."""
+        ssh = SSHClient(host="192.168.1.100", user="nvidia", quiet=False)
+        opts = ssh._build_ssh_options()
+
+        assert "-q" not in opts
+        assert "StrictHostKeyChecking=accept-new" in " ".join(opts)
+        assert "BatchMode=yes" in " ".join(opts)
+
+    def test_build_ssh_options_quiet_override(self) -> None:
+        """Test per-command quiet override."""
+        ssh = SSHClient(host="192.168.1.100", user="nvidia")
+        opts = ssh._build_ssh_options(quiet=False)
+
+        assert "-q" not in opts
 
     def test_build_ssh_options_custom_port(self) -> None:
         """Test SSH options with custom port."""
@@ -160,6 +179,8 @@ class TestSSHClient:
         ssh = SSHClient(host="192.168.1.100", user="nvidia")
         result = ssh.test_connection()
         assert result.success is True
+        cmd = mock_run.call_args[0][0]
+        assert "-q" not in cmd
 
     @patch("subprocess.run")
     def test_is_connection_error(self, mock_run: MagicMock) -> None:
