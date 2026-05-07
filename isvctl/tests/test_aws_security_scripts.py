@@ -938,6 +938,117 @@ def test_bmc_bastion_access_main_emits_sec12_03_contract(
         assert subtest["passed"] is True
 
 
+# --- Audit logging (SEC08-01/02) tests -------------------------------------
+
+
+def test_audit_logging_main_emits_structured_skip(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """AWS SEC08 reference emits a clean skip without provider-specific top-level fields."""
+    module = _load_security_script("audit_logging_test.py")
+
+    monkeypatch.setattr(module.sys, "argv", ["audit_logging_test.py", "--region", "us-west-2"])
+
+    exit_code = module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["success"] is True
+    assert payload["audit_log_entry_skipped"] is True
+    assert payload["audit_log_retention_skipped"] is True
+    assert payload["audit_log_entry_skip_reason"] == module.SKIP_REASON
+    assert payload["audit_log_retention_skip_reason"] == module.SKIP_REASON
+    assert set(payload) == {
+        "success",
+        "platform",
+        "test_name",
+        "audit_log_entry_skipped",
+        "audit_log_entry_skip_reason",
+        "audit_log_retention_skipped",
+        "audit_log_retention_skip_reason",
+        "tests",
+    }
+    assert all(test["passed"] is True and test["skipped"] is True for test in payload["tests"].values())
+    assert "audit_log_destination" not in payload
+    assert "minimum_retention_days" not in payload
+    assert "audit_log_bucket" not in payload
+    assert "audit_log_prefix" not in payload
+    assert "audit_log_trail_arn" not in payload
+
+
+class FakeIpResponse:
+    """Context manager returned by fake URL open calls."""
+
+    def __init__(self, body: str) -> None:
+        """Store the fake response body."""
+        self.body = body
+
+    def __enter__(self) -> FakeIpResponse:
+        """Return this fake response."""
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        """Close the fake response."""
+
+    def read(self) -> bytes:
+        """Return the configured response body."""
+        return self.body.encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    ("raw_ip", "expected_cidr"),
+    [
+        ("203.0.113.10\n", "203.0.113.10/32"),
+        ("2001:db8::1\n", "2001:db8::1/128"),
+    ],
+)
+def test_least_privilege_detect_source_cidr_handles_ipv4_and_ipv6(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_ip: str,
+    expected_cidr: str,
+) -> None:
+    """Source CIDR detection normalizes IPv4 and IPv6 host addresses."""
+    module = _load_security_script("least_privilege_test.py")
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeIpResponse(raw_ip))
+
+    assert module._detect_source_cidr() == expected_cidr
+
+
+def test_least_privilege_dimension_results_require_denied_bucket_and_source_cidr() -> None:
+    """SEC04 dimension flags require denied-resource evidence and the SourceIp policy condition."""
+    module = _load_security_script("least_privilege_test.py")
+    policy_document = module._policy_document("allowed-bucket", "2001:db8::1/128")
+
+    resource_result, network_result = module._policy_dimension_scope_results(
+        allowed_result={"passed": True},
+        denied_resource_result={
+            "name": "storage_list_unscoped_resource_denied",
+            "passed": True,
+            "code": "AccessDenied",
+        },
+        policy_document=policy_document,
+        allowed_bucket="allowed-bucket",
+        source_cidr="2001:db8::1/128",
+    )
+
+    assert resource_result["passed"] is True
+    assert resource_result["probes"][0]["code"] == "AccessDenied"
+    assert network_result["passed"] is True
+
+    failed_resource_result, failed_network_result = module._policy_dimension_scope_results(
+        allowed_result={"passed": True},
+        denied_resource_result={"name": "storage_list_unscoped_resource_denied", "passed": False, "error": "allowed"},
+        policy_document=policy_document,
+        allowed_bucket="allowed-bucket",
+        source_cidr="203.0.113.10/32",
+    )
+
+    assert failed_resource_result["passed"] is False
+    assert failed_network_result["passed"] is False
+
+
 class FakeIamTags:
     """Small fake for IAM list_user_tags responses."""
 
@@ -1216,10 +1327,11 @@ def test_teardown_cleanup_owned_user_deletes_inline_policy_for_sec02_users() -> 
 
 
 def test_teardown_owned_user_prefixes_cover_security_test_scripts() -> None:
-    """The teardown sweep must recognize sa_credential, short-lived, and tenant-isolation test users."""
+    """The teardown sweep must recognize every owned security-test IAM user prefix."""
     module = _load_security_script("teardown.py")
 
     assert "isv-sa-test-".startswith("isv-sa-test-")
+    assert "isv-sec04-test-foo".startswith(module.OWNED_USER_PREFIXES)
     assert "isv-sec02-test-foo".startswith(module.OWNED_USER_PREFIXES)
     assert "isv-sec11-test-foo".startswith(module.OWNED_USER_PREFIXES)
     assert "isv-sa-test-bar".startswith(module.OWNED_USER_PREFIXES)
@@ -3602,8 +3714,8 @@ class FakeSec11Ec2:
         self.deleted_vpcs.append(VpcId)
 
 
-def test_teardown_cleanup_sec11_instances_only_terminates_matching_prefix() -> None:
-    """`_cleanup_sec11_instances` skips non-SEC11 instances and ignores terminated ones."""
+def test_teardown_cleanup_owned_instances_only_terminates_matching_prefix() -> None:
+    """`_cleanup_owned_instances` skips non-owned instances and ignores terminated ones."""
     module = _load_security_script("teardown.py")
     ec2 = FakeSec11Ec2(
         instances=[
@@ -3631,14 +3743,56 @@ def test_teardown_cleanup_sec11_instances_only_terminates_matching_prefix() -> N
         ]
     )
 
-    errors = module._cleanup_sec11_instances(ec2)
+    errors = module._cleanup_owned_instances(ec2)
 
     assert errors == []
     assert ec2.terminated == ["i-sec11-active"]
 
 
-def test_teardown_cleanup_sec11_buckets_skips_untagged_buckets() -> None:
-    """`_cleanup_sec11_buckets` only deletes buckets whose tag set contains ``CreatedBy=isvtest``."""
+def test_teardown_cleanup_sec04_ec2_fixtures_by_owned_name_prefix() -> None:
+    """The standalone teardown sweep must remove SEC04 EC2 fixtures leaked by a killed test."""
+    module = _load_security_script("teardown.py")
+    ec2 = FakeSec11Ec2(
+        instances=[
+            {
+                "InstanceId": "i-sec04-active",
+                "State": {"Name": "running"},
+                "Tags": [
+                    {"Key": "Name", "Value": "isv-sec04-test-aaaa1111"},
+                    {"Key": "CreatedBy", "Value": "isvtest"},
+                ],
+            }
+        ],
+        vpcs=[
+            {
+                "VpcId": "vpc-sec04",
+                "Tags": [
+                    {"Key": "Name", "Value": "isv-sec04-test-aaaa1111"},
+                    {"Key": "CreatedBy", "Value": "isvtest"},
+                ],
+            },
+            {
+                "VpcId": "vpc-keep",
+                "Tags": [{"Key": "Name", "Value": "production"}, {"Key": "CreatedBy", "Value": "isvtest"}],
+            },
+        ],
+        subnets=[{"SubnetId": "subnet-sec04"}],
+        sgs=[{"GroupId": "sg-sec04", "GroupName": "isv-sec04-test-aaaa1111-sg"}],
+    )
+
+    instance_errors = module._cleanup_owned_instances(ec2)
+    vpc_errors = module._cleanup_owned_vpcs(ec2)
+
+    assert instance_errors == []
+    assert vpc_errors == []
+    assert ec2.terminated == ["i-sec04-active"]
+    assert ec2.deleted_sgs == ["sg-sec04"]
+    assert ec2.deleted_subnets == ["subnet-sec04"]
+    assert ec2.deleted_vpcs == ["vpc-sec04"]
+
+
+def test_teardown_cleanup_owned_buckets_skips_untagged_buckets() -> None:
+    """`_cleanup_owned_buckets` deletes owned SEC04/SEC11 buckets and skips unowned buckets."""
     module = _load_security_script("teardown.py")
     deleted_buckets: list[str] = []
 
@@ -3646,6 +3800,7 @@ def test_teardown_cleanup_sec11_buckets_skips_untagged_buckets() -> None:
         def list_buckets(self) -> dict[str, list[dict[str, str]]]:
             return {
                 "Buckets": [
+                    {"Name": "isv-sec04-test-aaaa1111-allowed"},  # tagged
                     {"Name": "isv-sec11-test-aaaa-abcdef"},  # tagged
                     {"Name": "isv-sec11-test-other-zzzzzz"},  # untagged -> skip
                     {"Name": "production-bucket"},  # wrong prefix -> skip
@@ -3653,7 +3808,7 @@ def test_teardown_cleanup_sec11_buckets_skips_untagged_buckets() -> None:
             }
 
         def get_bucket_tagging(self, Bucket: str) -> dict[str, list[dict[str, str]]]:
-            if Bucket == "isv-sec11-test-aaaa-abcdef":
+            if Bucket in {"isv-sec04-test-aaaa1111-allowed", "isv-sec11-test-aaaa-abcdef"}:
                 return {"TagSet": [{"Key": "CreatedBy", "Value": "isvtest"}]}
             raise _client_error("GetBucketTagging", code="NoSuchTagSet")
 
@@ -3667,14 +3822,14 @@ def test_teardown_cleanup_sec11_buckets_skips_untagged_buckets() -> None:
         def delete_bucket(self, Bucket: str) -> None:
             deleted_buckets.append(Bucket)
 
-    errors = module._cleanup_sec11_buckets(FakeS3())
+    errors = module._cleanup_owned_buckets(FakeS3())
 
     assert errors == []
-    assert deleted_buckets == ["isv-sec11-test-aaaa-abcdef"]
+    assert deleted_buckets == ["isv-sec04-test-aaaa1111-allowed", "isv-sec11-test-aaaa-abcdef"]
 
 
-def test_teardown_cleanup_sec11_kms_deletes_alias_and_schedules_key_deletion() -> None:
-    """`_cleanup_sec11_kms` deletes only ``alias/isv-sec11-test-*`` aliases and schedules their target keys."""
+def test_teardown_cleanup_owned_kms_deletes_alias_and_schedules_key_deletion() -> None:
+    """`_cleanup_owned_kms` deletes only ``alias/isv-sec11-test-*`` aliases and schedules their target keys."""
     module = _load_security_script("teardown.py")
     deleted_aliases: list[str] = []
     scheduled_keys: list[str] = []
@@ -3702,7 +3857,7 @@ def test_teardown_cleanup_sec11_kms_deletes_alias_and_schedules_key_deletion() -
             assert PendingWindowInDays == 7
             scheduled_keys.append(KeyId)
 
-    errors = module._cleanup_sec11_kms(FakeKms())
+    errors = module._cleanup_owned_kms(FakeKms())
 
     assert errors == []
     assert deleted_aliases == [

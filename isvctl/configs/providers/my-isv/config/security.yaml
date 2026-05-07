@@ -29,6 +29,10 @@
 #   SEC03-01: Service account credentials (ServiceAccountCredentialCheck)
 #   SEC01-01: OIDC user authentication (OidcUserAuthCheck)
 #   SEC02-01: Short-lived credentials/tokens (ShortLivedCredentialsCheck)
+#   SEC04-01: Least-privilege access policies (LeastPrivilegePolicyCheck)
+#   SEC04-02: Minimal role out-of-scope denial (MinimalRoleEnforcementCheck)
+#   SEC08-01: Management API audit-log entry metadata (AuditLogEntryCheck)
+#   SEC08-02: Audit-log retention >= 30 days (AuditLogRetentionCheck)
 #   SEC11-01: Hard tenant isolation across network/data/compute/storage (TenantIsolationCheck)
 #
 # Usage:
@@ -124,6 +128,18 @@ commands:
       - name: short_lived_credentials_test
         phase: test
         command: "python ../scripts/security/short_lived_credentials_test.py"
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: least_privilege_test
+        phase: test
+        command: "python ../scripts/security/least_privilege_test.py"
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: audit_logging_test
+        phase: test
+        command: "python ../scripts/security/audit_logging_test.py"
         args: ["--region", "{{region}}"]
         timeout: 60
 
