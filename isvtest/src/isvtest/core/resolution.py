@@ -41,21 +41,20 @@ class State(StrEnum):
 class SkipReason(StrEnum):
     """Why a skipped validation did not run."""
 
-    STEP_NOT_CONFIGURED = "step_not_configured"
-    STEP_NO_OUTPUT = "step_no_output"
-    PHASE_NOT_REQUESTED = "phase_not_requested"
-    UNRELEASED = "unreleased"
-    MARKER_EXCLUDED = "marker_excluded"
-    NAME_EXCLUDED = "name_excluded"
-    OPERATOR = "operator"
+    EXCLUDED = "excluded"  # explicitly excluded by user (YAML markers/tests OR CLI -k/-m)
+    PHASE_NOT_REQUESTED = "phase_not_requested"  # entry's phase wasn't in the requested phase set
+    RUNTIME_SKIP = "runtime_skip"  # validation called pytest.skip(...) at runtime
+    STEP_NO_OUTPUT = "step_no_output"  # step ran but produced no JSON output
+    STEP_NOT_CONFIGURED = "step_not_configured"  # step the entry binds to isn't in the platform's step list
+    UNRELEASED = "unreleased"  # not in released_tests.json (gated until release)
 
 
 class ErrorReason(StrEnum):
     """Why an error validation could not be processed or executed."""
 
-    TEMPLATE_RENDER_FAILED = "template_render_failed"
     INVALID_CONFIG = "invalid_config"
     RUNTIME_EXCEPTION = "runtime_exception"
+    TEMPLATE_RENDER_FAILED = "template_render_failed"
 
 
 @dataclass(frozen=True)
@@ -182,7 +181,7 @@ def resolve_entries(
             continue
 
         if entry.name in exclude_tests:
-            resolved.append(_skip(entry, SkipReason.NAME_EXCLUDED, f"validation '{entry.name}' is excluded by name"))
+            resolved.append(_skip(entry, SkipReason.EXCLUDED, f"validation '{entry.name}' is excluded by name"))
             continue
 
         marker_matches = sorted(set(entry.markers).intersection(exclude_markers))
@@ -191,7 +190,7 @@ def resolve_entries(
             resolved.append(
                 _skip(
                     entry,
-                    SkipReason.MARKER_EXCLUDED,
+                    SkipReason.EXCLUDED,
                     f"validation '{entry.name}' is excluded by marker: {marker_list}",
                 )
             )

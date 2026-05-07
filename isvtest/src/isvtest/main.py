@@ -204,8 +204,8 @@ def _apply_pytest_results(entries: list[ResolvedEntry], results: list[dict[str, 
                     entry=entry.entry,
                     rendered_params=entry.rendered_params,
                     state=State.SKIPPED,
-                    skip_reason=SkipReason.OPERATOR,
-                    message="not selected by pytest arguments",
+                    skip_reason=SkipReason.EXCLUDED,
+                    message="excluded by pytest -k/-m filter",
                 )
             )
             continue
@@ -222,7 +222,7 @@ def _result_to_resolved_entry(entry: ResolvedEntry, result: dict[str, Any]) -> R
             entry=entry.entry,
             rendered_params=entry.rendered_params,
             state=State.SKIPPED,
-            skip_reason=SkipReason.OPERATOR,
+            skip_reason=SkipReason.RUNTIME_SKIP,
             message=message,
             duration_seconds=duration,
         )

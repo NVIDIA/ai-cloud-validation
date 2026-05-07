@@ -94,8 +94,8 @@ def _resolve(
     ("entry", "kwargs", "expected_reason"),
     [
         (_entry("NewCheck"), {"released_tests": {"PlainCheck"}}, SkipReason.UNRELEASED),
-        (_entry("PlainCheck"), {"exclude_tests": {"PlainCheck"}}, SkipReason.NAME_EXCLUDED),
-        (_entry("MarkerCheck", markers=("slow",)), {"exclude_markers": {"slow"}}, SkipReason.MARKER_EXCLUDED),
+        (_entry("PlainCheck"), {"exclude_tests": {"PlainCheck"}}, SkipReason.EXCLUDED),
+        (_entry("MarkerCheck", markers=("slow",)), {"exclude_markers": {"slow"}}, SkipReason.EXCLUDED),
         (_entry(step="create_cluster"), {"step_phases": {}}, SkipReason.STEP_NOT_CONFIGURED),
         (
             _entry(step="create_cluster"),

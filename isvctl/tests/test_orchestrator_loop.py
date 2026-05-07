@@ -1016,8 +1016,8 @@ class TestEntriesMissingFromJunit:
         return ResolvedEntry(
             entry=ValidationEntry(name=name, category="cluster", params_template={}),
             state=State.SKIPPED,
-            skip_reason=SkipReason.OPERATOR,
-            message="not selected by pytest arguments",
+            skip_reason=SkipReason.EXCLUDED,
+            message="excluded by pytest -k/-m filter",
         )
 
     @staticmethod

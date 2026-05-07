@@ -91,7 +91,7 @@ def test_run_validations_via_pytest_updates_ready_entries() -> None:
     assert exit_code == 0
     assert [result.state for result in results] == [State.PASSED, State.SKIPPED]
     assert results[0].message == "ok"
-    assert results[1].skip_reason == SkipReason.OPERATOR
+    assert results[1].skip_reason == SkipReason.RUNTIME_SKIP
     assert results[1].message == "NIM was not deployed"
 
 
@@ -108,8 +108,8 @@ def test_run_validations_via_pytest_marks_runtime_exception() -> None:
     assert results[0].error_reason == ErrorReason.RUNTIME_EXCEPTION
 
 
-def test_run_validations_via_pytest_marks_unselected_entries_as_operator_skipped() -> None:
-    """Entries filtered out by pytest -k surface as SKIPPED(OPERATOR)."""
+def test_run_validations_via_pytest_marks_unselected_entries_as_excluded() -> None:
+    """Entries filtered out by pytest -k surface as SKIPPED(EXCLUDED)."""
     entries = [
         _ready("StepSuccessCheck", "setup_checks", {"step_output": {"success": True}}),
         _ready("NimHealthCheck", "nim", {"step_output": {"healthy": True}}),
@@ -121,5 +121,5 @@ def test_run_validations_via_pytest_marks_unselected_entries_as_operator_skipped
     assert by_name["StepSuccessCheck"].state == State.PASSED
     nim = by_name["NimHealthCheck"]
     assert nim.state == State.SKIPPED
-    assert nim.skip_reason == SkipReason.OPERATOR
-    assert nim.message == "not selected by pytest arguments"
+    assert nim.skip_reason == SkipReason.EXCLUDED
+    assert nim.message == "excluded by pytest -k/-m filter"

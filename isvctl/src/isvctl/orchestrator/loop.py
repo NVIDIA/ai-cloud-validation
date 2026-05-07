@@ -238,7 +238,7 @@ def _write_terminal_junit_xml(entries: list[ResolvedEntry], output_path: Path, s
         case.set("name", entry.entry.name)
         case.set("time", f"{entry.duration_seconds:.3f}")
         if entry.state == State.SKIPPED:
-            reason = entry.skip_reason or SkipReason.OPERATOR
+            reason = entry.skip_reason or SkipReason.EXCLUDED
             skipped = ET.SubElement(case, "skipped")
             skipped.set("type", reason.value)
             skipped.set("message", entry.message or reason.value)
