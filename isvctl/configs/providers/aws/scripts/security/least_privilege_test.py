@@ -97,12 +97,18 @@ def _detect_source_cidr() -> str:
     return f"{parsed_ip}/{prefix_len}"
 
 
-def _create_bucket(s3: Any, bucket: str, region: str) -> None:
-    """Create and tag one S3 bucket for the temporary SEC04 fixture."""
+def _create_bucket(s3: Any, bucket: str, region: str, buckets_created: list[str]) -> None:
+    """Create and tag one S3 bucket for the temporary SEC04 fixture.
+
+    The bucket is appended to ``buckets_created`` as soon as ``create_bucket``
+    succeeds so a failure in ``put_bucket_tagging`` still leaves the bucket
+    queued for cleanup.
+    """
     create_kwargs: dict[str, Any] = {"Bucket": bucket}
     if region != "us-east-1":
         create_kwargs["CreateBucketConfiguration"] = {"LocationConstraint": region}
     s3.create_bucket(**create_kwargs)
+    buckets_created.append(bucket)
     s3.put_bucket_tagging(
         Bucket=bucket,
         Tagging={"TagSet": [{"Key": "CreatedBy", "Value": "isvtest"}, {"Key": "TestId", "Value": "SEC04"}]},
@@ -118,26 +124,37 @@ def _isvtest_ec2_tags(name: str) -> list[dict[str, str]]:
 
 
 def _create_probe_network(ec2: Any, name: str) -> tuple[str, str, str]:
-    """Create a minimal VPC/subnet/security-group fixture for EC2 DryRun probes."""
-    vpc = ec2.create_vpc(CidrBlock=PROBE_CIDR)
+    """Create a minimal VPC/subnet/security-group fixture for EC2 DryRun probes.
+
+    Each resource is tagged via ``TagSpecifications`` on the create call so a
+    failure in a separate tagging API would not leave behind an untagged,
+    untracked resource that cleanup cannot find.
+    """
+    vpc = ec2.create_vpc(
+        CidrBlock=PROBE_CIDR,
+        TagSpecifications=[{"ResourceType": "vpc", "Tags": _isvtest_ec2_tags(name)}],
+    )
     vpc_id = vpc["Vpc"]["VpcId"]
-    ec2.create_tags(Resources=[vpc_id], Tags=_isvtest_ec2_tags(name))
     ec2.get_waiter("vpc_available").wait(VpcIds=[vpc_id])
 
     az = ec2.describe_availability_zones(Filters=[{"Name": "state", "Values": ["available"]}])["AvailabilityZones"][0][
         "ZoneName"
     ]
-    subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock=PROBE_CIDR, AvailabilityZone=az)
+    subnet = ec2.create_subnet(
+        VpcId=vpc_id,
+        CidrBlock=PROBE_CIDR,
+        AvailabilityZone=az,
+        TagSpecifications=[{"ResourceType": "subnet", "Tags": _isvtest_ec2_tags(name)}],
+    )
     subnet_id = subnet["Subnet"]["SubnetId"]
-    ec2.create_tags(Resources=[subnet_id], Tags=_isvtest_ec2_tags(name))
 
     sg = ec2.create_security_group(
         GroupName=f"{name}-sg",
         Description=f"SEC04 least-privilege test SG for {name}",
         VpcId=vpc_id,
+        TagSpecifications=[{"ResourceType": "security-group", "Tags": _isvtest_ec2_tags(name)}],
     )
     sg_id = sg["GroupId"]
-    ec2.create_tags(Resources=[sg_id], Tags=_isvtest_ec2_tags(name))
     return vpc_id, subnet_id, sg_id
 
 
@@ -475,10 +492,8 @@ def main() -> int:
         try:
             iam.create_user(UserName=username, Tags=[{"Key": "CreatedBy", "Value": "isvtest"}])
             user_created = True
-            _create_bucket(s3, allowed_bucket, region)
-            buckets_created.append(allowed_bucket)
-            _create_bucket(s3, denied_bucket, region)
-            buckets_created.append(denied_bucket)
+            _create_bucket(s3, allowed_bucket, region, buckets_created)
+            _create_bucket(s3, denied_bucket, region, buckets_created)
             s3.put_object(Bucket=denied_bucket, Key=DENIED_OBJECT_KEY, Body=b"SEC04 deny probe")
             probe_ami_id = _get_amazon_linux_ami(ec2)
             probe_vpc_id, probe_subnet_id, probe_sg_id = _create_probe_network(ec2, username)
