@@ -12,140 +12,290 @@
 
 from __future__ import annotations
 
-import shlex
+import re
 from typing import Any, ClassVar
+from urllib.parse import urlsplit
+
+import pytest
 
 from isvtest.core.k8s import get_kubectl_base_shell
 from isvtest.core.validation import BaseValidation
 from isvtest.utils.checks import truncate
 
-_DEFAULT_NAMESPACE = "default"
-_DEFAULT_PROBE_TIMEOUT = 10
+_DEFAULT_API_HEALTH_PATH = "/readyz"
+_DEFAULT_PROBE_TIMEOUT_S = 10
+_DEFAULT_HTTP_PORTS = {"http": 80, "https": 443}
+
+
+def _normalized_http_origin(url: str) -> tuple[str, str, int] | None:
+    """Return normalized ``(scheme, host, port)`` for an HTTP(S) URL."""
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    host = (parts.hostname or "").lower()
+    if scheme not in _DEFAULT_HTTP_PORTS or not host:
+        return None
+    try:
+        port = parts.port if parts.port is not None else _DEFAULT_HTTP_PORTS[scheme]
+    except ValueError:
+        return None
+    return scheme, host, port
+
+
+def _format_origin(origin: tuple[str, str, int]) -> str:
+    """Render a normalized HTTP(S) origin for diagnostics."""
+    scheme, host, port = origin
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"{scheme}://{host}:{port}"
 
 
 class K8sApiNetworkAclCheck(BaseValidation):
-    """Verify a Cluster API control-plane endpoint enforces network ACLs via operator-supplied probes."""
+    """Verify the reviewed cluster's Kubernetes API endpoint enforces network ACLs."""
 
     description: ClassVar[str] = "Verify the Kubernetes API endpoint is protected by network access controls."
     timeout: ClassVar[int] = 120
     markers: ClassVar[list[str]] = ["kubernetes"]
 
     def run(self) -> None:
-        """Execute the endpoint read, authorized baseline probe, and unauthorized probe flow."""
+        """Execute the authorized baseline probe and unauthorized probe flow."""
         cfg = self._parse_config()
         if cfg is None:
             return
 
-        endpoint_info: str | None = None
-        if cfg["require_endpoint_info"]:
-            endpoint_info = self._read_endpoint(cfg["cluster_name"], cfg["namespace"])
-            if endpoint_info is None:
-                return
+        using_default_auth_probe = cfg["authorized_probe_cmd"] is None
+        authorized_probe_cmd = cfg["authorized_probe_cmd"] or get_kubectl_base_shell(
+            "get",
+            "--raw",
+            cfg["api_health_path"],
+        )
+        if not self._run_authorized_probe(authorized_probe_cmd, cfg["probe_timeout_s"]):
+            return
 
-        if not self._run_authorized_probe(cfg["authorized_probe_cmd"], cfg["probe_timeout"]):
+        # Only meaningful when the default kubectl-based auth probe was used;
+        # a custom authorized_probe may not even use kubectl, so its target
+        # cannot be inferred from kubeconfig.
+        kubectl_server_url = (
+            self._derive_kubectl_server_url(cfg["probe_timeout_s"]) if using_default_auth_probe else None
+        )
+
+        if not self._enforce_endpoint_consistency(
+            api_endpoint=cfg["api_endpoint"],
+            kubectl_server_url=kubectl_server_url,
+            expect_separate=cfg["expect_separate_endpoints"],
+        ):
             return
 
         self._run_unauthorized_probe(
             unauthorized_probe_cmd=cfg["unauthorized_probe_cmd"],
-            probe_timeout=cfg["probe_timeout"],
-            endpoint_info=endpoint_info,
+            probe_timeout_s=cfg["probe_timeout_s"],
+            api_endpoint=cfg["api_endpoint"],
+            kubectl_server_url=kubectl_server_url,
         )
 
     def _parse_config(self) -> dict[str, Any] | None:
         """Validate and normalize check configuration, or ``None`` after calling ``set_failed``."""
-        cluster_name = self.config.get("cluster_name")
-        if not cluster_name or not isinstance(cluster_name, str):
-            self.set_failed("`cluster_name` is required and must be a string (the CAPI Cluster resource name).")
-            return None
-
-        namespace = str(self.config.get("namespace", _DEFAULT_NAMESPACE))
-
-        authorized = self.config.get("authorized_probe_cmd")
-        if not authorized or not isinstance(authorized, str):
+        raw_commands = self.config.get("commands", {})
+        if not isinstance(raw_commands, dict):
             self.set_failed(
-                "`authorized_probe_cmd` is required and must be a string (a shell "
-                "command expected to successfully reach the API, e.g. "
-                "`kubectl --kubeconfig /path/to/kubeconfig get --raw /healthz`). "
-                "Without this baseline a failing unauthorized probe cannot be "
-                "distinguished from a dead cluster."
+                f"`commands` must be a mapping, got {type(raw_commands).__name__}: "
+                f"{raw_commands!r}. Example: `commands: {{unauthorized_probe: 'ssh external-host curl ...'}}`."
             )
             return None
 
-        unauthorized = self.config.get("unauthorized_probe_cmd")
-        if not unauthorized or not isinstance(unauthorized, str):
-            self.set_failed(
-                "`unauthorized_probe_cmd` is required and must be a string (a "
-                "shell command expected to FAIL or time out because the source "
-                "network is not allow-listed, e.g. "
+        commands: dict[str, str] = {}
+        for key, value in raw_commands.items():
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                self.set_failed(f"`commands.{key}` must be a string, got {type(value).__name__}: {value!r}.")
+                return None
+            if not value:
+                continue
+            commands[str(key)] = value
+
+        authorized = commands.get("authorized_probe")
+        if authorized is not None and not authorized.strip():
+            self.set_failed("`commands.authorized_probe` must be a non-empty string when set.")
+            return None
+
+        unauthorized = commands.get("unauthorized_probe")
+        if unauthorized is None or not unauthorized.strip():
+            pytest.skip(
+                "Kubernetes API network ACL probe is not configured; provide "
+                "`commands.unauthorized_probe` with a shell command expected "
+                "to FAIL or time out because the source network is not allow-listed, e.g. "
                 "`ssh external-host curl --max-time 5 https://<endpoint>:6443/healthz`)."
             )
+
+        probe_timeout_s = self._parse_positive_int("probe_timeout_s", default=_DEFAULT_PROBE_TIMEOUT_S)
+        if probe_timeout_s is None:
             return None
 
-        probe_timeout = self._parse_positive_int("probe_timeout", default=_DEFAULT_PROBE_TIMEOUT)
-        if probe_timeout is None:
-            return None
-
-        require_endpoint_info_raw = self.config.get("require_endpoint_info", True)
-        if not isinstance(require_endpoint_info_raw, bool):
+        api_health_path = self.config.get("api_health_path", _DEFAULT_API_HEALTH_PATH)
+        if not isinstance(api_health_path, str) or not api_health_path.startswith("/"):
             self.set_failed(
-                f"`require_endpoint_info` must be a boolean, got "
-                f"{type(require_endpoint_info_raw).__name__}: {require_endpoint_info_raw!r}"
+                f"`api_health_path` must be an absolute API path string, got "
+                f"{type(api_health_path).__name__}: {api_health_path!r}"
             )
+            return None
+
+        api_endpoint, ok = self._parse_api_endpoint()
+        if not ok:
+            return None
+
+        expect_separate, ok = self._parse_expect_separate()
+        if not ok:
+            return None
+
+        if (
+            api_endpoint
+            and not expect_separate
+            and not self._unauthorized_targets_api_endpoint(
+                unauthorized=unauthorized,
+                api_endpoint=api_endpoint,
+            )
+        ):
             return None
 
         return {
-            "cluster_name": cluster_name,
-            "namespace": namespace,
             "authorized_probe_cmd": authorized,
             "unauthorized_probe_cmd": unauthorized,
-            "probe_timeout": probe_timeout,
-            "require_endpoint_info": require_endpoint_info_raw,
+            "probe_timeout_s": probe_timeout_s,
+            "api_health_path": api_health_path,
+            "api_endpoint": api_endpoint,
+            "expect_separate_endpoints": expect_separate,
         }
 
-    def _read_endpoint(self, cluster_name: str, namespace: str) -> str | None:
-        """Read ``spec.controlPlaneEndpoint`` from the CAPI Cluster resource.
+    def _parse_api_endpoint(self) -> tuple[str | None, bool]:
+        """Validate optional ``api_endpoint`` config.
 
-        Returns ``"host:port"`` on success, or ``None`` after calling
-        ``set_failed`` if the Cluster is unreachable or the endpoint is empty.
+        Returns ``(value_or_none, ok)``. ``ok`` is ``False`` only when the
+        field is present but malformed; in that case ``set_failed`` has
+        already been called.
         """
-        kubectl_base = get_kubectl_base_shell()
-        jsonpath = "{.spec.controlPlaneEndpoint.host}:{.spec.controlPlaneEndpoint.port}"
-        cmd = (
-            f"{kubectl_base} get cluster {shlex.quote(cluster_name)} "
-            f"-n {shlex.quote(namespace)} -o jsonpath={shlex.quote(jsonpath)}"
-        )
-        result = self.run_command(cmd)
-        if result.exit_code != 0:
-            detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
-            self.set_failed(
-                f"Unable to read Cluster {cluster_name!r} in namespace "
-                f"{namespace!r}: {detail}. Verify the CAPI Cluster exists and "
-                f"the management cluster is reachable, or set "
-                f"`require_endpoint_info: false` to skip this read."
-            )
-            return None
-        raw = result.stdout.strip()
-        # jsonpath with two missing components renders as ":" - treat that as
-        # "endpoint not populated yet" rather than a valid host:port.
-        if not raw or raw == ":":
-            self.set_failed(
-                f"Cluster {cluster_name!r} in namespace {namespace!r} has no "
-                f"`spec.controlPlaneEndpoint` populated - the control plane "
-                f"has not yet been provisioned, or this infra provider does "
-                f"not surface the endpoint here. Set "
-                f"`require_endpoint_info: false` if this is expected."
-            )
-            return None
-        return raw
+        raw = self.config.get("api_endpoint")
+        if raw is None:
+            return None, True
+        if not isinstance(raw, str):
+            self.set_failed(f"`api_endpoint` must be a string, got {type(raw).__name__}: {raw!r}")
+            return None, False
+        value = raw.strip()
+        if not value:
+            return None, True
+        if not value.startswith("https://"):
+            self.set_failed(f"`api_endpoint` must start with 'https://' (Kubernetes API is HTTPS-only), got {value!r}")
+            return None, False
+        if not urlsplit(value).hostname:
+            self.set_failed(f"`api_endpoint` must include a host, got {value!r}")
+            return None, False
+        if _normalized_http_origin(value) is None:
+            self.set_failed(f"`api_endpoint` must include a valid HTTPS scheme, host, and port, got {value!r}")
+            return None, False
+        return value, True
 
-    def _run_authorized_probe(self, authorized_probe_cmd: str, probe_timeout: int) -> bool:
+    def _parse_expect_separate(self) -> tuple[bool, bool]:
+        """Validate optional ``expect_separate_endpoints`` flag.
+
+        Returns ``(value, ok)``. Defaults to ``False`` (consistency enforced).
+        """
+        raw = self.config.get("expect_separate_endpoints", False)
+        if isinstance(raw, bool):
+            return raw, True
+        self.set_failed(f"`expect_separate_endpoints` must be a boolean, got {type(raw).__name__}: {raw!r}")
+        return False, False
+
+    def _unauthorized_targets_api_endpoint(self, *, unauthorized: str, api_endpoint: str) -> bool:
+        """Check the unauth probe references the configured ``api_endpoint`` origin.
+
+        A typo'd or stale unauth target (e.g. an unrouted IP) trivially
+        fails to connect and would otherwise be misread as "ACL enforced".
+        We extract every ``http(s)://...`` URL from the probe string and
+        compare its normalized scheme/host/port to the configured
+        ``api_endpoint`` origin - matching at origin boundaries rather than
+        substring avoids false positives like ``my-api.test`` matching
+        ``api.test``, an SSH user happening to contain the host string, or a
+        probe hitting the right host but wrong API port.
+        """
+        api_origin = _normalized_http_origin(api_endpoint)
+        if api_origin is None:
+            return True
+        probe_urls = re.findall(r"https?://[^\s'\"<>]+", unauthorized)
+        for url in probe_urls:
+            if _normalized_http_origin(url) == api_origin:
+                return True
+        api_origin_text = _format_origin(api_origin)
+        self.set_failed(
+            f"`commands.unauthorized_probe` does not reference the configured "
+            f"`api_endpoint` origin {api_origin_text!r}: probe is {truncate(unauthorized)!r}. "
+            f"A probe that targets a different scheme, host, or port can fail "
+            f"trivially (DNS, TLS, unrouted IP) and be misread as "
+            f"'ACL enforced'. Either change the unauth probe to target {api_endpoint!r}, "
+            f"or set `expect_separate_endpoints: true` if the probe is intentionally "
+            f"hitting a different (e.g. public) hostname."
+        )
+        return False
+
+    def _enforce_endpoint_consistency(
+        self,
+        *,
+        api_endpoint: str | None,
+        kubectl_server_url: str | None,
+        expect_separate: bool,
+    ) -> bool:
+        """Verify the auth-probe target and the configured ``api_endpoint`` agree.
+
+        Returns ``True`` when consistency holds, when one side is unknown,
+        or when the user has acknowledged intentional separation. Returns
+        ``False`` after ``set_failed`` when both targets are known and
+        differ - the unauth probe result against a different endpoint than
+        the auth probe baselined would not be interpretable.
+        """
+        if expect_separate or not api_endpoint or not kubectl_server_url:
+            return True
+        api_origin = _normalized_http_origin(api_endpoint)
+        k_origin = _normalized_http_origin(kubectl_server_url)
+        if api_origin is None or k_origin is None:
+            return True
+        if api_origin == k_origin:
+            return True
+        self.set_failed(
+            f"Authorized probe targets {kubectl_server_url!r} (kubectl), but "
+            f"`api_endpoint` is {api_endpoint!r}. The auth baseline does not "
+            f"match the configured endpoint, so the unauthorized probe result "
+            f"would not be meaningful. Either align the kubeconfig with "
+            f"`api_endpoint`, or set `expect_separate_endpoints: true` if the "
+            f"auth path is intentionally different (e.g. private link)."
+        )
+        return False
+
+    def _derive_kubectl_server_url(self, probe_timeout_s: int) -> str | None:
+        """Best-effort: extract the API server URL kubectl is currently pointed at.
+
+        Used for consistency checks and reviewer-visible reporting. Returns
+        ``None`` on failure - this is informational and must never fail the
+        check on its own; the auth probe already established that kubectl
+        works.
+        """
+        cmd = get_kubectl_base_shell(
+            "config",
+            "view",
+            "--minify",
+            "-o",
+            "jsonpath={.clusters[0].cluster.server}",
+        )
+        result = self.run_command(cmd, timeout=probe_timeout_s)
+        if result.exit_code != 0:
+            return None
+        return result.stdout.strip() or None
+
+    def _run_authorized_probe(self, authorized_probe_cmd: str, probe_timeout_s: int) -> bool:
         """Run the authorized baseline probe and report failure on non-zero exit.
 
         Returns ``True`` if the probe succeeded, or ``False`` after calling
         ``set_failed`` - a failing baseline makes the unauthorized-probe result
         ambiguous, so the check must stop before interpreting it.
         """
-        result = self.run_command(authorized_probe_cmd, timeout=probe_timeout)
+        result = self.run_command(authorized_probe_cmd, timeout=probe_timeout_s)
         if result.exit_code != 0:
             detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
             snippet = truncate(authorized_probe_cmd)
@@ -160,9 +310,11 @@ class K8sApiNetworkAclCheck(BaseValidation):
 
     def _run_unauthorized_probe(
         self,
+        *,
         unauthorized_probe_cmd: str,
-        probe_timeout: int,
-        endpoint_info: str | None,
+        probe_timeout_s: int,
+        api_endpoint: str | None,
+        kubectl_server_url: str | None,
     ) -> None:
         """Run the unauthorized probe and set the final pass/fail verdict.
 
@@ -170,9 +322,9 @@ class K8sApiNetworkAclCheck(BaseValidation):
         enforced; a zero exit means the endpoint is reachable from a source
         that should be blocked and the check fails.
         """
-        result = self.run_command(unauthorized_probe_cmd, timeout=probe_timeout)
+        result = self.run_command(unauthorized_probe_cmd, timeout=probe_timeout_s)
         snippet = truncate(unauthorized_probe_cmd)
-        endpoint_clause = f" (endpoint: {endpoint_info})" if endpoint_info else ""
+        targets = self._format_targets(api_endpoint, kubectl_server_url)
 
         # 126/127 are shell conventions for "not executable" / "command not
         # found". Treating them as an ACL-enforced pass would hide a broken
@@ -180,9 +332,8 @@ class K8sApiNetworkAclCheck(BaseValidation):
         if result.exit_code in (126, 127):
             detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
             self.set_failed(
-                f"Unauthorized probe could not execute{endpoint_clause} "
-                f"(cmd: {snippet}): {detail}. Fix the probe tooling/command "
-                f"and re-run."
+                f"Unauthorized probe could not execute (cmd: {snippet}): "
+                f"{detail}. Fix the probe tooling/command and re-run.{targets}"
             )
             return
 
@@ -190,15 +341,26 @@ class K8sApiNetworkAclCheck(BaseValidation):
             preview = result.stdout.strip() or result.stderr.strip() or "(no output)"
             preview = truncate(preview, limit=120)
             self.set_failed(
-                f"Unauthorized probe unexpectedly succeeded{endpoint_clause}: "
-                f"the API endpoint is reachable from a source that should be "
+                f"Unauthorized probe unexpectedly succeeded: the API endpoint "
+                f"is reachable from a source that should be "
                 f"blocked, so no network ACL is in place. Probe cmd: {snippet}. "
-                f"Probe output: {preview!r}."
+                f"Probe output: {preview!r}.{targets}"
             )
             return
 
         self.set_passed(
-            f"API endpoint{endpoint_clause} blocked the unauthorized probe "
-            f"(exit={result.exit_code}) and served the authorized probe - network "
-            f"ACL verified."
+            f"API endpoint blocked the unauthorized probe (exit={result.exit_code}) "
+            f"and served the authorized probe - network ACL verified.{targets}"
         )
+
+    @staticmethod
+    def _format_targets(api_endpoint: str | None, kubectl_server_url: str | None) -> str:
+        """Render the auth/unauth probe targets for inclusion in result messages."""
+        parts: list[str] = []
+        if kubectl_server_url:
+            parts.append(f"authorized target (kubectl): {kubectl_server_url}")
+        if api_endpoint:
+            parts.append(f"configured api_endpoint: {api_endpoint}")
+        if not parts:
+            return ""
+        return " (" + "; ".join(parts) + ")"

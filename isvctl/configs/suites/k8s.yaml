@@ -274,25 +274,33 @@ tests:
     k8s_network:
       checks:
         K8sApiNetworkAclCheck:
-          # Probe-based, provider-agnostic: verifies the API endpoint
-          # refuses connections from a source that should be blocked. The
-          # operator supplies two shell commands:
-          #   - authorized_probe_cmd: a command expected to SUCCEED (e.g.
-          #     a kubectl call from an allow-listed admin host). Serves as
-          #     a baseline - without it, a failing unauthorized probe is
-          #     ambiguous (ACL works vs. API is down).
-          #   - unauthorized_probe_cmd: a command expected to FAIL or time
-          #     out (e.g. curling the endpoint via SSH on an external host
-          #     that is not in the allow-list).
-          # The check reads `Cluster.spec.controlPlaneEndpoint` from the
-          # management cluster to surface endpoint metadata in the result;
-          # set `require_endpoint_info: false` to skip that read.
-          cluster_name: "{{ steps.setup.kubernetes.capi_cluster_name }}"
-          namespace: "{{ steps.setup.kubernetes.capi_cluster_namespace | default('default') }}"
-          authorized_probe_cmd: "{{ steps.setup.kubernetes.authorized_probe_cmd }}"
-          unauthorized_probe_cmd: "{{ steps.setup.kubernetes.unauthorized_probe_cmd }}"
-          probe_timeout: 10
-          require_endpoint_info: true
+          # Probe-based, provider-agnostic: verifies the reviewed cluster's
+          # Kubernetes API endpoint refuses connections from a source that
+          # should be blocked. By default the validation uses the configured
+          # kubectl context as the authorized baseline (`kubectl get --raw
+          # /readyz`). Set `commands.authorized_probe` only when that default
+          # is not the right health probe for the reviewed cluster. Leave
+          # `commands.unauthorized_probe` empty to skip until the provider
+          # supplies a real outside vantage point.
+          #
+          # `api_endpoint` is the canonical API URL (e.g. `https://api:6443`).
+          # When set, the check enforces that (a) the unauthorized probe
+          # references that host and (b) kubectl is pointed at the same
+          # host:port - this catches typo'd unauth targets and silently
+          # divergent kubeconfigs. Providers that intentionally drive
+          # kubectl through a different path than the unauth probe (e.g.
+          # private-link kubectl + public unauth probe) should override this
+          # check in their own config and set `expect_separate_endpoints:
+          # true` (literal YAML bool) to disable the consistency checks.
+          commands:
+            # `authorized_probe` is intentionally omitted: the validation
+            # falls back to `kubectl get --raw <api_health_path>` against
+            # the configured kubectl context. Providers that need a
+            # different baseline can override this key in their config.
+            unauthorized_probe: "{{ steps.setup.kubernetes.unauthorized_probe_cmd | default('', true) }}"
+          api_health_path: "/readyz"
+          probe_timeout_s: 10
+          api_endpoint: "{{ steps.setup.kubernetes.api_endpoint | default('', true) }}"
 
   exclude:
     markers: []

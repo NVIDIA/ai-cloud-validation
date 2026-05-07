@@ -83,12 +83,9 @@ tests:
     k8s_network:
       checks:
         K8sApiNetworkAclCheck:
-          cluster_name: "{{ steps.setup.cluster_name | default('k3s', true) }}"
-          namespace: "default"
-          require_endpoint_info: false
-          authorized_probe_cmd: "kubectl get --raw /healthz"
-          unauthorized_probe_cmd: "curl --max-time 3 -fsS https://192.0.2.1:6443/healthz"
-          probe_timeout: 10
+          commands:
+            unauthorized_probe: "curl --max-time 3 -fsS https://192.0.2.1:6443/healthz"
+          probe_timeout_s: 10
 
     # ReFrame checks (not in k8s.yaml)
     reframe:

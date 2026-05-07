@@ -119,4 +119,4 @@ tests:
     tests:
       - K8sControlPlaneLogsCheck # TODO: need control plane logging
       - K8sNetworkPolicyCheck # TODO: enable ENABLE_NETWORK_POLICY on the VPC CNI addon (or install an enforcing CNI) so NetworkPolicy is enforced on the data plane
-      - K8sApiNetworkAclCheck # TODO: EKS is not CAPI-managed and requires an out-of-allow-list vantage point to probe from; skipped until a provider-specific harness exists
+      - K8sApiNetworkAclCheck # TODO: requires an out-of-allow-list vantage point to probe from; skipped until a provider-specific harness exists
