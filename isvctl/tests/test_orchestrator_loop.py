@@ -10,12 +10,26 @@
 
 """Tests for orchestrator loop."""
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
-from unittest.mock import patch
+
+from isvtest.core.resolution import (
+    ErrorReason,
+    ResolvedEntry,
+    SkipReason,
+    State,
+    ValidationEntry,
+)
 
 from isvctl.config.schema import PlatformCommands, RunConfig, StepConfig, ValidationConfig
 from isvctl.orchestrator.context import Context
-from isvctl.orchestrator.loop import Orchestrator, Phase
+from isvctl.orchestrator.loop import (
+    Orchestrator,
+    Phase,
+    _entries_missing_from_junit,
+    _merge_junit_xmls,
+    _write_terminal_junit_xml,
+)
 from isvctl.orchestrator.step_executor import (
     MissingStepRefError,
     StepExecutor,
@@ -252,17 +266,23 @@ EOF
                     ]
                 )
             },
-            tests=ValidationConfig(platform="kubernetes"),
+            tests=ValidationConfig(
+                platform="kubernetes",
+                validations={
+                    "setup_checks": {
+                        "step": "setup_cluster",
+                        "checks": {
+                            "FieldExistsCheck": {
+                                "field": "missing_field",
+                            }
+                        },
+                    }
+                },
+            ),
         )
         orchestrator = Orchestrator(config)
 
-        failing_validations = [{"name": "FakeCheck", "passed": False, "error": "simulated"}]
-        with patch.object(
-            orchestrator.step_executor,
-            "run_validations_for_phase",
-            side_effect=lambda phase, *a, **kw: failing_validations if phase == "setup" else [],
-        ):
-            result = orchestrator.run(teardown_on_failure=True)
+        result = orchestrator.run(teardown_on_failure=True)
 
         assert not result.success
         teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
@@ -323,6 +343,128 @@ EOF
         step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
         assert "teardown_nim" in step_names, "first teardown step must be recorded"
         assert "teardown_vm" in step_names, "second teardown step must run despite first failure"
+
+    def test_validation_without_step_output_is_reported_as_skipped(self) -> None:
+        """A configured validation whose step produced no JSON is skipped visibly."""
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(name="probe", command="true", phase="test"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(
+                platform="kubernetes",
+                validations={
+                    "probe_checks": {
+                        "step": "probe",
+                        "checks": {"StepSuccessCheck": {}},
+                    },
+                },
+            ),
+        )
+        orchestrator = Orchestrator(config)
+
+        result = orchestrator.run(phases=[Phase.TEST])
+
+        assert result.success
+        validations = result.phases[0].details["validations"]
+        assert validations == [
+            {
+                "name": "StepSuccessCheck",
+                "passed": True,
+                "skipped": True,
+                "message": "step 'probe' did not produce output",
+                "category": "probe_checks",
+                "state": "skipped",
+                "skip_reason": "step_no_output",
+                "error_reason": None,
+            }
+        ]
+
+    def test_validation_template_error_is_reported_as_error(self, tmp_path: Path) -> None:
+        """Validation parameter render failures are terminal validation errors."""
+        ok_script = _write_script(tmp_path, "ok.sh", _OK_SCRIPT)
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(name="probe", command=ok_script, phase="test"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(
+                platform="kubernetes",
+                validations={
+                    "probe_checks": {
+                        "checks": {
+                            "FieldExistsCheck": {
+                                "field": "{{ missing.value }}",
+                            }
+                        },
+                    },
+                },
+            ),
+        )
+        orchestrator = Orchestrator(config)
+
+        result = orchestrator.run(phases=[Phase.TEST])
+
+        assert not result.success
+        validation = result.phases[0].details["validations"][0]
+        assert validation["name"] == "FieldExistsCheck"
+        assert validation["passed"] is False
+        assert validation["skipped"] is False
+        assert validation["state"] == "error"
+        assert validation["error_reason"] == "template_render_failed"
+        assert "failed to render validation parameters" in validation["message"]
+
+    def test_preresolved_skip_and_error_are_written_to_junit(self, tmp_path: Path) -> None:
+        """Merged JUnit includes terminal entries that never went through pytest."""
+        ok_script = _write_script(tmp_path, "ok.sh", _OK_SCRIPT)
+        junit_path = tmp_path / "junit.xml"
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(name="no_json", command="true", phase="test"),
+                        StepConfig(name="probe", command=ok_script, phase="test"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(
+                platform="kubernetes",
+                validations={
+                    "skip_checks": {
+                        "step": "no_json",
+                        "checks": {"StepSuccessCheck": {}},
+                    },
+                    "error_checks": {
+                        "checks": {
+                            "FieldExistsCheck": {
+                                "field": "{{ missing.value }}",
+                            }
+                        },
+                    },
+                },
+            ),
+        )
+        orchestrator = Orchestrator(config)
+
+        orchestrator.run(phases=[Phase.TEST], junitxml=str(junit_path))
+
+        root = ET.parse(junit_path).getroot()
+        cases = {case.attrib["name"]: case for case in root.iter("testcase")}
+        assert "StepSuccessCheck" in cases
+        assert cases["StepSuccessCheck"].find("skipped") is not None
+        assert cases["StepSuccessCheck"].find("skipped").attrib["type"] == "step_no_output"
+        assert "FieldExistsCheck" in cases
+        assert cases["FieldExistsCheck"].find("error") is not None
+        assert cases["FieldExistsCheck"].find("error").attrib["type"] == "template_render_failed"
 
 
 class TestTeardownOnlyPhase:
@@ -655,3 +797,271 @@ class TestMissingStepRefDetection:
             executor._render_args(args, context)
 
         assert exc_info.value.missing_path == "create_network.network_id"
+
+
+class TestWriteTerminalJunitXml:
+    """JUnit stub generation for entries pre-resolved before pytest."""
+
+    @staticmethod
+    def _entry(
+        name: str,
+        category: str,
+        *,
+        state: State,
+        skip_reason: SkipReason | None = None,
+        error_reason: ErrorReason | None = None,
+        message: str = "",
+    ) -> ResolvedEntry:
+        return ResolvedEntry(
+            entry=ValidationEntry(name=name, category=category, params_template={}),
+            state=state,
+            skip_reason=skip_reason,
+            error_reason=error_reason,
+            message=message,
+        )
+
+    def test_emits_skipped_and_error_testcases(self, tmp_path: Path) -> None:
+        """Each pre-resolved entry produces one testcase with the right child element."""
+        entries = [
+            self._entry(
+                "K8sNodePoolCheck",
+                "cluster",
+                state=State.SKIPPED,
+                skip_reason=SkipReason.STEP_NOT_CONFIGURED,
+                message="step 'create_test_node_pool' is not configured for this run",
+            ),
+            self._entry(
+                "BrokenCheck",
+                "network",
+                state=State.ERROR,
+                error_reason=ErrorReason.TEMPLATE_RENDER_FAILED,
+                message="missing.value is undefined",
+            ),
+        ]
+        output_path = tmp_path / "terminal.xml"
+
+        _write_terminal_junit_xml(entries, output_path, "kubernetes/setup/resolved")
+
+        tree = ET.parse(output_path)
+        suite = tree.getroot()
+        assert suite.tag == "testsuite"
+        assert suite.get("name") == "kubernetes/setup/resolved"
+        assert suite.get("tests") == "2"
+        assert suite.get("errors") == "1"
+        assert suite.get("skipped") == "1"
+
+        cases = suite.findall("testcase")
+        assert [c.get("name") for c in cases] == ["K8sNodePoolCheck", "BrokenCheck"]
+        # classname intentionally not set: dashboards that prefix the testcase
+        # name with classname (e.g., "category.TestName") would otherwise turn
+        # the YAML grouping concept into user-facing noise.
+        assert [c.get("classname") for c in cases] == [None, None]
+
+        skipped = cases[0].find("skipped")
+        assert skipped is not None
+        assert skipped.get("type") == SkipReason.STEP_NOT_CONFIGURED.value
+        assert skipped.get("message") == "step 'create_test_node_pool' is not configured for this run"
+        # Body intentionally empty for skipped: avoids a misleading "Stack Trace"
+        # panel on dashboards that render <skipped>'s body content as a trace.
+        assert not skipped.text
+
+        error = cases[1].find("error")
+        assert error is not None
+        assert error.get("type") == ErrorReason.TEMPLATE_RENDER_FAILED.value
+        assert error.get("message") == "missing.value is undefined"
+        assert error.text == "missing.value is undefined"
+
+    def test_empty_entry_list_produces_zero_count_suite(self, tmp_path: Path) -> None:
+        """An empty entry list still writes a valid empty testsuite."""
+        output_path = tmp_path / "empty.xml"
+
+        _write_terminal_junit_xml([], output_path, "kubernetes/teardown/resolved")
+
+        suite = ET.parse(output_path).getroot()
+        assert suite.get("tests") == "0"
+        assert suite.findall("testcase") == []
+
+
+class TestMergeJunitXmls:
+    """Per-phase XMLs are concatenated; same-named suites fold into one."""
+
+    @staticmethod
+    def _write_suite(
+        path: Path,
+        name: str,
+        cases: list[tuple[str, str | None]],
+        *,
+        time: str = "0.000",
+        skipped: int = 0,
+        errors: int = 0,
+        failures: int = 0,
+    ) -> None:
+        """Write a minimal <testsuite> XML; ``cases`` is ``[(name, child_tag_or_None), ...]``."""
+        suite = ET.Element(
+            "testsuite",
+            attrib={
+                "name": name,
+                "tests": str(len(cases)),
+                "failures": str(failures),
+                "errors": str(errors),
+                "skipped": str(skipped),
+                "time": time,
+            },
+        )
+        for case_name, child_tag in cases:
+            case = ET.SubElement(suite, "testcase", attrib={"name": case_name, "classname": "cluster"})
+            if child_tag:
+                ET.SubElement(case, child_tag, attrib={"message": "x"})
+        ET.ElementTree(suite).write(path, encoding="utf-8", xml_declaration=True)
+
+    def test_distinct_suite_names_are_kept_separate(self, tmp_path: Path) -> None:
+        """Suites with different names produce separate <testsuite> children."""
+        a = tmp_path / "a.xml"
+        b = tmp_path / "b.xml"
+        self._write_suite(a, "kubernetes/setup", [("A", None)])
+        self._write_suite(b, "kubernetes/teardown", [("B", None)])
+        out = tmp_path / "merged.xml"
+
+        _merge_junit_xmls([a, b], out)
+
+        root = ET.parse(out).getroot()
+        suites = root.findall("testsuite")
+        assert [s.get("name") for s in suites] == ["kubernetes/setup", "kubernetes/teardown"]
+
+    def test_same_named_suites_are_folded(self, tmp_path: Path) -> None:
+        """Stub + pytest output for the same phase merge into a single suite."""
+        pytest_xml = tmp_path / "pytest.xml"
+        stub_xml = tmp_path / "stub.xml"
+        self._write_suite(pytest_xml, "kubernetes/test", [("Ran", None)], time="1.500")
+        self._write_suite(
+            stub_xml,
+            "kubernetes/test",
+            [("PreSkipped", "skipped"), ("PreError", "error")],
+            time="0.250",
+            skipped=1,
+            errors=1,
+        )
+        out = tmp_path / "merged.xml"
+
+        _merge_junit_xmls([pytest_xml, stub_xml], out)
+
+        root = ET.parse(out).getroot()
+        suites = root.findall("testsuite")
+        assert len(suites) == 1
+        suite = suites[0]
+        assert suite.get("name") == "kubernetes/test"
+        assert {case.get("name") for case in suite.findall("testcase")} == {"Ran", "PreSkipped", "PreError"}
+        assert suite.get("tests") == "3"
+        assert suite.get("skipped") == "1"
+        assert suite.get("errors") == "1"
+        assert suite.get("failures") == "0"
+        assert suite.get("time") == "1.750"
+
+    def test_skips_unparseable_phase_files(self, tmp_path: Path) -> None:
+        """A corrupt per-phase XML is logged and skipped, not fatal."""
+        good = tmp_path / "good.xml"
+        bad = tmp_path / "bad.xml"
+        self._write_suite(good, "kubernetes/test", [("OK", None)])
+        bad.write_text("<not-valid")
+        out = tmp_path / "merged.xml"
+
+        _merge_junit_xmls([good, bad], out)
+
+        root = ET.parse(out).getroot()
+        suites = root.findall("testsuite")
+        assert [s.get("name") for s in suites] == ["kubernetes/test"]
+        assert {case.get("name") for case in suites[0].findall("testcase")} == {"OK"}
+
+    def test_name_order_interleaves_stub_and_pytest_testcases(self, tmp_path: Path) -> None:
+        """With name_order, skipped stubs slot in beside pytest results per YAML order."""
+        stub_xml = tmp_path / "stub.xml"
+        pytest_xml = tmp_path / "pytest.xml"
+        # Stub gets the marker-excluded entry that lives third in the YAML.
+        self._write_suite(stub_xml, "kubernetes/test", [("MidSkipped", "skipped")], skipped=1)
+        # Pytest emits the two ready entries that flank it; subtest also present.
+        self._write_suite(
+            pytest_xml,
+            "kubernetes/test",
+            [("First", None), ("First::sub", None), ("Last", None)],
+        )
+        out = tmp_path / "merged.xml"
+
+        _merge_junit_xmls(
+            [stub_xml, pytest_xml],
+            out,
+            name_order=["First", "MidSkipped", "Last"],
+        )
+
+        suite = ET.parse(out).getroot().find("testsuite")
+        names = [case.get("name") for case in suite.findall("testcase")]
+        assert names == ["First", "First::sub", "MidSkipped", "Last"]
+
+    def test_name_order_keeps_unknown_testcases_at_end(self, tmp_path: Path) -> None:
+        """Testcases not mentioned in name_order land after the known ones."""
+        xml = tmp_path / "phase.xml"
+        self._write_suite(xml, "kubernetes/test", [("Unknown", None), ("Known", None)])
+        out = tmp_path / "merged.xml"
+
+        _merge_junit_xmls([xml], out, name_order=["Known"])
+
+        suite = ET.parse(out).getroot().find("testsuite")
+        assert [case.get("name") for case in suite.findall("testcase")] == ["Known", "Unknown"]
+
+
+class TestEntriesMissingFromJunit:
+    """Diff helper that finds executed entries pytest didn't write to XML."""
+
+    @staticmethod
+    def _entry(name: str) -> ResolvedEntry:
+        return ResolvedEntry(
+            entry=ValidationEntry(name=name, category="cluster", params_template={}),
+            state=State.SKIPPED,
+            skip_reason=SkipReason.OPERATOR,
+            message="not selected by pytest arguments",
+        )
+
+    @staticmethod
+    def _write_junit(path: Path, names: list[str]) -> None:
+        suite = ET.Element("testsuite", attrib={"name": "test"})
+        for name in names:
+            ET.SubElement(suite, "testcase", attrib={"name": name})
+        ET.ElementTree(suite).write(path, encoding="utf-8", xml_declaration=True)
+
+    def test_returns_executed_entries_not_in_junit(self, tmp_path: Path) -> None:
+        """Entries deselected by pytest -k surface here so they can be stubbed."""
+        junit = tmp_path / "junit.xml"
+        self._write_junit(junit, ["RanCheck"])
+
+        missing = _entries_missing_from_junit(
+            [self._entry("RanCheck"), self._entry("DeselectedCheck")],
+            junit,
+        )
+
+        assert [m.entry.name for m in missing] == ["DeselectedCheck"]
+
+    def test_empty_when_all_executed_entries_are_in_junit(self, tmp_path: Path) -> None:
+        """No stub needed when pytest wrote every executed entry."""
+        junit = tmp_path / "junit.xml"
+        self._write_junit(junit, ["A", "B"])
+
+        assert _entries_missing_from_junit([self._entry("A"), self._entry("B")], junit) == []
+
+    def test_returns_all_entries_when_junit_missing(self, tmp_path: Path) -> None:
+        """If pytest never produced an XML, treat every executed entry as missing."""
+        missing = _entries_missing_from_junit(
+            [self._entry("Solo")],
+            tmp_path / "does-not-exist.xml",
+        )
+        assert [m.entry.name for m in missing] == ["Solo"]
+
+    def test_returns_all_entries_when_junit_unparseable(self, tmp_path: Path) -> None:
+        """A corrupt pytest XML doesn't suppress entries from the merged report."""
+        junit = tmp_path / "broken.xml"
+        junit.write_text("<not-valid-xml")
+
+        missing = _entries_missing_from_junit([self._entry("Solo")], junit)
+        assert [m.entry.name for m in missing] == ["Solo"]
+
+    def test_returns_all_entries_when_junit_path_is_none(self) -> None:
+        """A None path (pytest skipped because no ready entries) returns the full list."""
+        assert _entries_missing_from_junit([self._entry("A")], None) == [self._entry("A")]

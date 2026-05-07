@@ -132,35 +132,6 @@ def _find_missing_step_path(arg: str, steps_data: dict[str, Any]) -> str | None:
     return None
 
 
-def _deselected_validation_class_names(
-    exclude_markers: list[str] | None,
-    exclude_tests: list[str] | None,
-) -> set[str]:
-    """Return validation class names pytest would deselect for the given exclusions.
-
-    A class is deselected when its name is in ``exclude_tests`` or any of its
-    ``markers`` is in ``exclude_markers``. This mirrors conftest.py's
-    collection-time filtering so we can silence template-warning emission for
-    templates inside checks that will never run.
-
-    Returns an empty set if isvtest isn't importable (falls back to current
-    noisy behavior rather than crashing the orchestrator).
-    """
-    excluded: set[str] = set(exclude_tests or ())
-    if not exclude_markers:
-        return excluded
-    try:
-        from isvtest.core.discovery import discover_all_tests
-    except ImportError:
-        return excluded
-    ex_markers = set(exclude_markers)
-    for cls in discover_all_tests():
-        cls_markers = getattr(cls, "markers", None) or []
-        if any(m in ex_markers for m in cls_markers):
-            excluded.add(cls.__name__)
-    return excluded
-
-
 @dataclass
 class StepResult:
     """Result of executing a single step.
@@ -224,7 +195,7 @@ class StepExecutor:
     3. Stores output in context for subsequent steps
     4. Continues or stops based on step configuration
 
-    Validations are run separately after phases complete via run_validations_for_phase().
+    Validations are resolved and run by the orchestrator after phase steps complete.
     """
 
     def __init__(self, working_dir: str | Path | None = None) -> None:
@@ -288,102 +259,6 @@ class StepExecutor:
                     break
 
         return results
-
-    def run_validations_for_phase(
-        self,
-        phase: str,
-        all_validations: dict[str, list[dict[str, Any]] | dict[str, Any]],
-        context: Context,
-        exclude_markers: list[str] | None = None,
-        exclude_tests: list[str] | None = None,
-        settings: dict[str, Any] | None = None,
-        extra_pytest_args: list[str] | None = None,
-        verbose: bool = False,
-        junitxml: str | None = None,
-        suite_name: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """Run validations via pytest for a given phase.
-
-        Uses native pytest for full pytest features (markers, filtering, fixtures)
-        while capturing detailed results in-memory for rich output display.
-
-        Determines when validations run based on (in priority order):
-        1. Explicit `phase` field on the validation
-        2. Inferred from `step` - uses the step's phase
-        3. Default: 'test' phase
-
-        Supports two config formats:
-        1. List format (original):
-           validations:
-             category:
-               - CheckName:
-                   step: step_name
-                   phase: setup
-
-        2. Group defaults format (new):
-           validations:
-             category:
-               step: step_name
-               checks:
-                 - CheckName:
-                     other_param: value
-
-        Args:
-            phase: Current phase ('setup', 'test', 'teardown')
-            all_validations: All validations from tests.validations (grouped by category)
-            context: Context with accumulated step outputs and step phases
-            exclude_markers: List of markers to exclude (e.g., ['workload', 'l2'])
-            settings: Test settings dict (e.g., show_skipped_tests)
-            extra_pytest_args: Pytest arguments (-k, -m, -v, etc.)
-            verbose: Enable verbose output
-            junitxml: Path to write JUnit XML report
-            suite_name: Name for the JUnit XML test suite (e.g., phase name)
-
-        Returns:
-            List of validation results with name, passed, message, category
-        """
-        if not all_validations:
-            return []
-
-        try:
-            from isvtest.main import run_validations_via_pytest
-
-            step_outputs = context.get_accumulated_context().get("steps", {})
-            step_phases = context.get_all_step_phases()
-
-            # Tell the context which validation classes pytest will deselect
-            # (marker or test-name exclusion) so render_dict can suppress
-            # "missing step" warnings for templates inside those checks.
-            # Without this, a check like K8sNodePoolCheck (markers=["slow"])
-            # spams warnings about its create_test_node_pool / update_test_node_pool
-            # template refs on providers that don't run node-pool CRUD at all.
-            silenced = _deselected_validation_class_names(exclude_markers, exclude_tests)
-            context.set_silenced_validation_names(silenced)
-
-            # Render Jinja2 templates in validation parameters using context
-            # This handles templates like {{ steps.setup.slurm.partitions.cpu.nodes | length }}
-            rendered_validations = context.render_dict(all_validations)
-
-            _exit_code, results = run_validations_via_pytest(
-                validations=rendered_validations,
-                step_outputs=step_outputs,
-                step_phases=step_phases,
-                phase=phase,
-                extra_pytest_args=extra_pytest_args,
-                exclude_markers=exclude_markers,
-                exclude_tests=exclude_tests,
-                settings=settings,
-                verbose=verbose,
-                junitxml=junitxml,
-                suite_name=suite_name,
-            )
-
-            return results
-
-        except ImportError as e:
-            logger.error(f"Failed to import isvtest: {e}")
-            logger.error("Cannot run validations without isvtest package")
-            return []
 
     def _execute_step(self, step: StepConfig, context: Context) -> StepResult:
         """Execute a single step.

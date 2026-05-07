@@ -226,11 +226,15 @@ class BaseValidation(ABC):
                 - description: Validation description from class metadata
                 - subtests: List of subtest results (if any)
         """
+        from isvtest.core.resolution import ErrorReason
+
         start_time = time.time()
+        error_reason: str | None = None
         try:
             self.run()
         except Exception as e:
             self.set_failed(f"Validation raised exception: {e}")
+            error_reason = ErrorReason.RUNTIME_EXCEPTION.value
             self.log.exception("Validation execution failed")
 
         duration = time.time() - start_time
@@ -243,6 +247,7 @@ class BaseValidation(ABC):
             "duration": duration,
             "description": self.description,
             "subtests": self._subtest_results,
+            "error_reason": error_reason,
         }
 
     @property

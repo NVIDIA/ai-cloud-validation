@@ -16,15 +16,13 @@ import pytest
 
 from isvtest.config.loader import ConfigLoader
 from isvtest.core.discovery import discover_all_tests
+from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, RESOLVED_ENTRIES_FLAG, resolve_class_key
 from isvtest.core.runners import LocalRunner
 from isvtest.core.validation import BaseValidation
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 if TYPE_CHECKING:
     from isvtest.testing.subtests import SubTests
-
-# Categories handled by specialized adapters (not standard BaseValidation discovery)
-ADAPTER_HANDLED_CATEGORIES = {"reframe"}
 
 # In-memory storage for validation results (used by isvctl integration)
 # This allows capturing detailed results without temp files
@@ -46,18 +44,8 @@ def _resolve_validation_class(
     test_classes_map: dict[str, type[BaseValidation]],
 ) -> type[BaseValidation] | None:
     """Resolve a configured validation name to a discovered validation class."""
-    if validation_name in test_classes_map:
-        return test_classes_map[validation_name]
-
-    # Suffix match (e.g. ClassName-Variant). Generated duplicate keys use the
-    # same convention, but release filtering decides whether that suffix is an
-    # internal disambiguator or a literal configured variant.
-    possible_matches = [name for name in test_classes_map if validation_name.startswith(f"{name}-")]
-    if not possible_matches:
-        return None
-
-    longest_match = max(possible_matches, key=len)
-    return test_classes_map[longest_match]
+    key = resolve_class_key(validation_name, test_classes_map)
+    return test_classes_map[key] if key is not None else None
 
 
 def _is_released_validation(
@@ -103,11 +91,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Generate tests for all BaseValidation and BaseWorkloadCheck subclasses."""
     if "validation_class" in metafunc.fixturenames and "validation_config" in metafunc.fixturenames:
         test_classes = list(discover_all_tests())
-        released_tests = load_released_test_filter()
-        if released_tests is None:
-            sys.stderr.write(
-                f"\n\033[33mInfo:\033[0m Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled.\n"
-            )
 
         if not test_classes:
             return
@@ -116,7 +99,9 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         enabled_validations_config = {}
         cluster_inventory: dict[str, Any] = {}
         filtering_enabled = False
+        resolution_preapplied = False
         show_skipped = False
+        released_tests: set[str] | None = None
 
         try:
             config_file_arg = metafunc.config.getoption("--config", default=None)
@@ -132,6 +117,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 # Extract inventory - contains dynamic info about resources created during setup
                 # (e.g., instance IPs, SSH keys) needed by remote validations like AWS EC2
                 cluster_inventory = cluster_config.get("inventory", {})
+                resolution_preapplied = bool(cluster_config.get(RESOLVED_ENTRIES_FLAG))
                 # Get all validation categories, excluding adapter-handled ones
                 all_categories = list((cluster_config.get("validations") or {}).keys())
                 standard_categories = [c for c in all_categories if c not in ADAPTER_HANDLED_CATEGORIES]
@@ -140,6 +126,13 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 show_skipped = cluster_config.get("settings", {}).get("show_skipped_tests", False)
         except (ImportError, FileNotFoundError, ValueError, AttributeError, OSError):
             pass
+
+        if not resolution_preapplied:
+            released_tests = load_released_test_filter()
+            if released_tests is None:
+                sys.stderr.write(
+                    f"\n\033[33mInfo:\033[0m Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled.\n"
+                )
 
         # Create parameters with markers
         params = []
@@ -157,7 +150,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 if target_class is not None:
                     configured_classes.add(target_class.__name__)
 
-                if target_class is not None and released_tests is not None:
+                if target_class is not None and released_tests is not None and not resolution_preapplied:
                     if not _is_released_validation(validation_name, validation_config, target_class, released_tests):
                         sys.stderr.write(
                             f"\n\033[33mInfo:\033[0m Skipping unreleased validation: '{validation_name}'.\n"
@@ -192,7 +185,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                     sys.stderr.write(f"\n\033[33mWarning:\033[0m Validation not found: '{validation_name}'. {hint}\n")
 
             # 2. Add skipped tests for classes NOT in config (if show_skipped)
-            if show_skipped:
+            if show_skipped and not resolution_preapplied:
                 for cls_name, cls in test_classes_map.items():
                     if released_tests is not None and cls_name not in released_tests:
                         continue
@@ -272,6 +265,7 @@ def test_validation(
                 "skipped": True,
                 "message": skip_reason,
                 "category": category,
+                "duration": 0.0,
             }
         )
         raise
@@ -283,6 +277,8 @@ def test_validation(
             "skipped": False,
             "message": result["output"] if result["passed"] else result["error"],
             "category": category,
+            "duration": result.get("duration", 0.0),
+            "error_reason": result.get("error_reason"),
         }
     )
 

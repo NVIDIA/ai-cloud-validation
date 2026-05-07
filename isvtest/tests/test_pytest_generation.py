@@ -13,6 +13,7 @@
 from typing import Any
 from unittest.mock import patch
 
+from isvtest.core.resolution import RESOLVED_ENTRIES_FLAG
 from isvtest.core.validation import BaseValidation
 from isvtest.tests import test_validations as validation_tests
 
@@ -107,6 +108,17 @@ class ShowSkippedLiteralVariantLoader(LiteralVariantLoader):
         return config
 
 
+class ResolvedEntriesLoader(FakeLoader):
+    """ConfigLoader replacement for orchestrator-resolved temp configs."""
+
+    def load_cluster_config(self, config_file: str, inventory_path: str | None = None) -> dict[str, Any]:
+        """Return a config whose validation entries were resolved upstream."""
+        config = super().load_cluster_config(config_file=config_file, inventory_path=inventory_path)
+        config[RESOLVED_ENTRIES_FLAG] = True
+        config["settings"] = {"show_skipped_tests": True}
+        return config
+
+
 def test_release_filter_allows_synthesized_key_when_base_is_released() -> None:
     """Synthesized duplicate keys are kept when their base class is released."""
     metafunc = FakeMetafunc()
@@ -133,6 +145,20 @@ def test_unreleased_configured_variant_is_not_labeled_not_configured() -> None:
         validation_tests.pytest_generate_tests(metafunc)
 
     assert metafunc.ids == ["NO_VALIDATIONS"]
+
+
+def test_resolved_entries_bypass_pytest_release_filter_and_show_skipped() -> None:
+    """Resolved temp configs execute exactly the entries already selected upstream."""
+    metafunc = FakeMetafunc()
+
+    with (
+        patch.object(validation_tests, "ConfigLoader", ResolvedEntriesLoader),
+        patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation, UnreleasedValidation]),
+        patch.object(validation_tests, "load_released_test_filter", return_value={"ReleasedValidation"}),
+    ):
+        validation_tests.pytest_generate_tests(metafunc)
+
+    assert metafunc.ids == ["ReleasedValidation-start_checks", "UnreleasedValidation"]
 
 
 def test_release_filter_allows_synthesized_key_when_full_key_is_released() -> None:

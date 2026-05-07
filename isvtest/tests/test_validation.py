@@ -155,6 +155,7 @@ class TestBaseValidation:
 
         assert result["passed"] is False
         assert "Unexpected error" in result["error"]
+        assert result["error_reason"] == "runtime_exception"
 
     def test_run_command(self) -> None:
         """Test run_command method."""

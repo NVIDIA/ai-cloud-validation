@@ -421,8 +421,6 @@ class TestImportEndToEnd:
         context = Context(config)
         for step in config.get_steps("kubernetes"):
             context.set_step_phase(step.name, step.phase or "setup")
-        context.set_requested_phases({"setup", "test", "teardown"})
-        context.set_current_phase("test", config.get_phases("kubernetes"))
         context.set_step_output("setup", {"kubernetes": {"node_count": 3}})
         context.set_step_output(
             "update_test_node_pool",
@@ -430,7 +428,6 @@ class TestImportEndToEnd:
         )
         assert context.render_string(node_count) == "3"
         assert context.render_string(exclude_selector) == "eks.amazonaws.com/nodegroup=isv-test-pool"
-        assert context.get_warnings() == []
         assert result["tests"]["platform"] == "kubernetes"
 
     def test_aws_eks_does_not_hardcode_world_open_endpoint_allowlist(self) -> None:

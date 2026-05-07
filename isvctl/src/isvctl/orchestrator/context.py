@@ -17,9 +17,7 @@ enriched with inventory data from command outputs.
 
 import copy
 import json
-import logging
 import os
-import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,8 +26,6 @@ from jinja2 import ChainableUndefined, Environment
 
 from isvctl.config.schema import CommandOutput, RunConfig
 from isvctl.redaction import filter_env
-
-logger = logging.getLogger(__name__)
 
 
 def _create_jinja_env() -> Environment:
@@ -99,27 +95,6 @@ class Context:
         # Step phases (for inferring validation phase from step)
         self._step_phases: dict[str, str] = {}
 
-        # Track which missing steps have already been warned about
-        self._warned_missing_steps: set[str] = set()
-        self._context_warnings: list[str] = []
-
-        # Phases that were actually requested (set by orchestrator)
-        self._requested_phases: set[str] | None = None
-
-        # Phase currently being rendered (set before each per-phase render).
-        # Used to suppress warnings for steps whose phase hasn't had a chance
-        # to run yet (i.e., their phase comes after the current phase).
-        self._current_phase: str | None = None
-        self._phase_order: list[str] = []
-
-        # Validation class names whose templates should not emit "missing step"
-        # warnings. Populated with classes that pytest will deselect anyway
-        # (e.g. because their marker is in exclude.markers). render_dict enters
-        # a suppression zone when it recurses into a key matching one of these
-        # (exact or variant form "ClassName-*"). See set_silenced_validation_names.
-        self._silenced_validation_names: set[str] = set()
-        self._warning_suppression_depth: int = 0
-
         # Layer 6: Environment variables (for {{env.VAR}} access)
         # Must be loaded before settings so settings can reference env vars.
         # Sensitive variables (API keys, secrets) are excluded to prevent
@@ -170,62 +145,7 @@ class Context:
             Subsequent step can reference:
             >>> args: ["--cluster", "{{ steps.setup.cluster_name }}"]
         """
-        self.data.setdefault("steps", {})[step_name] = output
-
-    def set_requested_phases(self, phases: set[str]) -> None:
-        """Record which phases were requested for this run.
-
-        Used to suppress warnings for steps in phases that were
-        intentionally skipped (e.g., ``--phase teardown``).
-
-        Args:
-            phases: Set of phase names that were requested
-        """
-        self._requested_phases = phases
-
-    def set_silenced_validation_names(self, names: set[str]) -> None:
-        """Declare validation classes whose template refs must not warn.
-
-        Used by the orchestrator to point Context at classes that pytest
-        will deselect (marker or test-name exclusion). When ``render_dict``
-        recurses into a dict key that matches one of these names exactly
-        or as a variant prefix (``"ClassName-..."``), warnings about missing
-        step data are suppressed inside that subtree.
-
-        Args:
-            names: Class names to silence (e.g. ``{"K8sNodePoolCheck"}``).
-        """
-        self._silenced_validation_names = set(names or ())
-
-    def _is_silenced_validation_name(self, name: str) -> bool:
-        """Return True if ``name`` matches a silenced class exactly or as a variant."""
-        if not isinstance(name, str) or not self._silenced_validation_names:
-            return False
-        if name in self._silenced_validation_names:
-            return True
-        for base in self._silenced_validation_names:
-            if name.startswith(f"{base}-"):
-                return True
-        return False
-
-    def set_current_phase(self, phase: str, phase_order: list[str] | None = None) -> None:
-        """Record the phase currently being rendered.
-
-        Used by ``_warn_missing_step_defaults`` to suppress warnings for
-        steps whose phase hasn't had a chance to run yet (i.e., the step's
-        phase comes after ``phase`` in ``phase_order``). Without this, a
-        template in a later-phase validation (e.g. a ``test``-phase check
-        referencing ``steps.describe_instance``) would falsely warn while
-        validations are being rendered for an earlier phase.
-
-        Args:
-            phase: Current phase being rendered (e.g., ``'setup'``, ``'test'``).
-            phase_order: Ordered list of all configured phases. If provided,
-                replaces the known phase order used for ordering comparisons.
-        """
-        self._current_phase = phase
-        if phase_order is not None:
-            self._phase_order = list(phase_order)
+        self.data["steps"][step_name] = output
 
     def set_step_phase(self, step_name: str, phase: str) -> None:
         """Record the phase a step belongs to.
@@ -268,25 +188,6 @@ class Context:
         """
         return self.data.get("steps", {}).get(step_name, {})
 
-    def get_command_context(self) -> dict[str, Any]:
-        """Get context for command argument templating.
-
-        Returns the full layered context (context, lab, builtin, inventory)
-        for use in Jinja2 template rendering.
-
-        Returns:
-            Context dictionary for Jinja2 rendering
-        """
-        return self.data
-
-    def get_test_context(self) -> dict[str, Any]:
-        """Get context for test configuration templating.
-
-        Returns:
-            Context dictionary for Jinja2 rendering
-        """
-        return self.data
-
     def get_accumulated_context(self) -> dict[str, Any]:
         """Get all context including step outputs for Jinja2 templating.
 
@@ -302,10 +203,6 @@ class Context:
         """
         return self.data
 
-    def get_warnings(self) -> list[str]:
-        """Return any warnings about missing step data or fields."""
-        return list(self._context_warnings)
-
     def render_string(self, template_str: str) -> str:
         """Render a Jinja2 template string with context.
 
@@ -318,101 +215,12 @@ class Context:
         if "{{" not in template_str or "}}" not in template_str:
             return template_str
 
-        self._warn_missing_step_defaults(template_str)
-
         env = _create_jinja_env()
         template = env.from_string(template_str)
         return template.render(**self.data)
 
-    _STEP_PATH_RE = re.compile(r"steps\.([\w.]+)")
-
-    def _warn_missing_step_defaults(self, template_str: str) -> None:
-        """Warn when a template references missing step data.
-
-        Detects two cases that ``ChainableUndefined`` would silently absorb:
-
-        1. **Step not run** - ``steps.setup`` is empty because ``--phase test``
-           skipped setup.
-        2. **Field not found** - ``steps.setup`` has output but the referenced
-           field doesn't exist (typo, rename, wrong variable).
-
-        Emits a one-time warning per unique path so operators know defaults
-        are in effect and can verify they're correct.
-
-        Args:
-            template_str: Jinja2 template string to scan for step references
-        """
-        # Suppress everything while rendering a subtree that belongs to a
-        # validation class pytest will deselect anyway (see
-        # set_silenced_validation_names). Dead templates inside a never-running
-        # check should not warn.
-        if self._warning_suppression_depth > 0:
-            return
-        steps_data = self.data.get("steps", {})
-        for match in self._STEP_PATH_RE.finditer(template_str):
-            full_path = match.group(1)
-            parts = full_path.split(".")
-            step_name = parts[0]
-            warn_key = f"steps.{full_path}"
-
-            if warn_key in self._warned_missing_steps:
-                continue
-
-            if step_name not in steps_data or not steps_data[step_name]:
-                # Suppress warning if the step's phase wasn't requested
-                step_phase = self._step_phases.get(step_name)
-                if self._requested_phases and step_phase and step_phase not in self._requested_phases:
-                    continue
-                # Suppress warning if the step's phase hasn't had a chance to
-                # run yet (i.e., it comes after the phase currently being
-                # rendered). Without this, rendering validations for an early
-                # phase falsely warns about every step referenced by later
-                # phases' validations.
-                if step_phase and self._current_phase and self._phase_order:
-                    try:
-                        step_idx = self._phase_order.index(step_phase)
-                        curr_idx = self._phase_order.index(self._current_phase)
-                    except ValueError:
-                        step_idx = curr_idx = -1
-                    if step_idx > curr_idx >= 0:
-                        continue
-                self._warned_missing_steps.add(warn_key)
-                msg = f"step '{step_name}' has no output (not run?), using defaults for: steps.{full_path}"
-                logger.warning(msg)
-                self._context_warnings.append(msg)
-                continue
-
-            # Step has output - walk the path to check for missing fields
-            node = steps_data
-            for i, part in enumerate(parts):
-                if isinstance(node, dict) and part in node:
-                    node = node[part]
-                elif isinstance(node, dict):
-                    missing = parts[i]
-                    available = ", ".join(sorted(node.keys())) if node else "(empty)"
-                    self._warned_missing_steps.add(warn_key)
-                    msg = f"'{missing}' not found in steps.{'.'.join(parts[:i])} (available: {available})"
-                    logger.warning(msg)
-                    self._context_warnings.append(msg)
-                    break
-                else:
-                    self._warned_missing_steps.add(warn_key)
-                    msg = (
-                        f"cannot descend into steps.{'.'.join(parts[:i])} "
-                        f"(found {type(node).__name__}), using defaults for: steps.{full_path}"
-                    )
-                    logger.warning(msg)
-                    self._context_warnings.append(msg)
-                    break
-
     def render_dict(self, data: dict[str, Any]) -> dict[str, Any]:
         """Recursively render all string values in a dictionary.
-
-        When a key matches a silenced validation name (see
-        ``set_silenced_validation_names``), the entire subtree under that key
-        is rendered with missing-step warnings suppressed. That subtree's
-        templates point at a check pytest will deselect, so the refs are
-        effectively dead code and warnings would be noise.
 
         Args:
             data: Dictionary with potential template strings
@@ -422,21 +230,14 @@ class Context:
         """
         result = {}
         for key, value in data.items():
-            silence = self._is_silenced_validation_name(key)
-            if silence:
-                self._warning_suppression_depth += 1
-            try:
-                if isinstance(value, str):
-                    result[key] = self.render_string(value)
-                elif isinstance(value, dict):
-                    result[key] = self.render_dict(value)
-                elif isinstance(value, list):
-                    result[key] = self._render_list(value)
-                else:
-                    result[key] = value
-            finally:
-                if silence:
-                    self._warning_suppression_depth -= 1
+            if isinstance(value, str):
+                result[key] = self.render_string(value)
+            elif isinstance(value, dict):
+                result[key] = self.render_dict(value)
+            elif isinstance(value, list):
+                result[key] = self._render_list(value)
+            else:
+                result[key] = value
         return result
 
     def _render_list(self, items: list[Any]) -> list[Any]:
@@ -459,11 +260,3 @@ class Context:
             else:
                 result.append(item)
         return result
-
-    def to_inventory_dict(self) -> dict[str, Any]:
-        """Convert inventory to format expected by isvtest.
-
-        Returns:
-            Dictionary matching isvtest inventory schema
-        """
-        return self.data.get("inventory", {})

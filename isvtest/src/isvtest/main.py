@@ -14,10 +14,11 @@ Note: For cluster lifecycle management, use isvctl instead:
     isvctl test run -f isvctl/configs/suites/k8s.yaml
 """
 
+import copy
 import json
 import os
 import tempfile
-from collections.abc import Collection
+from dataclasses import replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
@@ -29,55 +30,34 @@ from isvreporter.version import get_version
 from isvtest.config.loader import ConfigLoader
 from isvtest.core import runners as reframe_runner
 from isvtest.core.logger import setup_logger
-from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter, load_released_tests
+from isvtest.core.resolution import RESOLVED_ENTRIES_FLAG, ErrorReason, ResolvedEntry, SkipReason, State
 from isvtest.tests.test_validations import (
-    ADAPTER_HANDLED_CATEGORIES,
     clear_validation_results,
     get_validation_results,
 )
 
 logger = setup_logger()
 
-# Process-level dedup so manifest-gate logs fire once per invocation
-# rather than once per phase (run_validations_via_pytest is called for
-# setup/test/teardown).
-_MANIFEST_GATE_ANNOUNCED = False
-_SKIPPED_UNRELEASED_LOGGED: set[str] = set()
-
 
 def run_validations_via_pytest(
-    validations: dict[str, list[dict[str, Any]] | dict[str, Any]],
-    step_outputs: dict[str, dict[str, Any]],
-    step_phases: dict[str, str] | None = None,
-    phase: str = "test",
+    entries: list[ResolvedEntry],
     extra_pytest_args: list[str] | None = None,
-    exclude_markers: list[str] | None = None,
-    exclude_tests: list[str] | None = None,
     settings: dict[str, Any] | None = None,
+    inventory: dict[str, Any] | None = None,
     verbose: bool = False,
     junitxml: str | None = None,
     suite_name: str | None = None,
-) -> tuple[int, list[dict[str, Any]]]:
-    """Run validations via pytest with step outputs available as context.
+) -> tuple[int, list[ResolvedEntry]]:
+    """Run ready validation entries via pytest.
 
-    This function bridges step-based execution with pytest-based validation.
-    It transforms the new config format (tests.validations) into a format
-    pytest can use, and passes step outputs for template rendering.
-
-    Results are captured in-memory via test_validations module, giving you
-    both full pytest features AND detailed validation messages.
+    Resolution decisions happen before this function. This bridge only executes
+    ready entries and maps pytest results back to the ResolvedEntry channel.
 
     Args:
-        validations: Validation config from tests.validations, grouped by category.
-            Format: {category: [{CheckName: {params...}}, ...] | {step, phase, checks}}
-        step_outputs: Accumulated step outputs from previous phases.
-            Format: {step_name: {output_dict}}
-        step_phases: Mapping of step names to their phases (for phase inference).
-            Format: {step_name: phase}
-        phase: Current phase to run validations for (filters by phase field).
+        entries: Ready resolved entries to execute.
         extra_pytest_args: Additional pytest arguments (-k, -m, -v, etc.).
-        exclude_markers: Markers to exclude from validation runs.
         settings: Test settings dict (e.g., show_skipped_tests).
+        inventory: Inventory passed to validations.
         verbose: Enable verbose output.
         junitxml: Path to write JUnit XML report.
         suite_name: Name for the JUnit XML test suite (defaults to pytest's "pytest").
@@ -85,98 +65,32 @@ def run_validations_via_pytest(
     Returns:
         Tuple of (exit_code, validation_results).
         exit_code: 0 if all validations passed, non-zero otherwise.
-        validation_results: List of validation result dicts with name, passed, message, category.
+        validation_results: Updated resolved entries with terminal states.
     """
-    # Transform validations into the format expected by test_validations.py
-    # The test_validations.py expects a "validations" dict at config root
-    released_tests = load_released_test_filter()
-    global _MANIFEST_GATE_ANNOUNCED
-    if not _MANIFEST_GATE_ANNOUNCED:
-        if released_tests is None:
-            # Env override is set: enumerate which configured validations are being included that would
-            # otherwise be gated, so it's obvious in the log which unreleased checks are actually running.
-            logger.info(f"Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled")
-            # Manifest read is for log diffing only; failure must not abort the unreleased run since
-            # that's the path that exists precisely to bypass the gate.
-            try:
-                manifest = load_released_tests()
-            except (FileNotFoundError, ValueError) as exc:
-                logger.warning(f"Could not diff against released_tests.json: {exc}")
-                manifest = set()
-            for name in _iter_configured_validation_names(validations):
-                if name not in manifest:
-                    logger.info(f"Including unreleased validation '{name}' (not in manifest)")
-        else:
-            # Env override is not set: announce the gate (with a count of unreleased configured validations)
-            # so it's obvious why newly-added validations may show up as 'Skipping unreleased ...' below.
-            unreleased_count = sum(
-                1 for name in _iter_configured_validation_names(validations) if name not in released_tests
-            )
-            logger.info(
-                f"Release manifest gate active: {unreleased_count} configured validation(s) unreleased "
-                f"(set {INCLUDE_UNRELEASED_ENV}=1 to include them)"
-            )
-        _MANIFEST_GATE_ANNOUNCED = True
-
-    transformed_validations = _transform_validations_for_pytest(
-        validations,
-        step_outputs,
-        step_phases or {},
-        phase,
-        released_tests=released_tests,
-    )
+    execution_entries = _entries_with_pytest_names(entries)
+    transformed_validations = _resolved_entries_to_pytest_validations(execution_entries)
 
     if not transformed_validations:
-        logger.info(f"No validations to run for phase '{phase}'")
+        logger.info("No ready validations to run")
         return 0, []
 
-    # Build inventory by merging step outputs
-    # This allows templates like {{ inventory.kubernetes.runtime_class }} to work
-    # by extracting platform sections (kubernetes, slurm, etc.) from step outputs
-    inventory: dict[str, Any] = {"steps": step_outputs}  # Keep steps available too
-    logger.debug(f"Building inventory from step_outputs: {list(step_outputs.keys())}")
-    for step_name, output in step_outputs.items():
-        logger.debug(f"Step '{step_name}' output keys: {list(output.keys()) if output else 'None'}")
-        for key, value in output.items():
-            if isinstance(value, dict):
-                # Merge nested dicts (e.g., kubernetes, slurm sections)
-                if key not in inventory:
-                    inventory[key] = {}
-                if isinstance(inventory[key], dict):
-                    inventory[key].update(value)
-                    logger.debug(f"Merged '{key}' section with {len(value)} keys")
-            else:
-                # Top-level fields go to inventory root
-                inventory[key] = value
+    effective_inventory = _build_inventory(execution_entries, inventory)
 
-    # Create a temporary config file with transformed validations
     temp_config: dict[str, Any] = {
+        RESOLVED_ENTRIES_FLAG: True,
         "validations": {"phase_validations": transformed_validations},
-        "inventory": inventory,
+        "inventory": effective_inventory,
     }
-
-    # Include exclude config so conftest.py can filter tests
-    exclude_config: dict[str, list[str]] = {}
-    if exclude_markers:
-        exclude_config["markers"] = exclude_markers
-    if exclude_tests:
-        exclude_config["tests"] = exclude_tests
-    if exclude_config:
-        temp_config["exclude"] = exclude_config
-
-    # Include settings (e.g., show_skipped_tests)
     if settings:
         temp_config["settings"] = settings
 
-    # Create temp file for the config
-    # Use JSON format (valid YAML) to avoid YAML's quote escaping issues that break
-    # Jinja2 template parsing (single quotes become ''nvidia'', backslashes added)
+    # JSON (valid YAML) avoids YAML quote-escaping that breaks Jinja2 templates
+    # (single quotes become ''nvidia'', backslashes are added).
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         json.dump(temp_config, f, indent=2)
         temp_config_path = f.name
 
     try:
-        # Get the tests directory relative to this module
         tests_dir = Path(__file__).parent / "tests"
 
         pytest_args = [
@@ -198,24 +112,19 @@ def run_validations_via_pytest(
         if suite_name:
             pytest_args.extend(["-o", f"junit_suite_name={suite_name}"])
 
-        # Note: exclude_markers from YAML are handled by conftest.py which reads them
-        # directly from the config file. We don't add them as -m args here because
-        # that would trigger conftest.py's "explicit marker selection" detection.
-
-        # Add extra pytest args
+        # exclude_markers from YAML are read directly by conftest.py; passing them
+        # as -m args would flip conftest's "explicit marker selection" branch.
         if extra_pytest_args:
             pytest_args.extend(extra_pytest_args)
 
-        # Clear previous results before running
         clear_validation_results()
 
         logger.info(f"Running validations via pytest: {' '.join(pytest_args)}")
         exit_code = pytest.main(pytest_args)
 
-        # Get detailed results captured during test execution
-        results = get_validation_results()
+        raw_results = get_validation_results()
 
-        if not results and extra_pytest_args:
+        if not raw_results and extra_pytest_args:
             k_filters = [
                 extra_pytest_args[i + 1]
                 for i, a in enumerate(extra_pytest_args)
@@ -226,172 +135,29 @@ def run_validations_via_pytest(
                     f"No tests matched -k '{k_filters[0]}' - check spelling or run without -k to see available tests"
                 )
 
-        return exit_code, results
+        return exit_code, _apply_pytest_results(execution_entries, raw_results)
 
     finally:
-        # Clean up temp file
-        try:
-            os.unlink(temp_config_path)
-        except OSError:
-            pass
+        Path(temp_config_path).unlink(missing_ok=True)
 
 
-def _iter_configured_validation_names(
-    validations: dict[str, list[dict[str, Any]] | dict[str, Any]],
-) -> list[str]:
-    """Return the validation class names referenced by ``validations``.
-
-    Used purely for logging: walks both supported config shapes (group
-    defaults with ``checks`` key, and flat list-of-dicts) and yields the
-    class name of every configured check.
-    """
-    names: list[str] = []
-    for category, category_config in validations.items():
-        if category in ADAPTER_HANDLED_CATEGORIES:
-            continue
-        if isinstance(category_config, dict) and "checks" in category_config:
-            checks_val = category_config.get("checks", {})
-            if isinstance(checks_val, dict):
-                names.extend(checks_val.keys())
-            else:
-                names.extend(n for item in checks_val for n in item)
-        elif isinstance(category_config, list):
-            names.extend(n for item in category_config for n in item)
-    return names
+def _resolved_entries_to_pytest_validations(entries: list[ResolvedEntry]) -> list[dict[str, dict[str, Any]]]:
+    """Return pytest config validations for already-named resolved entries."""
+    return [{entry.entry.name: copy.deepcopy(entry.rendered_params or {})} for entry in entries]
 
 
-def _transform_validations_for_pytest(
-    validations: dict[str, list[dict[str, Any]] | dict[str, Any]],
-    step_outputs: dict[str, dict[str, Any]],
-    step_phases: dict[str, str],
-    phase: str,
-    released_tests: Collection[str] | None = None,
-) -> list[dict[str, Any]]:
-    """Transform new-format validations into pytest-compatible format.
-
-    The new format supports:
-    - step: shorthand for referencing step output
-    - phase: explicit phase filtering (or inferred from step's phase)
-    - checks: list of validation checks
-
-    Phase determination priority:
-    1. Explicit `phase` field on the validation
-    2. Inferred from `step` - uses the step's phase from step_phases
-    3. Default: 'test' phase
-
-    The pytest format expects:
-    - List of {ValidationName: {params with step_output resolved}}
-
-    Args:
-        validations: New-format validations grouped by category
-        step_outputs: Step outputs for resolving step references
-        step_phases: Mapping of step names to their phases
-        phase: Current phase to filter validations for
-        released_tests: Optional released validation names. When provided,
-            configured validations not in this set are skipped.
-
-    Returns:
-        List of validation dicts in pytest-compatible format
-    """
-    # Two-pass approach: collect entries first, then qualify duplicate class
-    # names with a "-category" suffix so each becomes a unique pytest param.
-    # Without this, get_validations_for_category collapses them into a dict
-    # and only the last occurrence survives (e.g. InstanceStateCheck on
-    # launch_instance vs describe_instance vs reboot_instance).
-    entries: list[tuple[str, str, dict[str, Any]]] = []  # (class_name, category, params)
-
-    for category, category_config in validations.items():
-        if category in ADAPTER_HANDLED_CATEGORIES:
-            continue
-
-        # Determine format: group defaults (with checks key) or flat list
-        if isinstance(category_config, dict) and "checks" in category_config:
-            # Group defaults format
-            group_step = category_config.get("step")
-            group_phase = category_config.get("phase")  # Don't default - let inference handle it
-            checks_val = category_config.get("checks", {})
-            if isinstance(checks_val, dict):
-                # Dict-based checks: {CheckName: {params}, ...}
-                checks_iter: list[tuple[str, Any]] = list(checks_val.items())
-            else:
-                # List-based checks: [{CheckName: {params}}, ...]
-                checks_iter = [(n, p) for item in checks_val for n, p in item.items()]
-        elif isinstance(category_config, list):
-            # List format (no group defaults)
-            group_step = None
-            group_phase = None
-            checks_iter = [(n, p) for item in category_config for n, p in item.items()]
-        else:
-            logger.warning(f"Unknown validation format for category '{category}'")
-            continue
-
-        for name, params in checks_iter:
-            if released_tests is not None and name not in released_tests:
-                key = f"{category}:{name}"
-                if key not in _SKIPPED_UNRELEASED_LOGGED:
-                    logger.info(f"Skipping unreleased validation '{name}' in [{category}]")
-                    _SKIPPED_UNRELEASED_LOGGED.add(key)
-                continue
-
-            if params is None:
-                params = {}
-
-            # Apply group defaults
-            if group_step and "step" not in params:
-                params = {"step": group_step, **params}
-            if group_phase and "phase" not in params:
-                params = {"phase": group_phase, **params}
-
-            # Determine validation phase (priority: explicit > infer from step > default)
-            # If a step is referenced but has no registered phase, it was skipped
-            if "phase" in params:
-                validation_phase = params["phase"]
-            elif "step" in params:
-                step_name = params["step"]
-                if step_name not in step_phases:
-                    logger.info(f"Skipping validation '{name}' in [{category}]: step '{step_name}' is skipped")
-                    continue
-                validation_phase = step_phases[step_name]
-            else:
-                validation_phase = "test"  # Default to test phase
-
-            # Filter by phase
-            if validation_phase != phase:
-                continue
-
-            # Resolve step to actual step output
-            resolved_params = dict(params)
-            if "step" in resolved_params:
-                step_name = resolved_params.pop("step")
-                if step_name not in step_outputs:
-                    logger.info(
-                        f"Skipping validation '{name}' in [{category}]: step '{step_name}' did not produce output"
-                    )
-                    continue
-                step_output = step_outputs[step_name]
-                resolved_params["step_output"] = step_output
-
-            # Remove phase from params (not needed by validation)
-            resolved_params.pop("phase", None)
-
-            # Add category for result reporting
-            resolved_params["_category"] = category
-
-            entries.append((name, category, resolved_params))
-
-    # Detect class names that appear more than once and qualify them with
-    # "-category" so downstream dict-keyed storage keeps every instance.
-    # Uses the existing ClassName-variant convention that pytest_generate_tests
-    # already supports via suffix matching.
-    # When the same class appears twice in the same category (e.g. legacy list
-    # format), append a counter: ClassName-category-2, ClassName-category-3, etc.
+def _entries_with_pytest_names(entries: list[ResolvedEntry]) -> list[ResolvedEntry]:
+    """Return ready entries with duplicate names qualified for pytest config storage."""
+    ready_entries = [entry for entry in entries if entry.is_ready]
     name_counts: dict[str, int] = {}
-    for class_name, _, _ in entries:
-        name_counts[class_name] = name_counts.get(class_name, 0) + 1
+    for entry in ready_entries:
+        name_counts[entry.entry.name] = name_counts.get(entry.entry.name, 0) + 1
 
     pair_counts: dict[tuple[str, str], int] = {}
-    result: list[dict[str, Any]] = []
-    for class_name, category, resolved_params in entries:
+    named_entries: list[ResolvedEntry] = []
+    for entry in ready_entries:
+        class_name = entry.entry.name
+        category = entry.entry.category
         if name_counts[class_name] == 1:
             key = class_name
         else:
@@ -399,9 +165,91 @@ def _transform_validations_for_pytest(
             pair_counts[pair] = pair_counts.get(pair, 0) + 1
             suffix = category if pair_counts[pair] == 1 else f"{category}-{pair_counts[pair]}"
             key = f"{class_name}-{suffix}"
-        result.append({key: resolved_params})
+        named_entries.append(ResolvedEntry(entry=replace(entry.entry, name=key), rendered_params=entry.rendered_params))
+    return named_entries
 
+
+def _build_inventory(entries: list[ResolvedEntry], inventory: dict[str, Any] | None) -> dict[str, Any]:
+    """Build pytest inventory from supplied inventory and ready entry step outputs."""
+    result = copy.deepcopy(inventory or {})
+    steps = result.setdefault("steps", {})
+    if not isinstance(steps, dict):
+        steps = {}
+        result["steps"] = steps
+
+    for entry in entries:
+        params = entry.rendered_params or {}
+        step_output = params.get("step_output")
+        if entry.entry.step and isinstance(step_output, dict):
+            steps[entry.entry.step] = copy.deepcopy(step_output)
+            for key, value in step_output.items():
+                if isinstance(value, dict):
+                    existing = result.setdefault(key, {})
+                    if isinstance(existing, dict):
+                        existing.update(copy.deepcopy(value))
+                else:
+                    result[key] = copy.deepcopy(value)
     return result
+
+
+def _apply_pytest_results(entries: list[ResolvedEntry], results: list[dict[str, Any]]) -> list[ResolvedEntry]:
+    """Apply captured pytest results to ready execution entries."""
+    by_name = {result.get("name"): result for result in results}
+    updated: list[ResolvedEntry] = []
+    for entry in entries:
+        result = by_name.get(entry.entry.name)
+        if result is None:
+            updated.append(
+                ResolvedEntry(
+                    entry=entry.entry,
+                    rendered_params=entry.rendered_params,
+                    state=State.SKIPPED,
+                    skip_reason=SkipReason.OPERATOR,
+                    message="not selected by pytest arguments",
+                )
+            )
+            continue
+        updated.append(_result_to_resolved_entry(entry, result))
+    return updated
+
+
+def _result_to_resolved_entry(entry: ResolvedEntry, result: dict[str, Any]) -> ResolvedEntry:
+    """Convert a captured pytest validation result to a terminal resolved entry."""
+    message = str(result.get("message", ""))
+    duration = float(result.get("duration", 0.0) or 0.0)
+    if result.get("skipped"):
+        return ResolvedEntry(
+            entry=entry.entry,
+            rendered_params=entry.rendered_params,
+            state=State.SKIPPED,
+            skip_reason=SkipReason.OPERATOR,
+            message=message,
+            duration_seconds=duration,
+        )
+    if result.get("passed", False):
+        return ResolvedEntry(
+            entry=entry.entry,
+            rendered_params=entry.rendered_params,
+            state=State.PASSED,
+            message=message,
+            duration_seconds=duration,
+        )
+    if result.get("error_reason") == ErrorReason.RUNTIME_EXCEPTION.value:
+        return ResolvedEntry(
+            entry=entry.entry,
+            rendered_params=entry.rendered_params,
+            state=State.ERROR,
+            error_reason=ErrorReason.RUNTIME_EXCEPTION,
+            message=message,
+            duration_seconds=duration,
+        )
+    return ResolvedEntry(
+        entry=entry.entry,
+        rendered_params=entry.rendered_params,
+        state=State.FAILED,
+        message=message,
+        duration_seconds=duration,
+    )
 
 
 class Platform(StrEnum):

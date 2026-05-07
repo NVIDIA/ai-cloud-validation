@@ -415,18 +415,20 @@ def run(
                     vr_message = vr.get("message", "")
                     vr_category = vr.get("category", "")
                     category_prefix = f"[{vr_category}] " if vr_category else ""
-                    if vr.get("skipped"):
+                    if vr.get("state") == "error":
+                        vr_status = typer.style("ERROR", fg=typer.colors.RED)
+                        reason = vr.get("error_reason")
+                    elif vr.get("skipped"):
                         vr_status = typer.style("SKIPPED", fg=typer.colors.YELLOW)
+                        reason = vr.get("skip_reason")
                     elif vr.get("passed", False):
                         vr_status = typer.style("PASSED", fg=typer.colors.GREEN)
+                        reason = None
                     else:
                         vr_status = typer.style("FAILED", fg=typer.colors.RED)
-                    typer.echo(f"  {category_prefix}{vr_name}: {vr_status} - {vr_message}")
-
-    if result.context_warnings:
-        typer.echo(typer.style("WARNINGS", fg=typer.colors.YELLOW))
-        for w in result.context_warnings:
-            typer.echo(typer.style(f"  - {w}", fg=typer.colors.YELLOW))
+                        reason = None
+                    detail = f"{reason}: {vr_message}" if reason and vr_message else (reason or vr_message)
+                    typer.echo(f"  {category_prefix}{vr_name}: {vr_status} - {detail}")
 
     typer.echo("-" * 60)
     if result.success:
