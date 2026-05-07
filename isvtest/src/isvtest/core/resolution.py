@@ -41,7 +41,7 @@ class State(StrEnum):
 class SkipReason(StrEnum):
     """Why a skipped validation did not run."""
 
-    EXCLUDED = "excluded"  # explicitly excluded by user (YAML markers/tests OR CLI -k/-m)
+    EXCLUDED = "test_excluded"  # explicitly excluded by user (YAML markers/tests OR CLI -k/-m)
     PHASE_NOT_REQUESTED = "phase_not_requested"  # entry's phase wasn't in the requested phase set
     RUNTIME_SKIP = "runtime_skip"  # validation called pytest.skip(...) at runtime
     STEP_NO_OUTPUT = "step_no_output"  # step ran but produced no JSON output

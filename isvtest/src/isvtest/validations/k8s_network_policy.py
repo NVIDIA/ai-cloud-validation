@@ -396,7 +396,7 @@ class K8sDualStackNodeCheck(BaseValidation):
                 self.report_subtest(
                     f"node/{name}",
                     passed=True,
-                    message=_family_summary(has_v4, has_v6),
+                    message=f"single-stack cluster (auto mode); node has {_family_summary(has_v4, has_v6)}",
                     skipped=True,
                 )
             self.set_passed("Skipped: cluster is single-stack (auto mode)")

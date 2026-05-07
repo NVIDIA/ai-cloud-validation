@@ -204,8 +204,10 @@ class BaseValidation(ABC):
 
         # Report via subtests fixture if available
         if self._subtests is not None:
-            # Use skipped=skipped parameter to avoid pytest.skip() adding markers to parent
-            with self._subtests.test(msg=name, duration=duration, skipped=skipped):
+            # Use skipped=skipped parameter to avoid pytest.skip() adding markers to parent.
+            # message= surfaces in the report's <skipped> body when skipped=True;
+            # the failure path uses pytest.fail(message) below.
+            with self._subtests.test(msg=name, duration=duration, skipped=skipped, message=message or None):
                 if not skipped and not passed:
                     pytest.fail(message or f"Subtest {name} failed")
                 # If passed or skipped, just exit the context successfully

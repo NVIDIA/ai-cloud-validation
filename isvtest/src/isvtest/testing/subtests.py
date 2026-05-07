@@ -123,6 +123,7 @@ class SubTests:
         *,
         duration: float | None = None,
         skipped: bool = False,
+        message: str | None = None,
         **kwargs: Any,
     ) -> _SubTestContextManager:
         """Context manager for a subtest.
@@ -134,6 +135,9 @@ class SubTests:
                 Useful for reporting results from tests that already ran (e.g., Go tests).
             skipped: If True, mark the subtest as skipped. This avoids using
                 pytest.skip() which would add skip markers to the parent test.
+            message: Optional human-readable reason. When ``skipped=True``, this
+                is what surfaces in the report (e.g., "no CSIDriver objects
+                present") instead of the canned "Subtest <name> skipped".
             **kwargs: Additional parameters for the subtest.
 
         Returns:
@@ -150,7 +154,7 @@ class SubTests:
                     raise AssertionError("Go test failed")
 
             # Mark as skipped without calling pytest.skip():
-            with subtests.test(msg="TestOptional", skipped=True):
+            with subtests.test(msg="TestOptional", skipped=True, message="not configured"):
                 pass  # Nothing to run, just recording the skip
         """
         is_first = self._first_subtest
@@ -164,6 +168,7 @@ class SubTests:
             terminal_writer=self._terminal_writer,
             provided_duration=duration,
             skipped=skipped,
+            message=message,
         )
 
 
@@ -196,6 +201,7 @@ class _SubTestContextManager:
         terminal_writer: Any | None = None,
         provided_duration: float | None = None,
         skipped: bool = False,
+        message: str | None = None,
     ) -> None:
         self._request = request
         self._msg = msg
@@ -205,6 +211,7 @@ class _SubTestContextManager:
         self._terminal_writer = terminal_writer
         self._provided_duration = provided_duration
         self._skipped = skipped
+        self._message = message
         self._start: float = 0
         self._precise_start: float = 0
 
@@ -268,7 +275,7 @@ class _SubTestContextManager:
             sub_report.longrepr = (
                 __file__,
                 0,
-                f"Subtest {self._msg} skipped",
+                self._message or f"Subtest {self._msg} skipped",
             )
 
         # Print the subtest result ourselves for consistent formatting
@@ -539,7 +546,14 @@ def _inject_subtests_into_junit(junit_path: Path, reports: list[SubTestReport]) 
                 elif report.skipped:
                     added_skipped += 1
                     skipped_elem = ET.SubElement(testcase, "skipped")
-                    skipped_elem.set("message", f"Skipped: Subtest {subtest_desc} skipped")
+                    # longrepr from both our skipped-flag path and pytest.skip()
+                    # is a (file, line, msg) tuple; surface the msg so the
+                    # report carries the actual reason instead of a canned line.
+                    if isinstance(report.longrepr, tuple) and len(report.longrepr) >= 3:
+                        skip_text = str(report.longrepr[2])
+                    else:
+                        skip_text = f"Subtest {subtest_desc} skipped"
+                    skipped_elem.set("message", skip_text)
 
                 subtest_elements.append(testcase)
 
