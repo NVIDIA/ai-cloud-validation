@@ -509,7 +509,11 @@ class Orchestrator:
                 else:
                     step_results = StepResults()
 
-                if phase_name == "setup" and step_results.steps:
+                # ``step_results.steps`` includes placeholder records for skip:true
+                # steps; require at least one step that wasn't skipped before letting
+                # teardown run (otherwise a fully-skipped setup would falsely "satisfy"
+                # the teardown gate even though no resources were created).
+                if phase_name == "setup" and any(not step.skip for step in phase_steps):
                     setup_steps_ran = True
 
                 phase_junitxml: str | None = None

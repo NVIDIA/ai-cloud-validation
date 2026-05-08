@@ -286,3 +286,42 @@ def test_parse_validations_preserves_list_order(monkeypatch: pytest.MonkeyPatch)
     entries = parse_validations(raw_config)
 
     assert [entry.step for entry in entries] == ["first", "second"]
+
+
+def test_parse_validations_emits_invalid_for_non_dict_list_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stray scalars/lists in YAML produce ERROR(invalid_config) instead of vanishing."""
+    monkeypatch.setattr(
+        "isvtest.core.resolution.discover_all_tests",
+        lambda: [PlainCheck],
+    )
+    raw_config: dict[str, Any] = {
+        "cluster": {
+            "checks": [
+                {"PlainCheck": {}},
+                "this-is-not-a-mapping",  # malformed
+            ],
+        },
+        "top_level_list": [
+            {"PlainCheck": {}},
+            ["also-not-a-mapping"],  # malformed
+        ],
+    }
+
+    entries = parse_validations(raw_config)
+
+    invalid = [entry for entry in entries if "_invalid_config" in entry.params_template]
+    assert len(invalid) == 2, "both malformed list items must surface as <invalid> entries"
+    assert all(entry.name == "<invalid>" for entry in invalid)
+
+
+def test_resolve_entries_treats_variant_names_as_released() -> None:
+    """``ClassName-Variant`` resolves against the bare ClassName in the manifest.
+
+    Mirrors the pytest-discovery path's ``_is_released_validation`` so the
+    pre-resolution gate doesn't diverge from runtime test discovery.
+    """
+    entry = _entry("PlainCheck-myCustomVariant")
+
+    resolved = _resolve(entry, released_tests={"PlainCheck"})
+
+    assert resolved.skip_reason is None, "variant of a released class must not be marked UNRELEASED"

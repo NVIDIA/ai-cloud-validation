@@ -170,7 +170,10 @@ def resolve_entries(
             resolved.append(_error(entry, ErrorReason.INVALID_CONFIG, config_error))
             continue
 
-        if released_tests is not None and entry.name not in released_tests:
+        # Variant-aware match: a configured ``ClassName-Variant`` is considered
+        # released when the bare ``ClassName`` is in the manifest, mirroring the
+        # pytest-discovery path (``_is_released_validation`` in test_validations).
+        if released_tests is not None and resolve_class_key(entry.name, released_tests) is None:
             resolved.append(
                 _skip(
                     entry,
@@ -320,12 +323,12 @@ def _iter_validation_items(category: str, category_config: Any) -> list[tuple[st
         if isinstance(checks_val, dict):
             return [(str(name), params or {}, group_step, group_phase) for name, params in checks_val.items()]
         if isinstance(checks_val, list):
-            return [
-                (str(name), params or {}, group_step, group_phase)
-                for item in checks_val
-                if isinstance(item, dict)
-                for name, params in item.items()
-            ]
+            return _expand_check_list(
+                checks_val,
+                group_step,
+                group_phase,
+                f"each item in category '{category}.checks' must be a mapping",
+            )
         return [
             (
                 "<invalid>",
@@ -336,12 +339,12 @@ def _iter_validation_items(category: str, category_config: Any) -> list[tuple[st
         ]
 
     if isinstance(category_config, list):
-        return [
-            (str(name), params or {}, None, None)
-            for item in category_config
-            if isinstance(item, dict)
-            for name, params in item.items()
-        ]
+        return _expand_check_list(
+            category_config,
+            None,
+            None,
+            f"each item in category '{category}' must be a mapping",
+        )
 
     if isinstance(category_config, dict):
         return [(str(name), params or {}, None, None) for name, params in category_config.items()]
@@ -349,6 +352,28 @@ def _iter_validation_items(category: str, category_config: Any) -> list[tuple[st
     return [
         ("<invalid>", {"_invalid_config": f"category '{category}' validations must be a mapping or list"}, None, None)
     ]
+
+
+def _expand_check_list(
+    items: list[Any],
+    group_step: Any,
+    group_phase: Any,
+    invalid_message: str,
+) -> list[tuple[str, Any, Any, Any]]:
+    """Expand a list of ``[{Name: params}, ...]`` entries to parsed tuples.
+
+    Non-dict items become ``<invalid>`` placeholders that resolve to
+    ``ERROR(invalid_config)`` so malformed YAML surfaces in the report instead
+    of being silently dropped.
+    """
+    result: list[tuple[str, Any, Any, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            result.append(("<invalid>", {"_invalid_config": invalid_message}, None, None))
+            continue
+        for name, params in item.items():
+            result.append((str(name), params or {}, group_step, group_phase))
+    return result
 
 
 def _invalid_entry(name: str, category: str, message: str) -> ValidationEntry:

@@ -503,6 +503,33 @@ class TestTeardownOnlyPhase:
         step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
         assert "cleanup" in step_names
 
+    def test_full_lifecycle_skips_teardown_when_setup_is_all_skip_placeholders(self) -> None:
+        """skip:true setup placeholders must not falsely satisfy the teardown gate.
+
+        ``execute_steps`` records placeholder StepResults for ``skip: true`` steps,
+        so a naive ``step_results.steps`` truthy-check would let teardown run even
+        though no setup command actually executed. The gate must look at the
+        configured steps' skip flags, not just the result list.
+        """
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(name="setup_cluster", command="echo", args=["hi"], phase="setup", skip=True),
+                        StepConfig(name="cleanup", command="echo", args=["bye"], phase="teardown"),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+        orchestrator = Orchestrator(config)
+        result = orchestrator.run(phases=[Phase.SETUP, Phase.TEARDOWN])
+
+        teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
+        assert len(teardown_phases) == 1
+        assert "SKIPPED" in teardown_phases[0].message
+        assert "setup steps did not run" in teardown_phases[0].message
+
     def test_teardown_only_does_not_run_setup_steps(self) -> None:
         """When only teardown is requested, setup steps must not execute."""
         config = RunConfig(
