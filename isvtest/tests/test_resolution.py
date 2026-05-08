@@ -10,6 +10,7 @@
 
 """Tests for validation resolution."""
 
+import logging
 from typing import Any, ClassVar, cast
 
 import pytest
@@ -325,3 +326,36 @@ def test_resolve_entries_treats_variant_names_as_released() -> None:
     resolved = _resolve(entry, released_tests={"PlainCheck"})
 
     assert resolved.skip_reason is None, "variant of a released class must not be marked UNRELEASED"
+
+
+def test_resolve_entries_warns_when_default_filter_masks_missing_step_field(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typo'd step-output field surfaces a WARNING even when default(...) catches it.
+
+    Regression coverage for the silent-default-fallback bug from PR #191:
+    without this, a missing field reads as a passing test instead of a
+    visible mistake. The warning surfaces the failing reference name.
+    """
+    # ``isvtest`` logger has propagate=False (see core/logger.py), so caplog's
+    # root handler doesn't see resolver warnings. Re-enable propagation here.
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    entry = _entry(
+        params={"count": "{{ steps.setup.kubernetes.node_count_invalid | default(1, true) }}"},
+        step="setup",
+    )
+    step_output = {"kubernetes": {"node_count": 4}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        _resolve(
+            entry,
+            step_outputs={"setup": step_output},
+            step_phases={"setup": "setup"},
+            requested_phases={"setup", "test"},
+            render_context={"steps": {"setup": step_output}},
+        )
+
+    assert "default(" in caplog.text, "default(...) wrapper should log a warning when masking Undefined"
+    assert "node_count_invalid" in caplog.text, "warning must surface the missing field name"

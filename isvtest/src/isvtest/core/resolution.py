@@ -12,6 +12,7 @@
 
 import copy
 import json
+import logging
 from collections.abc import Iterable, Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
@@ -19,10 +20,12 @@ from enum import StrEnum
 from functools import cache
 from typing import Any
 
-from jinja2 import ChainableUndefined, Environment
+from jinja2 import ChainableUndefined, Environment, Undefined
 
 from isvtest.config.loader import _ternary
 from isvtest.core.discovery import discover_all_tests
+
+logger = logging.getLogger(__name__)
 
 ADAPTER_HANDLED_CATEGORIES = {"reframe"}
 DEFAULT_VALIDATION_PHASE = "test"
@@ -418,12 +421,29 @@ def _render_string(env: Environment, value: str, render_context: Mapping[str, An
     return env.from_string(value).render(**render_context)
 
 
+def _warning_default(value: Any, default_value: Any = "", boolean: bool = False) -> Any:
+    """Drop-in replacement for Jinja's ``default`` filter that warns when it
+    catches an Undefined value. Without this, a typo like
+    ``{{ steps.setup.node_count_invalid | default(1) }}`` silently substitutes
+    the default for the missing field instead of surfacing the mistake.
+    """
+    if isinstance(value, Undefined):
+        if value._undefined_message:
+            logger.warning(f"default(...) masked: {value._undefined_message}")
+        return default_value
+    if boolean and not value:
+        return default_value
+    return value
+
+
 @cache
 def _create_jinja_env() -> Environment:
     """Return the strict Jinja environment used by resolution."""
     env = Environment(undefined=ChainableStrictUndefined)
     env.filters["tojson"] = lambda value: json.dumps(value)
     env.filters["ternary"] = _ternary
+    env.filters["default"] = _warning_default
+    env.filters["d"] = _warning_default
     return env
 
 
