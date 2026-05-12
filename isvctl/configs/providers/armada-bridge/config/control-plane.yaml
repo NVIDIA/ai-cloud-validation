@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — Control Plane Suite Provider Config
+#
+# disable_access_key + verify_key_rejected have best_effort: true because
+# Bridge has no PATCH /key-manager/api-key endpoint. They fail in non-demo
+# mode but do not abort the suite.
+
+import:
+  - ../../../suites/control-plane.yaml
+
+version: "1.0"
+
+commands:
+  control_plane:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: check_api
+        phase: setup
+        command: "python ../scripts/control-plane/check_api.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 30
+
+      - name: create_access_key
+        phase: setup
+        command: "python ../scripts/control-plane/create_access_key.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+
+      - name: create_tenant
+        phase: setup
+        command: "python ../scripts/control-plane/create_tenant.py"
+        args: ["--tenant-name", "isv-test-tenant"]
+        timeout: 60
+
+      - name: test_access_key
+        phase: test
+        command: "python ../scripts/control-plane/test_access_key.py"
+        args:
+          - "--access-key-id"
+          - "{{steps.create_access_key.access_key_id}}"
+          - "--secret-access-key"
+          - "{{steps.create_access_key.secret_access_key}}"
+        sensitive_args: ["--secret-access-key"]
+        timeout: 60
+
+      - name: disable_access_key
+        phase: test
+        command: "python ../scripts/control-plane/disable_access_key.py"
+        args:
+          - "--access-key-id"
+          - "{{steps.create_access_key.access_key_id}}"
+        timeout: 60
+        best_effort: true
+
+      - name: verify_key_rejected
+        phase: test
+        command: "python ../scripts/control-plane/verify_key_rejected.py"
+        args:
+          - "--access-key-id"
+          - "{{steps.create_access_key.access_key_id}}"
+          - "--secret-access-key"
+          - "{{steps.create_access_key.secret_access_key}}"
+        sensitive_args: ["--secret-access-key"]
+        timeout: 60
+        best_effort: true
+
+      - name: list_tenants
+        phase: test
+        command: "python ../scripts/control-plane/list_tenants.py"
+        args:
+          - "--tenant-name"
+          - "{{steps.create_tenant.tenant_name}}"
+        timeout: 60
+
+      - name: get_tenant
+        phase: test
+        command: "python ../scripts/control-plane/get_tenant.py"
+        args:
+          - "--tenant-name"
+          - "{{steps.create_tenant.tenant_name}}"
+        timeout: 60
+
+      - name: delete_access_key
+        phase: teardown
+        command: "python ../scripts/control-plane/delete_access_key.py"
+        args:
+          - "--access-key-id"
+          - "{{steps.create_access_key.access_key_id}}"
+        timeout: 60
+        output_schema: teardown
+
+      - name: delete_tenant
+        phase: teardown
+        command: "python ../scripts/control-plane/delete_tenant.py"
+        args:
+          - "--tenant-id"
+          - "{{steps.create_tenant.tenant_id}}"
+        timeout: 60
+        output_schema: teardown
+
+tests:
+  cluster_name: "armada-bridge-control-plane-validation"
+  description: "Armada Bridge control plane lifecycle validation"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL | default('')}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT | default('demo-tenant')}}"

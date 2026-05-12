@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — Image Registry Suite Provider Config
+#
+# Entire suite is blocked — Bridge has no OS image write API.
+# All steps have best_effort: true.
+
+import:
+  - ../../../suites/image-registry.yaml
+
+version: "1.0"
+
+commands:
+  image_registry:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: upload_image
+        phase: setup
+        command: "python ../scripts/image-registry/upload_image.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 300
+        best_effort: true
+
+      - name: crud_image
+        phase: test
+        command: "python ../scripts/image-registry/crud_image.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--image-id", "{{steps.upload_image.image_id}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: launch_instance
+        phase: test
+        command: "python ../scripts/image-registry/launch_instance.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--image-id", "{{steps.upload_image.image_id}}"]
+        timeout: 300
+        best_effort: true
+
+      - name: crud_install_config
+        phase: test
+        command: "python ../scripts/image-registry/crud_install_config.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: install_image_bm
+        phase: test
+        command: "python ../scripts/image-registry/install_image_bm.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--image-id", "{{steps.upload_image.image_id}}"]
+        timeout: 600
+        best_effort: true
+
+      - name: install_config_bm
+        phase: test
+        command: "python ../scripts/image-registry/install_config_bm.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 600
+        best_effort: true
+
+      - name: teardown
+        phase: teardown
+        command: "python ../scripts/image-registry/teardown.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+
+tests:
+  cluster_name: "armada-bridge-image-registry-validation"
+  description: "Armada Bridge image registry validation (all steps pending Bridge API work)"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT}}"
+
+  exclude:
+    markers: [ssh]

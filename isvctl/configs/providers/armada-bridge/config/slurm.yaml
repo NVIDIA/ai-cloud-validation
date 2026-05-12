@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — Slurm Suite Provider Config
+#
+# IMPORTANT: suites/slurm.yaml hardcodes my-isv script paths. Override here.
+#
+# Bridge setup flow:
+#   POST /orchestrator/tenants/:tenant/slurm → slurm_id + head node IP
+#   SSH into head node for sinfo/sbatch validation runs.
+
+import:
+  - ../../../suites/slurm.yaml
+
+version: "1.0"
+
+commands:
+  slurm:
+    phases: ["setup", "teardown"]
+    steps:
+      - name: setup
+        phase: setup
+        command: "bash ../scripts/slurm/setup.sh"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+        timeout: 600
+
+      - name: teardown
+        phase: teardown
+        command: "bash ../scripts/slurm/teardown.sh"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+        timeout: 300
+
+tests:
+  cluster_name: "armada-bridge-slurm-validation"
+  description: "Armada Bridge Slurm cluster validation"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT}}"

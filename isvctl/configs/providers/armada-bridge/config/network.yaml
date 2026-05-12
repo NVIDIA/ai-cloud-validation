@@ -1,0 +1,229 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — Network Suite Provider Config
+#
+# ALL steps have best_effort: true — both ❌ unimplemented APIs and ⚠️ steps
+# that need live VMs/traffic probes. This lets the suite run to completion
+# and report which steps pass vs. fail.
+
+import:
+  - ../../../suites/network.yaml
+
+version: "1.0"
+
+commands:
+  network:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: create_network
+        phase: setup
+        command: "python ../scripts/network/create_vpc.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: vpc_crud
+        phase: test
+        command: "python ../scripts/network/vpc_crud_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--vpc-id", "{{steps.create_network.vpc_id}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: subnet_config
+        phase: test
+        command: "python ../scripts/network/subnet_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--vpc-id", "{{steps.create_network.vpc_id}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: vpc_isolation
+        phase: test
+        command: "python ../scripts/network/isolation_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: sg_crud
+        phase: test
+        command: "python ../scripts/network/sg_crud_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--vpc-id", "{{steps.create_network.vpc_id}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: security_blocking
+        phase: test
+        command: "python ../scripts/network/security_test.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--security-group-id"
+          - "{{steps.create_network.security_group_id}}"
+        timeout: 120
+        best_effort: true
+
+      - name: connectivity_test
+        phase: test
+        command: "python ../scripts/network/test_connectivity.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--vpc-id", "{{steps.create_network.vpc_id}}"]
+        timeout: 300
+        best_effort: true
+
+      - name: traffic_validation
+        phase: test
+        command: "python ../scripts/network/traffic_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--vpc-id", "{{steps.create_network.vpc_id}}"]
+        timeout: 300
+        best_effort: true
+
+      - name: vpc_ip_config
+        phase: test
+        command: "python ../scripts/network/vpc_ip_config_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--vpc-id", "{{steps.create_network.vpc_id}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: dhcp_ip_test
+        phase: test
+        skip: true
+        command: "python ../scripts/network/dhcp_ip_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--subnet-id", "{{steps.create_network.subnet_id}}"]
+        timeout: 300
+        best_effort: true
+
+      - name: sg_workload_scoping
+        phase: test
+        command: "python ../scripts/network/sg_scoping_test.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--scope-type"
+          - "workload"
+        timeout: 60
+        best_effort: true
+
+      - name: sg_node_scoping
+        phase: test
+        command: "python ../scripts/network/sg_scoping_test.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--scope-type"
+          - "node"
+        timeout: 60
+        best_effort: true
+
+      - name: sg_subnet_scoping
+        phase: test
+        command: "python ../scripts/network/sg_scoping_test.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--scope-type"
+          - "subnet"
+        timeout: 60
+        best_effort: true
+
+      - name: sg_service_scoping
+        phase: test
+        command: "python ../scripts/network/sg_scoping_test.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--scope-type"
+          - "service"
+        timeout: 60
+        best_effort: true
+
+      - name: stable_ip_test
+        phase: test
+        command: "python ../scripts/network/stable_ip_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--vpc-id", "{{steps.create_network.vpc_id}}"]
+        timeout: 300
+        best_effort: true
+
+      - name: floating_ip_test
+        phase: test
+        command: "python ../scripts/network/floating_ip_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: dns_test
+        phase: test
+        command: "python ../scripts/network/dns_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: peering_test
+        phase: test
+        command: "python ../scripts/network/peering_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: sdn_hardware_fault_logging
+        phase: test
+        command: "python ../scripts/network/sdn_logging_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--log-type", "fault"]
+        timeout: 60
+        best_effort: true
+
+      - name: sdn_latency_perf_logging
+        phase: test
+        command: "python ../scripts/network/sdn_logging_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--log-type", "perf"]
+        timeout: 60
+        best_effort: true
+
+      - name: sdn_filter_audit_trail
+        phase: test
+        command: "python ../scripts/network/sdn_logging_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--log-type", "audit"]
+        timeout: 60
+        best_effort: true
+
+      - name: backend_switch_fabric
+        phase: test
+        command: "python ../scripts/network/backend_switch_fabric_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: nvlink_domain
+        phase: test
+        command: "python ../scripts/network/nvlink_domain_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: byoip_test
+        phase: test
+        command: "python ../scripts/network/byoip_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+        best_effort: true
+
+      - name: teardown
+        phase: teardown
+        command: "python ../scripts/network/teardown.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vpc-id"
+          - "{{steps.create_network.vpc_id}}"
+        timeout: 120
+        best_effort: true
+
+tests:
+  cluster_name: "armada-bridge-network-validation"
+  description: "Armada Bridge network lifecycle validation"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL | default('')}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT | default('demo-tenant')}}"
+
+  exclude:
+    # DhcpIpManagementCheck requires SSH into a live instance — skip in demo mode.
+    markers: ["ssh"]

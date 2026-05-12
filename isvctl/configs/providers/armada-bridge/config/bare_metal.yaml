@@ -1,0 +1,191 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — Bare Metal Suite Provider Config
+#
+# Blocked (❌): verify_tags, topology_placement, serial_console,
+#   stop_instance, start_instance, reboot_instance, power_cycle_instance,
+#   reinstall_instance → all have best_effort: true
+#
+# No exclude.markers: [ssh]. Run with live Bridge infra only.
+# Teardown uses POST .../metal/:id/deallocate (not DELETE).
+
+import:
+  - ../../../suites/bare_metal.yaml
+
+version: "1.0"
+
+commands:
+  bare_metal:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: launch_instance
+        phase: setup
+        command: "python ../scripts/bare_metal/launch_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--name"
+          - "isv-test-bm"
+          - "--flavor"
+          - "{{bridge_bm_flavor}}"
+        timeout: 600
+
+      - name: list_instances
+        phase: test
+        command: "python ../scripts/bare_metal/list_instances.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+
+      - name: verify_tags
+        phase: test
+        command: "python ../scripts/bare_metal/describe_tags.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+        best_effort: true
+
+      - name: topology_placement
+        phase: test
+        command: "python ../scripts/bare_metal/topology_placement.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+        best_effort: true
+
+      - name: serial_console
+        phase: test
+        command: "python ../scripts/bare_metal/serial_console.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+        best_effort: true
+
+      - name: stop_instance
+        phase: test
+        command: "python ../scripts/bare_metal/stop_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 300
+        best_effort: true
+
+      - name: start_instance
+        phase: test
+        command: "python ../scripts/bare_metal/start_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 600
+        best_effort: true
+
+      - name: reboot_instance
+        phase: test
+        command: "python ../scripts/bare_metal/reboot_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 600
+        best_effort: true
+
+      - name: power_cycle_instance
+        phase: test
+        command: "python ../scripts/bare_metal/power_cycle_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 900
+        best_effort: true
+
+      - name: describe_instance
+        phase: test
+        command: "python ../scripts/bare_metal/describe_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 600
+
+      - name: reinstall_instance
+        phase: test
+        command: "python ../scripts/bare_metal/reinstall_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 1800
+        best_effort: true
+
+      - name: deploy_nim
+        phase: test
+        command: "python ../../shared/deploy_nim.py"
+        args:
+          - "--host"
+          - "{{steps.describe_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.describe_instance.key_file}}"
+        timeout: 600
+
+      - name: teardown_nim
+        phase: teardown
+        command: "python ../../shared/teardown_nim.py"
+        args:
+          - "--host"
+          - "{{steps.describe_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.describe_instance.key_file}}"
+        timeout: 120
+
+      - name: teardown
+        phase: teardown
+        command: "python ../scripts/bare_metal/teardown.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "{{teardown_flag}}"
+        timeout: 300
+
+      - name: verify_teardown
+        phase: teardown
+        command: "python ../scripts/bare_metal/verify_terminated.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--compute-node-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 120
+
+tests:
+  cluster_name: "armada-bridge-bm-validation"
+  description: "Armada Bridge bare metal lifecycle validation"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL | default('')}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT | default('demo-tenant')}}"
+    bridge_bm_flavor: "{{env.BRIDGE_BM_FLAVOR | default('bm.gpu.8x')}}"
+    teardown_flag: "{{(env.ARMADA_BRIDGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"

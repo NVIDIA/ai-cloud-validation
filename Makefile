@@ -102,6 +102,24 @@ demo-all: ## Run all my-isv living examples (or demo-<domain> for one, e.g. demo
 $(DEMO_TARGETS): demo-%:
 	$(call run_demo,$*)
 
+# Armada Bridge demo — runs non-SSH suites only (vm/bare_metal excluded: need real SSH)
+BRIDGE_DEMO_DOMAINS := iam control-plane network image-registry security
+
+.PHONY: demo-armada-bridge
+demo-armada-bridge: ## Run Armada Bridge demo suites (non-SSH only: iam, control-plane, network, image-registry, security)
+	@echo "Running Armada Bridge living examples in demo mode..."
+	@for domain in $(BRIDGE_DEMO_DOMAINS); do \
+		echo ""; \
+		echo "=========================================="; \
+		echo "Demo test: $$domain (armada-bridge)"; \
+		echo "=========================================="; \
+		ISVCTL_DEMO_MODE=1 uv run isvctl test run \
+			-f isvctl/configs/providers/armada-bridge/config/$$domain.yaml || exit 1; \
+	done
+	@echo ""
+	@echo "✅ All Armada Bridge demo suites passed!"
+	@echo "Domains: $(BRIDGE_DEMO_DOMAINS)"
+
 coverage: ## Run tests with coverage and generate combined report
 	@echo "Running tests with coverage..."
 	@for pkg in $(PACKAGES); do \

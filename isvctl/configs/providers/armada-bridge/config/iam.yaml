@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — IAM Suite Provider Config
+#
+# Imports the provider-agnostic iam.yaml validations and wires Bridge-specific
+# scripts. All scripts raise NotImplementedError in non-demo mode.
+#
+# Usage (demo):
+#   ISVCTL_DEMO_MODE=1 uv run isvctl test run -f isvctl/configs/providers/armada-bridge/config/iam.yaml
+#
+# Usage (live — requires BRIDGE_URL, BRIDGE_USERNAME, BRIDGE_PASSWORD,
+#               BRIDGE_TENANT, KC_TOKEN_URL, KC_CLIENT_ID, KC_CLIENT_SECRET):
+#   uv run isvctl test run -f isvctl/configs/providers/armada-bridge/config/iam.yaml
+
+import:
+  - ../../../suites/iam.yaml
+
+version: "1.0"
+
+commands:
+  iam:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: create_user
+        phase: setup
+        command: "python ../scripts/iam/create_user.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--username"
+          - "isv-test-user"
+        timeout: 60
+
+      - name: test_credentials
+        phase: test
+        command: "python ../scripts/iam/test_credentials.py"
+        args:
+          - "--credential-id"
+          - "{{steps.create_user.access_key_id}}"
+          - "--credential-secret"
+          - "{{steps.create_user.secret_access_key}}"
+        sensitive_args: ["--credential-secret"]
+        timeout: 60
+
+      - name: teardown
+        phase: teardown
+        command: "python ../scripts/iam/delete_user.py"
+        args:
+          - "--user-id"
+          - "{{steps.create_user.user_id}}"
+          - "--credential-id"
+          - "{{steps.create_user.access_key_id}}"
+          - "{{teardown_flag}}"
+        timeout: 120
+
+tests:
+  cluster_name: "armada-bridge-iam-validation"
+  description: "Armada Bridge IAM user lifecycle validation"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL | default('')}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT | default('demo-tenant')}}"
+    teardown_flag: "{{(env.ARMADA_BRIDGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"

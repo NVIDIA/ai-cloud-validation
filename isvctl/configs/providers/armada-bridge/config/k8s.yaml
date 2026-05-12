@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — Kubernetes Suite Provider Config
+#
+# IMPORTANT: suites/k8s.yaml hardcodes my-isv script paths in its commands
+# block. This config overrides commands: entirely with Bridge-specific paths.
+#
+# Bridge setup flow:
+#   POST /orchestrator/tenants/:tenant/clusters → cluster_id
+#   GET  /orchestrator/tenants/:tenant/clusters/:clusterID/kubeconfig → kubeconfig
+#
+# k8s/setup.sh and teardown.sh exit 1 (not yet implemented).
+
+import:
+  - ../../../suites/k8s.yaml
+
+version: "1.0"
+
+commands:
+  k8s:
+    phases: ["setup", "teardown"]
+    steps:
+      - name: setup
+        phase: setup
+        command: "bash ../scripts/k8s/setup.sh"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+        timeout: 600
+
+      - name: teardown
+        phase: teardown
+        command: "bash ../scripts/k8s/teardown.sh"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+        timeout: 300
+
+tests:
+  cluster_name: "armada-bridge-k8s-validation"
+  description: "Armada Bridge Kubernetes cluster validation"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT}}"

@@ -1,0 +1,164 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — VM Suite Provider Config
+#
+# No exclude.markers: [ssh]. The demo-armada-bridge Makefile target excludes
+# this suite entirely (vm/bare_metal need real SSH for ConnectivityCheck etc.).
+# Run this suite only with live Bridge infra.
+#
+# Blocked steps (❌ in bridge-isv-ncp-status.md):
+#   verify_tags, serial_console, console_rbac → best_effort: true
+
+import:
+  - ../../../suites/vm.yaml
+
+version: "1.0"
+
+commands:
+  vm:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: launch_instance
+        phase: setup
+        command: "python ../scripts/vm/launch_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--name"
+          - "isv-test-gpu"
+          - "--flavor"
+          - "{{bridge_flavor}}"
+          - "--vpc-id"
+          - "{{bridge_vpc_id}}"
+          - "--security-group-id"
+          - "{{bridge_security_group_id}}"
+        timeout: 300
+
+      - name: list_instances
+        phase: test
+        command: "python ../scripts/vm/list_instances.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vpc-id"
+          - "{{steps.launch_instance.vpc_id}}"
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+
+      - name: verify_tags
+        phase: test
+        command: "python ../scripts/vm/describe_tags.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vm-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+        best_effort: true
+
+      - name: stop_instance
+        phase: test
+        command: "python ../scripts/vm/stop_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vm-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 120
+
+      - name: start_instance
+        phase: test
+        command: "python ../scripts/vm/start_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vm-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 300
+
+      - name: reboot_instance
+        phase: test
+        command: "python ../scripts/vm/reboot_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vm-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 300
+
+      - name: serial_console
+        phase: test
+        command: "python ../scripts/vm/serial_console.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vm-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+        best_effort: true
+
+      - name: console_rbac
+        phase: test
+        command: "python ../scripts/vm/console_rbac.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vm-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+        best_effort: true
+
+      - name: describe_instance
+        phase: test
+        command: "python ../scripts/vm/describe_instance.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vm-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 300
+
+      - name: deploy_nim
+        phase: test
+        command: "python ../../shared/deploy_nim.py"
+        args:
+          - "--host"
+          - "{{steps.describe_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.describe_instance.key_file}}"
+        timeout: 600
+
+      - name: teardown_nim
+        phase: teardown
+        command: "python ../../shared/teardown_nim.py"
+        args:
+          - "--host"
+          - "{{steps.describe_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.describe_instance.key_file}}"
+        timeout: 120
+
+      - name: teardown
+        phase: teardown
+        command: "python ../scripts/vm/teardown.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--vm-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "{{teardown_flag}}"
+        timeout: 120
+
+tests:
+  cluster_name: "armada-bridge-vm-validation"
+  description: "Armada Bridge VM lifecycle validation"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL | default('')}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT | default('demo-tenant')}}"
+    bridge_flavor: "{{env.BRIDGE_VM_FLAVOR | default('gpu.1x')}}"
+    bridge_vpc_id: "{{env.BRIDGE_VPC_ID | default('')}}"
+    bridge_security_group_id: "{{env.BRIDGE_SG_ID | default('')}}"
+    teardown_flag: "{{(env.ARMADA_BRIDGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"

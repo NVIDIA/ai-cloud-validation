@@ -1,0 +1,157 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# Armada Bridge — Security Suite Provider Config
+#
+# Non-best-effort steps (must pass once implemented):
+#   preflight, oidc_user_auth_test, sa_credential_test,
+#   short_lived_credentials_test, least_privilege_test,
+#   audit_logging_test, tenant_isolation_test, teardown
+#
+# best_effort: true steps (blocked or need live infra):
+#   api_endpoint_isolation, mfa_enforcement, cert_rotation_test,
+#   kms_*, customer_managed_key_test, bmc_* (4 steps)
+
+import:
+  - ../../../suites/security.yaml
+
+version: "1.0"
+
+commands:
+  security:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: preflight
+        phase: setup
+        command: "echo"
+        args: ['{"success": true, "platform": "security", "test_name": "preflight"}']
+        timeout: 10
+
+      - name: api_endpoint_isolation
+        phase: test
+        command: "python ../scripts/security/api_endpoint_test.py"
+        args: ["--tenant", "{{bridge_tenant}}", "--bridge-url", "{{bridge_url}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: oidc_user_auth_test
+        phase: test
+        command: "python ../scripts/security/oidc_user_auth_test.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--kc-token-url"
+          - "{{kc_token_url}}"
+        timeout: 120
+
+      - name: sa_credential_test
+        phase: test
+        command: "python ../scripts/security/sa_credential_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+
+      - name: short_lived_credentials_test
+        phase: test
+        command: "python ../scripts/security/short_lived_credentials_test.py"
+        args:
+          - "--tenant"
+          - "{{bridge_tenant}}"
+          - "--kc-token-url"
+          - "{{kc_token_url}}"
+        timeout: 120
+
+      - name: least_privilege_test
+        phase: test
+        command: "python ../scripts/security/least_privilege_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 180
+
+      - name: audit_logging_test
+        phase: test
+        command: "python ../scripts/security/audit_logging_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 120
+
+      - name: tenant_isolation_test
+        phase: test
+        command: "python ../scripts/security/tenant_isolation_test.py"
+        args: ["--tenant-a", "{{bridge_tenant}}", "--tenant-b", "isv-test-tenant-b"]
+        timeout: 180
+
+      - name: mfa_enforcement
+        phase: test
+        command: "python ../scripts/security/mfa_enforcement_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: cert_rotation_test
+        phase: test
+        command: "python ../scripts/security/cert_rotation_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: kms_encryption_options_test
+        phase: test
+        command: "python ../scripts/security/kms_encryption_options_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: centralized_kms_test
+        phase: test
+        command: "python ../scripts/security/centralized_kms_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: customer_managed_key_test
+        phase: test
+        command: "python ../scripts/security/customer_managed_key_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: bmc_management_network
+        phase: test
+        command: "python ../scripts/security/bmc_management_network_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: bmc_tenant_isolation
+        phase: test
+        command: "python ../scripts/security/bmc_isolation_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: bmc_protocol_security
+        phase: test
+        command: "python ../scripts/security/bmc_protocol_security_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: bmc_bastion_access
+        phase: test
+        command: "python ../scripts/security/bmc_bastion_access_test.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+        best_effort: true
+
+      - name: teardown
+        phase: teardown
+        command: "python ../scripts/security/teardown.py"
+        args: ["--tenant", "{{bridge_tenant}}"]
+        timeout: 60
+
+tests:
+  cluster_name: "armada-bridge-security-validation"
+  description: "Armada Bridge security hardening validation"
+
+  settings:
+    bridge_url: "{{env.BRIDGE_URL}}"
+    bridge_tenant: "{{env.BRIDGE_TENANT}}"
+    kc_token_url: "{{env.KC_TOKEN_URL}}"
