@@ -225,7 +225,7 @@ commands:
           - "{{steps.describe_instance.public_ip}}"
           - "--max-age-minutes"
           - "5"
-        timeout: 120
+        timeout: 300
 
       # Reinstall instance from stock OS (stop + swap root volume + start)
       # Skipped by default: ~30-45 min on AWS metal, and CreateReplaceRootVolumeTask

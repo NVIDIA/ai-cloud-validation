@@ -19,7 +19,7 @@ Required JSON output fields:
   {
     "success": true,
     "platform": "bm",
-    "instance_id": "<id>",
+    "test_name": "host_status_log",
     "tests": {
       "journalctl_recent": {
         "passed": true,
@@ -53,6 +53,12 @@ DEMO_MODE = os.environ.get("ISVCTL_DEMO_MODE") == "1"
 
 
 def main() -> int:
+    """Emit template per-host status log results.
+
+    Returns:
+        Process exit code, where 0 means the demo or implementation reported
+        fresh status log entries and 1 means it did not.
+    """
     parser = argparse.ArgumentParser(description="Per-host status log sampler (template)")
     parser.add_argument("--instance-id", required=True, help="Instance ID")
     parser.add_argument("--region", required=True, help="Cloud region")
@@ -70,7 +76,7 @@ def main() -> int:
     result: dict[str, Any] = {
         "success": False,
         "platform": "bm",
-        "instance_id": args.instance_id,
+        "test_name": "host_status_log",
         "tests": {},
     }
 

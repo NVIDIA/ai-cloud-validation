@@ -1673,7 +1673,7 @@ def _host_status_log_output(tests: dict[str, Any] | None = None) -> dict:
     step_output: dict[str, Any] = {
         "success": True,
         "platform": "bm",
-        "instance_id": "i-abc123",
+        "test_name": "host_status_log",
         "tests": tests
         if tests is not None
         else {

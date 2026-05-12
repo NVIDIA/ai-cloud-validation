@@ -31,28 +31,33 @@ def ssh_run(
     connect_timeout: int = 10,
 ) -> tuple[int, str, str]:
     """Run a single command over SSH. Returns (exit_code, stdout, stderr)."""
-    proc = subprocess.run(
-        [
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
-            "-o",
-            f"ConnectTimeout={connect_timeout}",
-            "-o",
-            "BatchMode=yes",
-            "-i",
-            key_file,
-            f"{user}@{host}",
-            "--",
-            command,
-        ],
-        capture_output=True,
-        timeout=timeout,
-        text=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                f"ConnectTimeout={connect_timeout}",
+                "-o",
+                "BatchMode=yes",
+                "-i",
+                key_file,
+                f"{user}@{host}",
+                "--",
+                command,
+            ],
+            capture_output=True,
+            timeout=timeout,
+            text=True,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as err:
+        return 124, "", f"TimeoutExpired: {err}"
+    except OSError as err:
+        return 255, "", f"OSError: {err}"
     return proc.returncode, proc.stdout, proc.stderr
 
 

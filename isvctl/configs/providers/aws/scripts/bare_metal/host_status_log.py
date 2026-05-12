@@ -38,6 +38,17 @@ DMESG_ISO_TS = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:,\d+)?(?:[+\
 
 
 def _build_result(entry_count: int, latest_ts: str, max_age_minutes: int) -> dict[str, Any]:
+    """Build a per-source status log result.
+
+    Args:
+        entry_count: Number of recent log entries found.
+        latest_ts: Timestamp string from the most recent matching entry.
+        max_age_minutes: Recency window used for the sample.
+
+    Returns:
+        A result payload with pass/fail state, message, entry count, and
+        latest timestamp.
+    """
     passed = entry_count >= 1
     msg = (
         f"{entry_count} entries in last {max_age_minutes}min, latest {latest_ts}"
@@ -53,10 +64,21 @@ def _build_result(entry_count: int, latest_ts: str, max_age_minutes: int) -> dic
 
 
 def _ssh_error_result(source: str, exit_code: int, stderr: str) -> dict[str, Any]:
+    """Build a failed per-source result for an SSH command error.
+
+    Args:
+        source: Log source name, such as ``journalctl`` or ``dmesg``.
+        exit_code: SSH command exit code.
+        stderr: SSH command standard error text.
+
+    Returns:
+        A failed result payload matching the successful result shape.
+    """
     return {
         "passed": False,
         "message": f"{source} exited {exit_code}: {stderr.strip()[:200] or 'no stderr'}",
         "entry_count": 0,
+        "latest_timestamp": "",
     }
 
 
@@ -127,6 +149,12 @@ def _sample_dmesg(host: str, user: str, key_file: str, max_age_minutes: int) -> 
 
 @handle_aws_errors
 def main() -> int:
+    """Sample host status logs and emit the validation JSON payload.
+
+    Returns:
+        Process exit code, where 0 means at least one status log source has
+        fresh entries and 1 means the check failed.
+    """
     parser = argparse.ArgumentParser(description="Sample per-host status log on AWS bare metal")
     parser.add_argument("--instance-id", required=True, help="EC2 instance ID")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
@@ -144,7 +172,7 @@ def main() -> int:
     result: dict[str, Any] = {
         "success": False,
         "platform": "bm",
-        "instance_id": args.instance_id,
+        "test_name": "host_status_log",
         "tests": {},
     }
 
