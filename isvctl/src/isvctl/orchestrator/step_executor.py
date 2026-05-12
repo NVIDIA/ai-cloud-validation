@@ -118,16 +118,38 @@ def _write_full_stderr(step_name: str, stderr: str) -> None:
 
 
 def _resolve_python_script_path(cmd_parts: list[str], cwd: Path) -> list[str]:
-    """Resolve repo-root-relative Python script paths before changing cwd."""
+    """Resolve repo-root-relative Python script paths before changing cwd.
+
+    Python interpreter options may precede the script argument, so this scans
+    past supported flags and only rewrites a relative script path when it is
+    missing from the step cwd but exists from the current process cwd.
+
+    Args:
+        cmd_parts: Parsed command tokens beginning with the Python interpreter.
+        cwd: Working directory where the step command will run.
+
+    Returns:
+        Command tokens with the script path resolved to an absolute path, or the
+        original tokens when no rewrite is needed or possible.
+    """
     if len(cmd_parts) < 2:
         return cmd_parts
     if not Path(cmd_parts[0]).name.startswith("python"):
         return cmd_parts
 
-    script_arg = cmd_parts[1]
-    if script_arg.startswith("-"):
+    script_idx = 1
+    while script_idx < len(cmd_parts) and cmd_parts[script_idx].startswith("-"):
+        opt = cmd_parts[script_idx]
+        if opt in {"-m", "-c"}:
+            return cmd_parts
+        if opt in {"-W", "-X"} and script_idx + 1 < len(cmd_parts):
+            script_idx += 2
+        else:
+            script_idx += 1
+    if script_idx >= len(cmd_parts):
         return cmd_parts
 
+    script_arg = cmd_parts[script_idx]
     script_path = Path(script_arg)
     if script_path.is_absolute() or (cwd / script_path).exists():
         return cmd_parts
@@ -137,7 +159,7 @@ def _resolve_python_script_path(cmd_parts: list[str], cwd: Path) -> list[str]:
         return cmd_parts
 
     updated = cmd_parts.copy()
-    updated[1] = str(cwd_relative.resolve())
+    updated[script_idx] = str(cwd_relative.resolve())
     return updated
 
 

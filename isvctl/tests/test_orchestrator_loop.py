@@ -83,6 +83,28 @@ def test_python_script_path_falls_back_to_current_working_directory(
     assert resolved[1] == str(script.resolve())
 
 
+def test_python_script_path_falls_back_after_interpreter_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repo-root-relative Python commands still work after interpreter flags."""
+    repo_root = tmp_path / "repo"
+    script = repo_root / "isvctl" / "configs" / "providers" / "shared" / "deploy_nim.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+    provider_config_dir = tmp_path / "provider" / "config"
+    provider_config_dir.mkdir(parents=True)
+
+    monkeypatch.chdir(repo_root)
+
+    resolved = _resolve_python_script_path(
+        ["python", "-u", "isvctl/configs/providers/shared/deploy_nim.py"],
+        provider_config_dir,
+    )
+    assert resolved[1] == "-u"
+    assert resolved[2] == str(script.resolve())
+
+
 def _write_script(tmp_path: Path, name: str, content: str) -> str:
     """Create an executable script file under tmp_path and return its path.
 
