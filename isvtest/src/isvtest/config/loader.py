@@ -29,6 +29,7 @@ from typing import Any
 import yaml
 from jinja2 import BaseLoader, ChainableUndefined, Environment
 
+from isvtest.config.constants import RESOLVED_ENTRIES_FLAG
 from isvtest.config.inventory import ClusterInventory, inventory_to_dict, parse_inventory
 
 
@@ -105,6 +106,10 @@ class ConfigLoader:
         with open(config_path) as f:
             config_content = f.read()
 
+        pre_rendered_config = self._load_pre_rendered_config(config_content)
+        if pre_rendered_config is not None:
+            return pre_rendered_config
+
         # Check for inventory path from argument or environment variable
         effective_inventory_path = inventory_path or os.environ.get("ISV_INVENTORY_PATH")
         inventory_dict: dict[str, Any] = {}
@@ -137,6 +142,18 @@ class ConfigLoader:
                     )
                 config["cluster_name"] = inventory_cluster_name
 
+        return config
+
+    def _load_pre_rendered_config(self, content: str) -> dict[str, Any] | None:
+        """Return an already-resolved JSON config without applying Jinja rendering."""
+        if not content.lstrip().startswith("{") or RESOLVED_ENTRIES_FLAG not in content:
+            return None
+        try:
+            config = json.loads(content)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(config, dict) or config.get(RESOLVED_ENTRIES_FLAG) is not True:
+            return None
         return config
 
     def _render_template(self, content: str, context: dict[str, Any]) -> str:

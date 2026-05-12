@@ -95,6 +95,28 @@ def test_run_validations_via_pytest_updates_ready_entries() -> None:
     assert results[1].message == "NIM was not deployed"
 
 
+def test_run_validations_via_pytest_does_not_rerender_resolved_config_strings() -> None:
+    """Resolved temp configs may contain literal Jinja-looking strings from step output."""
+    jsonpath_probe = "kubectl get pods -o jsonpath='{{\"\\t\"}}'"
+    entries = [
+        _ready(
+            "StepSuccessCheck",
+            "setup_checks",
+            {"step_output": {"success": True, "message": jsonpath_probe, "probe": jsonpath_probe}},
+        ),
+    ]
+
+    exit_code, results = run_validations_via_pytest(
+        entries=entries,
+        inventory={"steps": {"setup": {"unauthorized_probe_cmd": jsonpath_probe}}},
+    )
+
+    assert exit_code == 0
+    assert len(results) == 1
+    assert results[0].state == State.PASSED
+    assert results[0].message == jsonpath_probe
+
+
 def test_run_validations_via_pytest_marks_runtime_exception() -> None:
     """A validation that raises during run() surfaces as ERROR(RUNTIME_EXCEPTION)."""
     # step_output=None makes StepSuccessCheck.run() crash on the first .get() call.

@@ -27,10 +27,11 @@ import pytest
 import typer
 from isvreporter.version import get_version
 
+from isvtest.config.constants import RESOLVED_ENTRIES_FLAG
 from isvtest.config.loader import ConfigLoader
 from isvtest.core import runners as reframe_runner
 from isvtest.core.logger import setup_logger
-from isvtest.core.resolution import RESOLVED_ENTRIES_FLAG, ErrorReason, ResolvedEntry, SkipReason, State
+from isvtest.core.resolution import ErrorReason, ResolvedEntry, SkipReason, State
 from isvtest.tests.test_validations import (
     clear_validation_results,
     get_validation_results,

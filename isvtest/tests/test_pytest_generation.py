@@ -13,7 +13,7 @@
 from typing import Any
 from unittest.mock import patch
 
-from isvtest.core.resolution import RESOLVED_ENTRIES_FLAG
+from isvtest.config.constants import RESOLVED_ENTRIES_FLAG
 from isvtest.core.validation import BaseValidation
 from isvtest.tests import test_validations as validation_tests
 

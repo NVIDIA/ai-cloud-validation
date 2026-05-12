@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 ADAPTER_HANDLED_CATEGORIES = {"reframe"}
 DEFAULT_VALIDATION_PHASE = "test"
-RESOLVED_ENTRIES_FLAG = "_isvtest_resolved_entries"
 
 
 class State(StrEnum):

@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from isvtest.config.constants import RESOLVED_ENTRIES_FLAG
 from isvtest.config.loader import ConfigLoader
 from isvtest.core.discovery import discover_all_tests
-from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, RESOLVED_ENTRIES_FLAG, resolve_class_key
+from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, resolve_class_key
 from isvtest.core.runners import LocalRunner
 from isvtest.core.validation import BaseValidation
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
