@@ -105,6 +105,15 @@ tests:
           expected_gpus: 8
         HostSoftwareCheck: {}
 
+    # Per-host status log sampling: verify journalctl/dmesg
+    # are emitting fresh entries within max_age_minutes. Pass if at least
+    # one source has recent entries (set required_sources to enforce all).
+    host_status_logs:
+      step: host_status_log
+      checks:
+        StepSuccessCheck: {}
+        BmHostStatusLog: {}
+
     # GPU stress test - PyTorch matrix multiplications on all GPUs
     gpu_stress:
       step: describe_instance

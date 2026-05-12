@@ -25,6 +25,7 @@ from isvtest.tests.test_validations import (
 from isvtest.tests.test_validations import (
     test_validation as run_validation_entry_point,
 )
+from isvtest.validations.bm_host_status import BmHostStatusLog
 from isvtest.validations.instance import (
     InstanceListCheck,
     InstancePowerCycleCheck,
@@ -1665,3 +1666,113 @@ class TestK8sApiServerMetricsCheck:
         assert result["passed"] is False
         assert "expected_metrics" in result["error"]
         mock_runner.run.assert_not_called()
+
+
+def _host_status_log_output(tests: dict[str, Any] | None = None) -> dict:
+    """Build a minimal BmHostStatusLog config (mirrors the script's JSON contract)."""
+    step_output: dict[str, Any] = {
+        "success": True,
+        "platform": "bm",
+        "instance_id": "i-abc123",
+        "tests": tests
+        if tests is not None
+        else {
+            "journalctl_recent": {
+                "passed": True,
+                "message": "42 entries in last 5min, latest 2026-05-12T09:14:03",
+                "entry_count": 42,
+                "latest_timestamp": "2026-05-12T09:14:03",
+            },
+            "dmesg_recent": {
+                "passed": True,
+                "message": "7 entries in last 5min",
+                "entry_count": 7,
+                "latest_timestamp": "2026-05-12T09:13:58",
+            },
+        },
+    }
+    return {"step_output": step_output}
+
+
+class TestBmHostStatusLog:
+    """Tests for BmHostStatusLog validation."""
+
+    def test_both_sources_pass(self) -> None:
+        v = BmHostStatusLog(config=_host_status_log_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "journalctl_recent" in result["output"]
+        assert "dmesg_recent" in result["output"]
+
+    def test_any_source_passing_is_sufficient(self) -> None:
+        """Default 'any' semantic: pass if at least one source has fresh entries."""
+        tests = {
+            "journalctl_recent": {"passed": True, "message": "10 entries"},
+            "dmesg_recent": {"passed": False, "message": "no entries in last 5min"},
+        }
+        v = BmHostStatusLog(config=_host_status_log_output(tests=tests))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "journalctl_recent" in result["output"]
+
+    def test_no_source_passing_fails(self) -> None:
+        tests = {
+            "journalctl_recent": {"passed": False, "message": "no entries in last 5min"},
+            "dmesg_recent": {"passed": False, "message": "no entries in last 5min"},
+        }
+        v = BmHostStatusLog(config=_host_status_log_output(tests=tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "No status log source" in result["error"]
+
+    def test_empty_tests_block_fails(self) -> None:
+        v = BmHostStatusLog(config={"step_output": {"success": True}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "tests" in result["error"]
+
+    def test_strict_mode_passes_when_all_required_pass(self) -> None:
+        v = BmHostStatusLog(
+            config={
+                **_host_status_log_output(),
+                "required_sources": ["journalctl_recent", "dmesg_recent"],
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is True
+        assert "All required sources" in result["output"]
+
+    def test_strict_mode_fails_when_any_required_fails(self) -> None:
+        tests = {
+            "journalctl_recent": {"passed": True, "message": "ok"},
+            "dmesg_recent": {"passed": False, "message": "no entries"},
+        }
+        v = BmHostStatusLog(
+            config={
+                **_host_status_log_output(tests=tests),
+                "required_sources": ["journalctl_recent", "dmesg_recent"],
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "dmesg_recent" in result["error"]
+        assert "Strict mode" in result["error"]
+
+    def test_strict_mode_fails_when_required_source_missing(self) -> None:
+        tests = {"journalctl_recent": {"passed": True, "message": "ok"}}
+        v = BmHostStatusLog(
+            config={
+                **_host_status_log_output(tests=tests),
+                "required_sources": ["journalctl_recent", "dmesg_recent"],
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "dmesg_recent" in result["error"]
+        assert "missing" in result["error"]
+
+    def test_invalid_required_sources_rejected(self) -> None:
+        v = BmHostStatusLog(config={**_host_status_log_output(), "required_sources": "journalctl_recent"})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "required_sources" in result["error"]

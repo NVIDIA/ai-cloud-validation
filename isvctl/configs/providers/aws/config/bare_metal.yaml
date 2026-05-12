@@ -211,6 +211,22 @@ commands:
           - "{{steps.launch_instance.key_file}}"
         timeout: 120
 
+      - name: host_status_log
+        phase: test
+        command: "python3 ../scripts/bare_metal/host_status_log.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--public-ip"
+          - "{{steps.describe_instance.public_ip}}"
+          - "--max-age-minutes"
+          - "5"
+        timeout: 120
+
       # Reinstall instance from stock OS (stop + swap root volume + start)
       # Skipped by default: ~30-45 min on AWS metal, and CreateReplaceRootVolumeTask
       # is not supported. The script performs a manual root volume swap instead.

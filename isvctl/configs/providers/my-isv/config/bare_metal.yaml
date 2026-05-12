@@ -181,6 +181,22 @@ commands:
           - "{{steps.launch_instance.key_file}}"
         timeout: 60
 
+      - name: host_status_log
+        phase: test
+        command: "python ../scripts/bare_metal/host_status_log.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--public-ip"
+          - "{{steps.describe_instance.public_ip}}"
+          - "--max-age-minutes"
+          - "5"
+        timeout: 60
+
       - name: reinstall_instance
         phase: test
         skip: true
