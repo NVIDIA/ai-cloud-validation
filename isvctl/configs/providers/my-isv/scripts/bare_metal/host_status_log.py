@@ -52,6 +52,14 @@ from typing import Any
 DEMO_MODE = os.environ.get("ISVCTL_DEMO_MODE") == "1"
 
 
+def _positive_int(value: str) -> int:
+    """Parse a strictly positive integer argument."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def main() -> int:
     """Emit template per-host status log results.
 
@@ -67,7 +75,7 @@ def main() -> int:
     parser.add_argument("--ssh-user", default="ubuntu", help="SSH username")
     parser.add_argument(
         "--max-age-minutes",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Maximum age of the most recent log entry, in minutes",
     )

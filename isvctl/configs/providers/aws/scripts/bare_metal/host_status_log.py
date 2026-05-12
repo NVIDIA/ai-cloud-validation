@@ -37,6 +37,14 @@ JOURNALCTL_ISO_TS = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+\-]\d{4}
 DMESG_ISO_TS = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:,\d+)?(?:[+\-]\d{2}:?\d{2}|Z)?)")
 
 
+def _positive_int(value: str) -> int:
+    """Parse a strictly positive integer argument."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _build_result(entry_count: int, latest_ts: str, max_age_minutes: int) -> dict[str, Any]:
     """Build a per-source status log result.
 
@@ -163,7 +171,7 @@ def main() -> int:
     parser.add_argument("--ssh-user", default="ubuntu", help="SSH username")
     parser.add_argument(
         "--max-age-minutes",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Maximum age of the most recent log entry, in minutes",
     )
