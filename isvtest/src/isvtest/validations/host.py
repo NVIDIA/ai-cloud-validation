@@ -45,6 +45,47 @@ from isvtest.core.ssh import (
 )
 from isvtest.core.validation import BaseValidation
 
+
+def _extract_numeric_version_parts(version: object) -> list[int]:
+    """Extract comparable numeric components from vendor version strings."""
+    return [int(part) for part in re.findall(r"\d+", str(version).strip())]
+
+
+def _numeric_version_at_least(actual: object, minimum: object) -> bool | None:
+    """Return whether ``actual`` is >= ``minimum``, or None when either cannot be parsed."""
+    actual_parts = _extract_numeric_version_parts(actual)
+    minimum_parts = _extract_numeric_version_parts(minimum)
+    if not actual_parts or not minimum_parts:
+        return None
+
+    width = max(len(actual_parts), len(minimum_parts))
+    actual_parts.extend([0] * (width - len(actual_parts)))
+    minimum_parts.extend([0] * (width - len(minimum_parts)))
+    return actual_parts >= minimum_parts
+
+
+def _check_bios_baseline(bios_baselines: dict, system_vendor: str, product: str, bios_version: str) -> tuple[bool, str]:
+    """Evaluate a BIOS version against the configured baseline for the host's vendor/product."""
+    baseline_key = f"{system_vendor}|{product}"
+    baseline = bios_baselines.get(baseline_key)
+    if baseline is None:
+        available = ", ".join(sorted(str(key) for key in bios_baselines)) or "<none>"
+        return False, f"No BIOS baseline for {baseline_key}; available baselines: {available}"
+
+    min_version = baseline.get("min_version")
+    if not min_version:
+        return False, f"BIOS baseline for {baseline_key} missing min_version"
+
+    version_ok = _numeric_version_at_least(bios_version, min_version)
+    if version_ok is None:
+        return False, (
+            f"Could not parse BIOS version for {baseline_key}: actual={bios_version!r}, min_version={min_version!r}"
+        )
+    if not version_ok:
+        return False, f"BIOS version {bios_version} is below minimum required {min_version}"
+    return True, f"BIOS version {bios_version} >= minimum {min_version} for {baseline_key}"
+
+
 # =============================================================================
 # Connectivity Validations
 # =============================================================================
@@ -613,6 +654,8 @@ class HostSoftwareCheck(BaseValidation):
         expected_driver_version: Expected NVIDIA driver version (optional, e.g. "550")
         expected_libvirt_version: Expected libvirt version substring (optional, e.g. "10.0")
         expected_bios_vendor: Expected BIOS vendor substring (optional, e.g. "Amazon")
+        bios_baselines: Optional mapping of "system_vendor|product_name" to
+            {"min_version": "<approved BIOS version>"}
     """
 
     description: ClassVar[str] = "Validates kernel, libvirt, SBIOS, and NVIDIA drivers"
@@ -635,6 +678,7 @@ class HostSoftwareCheck(BaseValidation):
         expected_driver = self.config.get("expected_driver_version")
         expected_libvirt = self.config.get("expected_libvirt_version")
         expected_bios_vendor = self.config.get("expected_bios_vendor")
+        bios_baselines = self.config.get("bios_baselines")
 
         if not host or not key_path:
             self.set_failed("Missing host or key_file")
@@ -753,6 +797,25 @@ class HostSoftwareCheck(BaseValidation):
             else:
                 self.report_subtest("bios_vendor", True, f"BIOS vendor: {bios_vendor}")
 
+            # System vendor / product for model-aware BIOS baseline matching
+            exit_code, stdout, _ = run_ssh_command(
+                ssh,
+                "cat /sys/class/dmi/id/sys_vendor 2>/dev/null "
+                "|| dmidecode -s system-manufacturer 2>/dev/null "
+                "|| echo 'unknown'",
+            )
+            system_vendor = stdout.strip() if exit_code == 0 else "unknown"
+            self.report_subtest("system_vendor", True, f"System vendor: {system_vendor}")
+
+            exit_code, stdout, _ = run_ssh_command(
+                ssh,
+                "cat /sys/class/dmi/id/product_name 2>/dev/null "
+                "|| dmidecode -s system-product-name 2>/dev/null "
+                "|| echo 'unknown'",
+            )
+            product = stdout.strip() if exit_code == 0 else "unknown"
+            self.report_subtest("system_product", True, f"Platform: {product}")
+
             # BIOS version
             exit_code, stdout, _ = run_ssh_command(
                 ssh,
@@ -763,6 +826,12 @@ class HostSoftwareCheck(BaseValidation):
             bios_version = stdout.strip() if exit_code == 0 else "unknown"
             self.report_subtest("bios_version", True, f"BIOS version: {bios_version}")
 
+            if bios_baselines is not None:
+                passed, message = _check_bios_baseline(bios_baselines, system_vendor, product, bios_version)
+                self.report_subtest("bios_baseline", passed, message)
+                if not passed:
+                    failures.append(message)
+
             # BIOS release date
             exit_code, stdout, _ = run_ssh_command(
                 ssh,
@@ -772,16 +841,6 @@ class HostSoftwareCheck(BaseValidation):
             )
             bios_date = stdout.strip() if exit_code == 0 else "unknown"
             self.report_subtest("bios_date", True, f"BIOS date: {bios_date}")
-
-            # System product / platform
-            exit_code, stdout, _ = run_ssh_command(
-                ssh,
-                "cat /sys/class/dmi/id/product_name 2>/dev/null "
-                "|| dmidecode -s system-product-name 2>/dev/null "
-                "|| echo 'unknown'",
-            )
-            product = stdout.strip() if exit_code == 0 else "unknown"
-            self.report_subtest("system_product", True, f"Platform: {product}")
 
             # UEFI vs legacy BIOS
             exit_code, stdout, _ = run_ssh_command(

@@ -1425,6 +1425,163 @@ class TestValidationResultCapture:
         assert r["passed"] is False
 
 
+class TestHostSoftwareCheckBiosBaselines:
+    """Tests for HostSoftwareCheck BIOS baseline enforcement."""
+
+    @staticmethod
+    def _run_response(
+        *,
+        bios_version: str,
+        system_vendor: str = "Dell Inc.",
+        product_name: str = "PowerEdge R760xa",
+    ):
+        def _response(ssh: MagicMock, cmd: str) -> tuple[int, str, str]:
+            if cmd == "uname -r":
+                return (0, "6.8.0-nvidia\n", "")
+            if cmd == "uname -v":
+                return (0, "#1 SMP PREEMPT_DYNAMIC\n", "")
+            if "lsmod" in cmd:
+                return (0, "nvidia\nkvm\n", "")
+            if "libvirtd --version" in cmd:
+                return (0, "not_installed\n", "")
+            if "qemu-system-x86_64" in cmd:
+                return (0, "not_installed\n", "")
+            if "test -c /dev/kvm" in cmd:
+                return (0, "kvm_available\n", "")
+            if "virsh version" in cmd:
+                return (0, "not_available\n", "")
+            if "bios_vendor" in cmd:
+                return (0, "Dell Inc.\n", "")
+            if "sys_vendor" in cmd or "system-manufacturer" in cmd:
+                return (0, f"{system_vendor}\n", "")
+            if "product_name" in cmd or "system-product-name" in cmd:
+                return (0, f"{product_name}\n", "")
+            if "bios_version" in cmd:
+                return (0, f"{bios_version}\n", "")
+            if "bios_date" in cmd or "bios-release-date" in cmd:
+                return (0, "03/12/2026\n", "")
+            if "test -d /sys/firmware/efi" in cmd:
+                return (0, "UEFI\n", "")
+            if "--query-gpu=driver_version" in cmd:
+                return (0, "550.54.15\n", "")
+            if "grep 'CUDA Version'" in cmd:
+                return (0, "12.4\n", "")
+            if "/sys/module/nvidia/version" in cmd:
+                return (0, "550.54.15\n", "")
+            if "--query-gpu=persistence_mode" in cmd:
+                return (0, "Enabled\n", "")
+            raise AssertionError(f"Unexpected SSH command: {cmd}")
+
+        return _response
+
+    @staticmethod
+    def _execute(
+        mock_ssh_cfg: MagicMock,
+        mock_run: MagicMock,
+        mock_ssh: MagicMock,
+        *,
+        bios_version: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from isvtest.validations.host import HostSoftwareCheck
+
+        mock_ssh_cfg.return_value = {
+            "ssh_host": "10.0.0.1",
+            "ssh_user": "ubuntu",
+            "ssh_key_path": "/tmp/k.pem",
+        }
+        mock_ssh.return_value = MagicMock()
+        mock_run.side_effect = TestHostSoftwareCheckBiosBaselines._run_response(bios_version=bios_version)
+
+        return HostSoftwareCheck(config=config or {}).execute()
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_matching_bios_baseline_equal_version_passes(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"bios_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2.4.8"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="2.4.8", config=config)
+
+        assert result["passed"] is True
+        assert any(subtest["name"] == "bios_baseline" and subtest["passed"] for subtest in result["subtests"])
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_matching_bios_baseline_greater_version_passes(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"bios_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2.4.8"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="BIOS-2.4.10", config=config)
+        baseline = next(subtest for subtest in result["subtests"] if subtest["name"] == "bios_baseline")
+
+        assert result["passed"] is True
+        assert "BIOS version BIOS-2.4.10 >= minimum 2.4.8" in baseline["message"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_matching_bios_baseline_lower_version_fails(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"bios_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2.4.8"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="2.4.7", config=config)
+
+        assert result["passed"] is False
+        assert "BIOS version 2.4.7 is below minimum required 2.4.8" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_configured_bios_baselines_require_matching_dmi_key(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"bios_baselines": {"Other Vendor|Other Model": {"min_version": "2.4.8"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="2.4.8", config=config)
+
+        assert result["passed"] is False
+        assert "No BIOS baseline for Dell Inc.|PowerEdge R760xa" in result["error"]
+
+    @pytest.mark.parametrize(
+        ("bios_version", "min_version"),
+        [("unknown", "2.4.8"), ("2.4.8", "latest")],
+    )
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_unparseable_bios_baseline_versions_fail(
+        self,
+        mock_ssh_cfg: MagicMock,
+        mock_run: MagicMock,
+        mock_ssh: MagicMock,
+        bios_version: str,
+        min_version: str,
+    ) -> None:
+        config = {"bios_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": min_version}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version=bios_version, config=config)
+
+        assert result["passed"] is False
+        assert "Could not parse BIOS version for Dell Inc.|PowerEdge R760xa" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_bios_version_remains_report_only_without_baselines(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="vendor-build-current")
+
+        assert result["passed"] is True
+        assert not any(subtest["name"] == "bios_baseline" for subtest in result["subtests"])
+
+
 class TestCloudInitCheckMetadataHeaders:
     """Tests for CloudInitCheck metadata_headers parameter."""
 
