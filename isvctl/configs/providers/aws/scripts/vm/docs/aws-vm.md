@@ -196,8 +196,19 @@ Validates the full software stack: kernel, libvirt/QEMU, SBIOS, NVIDIA drivers.
 | `expected_driver_version` | string | *(none)* | NVIDIA driver version substring |
 | `expected_libvirt_version` | string | *(none)* | libvirt version substring |
 | `expected_bios_vendor` | string | *(none)* | BIOS vendor name |
+| `bios_baselines` | mapping | *(none)* | Approved BIOS minimums keyed by `system_vendor|product_name` |
 
-When no `expected_*` parameter is set, the check **reports** the value without failing.
+When no `expected_*` parameter or `bios_baselines` policy is set, the check **reports**
+the value without failing. To build a BIOS policy, run once in report-only mode to
+capture `system_vendor`, `system_product`, and `bios_version`, then configure the
+approved baseline:
+
+```yaml
+HostSoftwareCheck:
+  bios_baselines:
+    "Dell Inc.|PowerEdge R760xa":
+      min_version: "2.4.8"
+```
 
 ### InstanceRebootCheck
 
