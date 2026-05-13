@@ -12,7 +12,14 @@ import subprocess
 import time
 from typing import Any, ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell, get_kubectl_command
+from isvtest.core.k8s import (
+    KubectlParseError,
+    get_kubectl_base_shell,
+    get_kubectl_command,
+    job_terminal_status,
+    parse_kubectl_json,
+    parse_kubectl_json_items,
+)
 from isvtest.core.runners import CommandResult, Runner
 from isvtest.core.validation import BaseValidation
 
@@ -82,18 +89,17 @@ class BaseWorkloadCheck(BaseValidation):
         while time.time() < end_time:
             time.sleep(5)
 
-            # Check job conditions
-            cmd = f"{kubectl_base} get job {job_name} -n {namespace} -o jsonpath='{{.status.conditions[*].type}}'"
-            res = self.runner.run(cmd)
-
-            if res.exit_code == 0 and res.stdout:
-                conditions = res.stdout.strip().split()
-                if "Complete" in conditions:
-                    job_status = "Complete"
-                    break
-                if "Failed" in conditions:
-                    job_status = "Failed"
-                    break
+            res = self.runner.run(f"{kubectl_base} get job {job_name} -n {namespace} -o json")
+            if res.exit_code != 0:
+                continue
+            try:
+                payload = parse_kubectl_json(res, f"job {job_name!r}")
+            except KubectlParseError:
+                continue
+            terminal = job_terminal_status(payload)
+            if terminal is not None:
+                job_status = terminal
+                break
 
         duration = time.time() - start_time
 
@@ -117,16 +123,21 @@ class BaseWorkloadCheck(BaseValidation):
         self.log.info(f"Collecting logs for job {job_name}...")
 
         # Find pod
-        cmd = f"{kubectl_base} get pods -n {namespace} -l job-name={job_name} -o jsonpath='{{.items[0].metadata.name}}'"
-        pod_res = self.runner.run(cmd)
+        pod_res = self.runner.run(f"{kubectl_base} get pods -n {namespace} -l job-name={job_name} -o json")
 
         logs_stdout = ""
         logs_stderr = ""
+        pod_name = ""
+        if pod_res.exit_code == 0:
+            try:
+                pods = parse_kubectl_json_items(pod_res, f"pods for job {job_name!r}")
+            except KubectlParseError:
+                pods = []
+            if pods:
+                pod_name = str((pods[0].get("metadata") or {}).get("name") or "")
 
-        if pod_res.exit_code == 0 and pod_res.stdout:
-            pod_name = pod_res.stdout.strip()
-            logs_cmd = f"{kubectl_base} logs {pod_name} -n {namespace}"
-            logs_res = self.runner.run(logs_cmd)
+        if pod_name:
+            logs_res = self.runner.run(f"{kubectl_base} logs {pod_name} -n {namespace}")
             logs_stdout = logs_res.stdout
             logs_stderr = logs_res.stderr
         else:

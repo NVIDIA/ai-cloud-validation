@@ -22,7 +22,7 @@ import time
 import uuid
 from typing import Any
 
-from isvtest.core.k8s import get_kubectl_command, run_kubectl
+from isvtest.core.k8s import get_kubectl_command, job_terminal_status, run_kubectl
 from isvtest.core.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -232,17 +232,20 @@ spec:
 
         for _ in range(timeout // 5):
             time.sleep(5)
-            result = run_kubectl(
-                ["get", "job", job_name, "-n", namespace, "-o", "jsonpath={.status.conditions[*].type}"],
-                timeout=10,
-            )
-            if result.returncode == 0:
-                if "Complete" in result.stdout:
-                    job_completed = True
-                    break
-                if "Failed" in result.stdout:
-                    job_failed = True
-                    break
+            result = run_kubectl(["get", "job", job_name, "-n", namespace, "-o", "json"], timeout=10)
+            if result.returncode != 0:
+                continue
+            try:
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                continue
+            terminal = job_terminal_status(payload)
+            if terminal == "Complete":
+                job_completed = True
+                break
+            if terminal == "Failed":
+                job_failed = True
+                break
 
         if not job_completed and not job_failed:
             return False, f"Inference test timed out after {timeout}s"
