@@ -631,7 +631,7 @@ class FakePolicyPropagationEc2:
     ) -> dict[str, Any]:
         """Return a fake policy probe security group."""
         assert GroupName.startswith("isv-sdn-policy-propagation-")
-        assert Description == "ISV SDN02-08 policy propagation probe"
+        assert Description == "ISV policy propagation probe"
         assert VpcId == "vpc-test"
         assert TagSpecifications
         return {"GroupId": "sg-probe"}
@@ -652,12 +652,13 @@ class FakePolicyPropagationEc2:
         """Return SG permissions according to configured propagation lag."""
         assert GroupIds == ["sg-probe"]
         self.describe_calls += 1
-        visible = False
-        if self.authorized and not self.revoked:
-            visible = self.describe_calls >= self.rule_visible_after
         if self.revoked:
             self.revoked_describe_calls += 1
             visible = self.revoked_describe_calls < self.rule_removed_after
+        elif self.authorized:
+            visible = self.describe_calls >= self.rule_visible_after
+        else:
+            visible = False
         return {
             "SecurityGroups": [
                 {

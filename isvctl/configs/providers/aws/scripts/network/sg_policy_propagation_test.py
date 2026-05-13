@@ -62,9 +62,8 @@ def _failed(error: str, **extra: Any) -> dict[str, Any]:
     return result
 
 
-def _base_result(vpc_id: str, region: str, max_propagation_seconds: float) -> dict[str, Any]:
-    """Build the standard SDN02-08 result envelope."""
-    _ = (vpc_id, region)
+def _base_result(max_propagation_seconds: float) -> dict[str, Any]:
+    """Build the result envelope with subtests initialised to failed."""
     return {
         "success": False,
         "platform": "network",
@@ -135,7 +134,8 @@ def check_policy_propagation(
     poll_seconds: float = DEFAULT_POLL_SECONDS,
 ) -> dict[str, Any]:
     """Measure SG rule add/remove propagation timing."""
-    result = _base_result(vpc_id, region, max_propagation_seconds)
+    _ = region
+    result = _base_result(max_propagation_seconds)
     permission = _probe_permission()
     sg_id = None
     sg_name = f"isv-sdn-policy-propagation-{uuid.uuid4().hex[:8]}"
@@ -143,7 +143,7 @@ def check_policy_propagation(
     try:
         sg = ec2.create_security_group(
             GroupName=sg_name,
-            Description="ISV SDN02-08 policy propagation probe",
+            Description="ISV policy propagation probe",
             VpcId=vpc_id,
             TagSpecifications=[
                 {
@@ -235,7 +235,7 @@ def check_policy_propagation(
 
 @handle_aws_errors
 def main() -> int:
-    """Run the AWS SDN02-08 policy propagation timing probe."""
+    """Run the AWS policy propagation timing probe."""
     parser = argparse.ArgumentParser(description="Measure security policy propagation timing")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     parser.add_argument("--vpc-id", required=True, help="Target VPC/network identifier")
