@@ -22,10 +22,15 @@ import os
 import ssl
 import struct
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+from .file_logger import FileLogger, get_file_logger
+
+_log: FileLogger = get_file_logger(__name__)
 
 
 def _totp(secret_b32: str, *, digits: int = 6, interval: int = 30) -> str:
@@ -39,6 +44,13 @@ def _totp(secret_b32: str, *, digits: int = 6, interval: int = 30) -> str:
     return str(code % (10**digits)).zfill(digits)
 
 _DEFAULT_COOKIE_PATH: Path = Path.home() / ".cache" / "isvctl" / "bridge_session.cookies"
+
+_SENSITIVE_KEYS: frozenset[str] = frozenset({"password", "token", "secret", "totp", "apiKey", "api_key"})
+
+
+def _redact(body: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of body with sensitive field values replaced by '***'."""
+    return {k: "***" if k in _SENSITIVE_KEYS else v for k, v in body.items()}
 
 
 class BridgeClient:
@@ -145,8 +157,9 @@ class BridgeClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with self._opener.open(req, timeout=30):
-            pass
+        _log.debug("POST %s/auth/login (credentials redacted)", self.base_url)
+        with self._opener.open(req, timeout=30) as resp:
+            _log.debug("POST /auth/login -> %d", resp.status)
         self._save_cookies()
 
     def login_as(self, email: str, password: str) -> BridgeClient:
@@ -171,9 +184,17 @@ class BridgeClient:
         url = self.base_url + path
         if params:
             url += "?" + urllib.parse.urlencode(params)
+        _log.debug("GET %s", url)
         req = urllib.request.Request(url, method="GET")
-        with self._opener.open(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
+        try:
+            with self._opener.open(req, timeout=30) as resp:
+                raw = resp.read().decode()
+                _log.debug("GET %s -> %d  body=%s", url, resp.status, raw)
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode()
+            _log.debug("GET %s -> %d  body=%s", url, e.code, raw)
+            raise ValueError(f"GET {path} failed with status {e.code}: {raw}") from e
+        return json.loads(raw)
 
     def post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         """POST {self.base_url}{path} with session cookie auth."""
@@ -184,15 +205,30 @@ class BridgeClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with self._opener.open(req, timeout=30) as resp:
-            raw = resp.read().decode()
+        _log.debug("POST %s%s  body=%s", self.base_url, path, json.dumps(_redact(body)))
+        try:
+            with self._opener.open(req, timeout=30) as resp:
+                raw = resp.read().decode()
+                _log.debug("POST %s%s -> %d  body=%s", self.base_url, path, resp.status, raw)
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode()
+            _log.debug("POST %s%s -> %d  body=%s", self.base_url, path, e.code, raw)
+            raise ValueError(f"POST {path} failed with status {e.code}: {raw}") from e
         return json.loads(raw) if raw else {}
 
     def delete(self, path: str) -> dict[str, Any]:
         """DELETE {self.base_url}{path} with session cookie auth."""
+        _log.debug("DELETE %s%s", self.base_url, path)
         req = urllib.request.Request(self.base_url + path, method="DELETE")
-        with self._opener.open(req, timeout=30) as resp:
-            raw = resp.read().decode()
+        try:
+            with self._opener.open(req, timeout=30) as resp:
+                raw = resp.read().decode()
+                _log.debug("DELETE %s%s -> %d  body=%s", self.base_url, path, resp.status, raw)
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode()
+            _log.debug("DELETE %s%s -> %d  body=%s", self.base_url, path, e.code, raw)
+            if e.code != 404:
+                raise ValueError(f"DELETE {path} failed with status {e.code}: {raw}") from e
         return json.loads(raw) if raw else {}
 
     def patch(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -204,8 +240,15 @@ class BridgeClient:
             headers={"Content-Type": "application/json"},
             method="PATCH",
         )
-        with self._opener.open(req, timeout=30) as resp:
-            raw = resp.read().decode()
+        _log.debug("PATCH %s%s  body=%s", self.base_url, path, json.dumps(_redact(body)))
+        try:
+            with self._opener.open(req, timeout=30) as resp:
+                raw = resp.read().decode()
+                _log.debug("PATCH %s%s -> %d  body=%s", self.base_url, path, resp.status, raw)
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode()
+            _log.debug("PATCH %s%s -> %d  body=%s", self.base_url, path, e.code, raw)
+            raise ValueError(f"PATCH {path} failed with status {e.code}: {raw}") from e
         return json.loads(raw) if raw else {}
 
     def wait_for_state(

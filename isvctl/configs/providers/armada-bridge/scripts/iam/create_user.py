@@ -31,9 +31,10 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common.bridge_client import BridgeClient  # noqa: F401 — used in the live impl block
 from common.errors import handle_bridge_errors
+from common.constants import TEST_PASSWORD
+from iam_common import extract_user_from_users, extract_tenant_from_tenants, extract_tenant_org
 
 DEMO_MODE = os.environ.get("ISVCTL_DEMO_MODE") == "1"
-
 
 @handle_bridge_errors
 def main() -> int:
@@ -56,41 +57,117 @@ def main() -> int:
         )
     else:
         # --- Bridge implementation ---
-        # client = BridgeClient.from_env()
-        #
-        # Step 1: Create user (returns void)
-        # email = f"{args.username}@{args.tenant}.example.com"
-        # password = "TempPass!Bridge2026"
-        # client.post("/users/create", {
-        #     "username": args.username, "email": email,
-        #     "firstName": "ISV", "lastName": "TestUser",
-        #     "password": password, "enabled": True, "emailVerified": True
-        # })
-        #
-        # Step 2: GET /users → filter by email to find user_id
-        # users = client.get("/users")
-        # user = next(u for u in users if u["email"] == email)
-        # user_id = user["id"]
-        #
-        # Step 3: ROPC as new user to get their token
-        # user_client = client.login_as(email, password)
-        #
-        # Step 4: POST /key-manager/api-key AS the new user
-        # key_resp = user_client.post("/key-manager/api-key", {})
-        # secret_access_key = key_resp["key"]
-        #
-        # result.update({
-        #     "success": True, "user_id": user_id,
-        #     "username": email, "access_key_id": user_id,
-        #     "secret_access_key": secret_access_key,
-        # })
-        raise NotImplementedError(
-            "create_user: uncomment the Bridge implementation block above. "
-            "See bridge-isv-ncp-status.md IAM suite for the 5-step flow."
-        )
+        admin_client = BridgeClient.from_env()
+
+        tenant_info = None
+        user_email = f"{args.username}@{args.tenant}.example.com"
+
+        # Step 1: Create user
+        try:
+            all_tenants = admin_client.get("/orchestrator/tenants")
+            tenant_info = extract_tenant_from_tenants(all_tenants, args.tenant)
+            if tenant_info is None:
+                raise ValueError(f"Tenant '{args.tenant}' not found")
+
+            keycloack_orgs_info = admin_client.get("/users/organizations")
+            tenant_org = extract_tenant_org(keycloack_orgs_info, tenant_info["ID"])
+            if tenant_org is None:
+                raise ValueError(f"Tenant organization for tenant '{args.tenant}' not found")
+
+            create_user_dto = CreateUserDTO(
+                username=args.username,
+                email=user_email,
+                first_name=args.username,
+                last_name="TestUser",
+                password=TEST_PASSWORD,
+                enabled=True,
+                email_verified=False,
+                org_id=tenant_org["id"],
+                role_ref={
+                    "scope": "tenant",
+                    "name": "TenantAdmin",
+                    "tenant_id": tenant_info["ID"]
+                }
+            )
+
+            try:
+                admin_client.post("/users/create", create_user_dto.to_dict())
+            except Exception as e:
+                if "status 409" not in str(e):
+                    raise
+                # user already exists from a prior run; proceed to lookup
+
+        except Exception as e:
+            result.update({"error": f"User create failed: {e}"})
+            return result
+
+        # step 2: Get user details
+        user_info = None
+        try:
+            users = admin_client.get("/users")
+            user_info = extract_user_from_users(users, user_email)
+            if user_info is None:
+                raise ValueError(f"User with email '{user_email}' not found")
+
+            result["username"] = user_info["email"]
+            result["user_id"] = user_info["id"]
+            result["access_key_id"] = user_info["email"]
+
+        except Exception as e:
+            result.update({"error": f"Failed to find user {args.username} info: {e}"})
+            return result
+
+        # Step 3: Create API key
+        try:
+            user_client = admin_client.login_as(user_info["email"], TEST_PASSWORD)
+            try:
+                api_key = user_client.post("/key-manager/api-key", {})
+                result["secret_access_key"] = api_key["key"]
+            except Exception as e:
+                if "status 409" not in str(e):
+                    raise
+                # key already exists from a prior run; rotate it so we return a known value
+                user_client.delete("/key-manager/api-key")
+                api_key = user_client.post("/key-manager/api-key", {})
+                result["secret_access_key"] = api_key["key"]
+
+        except Exception as e:
+            result.update({"error": f"Failed to create API key for user {args.username}: {e}"})
+            return result
+
+        result["success"] = True
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
+
+class CreateUserDTO:
+    def __init__(self, username, email, first_name, last_name, password, enabled, email_verified, org_id, role_ref):
+        self.first_name = first_name
+        self.last_name = last_name
+        self.username = username
+        self.email = email
+        self.password = password
+        self.enabled = enabled
+        self.email_verified = email_verified
+        self.org_id = org_id
+        self.role_ref = role_ref
+
+    def to_dict(self):
+        return {
+            "username": self.username,
+            "email": self.email,
+            "firstName": self.first_name,
+            "lastName": self.last_name,
+            "password": self.password,
+            "enabled": self.enabled,
+            "emailVerified": self.email_verified,
+            "organization": self.org_id,
+            "roleRef": {
+                "scope": self.role_ref["scope"],
+                "name": self.role_ref["name"],
+                "tenant_id": self.role_ref["tenant_id"],
+            },
+        }
 
 
 if __name__ == "__main__":
