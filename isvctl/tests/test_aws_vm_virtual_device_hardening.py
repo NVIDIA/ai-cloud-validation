@@ -264,3 +264,45 @@ def test_main_returns_structured_failure_for_malformed_guest_probe(
     assert "guest_probe" not in result
     assert "instance_id" not in result
     assert result["error"] == "Expected integer output, got 'bad usb count'"
+
+
+def test_main_returns_failure_for_unavailable_guest_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Unavailable guest-probe status is a hard step failure."""
+    module = load_vm_script("virtual_device_hardening.py")
+
+    def fake_collect_guest_probe(
+        host: str,
+        user: str,
+        key_file: str,
+        timeout: int,
+    ) -> dict[str, object]:
+        assert host == "203.0.113.10"
+        assert user == "ubuntu"
+        assert key_file == "/tmp/key.pem"
+        assert timeout == 60
+        return {"status": "unavailable", "error": "SSH command exited 255"}
+
+    monkeypatch.setattr(module, "_collect_guest_probe", fake_collect_guest_probe)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "virtual_device_hardening.py",
+            "--instance-id",
+            "i-123",
+            "--public-ip",
+            "203.0.113.10",
+            "--key-file",
+            "/tmp/key.pem",
+        ],
+    )
+
+    exit_code = module.main()
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert result["success"] is False
+    assert result["error"] == "SSH command exited 255"

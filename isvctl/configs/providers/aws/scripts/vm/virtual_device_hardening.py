@@ -190,7 +190,8 @@ def _collect_guest_probe(host: str, user: str, key_file: str, timeout: int) -> d
     outputs, error = _run_combined_probe(host, user, key_file, timeout)
     if error is not None:
         return {"status": "unavailable", "error": error}
-    assert outputs is not None
+    if outputs is None:
+        return {"status": "unavailable", "error": "guest probe returned no output"}
 
     usb_count_raw = outputs.get("usb_count", "0").strip()
     if not usb_count_raw.isdigit():
@@ -273,6 +274,8 @@ def main() -> int:
     except ValueError as e:
         guest_probe_error = _compact(str(e))
         guest_probe = {"status": "unavailable"}
+    if guest_probe_error is None and guest_probe.get("status") == "unavailable":
+        guest_probe_error = _compact(str(guest_probe.get("error") or "guest probe unavailable"))
 
     _apply_guest_probe(tests, guest_probe)
 
