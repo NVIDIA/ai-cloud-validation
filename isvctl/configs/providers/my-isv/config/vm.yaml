@@ -149,6 +149,20 @@ commands:
           - "{{region}}"
         timeout: 60
 
+      - name: virtual_device_hardening
+        phase: test
+        command: "python ../scripts/vm/virtual_device_hardening.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--public-ip"
+          - "{{steps.launch_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+        timeout: 60
+
       # Skipped: deploy_nim and teardown_nim stubs SSH into a real host
       # to run a NIM container. The dummy-success stubs can't satisfy them.
       - name: deploy_nim

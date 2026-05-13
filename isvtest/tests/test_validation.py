@@ -44,7 +44,7 @@ from isvtest.validations.network import (
     VpcPeeringCheck,
 )
 from isvtest.validations.nim import NimHealthCheck, NimInferenceCheck, NimModelCheck
-from isvtest.validations.security import ConsoleRbacCheck
+from isvtest.validations.security import ConsoleRbacCheck, VirtualDeviceHardeningCheck
 
 
 class ConcreteValidation(BaseValidation):
@@ -755,6 +755,72 @@ class TestConsoleRbacCheck:
 
         assert result["passed"] is False
         assert expected_error in result["error"]
+
+
+def _virtual_device_hardening_config(step_output: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    """Build a minimal VirtualDeviceHardeningCheck config."""
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "vm",
+        "test_name": "virtual_device_hardening",
+        "tests": {
+            "usb_devices_disabled": {"passed": True},
+            "clipboard_disabled": {"passed": True},
+            "unnecessary_virtual_devices_absent": {"passed": True},
+        },
+    }
+    if step_output:
+        output.update(step_output)
+    return {"step_output": output}
+
+
+class TestVirtualDeviceHardeningCheck:
+    """Tests for VirtualDeviceHardeningCheck validation."""
+
+    def test_all_required_subtests_pass(self) -> None:
+        """Virtual device hardening passes when all required subtests pass."""
+        v = VirtualDeviceHardeningCheck(config=_virtual_device_hardening_config())
+        result = v.execute()
+
+        assert result["passed"] is True
+        assert "Virtual device hardening verified" in result["output"]
+
+    @pytest.mark.parametrize(
+        ("override", "expected_error_contains"),
+        [
+            (
+                {
+                    "tests": {
+                        "clipboard_disabled": {"passed": True},
+                        "unnecessary_virtual_devices_absent": {"passed": True},
+                    }
+                },
+                "usb_devices_disabled",
+            ),
+            (
+                {
+                    "success": False,
+                    "tests": {
+                        "usb_devices_disabled": {"passed": True},
+                        "clipboard_disabled": {"passed": False, "error": "clipboard agent detected"},
+                        "unnecessary_virtual_devices_absent": {"passed": True},
+                    },
+                },
+                "clipboard agent detected",
+            ),
+            (
+                {"success": False, "error": "guest probe parser blew up"},
+                "guest probe parser blew up",
+            ),
+        ],
+    )
+    def test_failure_modes(self, override: dict[str, Any], expected_error_contains: str) -> None:
+        """Virtual device hardening fails on missing/failed subtests or success=False."""
+        v = VirtualDeviceHardeningCheck(config=_virtual_device_hardening_config(override))
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert expected_error_contains in result["error"]
 
 
 def _mock_ssh_run(responses: dict[str, tuple[int, str, str]]):

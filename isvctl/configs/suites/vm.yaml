@@ -82,6 +82,11 @@ tests:
       checks:
         ConsoleRbacCheck: {}
 
+    virtual_device_hardening:
+      step: virtual_device_hardening
+      checks:
+        VirtualDeviceHardeningCheck: {}
+
     cloud_init:
       step: launch_instance
       checks:

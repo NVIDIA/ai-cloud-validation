@@ -100,6 +100,21 @@ commands:
           - "{{region}}"
         timeout: 120
 
+      # AWS-specific: Virtual device hardening evidence
+      - name: virtual_device_hardening
+        phase: test
+        command: "python3 ../scripts/vm/virtual_device_hardening.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--public-ip"
+          - "{{steps.launch_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+        timeout: 120
+
       # AWS-specific: Stop instance and verify stopped state (boto3)
       - name: stop_instance
         phase: test

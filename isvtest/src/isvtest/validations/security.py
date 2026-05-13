@@ -553,6 +553,45 @@ class ConsoleRbacCheck(BaseValidation):
         )
 
 
+class VirtualDeviceHardeningCheck(BaseValidation):
+    """Validate unnecessary VM virtual-device surfaces are disabled.
+
+    Config:
+        step_output: The virtual_device_hardening step output to check
+
+    Step output:
+        tests: dict with usb_devices_disabled, clipboard_disabled,
+               unnecessary_virtual_devices_absent
+    """
+
+    description: ClassVar[str] = "Check USB, clipboard, and unnecessary virtual devices are disabled"
+    markers: ClassVar[list[str]] = ["vm", "security"]
+
+    def run(self) -> None:
+        """Validate virtual-device hardening evidence from step output."""
+        step_output = self.config.get("step_output", {})
+        step_failed = step_output.get("success") is False
+        step_failed_msg = f"Virtual device hardening step failed: {step_output.get('error', 'step reported failure')}"
+
+        if step_failed and not step_output.get("tests"):
+            self.set_failed(step_failed_msg)
+            return
+
+        required = [
+            "usb_devices_disabled",
+            "clipboard_disabled",
+            "unnecessary_virtual_devices_absent",
+        ]
+        if not check_required_tests(self, required, "Virtual device hardening tests failed"):
+            return
+
+        if step_failed:
+            self.set_failed(step_failed_msg)
+            return
+
+        self.set_passed("Virtual device hardening verified")
+
+
 class OidcUserAuthCheck(BaseValidation):
     """Validate user authentication via OIDC for platform services.
 
