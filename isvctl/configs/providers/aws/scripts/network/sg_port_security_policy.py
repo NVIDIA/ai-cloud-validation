@@ -41,6 +41,19 @@ CIDR = "10.84.0.0/16"
 SUBNET_CIDR = "10.84.1.0/24"
 POLICY_CIDR = "10.0.0.0/8"
 ALREADY_GONE_CLEANUP_CODES = ALREADY_GONE_CODES | frozenset({"InvalidNetworkInterfaceID.NotFound"})
+PORT_SECURITY_TEST_NAMES = [
+    "create_virtual_interface",
+    "apply_port_policy",
+    "allowed_port_permitted",
+    "unlisted_port_blocked",
+    "other_interface_unaffected",
+    "cleanup",
+]
+
+
+def _failed_port_security_results(error: str) -> dict[str, dict[str, Any]]:
+    """Return a complete failed subtest contract for early setup failures."""
+    return {name: {"passed": False, "error": error} for name in PORT_SECURITY_TEST_NAMES}
 
 
 def _get_az(ec2: Any, region: str) -> str:
@@ -109,13 +122,7 @@ def test_port_security_policy(
     cleanup_errors: list[str] = []
     adjacent_port = allowed_port + 1
     tag = f"isv-port-policy-{uuid.uuid4().hex[:6]}"
-    expected_keys = [
-        "create_virtual_interface",
-        "apply_port_policy",
-        "allowed_port_permitted",
-        "unlisted_port_blocked",
-        "other_interface_unaffected",
-    ]
+    expected_keys = PORT_SECURITY_TEST_NAMES[:-1]
 
     try:
         subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock=SUBNET_CIDR, AvailabilityZone=az)
@@ -230,12 +237,17 @@ def main() -> int:
     vpc_id = None
     try:
         vpc_result = create_test_vpc(ec2, CIDR, vpc_name)
+        vpc_id = vpc_result.get("vpc_id")
         if not vpc_result["passed"]:
-            result["tests"]["create_virtual_interface"] = {"passed": False, "error": "VPC creation failed"}
+            detail = vpc_result.get("error")
+            bootstrap_error = f"VPC creation failed: {detail}" if detail else "VPC creation failed"
+            result["tests"] = _failed_port_security_results(bootstrap_error)
+            result["error"] = bootstrap_error
             print(json.dumps(result, indent=2))
             return 1
 
-        vpc_id = vpc_result["vpc_id"]
+        if not vpc_id:
+            raise RuntimeError("VPC creation did not return a VPC ID")
         az = _get_az(ec2, args.region)
         result["tests"] = test_port_security_policy(ec2, vpc_id, az, allowed_port=args.allowed_port)
         result["success"] = all(test.get("passed") for test in result["tests"].values())

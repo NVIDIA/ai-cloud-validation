@@ -391,6 +391,7 @@ def test_port_security_policy_fails_when_policy_leaks_to_other_interface(
     ec2 = FakePortSecurityEc2()
 
     def leaked_describe_network_interfaces(NetworkInterfaceIds: list[str]) -> dict[str, Any]:
+        """Return AWS-shaped ENI descriptions with sg-port attached to every ENI."""
         return {
             "NetworkInterfaces": [
                 {"NetworkInterfaceId": eni_id, "Groups": [{"GroupId": "sg-port"}]} for eni_id in NetworkInterfaceIds
@@ -404,6 +405,34 @@ def test_port_security_policy_fails_when_policy_leaks_to_other_interface(
     assert result["other_interface_unaffected"]["passed"] is False
     assert "leaked" in result["other_interface_unaffected"]["error"]
     assert result["cleanup"]["passed"] is True
+
+
+def test_port_security_policy_main_emits_full_contract_on_vpc_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """VPC bootstrap failure should still emit every port-security subtest key."""
+    module = _load_network_script("sg_port_security_policy.py")
+    fake_ec2 = object()
+    cleaned_vpcs: list[str] = []
+
+    monkeypatch.setattr(module.boto3, "client", lambda service, region_name: fake_ec2)
+    monkeypatch.setattr(
+        module,
+        "create_test_vpc",
+        lambda ec2, cidr, name: {"passed": False, "vpc_id": "vpc-partial", "error": "quota exceeded"},
+    )
+    monkeypatch.setattr(module, "cleanup_vpc_resources", lambda ec2, vpc_id: cleaned_vpcs.append(vpc_id))
+    monkeypatch.setattr(sys, "argv", ["sg_port_security_policy.py", "--region", "us-west-2"])
+
+    exit_code = module.main()
+
+    assert exit_code == 1
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert payload["error"] == "VPC creation failed: quota exceeded"
+    assert set(payload["tests"]) == set(module.PORT_SECURITY_TEST_NAMES)
+    assert all(test["passed"] is False for test in payload["tests"].values())
+    assert cleaned_vpcs == ["vpc-partial"]
 
 
 class FakeEndpointDeletionWaitEc2:
