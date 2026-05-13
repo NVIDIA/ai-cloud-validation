@@ -113,6 +113,7 @@ from isvtest.validations.security import (
     OidcUserAuthCheck,
     ShortLivedCredentialsCheck,
     TenantIsolationCheck,
+    VirtualDeviceHardeningCheck,
 )
 
 __all__ = [
@@ -187,6 +188,7 @@ __all__ = [
     "TenantIsolationCheck",
     "TenantListedCheck",
     "TrafficFlowCheck",
+    "VirtualDeviceHardeningCheck",
     "VpcCrudCheck",
     "VpcIpConfigCheck",
     "VpcIsolationCheck",
