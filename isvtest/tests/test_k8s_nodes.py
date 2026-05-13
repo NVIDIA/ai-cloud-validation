@@ -20,12 +20,12 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+from isvtest.core.k8s import names_from_items
 from isvtest.core.runners import CommandResult, Runner
 from isvtest.validations.k8s_nodes import (
     K8sExpectedNodesCheck,
     K8sNodeCountCheck,
     _combine_label_selectors,
-    _node_names_from_items,
 )
 
 
@@ -64,9 +64,9 @@ def _run_check(config: dict[str, object], responses: list[CommandResult]) -> tup
     return result, runner
 
 
-def test_node_names_from_items_extracts_metadata_names() -> None:
-    """Verify _node_names_from_items reads names from node JSON items."""
-    assert _node_names_from_items([{"metadata": {"name": "base-1"}}, {"metadata": {"name": "base-2"}}]) == [
+def test_names_from_items_extracts_metadata_names() -> None:
+    """Verify names_from_items reads names from API object JSON items."""
+    assert names_from_items([{"metadata": {"name": "base-1"}}, {"metadata": {"name": "base-2"}}]) == [
         "base-1",
         "base-2",
     ]
@@ -157,7 +157,7 @@ def test_node_count_fails_when_kubectl_fails() -> None:
     result, _runner = _run_check({"count": 1}, [_fail("cluster unavailable")])
 
     assert result["passed"] is False
-    assert result["error"] == "Failed to get node count: cluster unavailable"
+    assert result["error"] == "Failed to get node list: cluster unavailable"
 
 
 def test_node_count_fails_on_invalid_json() -> None:

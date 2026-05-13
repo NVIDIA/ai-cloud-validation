@@ -28,13 +28,13 @@ class K8sPodHealthCheck(BaseValidation):
     markers: ClassVar[list[str]] = ["kubernetes"]
 
     def run(self) -> None:
-        # Configurable ignore phases
         ignore_phases = self.config.get("ignore_phases", [])
 
         kubectl_base = get_kubectl_base_shell()
 
-        result = self.run_command(f"{kubectl_base} get pods -A -o json")
-        pods = kubectl_items_or_fail(self, result, "pod list", exec_label="pod status")
+        cmd = f"{kubectl_base} get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded -o json"
+        result = self.run_command(cmd)
+        pods = kubectl_items_or_fail(self, result, "pod list")
         if pods is None:
             return
 
@@ -46,10 +46,9 @@ class K8sPodHealthCheck(BaseValidation):
             if status in ignore_phases:
                 continue
 
-            if status not in {"Running", "Succeeded"}:
-                namespace = metadata.get("namespace", "default")
-                name = metadata.get("name", "unknown")
-                unhealthy_pods.append(f"{namespace}/{name} ({status})")
+            namespace = metadata.get("namespace", "default")
+            name = metadata.get("name", "unknown")
+            unhealthy_pods.append(f"{namespace}/{name} ({status})")
 
         if unhealthy_pods:
             self.set_failed(
@@ -68,15 +67,14 @@ class K8sNoPendingPodsCheck(BaseValidation):
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()
 
-        result = self.run_command(f"{kubectl_base} get pods -A -o json")
-        pods = kubectl_items_or_fail(self, result, "pod list", exec_label="pending pods")
+        cmd = f"{kubectl_base} get pods -A --field-selector=status.phase=Pending -o json"
+        result = self.run_command(cmd)
+        pods = kubectl_items_or_fail(self, result, "pod list")
         if pods is None:
             return
 
         pending_pods = []
         for pod in pods:
-            if (pod.get("status") or {}).get("phase") != "Pending":
-                continue
             metadata = pod.get("metadata") or {}
             pending_pods.append(f"{metadata.get('namespace', 'default')}/{metadata.get('name', 'unknown')}")
 
@@ -107,7 +105,7 @@ class K8sNoErrorPodsCheck(BaseValidation):
         )
 
         result = self.run_command(f"{kubectl_base} get pods -A -o json")
-        pods = kubectl_items_or_fail(self, result, "pod list", exec_label="pods")
+        pods = kubectl_items_or_fail(self, result, "pod list")
         if pods is None:
             return
 

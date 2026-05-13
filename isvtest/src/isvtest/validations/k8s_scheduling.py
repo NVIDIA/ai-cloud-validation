@@ -31,7 +31,7 @@ class K8sGpuLabelsCheck(BaseValidation):
 
         cmd = f"{kubectl_base} get nodes -l {shlex.quote(label_selector)} -o json"
         result = self.run_command(cmd)
-        nodes = kubectl_items_or_fail(self, result, "GPU node list", exec_label="GPU nodes")
+        nodes = kubectl_items_or_fail(self, result, "GPU node list")
         if nodes is None:
             return
 
@@ -78,7 +78,7 @@ class K8sGpuCapacityCheck(BaseValidation):
         kubectl_base = get_kubectl_base_shell()
 
         result = self.run_command(f"{kubectl_base} get nodes -o json")
-        nodes = kubectl_items_or_fail(self, result, "node list", exec_label="node capacity")
+        nodes = kubectl_items_or_fail(self, result, "node list")
         if nodes is None:
             return
 

@@ -14,9 +14,9 @@
 # limitations under the License.
 
 import shlex
-from typing import Any, ClassVar
+from typing import ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail
+from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail, names_from_items
 from isvtest.core.validation import BaseValidation
 
 
@@ -90,6 +90,9 @@ class K8sNodeCountCheck(BaseValidation):
         if isinstance(value, bool):
             self.set_failed(f"Invalid {field}: {value!r}")
             return 0
+        if not isinstance(value, int | str):
+            self.set_failed(f"Invalid {field}: {value}")
+            return 0
         try:
             parsed = int(value)
         except (ValueError, TypeError):
@@ -106,10 +109,10 @@ class K8sNodeCountCheck(BaseValidation):
         cmd = f"{get_kubectl_base_shell()} get nodes{selector_args} -o json"
 
         result = self.run_command(cmd)
-        items = kubectl_items_or_fail(self, result, "node list", exec_label="node count")
+        items = kubectl_items_or_fail(self, result, "node list")
         if items is None:
             return None
-        return _node_names_from_items(items)
+        return names_from_items(items)
 
 
 def _optional_selector(value: object, field: str) -> str | None:
@@ -126,17 +129,6 @@ def _combine_label_selectors(*selectors: str | None) -> str | None:
     """Combine label selectors with Kubernetes AND semantics."""
     parts = [selector.strip().strip(",") for selector in selectors if selector and selector.strip().strip(",")]
     return ",".join(parts) if parts else None
-
-
-def _node_names_from_items(items: list[dict[str, Any]]) -> list[str]:
-    """Extract node names from ``kubectl get nodes -o json`` items."""
-    names: list[str] = []
-    for item in items:
-        metadata = item.get("metadata") or {}
-        name = metadata.get("name") if isinstance(metadata, dict) else None
-        if name:
-            names.append(str(name))
-    return names
 
 
 def _scope_description(label_selector: str | None, exclude_selector: str | None) -> str:
@@ -156,9 +148,8 @@ class K8sNodeReadyCheck(BaseValidation):
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()
 
-        # Use JSON output for safer parsing
         result = self.run_command(f"{kubectl_base} get nodes -o json")
-        items = kubectl_items_or_fail(self, result, "node list", exec_label="nodes")
+        items = kubectl_items_or_fail(self, result, "node list")
         if items is None:
             return
 
@@ -175,7 +166,6 @@ class K8sNodeReadyCheck(BaseValidation):
 
             # Find the Ready condition
             ready_condition = next((c for c in conditions if c.get("type") == "Ready"), None)
-
             if not ready_condition:
                 not_ready_nodes.append(f"{name} (No Ready condition found)")
                 continue
@@ -209,14 +199,13 @@ class K8sExpectedNodesCheck(BaseValidation):
             self.set_passed("Skipped: expected_nodes.names not configured")
             return
 
-        # Get actual nodes
         kubectl_base = get_kubectl_base_shell()
         result = self.run_command(f"{kubectl_base} get nodes -o json")
-        items = kubectl_items_or_fail(self, result, "node list", exec_label="nodes")
+        items = kubectl_items_or_fail(self, result, "node list")
         if items is None:
             return
 
-        actual_nodes = _node_names_from_items(items)
+        actual_nodes = names_from_items(items)
         actual_nodes_set = set(actual_nodes)
         expected_names_set = set(expected_names)
 

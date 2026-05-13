@@ -216,13 +216,6 @@ class TestKubectlItemsOrFail:
         assert items is None
         assert validation.error == "Failed to get node list: cluster unavailable"
 
-    def test_exec_label_overrides_failure_noun(self) -> None:
-        validation = _StubValidation()
-        result = _command_result("", exit_code=1, stderr="cluster unavailable")
-        items = kubectl_items_or_fail(validation, result, "node list", exec_label="node count")
-        assert items is None
-        assert validation.error == "Failed to get node count: cluster unavailable"
-
     def test_routes_parse_failure_to_set_failed(self) -> None:
         validation = _StubValidation()
         items = kubectl_items_or_fail(validation, _command_result("not-json"), "node list")
