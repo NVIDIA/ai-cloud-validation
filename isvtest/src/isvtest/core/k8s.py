@@ -915,7 +915,7 @@ def wait_for_multiple_pods_completion(
                     results[name] = (True, phase)
                     completed_pods.add(name)
 
-        if len(completed_pods) == len(pod_names):
+        if len(completed_pods) == len(wanted):
             return results
 
         time.sleep(0.5)

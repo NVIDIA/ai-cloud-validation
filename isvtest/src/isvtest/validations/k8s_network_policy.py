@@ -282,7 +282,7 @@ class K8sNetworkPolicyCheck(BaseValidation):
             self.log.error("Failed to read pod IPs for %s: %s", pod, exc)
             return []
         pod_ips = (payload.get("status") or {}).get("podIPs") or []
-        return [str(entry["ip"]) for entry in pod_ips if entry.get("ip")]
+        return [str(entry["ip"]) for entry in pod_ips if isinstance(entry, dict) and entry.get("ip")]
 
     def _probe(self, client: str, host: str) -> bool:
         """Run an ``agnhost connect`` probe from ``client`` to ``host:port``.

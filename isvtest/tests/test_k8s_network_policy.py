@@ -332,6 +332,13 @@ class TestNetworkPolicyCheckBehavior:
             ips = check._get_pod_ips("server")
         assert ips == ["10.0.0.1", "fd00::1"]
 
+    def test_get_pod_ips_ignores_malformed_entries(self) -> None:
+        check = _primed_check()
+        payload = json.dumps({"status": {"podIPs": [{"ip": "10.0.0.1"}, "bad", None, {"name": "missing-ip"}]}})
+        with patch.object(check, "run_command", return_value=_ok(stdout=payload)):
+            ips = check._get_pod_ips("server")
+        assert ips == ["10.0.0.1"]
+
     def test_get_pod_ips_returns_empty_on_invalid_json(self) -> None:
         check = _primed_check()
         with patch.object(check, "run_command", return_value=_ok(stdout="not-json")):

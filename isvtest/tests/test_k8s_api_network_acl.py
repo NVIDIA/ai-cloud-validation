@@ -438,6 +438,23 @@ class TestEndpointVisibility:
         assert check.passed, check.message
         assert "authorized target (kubectl)" not in check.message
 
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"clusters": {}},
+            {"clusters": []},
+            {"clusters": ["not-a-cluster"]},
+        ],
+    )
+    def test_kubectl_url_malformed_clusters_do_not_break_check(self, payload: dict[str, Any]) -> None:
+        check = K8sApiNetworkAclCheck(config=_minimal_config())
+        check.run_command = _make_fake(  # type: ignore[assignment]
+            config_view_result=_ok(stdout=json.dumps(payload)),
+        )
+        check.run()
+        assert check.passed, check.message
+        assert "authorized target (kubectl)" not in check.message
+
 
 class TestEndpointConsistency:
     def test_unauth_probe_must_reference_api_endpoint_origin(self) -> None:

@@ -31,6 +31,7 @@ from isvtest.core.k8s import (
     parse_server_version,
     pod_state_from_result,
     pod_status_reason,
+    wait_for_multiple_pods_completion,
 )
 from isvtest.core.runners import CommandResult
 
@@ -271,6 +272,31 @@ class TestPodStateFromResult:
     def test_completed_process_failure_uses_stderr(self) -> None:
         completed = subprocess.CompletedProcess(args=["kubectl"], returncode=1, stdout="", stderr="boom")
         assert pod_state_from_result(completed) == ("Unknown", "", "")
+
+
+class TestWaitForMultiplePodsCompletion:
+    def test_duplicate_targets_complete_after_unique_pods_finish(self) -> None:
+        payload = json.dumps(
+            {
+                "items": [
+                    {
+                        "metadata": {"name": "worker-0"},
+                        "status": {"phase": "Succeeded"},
+                    }
+                ]
+            }
+        )
+        completed = subprocess.CompletedProcess(args=["kubectl"], returncode=0, stdout=payload, stderr="")
+
+        with (
+            patch("isvtest.core.k8s.run_kubectl", return_value=completed),
+            patch("isvtest.core.k8s.time.time", side_effect=[0.0, 0.1]),
+            patch("isvtest.core.k8s.time.sleep") as sleep,
+        ):
+            result = wait_for_multiple_pods_completion(["worker-0", "worker-0"], "default", timeout=10)
+
+        assert result == {"worker-0": (True, "Succeeded")}
+        sleep.assert_not_called()
 
 
 class TestParsePodState:

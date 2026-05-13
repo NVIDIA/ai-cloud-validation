@@ -285,8 +285,10 @@ class K8sApiNetworkAclCheck(BaseValidation):
         except KubectlParseError as exc:
             self.log.warning("Failed to parse kubectl config JSON: %s", exc)
             return None
-        clusters = payload.get("clusters") or [{}]
-        server = (clusters[0].get("cluster") or {}).get("server") or ""
+        clusters = payload.get("clusters")
+        if not isinstance(clusters, list) or not clusters or not isinstance(clusters[0], dict):
+            return None
+        server = ((clusters[0].get("cluster") or {}).get("server")) or ""
         return server.strip() or None
 
     def _run_authorized_probe(self, authorized_probe_cmd: str, probe_timeout_s: int) -> bool:
