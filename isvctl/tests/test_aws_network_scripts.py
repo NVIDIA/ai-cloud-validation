@@ -261,6 +261,151 @@ def test_service_scoping_retries_dependency_cleanup(monkeypatch: pytest.MonkeyPa
     assert ec2.deleted_sgs == ["sg-svc"]
 
 
+class FakePortSecurityEc2:
+    """Fake EC2 client for port security policy tests."""
+
+    def __init__(
+        self,
+        *,
+        target_rules: list[dict[str, Any]] | None = None,
+        other_rules: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Configure observed rules for target and unrelated interfaces."""
+        self.target_rules = target_rules
+        self.other_rules = other_rules if other_rules is not None else []
+        self.created_ingress: list[dict[str, Any]] = []
+        self.deleted_enis: list[str] = []
+        self.deleted_subnets: list[str] = []
+        self.deleted_sgs: list[str] = []
+
+    def create_subnet(self, VpcId: str, CidrBlock: str, AvailabilityZone: str) -> dict[str, Any]:
+        """Return a fake subnet."""
+        return {"Subnet": {"SubnetId": "subnet-port", "VpcId": VpcId, "CidrBlock": CidrBlock}}
+
+    def create_security_group(
+        self,
+        GroupName: str,
+        Description: str,
+        VpcId: str,
+        TagSpecifications: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return a fake security group."""
+        assert "port security" in Description
+        return {"GroupId": "sg-port"}
+
+    def authorize_security_group_ingress(self, GroupId: str, IpPermissions: list[dict[str, Any]]) -> dict[str, Any]:
+        """Record the configured ingress policy."""
+        self.created_ingress.append({"GroupId": GroupId, "IpPermissions": IpPermissions})
+        return {}
+
+    def create_network_interface(self, SubnetId: str, **kwargs: Any) -> dict[str, Any]:
+        """Return fake ENIs, with the first one attached to the SG."""
+        if kwargs.get("Groups"):
+            return {"NetworkInterface": {"NetworkInterfaceId": "eni-target"}}
+        return {"NetworkInterface": {"NetworkInterfaceId": "eni-other"}}
+
+    def describe_security_groups(self, GroupIds: list[str]) -> dict[str, Any]:
+        """Return configured SG rules."""
+        assert GroupIds == ["sg-port"]
+        rules = self.target_rules
+        if rules is None:
+            rules = self.created_ingress[0]["IpPermissions"]
+        return {"SecurityGroups": [{"GroupId": "sg-port", "IpPermissions": rules}]}
+
+    def describe_network_interfaces(self, NetworkInterfaceIds: list[str]) -> dict[str, Any]:
+        """Return target and unrelated ENI SG attachments."""
+        interfaces = []
+        for eni_id in NetworkInterfaceIds:
+            if eni_id == "eni-target":
+                interfaces.append({"NetworkInterfaceId": eni_id, "Groups": [{"GroupId": "sg-port"}]})
+            else:
+                interfaces.append({"NetworkInterfaceId": eni_id, "Groups": []})
+        return {"NetworkInterfaces": interfaces}
+
+    def delete_network_interface(self, NetworkInterfaceId: str) -> None:
+        """Delete a fake ENI."""
+        self.deleted_enis.append(NetworkInterfaceId)
+
+    def delete_subnet(self, SubnetId: str) -> None:
+        """Delete a fake subnet."""
+        self.deleted_subnets.append(SubnetId)
+
+    def delete_security_group(self, GroupId: str) -> None:
+        """Delete a fake security group."""
+        self.deleted_sgs.append(GroupId)
+
+
+def test_port_security_policy_happy_path_applies_single_port_to_target_interface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The AWS port security probe should allow only the configured port on the target ENI."""
+    module = _load_network_script("sg_port_security_policy.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePortSecurityEc2()
+
+    result = module.test_port_security_policy(ec2, "vpc-test", "us-west-2a", allowed_port=8443)
+
+    assert result["create_virtual_interface"]["passed"] is True
+    assert result["apply_port_policy"]["passed"] is True
+    assert result["allowed_port_permitted"]["passed"] is True
+    assert result["unlisted_port_blocked"]["passed"] is True
+    assert result["other_interface_unaffected"]["passed"] is True
+    assert result["cleanup"]["passed"] is True
+    rule = ec2.created_ingress[0]["IpPermissions"][0]
+    assert rule["FromPort"] == 8443
+    assert rule["ToPort"] == 8443
+    assert ec2.deleted_enis == ["eni-target", "eni-other"]
+    assert ec2.deleted_subnets == ["subnet-port"]
+    assert ec2.deleted_sgs == ["sg-port"]
+
+
+def test_port_security_policy_fails_when_unlisted_port_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wider observed ingress range must fail the unlisted-port check."""
+    module = _load_network_script("sg_port_security_policy.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePortSecurityEc2(
+        target_rules=[
+            {
+                "IpProtocol": "tcp",
+                "FromPort": 8443,
+                "ToPort": 8444,
+                "IpRanges": [{"CidrIp": "10.0.0.0/8"}],
+            }
+        ]
+    )
+
+    result = module.test_port_security_policy(ec2, "vpc-test", "us-west-2a", allowed_port=8443)
+
+    assert result["allowed_port_permitted"]["passed"] is True
+    assert result["unlisted_port_blocked"]["passed"] is False
+    assert "8444" in result["unlisted_port_blocked"]["error"]
+    assert result["cleanup"]["passed"] is True
+
+
+def test_port_security_policy_fails_when_policy_leaks_to_other_interface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The custom SG must not attach to the unrelated virtual interface."""
+    module = _load_network_script("sg_port_security_policy.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePortSecurityEc2()
+
+    def leaked_describe_network_interfaces(NetworkInterfaceIds: list[str]) -> dict[str, Any]:
+        return {
+            "NetworkInterfaces": [
+                {"NetworkInterfaceId": eni_id, "Groups": [{"GroupId": "sg-port"}]} for eni_id in NetworkInterfaceIds
+            ]
+        }
+
+    ec2.describe_network_interfaces = leaked_describe_network_interfaces  # type: ignore[method-assign]
+
+    result = module.test_port_security_policy(ec2, "vpc-test", "us-west-2a", allowed_port=8443)
+
+    assert result["other_interface_unaffected"]["passed"] is False
+    assert "leaked" in result["other_interface_unaffected"]["error"]
+    assert result["cleanup"]["passed"] is True
+
+
 class FakeEndpointDeletionWaitEc2:
     """Fake EC2 client for endpoint deletion polling."""
 
@@ -602,6 +747,45 @@ def test_my_isv_sdn_logging_demo_test_names_match_suite_steps(aspect: str, step_
     assert completed.returncode == 0, completed.stderr
     result: dict[str, Any] = json.loads(completed.stdout)
     assert result["test_name"] == step_name
+
+
+def test_my_isv_port_security_policy_demo_output_contract() -> None:
+    """my-isv port security template demo output must satisfy the validation contract."""
+    script = MY_ISV_NETWORK_SCRIPTS / "sg_port_security_policy.py"
+    env = os.environ | {"ISVCTL_DEMO_MODE": "1"}
+
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--region",
+                "demo-region",
+                "--allowed-port",
+                "8443",
+            ],
+            capture_output=True,
+            env=env,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"{script} timed out after {exc.timeout} seconds\nstdout: {exc.stdout!r}\nstderr: {exc.stderr!r}")
+
+    assert completed.returncode == 0, completed.stderr
+    result: dict[str, Any] = json.loads(completed.stdout)
+    assert result["success"] is True
+    assert result["test_name"] == "sg_port_security_policy"
+    assert set(result["tests"]) == {
+        "create_virtual_interface",
+        "apply_port_policy",
+        "allowed_port_permitted",
+        "unlisted_port_blocked",
+        "other_interface_unaffected",
+        "cleanup",
+    }
+    assert all(test["passed"] for test in result["tests"].values())
 
 
 def test_sdn_hardware_fault_logging_happy_path() -> None:

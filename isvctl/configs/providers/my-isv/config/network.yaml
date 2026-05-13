@@ -180,6 +180,16 @@ commands:
         args: ["--region", "{{region}}", "--scope", "service"]
         timeout: 300
 
+      - name: sg_port_security_policy
+        phase: test
+        command: "python ../scripts/network/sg_port_security_policy.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--allowed-port"
+          - "8443"
+        timeout: 60
+
       - name: sdn_hardware_fault_logging
         phase: test
         command: "python ../scripts/network/sdn_logging_test.py"

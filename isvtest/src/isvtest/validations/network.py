@@ -1006,6 +1006,40 @@ class SgServiceScopingCheck(BaseValidation):
         )
 
 
+class SgPortSecurityPolicyCheck(BaseValidation):
+    """Validate custom port security policies on virtual interfaces.
+
+    Verifies the platform can apply a custom ingress port policy to a
+    target virtual interface without permitting adjacent/unlisted ports
+    or leaking the policy onto an unrelated virtual interface.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        tests: dict with create_virtual_interface, apply_port_policy,
+               allowed_port_permitted, unlisted_port_blocked,
+               other_interface_unaffected, cleanup
+    """
+
+    description: ClassVar[str] = "Check custom port security policies on virtual interfaces"
+    markers: ClassVar[list[str]] = ["network", "security"]
+
+    def run(self) -> None:
+        """Check virtual-interface port policy behavior from step output."""
+        required = [
+            "create_virtual_interface",
+            "apply_port_policy",
+            "allowed_port_permitted",
+            "unlisted_port_blocked",
+            "other_interface_unaffected",
+            "cleanup",
+        ]
+        if not check_required_tests(self, required, "Port security policy tests failed"):
+            return
+        self.set_passed("Custom port security policy scoped to virtual interface")
+
+
 def _is_non_empty_string(value: object) -> bool:
     """Return True when value is a non-empty string after trimming."""
     return isinstance(value, str) and bool(value.strip())

@@ -86,6 +86,8 @@ tests:
           step: sg_subnet_scoping
         SgServiceScopingCheck:
           step: sg_service_scoping
+        SgPortSecurityPolicyCheck:
+          step: sg_port_security_policy
 
     sdn_logging:
       checks:

@@ -159,7 +159,18 @@ commands:
         args: ["--region", "{{region}}", "--scope", "service"]
         timeout: 300
 
-      # Test 4g: SDN hardware fault logging (AWS Health + VPC Flow Logs)
+      # Test 4g: Port security policy on virtual interfaces (~30s)
+      - name: sg_port_security_policy
+        phase: test
+        command: "python3 ../scripts/network/sg_port_security_policy.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--allowed-port"
+          - "8443"
+        timeout: 120
+
+      # Test 4h: SDN hardware fault logging (AWS Health + VPC Flow Logs)
       - name: sdn_hardware_fault_logging
         phase: test
         command: "python3 ../scripts/network/sdn_logging_test.py"
@@ -172,7 +183,7 @@ commands:
           - "hardware_faults"
         timeout: 120
 
-      # Test 4h: SDN latency/performance logging (CloudWatch + VPC Flow Logs)
+      # Test 4i: SDN latency/performance logging (CloudWatch + VPC Flow Logs)
       - name: sdn_latency_perf_logging
         phase: test
         command: "python3 ../scripts/network/sdn_logging_test.py"
@@ -185,7 +196,7 @@ commands:
           - "latency_perf"
         timeout: 180
 
-      # Test 4i: Filtering rule audit trail (CloudTrail propagation can lag)
+      # Test 4j: Filtering rule audit trail (CloudTrail propagation can lag)
       - name: sdn_filter_audit_trail
         phase: test
         command: "python3 ../scripts/network/sdn_logging_test.py"

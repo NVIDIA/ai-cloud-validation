@@ -45,6 +45,7 @@ from isvtest.validations.network import (
     FloatingIpCheck,
     LocalizedDnsCheck,
     NvlinkDomainCheck,
+    SgPortSecurityPolicyCheck,
     StablePrivateIpCheck,
     VpcPeeringCheck,
 )
@@ -1316,6 +1317,45 @@ class TestVpcPeeringCheck:
         v = VpcPeeringCheck(config={"step_output": {}})
         result = v.execute()
         assert result["passed"] is False
+
+
+class TestSgPortSecurityPolicyCheck:
+    """Tests for SgPortSecurityPolicyCheck validation."""
+
+    def test_all_passed(self) -> None:
+        tests = {
+            "create_virtual_interface": {"passed": True},
+            "apply_port_policy": {"passed": True},
+            "allowed_port_permitted": {"passed": True},
+            "unlisted_port_blocked": {"passed": True},
+            "other_interface_unaffected": {"passed": True},
+            "cleanup": {"passed": True},
+        }
+        v = SgPortSecurityPolicyCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "virtual interface" in result["output"]
+
+    def test_unlisted_port_allowed_fails(self) -> None:
+        tests = {
+            "create_virtual_interface": {"passed": True},
+            "apply_port_policy": {"passed": True},
+            "allowed_port_permitted": {"passed": True},
+            "unlisted_port_blocked": {"passed": False, "error": "TCP/8444 is allowed"},
+            "other_interface_unaffected": {"passed": True},
+            "cleanup": {"passed": True},
+        }
+        v = SgPortSecurityPolicyCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "unlisted_port_blocked" in result["error"]
+        assert "TCP/8444 is allowed" in result["error"]
+
+    def test_empty_tests(self) -> None:
+        v = SgPortSecurityPolicyCheck(config={"step_output": {}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "tests" in result["error"]
 
 
 def _backend_switch_fabric_output(
