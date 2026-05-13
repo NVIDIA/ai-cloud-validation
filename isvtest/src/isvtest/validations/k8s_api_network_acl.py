@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, parse_kubectl_json
 from isvtest.core.validation import BaseValidation
 from isvtest.utils.checks import truncate
 
@@ -276,17 +276,18 @@ class K8sApiNetworkAclCheck(BaseValidation):
         check on its own; the auth probe already established that kubectl
         works.
         """
-        cmd = get_kubectl_base_shell(
-            "config",
-            "view",
-            "--minify",
-            "-o",
-            "jsonpath={.clusters[0].cluster.server}",
-        )
+        cmd = get_kubectl_base_shell("config", "view", "--minify", "-o", "json")
         result = self.run_command(cmd, timeout=probe_timeout_s)
         if result.exit_code != 0:
             return None
-        return result.stdout.strip() or None
+        try:
+            payload = parse_kubectl_json(result, "kubectl config view")
+        except KubectlParseError as exc:
+            self.log.warning("Failed to parse kubectl config JSON: %s", exc)
+            return None
+        clusters = payload.get("clusters") or [{}]
+        server = (clusters[0].get("cluster") or {}).get("server") or ""
+        return server.strip() or None
 
     def _run_authorized_probe(self, authorized_probe_cmd: str, probe_timeout_s: int) -> bool:
         """Run the authorized baseline probe and report failure on non-zero exit.

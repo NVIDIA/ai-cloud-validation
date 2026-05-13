@@ -40,8 +40,8 @@ from isvtest.core.k8s import (
     TRANSIENT_WAITING_REASONS,
     get_kubectl_base_shell,
     is_k8s_available,
-    parse_pod_state,
     parse_server_version,
+    pod_state_from_result,
 )
 from isvtest.core.validation import BaseValidation
 
@@ -369,10 +369,7 @@ class K8sCncfConformanceCheck(BaseValidation):
     def _get_pod_state(self, namespace: str, pod_name: str) -> tuple[str, str, str]:
         """Fetch ``(phase, waiting_reason, waiting_message)`` in one kubectl call."""
         cmd = get_kubectl_base_shell("get", "pod", pod_name, "-n", namespace, "-o", "json")
-        result = self.run_command(cmd, timeout=self._AUX_CMD_TIMEOUT)
-        if result.exit_code != 0:
-            return parse_pod_state("", result.stderr or "")
-        return parse_pod_state(result.stdout, "")
+        return pod_state_from_result(self.run_command(cmd, timeout=self._AUX_CMD_TIMEOUT))
 
     def _exec_cat(
         self,

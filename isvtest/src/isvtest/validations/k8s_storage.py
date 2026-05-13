@@ -43,8 +43,10 @@ from isvtest.config.settings import (
     get_k8s_csi_shared_fs_storage_class,
 )
 from isvtest.core.k8s import (
+    KubectlParseError,
     get_kubectl_base_shell,
     get_kubectl_command,
+    parse_kubectl_json,
     render_k8s_manifest,
 )
 from isvtest.core.validation import BaseValidation
@@ -85,13 +87,28 @@ def _apply_manifest(kubectl_parts: list[str], manifest: str, timeout: float) -> 
     return proc.returncode, proc.stderr or proc.stdout
 
 
+def _get_pvc_json(run_command, kubectl_base: str, namespace: str, pvc_name: str) -> tuple[dict[str, Any] | None, str]:
+    """Fetch and parse ``kubectl get pvc -o json``; return ``(payload, error)``.
+
+    ``error`` is empty on success and otherwise contains the kubectl stderr or
+    a ``KubectlParseError`` message - callers can surface it verbatim.
+    """
+    cmd = f"{kubectl_base} get pvc {shlex.quote(pvc_name)} -n {shlex.quote(namespace)} -o json"
+    result = run_command(cmd)
+    if result.exit_code != 0:
+        return None, result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
+    try:
+        return parse_kubectl_json(result, f"PVC {pvc_name!r}"), ""
+    except KubectlParseError as exc:
+        return None, str(exc)
+
+
 def _poll_pvc_bound(run_command, kubectl_base: str, namespace: str, pvc_name: str, timeout_s: int) -> bool:
     """Poll ``kubectl get pvc`` until ``status.phase == "Bound"`` or timeout."""
     deadline = time.time() + timeout_s
-    cmd = f"{kubectl_base} get pvc {shlex.quote(pvc_name)} -n {shlex.quote(namespace)} -o jsonpath='{{.status.phase}}'"
     while time.time() < deadline:
-        result = run_command(cmd)
-        if result.exit_code == 0 and result.stdout.strip().strip("'") == "Bound":
+        payload, _error = _get_pvc_json(run_command, kubectl_base, namespace, pvc_name)
+        if payload is not None and (payload.get("status") or {}).get("phase") == "Bound":
             return True
         time.sleep(2.0)
     return False
@@ -213,15 +230,21 @@ class K8sCsiStorageTypesCheck(BaseValidation):
                     )
                     continue
 
-                sc_result = self.run_command(f"{self._kubectl_base} get storageclass {shlex.quote(sc_name)} -o name")
-                sc_ok = sc_result.exit_code == 0
+                sc_result = self.run_command(f"{self._kubectl_base} get storageclass {shlex.quote(sc_name)} -o json")
+                sc_error = ""
+                if sc_result.exit_code != 0:
+                    sc_error = sc_result.stderr.strip() or sc_result.stdout.strip()
+                else:
+                    try:
+                        parse_kubectl_json(sc_result, f"StorageClass {sc_name!r}")
+                    except KubectlParseError as exc:
+                        sc_error = str(exc)
+                sc_ok = not sc_error
                 self.report_subtest(
                     f"sc-exists[{type_name}]",
                     passed=sc_ok,
                     message=(
-                        f"StorageClass {sc_name!r} found"
-                        if sc_ok
-                        else f"StorageClass {sc_name!r} missing: {sc_result.stderr.strip() or sc_result.stdout.strip()}"
+                        f"StorageClass {sc_name!r} found" if sc_ok else f"StorageClass {sc_name!r} missing: {sc_error}"
                     ),
                 )
                 if not sc_ok:
@@ -664,16 +687,20 @@ class K8sCsiStorageQuotaApiCheck(BaseValidation):
 
     def _run_pv_usage_api(self, pvc_name: str) -> bool:
         """Resolve the PVC's bound PV and assert ``spec.capacity/claimRef/csi.driver`` are populated."""
-        vol_name_result = self.run_command(
-            f"{self._kubectl_base} get pvc {shlex.quote(pvc_name)} "
-            f"-n {shlex.quote(self._namespace)} -o jsonpath='{{.spec.volumeName}}'"
-        )
-        pv_name = vol_name_result.stdout.strip().strip("'")
-        if vol_name_result.exit_code != 0 or not pv_name:
+        pvc_payload, error = _get_pvc_json(self.run_command, self._kubectl_base, self._namespace, pvc_name)
+        if pvc_payload is None:
             self.report_subtest(
                 "pv-usage-api",
                 passed=False,
-                message=f"Could not resolve volumeName for PVC {pvc_name!r}: {vol_name_result.stderr.strip()}",
+                message=f"Could not resolve volumeName for PVC {pvc_name!r}: {error}",
+            )
+            return False
+        pv_name = str((pvc_payload.get("spec") or {}).get("volumeName") or "")
+        if not pv_name:
+            self.report_subtest(
+                "pv-usage-api",
+                passed=False,
+                message=f"Could not resolve volumeName for PVC {pvc_name!r}: spec.volumeName is empty",
             )
             return False
 
@@ -746,15 +773,10 @@ class K8sCsiStorageQuotaApiCheck(BaseValidation):
 
     def _get_pvc_capacity(self, pvc_name: str) -> str:
         """Return ``.status.capacity.storage`` for ``pvc_name`` (empty string if unset)."""
-        cmd = (
-            f"{self._kubectl_base} get pvc {shlex.quote(pvc_name)} "
-            f"-n {shlex.quote(self._namespace)} "
-            f"-o jsonpath='{{.status.capacity.storage}}'"
-        )
-        result = self.run_command(cmd)
-        if result.exit_code != 0:
+        payload, _error = _get_pvc_json(self.run_command, self._kubectl_base, self._namespace, pvc_name)
+        if payload is None:
             return ""
-        return result.stdout.strip().strip("'")
+        return str(((payload.get("status") or {}).get("capacity") or {}).get("storage") or "")
 
     def _wait_quota_section(
         self,
@@ -1760,14 +1782,10 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
 
     def _resolve_bound_pv_driver(self, pvc_name: str) -> tuple[str, str, str]:
         """Return ``(pv_name, csi_driver, error)`` - ``error`` is empty on success."""
-        vol_cmd = (
-            f"{self._kubectl_base} get pvc {shlex.quote(pvc_name)} "
-            f"-n {shlex.quote(self._namespace)} -o jsonpath='{{.spec.volumeName}}'"
-        )
-        vol_result = self.run_command(vol_cmd)
-        if vol_result.exit_code != 0:
-            return "", "", f"Failed to resolve volumeName for PVC {pvc_name!r}: {vol_result.stderr.strip()}"
-        pv_name = vol_result.stdout.strip().strip("'")
+        pvc_payload, error = _get_pvc_json(self.run_command, self._kubectl_base, self._namespace, pvc_name)
+        if pvc_payload is None:
+            return "", "", f"Failed to resolve volumeName for PVC {pvc_name!r}: {error}"
+        pv_name = str((pvc_payload.get("spec") or {}).get("volumeName") or "")
         if not pv_name:
             return "", "", f"PVC {pvc_name!r} bound but spec.volumeName is empty"
 

@@ -10,7 +10,11 @@
 
 from typing import ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import (
+    get_kubectl_base_shell,
+    kubectl_items_or_fail,
+    pod_status_reason,
+)
 from isvtest.core.validation import BaseValidation
 
 
@@ -24,27 +28,22 @@ class K8sPodHealthCheck(BaseValidation):
 
         kubectl_base = get_kubectl_base_shell()
 
-        # We generally query for everything NOT running/succeeded
-        cmd = f"{kubectl_base} get pods -A --no-headers --field-selector status.phase!=Running,status.phase!=Succeeded"
-        result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get pod status: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get pods -A -o json")
+        pods = kubectl_items_or_fail(self, result, "pod list", exec_label="pod status")
+        if pods is None:
             return
 
         unhealthy_pods = []
-        for line in result.stdout.splitlines():
-            if not line.strip():
+        for pod in pods:
+            metadata = pod.get("metadata") or {}
+            status = (pod.get("status") or {}).get("phase") or "Unknown"
+
+            if status in ignore_phases:
                 continue
-            parts = line.split()
-            if len(parts) >= 4:
-                namespace = parts[0]
-                name = parts[1]
-                status = parts[3]
 
-                if status in ignore_phases:
-                    continue
-
+            if status not in {"Running", "Succeeded"}:
+                namespace = metadata.get("namespace", "default")
+                name = metadata.get("name", "unknown")
                 unhealthy_pods.append(f"{namespace}/{name} ({status})")
 
         if unhealthy_pods:
@@ -64,19 +63,17 @@ class K8sNoPendingPodsCheck(BaseValidation):
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()
 
-        cmd = f"{kubectl_base} get pods -A --field-selector status.phase=Pending --no-headers"
-        result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get pending pods: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get pods -A -o json")
+        pods = kubectl_items_or_fail(self, result, "pod list", exec_label="pending pods")
+        if pods is None:
             return
 
         pending_pods = []
-        for line in result.stdout.splitlines():
-            if line.strip():
-                parts = line.split()
-                if len(parts) >= 2:
-                    pending_pods.append(f"{parts[0]}/{parts[1]}")
+        for pod in pods:
+            if (pod.get("status") or {}).get("phase") != "Pending":
+                continue
+            metadata = pod.get("metadata") or {}
+            pending_pods.append(f"{metadata.get('namespace', 'default')}/{metadata.get('name', 'unknown')}")
 
         if pending_pods:
             self.set_failed(f"Found {len(pending_pods)} pending pods: {', '.join(pending_pods)}")
@@ -104,26 +101,20 @@ class K8sNoErrorPodsCheck(BaseValidation):
             ],
         )
 
-        cmd = f"{kubectl_base} get pods -A --no-headers"
-        result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get pods: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get pods -A -o json")
+        pods = kubectl_items_or_fail(self, result, "pod list", exec_label="pods")
+        if pods is None:
             return
 
         error_pods = []
-        for line in result.stdout.splitlines():
-            if not line.strip():
-                continue
-            # Output format: NAMESPACE NAME READY STATUS RESTARTS AGE
-            parts = line.split()
-            if len(parts) >= 4:
-                namespace = parts[0]
-                name = parts[1]
-                status = parts[3]
+        for pod in pods:
+            metadata = pod.get("metadata") or {}
+            status = pod_status_reason(pod)
 
-                if status in error_states:
-                    error_pods.append(f"{namespace}/{name} ({status})")
+            if status in error_states:
+                namespace = metadata.get("namespace", "default")
+                name = metadata.get("name", "unknown")
+                error_pods.append(f"{namespace}/{name} ({status})")
 
         if error_pods:
             self.set_failed(f"Found {len(error_pods)} pods in error state: {', '.join(error_pods)}")

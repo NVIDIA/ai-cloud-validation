@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -30,6 +31,11 @@ def _fail(stdout: str = "", stderr: str = "", exit_code: int = 1) -> CommandResu
 
 
 _DEFAULT_KUBECTL_SERVER = "https://api.example.com:6443"
+
+
+def _config_view_json(server: str = _DEFAULT_KUBECTL_SERVER) -> str:
+    """Return a minimal ``kubectl config view --minify -o json`` payload."""
+    return json.dumps({"clusters": [{"cluster": {"server": server}}]})
 
 
 def _minimal_config(**overrides: Any) -> dict[str, Any]:
@@ -62,7 +68,7 @@ def _make_fake(
     """Build a fake ``run_command`` that classifies by command shape."""
     auth = auth_result if auth_result is not None else _ok(stdout="ok")
     unauth = unauth_result if unauth_result is not None else _fail(stderr="connection timed out")
-    cv = config_view_result if config_view_result is not None else _ok(stdout=_DEFAULT_KUBECTL_SERVER)
+    cv = config_view_result if config_view_result is not None else _ok(stdout=_config_view_json())
 
     def fake(cmd: str, *_: Any, **__: Any) -> CommandResult:
         if calls is not None:
@@ -289,7 +295,7 @@ class TestAuthorizedProbe:
                 order.append("auth")
                 return _ok(stdout="ok")
             if kind == "config_view":
-                return _ok(stdout=_DEFAULT_KUBECTL_SERVER)
+                return _ok(stdout=_config_view_json())
             if kind == "unauthorized":
                 order.append("unauth")
                 return _fail(stderr="timed out")
@@ -369,7 +375,7 @@ class TestUnauthorizedProbe:
             if kind == "authorized":
                 return _ok(stdout="ok")
             if kind == "config_view":
-                return _ok(stdout=_DEFAULT_KUBECTL_SERVER)
+                return _ok(stdout=_config_view_json())
             if kind == "unauthorized":
                 return _fail(stderr="timed out", exit_code=124)
             raise AssertionError(f"unexpected {cmd}")
@@ -423,6 +429,15 @@ class TestEndpointVisibility:
         assert check.passed, check.message
         assert "authorized target (kubectl)" not in check.message
 
+    def test_kubectl_url_invalid_json_does_not_break_check(self) -> None:
+        check = K8sApiNetworkAclCheck(config=_minimal_config())
+        check.run_command = _make_fake(  # type: ignore[assignment]
+            config_view_result=_ok(stdout="not-json"),
+        )
+        check.run()
+        assert check.passed, check.message
+        assert "authorized target (kubectl)" not in check.message
+
 
 class TestEndpointConsistency:
     def test_unauth_probe_must_reference_api_endpoint_origin(self) -> None:
@@ -447,7 +462,7 @@ class TestEndpointConsistency:
         cfg["commands"]["unauthorized_probe"] = "ssh ext-host curl https://api.example.com/healthz"
         check = K8sApiNetworkAclCheck(config=cfg)
         check.run_command = _make_fake(  # type: ignore[assignment]
-            config_view_result=_ok(stdout="https://api.example.com"),
+            config_view_result=_ok(stdout=_config_view_json("https://api.example.com")),
         )
         check.run()
         assert check.passed, check.message
@@ -509,7 +524,7 @@ class TestEndpointConsistency:
         )
         calls: list[str] = []
         check.run_command = _make_fake(  # type: ignore[assignment]
-            config_view_result=_ok(stdout="https://other.example.com:6443"),
+            config_view_result=_ok(stdout=_config_view_json("https://other.example.com:6443")),
             calls=calls,
         )
         check.run()
@@ -524,7 +539,7 @@ class TestEndpointConsistency:
             config=_minimal_config(api_endpoint="https://api.example.com:6443"),
         )
         check.run_command = _make_fake(  # type: ignore[assignment]
-            config_view_result=_ok(stdout="https://api.example.com:443"),
+            config_view_result=_ok(stdout=_config_view_json("https://api.example.com:443")),
         )
         check.run()
         assert not check.passed
@@ -535,7 +550,7 @@ class TestEndpointConsistency:
         cfg["commands"]["unauthorized_probe"] = "ssh ext-host curl https://api.example.com/healthz"
         check = K8sApiNetworkAclCheck(config=cfg)
         check.run_command = _make_fake(  # type: ignore[assignment]
-            config_view_result=_ok(stdout="https://api.example.com"),
+            config_view_result=_ok(stdout=_config_view_json("https://api.example.com")),
         )
         check.run()
         assert check.passed, check.message
@@ -548,7 +563,7 @@ class TestEndpointConsistency:
             ),
         )
         check.run_command = _make_fake(  # type: ignore[assignment]
-            config_view_result=_ok(stdout="https://private.example.com:6443"),
+            config_view_result=_ok(stdout=_config_view_json("https://private.example.com:6443")),
         )
         check.run()
         assert check.passed, check.message

@@ -11,7 +11,7 @@
 import shlex
 from typing import ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail
 from isvtest.core.validation import BaseValidation
 
 
@@ -24,14 +24,12 @@ class K8sGpuLabelsCheck(BaseValidation):
 
         kubectl_base = get_kubectl_base_shell()
 
-        cmd = f"{kubectl_base} get nodes -l {shlex.quote(label_selector)} --no-headers"
+        cmd = f"{kubectl_base} get nodes -l {shlex.quote(label_selector)} -o json"
         result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to query GPU nodes: {result.stderr}")
+        nodes = kubectl_items_or_fail(self, result, "GPU node list", exec_label="GPU nodes")
+        if nodes is None:
             return
 
-        nodes = [line for line in result.stdout.splitlines() if line.strip()]
         if not nodes:
             self.set_failed(f"No GPU nodes found with label '{label_selector}'")
             return
@@ -72,42 +70,30 @@ class K8sGpuCapacityCheck(BaseValidation):
             )
             return
 
-        # Need to escape dot for jsonpath if it exists (e.g. nvidia.com/gpu -> nvidia\.com/gpu)
-        escaped_resource = resource_name.replace(".", "\\.")
-
         kubectl_base = get_kubectl_base_shell()
 
-        # Check for resource in node capacity
-        cmd = f'{kubectl_base} get nodes -o jsonpath=\'{{range .items[*]}}{{.metadata.name}}{{"\\t"}}{{.status.capacity.{escaped_resource}}}{{"\\n"}}{{end}}\''
-        result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get node capacity: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get nodes -o json")
+        nodes = kubectl_items_or_fail(self, result, "node list", exec_label="node capacity")
+        if nodes is None:
             return
 
         gpu_nodes_count = 0
         total_gpus = 0
         per_node_mismatches = []
 
-        for line in result.stdout.splitlines():
-            if not line.strip():
+        for node in nodes:
+            capacity = (node.get("status") or {}).get("capacity") or {}
+            val_str = str(capacity.get(resource_name) or "")
+            if not val_str:
                 continue
-            parts = line.split("\t")
-            if len(parts) >= 2 and parts[1].strip():
-                try:
-                    # Handle "1" or "1Gi" (though GPU resources usually purely numeric)
-                    val_str = parts[1]
-                    if val_str.isdigit():
-                        count = int(val_str)
-                        if count > 0:
-                            gpu_nodes_count += 1
-                            total_gpus += count
-                            # Check per-node count if configured
-                            if expected_per_node is not None and count != expected_per_node:
-                                node_name = parts[0]
-                                per_node_mismatches.append(f"{node_name} ({count} != {expected_per_node})")
-                except ValueError:
-                    pass
+            if val_str.isdigit():
+                count = int(val_str)
+                if count > 0:
+                    gpu_nodes_count += 1
+                    total_gpus += count
+                    if expected_per_node is not None and count != expected_per_node:
+                        node_name = (node.get("metadata") or {}).get("name", "unknown")
+                        per_node_mismatches.append(f"{node_name} ({count} != {expected_per_node})")
 
         if gpu_nodes_count == 0:
             self.set_failed(f"No '{resource_name}' resources found in node capacity")

@@ -15,7 +15,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
 
 from isvtest.config.settings import get_k8s_namespace
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import (
+    get_kubectl_base_shell,
+    kubectl_items_or_fail,
+    pod_state_from_result,
+)
 from isvtest.core.nvidia import count_gpus_from_full_output, parse_driver_version
 from isvtest.core.validation import BaseValidation
 
@@ -28,6 +32,9 @@ class K8sNvidiaSmiCheck(BaseValidation):
         # Configurable timeout, defaulting to 60 seconds for robustness
         timeout = int(self.config.get("timeout", 60))
         results = self._run_ephemeral_pods(timeout=timeout)
+        if results is None:
+            # ``_run_ephemeral_pods`` already routed the failure via set_failed.
+            return
 
         failed_nodes = []
         for node, res in results.items():
@@ -47,20 +54,24 @@ class K8sNvidiaSmiCheck(BaseValidation):
         else:
             self.set_passed(f"nvidia-smi check passed on all {len(results)} GPU nodes")
 
-    def _run_ephemeral_pods(self, timeout: int = 60) -> dict[str, dict]:
-        """Run ephemeral pods on all GPU nodes and return results."""
+    def _run_ephemeral_pods(self, timeout: int = 60) -> dict[str, dict] | None:
+        """Run ephemeral pods on all GPU nodes and return results.
+
+        Returns ``None`` (after ``set_failed``) when the GPU-node lookup
+        fails, distinguishing it from an empty cluster which returns ``{}``.
+        """
         kubectl_base = get_kubectl_base_shell()
         namespace = get_k8s_namespace()
 
         # 1. Identify GPU nodes
-        cmd = f"{kubectl_base} get nodes -l nvidia.com/gpu.present=true -o jsonpath='{{.items[*].metadata.name}}'"
-        result = self.run_command(cmd)
+        result = self.run_command(f"{kubectl_base} get nodes -l nvidia.com/gpu.present=true -o json")
+        nodes = kubectl_items_or_fail(self, result, "GPU node list", exec_label="GPU nodes")
+        if nodes is None:
+            return None
 
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to discover GPU nodes: {result.stderr}")
-            return {}
-
-        gpu_nodes = result.stdout.strip().split()
+        gpu_nodes = [
+            str((node.get("metadata") or {}).get("name")) for node in nodes if (node.get("metadata") or {}).get("name")
+        ]
         if not gpu_nodes:
             self.log.warning("No GPU nodes found with label nvidia.com/gpu.present=true")
             return {}
@@ -149,18 +160,21 @@ class K8sNvidiaSmiCheck(BaseValidation):
         while time.time() < end_time:
             time.sleep(1)
             wait_count += 1
-            get_pod_cmd = f"{kubectl_base} get pod {pod_name} -n {namespace} -o jsonpath='{{.status.phase}}'"
+            get_pod_cmd = f"{kubectl_base} get pod {pod_name} -n {namespace} -o json"
             status_res = self.run_command(get_pod_cmd)
 
-            phase = status_res.stdout.strip()
+            phase, waiting_reason, waiting_message = pod_state_from_result(status_res)
+            detail = f", waiting={waiting_reason}" if waiting_reason else ""
 
             # Log phase changes and periodic updates for stuck pods
-            if phase != last_logged_phase:
-                self.log.info(f"Pod {pod_name} on node {node}: phase={phase}")
-                last_logged_phase = phase
+            if (phase, waiting_reason) != last_logged_phase:
+                self.log.info(f"Pod {pod_name} on node {node}: phase={phase}{detail}")
+                if waiting_message:
+                    self.log.debug("Pod %s waiting message: %s", pod_name, waiting_message)
+                last_logged_phase = (phase, waiting_reason)
             elif wait_count % 30 == 0:  # Log every 30 seconds if stuck
                 elapsed = int(time.time() - start_time)
-                self.log.warning(f"Pod {pod_name} on node {node} still in phase={phase} after {elapsed}s")
+                self.log.warning(f"Pod {pod_name} on node {node} still in phase={phase}{detail} after {elapsed}s")
 
             if phase == "Succeeded":
                 logs_cmd = f"{kubectl_base} logs {pod_name} -n {namespace}"
@@ -182,9 +196,10 @@ class K8sNvidiaSmiCheck(BaseValidation):
                 break
         else:
             # Timed out - get more details for debugging
-            get_pod_cmd = f"{kubectl_base} get pod {pod_name} -n {namespace} -o jsonpath='{{.status.phase}}'"
+            get_pod_cmd = f"{kubectl_base} get pod {pod_name} -n {namespace} -o json"
             status_res = self.run_command(get_pod_cmd)
-            phase = status_res.stdout.strip()
+            phase, waiting_reason, _waiting_message = pod_state_from_result(status_res)
+            detail = f" ({waiting_reason})" if waiting_reason else ""
             self.log.error(f"Pod {pod_name} on node {node} TIMED OUT after {timeout}s in phase {phase}")
 
             # Get pod events for debugging stuck pods
@@ -193,7 +208,7 @@ class K8sNvidiaSmiCheck(BaseValidation):
             if events_res.stdout.strip():
                 self.log.error(f"Events for {pod_name}:\n{events_res.stdout}")
 
-            error = f"pod on node {node} timed out after {timeout}s in phase {phase}"
+            error = f"pod on node {node} timed out after {timeout}s in phase {phase}{detail}"
 
         # Cleanup
         # Force delete and wait for completion to avoid overwhelming containerd
@@ -215,6 +230,8 @@ class K8sDriverVersionCheck(K8sNvidiaSmiCheck):
         # Inherit timeout from config if present, else default to 60
         timeout = int(self.config.get("timeout", 60))
         results = self._run_ephemeral_pods(timeout=timeout)
+        if results is None:
+            return
         mismatches = []
 
         for node, res in results.items():
@@ -264,6 +281,8 @@ class K8sGpuPodAccessCheck(K8sNvidiaSmiCheck):
         # Inherit timeout from config if present, else default to 60
         timeout = int(self.config.get("timeout", 60))
         results = self._run_ephemeral_pods(timeout=timeout)
+        if results is None:
+            return
         mismatches = []
         total_gpus_found = 0
 

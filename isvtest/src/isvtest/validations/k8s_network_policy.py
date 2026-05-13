@@ -38,7 +38,7 @@ from isvtest.config.settings import (
     get_k8s_network_policy_image,
     get_k8s_require_dual_stack,
 )
-from isvtest.core.k8s import get_kubectl_base_shell, get_kubectl_command
+from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, get_kubectl_command, parse_kubectl_json
 from isvtest.core.validation import BaseValidation
 
 _MANIFEST_DIR = Path(__file__).parent / "manifests" / "k8s"
@@ -271,15 +271,18 @@ class K8sNetworkPolicyCheck(BaseValidation):
 
     def _get_pod_ips(self, pod: str) -> list[str]:
         """Return every IP assigned to ``pod`` via ``status.podIPs``."""
-        cmd = (
-            f"{self._kubectl_base} get pod {shlex.quote(pod)} -n {shlex.quote(self._namespace)} "
-            f"-o jsonpath='{{.status.podIPs[*].ip}}'"
-        )
+        cmd = f"{self._kubectl_base} get pod {shlex.quote(pod)} -n {shlex.quote(self._namespace)} -o json"
         result = self.run_command(cmd)
         if result.exit_code != 0:
             self.log.error("Failed to read pod IPs for %s: %s", pod, result.stderr)
             return []
-        return [ip for ip in result.stdout.strip().split() if ip]
+        try:
+            payload = parse_kubectl_json(result, f"pod {pod!r}")
+        except KubectlParseError as exc:
+            self.log.error("Failed to read pod IPs for %s: %s", pod, exc)
+            return []
+        pod_ips = (payload.get("status") or {}).get("podIPs") or []
+        return [str(entry["ip"]) for entry in pod_ips if entry.get("ip")]
 
     def _probe(self, client: str, host: str) -> bool:
         """Run an ``agnhost connect`` probe from ``client`` to ``host:port``.

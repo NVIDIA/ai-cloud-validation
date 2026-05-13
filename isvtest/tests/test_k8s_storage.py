@@ -47,6 +47,27 @@ def _fail(stdout: str = "", stderr: str = "", exit_code: int = 1) -> CommandResu
     return CommandResult(exit_code=exit_code, stdout=stdout, stderr=stderr, duration=0.0)
 
 
+def _storage_class_json(name: str = "sc") -> str:
+    """Return a minimal StorageClass JSON payload."""
+    return json.dumps({"kind": "StorageClass", "metadata": {"name": name}})
+
+
+def _pvc_json(
+    *,
+    phase: str = "Bound",
+    capacity: str | None = "1Gi",
+    volume_name: str | None = "pv-123",
+) -> str:
+    """Return a minimal PVC JSON payload."""
+    status: dict[str, Any] = {"phase": phase}
+    if capacity is not None:
+        status["capacity"] = {"storage": capacity}
+    spec: dict[str, Any] = {}
+    if volume_name is not None:
+        spec["volumeName"] = volume_name
+    return json.dumps({"kind": "PersistentVolumeClaim", "status": status, "spec": spec})
+
+
 class _FakeProc:
     """Minimal stand-in for ``subprocess.CompletedProcess`` used by ``kubectl apply``."""
 
@@ -165,11 +186,11 @@ class TestK8sCsiStorageTypesCheck:
             if "create namespace" in cmd:
                 return _ok()
             if "get storageclass" in cmd:
-                return _ok(stdout="storageclass.storage.k8s.io/x\n")
+                return _ok(stdout=_storage_class_json("x"))
             if "wait --for=condition=Ready" in cmd:
                 return _ok()
             if "get pvc" in cmd:
-                return _ok(stdout="Bound")
+                return _ok(stdout=_pvc_json())
             if "delete namespace" in cmd:
                 return _ok()
             raise AssertionError(f"unexpected command: {cmd}")
@@ -201,11 +222,11 @@ class TestK8sCsiStorageTypesCheck:
             if "create namespace" in cmd:
                 return _ok()
             if "get storageclass" in cmd:
-                return _ok(stdout="storageclass.storage.k8s.io/gp3\n")
+                return _ok(stdout=_storage_class_json("gp3"))
             if "wait --for=condition=Ready" in cmd:
                 return _ok()
             if "get pvc" in cmd:
-                return _ok(stdout="Bound")
+                return _ok(stdout=_pvc_json())
             if "delete namespace" in cmd:
                 return _ok()
             raise AssertionError(f"unexpected command: {cmd}")
@@ -250,6 +271,27 @@ class TestK8sCsiStorageTypesCheck:
         # Paired PVC subtest must be marked skipped so the failure isn't double-counted.
         assert outcomes["pvc-binds[block]"]["skipped"]
 
+    def test_invalid_storageclass_json_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_env(monkeypatch)
+        check = self._make({"block_storage_class": "gp3", "bind_timeout_s": 5, "namespace_prefix": "ut"})
+
+        def fake_run(cmd: str, timeout: int | None = None) -> CommandResult:
+            if "create namespace" in cmd:
+                return _ok()
+            if "get storageclass" in cmd:
+                return _ok(stdout="not-json")
+            if "delete namespace" in cmd:
+                return _ok()
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        with patch.object(check, "run_command", side_effect=fake_run):
+            check.run()
+
+        assert not check.passed
+        outcomes = {r["name"]: r for r in check._subtest_results}
+        assert not outcomes["sc-exists[block]"]["passed"]
+        assert "Failed to parse StorageClass" in outcomes["sc-exists[block]"]["message"]
+
     def test_pvc_never_binds_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({"block_storage_class": "gp3", "bind_timeout_s": 1, "namespace_prefix": "ut"})
@@ -258,13 +300,13 @@ class TestK8sCsiStorageTypesCheck:
             if "create namespace" in cmd:
                 return _ok()
             if "get storageclass" in cmd:
-                return _ok(stdout="storageclass.storage.k8s.io/gp3\n")
+                return _ok(stdout=_storage_class_json("gp3"))
             # Consumer pod never reaches Ready because the PVC stays Pending
             # under WaitForFirstConsumer with no provisioner available.
             if "wait --for=condition=Ready" in cmd:
                 return _fail(stderr="timed out waiting for the condition")
             if "get pvc" in cmd:
-                return _ok(stdout="Pending")
+                return _ok(stdout=_pvc_json(phase="Pending"))
             if "delete namespace" in cmd:
                 return _ok()
             raise AssertionError(f"unexpected command: {cmd}")
@@ -290,7 +332,7 @@ class TestK8sCsiStorageTypesCheck:
             if "create namespace" in cmd:
                 return _ok()
             if "get storageclass" in cmd:
-                return _ok(stdout="storageclass.storage.k8s.io/gp3\n")
+                return _ok(stdout=_storage_class_json("gp3"))
             if "delete namespace" in cmd:
                 return _ok()
             raise AssertionError(f"unexpected command: {cmd}")
@@ -318,7 +360,7 @@ class TestK8sCsiStorageTypesCheck:
             if "create namespace" in cmd:
                 return _ok()
             if "get storageclass" in cmd:
-                return _ok(stdout="storageclass.storage.k8s.io/gp3\n")
+                return _ok(stdout=_storage_class_json("gp3"))
             if "delete namespace" in cmd:
                 return _ok()
             raise AssertionError(f"unexpected command: {cmd}")
@@ -364,11 +406,11 @@ class TestK8sCsiStorageTypesCheck:
             if "create namespace" in cmd:
                 return _ok()
             if "get storageclass" in cmd:
-                return _ok(stdout="storageclass.storage.k8s.io/gp3-from-env\n")
+                return _ok(stdout=_storage_class_json("gp3-from-env"))
             if "wait --for=condition=Ready" in cmd:
                 return _ok()
             if "get pvc" in cmd:
-                return _ok(stdout="Bound")
+                return _ok(stdout=_pvc_json())
             if "delete namespace" in cmd:
                 return _ok()
             raise AssertionError(f"unexpected command: {cmd}")
@@ -401,11 +443,11 @@ class TestK8sCsiStorageTypesCheck:
             if "create namespace" in cmd:
                 return _ok()
             if "get storageclass" in cmd:
-                return _ok(stdout="storageclass.storage.k8s.io/efs-sc\n")
+                return _ok(stdout=_storage_class_json("efs-sc"))
             if "wait --for=condition=Ready" in cmd:
                 return _ok()
             if "get pvc" in cmd:
-                return _ok(stdout="Bound")
+                return _ok(stdout=_pvc_json())
             if "delete namespace" in cmd:
                 return _ok()
             raise AssertionError(f"unexpected command: {cmd}")
@@ -616,12 +658,8 @@ class TestK8sCsiStorageQuotaApiCheck:
                 # when the PVC stays Pending, the wait fails so the check
                 # reports the timeout correctly.
                 return _ok() if pvc_phase == "Bound" else _fail(stderr="timed out waiting for the condition")
-            if "get pvc" in cmd and "jsonpath='{.status.phase}'" in cmd:
-                return _ok(stdout=pvc_phase)
-            if "get pvc" in cmd and "jsonpath='{.status.capacity.storage}'" in cmd:
-                return _ok(stdout=pvc_capacity)
-            if "get pvc" in cmd and "jsonpath='{.spec.volumeName}'" in cmd:
-                return _ok(stdout=volume_name)
+            if "get pvc" in cmd and "-o json" in cmd:
+                return _ok(stdout=_pvc_json(phase=pvc_phase, capacity=pvc_capacity, volume_name=volume_name))
             if "get pv " in cmd and "-o json" in cmd:
                 return _ok(stdout=pv_json)
             if "delete namespace" in cmd:
@@ -909,12 +947,8 @@ class TestK8sCsiStorageQuotaApiCheck:
                 )
             if "wait --for=condition=Ready" in cmd:
                 return _ok()
-            if "get pvc" in cmd and "status.phase" in cmd:
-                return _ok(stdout="Bound")
-            if "get pvc" in cmd and "status.capacity.storage" in cmd:
-                return _ok(stdout="1Gi")
-            if "get pvc" in cmd and "spec.volumeName" in cmd:
-                return _ok(stdout="pv-123")
+            if "get pvc" in cmd and "-o json" in cmd:
+                return _ok(stdout=_pvc_json(volume_name="pv-123"))
             if "get pv " in cmd and "-o json" in cmd:
                 # Build PV payload; default claim ref matches usage PVC unless
                 # overridden by mutator_kwargs.
@@ -997,12 +1031,8 @@ class TestK8sCsiStorageQuotaApiCheck:
                 )
             if "wait --for=condition=Ready" in cmd:
                 return _ok()
-            if "get pvc" in cmd and "status.phase" in cmd:
-                return _ok(stdout="Bound")
-            if "get pvc" in cmd and "status.capacity.storage" in cmd:
-                return _ok(stdout="1Gi")
-            if "get pvc" in cmd and "spec.volumeName" in cmd:
-                return _ok(stdout="pv-env")
+            if "get pvc" in cmd and "-o json" in cmd:
+                return _ok(stdout=_pvc_json(volume_name="pv-env"))
             if "get pv " in cmd:
                 return _ok(
                     stdout=self._pv_json(
@@ -1873,10 +1903,8 @@ class TestK8sCsiProvisioningModesCheck:
                 return _ok()
             if "delete namespace" in cmd or "delete pv" in cmd:
                 return _ok()
-            if "get pvc" in cmd and ".status.phase" in cmd:
-                return _ok(stdout=phase)
-            if "get pvc" in cmd and ".spec.volumeName" in cmd:
-                return _ok(stdout=volume_name)
+            if "get pvc" in cmd and "-o json" in cmd:
+                return _ok(stdout=_pvc_json(phase=phase, volume_name=volume_name))
             if "get pv" in cmd and "-o json" in cmd:
                 return _ok(stdout=pv_json)
             if "wait --for=condition=Ready" in cmd:

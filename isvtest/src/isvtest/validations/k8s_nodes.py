@@ -8,11 +8,10 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
-import json
 import shlex
-from typing import ClassVar
+from typing import Any, ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail
 from isvtest.core.validation import BaseValidation
 
 
@@ -99,14 +98,13 @@ class K8sNodeCountCheck(BaseValidation):
     def _get_node_names(self, label_selector: str | None) -> list[str] | None:
         """Return node names matching ``label_selector`` or set failure."""
         selector_args = f" -l {shlex.quote(label_selector)}" if label_selector else ""
-        cmd = f"{get_kubectl_base_shell()} get nodes{selector_args} -o name"
+        cmd = f"{get_kubectl_base_shell()} get nodes{selector_args} -o json"
 
         result = self.run_command(cmd)
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get node count: {result.stderr}")
+        items = kubectl_items_or_fail(self, result, "node list", exec_label="node count")
+        if items is None:
             return None
-
-        return _parse_kubectl_name_output(result.stdout)
+        return _node_names_from_items(items)
 
 
 def _optional_selector(value: object, field: str) -> str | None:
@@ -125,14 +123,14 @@ def _combine_label_selectors(*selectors: str | None) -> str | None:
     return ",".join(parts) if parts else None
 
 
-def _parse_kubectl_name_output(stdout: str) -> list[str]:
-    """Parse ``kubectl get nodes -o name`` output into bare node names."""
+def _node_names_from_items(items: list[dict[str, Any]]) -> list[str]:
+    """Extract node names from ``kubectl get nodes -o json`` items."""
     names: list[str] = []
-    for line in stdout.splitlines():
-        item = line.strip()
-        if not item:
-            continue
-        names.append(item.split("/", 1)[1] if "/" in item else item)
+    for item in items:
+        metadata = item.get("metadata") or {}
+        name = metadata.get("name") if isinstance(metadata, dict) else None
+        if name:
+            names.append(str(name))
     return names
 
 
@@ -154,20 +152,11 @@ class K8sNodeReadyCheck(BaseValidation):
         kubectl_base = get_kubectl_base_shell()
 
         # Use JSON output for safer parsing
-        cmd = f"{kubectl_base} get nodes -o json"
-        result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get nodes: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get nodes -o json")
+        items = kubectl_items_or_fail(self, result, "node list", exec_label="nodes")
+        if items is None:
             return
 
-        try:
-            nodes_data = json.loads(result.stdout)
-        except json.JSONDecodeError as e:
-            self.set_failed(f"Failed to parse kubectl JSON output: {e}")
-            return
-
-        items = nodes_data.get("items", [])
         if not items:
             self.set_passed("No nodes found in cluster")
             return
@@ -217,14 +206,12 @@ class K8sExpectedNodesCheck(BaseValidation):
 
         # Get actual nodes
         kubectl_base = get_kubectl_base_shell()
-        cmd = f"{kubectl_base} get nodes -o jsonpath='{{.items[*].metadata.name}}'"
-
-        result = self.run_command(cmd)
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get nodes: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get nodes -o json")
+        items = kubectl_items_or_fail(self, result, "node list", exec_label="nodes")
+        if items is None:
             return
 
-        actual_nodes = result.stdout.strip().split()
+        actual_nodes = _node_names_from_items(items)
         actual_nodes_set = set(actual_nodes)
         expected_names_set = set(expected_names)
 

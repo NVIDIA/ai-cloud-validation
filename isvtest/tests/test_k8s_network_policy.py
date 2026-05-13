@@ -327,9 +327,16 @@ class TestNetworkPolicyCheckBehavior:
 
     def test_get_pod_ips_parses_multiple_families(self) -> None:
         check = _primed_check()
-        with patch.object(check, "run_command", return_value=_ok(stdout="10.0.0.1 fd00::1")):
+        payload = json.dumps({"status": {"podIPs": [{"ip": "10.0.0.1"}, {"ip": "fd00::1"}]}})
+        with patch.object(check, "run_command", return_value=_ok(stdout=payload)):
             ips = check._get_pod_ips("server")
         assert ips == ["10.0.0.1", "fd00::1"]
+
+    def test_get_pod_ips_returns_empty_on_invalid_json(self) -> None:
+        check = _primed_check()
+        with patch.object(check, "run_command", return_value=_ok(stdout="not-json")):
+            ips = check._get_pod_ips("server")
+        assert ips == []
 
     def test_get_pod_ips_returns_empty_on_error(self) -> None:
         check = _primed_check()
@@ -431,10 +438,9 @@ class _NetPolStub:
             return _ok()
         if "wait --for=condition=Ready" in cmd:
             return _ok()
-        if "jsonpath" in cmd:
-            if "other-server" in cmd:
-                return _ok(stdout=" ".join(self.other_ips))
-            return _ok(stdout=" ".join(self.server_ips))
+        if "get pod" in cmd and "-o json" in cmd:
+            ips = self.other_ips if "other-server" in cmd else self.server_ips
+            return _ok(stdout=json.dumps({"status": {"podIPs": [{"ip": ip} for ip in ips]}}))
         if "/agnhost connect" in cmd:
             return self._probe(cmd)
         raise AssertionError(f"No scripted response for command: {cmd}")

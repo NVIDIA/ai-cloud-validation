@@ -13,7 +13,7 @@ from __future__ import annotations
 import shlex
 from typing import Any, ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, parse_kubectl_json_items
 from isvtest.core.validation import BaseValidation
 from isvtest.utils.checks import truncate
 
@@ -321,31 +321,34 @@ class K8sControlPlaneLogsCheck(BaseValidation):
     def _find_component_pods(self, namespace: str, components: list[str]) -> tuple[dict[str, str], str | None]:
         """Return ``({component: pod_name}, probe_error)`` for the namespace.
 
-        Resolution runs from a single ``kubectl get pods`` call that emits
-        ``<pod_name>\\t<component_label>`` per line - label matching and
-        the name-prefix fallback are both resolved client-side from that
-        one response, so the cost is one round-trip regardless of how
-        many components are requested.
+        Resolution runs from a single ``kubectl get pods -o json`` call.
+        Label matching and the name-prefix fallback are both resolved
+        client-side from that one response, so the cost is one round-trip
+        regardless of how many components are requested.
 
         ``probe_error`` carries the stderr when the call fails, so auto-
         mode can distinguish "cluster reachable but control plane is
         hidden" from "kubectl itself is broken".
         """
         kubectl_base = get_kubectl_base_shell()
-        jsonpath = r"""{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.component}{"\n"}{end}"""
-        cmd = f"{kubectl_base} get pods -n {shlex.quote(namespace)} -o jsonpath={shlex.quote(jsonpath)}"
+        cmd = f"{kubectl_base} get pods -n {shlex.quote(namespace)} -o json"
         result = self.run_command(cmd)
         if result.exit_code != 0:
             probe_error = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
             return {}, probe_error
 
+        try:
+            items = parse_kubectl_json_items(result, f"pod list in namespace {namespace!r}")
+        except KubectlParseError as exc:
+            return {}, str(exc)
+
         pods: list[tuple[str, str]] = []
-        for line in result.stdout.splitlines():
-            if not line.strip():
-                continue
-            pod_name, _, label = line.partition("\t")
-            pod_name = pod_name.strip()
+        for item in items:
+            metadata = item.get("metadata") or {}
+            pod_name = str(metadata.get("name") or "").strip()
             if pod_name:
+                labels = metadata.get("labels") or {}
+                label = str(labels.get("component") or "") if isinstance(labels, dict) else ""
                 pods.append((pod_name, label.strip()))
 
         found: dict[str, str] = {}
