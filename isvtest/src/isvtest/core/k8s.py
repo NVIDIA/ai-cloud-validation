@@ -20,11 +20,15 @@ import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from isvtest.core.logger import setup_logger
+from isvtest.core.runners import CommandResult
+
+if TYPE_CHECKING:
+    from isvtest.core.validation import BaseValidation
 
 logger = setup_logger(__name__)
 
@@ -198,6 +202,96 @@ def get_kubectl_base_shell(*args: str) -> str:
     return " ".join(shlex.quote(part) for part in (*get_kubectl_command(), *args))
 
 
+class KubectlParseError(Exception):
+    """Raised when ``kubectl ... -o json`` output cannot be parsed."""
+
+
+def parse_kubectl_json(
+    result: CommandResult,
+    resource: str = "kubectl JSON output",
+) -> dict[str, Any]:
+    """Parse ``kubectl ... -o json`` stdout into a JSON object.
+
+    Raises ``KubectlParseError`` on malformed output. Command exit-code
+    handling stays with callers so they can keep resource-specific
+    failure messages.
+    """
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise KubectlParseError(f"Failed to parse {resource}: empty stdout")
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise KubectlParseError(f"Failed to parse {resource}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise KubectlParseError(f"Failed to parse {resource}: expected JSON object, got {type(payload).__name__}")
+    return payload
+
+
+def parse_kubectl_json_items(
+    result: CommandResult,
+    resource: str = "kubectl JSON list output",
+) -> list[dict[str, Any]]:
+    """Extract the ``items`` list from a ``kubectl get ... -o json`` result.
+
+    Raises ``KubectlParseError`` if the payload is malformed or ``items`` is
+    missing/wrongly typed.
+    """
+    payload = parse_kubectl_json(result, resource)
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise KubectlParseError(f"Failed to parse {resource}: expected 'items' list")
+    if any(not isinstance(item, dict) for item in items):
+        raise KubectlParseError(f"Failed to parse {resource}: expected object entries in 'items'")
+    return items
+
+
+def kubectl_items_or_fail(
+    validation: "BaseValidation",
+    result: CommandResult,
+    resource: str,
+    *,
+    exec_label: str | None = None,
+) -> list[dict[str, Any]] | None:
+    """Parse ``kubectl get ... -o json`` items, routing failures to ``validation.set_failed``.
+
+    Returns the items list on success, or ``None`` after marking the validation
+    failed when the command exited non-zero or returned unparseable JSON.
+
+    ``exec_label`` overrides the noun used in the exec-failure message
+    (``"Failed to get {label}: ..."``) when callers want wording other than the
+    parse-error ``resource`` (e.g. ``"node count"`` vs ``"node list"``).
+    """
+    if result.exit_code != 0:
+        label = exec_label or resource
+        validation.set_failed(f"Failed to get {label}: {result.stderr}")
+        return None
+    try:
+        return parse_kubectl_json_items(result, resource)
+    except KubectlParseError as exc:
+        validation.set_failed(str(exc))
+        return None
+
+
+def pod_status_reason(pod: dict[str, Any]) -> str:
+    """Return a kubectl-like pod status reason from structured pod JSON."""
+    status = pod.get("status") or {}
+    phase = status.get("phase") or "Unknown"
+    for key in ("initContainerStatuses", "containerStatuses"):
+        for container_status in status.get(key) or []:
+            state = container_status.get("state") or {}
+            waiting_reason = (state.get("waiting") or {}).get("reason")
+            if waiting_reason:
+                return waiting_reason
+            terminated_reason = (state.get("terminated") or {}).get("reason")
+            if terminated_reason and terminated_reason != "Completed":
+                return terminated_reason
+    # Fall back to ``.status.reason`` (e.g. "Evicted", "NodeLost", "Shutdown")
+    # before the bare phase so the kubectl STATUS column wording is preserved
+    # for pods without informative container state.
+    return str(status.get("reason") or phase)
+
+
 def render_k8s_manifest(
     path: Path,
     mutate: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -255,6 +349,25 @@ def parse_pod_state(stdout: str, stderr: str) -> tuple[str, str, str]:
     statuses = status.get("containerStatuses") or []
     waiting = ((statuses[0].get("state") if statuses else {}) or {}).get("waiting") or {}
     return phase, waiting.get("reason") or "", waiting.get("message") or ""
+
+
+def pod_state_from_result(
+    result: "CommandResult | subprocess.CompletedProcess[Any]",
+) -> tuple[str, str, str]:
+    """Parse pod state from a ``kubectl get pod -o json`` result.
+
+    Accepts either a ``CommandResult`` (validations) or a
+    ``subprocess.CompletedProcess`` (core helpers). Returns the same
+    ``(phase, waiting_reason, waiting_message)`` tuple as
+    ``parse_pod_state``: on failure only stderr is inspected (for NotFound
+    detection); on success only stdout is parsed.
+    """
+    exit_code = getattr(result, "exit_code", None)
+    if exit_code is None:
+        exit_code = result.returncode  # subprocess.CompletedProcess
+    if exit_code == 0:
+        return parse_pod_state(result.stdout, "")
+    return parse_pod_state("", result.stderr or "")
 
 
 def parse_server_version(stdout: str) -> str | None:
