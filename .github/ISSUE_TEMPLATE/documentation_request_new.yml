@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Documentation - Correction/Update Request
-description: Request corrections or updates to existing documentation
+name: Documentation - New Documentation Request
+description: Request additions to ISV NCP Validation Suite documentation
 title: "docs: "
 labels: ["doc"]
 type: Documentation
@@ -34,31 +34,16 @@ body:
         - High
         - Medium
         - Low (would be nice)
-      default: 2
-    validations:
-      required: true
-
-  - type: input
-    id: correction_location
-    attributes:
-      label: Please provide a link or source to the relevant docs
-      placeholder: "ex: https://github.com/NVIDIA/ISV-NCP-Validation-Suite/blob/main/README.md"
     validations:
       required: true
 
   - type: textarea
     id: problem
     attributes:
-      label: Describe the problems in the documentation
-      placeholder: The documents say to use X but it behaves like Y
+      label: Describe the future/missing documentation
+      placeholder: A code snippet mentions function foo(args) but I cannot find any documentation on it.
     validations:
       required: true
-
-  - type: textarea
-    id: correction
-    attributes:
-      label: (Optional) Propose a correction
-      placeholder: function X was deprecated, replace documentation with function Y
 
   - type: checkboxes
     id: terms
