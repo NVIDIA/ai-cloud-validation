@@ -435,6 +435,39 @@ def test_port_security_policy_main_emits_full_contract_on_vpc_failure(
     assert cleaned_vpcs == ["vpc-partial"]
 
 
+def test_port_security_policy_main_emits_full_contract_on_az_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Post-VPC failures (e.g. no available AZ) should still emit every subtest key."""
+    module = _load_network_script("sg_port_security_policy.py")
+    fake_ec2 = object()
+    cleaned_vpcs: list[str] = []
+
+    monkeypatch.setattr(module.boto3, "client", lambda service, region_name: fake_ec2)
+    monkeypatch.setattr(
+        module,
+        "create_test_vpc",
+        lambda ec2, cidr, name: {"passed": True, "vpc_id": "vpc-ok"},
+    )
+
+    def raise_no_az(ec2: Any, region: str) -> str:
+        raise ValueError(f"No available AZ found in region {region}")
+
+    monkeypatch.setattr(module, "_get_az", raise_no_az)
+    monkeypatch.setattr(module, "cleanup_vpc_resources", lambda ec2, vpc_id: cleaned_vpcs.append(vpc_id))
+    monkeypatch.setattr(sys, "argv", ["sg_port_security_policy.py", "--region", "us-west-2"])
+
+    exit_code = module.main()
+
+    assert exit_code == 1
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert "No available AZ" in payload["error"]
+    assert set(payload["tests"]) == set(module.PORT_SECURITY_TEST_NAMES)
+    assert all(test["passed"] is False for test in payload["tests"].values())
+    assert cleaned_vpcs == ["vpc-ok"]
+
+
 class FakeEndpointDeletionWaitEc2:
     """Fake EC2 client for endpoint deletion polling."""
 

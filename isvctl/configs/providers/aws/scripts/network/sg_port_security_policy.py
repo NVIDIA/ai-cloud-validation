@@ -253,6 +253,8 @@ def main() -> int:
         result["success"] = all(test.get("passed") for test in result["tests"].values())
     except Exception as e:
         result["error"] = str(e)
+        if not result["tests"]:
+            result["tests"] = _failed_port_security_results(str(e))
     finally:
         if vpc_id:
             cleanup_vpc_resources(ec2, vpc_id)
