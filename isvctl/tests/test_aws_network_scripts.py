@@ -603,6 +603,87 @@ class FakeSdnLoggingEc2:
         return {}
 
 
+class FakePolicyPropagationEc2:
+    """Fake EC2 client for SDN02-08 policy propagation timing tests."""
+
+    def __init__(
+        self,
+        *,
+        rule_visible_after: int = 1,
+        rule_removed_after: int = 1,
+        delete_sg_error: ClientError | None = None,
+    ) -> None:
+        self.rule_visible_after = rule_visible_after
+        self.rule_removed_after = rule_removed_after
+        self.delete_sg_error = delete_sg_error
+        self.authorized = False
+        self.revoked = False
+        self.describe_calls = 0
+        self.revoked_describe_calls = 0
+        self.deleted_sgs: list[str] = []
+
+    def create_security_group(
+        self,
+        GroupName: str,
+        Description: str,
+        VpcId: str,
+        TagSpecifications: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return a fake policy probe security group."""
+        assert GroupName.startswith("isv-sdn-policy-propagation-")
+        assert Description == "ISV SDN02-08 policy propagation probe"
+        assert VpcId == "vpc-test"
+        assert TagSpecifications
+        return {"GroupId": "sg-probe"}
+
+    def authorize_security_group_ingress(self, GroupId: str, IpPermissions: list[dict[str, Any]]) -> dict[str, Any]:
+        """Record that the probe rule was added."""
+        assert GroupId == "sg-probe"
+        self.authorized = True
+        return {}
+
+    def revoke_security_group_ingress(self, GroupId: str, IpPermissions: list[dict[str, Any]]) -> dict[str, Any]:
+        """Record that the probe rule was revoked."""
+        assert GroupId == "sg-probe"
+        self.revoked = True
+        return {}
+
+    def describe_security_groups(self, GroupIds: list[str]) -> dict[str, Any]:
+        """Return SG permissions according to configured propagation lag."""
+        assert GroupIds == ["sg-probe"]
+        self.describe_calls += 1
+        visible = False
+        if self.authorized and not self.revoked:
+            visible = self.describe_calls >= self.rule_visible_after
+        if self.revoked:
+            self.revoked_describe_calls += 1
+            visible = self.revoked_describe_calls < self.rule_removed_after
+        return {
+            "SecurityGroups": [
+                {
+                    "GroupId": "sg-probe",
+                    "IpPermissions": [
+                        {
+                            "IpProtocol": "tcp",
+                            "FromPort": 443,
+                            "ToPort": 443,
+                            "IpRanges": [{"CidrIp": "10.0.0.0/8"}],
+                        }
+                    ]
+                    if visible
+                    else [],
+                }
+            ]
+        }
+
+    def delete_security_group(self, GroupId: str) -> dict[str, Any]:
+        """Delete a fake security group, optionally raising a configured error."""
+        if self.delete_sg_error:
+            raise self.delete_sg_error
+        self.deleted_sgs.append(GroupId)
+        return {}
+
+
 class FakeHealth:
     """Fake AWS Health client for SDN hardware-fault logging tests."""
 
@@ -1420,3 +1501,96 @@ def test_sdn_audit_trail_logging_records_cleanup_failure() -> None:
     assert result["success"] is False
     assert result["tests"]["cleanup"]["passed"] is False
     assert "Failed to delete audit probe security group sg-audit" in result["tests"]["cleanup"]["error"]
+
+
+def test_sdn_policy_propagation_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Policy propagation passes when add/remove observations stay within the limit."""
+    module = _load_network_script("sg_policy_propagation_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePolicyPropagationEc2(rule_visible_after=2, rule_removed_after=2)
+
+    result = module.check_policy_propagation(
+        ec2,
+        "vpc-test",
+        "us-west-2",
+        max_propagation_seconds=10,
+        poll_seconds=0,
+    )
+
+    assert result["success"] is True
+    assert result["test_name"] == "sg_policy_propagation"
+    assert result["tests"]["rule_observed"]["passed"] is True
+    assert result["tests"]["removal_observed"]["passed"] is True
+    assert result["target_rule_id"] == "sg-probe"
+    assert result["add_observed_seconds"] <= 10
+    assert result["remove_observed_seconds"] <= 10
+    assert ec2.deleted_sgs == ["sg-probe"]
+
+
+def test_sdn_policy_propagation_times_out_waiting_for_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rule that is never observed must fail with a propagation timeout."""
+    module = _load_network_script("sg_policy_propagation_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePolicyPropagationEc2(rule_visible_after=999)
+
+    result = module.check_policy_propagation(
+        ec2,
+        "vpc-test",
+        "us-west-2",
+        max_propagation_seconds=0,
+        poll_seconds=0,
+    )
+
+    assert result["success"] is False
+    assert result["tests"]["rule_observed"]["passed"] is False
+    assert result["tests"]["rule_observed"]["propagation_timeout"] is True
+    assert result["tests"]["cleanup"]["passed"] is True
+
+
+def test_sdn_policy_propagation_records_cleanup_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cleanup errors must be surfaced and make the overall result fail."""
+    module = _load_network_script("sg_policy_propagation_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePolicyPropagationEc2(delete_sg_error=_client_error("DeleteSecurityGroup", "DependencyViolation", "busy"))
+
+    result = module.check_policy_propagation(
+        ec2,
+        "vpc-test",
+        "us-west-2",
+        max_propagation_seconds=10,
+        poll_seconds=0,
+    )
+
+    assert result["success"] is False
+    assert result["tests"]["cleanup"]["passed"] is False
+    assert "Failed to delete policy propagation probe security group sg-probe" in result["tests"]["cleanup"]["error"]
+
+
+def test_my_isv_policy_propagation_demo_test_name_matches_suite_step() -> None:
+    """my-isv SDN02-08 template output name must match the suite step ID."""
+    script = MY_ISV_NETWORK_SCRIPTS / "sg_policy_propagation_test.py"
+    env = os.environ | {"ISVCTL_DEMO_MODE": "1"}
+
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--region",
+                "demo-region",
+                "--vpc-id",
+                "vpc-demo",
+            ],
+            capture_output=True,
+            env=env,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"{script} timed out after {exc.timeout} seconds\nstdout: {exc.stdout!r}\nstderr: {exc.stderr!r}")
+
+    assert completed.returncode == 0, completed.stderr
+    result: dict[str, Any] = json.loads(completed.stdout)
+    assert result["test_name"] == "sg_policy_propagation"
+    assert result["success"] is True

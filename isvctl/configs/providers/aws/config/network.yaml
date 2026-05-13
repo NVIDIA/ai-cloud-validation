@@ -18,12 +18,13 @@
 # Imports validations from the provider-agnostic network canonical config.
 # This file only provides AWS-specific commands (boto3 stubs) and settings.
 #
-# Comprehensive network testing with 14 test suites:
+# Comprehensive network testing with 15 test suites:
 #   1. VPC CRUD - Create, Read, Update, Delete VPC lifecycle
 #   2. Subnet Configuration - Multi-AZ subnet distribution
 #   3. VPC Isolation - Security boundaries between VPCs
 #  4a. Security Group CRUD - Create, Read, Update, Delete SG lifecycle
 #  4b. Security Blocking - SG/NACL blocking rules (negative tests)
+#  4c. Policy Propagation Timing - SG rule add/remove visibility timing
 #   5. Connectivity - Instance network assignment
 #   6. Traffic Validation - Real ping tests via SSM
 #   7. VPC IP Config - DHCP options, subnet CIDRs, auto-assign IP (DDI)
@@ -131,28 +132,41 @@ commands:
         timeout: 120
         output_schema: security_blocking
 
-      # Test 4c: SG Scoping - Workload Level (~30s)
+      # Test 4c: Policy propagation timing (~10s)
+      - name: sg_policy_propagation
+        phase: test
+        command: "python3 ../scripts/network/sg_policy_propagation_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--max-propagation-seconds"
+          - "10"
+        timeout: 120
+
+      # Test 4d: SG Scoping - Workload Level (~30s)
       - name: sg_workload_scoping
         phase: test
         command: "python3 ../scripts/network/sg_scoping_test.py"
         args: ["--region", "{{region}}", "--scope", "workload"]
         timeout: 120
 
-      # Test 4d: SG Scoping - Node Level (~30s)
+      # Test 4e: SG Scoping - Node Level (~30s)
       - name: sg_node_scoping
         phase: test
         command: "python3 ../scripts/network/sg_scoping_test.py"
         args: ["--region", "{{region}}", "--scope", "node"]
         timeout: 120
 
-      # Test 4e: SG Scoping - Subnet Level (~30s)
+      # Test 4f: SG Scoping - Subnet Level (~30s)
       - name: sg_subnet_scoping
         phase: test
         command: "python3 ../scripts/network/sg_scoping_test.py"
         args: ["--region", "{{region}}", "--scope", "subnet"]
         timeout: 120
 
-      # Test 4f: SG Scoping - Service Level (~60s, VPC interface endpoint)
+      # Test 4g: SG Scoping - Service Level (~60s, VPC interface endpoint)
       - name: sg_service_scoping
         phase: test
         command: "python3 ../scripts/network/sg_scoping_test.py"

@@ -89,6 +89,12 @@ tests:
         SgPortSecurityPolicyCheck:
           step: sg_port_security_policy
 
+    sdn_policy:
+      checks:
+        SgPolicyPropagationTimingCheck:
+          step: sg_policy_propagation
+          max_propagation_seconds: 10
+
     sdn_logging:
       checks:
         SdnHardwareFaultLoggingCheck:

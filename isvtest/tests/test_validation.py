@@ -45,6 +45,7 @@ from isvtest.validations.network import (
     FloatingIpCheck,
     LocalizedDnsCheck,
     NvlinkDomainCheck,
+    SgPolicyPropagationTimingCheck,
     SgPortSecurityPolicyCheck,
     StablePrivateIpCheck,
     VpcPeeringCheck,
@@ -1356,6 +1357,74 @@ class TestSgPortSecurityPolicyCheck:
         result = v.execute()
         assert result["passed"] is False
         assert "tests" in result["error"]
+
+
+class TestSgPolicyPropagationTimingCheck:
+    """Tests for SDN02-08 security policy propagation timing validation."""
+
+    def test_policy_propagation_within_limit(self) -> None:
+        tests = {
+            "create_probe_rule": {"passed": True},
+            "rule_observed": {"passed": True, "seconds": 1.25},
+            "revoke_probe_rule": {"passed": True},
+            "removal_observed": {"passed": True, "seconds": 2.5},
+            "cleanup": {"passed": True},
+        }
+        config = _sdn_step_output(tests)
+        config["step_output"].update(
+            {
+                "target_rule_id": "sg-probe",
+                "add_observed_seconds": 1.25,
+                "remove_observed_seconds": 2.5,
+                "max_propagation_seconds": 10,
+            }
+        )
+
+        v = SgPolicyPropagationTimingCheck(config=config)
+        result = v.execute()
+
+        assert result["passed"] is True
+        assert "add=1.25s" in result["output"]
+        assert "remove=2.50s" in result["output"]
+
+    def test_policy_propagation_fails_when_timing_exceeds_limit(self) -> None:
+        tests = {
+            "create_probe_rule": {"passed": True},
+            "rule_observed": {"passed": True, "seconds": 12.0},
+            "revoke_probe_rule": {"passed": True},
+            "removal_observed": {"passed": True, "seconds": 2.0},
+            "cleanup": {"passed": True},
+        }
+        config = _sdn_step_output(tests)
+        config["step_output"].update(
+            {
+                "target_rule_id": "sg-probe",
+                "add_observed_seconds": 12.0,
+                "remove_observed_seconds": 2.0,
+                "max_propagation_seconds": 10,
+            }
+        )
+
+        v = SgPolicyPropagationTimingCheck(config=config)
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "12.00s exceeds 10.00s" in result["error"]
+
+    def test_policy_propagation_fails_without_timing_evidence(self) -> None:
+        tests = {
+            "create_probe_rule": {"passed": True},
+            "rule_observed": {"passed": True},
+            "revoke_probe_rule": {"passed": True},
+            "removal_observed": {"passed": True},
+            "cleanup": {"passed": True},
+        }
+
+        v = SgPolicyPropagationTimingCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "Missing SDN policy propagation evidence" in result["error"]
 
 
 def _backend_switch_fabric_output(

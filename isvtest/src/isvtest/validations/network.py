@@ -896,6 +896,102 @@ class SdnFilterAuditTrailCheck(BaseValidation):
         )
 
 
+def _coerce_nonnegative_float(value: object, field_name: str) -> tuple[float | None, str | None]:
+    """Return a non-negative float value or an error string."""
+    if isinstance(value, bool):
+        return None, f"`{field_name}` must be a number, got bool: {value!r}"
+    try:
+        numeric = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None, f"`{field_name}` must be a number, got {type(value).__name__}: {value!r}"
+    if numeric < 0:
+        return None, f"`{field_name}` must be >= 0, got {numeric}"
+    return numeric, None
+
+
+class SgPolicyPropagationTimingCheck(BaseValidation):
+    """Validate security policy rule propagation timing.
+
+    Config:
+        step_output: The step output to check
+        max_propagation_seconds: Optional timing threshold override
+
+    Step output:
+        tests: dict with create_probe_rule, rule_observed,
+               revoke_probe_rule, removal_observed, cleanup
+        target_rule_id: Rule/security-group identifier modified by the probe
+        add_observed_seconds: Time until the added policy was observable
+        remove_observed_seconds: Time until the removed policy disappeared
+        max_propagation_seconds: Provider threshold used by the probe
+    """
+
+    description: ClassVar[str] = "Check security policy propagation timing"
+    markers: ClassVar[list[str]] = ["network", "security"]
+
+    def run(self) -> None:
+        """Check policy propagation timing evidence from step output."""
+        required_tests = [
+            "create_probe_rule",
+            "rule_observed",
+            "revoke_probe_rule",
+            "removal_observed",
+            "cleanup",
+        ]
+        if not check_required_tests(self, required_tests, "Security policy propagation tests failed"):
+            return
+
+        step_output = self.config.get("step_output", {})
+        missing_evidence = [
+            key
+            for key in ("target_rule_id", "add_observed_seconds", "remove_observed_seconds")
+            if step_output.get(key) in (None, "")
+        ]
+        if missing_evidence:
+            self.set_failed(f"Missing SDN policy propagation evidence: {', '.join(missing_evidence)}")
+            return
+
+        threshold_source = self.config.get(
+            "max_propagation_seconds",
+            step_output.get("max_propagation_seconds", 10),
+        )
+        max_seconds, threshold_error = _coerce_nonnegative_float(threshold_source, "max_propagation_seconds")
+        if threshold_error:
+            self.set_failed(threshold_error)
+            return
+
+        add_seconds, add_error = _coerce_nonnegative_float(
+            step_output.get("add_observed_seconds"),
+            "add_observed_seconds",
+        )
+        remove_seconds, remove_error = _coerce_nonnegative_float(
+            step_output.get("remove_observed_seconds"),
+            "remove_observed_seconds",
+        )
+        errors = [error for error in (add_error, remove_error) if error]
+        if errors:
+            self.set_failed("; ".join(errors))
+            return
+
+        assert add_seconds is not None
+        assert remove_seconds is not None
+        assert max_seconds is not None
+
+        slow = []
+        if add_seconds > max_seconds:
+            slow.append(f"add {add_seconds:.2f}s exceeds {max_seconds:.2f}s")
+        if remove_seconds > max_seconds:
+            slow.append(f"remove {remove_seconds:.2f}s exceeds {max_seconds:.2f}s")
+        if slow:
+            self.set_failed(f"Security policy propagation timing exceeded: {', '.join(slow)}")
+            return
+
+        self.set_passed(
+            "Security policy propagation within threshold "
+            f"(target={step_output['target_rule_id']}, add={add_seconds:.2f}s, "
+            f"remove={remove_seconds:.2f}s, max={max_seconds:.2f}s)"
+        )
+
+
 class SgWorkloadScopingCheck(BaseValidation):
     """Validate security group rules can be scoped at workload level.
 
