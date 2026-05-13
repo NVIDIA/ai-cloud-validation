@@ -22,6 +22,7 @@ and DDI (DNS/DHCP/IP management).
 from __future__ import annotations
 
 import ipaddress
+import math
 import re
 from typing import TYPE_CHECKING, ClassVar
 
@@ -904,6 +905,8 @@ def _coerce_nonnegative_float(value: object, field_name: str) -> tuple[float | N
         numeric = float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None, f"`{field_name}` must be a number, got {type(value).__name__}: {value!r}"
+    if not math.isfinite(numeric):
+        return None, f"`{field_name}` must be finite, got {numeric!r}"
     if numeric < 0:
         return None, f"`{field_name}` must be >= 0, got {numeric}"
     return numeric, None

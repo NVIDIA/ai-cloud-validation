@@ -139,6 +139,7 @@ def check_policy_propagation(
     permission = _probe_permission()
     sg_id = None
     sg_name = f"isv-sdn-policy-propagation-{uuid.uuid4().hex[:8]}"
+    failed_key = "create_probe_rule"
 
     try:
         sg = ec2.create_security_group(
@@ -161,6 +162,7 @@ def check_policy_propagation(
         ec2.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=permission)
         result["tests"]["create_probe_rule"] = _passed(f"Added probe rule to {sg_id}")
 
+        failed_key = "rule_observed"
         observed, add_seconds = _wait_for_permission_state(
             ec2,
             sg_id,
@@ -182,9 +184,11 @@ def check_policy_propagation(
             seconds=round(add_seconds, 3),
         )
 
+        failed_key = "revoke_probe_rule"
         ec2.revoke_security_group_ingress(GroupId=sg_id, IpPermissions=permission)
         result["tests"]["revoke_probe_rule"] = _passed(f"Revoked probe rule from {sg_id}")
 
+        failed_key = "removal_observed"
         removed, remove_seconds = _wait_for_permission_state(
             ec2,
             sg_id,
@@ -207,7 +211,6 @@ def check_policy_propagation(
         )
 
     except ClientError as e:
-        failed_key = "create_probe_rule" if sg_id is None else "rule_observed"
         result["tests"][failed_key] = _failed(str(e))
         result["error"] = str(e)
     finally:

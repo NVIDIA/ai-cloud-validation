@@ -1426,6 +1426,42 @@ class TestSgPolicyPropagationTimingCheck:
         assert result["passed"] is False
         assert "Missing SDN policy propagation evidence" in result["error"]
 
+    @pytest.mark.parametrize(
+        ("field", "bad_value"),
+        [
+            ("add_observed_seconds", float("nan")),
+            ("add_observed_seconds", float("inf")),
+            ("remove_observed_seconds", float("nan")),
+            ("remove_observed_seconds", float("inf")),
+            ("max_propagation_seconds", float("nan")),
+            ("max_propagation_seconds", float("inf")),
+        ],
+    )
+    def test_policy_propagation_rejects_non_finite_timing(self, field: str, bad_value: float) -> None:
+        tests = {
+            "create_probe_rule": {"passed": True},
+            "rule_observed": {"passed": True, "seconds": 1.0},
+            "revoke_probe_rule": {"passed": True},
+            "removal_observed": {"passed": True, "seconds": 1.0},
+            "cleanup": {"passed": True},
+        }
+        config = _sdn_step_output(tests)
+        config["step_output"].update(
+            {
+                "target_rule_id": "sg-probe",
+                "add_observed_seconds": 1.0,
+                "remove_observed_seconds": 1.0,
+                "max_propagation_seconds": 10,
+            }
+        )
+        config["step_output"][field] = bad_value
+
+        v = SgPolicyPropagationTimingCheck(config=config)
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "finite" in result["error"]
+
 
 def _backend_switch_fabric_output(
     fabric: dict[str, Any] | None = None,

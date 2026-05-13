@@ -613,6 +613,7 @@ class FakePolicyPropagationEc2:
         rule_removed_after: int = 1,
         delete_sg_error: ClientError | None = None,
     ) -> None:
+        """Configure poll thresholds and optional delete-security-group failure."""
         self.rule_visible_after = rule_visible_after
         self.rule_removed_after = rule_removed_after
         self.delete_sg_error = delete_sg_error
