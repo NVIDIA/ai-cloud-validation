@@ -1363,6 +1363,7 @@ class TestSgPolicyPropagationTimingCheck:
     """Tests for SDN02-08 security policy propagation timing validation."""
 
     def test_policy_propagation_within_limit(self) -> None:
+        """Pass when add/remove propagation timings are within the configured limit."""
         tests = {
             "create_probe_rule": {"passed": True},
             "rule_observed": {"passed": True, "seconds": 1.25},
@@ -1388,6 +1389,7 @@ class TestSgPolicyPropagationTimingCheck:
         assert "remove=2.50s" in result["output"]
 
     def test_policy_propagation_fails_when_timing_exceeds_limit(self) -> None:
+        """Fail when observed propagation timing exceeds max_propagation_seconds."""
         tests = {
             "create_probe_rule": {"passed": True},
             "rule_observed": {"passed": True, "seconds": 12.0},
@@ -1412,6 +1414,7 @@ class TestSgPolicyPropagationTimingCheck:
         assert "12.00s exceeds 10.00s" in result["error"]
 
     def test_policy_propagation_fails_without_timing_evidence(self) -> None:
+        """Fail when required timing evidence is missing from step output."""
         tests = {
             "create_probe_rule": {"passed": True},
             "rule_observed": {"passed": True},
@@ -1438,6 +1441,7 @@ class TestSgPolicyPropagationTimingCheck:
         ],
     )
     def test_policy_propagation_rejects_non_finite_timing(self, field: str, bad_value: float) -> None:
+        """Fail when timing fields contain non-finite values (NaN/Inf)."""
         tests = {
             "create_probe_rule": {"passed": True},
             "rule_observed": {"passed": True, "seconds": 1.0},
