@@ -22,6 +22,7 @@ from typing import Any
 from isvtest.validations.instance import (
     SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED,
     InstanceRebootCheck,
+    InstanceSpecifiedKeyCheck,
     SerialConsoleRetentionCheck,
 )
 
@@ -114,6 +115,92 @@ class TestInstanceRebootCheck:
         result = v.execute()
         assert result["passed"] is False
         assert "reboot may not have occurred" in result["error"]
+
+
+class TestInstanceSpecifiedKeyCheck:
+    """Tests for VM launch-with-specified-key validation."""
+
+    def test_passes_when_instance_key_matches_requested_key(self) -> None:
+        """Provider output proves the launched instance uses the requested key."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "requested_key_name": "isv-test-key",
+                    "key_name": "isv-test-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is True
+        assert "isv-test-key" in result["output"]
+
+    def test_passes_with_instance_key_name_alias(self) -> None:
+        """Providers may emit instance_key_name when key_name is reserved elsewhere."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "requested_key_name": "custom-key",
+                    "instance_key_name": "custom-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is True
+
+    def test_fails_when_requested_key_is_missing(self) -> None:
+        """The provider must state which key it requested."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "key_name": "isv-test-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "No 'requested_key_name'" in result["error"]
+
+    def test_fails_when_actual_key_is_missing(self) -> None:
+        """The provider must report the key observed on the launched instance."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "requested_key_name": "isv-test-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "No launched instance key name" in result["error"]
+
+    def test_fails_when_actual_key_differs_from_requested_key(self) -> None:
+        """A launched instance with the wrong key fails the validation."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "requested_key_name": "isv-test-key",
+                    "key_name": "other-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "expected key 'isv-test-key', got 'other-key'" in result["error"]
 
 
 class TestSerialConsoleRetentionCheck:

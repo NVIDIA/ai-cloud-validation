@@ -60,6 +60,11 @@ tests:
         InstanceStateCheck:
           expected_state: "running"
 
+    specified_key:
+      step: launch_instance
+      checks:
+        InstanceSpecifiedKeyCheck: {}
+
     instance_created:
       step: launch_instance
       checks:

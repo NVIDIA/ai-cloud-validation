@@ -35,6 +35,7 @@ Required JSON output fields:
   vpc_id            (str)    - network/VPC identifier
   state             (str)    - must be "running" on success (read by InstanceStateCheck)
   security_group_id (str)    - security group/firewall rule identifier
+  requested_key_name (str)   - key pair name requested for launch
   key_name          (str)    - name of the SSH key pair
   error             (str, optional) - error message provided when success is false
 
@@ -71,6 +72,7 @@ def main() -> int:
         "vpc_id": "",
         "state": "",
         "security_group_id": "",
+        "requested_key_name": "",
         "key_name": "",
     }
 
@@ -106,20 +108,41 @@ def main() -> int:
         # ║     result["vpc_id"] = vpc_id                                ║
         # ║     result["state"] = "running"                              ║
         # ║     result["security_group_id"] = sg_id                      ║
+        # ║     result["requested_key_name"] = key_name                  ║
         # ║     result["key_name"] = key_name                            ║
+        # ║     result["tests"]["specified_key"] = {                     ║
+        # ║         "passed": key_name == observed_instance_key_name,     ║
+        # ║         "message": "...",                                    ║
+        # ║         "probes": {                                          ║
+        # ║             "requested_key_name_present": bool(key_name),     ║
+        # ║             "instance_key_name_matches": True,                ║
+        # ║         },                                                   ║
+        # ║     }                                                        ║
         # ║     result["success"] = True                                 ║
         # ╚══════════════════════════════════════════════════════════════╝
 
         if DEMO_MODE:
+            key_name = args.name
             result["instance_id"] = "dummy-vm-0001"
             result["public_ip"] = "203.0.113.10"
             result["private_ip"] = "10.0.0.10"
             result["key_file"] = "/tmp/dummy-key.pem"
             result["vpc_id"] = "dummy-vpc-0001"
             result["security_group_id"] = "dummy-sg-0001"
-            result["key_name"] = args.name
+            result["requested_key_name"] = key_name
+            result["key_name"] = key_name
             result["instance_type"] = args.instance_type
             result["state"] = "running"
+            result["tests"] = {
+                "specified_key": {
+                    "passed": True,
+                    "message": f"Instance uses requested key '{key_name}'",
+                    "probes": {
+                        "requested_key_name_present": True,
+                        "instance_key_name_matches": True,
+                    },
+                }
+            }
             result["success"] = True
         else:
             result["error"] = "Not implemented - replace with your platform's VM launch logic"

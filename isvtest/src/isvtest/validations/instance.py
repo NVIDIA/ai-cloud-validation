@@ -62,6 +62,46 @@ class InstanceStateCheck(BaseValidation):
             self.set_failed(f"Instance {instance_id} state: expected {expected_state}, got {actual_state}")
 
 
+class InstanceSpecifiedKeyCheck(BaseValidation):
+    """Validate that an instance was launched with a requested SSH key.
+
+    Config:
+        step_output: The launch step output to check
+
+    Step output:
+        instance_id: Instance identifier
+        requested_key_name: Key name requested during launch
+        key_name or instance_key_name: Key name observed on the launched instance
+    """
+
+    description: ClassVar[str] = "Check instance launched with specified key"
+    markers: ClassVar[list[str]] = ["vm"]
+
+    def run(self) -> None:
+        step_output = self.config.get("step_output", {})
+
+        instance_id = step_output.get("instance_id")
+        if not instance_id:
+            self.set_failed("No 'instance_id' in step output")
+            return
+
+        requested_key_name = step_output.get("requested_key_name")
+        if not requested_key_name:
+            self.set_failed("No 'requested_key_name' in step output")
+            return
+
+        actual_key_name = step_output.get("instance_key_name") or step_output.get("key_name")
+        if not actual_key_name:
+            self.set_failed(f"No launched instance key name for {instance_id}")
+            return
+
+        if actual_key_name != requested_key_name:
+            self.set_failed(f"Instance {instance_id} expected key '{requested_key_name}', got '{actual_key_name}'")
+            return
+
+        self.set_passed(f"Instance {instance_id} launched with specified key '{requested_key_name}'")
+
+
 class InstanceRebootCheck(BaseValidation):
     """Validate that an instance was rebooted successfully.
 

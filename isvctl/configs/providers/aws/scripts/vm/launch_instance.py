@@ -28,6 +28,7 @@ Output JSON:
     "private_ip": "10.0.1.5",
     "state": "running",
     "ami_id": "ami-xxx",
+    "requested_key_name": "isv-test-key",
     "key_name": "isv-test-key",
     "key_file": "/tmp/isv-test-key.pem"
 }
@@ -49,6 +50,32 @@ from common.ec2 import (
     get_architecture_for_instance_type,
     get_default_vpc_and_subnets,
 )
+
+
+def add_specified_key_contract(
+    result: dict[str, Any],
+    *,
+    requested_key_name: str | None,
+    actual_key_name: str | None,
+) -> None:
+    """Add provider-neutral specified-key evidence to launch output."""
+    requested_present = bool(requested_key_name)
+    key_matches = requested_present and bool(actual_key_name) and actual_key_name == requested_key_name
+
+    result["requested_key_name"] = requested_key_name or ""
+    result["key_name"] = actual_key_name or ""
+    result.setdefault("tests", {})["specified_key"] = {
+        "passed": key_matches,
+        "message": (
+            f"Instance uses requested key '{requested_key_name}'"
+            if key_matches
+            else f"Instance expected key '{requested_key_name or ''}', got '{actual_key_name or ''}'"
+        ),
+        "probes": {
+            "requested_key_name_present": requested_present,
+            "instance_key_name_matches": key_matches,
+        },
+    }
 
 
 def get_gpu_ami(ec2: Any, instance_type: str) -> str | None:
@@ -109,13 +136,14 @@ def get_gpu_ami(ec2: Any, instance_type: str) -> str | None:
     return images[0]["ImageId"] if images else None
 
 
-def reuse_existing_instance(region: str) -> int:
+def reuse_existing_instance(region: str, requested_key_name: str) -> int:
     """Describe an existing instance instead of launching a new one.
 
     Used when AWS_VM_INSTANCE_ID and AWS_VM_KEY_FILE are set.
 
     Args:
         region: AWS region for the EC2 client.
+        requested_key_name: Key name the launch contract expects.
 
     Returns:
         0 on success, 1 on failure
@@ -158,9 +186,13 @@ def reuse_existing_instance(region: str) -> int:
         result["private_ip"] = instance.get("PrivateIpAddress")
         result["vpc_id"] = instance.get("VpcId")
         result["subnet_id"] = instance.get("SubnetId")
-        result["key_name"] = instance.get("KeyName")
         result["security_group_id"] = (instance.get("SecurityGroups") or [{}])[0].get("GroupId")
         result["availability_zone"] = instance.get("Placement", {}).get("AvailabilityZone")
+        add_specified_key_contract(
+            result,
+            requested_key_name=requested_key_name,
+            actual_key_name=instance.get("KeyName"),
+        )
         result["success"] = state == "running"
 
         if not result["success"]:
@@ -197,7 +229,7 @@ def main() -> int:
 
     # Reuse existing instance if env vars are set
     if os.environ.get("AWS_VM_INSTANCE_ID") and os.environ.get("AWS_VM_KEY_FILE"):
-        return reuse_existing_instance(args.region)
+        return reuse_existing_instance(args.region, args.key_name)
 
     ec2 = boto3.client("ec2", region_name=args.region)
 
@@ -219,7 +251,6 @@ def main() -> int:
 
         # Create key pair
         key_file = create_key_pair(ec2, args.key_name)
-        result["key_name"] = args.key_name
         result["key_file"] = key_file
 
         # Create security group
@@ -307,6 +338,11 @@ def main() -> int:
         result["state"] = instance["State"]["Name"]
         result["vpc_id"] = vpc_id
         result["availability_zone"] = instance.get("Placement", {}).get("AvailabilityZone")
+        add_specified_key_contract(
+            result,
+            requested_key_name=args.key_name,
+            actual_key_name=instance.get("KeyName"),
+        )
         result["success"] = True
 
     except Exception as e:
