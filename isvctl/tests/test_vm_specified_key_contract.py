@@ -12,13 +12,11 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
@@ -27,15 +25,6 @@ from .conftest import load_vm_script
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[1]
 MY_ISV_VM_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "my-isv" / "scripts" / "vm"
-
-
-def _load_script(script_path: Path) -> ModuleType:
-    """Load a provider script as a module for direct helper testing."""
-    spec = importlib.util.spec_from_file_location(f"test_{script_path.stem}", script_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def test_aws_launch_contract_records_matching_requested_and_actual_key() -> None:
@@ -52,10 +41,7 @@ def test_aws_launch_contract_records_matching_requested_and_actual_key() -> None
     assert result["requested_key_name"] == "isv-test-key"
     assert result["key_name"] == "isv-test-key"
     assert result["tests"]["specified_key"]["passed"] is True
-    assert result["tests"]["specified_key"]["probes"] == {
-        "requested_key_name_present": True,
-        "instance_key_name_matches": True,
-    }
+    assert result["tests"]["specified_key"]["probes"] == ["instance_key_name"]
 
 
 def test_aws_launch_contract_flags_reuse_key_mismatch() -> None:

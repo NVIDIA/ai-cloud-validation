@@ -111,12 +111,9 @@ def main() -> int:
         # ║     result["requested_key_name"] = key_name                  ║
         # ║     result["key_name"] = key_name                            ║
         # ║     result["tests"]["specified_key"] = {                     ║
-        # ║         "passed": key_name == observed_instance_key_name,     ║
+        # ║         "passed": key_name == observed_instance_key_name,    ║
         # ║         "message": "...",                                    ║
-        # ║         "probes": {                                          ║
-        # ║             "requested_key_name_present": bool(key_name),     ║
-        # ║             "instance_key_name_matches": True,                ║
-        # ║         },                                                   ║
+        # ║         "probes": ["<your-evidence-source>"],                ║
         # ║     }                                                        ║
         # ║     result["success"] = True                                 ║
         # ╚══════════════════════════════════════════════════════════════╝
@@ -137,10 +134,7 @@ def main() -> int:
                 "specified_key": {
                     "passed": True,
                     "message": f"Instance uses requested key '{key_name}'",
-                    "probes": {
-                        "requested_key_name_present": True,
-                        "instance_key_name_matches": True,
-                    },
+                    "probes": ["instance_key_name"],
                 }
             }
             result["success"] = True

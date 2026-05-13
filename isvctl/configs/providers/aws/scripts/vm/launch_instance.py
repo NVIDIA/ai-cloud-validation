@@ -59,8 +59,7 @@ def add_specified_key_contract(
     actual_key_name: str | None,
 ) -> None:
     """Add provider-neutral specified-key evidence to launch output."""
-    requested_present = bool(requested_key_name)
-    key_matches = requested_present and bool(actual_key_name) and actual_key_name == requested_key_name
+    key_matches = bool(requested_key_name) and actual_key_name == requested_key_name
 
     result["requested_key_name"] = requested_key_name or ""
     result["key_name"] = actual_key_name or ""
@@ -71,10 +70,7 @@ def add_specified_key_contract(
             if key_matches
             else f"Instance expected key '{requested_key_name or ''}', got '{actual_key_name or ''}'"
         ),
-        "probes": {
-            "requested_key_name_present": requested_present,
-            "instance_key_name_matches": key_matches,
-        },
+        "probes": ["instance_key_name"],
     }
 
 
