@@ -167,3 +167,13 @@ forwarded env vars → optional isvreporter upload.
 | `KUBECTL` | Optional kubectl-compatible CLI prefix (POSIX `shlex` in Python, word-split in shell; overrides `K8S_PROVIDER` detection) | isvtest `get_kubectl_command`, isvctl k8s scripts |
 | `ISVCTL_DEMO_MODE` | `"1"` makes `my-isv` scripts return dummy success | scripts |
 | `AWS_SKIP_TEARDOWN` | Skip teardown phase (run later with `--phase teardown`) | AWS configs |
+
+## Cursor Cloud specific instructions
+
+- **uv** is installed via `pip install uv` (the `~/.local/bin` path must be on `PATH`).
+- `uv sync` from the workspace root is the only install step; it creates `.venv/` with all three packages in editable mode.
+- The `uv-build` version warning during `uv sync`/`make build` is cosmetic and does not affect functionality.
+- `make demo-test` is the best quick E2E smoke test — it runs all `my-isv` provider configs in demo mode (~8 s, no cloud credentials needed).
+- For unit tests, `make test` runs all three packages plus `scripts/tests/`.
+- For linting, `make lint` uses `uvx` to run a pinned ruff version (no global install required).
+- No external services (databases, containers, clusters) are needed for local development or testing. All cloud-dependent tests require explicit credentials (`AWS_*`, `NGC_API_KEY`, etc.) and are skipped in demo mode.
