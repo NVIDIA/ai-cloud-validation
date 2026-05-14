@@ -2,6 +2,8 @@
 
 General agent behavior lives in `.cursor/rules/karpathy-guidelines.mdc` (always applied).
 Python conventions live in `.cursor/rules/python-standards.mdc` (auto-applied to `*.py`).
+Release procedure lives in `.cursor/rules/version-bumping.mdc` (auto-applied to
+version-related files; describes `make bump-*` and the tag workflow).
 This file documents project-specific context an agent can't grep for.
 
 ## Project Overview
