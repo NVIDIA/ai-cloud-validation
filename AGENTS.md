@@ -178,3 +178,4 @@ forwarded env vars → optional isvreporter upload.
 - For linting, `make lint` uses `uvx` to run a pinned ruff version (no global install required).
 - No external services (databases, containers, clusters) are needed for local development or testing. All cloud-dependent tests require explicit credentials (`AWS_*`, `NGC_API_KEY`, etc.) and are skipped in demo mode.
 - **DCO sign-off required:** All commits must include a `Signed-off-by` line (enforced by the DCO Probot check on PRs). Use `git commit --signoff` or `git commit -s` for every commit.
+- **Pre-commit checks:** Run `uvx pre-commit run -a` before committing to catch formatting, linting, SPDX header, and link issues early.
