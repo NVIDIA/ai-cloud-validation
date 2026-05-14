@@ -261,6 +261,27 @@ By making a contribution to this project, I certify that:
 
 ## Releasing
 
+### Versioning Policy
+
+The project follows [semver](https://semver.org/) but is still pre-1.0
+(experimental), and that frames how we bump:
+
+- **Major** (`X.Y.Z` -> `(X+1).0.0`) - reserved for graduation out of the
+  experimental `0.x` line. Do not bump until the project is no longer
+  declared experimental.
+- **Minor** (`X.Y.Z` -> `X.(Y+1).0`) - milestone releases: a coherent set of
+  new features, a new domain coming online, or a behavior change worth
+  flagging to downstream consumers.
+- **Patch** (`X.Y.Z` -> `X.Y.(Z+1)`) - a decent batch of fixes/features/chores
+  that has accumulated on `main` and is worth cutting, or an urgent fix that
+  needs to ship on its own.
+
+External operators only run the **released** tests - the set pinned by
+`isvtest/src/isvtest/released_tests.json` at each tag - so every tag has a
+fixed, reproducible test set. `make bump-*` regenerates that manifest from
+the current validation catalog as part of the bump (see the next section),
+which is how unreleased validations on `main` become released at a tag.
+
 ### Version Bumping
 
 All packages share a single version. To bump:
