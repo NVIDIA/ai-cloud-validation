@@ -14,10 +14,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from .conftest import load_vm_script
 
 
-def test_get_uptime_via_ssh_uses_shared_ssh_helper(monkeypatch) -> None:
+def test_get_uptime_via_ssh_uses_shared_ssh_helper(monkeypatch: pytest.MonkeyPatch) -> None:
     """Uptime sampling should inherit the shared explicit-key SSH options."""
     module = load_vm_script("reboot_instance.py")
     calls: list[dict[str, Any]] = []
