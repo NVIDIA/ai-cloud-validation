@@ -711,6 +711,31 @@ class TestConsoleRbacCheck:
         assert "i-abc123" in result["output"]
         assert "aws-iam" in result["output"]
 
+    def test_skips_when_step_marks_skipped(self) -> None:
+        """Console RBAC pytest.skips when account-level serial console access is disabled."""
+        v = ConsoleRbacCheck(
+            config=_console_rbac_config(
+                {
+                    "skipped": True,
+                    "skip_reason": "EC2 serial console access is disabled for this account or region",
+                }
+            )
+        )
+
+        with pytest.raises(pytest.skip.Exception, match="serial console access is disabled"):
+            v.run()
+
+        v = ConsoleRbacCheck(
+            config=_console_rbac_config(
+                {
+                    "skipped": True,
+                    "skip_reason": "EC2 serial console access is disabled for this account or region",
+                }
+            )
+        )
+        with pytest.raises(pytest.skip.Exception, match="serial console access is disabled"):
+            v.execute()
+
     @pytest.mark.parametrize("access_restricted", [None, False])
     def test_access_restricted_must_be_true(self, access_restricted: bool | None) -> None:
         """Console RBAC fails when access_restricted is missing or false."""

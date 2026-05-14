@@ -34,6 +34,50 @@ def _load_ssh_utils() -> ModuleType:
     return module
 
 
+def test_ssh_run_uses_only_the_explicit_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ssh_run should not offer local SSH agent identities before the requested key."""
+    module = _load_ssh_utils()
+    captured_cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], *_args: Any, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        """Capture the SSH command."""
+        captured_cmds.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    exit_code, stdout, stderr = module.ssh_run("host", "user", "key.pem", "true")
+
+    assert exit_code == 0
+    assert stdout == "ok"
+    assert stderr == ""
+    assert len(captured_cmds) == 1
+    assert "-i" in captured_cmds[0]
+    assert captured_cmds[0][captured_cmds[0].index("-i") + 1] == "key.pem"
+    assert "IdentitiesOnly=yes" in captured_cmds[0]
+    assert "IdentityAgent=none" in captured_cmds[0]
+
+
+def test_wait_for_ssh_uses_only_the_explicit_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """wait_for_ssh should also avoid unrelated SSH agent identities."""
+    module = _load_ssh_utils()
+    captured_cmds: list[list[str]] = []
+
+    def fake_run(cmd: list[str], *_args: Any, **_kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        """Capture the SSH readiness command."""
+        captured_cmds.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module.wait_for_ssh("host", "user", "key.pem", max_attempts=1, interval=0)
+    assert len(captured_cmds) == 1
+    assert "-i" in captured_cmds[0]
+    assert captured_cmds[0][captured_cmds[0].index("-i") + 1] == "key.pem"
+    assert "IdentitiesOnly=yes" in captured_cmds[0]
+    assert "IdentityAgent=none" in captured_cmds[0]
+
+
 def test_ssh_run_returns_tuple_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Timeouts return the ssh_run tuple contract instead of raising."""
     module = _load_ssh_utils()

@@ -519,6 +519,8 @@ class ConsoleRbacCheck(BaseValidation):
     def run(self) -> None:
         """Validate console RBAC provider proof from step output."""
         step_output = self.config.get("step_output", {})
+        if step_output.get("skipped") is True:
+            pytest.skip(step_output.get("skip_reason") or "Console RBAC validation skipped")
 
         instance_id = step_output.get("instance_id")
         if not instance_id:

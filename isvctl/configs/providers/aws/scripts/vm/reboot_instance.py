@@ -39,7 +39,6 @@ Output JSON:
 import argparse
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -47,7 +46,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/aws/scripts/ (for common.*)
 from common.ec2 import wait_for_public_ip
-from common.ssh_utils import wait_for_ssh
+from common.ssh_utils import ssh_run, wait_for_ssh
 
 
 def get_uptime_via_ssh(
@@ -65,29 +64,19 @@ def get_uptime_via_ssh(
     Returns:
         Uptime in seconds, or None if command failed
     """
-    try:
-        result = subprocess.run(
-            [
-                "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "ConnectTimeout=10",
-                "-o",
-                "BatchMode=yes",
-                "-i",
-                key_file,
-                f"{user}@{host}",
-                "cat /proc/uptime | cut -d' ' -f1",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode == 0:
-            return float(result.stdout.strip())
-    except (subprocess.TimeoutExpired, ValueError, OSError):
-        pass
+    exit_code, stdout, _stderr = ssh_run(
+        host,
+        user,
+        key_file,
+        "cat /proc/uptime | cut -d' ' -f1",
+        timeout=30,
+        connect_timeout=10,
+    )
+    if exit_code == 0:
+        try:
+            return float(stdout.strip())
+        except ValueError:
+            pass
     return None
 
 

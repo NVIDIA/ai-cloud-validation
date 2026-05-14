@@ -206,19 +206,27 @@ def test_allowed_principal_with_scoped_policy_is_allowed() -> None:
     assert subtest["resource"] == "arn:aws:ec2:us-west-2:123456789012:instance/i-0123456789abcdef0"
 
 
-def test_allowed_principal_fails_when_serial_console_access_is_disabled() -> None:
-    """Allowed IAM policy alone is not enough when EC2 serial console access is disabled."""
+def test_console_rbac_skips_when_serial_console_access_is_disabled() -> None:
+    """Account-level serial console disablement makes console RBAC not applicable."""
     module = load_vm_script("console_rbac.py")
     result, _iam = _run_fake_console_rbac(module, ec2=FakeEc2(serial_access_enabled=False))
 
-    serial_subtest = result["tests"]["serial_console_access_enabled"]
-    allowed_subtest = result["tests"]["allowed_principal_can_access_console"]
-    assert result["success"] is False
+    assert result["success"] is True
+    assert result["skipped"] is True
     assert result["serial_access_enabled"] is False
-    assert serial_subtest["passed"] is False
-    assert allowed_subtest["passed"] is False
-    assert allowed_subtest["decision"] == "allowed"
-    assert allowed_subtest["serial_access_enabled"] is False
+    assert result["skip_reason"] == "EC2 serial console access is disabled for this account or region"
+    assert all(test["passed"] and test["skipped"] for test in result["tests"].values())
+
+
+def test_serial_console_disabled_skip_avoids_temporary_iam_users() -> None:
+    """Serial-console-disabled environments skip before creating IAM users."""
+    module = load_vm_script("console_rbac.py")
+    result, iam = _run_fake_console_rbac(module, ec2=FakeEc2(serial_access_enabled=False))
+
+    assert result["skipped"] is True
+    assert iam.create_user_calls == []
+    assert iam.put_user_policy_calls == []
+    assert iam.simulation_calls == []
 
 
 def test_allowed_principal_is_denied_for_other_instance() -> None:
