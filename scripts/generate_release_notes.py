@@ -105,7 +105,7 @@ def _format_http_error(response: requests.Response) -> str:
 class GitHubAPI:
     """GitHub API client."""
 
-    def __init__(self, token: str | None = None):
+    def __init__(self, token: str | None = None) -> None:
         """Initialize GitHub API client."""
         self.token = token or os.getenv("GITHUB_TOKEN")
         if not self.token:
@@ -196,8 +196,8 @@ class GitHubAPI:
 
 def parse_milestone_url(url: str) -> MilestoneInfo:
     """Parse a GitHub milestone URL to extract org, repo, and milestone number."""
-    pattern = r"github\.com/([^/]+)/([^/]+)/milestone/(\d+)"
-    match = re.search(pattern, url)
+    pattern = r"https://github\.com/([^/]+)/([^/]+)/milestone/(\d+)/?"
+    match = re.fullmatch(pattern, url.strip())
 
     if not match:
         raise ValueError(
