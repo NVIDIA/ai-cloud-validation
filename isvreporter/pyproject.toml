@@ -1,6 +1,6 @@
 [project]
 name = "isvreporter"
-version = "0.6.8"
+version = "0.7.0"
 description = "ISV Lab test results reporter - report validation test results to ISV Lab Service"
 readme = "README.md"
 license = "Apache-2.0"

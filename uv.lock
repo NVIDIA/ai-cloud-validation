@@ -553,7 +553,7 @@ wheels = [
 
 [[package]]
 name = "isv-ncp-validation-suite"
-version = "0.6.8"
+version = "0.7.0"
 source = { virtual = "." }
 dependencies = [
     { name = "isvctl" },
@@ -600,7 +600,7 @@ test = [
 
 [[package]]
 name = "isvctl"
-version = "0.6.8"
+version = "0.7.0"
 source = { editable = "isvctl" }
 dependencies = [
     { name = "isvreporter" },
@@ -623,7 +623,7 @@ requires-dist = [
 
 [[package]]
 name = "isvreporter"
-version = "0.6.8"
+version = "0.7.0"
 source = { editable = "isvreporter" }
 dependencies = [
     { name = "pyyaml" },
@@ -638,7 +638,7 @@ requires-dist = [
 
 [[package]]
 name = "isvtest"
-version = "0.6.8"
+version = "0.7.0"
 source = { editable = "isvtest" }
 dependencies = [
     { name = "attrs" },
