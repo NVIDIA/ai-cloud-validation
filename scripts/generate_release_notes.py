@@ -27,7 +27,8 @@ Usage:
     Options:
         --token, -t          GitHub personal access token (or use GITHUB_TOKEN env var)
         --output, -o         Output file path (default: stdout)
-        --group-by-label     Group items by label (default: group by type)
+        --group-by {label,type}
+                             Group items by label or by type (PRs vs Issues). Default: label
         --include-open       Include open issues/PRs (default: only closed)
         --exclude-draft      Exclude draft pull requests (default: include all)
         --exclude-label      Exclude label from grouping (can be specified multiple times)
@@ -39,7 +40,7 @@ Authentication:
 Example:
     uv run scripts/generate_release_notes.py https://github.com/NVIDIA/ISV-NCP-Validation-Suite/milestone/1
     uv run scripts/generate_release_notes.py https://github.com/org/repo/milestone/1 --output release-notes.md
-    uv run scripts/generate_release_notes.py https://github.com/org/repo/milestone/1 --group-by-label
+    uv run scripts/generate_release_notes.py https://github.com/org/repo/milestone/1 --group-by type
 """
 
 import argparse
@@ -227,7 +228,7 @@ def parse_issue(issue_data: dict[str, Any]) -> IssueInfo:
 def generate_markdown(
     milestone: MilestoneInfo,
     issues: list[IssueInfo],
-    group_by_label: bool = False,
+    group_by: str = "label",
     exclude_draft: bool = False,
     exclude_labels: list[str] | None = None,
 ) -> str:
@@ -246,9 +247,9 @@ def generate_markdown(
 
     if not filtered_issues:
         lines.append("*No items found in this milestone.*")
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
 
-    if group_by_label:
+    if group_by == "label":
         label_groups: dict[str, list[IssueInfo]] = {}
         unlabeled: list[IssueInfo] = []
         exclude_labels_set = set(exclude_labels or [])
@@ -268,7 +269,7 @@ def generate_markdown(
             else:
                 unlabeled.append(issue)
 
-        sorted_labels = sorted(label_groups.keys())
+        sorted_labels = sorted(label_groups.keys(), key=str.lower)
 
         for label in sorted_labels:
             lines.append(f"## {label}")
@@ -313,7 +314,7 @@ def generate_markdown(
         f"{len([i for i in filtered_issues if not i.is_pr])} issues)"
     )
 
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
 def main() -> int:
@@ -340,9 +341,10 @@ def main() -> int:
         help="Output file path (default: stdout)",
     )
     parser.add_argument(
-        "--group-by-label",
-        action="store_true",
-        help="Group items by label instead of by type (PRs vs Issues)",
+        "--group-by",
+        choices=["label", "type"],
+        default="label",
+        help="Group items by label or by type (PRs vs Issues). Default: label",
     )
     parser.add_argument(
         "--include-open",
@@ -425,7 +427,7 @@ def main() -> int:
         markdown = generate_markdown(
             milestone_info,
             issues,
-            group_by_label=args.group_by_label,
+            group_by=args.group_by,
             exclude_draft=args.exclude_draft,
             exclude_labels=args.exclude_label or None,
         )
