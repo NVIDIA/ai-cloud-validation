@@ -72,11 +72,19 @@ class IssueInfo:
     number: int
     title: str
     url: str
-    state: str
     is_pr: bool
     labels: list[str]
-    user: str
     draft: bool = False
+
+
+def _issue_bullet(issue: IssueInfo, *, show_draft: bool = False) -> str:
+    """Format an issue/PR as a markdown bullet line.
+
+    show_draft only matters for PRs in the type-grouping path, which surfaces drafts.
+    """
+    prefix = "PR" if issue.is_pr else "Issue"
+    draft_suffix = " (draft)" if show_draft and issue.is_pr and issue.draft else ""
+    return f"- {prefix} #{issue.number}: [{issue.title}]({issue.url}){draft_suffix}"
 
 
 def _format_http_error(response: requests.Response) -> str:
@@ -205,23 +213,14 @@ def parse_milestone_url(url: str) -> MilestoneInfo:
 
 def parse_issue(issue_data: dict[str, Any]) -> IssueInfo:
     """Parse GitHub issue/PR data into IssueInfo."""
-    labels = [label["name"] for label in issue_data.get("labels", [])]
     is_pr = "pull_request" in issue_data
-    user = issue_data.get("user", {}).get("login", "unknown")
-
-    draft = False
-    if is_pr:
-        draft = issue_data.get("draft", False)
-
     return IssueInfo(
         number=issue_data["number"],
         title=issue_data["title"],
         url=issue_data["html_url"],
-        state=issue_data["state"],
         is_pr=is_pr,
-        labels=labels,
-        user=user,
-        draft=draft,
+        labels=[label["name"] for label in issue_data.get("labels", [])],
+        draft=issue_data.get("draft", False) if is_pr else False,
     )
 
 
@@ -275,16 +274,14 @@ def generate_markdown(
             lines.append(f"## {label}")
             lines.append("")
             for issue in sorted(label_groups[label], key=lambda x: x.number):
-                prefix = "PR" if issue.is_pr else "Issue"
-                lines.append(f"- {prefix} #{issue.number}: [{issue.title}]({issue.url})")
+                lines.append(_issue_bullet(issue))
             lines.append("")
 
         if unlabeled:
             lines.append("## Uncategorized")
             lines.append("")
             for issue in sorted(unlabeled, key=lambda x: x.number):
-                prefix = "PR" if issue.is_pr else "Issue"
-                lines.append(f"- {prefix} #{issue.number}: [{issue.title}]({issue.url})")
+                lines.append(_issue_bullet(issue))
             lines.append("")
 
     else:
@@ -295,24 +292,21 @@ def generate_markdown(
             lines.append("## Pull Requests")
             lines.append("")
             for pr in sorted(prs, key=lambda x: x.number):
-                draft_marker = " (draft)" if pr.draft else ""
-                lines.append(f"- PR #{pr.number}: [{pr.title}]({pr.url}){draft_marker}")
+                lines.append(_issue_bullet(pr, show_draft=True))
             lines.append("")
 
         if issues_only:
             lines.append("## Issues")
             lines.append("")
             for issue in sorted(issues_only, key=lambda x: x.number):
-                lines.append(f"- Issue #{issue.number}: [{issue.title}]({issue.url})")
+                lines.append(_issue_bullet(issue))
             lines.append("")
 
+    pr_count = sum(1 for i in filtered_issues if i.is_pr)
+    issue_count = len(filtered_issues) - pr_count
     lines.append("---")
     lines.append("")
-    lines.append(
-        f"**Total**: {len(filtered_issues)} items "
-        f"({len([i for i in filtered_issues if i.is_pr])} PRs, "
-        f"{len([i for i in filtered_issues if not i.is_pr])} issues)"
-    )
+    lines.append(f"**Total**: {len(filtered_issues)} items ({pr_count} PRs, {issue_count} issues)")
 
     return "\n".join(lines) + "\n"
 
