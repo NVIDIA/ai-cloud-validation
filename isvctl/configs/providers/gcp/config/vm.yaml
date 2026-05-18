@@ -1,0 +1,359 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# GCP VM (Compute Engine) Validation Configuration.
+#
+# Imports the provider-agnostic VM contract from suites/vm.yaml and
+# wires every step to a Compute Engine stub under
+# providers/gcp/scripts/vm/.
+#
+# Steps mirror the AWS oracle order. Verified-reuse propagation:
+# launch_instance emits zone, instance_created, firewall_created,
+# key_created, key_file, firewall_name. Compute Engine has no managed
+# key-pair store so launch_instance emits result.key_name = null and
+# teardown does not accept or forward --key-name. Every downstream
+# zonal step reads {{steps.launch_instance.zone}}; teardown reads
+# instance_created, firewall_created, and key_created so destruction
+# gates on each ownership bit (verified-reuse cleanup contract).
+# instance_created is False on the
+# GCP_VM_INSTANCE_ID / GCP_VM_KEY_FILE adoption path so the long-lived
+# operator VM is preserved across the run.
+#
+# Validator override under cloud_init translates the CloudInitCheck's
+# default AWS metadata URL to the Compute Engine metadata server +
+# Metadata-Flavor header.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/gcp/config/vm.yaml
+
+import:
+  - ../../../suites/vm.yaml
+
+version: "1.0"
+
+commands:
+  vm:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # 1. Launch a GPU VM (compute_v1.insert). Cap parity with the AWS
+      # oracle's launch step; per-zone op waits and the multi-zone walk
+      # are bounded inside the stub via deadline budgets, not summed into
+      # the orchestrator cap.
+      - name: launch_instance
+        phase: setup
+        command: "python3 ../scripts/vm/launch_instance.py"
+        args:
+          - "--name"
+          - "isv-test-gpu"
+          - "--instance-type"
+          - "{{instance_type}}"
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{network}}"
+          - "--subnet-id"
+          - "{{subnet}}"
+          - "--ami-id"
+          - "{{image}}"
+          - "--image-project"
+          - "{{image_project}}"
+          - "--firewall-name"
+          - "{{firewall_name}}"
+          - "--key-name"
+          - "{{key_name}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 900
+
+      # 2. List instances filtered by network (compute_v1.aggregated_list).
+      - name: list_instances
+        phase: test
+        command: "python3 ../scripts/vm/list_instances.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.launch_instance.vpc_id}}"
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+        timeout: 120
+
+      # 3. Verify labels round-trip to canonical tags (compute_v1.get).
+      - name: verify_tags
+        phase: test
+        command: "python3 ../scripts/vm/describe_tags.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+        timeout: 60
+
+      # 4. Serial console probe (compute_v1.get_serial_port_output).
+      - name: serial_console
+        phase: test
+        command: "python3 ../scripts/vm/serial_console.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+        timeout: 60
+
+      # 4b. Console RBAC probe — three subtests. Default path
+      # self-provisions denied/allowed probe service accounts and a
+      # second VM, then mints short-lived tokens via IAMCredentials REST
+      # to call getSerialPortOutput as each principal.
+      - name: console_rbac
+        phase: test
+        command: "python3 ../scripts/vm/console_rbac.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+          - "--network"
+          - "{{steps.launch_instance.vpc_id | default(network, true)}}"
+        timeout: 600
+
+      # 4c. Virtual-device hardening evidence — three subtests
+      # (usb_devices_disabled, clipboard_disabled,
+      # unnecessary_virtual_devices_absent). Provider preamble records
+      # that Compute Engine has no customer-facing USB / clipboard
+      # surface; guest-side SSH probes (single session, sentinel-framed)
+      # flip a subtest to failed only on real Linux-level signals.
+      - name: virtual_device_hardening
+        phase: test
+        command: "python3 ../scripts/vm/virtual_device_hardening.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+          - "--public-ip"
+          - "{{steps.launch_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 120
+
+      # 5. Stop (compute_v1.stop) — pre-gates on cloud-init. Cap parity
+      # with the AWS oracle stop step; cloud-init waits and op-poll
+      # retries are bounded by deadlines inside the stub.
+      - name: stop_instance
+        phase: test
+        command: "python3 ../scripts/vm/stop_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--public-ip"
+          - "{{steps.launch_instance.public_ip}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 600
+
+      # 6. Start (compute_v1.start) — re-reads fresh public IP. Cap
+      # parity with the AWS oracle's start step (AWS uses 300s, this is
+      # 2x to absorb GCP's slower compute_v1.start operation polling and
+      # cloud-init re-arming on g2-standard-8). SSH stability and
+      # cloud-init waits are bounded inside the stub via deadlines so
+      # this cap is not a sum of internal waits.
+      - name: start_instance
+        phase: test
+        command: "python3 ../scripts/vm/start_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 600
+
+      # 7. Reset (compute_v1.reset) — SSH-drop wait + stability gate.
+      # Cap parity with the AWS oracle reboot step; ssh-drop, ssh-stable,
+      # and cloud-init waits are bounded by deadlines inside the stub.
+      - name: reboot_instance
+        phase: test
+        command: "python3 ../scripts/vm/reboot_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--public-ip"
+          - "{{steps.start_instance.public_ip}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 900
+
+      # 8. Describe (compute_v1.get) — post-reboot host validation anchor.
+      - name: describe_instance
+        phase: test
+        command: "python3 ../scripts/vm/describe_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 120
+
+      # 9. Deploy NIM (shared paramiko script). On canonical GCP runs the
+      # operator's environment provides NGC_API_KEY (forwarded by the
+      # harness server); the shared script gracefully skips with
+      # success=True / skipped=True / rc=0 when the credential is missing,
+      # so leaving the step active here keeps the NIM validation honest on
+      # equipped operators without producing false failures otherwise.
+      - name: deploy_nim
+        phase: test
+        command: "python3 ../../shared/deploy_nim.py"
+        args:
+          - "--host"
+          - "{{steps.reboot_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.reboot_instance.key_file}}"
+          - "--user"
+          - "{{steps.reboot_instance.ssh_user | default(ssh_user, true)}}"
+        timeout: 1800
+
+      # 10. Teardown NIM (shared paramiko script). Non-empty sentinel
+      # defaults so an upstream skip doesn't collapse the args (empty
+      # defaults are DROPPED by the orchestrator's _render_args).
+      - name: teardown_nim
+        phase: teardown
+        command: "python3 ../../shared/teardown_nim.py"
+        args:
+          - "--host"
+          - "{{steps.reboot_instance.public_ip | default(steps.start_instance.public_ip, true) | default(steps.launch_instance.public_ip, true) | default('none', true)}}"
+          - "--key-file"
+          - "{{steps.reboot_instance.key_file | default(steps.start_instance.key_file, true) | default(steps.launch_instance.key_file, true) | default('none', true)}}"
+          - "--user"
+          - "{{steps.reboot_instance.ssh_user | default(ssh_user, true)}}"
+        timeout: 180
+
+      # 11. Teardown — gates instance + firewall + key cleanup on
+      # verified-reuse flags. instance_created gates BOTH the primary
+      # and the leaked-zone deletes so a run that adopted a
+      # long-lived operator VM (GCP_VM_INSTANCE_ID / GCP_VM_KEY_FILE)
+      # cannot destroy resources it did not create.
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/vm/teardown.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id | default('none', true)}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone)}}"
+          - "--delete-key-pair"
+          - "--delete-security-group"
+          - "--instance-created"
+          - "{{steps.launch_instance.instance_created | default('false')}}"
+          - "--firewall-name"
+          - "{{steps.launch_instance.firewall_name | default('none')}}"
+          - "--firewall-created"
+          - "{{steps.launch_instance.firewall_created | default('false')}}"
+          - "--key-file"
+          # The producer initializes key_file to a sentinel and only sets
+          # the real path after key generation succeeds. Boolean-mode
+          # defaulting keeps empty or missing values from collapsing the
+          # argv pair and shifting following flags into the value slot.
+          - "{{steps.launch_instance.key_file | default('none', true)}}"
+          - "--key-created"
+          - "{{steps.launch_instance.key_created | default('false')}}"
+          - "--leaked-zones"
+          # Happy path emits leaked_zones=[]; join(',') is an empty string.
+          # Boolean-mode defaulting converts both undefined and empty
+          # values to the sentinel so the teardown argv stays aligned.
+          - "{{steps.launch_instance.leaked_zones | join(',') | default('none', true)}}"
+          - "{{teardown_flag}}"
+        # Cap parity with the AWS oracle teardown; per-resource op waits
+        # and leaked-zone cleanup are bounded inside the stub via
+        # deadlines.
+        timeout: 600
+
+tests:
+  cluster_name: "gcp-vm-validation"
+  description: "GCP VM (Compute Engine) validation tests"
+
+  settings:
+    region: "us-central1"
+    zone: "us-central1-a"
+    # g2-standard-8 + nvidia-l4 is the validated GPU pin. The pin
+    # trades a $0.17/hr premium for the V1 NIM engine path (~2-3 min
+    # cold-start) and enough vCPU/RAM headroom for ContainerRuntimeCheck
+    # side-containers.
+    instance_type: "g2-standard-8"
+    network: "default"
+    # The "none" sentinel survives the orchestrator's empty-arg dropping
+    # so the --subnet-id / --ami-id / --image-project flag/value argv
+    # pairs stay aligned. launch_instance.py treats this literal as
+    # absent and falls back to the default subnet for the resolved
+    # zone / the canonical GPU image.
+    #
+    # `image` / `image_project` Jinja-read from the operator's
+    # environment first (`GCP_VM_IMAGE` / `GCP_VM_IMAGE_PROJECT`,
+    # typically set in `.env` or shell env) and fall back to the
+    # "none" sentinel when those env vars are unset. The stub then
+    # falls back to its public DLVM default. Operators with a
+    # Docker-equipped custom image set `GCP_VM_IMAGE=<their-image>`
+    # and `GCP_VM_IMAGE_PROJECT=<their-project>` once; subsequent runs
+    # reuse the same pin. Single-run override via
+    # `--set image=...` / `--set image_project=...` is also supported
+    # for ad-hoc invocations.
+    subnet: "none"
+    # default('none', true) — second arg makes the filter fire on
+    # *falsy* values too (empty string, not just undefined), so
+    # GCP_VM_IMAGE= (set but empty in .env) collapses to the "none"
+    # sentinel the stub treats as "use the public DLVM default."
+    image: "{{env.GCP_VM_IMAGE | default('none', true)}}"
+    image_project: "{{env.GCP_VM_IMAGE_PROJECT | default('none', true)}}"
+    firewall_name: "isv-test-vm-ssh"
+    key_name: "isv-test-key"
+    ssh_user: "ubuntu"
+    teardown_flag: "{{(env.GCP_VM_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+
+  # GCP-specific validator overrides.
+  # GROUP-NESTED shape — the FLAT shape is silently dropped by
+  # isvtest/src/isvtest/main.py:244 and the validator falls back to the
+  # AWS default when the upstream validator exposes a mode/option flag.
+  validations:
+    cloud_init:
+      step: launch_instance
+      checks:
+        CloudInitCheck:
+          metadata_url: "http://metadata.google.internal/computeMetadata/v1/"
+          metadata_headers:
+            Metadata-Flavor: "Google"

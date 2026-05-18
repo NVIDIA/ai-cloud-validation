@@ -31,6 +31,7 @@ Requires: paramiko
 
 import argparse
 import json
+import os
 import re
 import sys
 from typing import Any
@@ -69,6 +70,16 @@ def main() -> int:
     parser.add_argument("--user", default="ubuntu", help="SSH username")
     parser.add_argument("--container-name", default="isv-nim", help="Docker container name")
     parser.add_argument("--remove-image", action="store_true", help="Also remove the container image")
+    parser.add_argument(
+        "--ngc-api-key",
+        default=os.environ.get("NGC_API_KEY", "") or os.environ.get("NGC_NIM_API_KEY", ""),
+        help=(
+            "NGC API key (defaults to NGC_API_KEY / NGC_NIM_API_KEY env var). "
+            "When absent the step short-circuits with success=True, skipped=True "
+            "to mirror deploy_nim's policy-skip — deploy was a no-op, so there "
+            "is no container to tear down."
+        ),
+    )
     args = parser.parse_args()
 
     if not _CONTAINER_NAME_RE.match(args.container_name):
@@ -80,10 +91,41 @@ def main() -> int:
     result: dict[str, Any] = {
         "success": False,
         "platform": "vm",
+        "skipped": False,
         "container_removed": False,
         "image_removed": False,
         "container_name": args.container_name,
     }
+
+    # Policy-skip on missing NGC_API_KEY (mirrors deploy_nim's policy-skip
+    # shape — when deploy_nim was skipped because the operator's env has
+    # no NGC entitlement, there is no container to tear down). Equivalent
+    # symmetric handling so the documented "leave NGC_API_KEY unset to
+    # opt out of NIM coverage" path stays green end-to-end.
+    if not args.ngc_api_key:
+        result["success"] = True
+        result["skipped"] = True
+        result["skip_reason"] = "NGC_API_KEY not set (deploy_nim was skipped, nothing to tear down)"
+        print(json.dumps(result, indent=2))
+        return 0
+
+    # Sentinel-skip path: when the producing step (launch / start /
+    # reboot) was skipped or failed, the provider config forwards
+    # "none" / "null" / "" sentinels rather than dropping the argv pair.
+    # Treat any sentinel host or key as "no instance was ever ready for
+    # SSH" and emit the canonical policy-skip JSON (rc=0, success=True,
+    # skipped=True) so the orchestrator's StepSuccessCheck does not
+    # turn a failed-setup run red on teardown.
+    _SENTINELS = {"none", "null", ""}
+    if args.host.strip().lower() in _SENTINELS or args.key_file.strip().lower() in _SENTINELS:
+        result["success"] = True
+        result["skipped"] = True
+        result["skip_reason"] = (
+            f"sentinel host/key forwarded (host={args.host!r}, key_file={args.key_file!r}); "
+            "upstream lifecycle step did not produce a reachable instance, nothing to tear down"
+        )
+        print(json.dumps(result, indent=2))
+        return 0
 
     ssh = None
     try:
