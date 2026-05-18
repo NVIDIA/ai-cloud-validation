@@ -113,7 +113,7 @@ The VM suite exercises 11 subtests end-to-end: launch (with GPU + cloud-init + S
 
 The VM domain's zone-walk prefers GCP zones with observed L4 capacity. The reviewed list (in priority order) is:
 
-```
+```text
 us-central1-a / -b / -c        us-east4-a / -b / -c       us-east1-c / -d
 us-west1-a / -b                us-west4-a / -b
 europe-west4-a / -b            europe-west1-b / -c
