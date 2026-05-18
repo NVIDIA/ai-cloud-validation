@@ -601,6 +601,12 @@ def first_external_ip(instance: compute_v1.Instance) -> str | None:
 
 
 def first_internal_ip(instance: compute_v1.Instance) -> str | None:
+    """Return the primary internal IPv4 of ``instance`` (``network_interfaces[0].network_i_p``), or ``None``.
+
+    Returns ``None`` when the instance has no NICs or when nic0's
+    ``network_i_p`` is empty (instance still provisioning, or unusual
+    no-NIC shape).
+    """
     if not instance.network_interfaces:
         return None
     return instance.network_interfaces[0].network_i_p or None
@@ -846,6 +852,12 @@ def _firewall_matches_ssh_shape(rule: compute_v1.Firewall, network_short: str) -
 
 
 def _firewall_has_isv_ownership(rule: compute_v1.Firewall) -> bool:
+    """Return ``True`` iff ``rule.description`` carries the ISV ownership marker.
+
+    Used by verified-reuse to distinguish firewalls that this suite
+    created (and is therefore safe to mutate / delete) from operator-
+    owned firewalls that happen to match the test's name pattern.
+    """
     return _ISV_OWNERSHIP_MARKER in (rule.description or "").lower()
 
 

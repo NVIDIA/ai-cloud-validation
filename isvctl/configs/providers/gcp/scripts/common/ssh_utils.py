@@ -45,6 +45,12 @@ _SSH_OPTS: tuple[str, ...] = (
 
 
 def _ssh_argv(host: str, user: str, key_file: str, remote_cmd: str) -> list[str]:
+    """Build a canonical ``ssh`` argv: shared ``_SSH_OPTS`` + ``-i <key>`` + ``<user>@<host>`` + ``<remote_cmd>``.
+
+    Used by ``_try_ssh`` / ``get_uptime_via_ssh`` / cloud-init waiters so
+    every subprocess SSH call in this module uses identical option
+    semantics (canonical-options consistency rule).
+    """
     return ["ssh", *_SSH_OPTS, "-i", key_file, f"{user}@{host}", remote_cmd]
 
 
