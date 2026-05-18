@@ -56,9 +56,9 @@ def count_gpus_from_full_output(output: str) -> int:
     Returns:
         Number of GPUs found in output
 
-    Example pattern matched: "| 0  NVIDIA A100-SXM4-80GB"
+    Example pattern matched: "| 0  NVIDIA A100-SXM4-80GB", "| 0  Tesla T4"
     """
-    gpu_lines = re.findall(r"\|\s*\d+\s+NVIDIA", output, re.MULTILINE)
+    gpu_lines = re.findall(r"\|\s{1,4}\d{1,3}\s{2,}", output, re.MULTILINE)
     return len(gpu_lines)
 
 

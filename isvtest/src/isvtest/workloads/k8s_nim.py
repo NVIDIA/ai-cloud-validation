@@ -14,6 +14,7 @@ This workload deploys NIM using a raw Kubernetes Job manifest (no Helm required)
 and runs basic inference validation.
 """
 
+import re
 import subprocess
 import uuid
 from pathlib import Path
@@ -48,6 +49,17 @@ class K8sNimInferenceWorkload(BaseWorkloadCheck):
         namespace = get_k8s_namespace()
         # Default timeout: 25 minutes (model download + load + inference)
         timeout = self.config.get("timeout", 1500)
+        # runtime_class_name: set "" to omit runtimeClassName (e.g. GKE COS device-plugin model).
+        # Default "nvidia" works for platforms with the NVIDIA GPU Operator RuntimeClass.
+        runtime_class_name = self.config.get("runtime_class_name", "nvidia")
+        # nim_memory_request / nim_memory_limit: tune to fit node allocatable memory.
+        # Default 16Gi/32Gi works for large instances; reduce for T4/smaller nodes.
+        nim_memory_request = self.config.get("nim_memory_request", "16Gi")
+        nim_memory_limit = self.config.get("nim_memory_limit", "32Gi")
+        # nim_max_model_len: caps vLLM KV-cache token budget.  On T4 16 GB the
+        # default max_seq_len of 131072 exceeds the available KV-cache (~54848
+        # tokens), causing the engine to abort.  Set e.g. "4096" for T4 nodes.
+        nim_max_model_len = self.config.get("nim_max_model_len", "")
 
         # Verify NGC secrets exist (using shared utility)
         success, error = ensure_ngc_secrets(namespace)
@@ -78,6 +90,27 @@ class K8sNimInferenceWorkload(BaseWorkloadCheck):
 
         # Replace job name
         yaml_content = yaml_content.replace("name: nim-llama-3b-inference-test", f"name: {job_name}")
+
+        # Apply runtimeClassName override: "" removes it, other values replace "nvidia".
+        if not runtime_class_name:
+            yaml_content = re.sub(r"\n      runtimeClassName: nvidia\n", "\n", yaml_content)
+        elif runtime_class_name != "nvidia":
+            yaml_content = yaml_content.replace("runtimeClassName: nvidia", f"runtimeClassName: {runtime_class_name}")
+
+        # Apply memory overrides for the NIM server container.
+        yaml_content = yaml_content.replace('memory: "16Gi"', f'memory: "{nim_memory_request}"')
+        yaml_content = yaml_content.replace('memory: "32Gi"', f'memory: "{nim_memory_limit}"')
+
+        # Inject NIM_MAX_MODEL_LEN when set (inserted before NIM_CACHE_PATH).
+        if nim_max_model_len:
+            inject = (
+                f"            - name: NIM_MAX_MODEL_LEN\n"
+                f"              value: \"{nim_max_model_len}\"\n"
+            )
+            yaml_content = yaml_content.replace(
+                "            - name: NIM_CACHE_PATH\n",
+                inject + "            - name: NIM_CACHE_PATH\n",
+            )
 
         self.log.info(f"Starting NIM inference workload (timeout: {timeout}s)")
         self.log.info("Steps: 1. Pull images, 2. Download model, 3. Load model (10-12m), 4. Run inference")

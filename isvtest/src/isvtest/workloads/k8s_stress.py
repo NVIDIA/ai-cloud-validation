@@ -40,6 +40,11 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
         memory_gb = self.config.get("memory_gb") or get_gpu_memory_gb()
         configured_gpu_count = self.config.get("gpu_count") or get_gpu_stress_gpu_count()
         cuda_arch = self.config.get("cuda_arch") or get_gpu_cuda_arch()
+        # runtime_class_name controls runtimeClassName in the pod spec.
+        # Default "nvidia" works for most platforms; set "" to omit (e.g. GKE
+        # COS where containerd uses the device-plugin model without a named
+        # nvidia runtime handler).
+        runtime_class_name = self.config.get("runtime_class_name", "nvidia")
 
         # Get GPU nodes
         # Note: We still rely on k8s_utils here for convenience
@@ -78,6 +83,7 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
                 runtime=runtime,
                 memory_gb=memory_gb,
                 cuda_arch=cuda_arch,
+                runtime_class_name=runtime_class_name,
             )
 
             # Run the job (using run_k8s_job logic but adapted for pod since we create raw Pod here)
@@ -166,6 +172,7 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
         runtime: int,
         memory_gb: int,
         cuda_arch: str | None = None,
+        runtime_class_name: str = "nvidia",
     ) -> str:
         """Create pod YAML for GPU stress test."""
         # Get the path to the gpu_stress_workload.py script
@@ -195,6 +202,7 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
             env_vars.append('    - name: CUPY_CUDA_ARCH_LIST\n      value: "native"')
 
         env_section = "\n".join(env_vars)
+        runtime_class_line = f"  runtimeClassName: {runtime_class_name}\n" if runtime_class_name else ""
 
         pod_yaml = f"""apiVersion: v1
 kind: Pod
@@ -223,8 +231,7 @@ spec:
       limits:
         nvidia.com/gpu: "{gpu_count}"
     imagePullPolicy: IfNotPresent
-  runtimeClassName: nvidia
-  tolerations:
+{runtime_class_line}  tolerations:
   - key: "nvidia.com/gpu"
     operator: "Exists"
     effect: "NoSchedule"

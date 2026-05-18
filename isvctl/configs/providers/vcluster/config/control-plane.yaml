@@ -1,0 +1,135 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 vCluster Labs
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# vCluster Provider - Control Plane Validation Configuration
+#
+# Imports the provider-agnostic control-plane suite and wires it to vCluster
+# scripts. The conceptual mapping is:
+#   "tenant"     = a vCluster instance (namespace-scoped on the Control Plane Cluster)
+#   "access_key" = a Kubernetes ServiceAccount + bound token in the host namespace
+#
+# Environment variables:
+#   VCLUSTER_NAMESPACE        - namespace where vCluster instances live
+#                               (default: vcluster-isv-validation)
+#   VCLUSTER_HOST_KUBECONFIG  - path to the Control Plane Cluster kubeconfig
+#                               (falls back to KUBECONFIG)
+#
+# Usage:
+#   isvctl test run -f isvctl/configs/providers/vcluster/config/control-plane.yaml
+
+import:
+  - ../../../suites/control-plane.yaml
+
+version: "1.0"
+
+commands:
+  control_plane:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: check_api
+        phase: setup
+        command: "python ../scripts/control-plane/check_api.py"
+        args: ["--region", "{{region}}", "--services", "{{services}}"]
+        timeout: 120
+
+      - name: create_access_key
+        phase: setup
+        command: "python ../scripts/control-plane/create_access_key.py"
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: create_tenant
+        phase: setup
+        command: "python ../scripts/control-plane/create_tenant.py"
+        args: ["--region", "{{region}}"]
+        timeout: 300
+
+      - name: test_access_key
+        phase: test
+        command: "python ../scripts/control-plane/test_access_key.py"
+        args:
+          - "--access-key-id"
+          - "{{steps.create_access_key.access_key_id}}"
+          - "--secret-access-key"
+          - "{{steps.create_access_key.secret_access_key}}"
+          - "--region"
+          - "{{region}}"
+        sensitive_args: ["--secret-access-key"]
+        timeout: 120
+
+      - name: disable_access_key
+        phase: test
+        command: "python ../scripts/control-plane/disable_access_key.py"
+        args:
+          - "--username"
+          - "{{steps.create_access_key.username}}"
+          - "--access-key-id"
+          - "{{steps.create_access_key.access_key_id}}"
+          - "--region"
+          - "{{region}}"
+        timeout: 60
+
+      - name: verify_key_rejected
+        phase: test
+        command: "python ../scripts/control-plane/verify_key_rejected.py"
+        args:
+          - "--access-key-id"
+          - "{{steps.create_access_key.access_key_id}}"
+          - "--secret-access-key"
+          - "{{steps.create_access_key.secret_access_key}}"
+          - "--region"
+          - "{{region}}"
+        sensitive_args: ["--secret-access-key"]
+        timeout: 120
+
+      - name: list_tenants
+        phase: test
+        command: "python ../scripts/control-plane/list_tenants.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--group-name"
+          - "{{steps.create_tenant.tenant_name}}"
+        timeout: 60
+
+      - name: get_tenant
+        phase: test
+        command: "python ../scripts/control-plane/get_tenant.py"
+        args:
+          - "--group-name"
+          - "{{steps.create_tenant.tenant_name}}"
+          - "--region"
+          - "{{region}}"
+        timeout: 60
+
+      - name: delete_access_key
+        phase: teardown
+        command: "python ../scripts/control-plane/delete_access_key.py"
+        args:
+          - "--username"
+          - "{{steps.create_access_key.username}}"
+          - "--access-key-id"
+          - "{{steps.create_access_key.access_key_id}}"
+          - "--region"
+          - "{{region}}"
+        timeout: 60
+        output_schema: teardown
+
+      - name: delete_tenant
+        phase: teardown
+        command: "python ../scripts/control-plane/delete_tenant.py"
+        args:
+          - "--group-name"
+          - "{{steps.create_tenant.tenant_name}}"
+          - "--region"
+          - "{{region}}"
+        timeout: 120
+        output_schema: teardown
+
+tests:
+  cluster_name: "vcluster-control-plane-validation"
+  description: "vCluster tenant cluster lifecycle validation (ServiceAccount-based access keys)"
+
+  settings:
+    region: "vcluster"
+    services: "compute,identity,kubernetes"

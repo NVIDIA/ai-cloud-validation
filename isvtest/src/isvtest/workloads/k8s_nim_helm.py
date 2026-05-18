@@ -20,6 +20,7 @@ Reference: https://docs.nvidia.com/nim/large-language-models/latest/deploy-helm.
 
 import os
 import re
+import shlex
 import subprocess
 import time
 import uuid
@@ -32,6 +33,33 @@ from isvtest.config.settings import get_k8s_namespace
 from isvtest.core.k8s import get_gpu_nodes, get_kubectl_base_shell, get_kubectl_command
 from isvtest.core.ngc import get_ngc_api_key, validate_nim_inference
 from isvtest.core.workload import BaseWorkloadCheck
+
+
+def _get_kubeconfig_from_kubectl() -> str:
+    """Extract the kubeconfig path from the KUBECTL env var, if present.
+
+    When KUBECTL is set to e.g. ``kubectl --kubeconfig=/path/to/config``,
+    this returns ``/path/to/config`` so that ``helm`` can be pointed at the
+    same cluster via ``--kubeconfig``.  Returns ``""`` when KUBECTL is not
+    set or does not contain a ``--kubeconfig`` flag.
+
+    Uses ``shlex.split`` so paths that legitimately contain spaces or quotes
+    survive the round-trip back to ``--kubeconfig`` callers.
+    """
+    kubectl = os.environ.get("KUBECTL", "")
+    if not kubectl:
+        return ""
+    try:
+        parts = shlex.split(kubectl)
+    except ValueError:
+        # Malformed KUBECTL (e.g. unbalanced quotes) - fall back to a naive split.
+        parts = kubectl.split()
+    for i, part in enumerate(parts):
+        if part.startswith("--kubeconfig="):
+            return part[len("--kubeconfig=") :]
+        if part == "--kubeconfig" and i + 1 < len(parts):
+            return parts[i + 1]
+    return ""
 
 
 @dataclass
@@ -431,6 +459,33 @@ class K8sNimHelmWorkload(BaseWorkloadCheck):
             # Note: Don't use --wait here, _wait_for_nim_ready() handles waiting with progress logging
         ]
 
+        # Point helm at the virtual/tenant cluster when KUBECTL specifies a kubeconfig.
+        kubeconfig = _get_kubeconfig_from_kubectl()
+        if kubeconfig:
+            helm_cmd.extend(["--kubeconfig", kubeconfig])
+
+        # Optional memory overrides — useful when node allocatable RAM < chart defaults.
+        memory_request = self.config.get("memory_request", "")
+        memory_limit = self.config.get("memory_limit", "")
+        if memory_request:
+            helm_cmd.extend(["--set", f"resources.requests.memory={memory_request}"])
+        if memory_limit:
+            helm_cmd.extend(["--set", f"resources.limits.memory={memory_limit}"])
+
+        # Optional runtimeClassName override: set "" to omit (e.g. GKE COS device-plugin model).
+        # When not configured, the chart's own default applies.
+        runtime_class_name = self.config.get("runtime_class_name", None)
+        if runtime_class_name is not None:
+            helm_cmd.extend(["--set", f"runtimeClassName={runtime_class_name}"])
+
+        # Optional NIM_MAX_MODEL_LEN: caps the vLLM KV-cache token budget.
+        # On T4 16 GB the default max_seq_len (131072) exceeds the available
+        # KV-cache (~54848 tokens), causing the engine to abort at startup.
+        nim_max_model_len = self.config.get("nim_max_model_len", "")
+        if nim_max_model_len:
+            helm_cmd.extend(["--set", f"env[0].name=NIM_MAX_MODEL_LEN",
+                             "--set-string", f"env[0].value={nim_max_model_len}"])
+
         try:
             result = subprocess.run(
                 helm_cmd,
@@ -801,15 +856,19 @@ spec:
         self.log.error("Dumping Helm release status for debugging...")
 
         kubectl_base = get_kubectl_base_shell()
+        kubeconfig = _get_kubeconfig_from_kubectl()
+        kube_flag = f" --kubeconfig={shlex.quote(kubeconfig)}" if kubeconfig else ""
 
-        self.run_command(f"helm status {release_name} -n {namespace}")
+        self.run_command(f"helm status {release_name} -n {namespace}{kube_flag}")
         self.run_command(f"{kubectl_base} describe pods -n {namespace} -l app.kubernetes.io/instance={release_name}")
         self.run_command(f"{kubectl_base} logs -n {namespace} -l app.kubernetes.io/instance={release_name} --tail=100")
 
     def _cleanup_helm(self, release_name: str, namespace: str) -> None:
         """Clean up Helm release and downloaded chart file."""
         self.log.info(f"Cleaning up Helm release: {release_name}")
-        self.run_command(f"helm uninstall {release_name} -n {namespace} --wait=false")
+        kubeconfig = _get_kubeconfig_from_kubectl()
+        kube_flag = f" --kubeconfig={shlex.quote(kubeconfig)}" if kubeconfig else ""
+        self.run_command(f"helm uninstall {release_name} -n {namespace} --wait=false{kube_flag}")
 
         # Clean up downloaded chart file
         if self._chart_path:
