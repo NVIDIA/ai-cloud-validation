@@ -91,6 +91,33 @@ def _check_bios_baseline(bios_baselines: dict, system_vendor: str, product: str,
     return True, f"BIOS version {bios_version} >= minimum {min_version} for {baseline_key}"
 
 
+def _check_tpm_baseline(
+    tpm_baselines: dict, system_vendor: str, product: str, tpm_present: bool, tpm_version: str
+) -> tuple[bool, str]:
+    """Evaluate TPM presence and version against the configured baseline for the host's vendor/product."""
+    baseline_key = f"{system_vendor}|{product}"
+    baseline = tpm_baselines.get(baseline_key)
+    if baseline is None:
+        available = ", ".join(sorted(str(key) for key in tpm_baselines)) or "<none>"
+        return False, f"No TPM baseline for {baseline_key}; available baselines: {available}"
+
+    min_version = baseline.get("min_version")
+    if not min_version:
+        return False, f"TPM baseline for {baseline_key} missing min_version"
+
+    if not tpm_present:
+        return False, f"TPM device not present on host (required by baseline {baseline_key})"
+
+    version_ok = _numeric_version_at_least(tpm_version, min_version)
+    if version_ok is None:
+        return False, (
+            f"Could not parse TPM version for {baseline_key}: actual={tpm_version!r}, min_version={min_version!r}"
+        )
+    if not version_ok:
+        return False, f"TPM version {tpm_version} is below minimum required {min_version}"
+    return True, f"TPM version {tpm_version} >= minimum {min_version} for {baseline_key}"
+
+
 # =============================================================================
 # Connectivity Validations
 # =============================================================================
@@ -661,6 +688,10 @@ class HostSoftwareCheck(BaseValidation):
         expected_bios_vendor: Expected BIOS vendor substring (optional, e.g. "Amazon")
         bios_baselines: Optional mapping of "system_vendor|product_name" to
             {"min_version": "<approved BIOS version>"}
+        tpm_baselines: Optional mapping of "system_vendor|product_name" to
+            {"min_version": "<minimum TPM major version, e.g. 2>"}.
+            When configured, the host must expose a TPM device whose major
+            version is >= the configured minimum (SEC22-02).
     """
 
     description: ClassVar[str] = "Validates kernel, libvirt, SBIOS, and NVIDIA drivers"
@@ -684,6 +715,7 @@ class HostSoftwareCheck(BaseValidation):
         expected_libvirt = self.config.get("expected_libvirt_version")
         expected_bios_vendor = self.config.get("expected_bios_vendor")
         bios_baselines = self.config.get("bios_baselines")
+        tpm_baselines = self.config.get("tpm_baselines")
 
         if not host or not key_path:
             self.set_failed("Missing host or key_file")
@@ -853,6 +885,29 @@ class HostSoftwareCheck(BaseValidation):
             )
             boot_mode = stdout.strip() if exit_code == 0 else "unknown"
             self.report_subtest("boot_mode", True, f"Boot mode: {boot_mode}")
+
+            # TPM presence and version (SEC22-02). sysfs is unprivileged.
+            # tpm_version_major reports "1" or "2"; absence of the file
+            # (or the whole /sys/class/tpm/tpm0 directory) means no TPM.
+            exit_code, stdout, _ = run_ssh_command(
+                ssh,
+                "cat /sys/class/tpm/tpm0/tpm_version_major 2>/dev/null || echo 'absent'",
+            )
+            tpm_raw = stdout.strip() if exit_code == 0 else "absent"
+            tpm_present = tpm_raw != "absent" and tpm_raw != ""
+            tpm_version = tpm_raw if tpm_present else "absent"
+            self.report_subtest(
+                "tpm_present",
+                True,
+                f"TPM device: {'present' if tpm_present else 'absent'}",
+            )
+            self.report_subtest("tpm_version", True, f"TPM major version: {tpm_version}")
+
+            if tpm_baselines is not None:
+                passed, message = _check_tpm_baseline(tpm_baselines, system_vendor, product, tpm_present, tpm_version)
+                self.report_subtest("tpm_baseline", passed, message)
+                if not passed:
+                    failures.append(message)
 
             # ==============================================================
             # 4. NVIDIA Driver

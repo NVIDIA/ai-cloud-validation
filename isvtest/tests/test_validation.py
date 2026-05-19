@@ -1559,6 +1559,8 @@ class TestHostSoftwareCheckBiosBaselines:
                 return (0, "03/12/2026\n", "")
             if "test -d /sys/firmware/efi" in cmd:
                 return (0, "UEFI\n", "")
+            if "tpm_version_major" in cmd:
+                return (0, "2\n", "")
             if "--query-gpu=driver_version" in cmd:
                 return (0, "550.54.15\n", "")
             if "grep 'CUDA Version'" in cmd:
@@ -1677,6 +1679,168 @@ class TestHostSoftwareCheckBiosBaselines:
 
         assert result["passed"] is True
         assert not any(subtest["name"] == "bios_baseline" for subtest in result["subtests"])
+
+
+class TestHostSoftwareCheckTpmBaselines:
+    """Tests for HostSoftwareCheck TPM baseline enforcement (SEC22-02)."""
+
+    @staticmethod
+    def _run_response(
+        *,
+        tpm_output: str,
+        system_vendor: str = "Dell Inc.",
+        product_name: str = "PowerEdge R760xa",
+    ):
+        def _response(ssh: MagicMock, cmd: str) -> tuple[int, str, str]:
+            if cmd == "uname -r":
+                return (0, "6.8.0-nvidia\n", "")
+            if cmd == "uname -v":
+                return (0, "#1 SMP PREEMPT_DYNAMIC\n", "")
+            if "lsmod" in cmd:
+                return (0, "nvidia\nkvm\n", "")
+            if "libvirtd --version" in cmd:
+                return (0, "not_installed\n", "")
+            if "qemu-system-x86_64" in cmd:
+                return (0, "not_installed\n", "")
+            if "test -c /dev/kvm" in cmd:
+                return (0, "kvm_available\n", "")
+            if "virsh version" in cmd:
+                return (0, "not_available\n", "")
+            if "bios_vendor" in cmd:
+                return (0, "Dell Inc.\n", "")
+            if "sys_vendor" in cmd or "system-manufacturer" in cmd:
+                return (0, f"{system_vendor}\n", "")
+            if "product_name" in cmd or "system-product-name" in cmd:
+                return (0, f"{product_name}\n", "")
+            if "bios_version" in cmd:
+                return (0, "2.4.8\n", "")
+            if "bios_date" in cmd or "bios-release-date" in cmd:
+                return (0, "03/12/2026\n", "")
+            if "test -d /sys/firmware/efi" in cmd:
+                return (0, "UEFI\n", "")
+            if "tpm_version_major" in cmd:
+                return (0, f"{tpm_output}\n", "")
+            if "--query-gpu=driver_version" in cmd:
+                return (0, "550.54.15\n", "")
+            if "grep 'CUDA Version'" in cmd:
+                return (0, "12.4\n", "")
+            if "/sys/module/nvidia/version" in cmd:
+                return (0, "550.54.15\n", "")
+            if "--query-gpu=persistence_mode" in cmd:
+                return (0, "Enabled\n", "")
+            raise AssertionError(f"Unexpected SSH command: {cmd}")
+
+        return _response
+
+    @staticmethod
+    def _execute(
+        mock_ssh_cfg: MagicMock,
+        mock_run: MagicMock,
+        mock_ssh: MagicMock,
+        *,
+        tpm_output: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from isvtest.validations.host import HostSoftwareCheck
+
+        mock_ssh_cfg.return_value = {
+            "ssh_host": "10.0.0.1",
+            "ssh_user": "ubuntu",
+            "ssh_key_path": "/tmp/k.pem",
+        }
+        mock_ssh.return_value = MagicMock()
+        mock_run.side_effect = TestHostSoftwareCheckTpmBaselines._run_response(tpm_output=tpm_output)
+
+        return HostSoftwareCheck(config=config or {}).execute()
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_matching_tpm_baseline_equal_version_passes(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="2", config=config)
+
+        assert result["passed"] is True
+        assert any(subtest["name"] == "tpm_baseline" and subtest["passed"] for subtest in result["subtests"])
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_absent_fails_when_baseline_configured(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="absent", config=config)
+
+        assert result["passed"] is False
+        assert "TPM device not present" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_lower_version_fails(self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="1", config=config)
+
+        assert result["passed"] is False
+        assert "TPM version 1 is below minimum required 2" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_configured_tpm_baselines_require_matching_dmi_key(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"tpm_baselines": {"Other Vendor|Other Model": {"min_version": "2"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="2", config=config)
+
+        assert result["passed"] is False
+        assert "No TPM baseline for Dell Inc.|PowerEdge R760xa" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_baseline_missing_min_version_fails(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="2", config=config)
+
+        assert result["passed"] is False
+        assert "missing min_version" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_remains_report_only_without_baselines(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="2")
+
+        assert result["passed"] is True
+        subtest_names = {subtest["name"] for subtest in result["subtests"]}
+        assert "tpm_present" in subtest_names
+        assert "tpm_version" in subtest_names
+        assert "tpm_baseline" not in subtest_names
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_absent_is_report_only_without_baselines(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="absent")
+
+        assert result["passed"] is True
+        present_subtest = next(s for s in result["subtests"] if s["name"] == "tpm_present")
+        assert "absent" in present_subtest["message"]
 
 
 class TestCloudInitCheckMetadataHeaders:
