@@ -1,11 +1,27 @@
 #!/usr/bin/env python3
-"""Add SPDX license headers to all NVIDIA-authored source files.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Add Apache-2.0 SPDX license headers to all NVIDIA-authored source files.
 
 Handles Python, Shell, YAML, and Terraform files.
-Preserves shebangs and skips files that already have SPDX headers.
+Preserves shebangs, migrates legacy proprietary headers in place, and skips
+files that already carry the correct Apache-2.0 header.
 """
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -14,17 +30,44 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 HEADER_LINES = [
     "# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
-    "# SPDX-License-Identifier: LicenseRef-NvidiaProprietary",
-    "",
-    "# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual",
-    "# property and proprietary rights in and to this material, related",
-    "# documentation and any modifications thereto. Any use, reproduction,",
-    "# disclosure or distribution of this material and related documentation",
-    "# without an express license agreement from NVIDIA CORPORATION or",
-    "# its affiliates is strictly prohibited.",
+    "# SPDX-License-Identifier: Apache-2.0",
+    "#",
+    '# Licensed under the Apache License, Version 2.0 (the "License");',
+    "# you may not use this file except in compliance with the License.",
+    "# You may obtain a copy of the License at",
+    "#",
+    "# http://www.apache.org/licenses/LICENSE-2.0",
+    "#",
+    "# Unless required by applicable law or agreed to in writing, software",
+    '# distributed under the License is distributed on an "AS IS" BASIS,',
+    "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+    "# See the License for the specific language governing permissions and",
+    "# limitations under the License.",
 ]
 
 HEADER_TEXT = "\n".join(HEADER_LINES) + "\n"
+
+# Legacy proprietary header that pre-dates the Apache-2.0 relicense. The year
+# is wildcarded so all historical variants are migrated, and the proprietary
+# boilerplate paragraph is optional so partial/orphan blocks are also caught.
+LEGACY_PROPRIETARY_RE = re.compile(
+    r"(?m)^# SPDX-FileCopyrightText: Copyright \(c\) \d{4} NVIDIA CORPORATION & AFFILIATES\. All rights reserved\.\n"
+    r"# SPDX-License-Identifier: LicenseRef-NvidiaProprietary\n"
+    r"(?:\n"
+    r"# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual\n"
+    r"# property and proprietary rights in and to this material, related\n"
+    r"# documentation and any modifications thereto\. Any use, reproduction,\n"
+    r"# disclosure or distribution of this material and related documentation\n"
+    r"# without an express license agreement from NVIDIA CORPORATION or\n"
+    r"# its affiliates is strictly prohibited\.\n"
+    r")?"
+    r"\n?"
+)
+
+# Anchored to line start so the constant strings below don't false-positive
+# on this script's own source.
+LEGACY_MARKER_RE = re.compile(r"^# SPDX-License-Identifier: LicenseRef-NvidiaProprietary", re.MULTILINE)
+APACHE_MARKER = "SPDX-License-Identifier: Apache-2.0"
 
 SKIP_PATHS = {
     ".pre-commit-config.yaml",
@@ -79,57 +122,76 @@ def find_files() -> list[Path]:
     return sorted(files)
 
 
-def has_spdx_header(content: str) -> bool:
-    """Check if file already contains SPDX header."""
-    return "SPDX-FileCopyrightText" in content or "SPDX-License-Identifier" in content
+def has_apache_header(content: str) -> bool:
+    """Return True if the file already carries the Apache-2.0 SPDX header."""
+    return APACHE_MARKER in content
+
+
+def has_legacy_header(content: str) -> bool:
+    """Return True if the file still carries the pre-relicense proprietary header."""
+    return LEGACY_MARKER_RE.search(content) is not None
+
+
+def _strip_legacy_header(content: str) -> tuple[str, bool]:
+    """Remove the legacy proprietary header block. Returns (new_content, removed)."""
+    new_content, n = LEGACY_PROPRIETARY_RE.subn("", content, count=1)
+    return new_content, n > 0
+
+
+def _insert_header(content: str) -> str:
+    """Insert the Apache-2.0 header, preserving a shebang line if present."""
+    if not content.strip():
+        return HEADER_TEXT
+
+    lines = content.split("\n")
+    if lines and lines[0].startswith("#!"):
+        return lines[0] + "\n" + HEADER_TEXT + "\n" + "\n".join(lines[1:])
+    return HEADER_TEXT + "\n" + content
 
 
 def add_header(filepath: Path) -> bool:
-    """Add SPDX header to a file. Returns True if modified."""
+    """Apply the Apache-2.0 SPDX header. Returns True if the file was modified."""
     content = filepath.read_text(encoding="utf-8")
 
-    if has_spdx_header(content):
+    content, migrated = _strip_legacy_header(content)
+
+    if has_apache_header(content):
+        if migrated:
+            filepath.write_text(content, encoding="utf-8")
+            return True
         return False
 
-    if not content.strip():
-        filepath.write_text(HEADER_TEXT + "\n", encoding="utf-8")
-        return True
-
-    lines = content.split("\n")
-    first_line = lines[0] if lines else ""
-
-    if first_line.startswith("#!"):
-        new_content = first_line + "\n" + HEADER_TEXT + "\n" + "\n".join(lines[1:])
-    else:
-        new_content = HEADER_TEXT + "\n" + content
-
+    new_content = _insert_header(content)
     filepath.write_text(new_content, encoding="utf-8")
     return True
 
 
 def check_headers(files: list[Path]) -> int:
-    """Check files for missing SPDX headers without modifying them. Returns count of missing."""
-    missing = 0
+    """Check files for missing/legacy SPDX headers. Returns count of offenders."""
+    offenders = 0
     for fpath in files:
         rel = fpath.relative_to(REPO_ROOT)
         try:
             content = fpath.read_text(encoding="utf-8")
-            if not has_spdx_header(content):
-                missing += 1
-                print(f"  ! {rel} - missing SPDX header")
+            if has_legacy_header(content):
+                offenders += 1
+                print(f"  ! {rel} - legacy proprietary header (must be migrated to Apache-2.0)")
+            elif not has_apache_header(content):
+                offenders += 1
+                print(f"  ! {rel} - missing Apache-2.0 SPDX header")
         except Exception as e:
-            missing += 1
+            offenders += 1
             print(f"  ! {rel} ERROR: {e}", file=sys.stderr)
-    return missing
+    return offenders
 
 
 def main() -> int:
     """Add SPDX headers to all source files, or check with --check."""
-    parser = argparse.ArgumentParser(description="Manage SPDX license headers.")
+    parser = argparse.ArgumentParser(description="Manage Apache-2.0 SPDX license headers.")
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Check for missing headers without modifying files (exit 1 if any are missing).",
+        help="Check for missing/legacy headers without modifying files (exit 1 if any are found).",
     )
     args = parser.parse_args()
 
@@ -137,11 +199,11 @@ def main() -> int:
     print(f"Found {len(files)} source files to check\n")
 
     if args.check:
-        missing = check_headers(files)
-        if missing:
-            print(f"\n{missing} file(s) missing SPDX headers. Run 'make update-spdx-headers' to fix.")
+        offenders = check_headers(files)
+        if offenders:
+            print(f"\n{offenders} file(s) need attention. Run 'make update-spdx-headers' to fix.")
             return 1
-        print("\nAll files have SPDX headers.")
+        print("\nAll files carry the Apache-2.0 SPDX header.")
         return 0
 
     modified = 0
@@ -156,7 +218,7 @@ def main() -> int:
                 print(f"  + {rel}")
             else:
                 skipped += 1
-                print(f"  . {rel} (already has SPDX header)")
+                print(f"  . {rel} (already has Apache-2.0 header)")
         except Exception as e:
             errors += 1
             print(f"  ! {rel} ERROR: {e}", file=sys.stderr)
