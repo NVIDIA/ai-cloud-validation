@@ -128,6 +128,9 @@ tests:
   validations:
     network:
       checks:
+        VpcIpConfigCheck:
+          # zCompute assigns public IPs per-instance via EIPs, not at subnet level
+          auto_assign_ip_mode: instance
         SubnetConfigCheck:
           step: subnet_config
           min_subnets: 1          # single AZ — only 1 subnet created
