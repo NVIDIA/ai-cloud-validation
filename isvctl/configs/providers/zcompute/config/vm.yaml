@@ -148,20 +148,26 @@ commands:
           - "{{steps.launch_instance.key_file}}"
         timeout: 120
 
-      # NIM deployment excluded until NGC_API_KEY is configured
+      # NIM deployment — SSHes into VM, docker-logins to nvcr.io, runs NIM container
       - name: deploy_nim
         phase: test
-        command: "python3 ../scripts/vm/console_rbac.py"
-        args: ["--instance-id", "{{steps.launch_instance.instance_id}}", "--region", "{{region}}"]
-        timeout: 60
-        skip: true
+        command: "python3 ../../shared/deploy_nim.py"
+        args:
+          - "--host"
+          - "{{steps.reboot_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.reboot_instance.key_file}}"
+        timeout: 1800
 
       - name: teardown_nim
         phase: teardown
-        command: "python3 ../scripts/vm/console_rbac.py"
-        args: ["--instance-id", "{{steps.launch_instance.instance_id}}", "--region", "{{region}}"]
-        timeout: 60
-        skip: true
+        command: "python3 ../../shared/teardown_nim.py"
+        args:
+          - "--host"
+          - "{{steps.reboot_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.reboot_instance.key_file}}"
+        timeout: 120
 
       - name: teardown
         phase: teardown
@@ -221,11 +227,7 @@ tests:
       # Not implemented in zcompute — scripts return not_supported gracefully
       - SerialConsoleCheck
       - ConsoleRbacCheck
-      # NIM tests require NGC_API_KEY and Docker setup — enable when ready
-      - NimHealthCheck
-      - NimModelCheck
-      - NimInferenceCheck
-      - StepSuccessCheck-teardown_nim
+      # NIM tests now enabled (NGC_API_KEY configured)
       # DriverCheck cuda_toolkit subtest: if nvcc install fails (package not in
       # ubuntu repos for this kernel), this check will still fail. Remove this
       # exclusion once the GPU-ready image has CUDA toolkit pre-installed.

@@ -115,7 +115,4 @@ tests:
       # CNCF conformance is a long-running suite (hours) — run separately
       - K8sCncfConformanceCheck
 
-      # NIM workloads require NGC_API_KEY — enable when available
-      - K8sNimInferenceWorkload
-      - K8sNimHelmWorkload-1b
-      - K8sNimHelmWorkload-3b
+      # NIM workloads now enabled (NGC_API_KEY configured)
