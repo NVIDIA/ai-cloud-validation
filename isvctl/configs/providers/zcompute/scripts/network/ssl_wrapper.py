@@ -135,15 +135,22 @@ def _boto3_client_patched(service_name, *args, **kwargs):
             return _orig_get_waiter(waiter_name)
         client.get_waiter = _get_waiter_patched
 
-        # ── Fix run_instances: NetworkInterfaces + SubnetId/SecurityGroupIds ─
-        # zCompute returns empty Instances[] when both top-level subnet/SG AND
-        # NetworkInterfaces are provided in the same call (conflicting params).
-        # Strip the top-level duplicates so zCompute returns the instance.
+        # ── Fix run_instances: NetworkInterfaces not reliable in zCompute ────
+        # zCompute returns empty Instances[] when NetworkInterfaces is present
+        # (AssociatePublicIpAddress not supported the same way as AWS).
+        # Remove NetworkInterfaces entirely; merge SubnetId/Groups back to
+        # top-level params where they're already accepted by zCompute.
         _orig_run_instances = client.run_instances
         def _run_instances_patched(**ri_kwargs):
-            if ri_kwargs.get('NetworkInterfaces'):
-                ri_kwargs.pop('SubnetId', None)
-                ri_kwargs.pop('SecurityGroupIds', None)
+            ni_list = ri_kwargs.pop('NetworkInterfaces', None)
+            if ni_list:
+                ni = ni_list[0] if ni_list else {}
+                # Promote SubnetId / SecurityGroupIds from NetworkInterfaces
+                # if not already present at top level
+                if not ri_kwargs.get('SubnetId') and ni.get('SubnetId'):
+                    ri_kwargs['SubnetId'] = ni['SubnetId']
+                if not ri_kwargs.get('SecurityGroupIds') and ni.get('Groups'):
+                    ri_kwargs['SecurityGroupIds'] = ni['Groups']
             return _orig_run_instances(**ri_kwargs)
         client.run_instances = _run_instances_patched
 
@@ -175,18 +182,37 @@ def _boto3_client_patched(service_name, *args, **kwargs):
             return resp
         client.describe_instances = _describe_instances_patched
 
-        # ── Fix terminate_instances: retry on InternalServerError ────────────
-        # zCompute occasionally returns InternalServerError on termination.
+        # ── Fix terminate_instances: wait for running state, then retry ──────
+        # zCompute returns InternalServerError when terminating an instance
+        # that is still in 'pending' state. Wait for running first, then retry.
         _orig_terminate_instances = client.terminate_instances
         def _terminate_instances_with_retry(**ti_kwargs):
+            instance_ids = ti_kwargs.get('InstanceIds', [])
+            # Wait up to 120s for instances to leave pending before terminating
+            if instance_ids:
+                deadline = _time.monotonic() + 120
+                while _time.monotonic() < deadline:
+                    try:
+                        resp = _orig_describe_instances(InstanceIds=instance_ids)
+                        states = {
+                            i['InstanceId']: i['State']['Name']
+                            for r in resp.get('Reservations', [])
+                            for i in r.get('Instances', [])
+                        }
+                        if all(states.get(iid, 'running') != 'pending'
+                               for iid in instance_ids):
+                            break
+                    except Exception:
+                        pass
+                    _time.sleep(5)
             last_exc = None
-            for attempt in range(5):
+            for attempt in range(6):
                 try:
                     return _orig_terminate_instances(**ti_kwargs)
                 except Exception as e:
                     last_exc = e
                     if 'InternalServerError' in str(e) or 'InternalFailure' in str(e):
-                        _time.sleep(10 * (attempt + 1))
+                        _time.sleep(15 * (attempt + 1))
                         continue
                     raise
             raise last_exc
