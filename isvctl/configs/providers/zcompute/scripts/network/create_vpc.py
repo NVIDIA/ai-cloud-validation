@@ -26,6 +26,7 @@ from botocore.exceptions import ClientError
 _here = __import__("pathlib").Path(__file__).resolve()
 sys.path.insert(0, str(_here.parents[1]))           # providers/zcompute/scripts
 sys.path.insert(0, str(_here.parents[3] / "aws" / "scripts"))  # providers/aws/scripts
+from common.client import get_client   # verify=False already handled
 from common.errors import classify_aws_error
 
 
@@ -172,7 +173,7 @@ def main() -> int:
     parser.add_argument("--cidr", default="10.0.0.0/16")
     args = parser.parse_args()
 
-    ec2 = boto3.client("ec2", region_name=args.region)
+    ec2 = get_client("ec2", region=args.region)
     result = create_vpc(ec2, args.name, args.cidr)
     result["region"] = args.region
     result["name"] = args.name
