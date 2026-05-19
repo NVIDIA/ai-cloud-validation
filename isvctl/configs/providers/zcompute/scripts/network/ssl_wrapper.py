@@ -135,6 +135,19 @@ def _boto3_client_patched(service_name, *args, **kwargs):
             return _orig_get_waiter(waiter_name)
         client.get_waiter = _get_waiter_patched
 
+        # ── Fix modify_subnet_attribute: MapPublicIpOnLaunch not supported ───
+        # zCompute returns AuthFailure for this call — silently ignore it.
+        _orig_modify_subnet_attribute = client.modify_subnet_attribute
+        def _modify_subnet_attribute_patched(**msa_kwargs):
+            try:
+                return _orig_modify_subnet_attribute(**msa_kwargs)
+            except Exception as e:
+                if 'AuthFailure' in str(e) or 'NotSupported' in str(e):
+                    pass  # zCompute: MapPublicIpOnLaunch not supported
+                else:
+                    raise
+        client.modify_subnet_attribute = _modify_subnet_attribute_patched
+
         # ── Fix describe_key_pairs: zCompute returns empty KeyPairs[] ─────────
         # AWS raises InvalidKeyPair.NotFound when a key doesn't exist.
         # zCompute returns {"KeyPairs": []} instead, which causes IndexError

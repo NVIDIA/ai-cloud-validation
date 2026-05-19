@@ -39,7 +39,8 @@ ec2 = boto3.client(
     endpoint_url=os.environ.get("AWS_ENDPOINT_URL_EC2"),
 )
 
-ISV_TAG_FILTER = [{"Name": "tag:CreatedBy", "Values": ["isvtest"]}]
+# zCompute ignores tag Filters server-side — fetch all and filter in Python
+ISV_TAG_FILTER = [{"Name": "tag:CreatedBy", "Values": ["isvtest"]}]  # kept for reference
 
 
 def tag_match(tags):
@@ -61,12 +62,14 @@ def safe_delete(fn, desc, **kwargs):
 
 # ── 1. Terminate tagged instances ─────────────────────────────────────────────
 print("\n=== Instances ===")
-resp = ec2.describe_instances(Filters=ISV_TAG_FILTER)
+# zCompute ignores tag filters — describe all, post-filter by tag in Python
+resp = ec2.describe_instances()
 instance_ids = [
     i["InstanceId"]
     for r in resp.get("Reservations", [])
     for i in r.get("Instances", [])
-    if i["State"]["Name"] not in ("terminated", "shutting-down")
+    if tag_match(i.get("Tags", []))
+    and i["State"]["Name"] not in ("terminated", "shutting-down")
 ]
 if instance_ids:
     print(f"Terminating {len(instance_ids)} instance(s): {instance_ids}")
@@ -102,7 +105,9 @@ except Exception as e:
 
 # ── 3. Delete tagged VPCs and all their resources ─────────────────────────────
 print("\n=== VPCs ===")
-vpcs = ec2.describe_vpcs(Filters=ISV_TAG_FILTER).get("Vpcs", [])
+# zCompute ignores tag filters — describe all, post-filter by tag in Python
+all_vpcs = ec2.describe_vpcs().get("Vpcs", [])
+vpcs = [v for v in all_vpcs if tag_match(v.get("Tags", []))]
 print(f"Found {len(vpcs)} tagged VPC(s)")
 
 for vpc in vpcs:
