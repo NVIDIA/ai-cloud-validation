@@ -123,6 +123,30 @@ def _boto3_client_patched(service_name, *args, **kwargs):
             return resp
         client.create_vpc = _create_vpc_with_wait
 
+        # ── Auto-poll subnet until 'available' on create ──────────────────────
+        # zCompute subnets (networks) also start in 'pending'. Launching an
+        # instance before the subnet is available causes:
+        # "Cannot create network interface on network ... not in available state"
+        _orig_create_subnet = client.create_subnet
+        def _create_subnet_with_wait(**sn_kwargs):
+            resp = _orig_create_subnet(**sn_kwargs)
+            subnet_id = resp['Subnet']['SubnetId']
+            deadline = _time.monotonic() + 120
+            while _time.monotonic() < deadline:
+                try:
+                    # describe_subnets without filter to avoid zCompute ignoring SubnetIds
+                    all_subnets = client.describe_subnets().get('Subnets', [])
+                    target = next(
+                        (s for s in all_subnets if s['SubnetId'] == subnet_id), None
+                    )
+                    if target and target.get('State') == 'available':
+                        break
+                except Exception:
+                    pass
+                _time.sleep(5)
+            return resp
+        client.create_subnet = _create_subnet_with_wait
+
         # ── Replace all boto3 EC2 waiters with poll-based implementations ────
         _orig_get_waiter = client.get_waiter
         def _get_waiter_patched(waiter_name):
