@@ -72,6 +72,7 @@ APACHE_MARKER = "SPDX-License-Identifier: Apache-2.0"
 SKIP_PATHS = {
     ".pre-commit-config.yaml",
     ".coderabbit.yaml",
+    ".trivyignore.yaml",
 }
 
 
@@ -112,12 +113,8 @@ def find_files() -> list[Path]:
 
         ext = rel.suffix
 
-        if ext in (".py", ".sh", ".tf"):
+        if ext in (".py", ".sh", ".tf", ".yaml", ".yml"):
             files.append(REPO_ROOT / rel)
-        elif ext in (".yaml", ".yml"):
-            parts = rel.parts
-            if len(parts) >= 2 and parts[0] in ("isvctl", "isvtest", "isvreporter"):
-                files.append(REPO_ROOT / rel)
 
     return sorted(files)
 
