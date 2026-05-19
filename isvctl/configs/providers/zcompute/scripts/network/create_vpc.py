@@ -24,8 +24,7 @@ from botocore.exceptions import ClientError
 
 # Add both zcompute and aws common to path (errors.py lives in aws/scripts/common)
 _here = __import__("pathlib").Path(__file__).resolve()
-sys.path.insert(0, str(_here.parents[3] / "aws" / "scripts"))  # providers/aws/scripts (for errors.py)
-sys.path.insert(0, str(_here.parents[1]))  # providers/zcompute/scripts first (has client.py)
+sys.path.insert(0, str(_here.parents[1]))  # providers/zcompute/scripts (has client.py + errors.py)
 from common.client import get_client   # verify=False already handled
 from common.errors import classify_aws_error
 
