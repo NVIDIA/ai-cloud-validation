@@ -46,6 +46,8 @@ def test_create_vpc(ec2: Any, cidr: str, name: str) -> dict[str, Any]:
         vpc_id = vpc["Vpc"]["VpcId"]
         result["vpc_id"] = vpc_id
         result["cidr"] = cidr
+        # zCompute: wait for available state before tagging (can't tag while pending)
+        _poll_vpc_available(ec2, vpc_id)
         ec2.create_tags(
             Resources=[vpc_id],
             Tags=[{"Key": "Name", "Value": name}, {"Key": "CreatedBy", "Value": "isvtest"}],

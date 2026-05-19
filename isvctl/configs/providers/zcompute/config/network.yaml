@@ -57,7 +57,7 @@ commands:
       # Test 2: Subnet Configuration (AWS script — works via AWS_ENDPOINT_URL_EC2)
       - name: subnet_config
         phase: test
-        command: "python3 ../../aws/scripts/network/subnet_test.py"
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/subnet_test.py"
         args: ["--region", "{{region}}", "--cidr", "10.98.0.0/16", "--subnet-count", "2"]
         timeout: 120
         output_schema: subnet_config
@@ -65,7 +65,7 @@ commands:
       # Test 3: VPC Isolation
       - name: vpc_isolation
         phase: test
-        command: "python3 ../../aws/scripts/network/isolation_test.py"
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/isolation_test.py"
         args: ["--region", "{{region}}", "--cidr-a", "10.97.0.0/16", "--cidr-b", "10.96.0.0/16"]
         timeout: 120
         output_schema: vpc_isolation
@@ -73,7 +73,7 @@ commands:
       # Test 4a: Security Group CRUD
       - name: sg_crud
         phase: test
-        command: "python3 ../../aws/scripts/network/sg_crud_test.py"
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/sg_crud_test.py"
         args: ["--region", "{{region}}", "--cidr", "10.95.0.0/16"]
         timeout: 120
         output_schema: sg_crud
@@ -81,7 +81,7 @@ commands:
       # Test 4b: Security Blocking
       - name: security_blocking
         phase: test
-        command: "python3 ../../aws/scripts/network/security_test.py"
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/security_test.py"
         args: ["--region", "{{region}}", "--cidr", "10.94.0.0/16"]
         timeout: 120
         output_schema: security_blocking
@@ -89,7 +89,7 @@ commands:
       # Test 7: VPC IP Configuration (DDI)
       - name: vpc_ip_config
         phase: test
-        command: "python3 ../../aws/scripts/network/vpc_ip_config_test.py"
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/vpc_ip_config_test.py"
         args:
           - "--vpc-id"
           - "{{steps.create_network.network_id}}"
@@ -101,7 +101,7 @@ commands:
       # Test 13: VPC Peering (confirmed working in zCompute)
       - name: peering_test
         phase: test
-        command: "python3 ../../aws/scripts/network/peering_test.py"
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/peering_test.py"
         args: ["--region", "{{region}}", "--cidr-a", "10.88.0.0/16", "--cidr-b", "10.87.0.0/16"]
         timeout: 180
         output_schema: vpc_peering
@@ -109,13 +109,13 @@ commands:
       # Teardown: AWS script — instance waiter only fires if VMs exist (none here)
       - name: teardown
         phase: teardown
-        command: "python3 ../../aws/scripts/network/teardown.py"
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/teardown.py"
         args:
           - "--vpc-id"
           - "{{steps.create_network.network_id}}"
           - "--region"
           - "{{region}}"
-        timeout: 300
+        timeout: 600
         output_schema: teardown
 
 tests:
