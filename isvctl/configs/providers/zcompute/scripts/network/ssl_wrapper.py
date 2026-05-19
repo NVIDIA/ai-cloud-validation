@@ -49,7 +49,7 @@ class _ZComputeInstanceWaiter:
         'instance_status_ok': 'running',
     }
 
-    def __init__(self, ec2_client, target_state, timeout=300, interval=10):
+    def __init__(self, ec2_client, target_state, timeout=600, interval=10):
         self._ec2 = ec2_client
         self._target = target_state
         self._timeout = timeout
@@ -209,31 +209,48 @@ def _boto3_client_patched(service_name, *args, **kwargs):
         client.run_instances = _run_instances_patched
 
         # ── Fix describe_instances with InstanceIds ───────────────────────────
-        # zCompute may ignore the InstanceIds filter and return all instances,
-        # or return empty Reservations right after launch (propagation delay).
-        # Post-filter to only matching IDs, and retry if empty.
+        # zCompute ignores the InstanceIds filter and may return all instances
+        # or empty Reservations. Strategy:
+        # 1. Retry up to 30s if empty (propagation delay after launch)
+        # 2. Post-filter returned results to only the requested IDs
+        # 3. If still empty after filtering, fall back to describe-all and
+        #    filter in Python — the only reliable approach on zCompute.
         _orig_describe_instances = client.describe_instances
         def _describe_instances_patched(**di_kwargs):
             instance_ids = di_kwargs.get('InstanceIds')
             resp = _orig_describe_instances(**di_kwargs)
             if not instance_ids:
                 return resp
+
+            id_set = set(instance_ids)
+
+            def _filter_resp(r):
+                filtered = [
+                    dict(res, Instances=[i for i in res.get('Instances', [])
+                                         if i.get('InstanceId') in id_set])
+                    for res in r.get('Reservations', [])
+                ]
+                filtered = [res for res in filtered if res['Instances']]
+                return dict(r, Reservations=filtered) if filtered else r
+
             # Retry up to 30s if empty (propagation delay after launch)
             deadline = _time.monotonic() + 30
             while not resp.get('Reservations') and _time.monotonic() < deadline:
                 _time.sleep(3)
                 resp = _orig_describe_instances(**di_kwargs)
-            # Post-filter: keep only the requested instance IDs
-            id_set = set(instance_ids)
-            filtered = [
-                dict(r, Instances=[i for i in r.get('Instances', [])
-                                   if i.get('InstanceId') in id_set])
-                for r in resp.get('Reservations', [])
-            ]
-            filtered = [r for r in filtered if r['Instances']]
-            if filtered:
-                resp = dict(resp, Reservations=filtered)
-            return resp
+
+            result = _filter_resp(resp)
+            if result.get('Reservations'):
+                return result
+
+            # Fallback: describe ALL instances and find ours by ID
+            # (zCompute does not reliably support InstanceIds filter)
+            try:
+                all_resp = _orig_describe_instances()
+                return _filter_resp(all_resp)
+            except Exception:
+                return resp
+
         client.describe_instances = _describe_instances_patched
 
         # ── Fix terminate_instances: wait for running state, then retry ──────
