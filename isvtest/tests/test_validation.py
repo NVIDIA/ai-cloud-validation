@@ -1816,6 +1816,28 @@ class TestHostSoftwareCheckTpmBaselines:
         assert result["passed"] is False
         assert "missing min_version" in result["error"]
 
+    @pytest.mark.parametrize(
+        ("tpm_output", "min_version"),
+        [("unknown", "2"), ("2", "latest")],
+    )
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_unparseable_tpm_baseline_versions_fail(
+        self,
+        mock_ssh_cfg: MagicMock,
+        mock_run: MagicMock,
+        mock_ssh: MagicMock,
+        tpm_output: str,
+        min_version: str,
+    ) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": min_version}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output=tpm_output, config=config)
+
+        assert result["passed"] is False
+        assert "Could not parse TPM version for Dell Inc.|PowerEdge R760xa" in result["error"]
+
     @patch("isvtest.validations.host.get_ssh_client")
     @patch("isvtest.validations.host.run_ssh_command")
     @patch("isvtest.validations.host.get_ssh_config")

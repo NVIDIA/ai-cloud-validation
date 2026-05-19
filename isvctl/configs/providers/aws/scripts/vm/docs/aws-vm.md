@@ -198,7 +198,7 @@ Validates the full software stack: kernel, libvirt/QEMU, SBIOS, NVIDIA drivers.
 | `expected_libvirt_version` | string | *(none)* | libvirt version substring |
 | `expected_bios_vendor` | string | *(none)* | BIOS vendor name |
 | `bios_baselines` | mapping | *(none)* | Approved BIOS minimums keyed by `system_vendor|product_name` |
-| `tpm_baselines` | mapping | *(none)* | Approved minimum TPM major version keyed by `system_vendor|product_name` (SEC22-02) |
+| `tpm_baselines` | mapping | *(none)* | Approved minimum TPM major version keyed by `system_vendor\|product_name` (SEC22-02) |
 
 When no `expected_*` parameter or `*_baselines` policy is set, the check **reports**
 the value without failing. To build a BIOS or TPM policy, run once in report-only
