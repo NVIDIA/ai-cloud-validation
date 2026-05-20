@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from contextlib import contextmanager
 from typing import Any
@@ -736,6 +737,58 @@ class TestK8sCsiStorageQuotaApiCheck:
             assert outcomes[name]["passed"], f"{name}: {outcomes[name]['message']}"
             assert not outcomes[name]["skipped"]
 
+    def test_quota_usage_matches_pvc_request_when_capacity_is_rounded_up(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Pass when quota usage matches the PVC request despite rounded capacity."""
+        self._stub_env(monkeypatch)
+        cfg = self._happy_config()
+        cfg["pvc_request"] = "500Mi"
+        check = self._make(cfg)
+        sc_key = "gp3.storageclass.storage.k8s.io/requests.storage"
+        run = self._run_command_router(
+            quota_hard={"requests.storage": "10Gi", sc_key: "5Gi"},
+            quota_used={"requests.storage": "500Mi", sc_key: "500Mi"},
+            pvc_capacity="1Gi",
+        )
+        usage_name_holder: dict[str, str] = {}
+
+        def _apply(cmd: list[str], **kwargs: Any) -> _FakeProc:
+            manifest = kwargs.get("input", "") or ""
+            kind = self._kind_from_input(manifest)
+            if kind == "ResourceQuota":
+                return _FakeProc(returncode=0)
+            if kind == "Pod":
+                return _FakeProc(returncode=0)
+            if kind == "PersistentVolumeClaim":
+                for doc in yaml.safe_load_all(manifest):
+                    if not doc:
+                        continue
+                    name = doc.get("metadata", {}).get("name", "")
+                    if name.startswith("quota-usage-"):
+                        usage_name_holder["name"] = name
+                        return _FakeProc(returncode=0)
+                    if name.startswith("quota-over-"):
+                        return _FakeProc(returncode=1, stderr="forbidden: exceeded quota")
+            raise AssertionError(f"unexpected manifest kind={kind!r}")
+
+        def _run_with_dynamic_pvname(cmd: str, timeout: int | None = None) -> CommandResult:
+            if "get pv " in cmd and "-o json" in cmd:
+                return _ok(stdout=self._pv_json(claim_ref_name=usage_name_holder.get("name", "usage-pvc")))
+            return run(cmd, timeout)
+
+        with (
+            patch.object(check, "run_command", side_effect=_run_with_dynamic_pvname),
+            patch("isvtest.validations.k8s_storage.subprocess.run", side_effect=_apply),
+            _patched_clock(),
+        ):
+            check.run()
+
+        assert check.passed, check._error
+        outcomes = {r["name"]: r for r in check._subtest_results}
+        assert outcomes["per-pvc-usage"]["passed"], outcomes["per-pvc-usage"]["message"]
+
     def test_resourcequota_apply_failure_skips_dependents(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make(self._happy_config())
@@ -848,6 +901,29 @@ class TestK8sCsiStorageQuotaApiCheck:
         assert outcomes["resourcequota-storage-api"]["passed"]
         assert not outcomes["per-pvc-usage"]["passed"]
         assert "did not reflect" in outcomes["per-pvc-usage"]["message"]
+
+    def test_quota_used_wrong_value_fails_per_pvc_usage(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fail per-pvc-usage when quota used values differ from the PVC request."""
+        self._stub_env(monkeypatch)
+        check = self._make(self._happy_config())
+        sc_key = "gp3.storageclass.storage.k8s.io/requests.storage"
+        run = self._run_command_router(
+            quota_hard={"requests.storage": "10Gi", sc_key: "5Gi"},
+            quota_used={"requests.storage": "2Gi", sc_key: "2Gi"},
+        )
+
+        with (
+            patch.object(check, "run_command", side_effect=run),
+            patch("isvtest.validations.k8s_storage.subprocess.run", side_effect=self._apply_router()),
+            _patched_clock(),
+        ):
+            check.run()
+
+        assert not check.passed
+        outcomes = {r["name"]: r for r in check._subtest_results}
+        assert outcomes["resourcequota-storage-api"]["passed"]
+        assert not outcomes["per-pvc-usage"]["passed"]
+        assert "did not match" in outcomes["per-pvc-usage"]["message"]
 
     def test_over_quota_pvc_admitted_fails_enforcement(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
@@ -1917,8 +1993,6 @@ class TestK8sCsiProvisioningModesCheck:
             if "exec" in cmd and "echo " in cmd:
                 # Parse out the canary value so the read-side can return it.
                 # Command form: ... -- sh -c 'echo csi-prov-<hex> > /data/canary.txt'
-                import re
-
                 m = re.search(r"echo (?:'|\")?(csi-prov-[0-9a-f]+)(?:'|\")? > /data/canary\.txt", cmd)
                 if m:
                     state["canary"] = m.group(1)
