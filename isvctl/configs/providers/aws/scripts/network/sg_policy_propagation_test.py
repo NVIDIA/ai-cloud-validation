@@ -165,7 +165,7 @@ def check_policy_propagation(
         result["target_rule_id"] = sg_id
 
         ec2.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=permission)
-        result["tests"]["create_probe_rule"] = _passed(f"Added probe rule to {sg_id}")
+        result["tests"]["create_probe_rule"] = _passed("Probe rule added")
 
         failed_key = "rule_observed"
         observed, add_seconds = _wait_for_permission_state(
@@ -191,7 +191,7 @@ def check_policy_propagation(
 
         failed_key = "revoke_probe_rule"
         ec2.revoke_security_group_ingress(GroupId=sg_id, IpPermissions=permission)
-        result["tests"]["revoke_probe_rule"] = _passed(f"Revoked probe rule from {sg_id}")
+        result["tests"]["revoke_probe_rule"] = _passed("Probe rule revoked")
 
         failed_key = "removal_observed"
         removed, remove_seconds = _wait_for_permission_state(
@@ -216,8 +216,10 @@ def check_policy_propagation(
         )
 
     except ClientError as e:
-        result["tests"][failed_key] = _failed(str(e))
-        result["error"] = str(e)
+        error_type = e.response.get("Error", {}).get("Code", "ClientError")
+        result["tests"][failed_key] = _failed("Provider API call failed", error_type=error_type)
+        result["error"] = "Provider API call failed"
+        result["error_type"] = error_type
     finally:
         if sg_id:
             deleted = delete_with_retry(
@@ -226,13 +228,11 @@ def check_policy_propagation(
                 resource_desc=f"policy propagation probe security group {sg_id}",
             )
             if deleted:
-                result["tests"]["cleanup"] = _passed(f"Deleted policy propagation probe security group {sg_id}")
+                result["tests"]["cleanup"] = _passed("Probe rule cleanup completed")
             else:
-                result["tests"]["cleanup"] = _failed(
-                    f"Failed to delete policy propagation probe security group {sg_id}"
-                )
+                result["tests"]["cleanup"] = _failed("Probe rule cleanup failed")
         else:
-            result["tests"]["cleanup"] = _passed("No policy propagation probe security group was created")
+            result["tests"]["cleanup"] = _passed("No probe rule was created")
 
         result["success"] = all(test.get("passed") for test in result["tests"].values())
         if not result["success"] and "error" not in result:

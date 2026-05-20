@@ -1565,7 +1565,7 @@ def test_sdn_policy_propagation_records_cleanup_failure(monkeypatch: pytest.Monk
 
     assert result["success"] is False
     assert result["tests"]["cleanup"]["passed"] is False
-    assert "Failed to delete policy propagation probe security group sg-probe" in result["tests"]["cleanup"]["error"]
+    assert result["tests"]["cleanup"]["error"] == "Probe rule cleanup failed"
 
 
 def test_my_isv_policy_propagation_demo_test_name_matches_suite_step() -> None:
