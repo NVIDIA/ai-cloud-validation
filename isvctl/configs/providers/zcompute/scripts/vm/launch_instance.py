@@ -297,19 +297,21 @@ def main() -> int:
             "gpu_deps": {},
         }
 
-        # Load NVIDIA modules and install GPU dependencies (best-effort — failures
-        # do not abort setup; GpuCheck will surface any remaining issues).
+        # Install GPU dependencies first (may rebuild DKMS nvidia module),
+        # then reload nvidia modules so the freshly-built kernel module is active.
+        # Order matters: load_nvidia_modules after setup_gpu_dependencies ensures
+        # the kernel module version matches the newly-installed userspace tools.
         if ssh_ready:
-            try:
-                result["nvidia_modules_loaded"] = load_nvidia_modules(public_ip, args.ssh_user, key_file)
-            except Exception as e:
-                print(f"[launch] WARNING: load_nvidia_modules failed (non-fatal): {e}", file=sys.stderr)
-
             try:
                 print("[launch] installing GPU dependencies (Docker, NCT, CUDA) ...", file=sys.stderr)
                 result["gpu_deps"] = setup_gpu_dependencies(public_ip, args.ssh_user, key_file)
             except Exception as e:
                 print(f"[launch] WARNING: setup_gpu_dependencies failed (non-fatal): {e}", file=sys.stderr)
+
+            try:
+                result["nvidia_modules_loaded"] = load_nvidia_modules(public_ip, args.ssh_user, key_file)
+            except Exception as e:
+                print(f"[launch] WARNING: load_nvidia_modules failed (non-fatal): {e}", file=sys.stderr)
 
     except ClientError as e:
         result["error"] = str(e)

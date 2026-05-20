@@ -285,13 +285,16 @@ def load_nvidia_modules(host: str, user: str, key_file: str) -> bool:
         )
 
     print(f"[ec2] loading NVIDIA modules on {host} ...", file=sys.stderr)
-    # Force-unload then reload to fix NVML driver/library version mismatch
-    # that can occur after stop/start or reboot on zCompute.
+    # Force-unload then reload to fix NVML driver/library version mismatch.
+    # Stop persistenced first so the nvidia module is not held open.
     _ssh("sudo systemctl stop nvidia-persistenced 2>/dev/null || true")
     _ssh("sudo rmmod nvidia_uvm nvidia_modeset nvidia 2>/dev/null || true")
+    import time as _t; _t.sleep(2)
     result = _ssh("sudo modprobe nvidia nvidia-uvm nvidia-modeset")
     loaded = result.returncode == 0 or "already" in result.stderr.lower()
     _ssh("sudo systemctl start nvidia-persistenced 2>/dev/null || true")
+    # Give persistenced a moment to finish initializing before nvidia-smi is called
+    _t.sleep(3)
 
     if not loaded and "not found" in result.stderr.lower():
         # Module not built for the current kernel (kernel upgraded since AMI was built).
