@@ -17,7 +17,7 @@ import shlex
 from typing import ClassVar
 
 from isvtest.config.settings import get_k8s_gpu_operator_namespace
-from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail
+from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail, pod_status_reason
 from isvtest.core.validation import BaseValidation
 
 
@@ -51,13 +51,13 @@ class K8sGpuOperatorPodsCheck(BaseValidation):
         kubectl_base = get_kubectl_base_shell()
 
         result = self.run_command(f"{kubectl_base} get pods -n {shlex.quote(namespace)} -o json")
-        pods = kubectl_items_or_fail(self, result, "GPU Operator pod list", exec_label="GPU Operator pods")
+        pods = kubectl_items_or_fail(self, result, "GPU Operator pod list")
         if pods is None:
             return
 
         running_pods = []
         for pod in pods:
-            if (pod.get("status") or {}).get("phase") == "Running":
+            if pod_status_reason(pod) == "Running":
                 running_pods.append((pod.get("metadata") or {}).get("name", "unknown"))
 
         if not running_pods:

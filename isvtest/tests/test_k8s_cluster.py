@@ -46,7 +46,7 @@ def _items_json(items: list[dict[str, Any]]) -> str:
 def test_pod_health_uses_json_and_passes_for_running_or_succeeded_pods() -> None:
     """Verify the pod-health check reads structured pod JSON."""
     check = K8sPodHealthCheck(config={})
-    payload = _items_json([_pod("running", "Running"), _pod("done", "Succeeded")])
+    payload = _items_json([])
 
     with (
         patch("isvtest.validations.k8s_cluster.get_kubectl_base_shell", return_value="kubectl"),
@@ -55,7 +55,12 @@ def test_pod_health_uses_json_and_passes_for_running_or_succeeded_pods() -> None
         check.run()
 
     assert check.passed
-    assert mock_run.call_args[0][0] == "kubectl get pods -A -o json"
+    # Field selector filters server-side, so the JSON output need only carry the
+    # unhealthy pods - here, none.
+    assert (
+        mock_run.call_args[0][0]
+        == "kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded -o json"
+    )
 
 
 def test_pod_health_fails_on_invalid_json() -> None:

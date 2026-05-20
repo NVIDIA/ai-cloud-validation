@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from isvtest.core.validation import BaseValidation
 
 logger = setup_logger(__name__)
+KubectlJsonResult = CommandResult | subprocess.CompletedProcess[Any]
 
 # Container waiting reasons that kubelet only reports after it has already
 # given up retrying - callers can fast-fail instead of waiting out a timeout.
@@ -212,7 +213,7 @@ class KubectlParseError(Exception):
 
 
 def parse_kubectl_json(
-    result: CommandResult,
+    result: KubectlJsonResult,
     resource: str = "kubectl JSON output",
 ) -> dict[str, Any]:
     """Parse ``kubectl ... -o json`` stdout into a JSON object.
@@ -234,7 +235,7 @@ def parse_kubectl_json(
 
 
 def parse_kubectl_json_items(
-    result: CommandResult,
+    result: KubectlJsonResult,
     resource: str = "kubectl JSON list output",
 ) -> list[dict[str, Any]]:
     """Extract the ``items`` list from a ``kubectl get ... -o json`` result.
@@ -255,27 +256,60 @@ def kubectl_items_or_fail(
     validation: "BaseValidation",
     result: CommandResult,
     resource: str,
-    *,
-    exec_label: str | None = None,
 ) -> list[dict[str, Any]] | None:
     """Parse ``kubectl get ... -o json`` items, routing failures to ``validation.set_failed``.
 
     Returns the items list on success, or ``None`` after marking the validation
     failed when the command exited non-zero or returned unparseable JSON.
-
-    ``exec_label`` overrides the noun used in the exec-failure message
-    (``"Failed to get {label}: ..."``) when callers want wording other than the
-    parse-error ``resource`` (e.g. ``"node count"`` vs ``"node list"``).
     """
     if result.exit_code != 0:
-        label = exec_label or resource
-        validation.set_failed(f"Failed to get {label}: {result.stderr}")
+        validation.set_failed(f"Failed to get {resource}: {result.stderr}")
         return None
     try:
         return parse_kubectl_json_items(result, resource)
     except KubectlParseError as exc:
         validation.set_failed(str(exc))
         return None
+
+
+def kubectl_payload_or_none(
+    result: KubectlJsonResult,
+) -> dict[str, Any] | None:
+    """Best-effort parse of ``kubectl ... -o json`` stdout into a JSON object.
+
+    Returns ``None`` on empty or malformed output - callers that fall back to
+    sentinels (empty lists, ``"Unknown"``, ``0``) keep their old behaviour
+    rather than raising, since they cannot surface a validation failure.
+    """
+    if not result.stdout:
+        return None
+    try:
+        return parse_kubectl_json(result)
+    except KubectlParseError:
+        return None
+
+
+def kubectl_items_or_empty(
+    result: KubectlJsonResult,
+) -> list[dict[str, Any]]:
+    """Best-effort items list; returns ``[]`` on empty or malformed output."""
+    if not result.stdout:
+        return []
+    try:
+        return parse_kubectl_json_items(result)
+    except KubectlParseError:
+        return []
+
+
+def names_from_items(items: list[dict[str, Any]]) -> list[str]:
+    """Extract ``.metadata.name`` values from a list of Kubernetes API objects."""
+    names: list[str] = []
+    for item in items:
+        metadata = item.get("metadata") or {}
+        name = metadata.get("name") if isinstance(metadata, dict) else None
+        if name:
+            names.append(str(name))
+    return names
 
 
 def pod_status_reason(pod: dict[str, Any]) -> str:
@@ -370,7 +404,7 @@ def parse_pod_state(stdout: str, stderr: str) -> tuple[str, str, str]:
 
 
 def pod_state_from_result(
-    result: "CommandResult | subprocess.CompletedProcess[Any]",
+    result: KubectlJsonResult,
 ) -> tuple[str, str, str]:
     """Parse pod state from a ``kubectl get pod -o json`` result.
 
@@ -380,9 +414,10 @@ def pod_state_from_result(
     ``parse_pod_state``: on failure only stderr is inspected (for NotFound
     detection); on success only stdout is parsed.
     """
-    exit_code = getattr(result, "exit_code", None)
-    if exit_code is None:
-        exit_code = result.returncode  # subprocess.CompletedProcess
+    if isinstance(result, CommandResult):
+        exit_code = result.exit_code
+    else:
+        exit_code = result.returncode
     if exit_code == 0:
         return parse_pod_state(result.stdout, "")
     return parse_pod_state("", result.stderr or "")
@@ -464,41 +499,6 @@ def is_k8s_available() -> bool:
         return False
 
 
-def _parse_run_kubectl_json(result: subprocess.CompletedProcess[Any]) -> dict[str, Any] | None:
-    """Best-effort ``json.loads`` for ``run_kubectl(... -o json)`` stdout.
-
-    Returns ``None`` on empty or malformed output - callers that fall back to
-    sentinels (empty lists, ``"Unknown"``, ``0``) keep their old behaviour
-    rather than raising, since they cannot surface a validation failure.
-    """
-    if not result.stdout:
-        return None
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def _items_from_run_kubectl(result: subprocess.CompletedProcess[Any]) -> list[dict[str, Any]]:
-    """Return the ``items`` list from ``run_kubectl(... -o json)`` (empty on failure)."""
-    payload = _parse_run_kubectl_json(result)
-    if payload is None:
-        return []
-    items = payload.get("items")
-    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
-
-
-def _node_names_from_kubectl(result: subprocess.CompletedProcess[Any]) -> list[str]:
-    """Extract node names from a ``kubectl get nodes -o json`` result."""
-    names: list[str] = []
-    for item in _items_from_run_kubectl(result):
-        name = (item.get("metadata") or {}).get("name")
-        if name:
-            names.append(str(name))
-    return names
-
-
 def get_gpu_nodes() -> list[str]:
     """Get list of GPU-enabled nodes in the cluster.
 
@@ -508,7 +508,7 @@ def get_gpu_nodes() -> list[str]:
     result = run_kubectl(["get", "nodes", "-l", "nvidia.com/gpu.present=true", "-o", "json"])
     if result.returncode != 0:
         return []
-    return _node_names_from_kubectl(result)
+    return names_from_items(kubectl_items_or_empty(result))
 
 
 def get_node_gpu_count(node_name: str) -> int:
@@ -523,7 +523,7 @@ def get_node_gpu_count(node_name: str) -> int:
     result = run_kubectl(["get", "node", node_name, "-o", "json"])
     if result.returncode != 0:
         return 0
-    payload = _parse_run_kubectl_json(result)
+    payload = kubectl_payload_or_none(result)
     if payload is None:
         return 0
     capacity = (payload.get("status") or {}).get("capacity") or {}
@@ -776,7 +776,7 @@ def wait_for_job_completion(
     while time.time() - start_time < timeout:
         # Check job conditions for Complete or Failed status
         result = run_kubectl(["get", "job", job_name, "-n", namespace, "-o", "json"])
-        job_payload = _parse_run_kubectl_json(result) if result.returncode == 0 else None
+        job_payload = kubectl_payload_or_none(result) if result.returncode == 0 else None
         if job_payload is not None:
             terminal = job_terminal_status(job_payload)
             if terminal is not None:
@@ -810,7 +810,7 @@ def _format_job_pod_info(result: subprocess.CompletedProcess[Any]) -> tuple[str,
     """
     if result.returncode != 0:
         return "No pods", ""
-    pods = _items_from_run_kubectl(result)
+    pods = kubectl_items_or_empty(result)
     if not pods:
         return "No pods", ""
     first_status = pods[0].get("status") or {}
@@ -846,12 +846,7 @@ def get_job_pods(job_name: str, namespace: str) -> list[str]:
     result = run_kubectl(["get", "pods", "-n", namespace, "-l", f"job-name={job_name}", "-o", "json"])
     if result.returncode != 0:
         return []
-    names: list[str] = []
-    for pod in _items_from_run_kubectl(result):
-        name = (pod.get("metadata") or {}).get("name")
-        if name:
-            names.append(str(name))
-    return names
+    return names_from_items(kubectl_items_or_empty(result))
 
 
 def delete_job(job_name: str, namespace: str, wait: bool = True) -> bool:
@@ -904,28 +899,26 @@ def wait_for_multiple_pods_completion(
     """
     start_time = time.time()
     results = {pod_name: (False, "Unknown") for pod_name in pod_names}
-    wanted = set(pod_names)
-    completed_pods: set[str] = set()
+    pending = set(pod_names)
 
     while time.time() - start_time < timeout:
         result = run_kubectl(["get", "pods", "-n", namespace, "-o", "json"])
 
         if result.returncode == 0:
-            for pod in _items_from_run_kubectl(result):
+            for pod in kubectl_items_or_empty(result):
                 name = (pod.get("metadata") or {}).get("name")
-                if name not in wanted:
+                if name not in pending:
                     continue
                 phase = str((pod.get("status") or {}).get("phase") or "")
                 if phase in ("Succeeded", "Failed"):
                     results[name] = (True, phase)
-                    completed_pods.add(name)
+                    pending.discard(name)
 
-        if len(completed_pods) == len(wanted):
+        if not pending:
             return results
 
         time.sleep(0.5)
 
-    # Timeout - return current status
     return results
 
 
@@ -938,7 +931,7 @@ def get_all_nodes() -> list[str]:
     result = run_kubectl(["get", "nodes", "-o", "json"])
     if result.returncode != 0:
         return []
-    return _node_names_from_kubectl(result)
+    return names_from_items(kubectl_items_or_empty(result))
 
 
 def get_node_status(node_name: str) -> str:
@@ -954,7 +947,7 @@ def get_node_status(node_name: str) -> str:
     result = run_kubectl(["get", "node", node_name, "-o", "json"])
     if result.returncode != 0:
         return "Unknown"
-    payload = _parse_run_kubectl_json(result)
+    payload = kubectl_payload_or_none(result)
     if payload is None:
         return "Unknown"
     for condition in (payload.get("status") or {}).get("conditions") or []:

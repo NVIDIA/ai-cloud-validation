@@ -42,3 +42,30 @@ def test_gpu_operator_pods_use_json_phase() -> None:
 
     assert check.passed
     assert mock_run.call_args[0][0] == "kubectl get pods -n gpu-operator -o json"
+
+
+def test_gpu_operator_pods_reject_crashlooping_running_phase() -> None:
+    """Verify kubectl STATUS semantics are preserved for crashlooping pods."""
+    check = K8sGpuOperatorPodsCheck(config={"namespace": "gpu-operator"})
+    payload = json.dumps(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "gpu-operator-1"},
+                    "status": {
+                        "phase": "Running",
+                        "containerStatuses": [{"state": {"waiting": {"reason": "CrashLoopBackOff"}}}],
+                    },
+                }
+            ]
+        }
+    )
+
+    with (
+        patch("isvtest.validations.k8s_gpu_operator.get_kubectl_base_shell", return_value="kubectl"),
+        patch.object(check, "run_command", return_value=_ok(payload)),
+    ):
+        check.run()
+
+    assert not check.passed
+    assert "No GPU Operator pods are running" in check.message

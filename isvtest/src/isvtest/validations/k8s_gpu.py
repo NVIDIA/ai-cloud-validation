@@ -23,6 +23,7 @@ from isvtest.config.settings import get_k8s_namespace
 from isvtest.core.k8s import (
     get_kubectl_base_shell,
     kubectl_items_or_fail,
+    names_from_items,
     pod_state_from_result,
 )
 from isvtest.core.nvidia import count_gpus_from_full_output, parse_driver_version
@@ -38,7 +39,6 @@ class K8sNvidiaSmiCheck(BaseValidation):
         timeout = int(self.config.get("timeout", 60))
         results = self._run_ephemeral_pods(timeout=timeout)
         if results is None:
-            # ``_run_ephemeral_pods`` already routed the failure via set_failed.
             return
 
         failed_nodes = []
@@ -68,15 +68,12 @@ class K8sNvidiaSmiCheck(BaseValidation):
         kubectl_base = get_kubectl_base_shell()
         namespace = get_k8s_namespace()
 
-        # 1. Identify GPU nodes
         result = self.run_command(f"{kubectl_base} get nodes -l nvidia.com/gpu.present=true -o json")
-        nodes = kubectl_items_or_fail(self, result, "GPU node list", exec_label="GPU nodes")
+        nodes = kubectl_items_or_fail(self, result, "GPU node list")
         if nodes is None:
             return None
 
-        gpu_nodes = [
-            str((node.get("metadata") or {}).get("name")) for node in nodes if (node.get("metadata") or {}).get("name")
-        ]
+        gpu_nodes = names_from_items(nodes)
         if not gpu_nodes:
             self.log.warning("No GPU nodes found with label nvidia.com/gpu.present=true")
             return {}
