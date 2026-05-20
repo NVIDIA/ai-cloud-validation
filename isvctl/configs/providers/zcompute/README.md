@@ -1,22 +1,26 @@
-# zcompute Provider
+# zCompute Provider — NVIDIA NCP Validation Suite
 
-NCP Validation Suite provider for Zadara zcompute clusters.
+NCP Validation Suite provider for Zadara's zCompute platform.
 
-zcompute exposes AWS-compatible EC2, IAM, and STS API endpoints, so the
-existing AWS scripts can be reused with minimal changes. The key difference
-is that all boto3 clients must be pointed at the zcompute endpoint URL
-instead of the real AWS endpoints.
+zCompute exposes AWS-compatible EC2, IAM, and STS API endpoints. All AWS scripts
+are reused via `ssl_wrapper.py` (network suite) or direct boto3 with per-service
+endpoint overrides (VM/K8s suites). The main differences from AWS are documented
+in `COMPATIBILITY_REPORT.md`.
 
 ## Quick Start
 
 ### 1. Set environment variables
 
+All credentials live in one file — fill it in and source it before every run:
+
 ```bash
-export ZCOMPUTE_ENDPOINT=https://api.yourzone.zadarastorage.com
-export AWS_ACCESS_KEY_ID=<your_zcompute_access_key>
-export AWS_SECRET_ACCESS_KEY=<your_zcompute_secret_key>
-export AWS_REGION=<your_zcompute_region>
+# Edit suite.env with your cluster credentials, then:
+source isvctl/configs/providers/zcompute/suite.env
 ```
+
+Key variables: `ZCOMPUTE_BASE_URL`, `AWS_ENDPOINT_URL_EC2`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `AWS_REGION=symphony`, `SYMP_*`, `ZCOMPUTE_TEST_AMI_ID`,
+`ZCOMPUTE_TEST_INSTANCE_TYPE`, `NGC_API_KEY`.
 
 ### 2. Install dependencies
 
@@ -25,54 +29,78 @@ cd ISV-NCP-Validation-Suite
 uv sync
 ```
 
-### 3. Run the control-plane suite (start here)
+### 3. Run a suite
 
 ```bash
-uv run isvctl test run -f isvctl/configs/providers/zcompute/config/control-plane.yaml
+# VM suite (GPU lifecycle + NIM)
+uv run isvctl test run -f isvctl/configs/providers/zcompute/config/vm.yaml
+
+# Network suite
+uv run isvctl test run -f isvctl/configs/providers/zcompute/config/network.yaml
+
+# Kubernetes / EKS-D suite
+uv run isvctl test run -f isvctl/configs/providers/zcompute/config/k8s.yaml
 ```
 
-### 4. Dry-run (validates config, no API calls)
+### 4. Clean up stale resources after failed runs
 
 ```bash
-uv run isvctl test run -f isvctl/configs/providers/zcompute/config/control-plane.yaml --dry-run
+cd isvctl/configs/providers/zcompute/config
+python3 ../scripts/network/cleanup_stale_resources.py
 ```
 
-## Available Test Suites
+## Suite Status (as of 2026-05-20)
 
-| Suite | Config | Status |
-|-------|--------|--------|
-| Control Plane | `config/control-plane.yaml` | Ready |
-| IAM | `config/iam.yaml` | TODO |
-| Network | `config/network.yaml` | TODO |
-| VM | `config/vm.yaml` | TODO |
-| Kubernetes | `config/k8s.yaml` | TODO |
-| Bare Metal | `config/bare_metal.yaml` | TODO |
-| Image Registry | `config/image-registry.yaml` | TODO |
+| Suite | Config | Status | Collected |
+|-------|--------|--------|-----------|
+| Control Plane | `config/control-plane.yaml` | ⚠️ PARTIAL PASS | 9/11 |
+| IAM | `config/iam.yaml` | ✅ FULL PASS | 5/5 |
+| VM | `config/vm.yaml` | ⚠️ PARTIAL PASS | 24/24 collected |
+| Network | `config/network.yaml` | ⚠️ PARTIAL PASS | 10/10 collected |
+| Kubernetes | `config/k8s.yaml` | ⚠️ PARTIAL PASS | 24/24 collected |
+| Security | `config/security.yaml` | ⬜ NOT STARTED | |
+| Image Registry | `config/image-registry.yaml` | ⬜ NOT STARTED | No S3 endpoint |
+| Bare Metal | `config/bare_metal.yaml` | ⬜ NOT STARTED | May not apply |
 
 ## Known Differences from AWS
 
-| Feature | AWS | zcompute |
+| Feature | AWS | zCompute |
 |---------|-----|----------|
-| Tenant API | `resource-groups` | Not supported — implemented via IAM Groups |
-| Services | ec2, s3, iam, sts, eks, ... | ec2, iam, sts (S3 may use separate endpoint) |
-| AMI format | `ami-xxxxxxxx` | zcompute image IDs (TBD) |
-| Instance types | `g4dn.xlarge`, `p3.2xlarge`, ... | zcompute flavor names (TBD) |
-| EKS | Native | Not supported — requires custom K8s provider |
+| Public IPs | Auto-assigned at launch | EIP must be allocated and associated manually |
+| boto3 waiters | Supported | Not supported — replaced with poll loops |
+| VPC/Subnet state | Immediately `available` | Starts `pending` — must poll for `available` |
+| `describe_instances` vpc-id filter | Works | Ignored — returns all project instances |
+| `TagSpecifications` | Supported everywhere | Not supported in SG/KeyPair creation |
+| NACLs | Supported | Not supported (`AuthFailure`) — SG-only model |
+| Route 53 | Supported | Not available |
+| S3 | Supported | No endpoint |
+| Serial console | `GetConsoleOutput` works | Returns 500 |
+| Single AZ | Multiple AZs | Single AZ (`symphony`) |
+| SSL | Valid cert | Self-signed — `verify=False` required |
+| Region name | Standard AWS regions | `symphony` |
 
-## Endpoint Configuration
+## Directory Structure
 
-All scripts read the endpoint from environment variables via
-`scripts/common/client.py`:
+```
+providers/zcompute/
+├── config/          ← Suite configs (our overrides of NVIDIA's suite definitions)
+├── scripts/
+│   ├── vm/          ← launch_instance.py, start_instance.py, reboot_instance.py, etc.
+│   ├── network/     ← ssl_wrapper.py, create_vpc.py, vpc_crud_test.py, cleanup_stale_resources.py
+│   ├── control-plane/
+│   ├── k8s/
+│   └── common/      ← ec2.py (load_nvidia_modules, setup_gpu_dependencies, EIP utils)
+├── suite.env        ← All environment variables (fill in and source before running)
+├── CLUSTER-SETUP.md ← EKS-D cluster setup runbook
+└── COMPATIBILITY_REPORT.md ← Detailed API compatibility notes and test history
+```
 
-1. `ZCOMPUTE_ENDPOINT` (preferred) — e.g. `https://api.yourzone.zadarastorage.com`
-2. `AWS_ENDPOINT_URL` — standard boto3 universal override (boto3 >= 1.28)
+## Critical Gaps (Certification Blockers)
 
-## Adding More Suites
+1. **`iam:UpdateAccessKey` not implemented** — cannot disable access keys.
+   Engineering ticket: [NK-19406](https://zadara.atlassian.net/browse/NK-19406)
 
-When adding the next suite (e.g. IAM or Network):
+2. **NACLs not supported** — `DescribeNetworkAcls`/`CreateNetworkAcl` return `AuthFailure`.
+   Engineering ticket needed.
 
-1. Copy the AWS config from `providers/aws/config/<suite>.yaml` to `providers/zcompute/config/<suite>.yaml`
-2. Update the `import:` path and `command:` paths
-3. Copy the AWS scripts to `providers/zcompute/scripts/<suite>/`
-4. Replace `boto3.client(...)` calls with `get_client(...)` from `common/client.py`
-5. Adapt any AWS-specific resource types (instance types, AMIs, etc.) once the zcompute equivalents are known
+See `COMPATIBILITY_REPORT.md` for the full gap list.
