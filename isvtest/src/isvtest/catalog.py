@@ -60,9 +60,12 @@ PLATFORM_CONFIGS: dict[str, list[str]] = {
 # "ssh", "workload", and "slow" are intentionally omitted.
 LABEL_TO_PLATFORM: dict[str, str] = {
     "bare_metal": "BARE_METAL",
+    "control_plane": "CONTROL_PLANE",
     "iam": "IAM",
+    "image_registry": "IMAGE_REGISTRY",
     "kubernetes": "KUBERNETES",
     "network": "NETWORK",
+    "observability": "OBSERVABILITY",
     "security": "SECURITY",
     "slurm": "SLURM",
     "vm": "VM",
