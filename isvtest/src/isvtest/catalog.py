@@ -49,6 +49,7 @@ PLATFORM_CONFIGS: dict[str, list[str]] = {
     "IMAGE_REGISTRY": ["suites/image-registry.yaml"],
     "KUBERNETES": ["suites/k8s.yaml"],
     "NETWORK": ["suites/network.yaml"],
+    "OBSERVABILITY": ["suites/observability.yaml"],
     "SECURITY": ["suites/security.yaml"],
     "SLURM": ["suites/slurm.yaml"],
     "VM": ["suites/vm.yaml"],

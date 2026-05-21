@@ -14,6 +14,7 @@ Suites:
 [`network`](network.yaml),
 [`vm`](vm.yaml),
 [`bare_metal`](bare_metal.yaml),
+[`observability`](observability.yaml),
 [`k8s`](k8s.yaml),
 [`slurm`](slurm.yaml),
 [`control-plane`](control-plane.yaml),
@@ -61,6 +62,15 @@ For the domain / script-count / AWS-reference overview see the
 | `backend_switch_fabric` | test | `providers/my-isv/scripts/network/backend_switch_fabric_test.py` | Backend leaf, spine, and core switch IDs |
 | `nvlink_domain` | test | `providers/my-isv/scripts/network/nvlink_domain_test.py` | NVLink domain ID when the node supports NVLink |
 | `teardown` | teardown | `providers/my-isv/scripts/network/teardown.py` | VPC cleanup |
+
+### Observability (`observability.yaml`)
+
+| Step | Phase | Script | Key JSON Fields |
+|------|-------|--------|-----------------|
+| `vpc_flow_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.network_id`, `log_destination`, `traffic_type` |
+| `host_syslogs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.hosts_checked`, `log_source`, `entry_count`, `latest_timestamp` |
+| `bmc_sel_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.bmc_endpoints_checked`, `log_source`, `entry_count` |
+| `bmc_gpu_telemetry` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.bmc_endpoints_checked`, `telemetry_endpoint`, `metric_names`, `host_os_unavailable_metrics`, `sample_count` |
 
 ### VM (`vm.yaml`)
 

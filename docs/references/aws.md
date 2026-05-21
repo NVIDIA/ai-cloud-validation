@@ -12,7 +12,9 @@ providers/my-isv/scripts/vm/launch_instance.py       providers/aws/scripts/vm/la
      ↑ TODO block + demo-mode fallback                     ↑ full boto3 implementation
 ```
 
-Each template has a corresponding AWS config and scripts that show exactly how to fill in the TODO blocks.
+Most templates have corresponding AWS config and scripts that show how to fill
+in the TODO blocks. Provider-neutral scaffolds without an AWS row below still
+define the JSON contract for platforms that expose that domain.
 
 ## Available Modules
 

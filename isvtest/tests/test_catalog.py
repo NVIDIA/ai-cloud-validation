@@ -154,7 +154,7 @@ class TestBuildCatalog:
                 for name in _extract_checks_from_config(configs_dir / relpath):
                     suite_platforms.setdefault(name, set()).add(platform)
 
-        for entry in build_catalog():
+        for entry in build_catalog(released_only=False):
             name = entry["name"]
             if name not in suite_platforms:
                 continue

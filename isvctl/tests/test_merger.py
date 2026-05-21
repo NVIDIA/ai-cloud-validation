@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from isvctl.config.merger import (
     apply_set_value,
@@ -437,6 +438,16 @@ class TestImportEndToEnd:
         assert "teardown_checks" in validations
         assert result["tests"]["cluster_name"] == "aws-iam-validation"
         assert result["tests"]["platform"] == "iam"
+
+    def test_my_isv_observability_declares_raw_platform_for_report_upload(self) -> None:
+        """Raw observability config exposes platform for upload paths that skip imports."""
+        config_path = self.CONFIGS_DIR / "providers" / "my-isv" / "config" / "observability.yaml"
+
+        raw_config = yaml.safe_load(config_path.read_text()) or {}
+        assert raw_config.get("tests", {}).get("platform") == "observability"
+
+        result = merge_yaml_files([config_path])
+        assert result["tests"]["platform"] == "observability"
 
     def test_aws_iam_commands_override_test_stubs(self) -> None:
         """AWS commands replace the test definition's placeholder stubs."""
