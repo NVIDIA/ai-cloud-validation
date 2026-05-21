@@ -309,18 +309,25 @@ Changelog format). During your PR, add a one-line bullet under
 promotes that section to the new version heading; after running it, re-read
 the new section and clean up wording before opening the release PR.
 
-If `[Unreleased]` is empty (or you want to backfill historical tags), there
-are two LLM-driven targets that generate professional 2-3 sentence
-descriptions per commit by inspecting `git log` and fetching PR details:
+If `[Unreleased]` is empty (or you want to backfill historical tags), the
+`make changelog-fill` target hands off a hardcoded prompt to an LLM CLI,
+which generates professional 2-3 sentence descriptions per commit by
+inspecting `git log` and fetching PR details. It auto-detects the first
+installed CLI in this priority order — `cursor-agent`, `codex`, `claude`
+— and picks the right invocation; pass `CLI=` to force a choice:
 
 ```bash
-make changelog-fill-codex    # requires the codex CLI (https://github.com/openai/codex)
-make changelog-fill-claude   # requires the claude CLI (https://docs.anthropic.com/en/docs/claude-code)
+make changelog-fill                # auto-detect (cursor-agent -> codex -> claude)
+make changelog-fill CLI=cursor     # explicit cursor-agent
+make changelog-fill CLI=codex      # explicit codex
+make changelog-fill CLI=claude     # explicit claude
 ```
 
-Both targets edit `CHANGELOG.md` in place; review the diff before committing.
-The prompt lives in [`scripts/changelog-prompt.md`](scripts/changelog-prompt.md)
-and can be tweaked without changing the Makefile.
+The chosen CLI edits `CHANGELOG.md` in place; review the diff before
+committing. The prompt lives in
+[`scripts/changelog-prompt.md`](scripts/changelog-prompt.md) and the
+dispatch logic in [`scripts/changelog-fill.sh`](scripts/changelog-fill.sh);
+either can be tweaked without changing the Makefile.
 
 For per-milestone stakeholder overviews (e.g. quarterly summaries),
 `scripts/generate_release_notes.py` fetches issues and PRs attached to a

@@ -5,9 +5,10 @@ SPDX-License-Identifier: Apache-2.0
 
 # Changelog backfill prompt
 
-This prompt is invoked verbatim by `make changelog-fill-codex` and
-`make changelog-fill-claude`. Edit it to tune output style/grouping; both
-targets pick up changes automatically.
+This prompt is invoked verbatim by `make changelog-fill` (via
+`scripts/changelog-fill.sh`, which dispatches to `cursor-agent`, `codex`,
+or `claude`). Edit it to tune output style/grouping; the target picks up
+changes automatically.
 
 ---
 
