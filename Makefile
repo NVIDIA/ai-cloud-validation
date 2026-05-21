@@ -6,6 +6,7 @@ DEMO_TARGETS := $(addprefix demo-,$(MY_ISV_DOMAINS))
 
 PACKAGES := isvctl isvreporter isvtest
 BUMP_SCRIPT := scripts/bump-version.py
+CHANGELOG_PROMPT := scripts/changelog-prompt.md
 RUFF_VERSION := 0.15.12
 RUFF := uvx --from ruff==$(RUFF_VERSION) ruff
 
@@ -184,3 +185,24 @@ plan: ## Render docs/test-plan.yaml to AsciiDoc
 	@echo "Rendering test plan..."
 	@uv run python scripts/test_plan_yaml_to_adoc.py
 	@echo "✅ Test plan rendered!"
+
+.PHONY: changelog-fill-codex changelog-fill-claude
+
+# Changelog backfill targets: invoke an LLM CLI with the hardcoded prompt in
+# $(CHANGELOG_PROMPT). The LLM edits CHANGELOG.md in place; review with
+# `git diff CHANGELOG.md` before committing.
+changelog-fill-codex: ## Fill CHANGELOG.md gaps via the codex CLI
+	@command -v codex >/dev/null 2>&1 || { \
+		echo "Error: codex CLI not installed. See https://github.com/openai/codex"; \
+		exit 1; \
+	}
+	@test -f $(CHANGELOG_PROMPT) || { echo "Error: prompt file $(CHANGELOG_PROMPT) not found"; exit 1; }
+	codex exec "$$(cat $(CHANGELOG_PROMPT))"
+
+changelog-fill-claude: ## Fill CHANGELOG.md gaps via the claude CLI
+	@command -v claude >/dev/null 2>&1 || { \
+		echo "Error: claude CLI not installed. See https://docs.anthropic.com/en/docs/claude-code"; \
+		exit 1; \
+	}
+	@test -f $(CHANGELOG_PROMPT) || { echo "Error: prompt file $(CHANGELOG_PROMPT) not found"; exit 1; }
+	claude -p "$$(cat $(CHANGELOG_PROMPT))"
