@@ -35,7 +35,7 @@ bump_version = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bump_version)
 
 
-RELEASE_NOTES_SEED = textwrap.dedent("""\
+CHANGELOG_SEED = textwrap.dedent("""\
     # Release Notes
 
     Intro text.
@@ -401,23 +401,23 @@ class TestConfirmWarnings:
 # promote_unreleased
 # ---------------------------------------------------------------------------
 class TestPromoteUnreleased:
-    """Tests for the RELEASE_NOTES.md promotion helper."""
+    """Tests for the CHANGELOG.md promotion helper."""
 
     @pytest.fixture()
-    def release_notes(self, tmp_path: Path) -> Path:
-        """Write a seeded RELEASE_NOTES.md file under tmp_path."""
-        path = tmp_path / "RELEASE_NOTES.md"
-        path.write_text(RELEASE_NOTES_SEED)
+    def changelog(self, tmp_path: Path) -> Path:
+        """Write a seeded CHANGELOG.md file under tmp_path."""
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(CHANGELOG_SEED)
         return path
 
-    def test_promotes_unreleased_and_inserts_template(self, release_notes: Path, tmp_path: Path) -> None:
+    def test_promotes_unreleased_and_inserts_template(self, changelog: Path, tmp_path: Path) -> None:
         with (
-            patch.object(bump_version, "RELEASE_NOTES_PATH", release_notes),
+            patch.object(bump_version, "CHANGELOG_PATH", changelog),
             patch.object(bump_version, "REPO_ROOT", tmp_path),
         ):
             bump_version.promote_unreleased("0.7.1", today="2026-06-01")
 
-        text = release_notes.read_text()
+        text = changelog.read_text()
         assert "## [0.7.1] - 2026-06-01" in text
         assert text.count("## [Unreleased]") == 1, "exactly one fresh Unreleased heading"
         unreleased_idx = text.index("## [Unreleased]")
@@ -428,23 +428,23 @@ class TestPromoteUnreleased:
         assert "Stop bar from leaking (#102)." in promoted_block
 
     def test_skips_when_version_already_present(
-        self, release_notes: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, changelog: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         with (
-            patch.object(bump_version, "RELEASE_NOTES_PATH", release_notes),
+            patch.object(bump_version, "CHANGELOG_PATH", changelog),
             patch.object(bump_version, "REPO_ROOT", tmp_path),
         ):
             bump_version.promote_unreleased("0.7.0", today="2026-06-01")
 
         out = capsys.readouterr().out
         assert "already has [0.7.0] section" in out
-        assert "0.7.0] - 2026-05-21" in release_notes.read_text()
+        assert "0.7.0] - 2026-05-21" in changelog.read_text()
 
     def test_warns_when_unreleased_is_empty(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        path = tmp_path / "RELEASE_NOTES.md"
+        path = tmp_path / "CHANGELOG.md"
         path.write_text("# Release Notes\n\n## [Unreleased]\n\n### Added\n\n### Fixed\n\n## [0.7.0] - 2026-05-21\n")
         with (
-            patch.object(bump_version, "RELEASE_NOTES_PATH", path),
+            patch.object(bump_version, "CHANGELOG_PATH", path),
             patch.object(bump_version, "REPO_ROOT", tmp_path),
         ):
             bump_version.promote_unreleased("0.7.1", today="2026-06-01")
@@ -454,9 +454,9 @@ class TestPromoteUnreleased:
         assert "## [0.7.1] - 2026-06-01" in path.read_text()
 
     def test_no_op_when_file_missing(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        missing = tmp_path / "RELEASE_NOTES.md"
+        missing = tmp_path / "CHANGELOG.md"
         with (
-            patch.object(bump_version, "RELEASE_NOTES_PATH", missing),
+            patch.object(bump_version, "CHANGELOG_PATH", missing),
             patch.object(bump_version, "REPO_ROOT", tmp_path),
         ):
             bump_version.promote_unreleased("1.0.0", today="2026-06-01")
@@ -466,10 +466,10 @@ class TestPromoteUnreleased:
         assert not missing.exists()
 
     def test_warns_when_no_unreleased_heading(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        path = tmp_path / "RELEASE_NOTES.md"
+        path = tmp_path / "CHANGELOG.md"
         path.write_text("# Release Notes\n\n## [0.7.0] - 2026-05-21\n\n- Earlier feature (#100).\n")
         with (
-            patch.object(bump_version, "RELEASE_NOTES_PATH", path),
+            patch.object(bump_version, "CHANGELOG_PATH", path),
             patch.object(bump_version, "REPO_ROOT", tmp_path),
         ):
             bump_version.promote_unreleased("0.7.1", today="2026-06-01")

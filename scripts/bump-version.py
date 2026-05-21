@@ -45,7 +45,7 @@ PYPROJECT_FILES = [
     REPO_ROOT / "isvreporter" / "pyproject.toml",
 ]
 
-RELEASE_NOTES_PATH = REPO_ROOT / "RELEASE_NOTES.md"
+CHANGELOG_PATH = REPO_ROOT / "CHANGELOG.md"
 
 UNRELEASED_HEADING_RE = re.compile(r"^## \[Unreleased\][^\n]*$", re.MULTILINE)
 NEXT_VERSION_HEADING_RE = re.compile(r"^## \[[^\]]+\]", re.MULTILINE)
@@ -269,13 +269,13 @@ def _unreleased_has_content(body: str) -> bool:
 def promote_unreleased(new_version: str, today: str | None = None) -> None:
     """Promote `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and re-seed the template."""
     today = today or datetime.date.today().isoformat()
-    rel = RELEASE_NOTES_PATH.relative_to(REPO_ROOT)
+    rel = CHANGELOG_PATH.relative_to(REPO_ROOT)
 
-    if not RELEASE_NOTES_PATH.exists():
-        print(f"  warning: {rel} not found; skipping release notes promotion", file=sys.stderr)
+    if not CHANGELOG_PATH.exists():
+        print(f"  warning: {rel} not found; skipping changelog promotion", file=sys.stderr)
         return
 
-    text = RELEASE_NOTES_PATH.read_text()
+    text = CHANGELOG_PATH.read_text()
 
     if re.search(rf"^## \[{re.escape(new_version)}\]", text, re.MULTILINE):
         print(f"  {rel}: already has [{new_version}] section, skipping")
@@ -289,7 +289,7 @@ def promote_unreleased(new_version: str, today: str | None = None) -> None:
     body = _unreleased_body(text, match.end())
     promoted_heading = f"## [{new_version}] - {today}"
     updated = text[: match.start()] + UNRELEASED_TEMPLATE + "\n" + promoted_heading + text[match.end() :]
-    RELEASE_NOTES_PATH.write_text(updated)
+    CHANGELOG_PATH.write_text(updated)
 
     print(f"  {rel}: promoted [Unreleased] -> [{new_version}] - {today}")
     if not _unreleased_has_content(body):
@@ -369,7 +369,7 @@ def main() -> None:
     print("\nRunning uv lock...")
     subprocess.run(["uv", "lock"], cwd=REPO_ROOT, check=True)
 
-    print("\nDone. Review with 'git diff' (especially RELEASE_NOTES.md), then commit and open a PR.")
+    print("\nDone. Review with 'git diff' (especially CHANGELOG.md), then commit and open a PR.")
 
 
 if __name__ == "__main__":

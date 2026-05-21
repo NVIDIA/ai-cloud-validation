@@ -295,19 +295,32 @@ make bump VERSION=1.2.3     # Explicit version
 
 The script updates all `pyproject.toml` files, refreshes
 `isvtest/src/isvtest/released_tests.json` from the current validation catalog,
-promotes the `## [Unreleased]` section of [`RELEASE_NOTES.md`](RELEASE_NOTES.md)
+promotes the `## [Unreleased]` section of [`CHANGELOG.md`](CHANGELOG.md)
 to a dated heading for the new version, and runs `uv lock`. Newly added
 validations are not run by client configs until they appear in that
 `released_tests.json` manifest, so adding tests to `main` and releasing them
 are separate steps.
 
-### Release Notes
+### Changelog
 
-[`RELEASE_NOTES.md`](RELEASE_NOTES.md) is the canonical, per-tag changelog.
-During your PR, add a one-line bullet under `## [Unreleased]` describing any
-user-visible change. The bump command promotes that section to the new version
-heading; after running it, re-read the new section and clean up wording before
-opening the release PR.
+[`CHANGELOG.md`](CHANGELOG.md) is the canonical, per-tag changelog (Keep a
+Changelog format). During your PR, add a one-line bullet under
+`## [Unreleased]` describing any user-visible change. The bump command
+promotes that section to the new version heading; after running it, re-read
+the new section and clean up wording before opening the release PR.
+
+If `[Unreleased]` is empty (or you want to backfill historical tags), there
+are two LLM-driven targets that generate professional 2-3 sentence
+descriptions per commit by inspecting `git log` and fetching PR details:
+
+```bash
+make changelog-fill-codex    # requires the codex CLI (https://github.com/openai/codex)
+make changelog-fill-claude   # requires the claude CLI (https://docs.anthropic.com/en/docs/claude-code)
+```
+
+Both targets edit `CHANGELOG.md` in place; review the diff before committing.
+The prompt lives in [`scripts/changelog-prompt.md`](scripts/changelog-prompt.md)
+and can be tweaked without changing the Makefile.
 
 For per-milestone stakeholder overviews (e.g. quarterly summaries),
 `scripts/generate_release_notes.py` fetches issues and PRs attached to a
