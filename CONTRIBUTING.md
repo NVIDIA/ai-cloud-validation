@@ -295,9 +295,23 @@ make bump VERSION=1.2.3     # Explicit version
 
 The script updates all `pyproject.toml` files, refreshes
 `isvtest/src/isvtest/released_tests.json` from the current validation catalog,
-and runs `uv lock`. Newly added validations are not run by client configs until
-they appear in that `released_tests.json` manifest, so adding tests to `main` and
-releasing them are separate steps.
+promotes the `## [Unreleased]` section of [`RELEASE_NOTES.md`](RELEASE_NOTES.md)
+to a dated heading for the new version, and runs `uv lock`. Newly added
+validations are not run by client configs until they appear in that
+`released_tests.json` manifest, so adding tests to `main` and releasing them
+are separate steps.
+
+### Release Notes
+
+[`RELEASE_NOTES.md`](RELEASE_NOTES.md) is the canonical, per-tag changelog.
+During your PR, add a one-line bullet under `## [Unreleased]` describing any
+user-visible change. The bump command promotes that section to the new version
+heading; after running it, re-read the new section and clean up wording before
+opening the release PR.
+
+For per-milestone stakeholder overviews (e.g. quarterly summaries),
+`scripts/generate_release_notes.py` fetches issues and PRs attached to a
+GitHub milestone — that is a separate tool with a different purpose.
 
 When validating unreleased tests locally from `main`, disable that release
 filter explicitly:
