@@ -79,12 +79,12 @@ Workflow:
 
 ### Internal
 
-- Show useful stderr for failed steps (#399).
-- Use `tmp_path` fixture for script-writing tests (#401).
-- Gate validations by released manifest (#391).
-- Colocate bump-version tests with the script (#393).
-- Migrate issue templates to YAML forms (#416).
-- Document Cursor Cloud specific instructions in AGENTS.md (#422).
+- Show useful stderr for failed steps ([#399](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/399)).
+- Use `tmp_path` fixture for script-writing tests ([#401](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/401)).
+- Gate validations by released manifest ([#391](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/391)).
+- Colocate bump-version tests with the script ([#393](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/393)).
+- Migrate issue templates to YAML forms ([#416](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/416)).
+- Document Cursor Cloud specific instructions in AGENTS.md ([#422](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/422)).
 
 ## [0.6.8] - 2026-04-30
 
@@ -118,7 +118,7 @@ Workflow:
 
 ### Internal
 
-- Refresh agent docs and extract generic guidelines to a cursor rule (#376).
+- Refresh agent docs and extract generic guidelines to a cursor rule ([#376](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/376)).
 
 ## [0.6.7] - 2026-04-24
 
@@ -189,9 +189,9 @@ Workflow:
 
 ### Internal
 
-- Add `get_kubectl_base_shell()` helper and dedup call sites (#241).
-- Fix documentation drift from PRs #179–#229 (#230).
-- Use `git ls-files` in SPDX header script to respect `.gitignore` (#195).
+- Add `get_kubectl_base_shell()` helper and dedup call sites ([#241](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/241)).
+- Fix documentation drift from PRs #179–#229 ([#230](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/230)).
+- Use `git ls-files` in SPDX header script to respect `.gitignore` ([#195](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/195)).
 
 ## [0.6.5] - 2026-04-13
 
@@ -204,8 +204,8 @@ Workflow:
 
 ### Internal
 
-- Document `tests.exclude` configuration options (#190).
-- Update stale validation references in docs (#186).
+- Document `tests.exclude` configuration options ([#190](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/190)).
+- Update stale validation references in docs ([#186](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/186)).
 
 ## [0.6.4] - 2026-04-10
 
@@ -243,18 +243,18 @@ Workflow:
 
 ### Internal
 
-- Improve README landing page with purpose description and AWS quick start (#167).
-- Update CONTRIBUTING.md (#165).
-- Expand AWS domain guides with new test steps and add index READMEs (#166).
-- Add community health files and fix open source readiness gaps (#161).
-- Remove unused GitHub issue templates (#164, #163, #162).
-- Disable Trivy scan due to active supply chain compromise and add SPDX header pre-commit hook (#159, #157).
+- Improve README landing page with purpose description and AWS quick start ([#167](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/167)).
+- Update CONTRIBUTING.md ([#165](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/165)).
+- Expand AWS domain guides with new test steps and add index READMEs ([#166](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/166)).
+- Add community health files and fix open source readiness gaps ([#161](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/161)).
+- Remove unused GitHub issue templates ([#164](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/164), [#163](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/163), [#162](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/162)).
+- Disable Trivy scan due to active supply chain compromise and add SPDX header pre-commit hook ([#159](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/159), [#157](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/157)).
 
 ## [0.6.1] - 2026-03-24
 
 ### Internal
 
-- Fix broken links, add test suites README, and link-check hook (#155).
+- Fix broken links, add test suites README, and link-check hook ([#155](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/155)).
 
 ## [0.6.0] - 2026-03-24
 
@@ -293,9 +293,9 @@ Workflow:
 
 ### Internal
 
-- Add TruffleHog, CodeQL, and Trivy security scans (#146).
-- Reduce CodeQL timeout (#148).
-- Update actions/checkout version and improve Makefile command formatting (#145).
+- Add TruffleHog, CodeQL, and Trivy security scans ([#146](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/146)).
+- Reduce CodeQL timeout ([#148](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/148)).
+- Update actions/checkout version and improve Makefile command formatting ([#145](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/145)).
 
 ## [0.5.1] - 2026-03-09
 
@@ -308,7 +308,7 @@ Workflow:
 
 ### Internal
 
-- Add DCO info in contributing docs (#124).
+- Add DCO info in contributing docs ([#124](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/124)).
 
 ## [0.5.0] - 2026-03-06
 
@@ -319,7 +319,7 @@ Workflow:
 
 ### Internal
 
-- Update license headers across source files (#122).
+- Update license headers across source files ([#122](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/122)).
 
 ## [0.4.4] - 2026-03-05
 
@@ -415,7 +415,7 @@ Workflow:
 
 ### Internal
 
-- Make the troubleshooting guide generic for all ISVs and add guidance for runs stuck in STARTED (#4).
+- Make the troubleshooting guide generic for all ISVs and add guidance for runs stuck in STARTED ([#4](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/4)).
 - Document process exit codes and return values in IAM scripts, and update the command for regenerating JSON schemas.
 
 ## [0.1.0] - 2025-10-28

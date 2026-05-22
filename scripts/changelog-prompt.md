@@ -74,10 +74,11 @@ description indented two spaces under the title:
   relevant validation ID, CLI flag, config key, or provider when useful.
 ```
 
-For **Internal**, keep the original terse one-line form:
+For **Internal**, use a terse one-line form with a linked PR ref (no
+bold title, no description paragraph):
 
 ```
-- Brief description (#N).
+- Brief description ([#N](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/N)).
 ```
 
 ### Roll-up entries
