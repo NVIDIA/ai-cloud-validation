@@ -186,13 +186,5 @@ plan: ## Render docs/test-plan.yaml to AsciiDoc
 	@echo "✅ Test plan rendered!"
 
 .PHONY: changelog-fill
-
-CHANGELOG_FILL_SCRIPT := scripts/changelog-fill.sh
-
-# Backfill CHANGELOG.md by handing scripts/changelog-prompt.md to an LLM
-# CLI which edits the file in place. Default (CLI=auto) picks the first
-# installed CLI from: cursor-agent, codex, claude. Override with
-# `make changelog-fill CLI=cursor` (or codex, claude). Review with
-# `git diff CHANGELOG.md` before committing.
 changelog-fill: ## Fill CHANGELOG.md gaps via an LLM CLI (CLI=auto|cursor|codex|claude)
-	@$(CHANGELOG_FILL_SCRIPT) $(CLI)
+	@scripts/changelog-fill.sh $(CLI)
