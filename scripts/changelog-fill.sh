@@ -47,13 +47,18 @@ if [ "$CLI" = "auto" ]; then
 fi
 
 # Each invocation enables non-interactive file edits in the current
-# workspace: cursor-agent --force, codex -s workspace-write,
-# claude --permission-mode acceptEdits. Without these the CLIs refuse
-# to write CHANGELOG.md and the dispatcher appears to succeed silently.
+# workspace and streams tool-call progress to the terminal so the user
+# can see what the agent is doing on a multi-minute run:
+#   cursor-agent --force          (write enable; streams by default)
+#   codex -s workspace-write      (write enable; streams by default)
+#   claude --permission-mode acceptEdits --verbose
+#                                 (write enable; --verbose forces
+#                                  streaming, otherwise -p prints only
+#                                  the final summary)
 case "$CLI" in
-  codex)                 cmd="codex exec -s workspace-write";                 hint="https://github.com/openai/codex" ;;
-  claude)                cmd="claude -p --permission-mode acceptEdits";       hint="https://docs.anthropic.com/en/docs/claude-code" ;;
-  cursor | cursor-agent) cmd="cursor-agent -p --force";                       hint="https://cursor.com/docs/cli/overview" ;;
+  codex)                 cmd="codex exec -s workspace-write";                          hint="https://github.com/openai/codex" ;;
+  claude)                cmd="claude -p --permission-mode acceptEdits --verbose";      hint="https://docs.anthropic.com/en/docs/claude-code" ;;
+  cursor | cursor-agent) cmd="cursor-agent -p --force";                                hint="https://cursor.com/docs/cli/overview" ;;
   *)
     echo "Error: unsupported CLI '$CLI' (use one of: codex, claude, cursor, cursor-agent or auto)" >&2
     exit 1
