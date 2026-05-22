@@ -42,6 +42,8 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar
 
+from kubernetes.utils import parse_quantity
+
 from isvtest.config.settings import (
     get_k8s_csi_block_storage_class,
     get_k8s_csi_nfs_storage_class,
@@ -150,6 +152,17 @@ def _wait_pod_ready(run_command, kubectl_base: str, namespace: str, pod_name: st
     if result.exit_code == 0:
         return True, ""
     return False, (result.stderr.strip() or result.stdout.strip())
+
+
+def _storage_quantities_equal(left: Any, right: Any) -> bool:
+    """Return True when two Kubernetes storage quantities represent the same byte count.
+
+    Returns False when either side cannot be parsed as a Kubernetes quantity.
+    """
+    try:
+        return parse_quantity(str(left).strip()) == parse_quantity(str(right).strip())
+    except (ValueError, TypeError):
+        return False
 
 
 class K8sCsiStorageTypesCheck(BaseValidation):
@@ -646,13 +659,29 @@ class K8sCsiStorageQuotaApiCheck(BaseValidation):
             )
             return False
 
+        mismatches = [
+            f"{key}={value!r}"
+            for key, value in ((k, used[k]) for k in ("requests.storage", sc_quota_key))
+            if not _storage_quantities_equal(value, pvc_request)
+        ]
+        if mismatches:
+            self.report_subtest(
+                "per-pvc-usage",
+                passed=False,
+                message=(
+                    f"PVC {pvc_name!r} request={pvc_request!r}, capacity={capacity!r} "
+                    f"but ResourceQuota.status.used did not match requested storage: {', '.join(mismatches)}"
+                ),
+            )
+            return False
+
         self.report_subtest(
             "per-pvc-usage",
             passed=True,
             message=(
-                f"PVC {pvc_name!r} capacity={capacity!r}; quota.used["
-                f"requests.storage]={used.get('requests.storage')!r}, "
-                f"quota.used[{sc_quota_key}]={used.get(sc_quota_key)!r}"
+                f"PVC {pvc_name!r} request={pvc_request!r}, capacity={capacity!r}; "
+                f"quota.used[requests.storage]={used['requests.storage']!r}, "
+                f"quota.used[{sc_quota_key}]={used[sc_quota_key]!r}"
             ),
         )
         return True
