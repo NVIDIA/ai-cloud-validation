@@ -133,9 +133,18 @@ def main() -> int:
             print(json.dumps(result, indent=2))
             return 1
 
-        # Clean up previous containers/images to free disk space
+        # Clean up previous containers only (preserve cached images to avoid re-pulling)
         run_cmd(ssh, f"docker rm -f {args.container_name} 2>/dev/null || true")
-        run_cmd(ssh, "docker system prune -af 2>/dev/null || true")
+        run_cmd(ssh, "docker container prune -f 2>/dev/null || true")
+
+        # Explicitly pull the image before docker run to avoid silent pull failures
+        print(f"Pulling NIM image: {image}", file=sys.stderr)
+        exit_code, stdout_pull, stderr_pull = run_cmd(ssh, f"docker pull {image} 2>&1", timeout=1800)
+        if exit_code != 0:
+            result["error"] = f"docker pull failed: {stderr_pull or stdout_pull}"
+            print(json.dumps(result, indent=2))
+            return 1
+        print("Image pull complete.", file=sys.stderr)
 
         # Launch NIM container
         print(f"Launching NIM container: {image}", file=sys.stderr)
