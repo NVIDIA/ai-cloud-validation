@@ -313,14 +313,14 @@ If `[Unreleased]` is empty (or you want to backfill historical tags), the
 `make changelog-fill` target hands off a hardcoded prompt to an LLM CLI,
 which generates professional 2-3 sentence descriptions per commit by
 inspecting `git log` and fetching PR details. It auto-detects the first
-installed CLI in this priority order — `cursor-agent`, `codex`, `claude`
+installed CLI in this priority order — `codex`, `claude`, `cursor-agent`
 — and picks the right invocation; pass `CLI=` to force a choice:
 
 ```bash
-make changelog-fill                # auto-detect (cursor-agent -> codex -> claude)
-make changelog-fill CLI=cursor     # explicit cursor-agent
+make changelog-fill                # auto-detect (codex -> claude -> cursor-agent)
 make changelog-fill CLI=codex      # explicit codex
 make changelog-fill CLI=claude     # explicit claude
+make changelog-fill CLI=cursor     # explicit cursor-agent
 ```
 
 The chosen CLI edits `CHANGELOG.md` in place; review the diff before

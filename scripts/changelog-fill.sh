@@ -29,7 +29,7 @@ test -f "$PROMPT_FILE" || {
 }
 
 if [ "$CLI" = "auto" ]; then
-  for candidate in cursor-agent codex claude; do
+  for candidate in codex claude cursor-agent; do
     if command -v "$candidate" >/dev/null 2>&1; then
       CLI="$candidate"
       break
@@ -38,20 +38,24 @@ if [ "$CLI" = "auto" ]; then
   if [ "$CLI" = "auto" ]; then
     {
       echo "Error: no LLM CLI found in PATH. Install one of:"
-      echo "  cursor-agent -> https://cursor.com/docs/cli/overview"
       echo "  codex        -> https://github.com/openai/codex"
       echo "  claude       -> https://docs.anthropic.com/en/docs/claude-code"
+      echo "  cursor-agent -> https://cursor.com/docs/cli/overview"
     } >&2
     exit 1
   fi
 fi
 
+# Each invocation enables non-interactive file edits in the current
+# workspace: cursor-agent --force, codex -s workspace-write,
+# claude --permission-mode acceptEdits. Without these the CLIs refuse
+# to write CHANGELOG.md and the dispatcher appears to succeed silently.
 case "$CLI" in
-  cursor | cursor-agent) cmd="cursor-agent -p --force"; hint="https://cursor.com/docs/cli/overview" ;;
-  codex)                 cmd="codex exec";              hint="https://github.com/openai/codex" ;;
-  claude)                cmd="claude -p";               hint="https://docs.anthropic.com/en/docs/claude-code" ;;
+  codex)                 cmd="codex exec -s workspace-write";                 hint="https://github.com/openai/codex" ;;
+  claude)                cmd="claude -p --permission-mode acceptEdits";       hint="https://docs.anthropic.com/en/docs/claude-code" ;;
+  cursor | cursor-agent) cmd="cursor-agent -p --force";                       hint="https://cursor.com/docs/cli/overview" ;;
   *)
-    echo "Error: unsupported CLI '$CLI' (use one of: cursor, cursor-agent, codex, claude, or auto)" >&2
+    echo "Error: unsupported CLI '$CLI' (use one of: codex, claude, cursor, cursor-agent or auto)" >&2
     exit 1
     ;;
 esac
