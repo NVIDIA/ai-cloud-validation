@@ -29,7 +29,6 @@ Usage:
 
 from __future__ import annotations
 
-import datetime
 import json
 import re
 import subprocess
@@ -44,12 +43,6 @@ PYPROJECT_FILES = [
     REPO_ROOT / "isvtest" / "pyproject.toml",
     REPO_ROOT / "isvreporter" / "pyproject.toml",
 ]
-
-CHANGELOG_PATH = REPO_ROOT / "CHANGELOG.md"
-
-UNRELEASED_HEADING_RE = re.compile(r"^## \[Unreleased\][^\n]*$", re.MULTILINE)
-NEXT_VERSION_HEADING_RE = re.compile(r"^## \[[^\]]+\]", re.MULTILINE)
-UNRELEASED_TEMPLATE = "## [Unreleased]\n\n### Added\n\n### Changed\n\n### Fixed\n"
 
 VERSION_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
 # Official semver.org regex (https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string)
@@ -249,56 +242,6 @@ def refresh_released_tests(new_version: str) -> None:
     print(f"  {manifest_path.relative_to(REPO_ROOT)}: {len(test_names)} released tests")
 
 
-def _unreleased_body(text: str, start_after: int) -> str:
-    """Return text between the [Unreleased] heading and the next version heading."""
-    rest = text[start_after:]
-    next_match = NEXT_VERSION_HEADING_RE.search(rest)
-    return rest[: next_match.start()] if next_match else rest
-
-
-def _unreleased_has_content(body: str) -> bool:
-    """Return True if the [Unreleased] body has any bullet/text beyond subsection headings."""
-    for line in body.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        return True
-    return False
-
-
-def promote_unreleased(new_version: str, today: str | None = None) -> None:
-    """Promote `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and re-seed the template."""
-    today = today or datetime.date.today().isoformat()
-    rel = CHANGELOG_PATH.relative_to(REPO_ROOT)
-
-    if not CHANGELOG_PATH.exists():
-        print(f"  warning: {rel} not found; skipping changelog promotion", file=sys.stderr)
-        return
-
-    text = CHANGELOG_PATH.read_text()
-
-    if re.search(rf"^## \[{re.escape(new_version)}\]", text, re.MULTILINE):
-        print(f"  {rel}: already has [{new_version}] section, skipping")
-        return
-
-    match = UNRELEASED_HEADING_RE.search(text)
-    if not match:
-        print(f"  warning: no `## [Unreleased]` heading found in {rel}", file=sys.stderr)
-        return
-
-    body = _unreleased_body(text, match.end())
-    promoted_heading = f"## [{new_version}] - {today}"
-    updated = text[: match.start()] + UNRELEASED_TEMPLATE + "\n" + promoted_heading + text[match.end() :]
-    CHANGELOG_PATH.write_text(updated)
-
-    print(f"  {rel}: promoted [Unreleased] -> [{new_version}] - {today}")
-    if not _unreleased_has_content(body):
-        print(
-            f"  warning: [Unreleased] section was empty; edit {rel} to describe what's in {new_version}",
-            file=sys.stderr,
-        )
-
-
 def check(expected: str) -> None:
     """Verify all pyproject.toml files already have the expected version."""
     if not SEMVER_RE.match(expected):
@@ -364,12 +307,11 @@ def main() -> None:
     print(f"\nBumping to {new_version}:")
     bump(new_version)
     refresh_released_tests(new_version)
-    promote_unreleased(new_version)
 
     print("\nRunning uv lock...")
     subprocess.run(["uv", "lock"], cwd=REPO_ROOT, check=True)
 
-    print("\nDone. Review with 'git diff' (especially CHANGELOG.md), then commit and open a PR.")
+    print("\nDone. Review with 'git diff', then commit and open a PR.")
 
 
 if __name__ == "__main__":

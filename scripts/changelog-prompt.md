@@ -19,10 +19,10 @@ NVIDIA ISV NCP Validation Suite repository.
 
 For every git tag of the form `vX.Y.Z` that is **not** already documented
 in `CHANGELOG.md`, add a complete `## [X.Y.Z] - YYYY-MM-DD` section, in
-descending version order, between the existing `## [Unreleased]` block and
-the next-newest documented version. Do not modify the file header, the
-"How to update this file" block, the `## [Unreleased]` section, or any
-version section that already has content.
+descending version order, immediately above the first existing
+`## [X.Y.Z]` heading (or at the end of the file if no version sections
+exist yet). Do not modify the file header, the "How to update this file"
+block, or any version section that already has content.
 
 ## Steps
 

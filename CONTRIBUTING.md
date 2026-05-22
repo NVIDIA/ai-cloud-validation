@@ -294,12 +294,12 @@ make bump VERSION=1.2.3     # Explicit version
 ```
 
 The script updates all `pyproject.toml` files, refreshes
-`isvtest/src/isvtest/released_tests.json` from the current validation catalog,
-promotes the `## [Unreleased]` section of [`CHANGELOG.md`](CHANGELOG.md)
-to a dated heading for the new version, and runs `uv lock`. Newly added
-validations are not run by client configs until they appear in that
-`released_tests.json` manifest, so adding tests to `main` and releasing them
-are separate steps.
+`isvtest/src/isvtest/released_tests.json` from the current validation
+catalog, and runs `uv lock`. [`CHANGELOG.md`](CHANGELOG.md) is populated
+separately by `make changelog-fill` after the release tag exists (see the
+next section). Newly added validations are not run by client configs
+until they appear in that `released_tests.json` manifest, so adding tests
+to `main` and releasing them are separate steps.
 
 ### Changelog
 

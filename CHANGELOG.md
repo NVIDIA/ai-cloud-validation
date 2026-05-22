@@ -25,16 +25,10 @@ Workflow:
 3. Review the diff with `git diff CHANGELOG.md` and tidy any awkward
    wording before committing.
 
-The `## [Unreleased]` block below is a structural anchor used by the
-prompt to locate the insertion point for new sections; leave it in
-place.
-
 > For per-milestone stakeholder overviews (e.g. quarterly summaries), see
 > `scripts/generate_release_notes.py`, which queries GitHub for issues/PRs
 > attached to a milestone. The file you are reading now is the canonical
 > per-tag changelog.
-
-## [Unreleased]
 
 ## [0.7.0] - 2026-05-15
 
