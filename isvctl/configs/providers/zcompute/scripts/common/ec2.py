@@ -414,6 +414,15 @@ def setup_gpu_dependencies(host: str, user: str, key_file: str) -> dict[str, boo
     )
     print(f"[setup] pre-install nvidia state:\n{diag.stdout}", file=sys.stderr)
 
+    # ── 0.5. Hold nvidia-utils before CUDA repo ──────────────────────────────
+    # The CUDA apt repo ships newer nvidia-utils packages that mismatch the
+    # already-loaded kernel module. Hold them now so apt never auto-upgrades.
+    print("[setup] holding nvidia-utils packages to prevent CUDA repo upgrade ...", file=sys.stderr)
+    _ssh(
+        "dpkg -l 'nvidia-utils-*' 2>/dev/null | awk '/^ii/{print $2}' "
+        "| xargs -r sudo apt-mark hold 2>/dev/null || true"
+    )
+
     # ── 1. Docker CE ─────────────────────────────────────────────────────────
     print("[setup] installing Docker ...", file=sys.stderr)
     docker_cmds = (
@@ -480,41 +489,54 @@ def setup_gpu_dependencies(host: str, user: str, key_file: str) -> dict[str, boo
     else:
         print(f"[setup] NVIDIA Container Toolkit install failed: {r.stderr[-300:]}", file=sys.stderr)
 
-    # ── 4. Ensure nvidia-smi is accessible and version-consistent ───────────
-    # The CUDA apt repo (step 2) and Container Toolkit (step 3) may have
-    # upgraded nvidia-utils to a version that mismatches the loaded kernel
-    # module, causing "Failed to initialize NVML: Driver/library version
-    # mismatch". Fix: always pin nvidia-utils to the exact kernel module
-    # version read from /sys/module/nvidia/version, using --allow-downgrades
-    # so apt never silently upgrades it to a newer incompatible build.
+    # ── 4. Unhold and pin nvidia-utils to the loaded kernel module version ───
+    # Unhold (we held in step 0.5 to prevent CUDA repo from upgrading).
+    # Then force-install nvidia-utils matching the actual loaded kernel module.
+    # We try both -server and non-server package name variants.
     print("[setup] pinning nvidia-utils to loaded kernel module version ...", file=sys.stderr)
     restore_cmds = (
+        # Unhold first so apt can act on these packages again.
+        "dpkg -l 'nvidia-utils-*' 2>/dev/null | awk '/^ii/{print $2}' "
+        "| xargs -r sudo apt-mark unhold 2>/dev/null || true && "
         # Read the exact version from the already-loaded kernel module.
         "KMOD_VER=$(cat /sys/module/nvidia/version 2>/dev/null || echo '') && "
         "KMOD_MAJOR=$(echo \"$KMOD_VER\" | cut -d. -f1) && "
         "echo \"[setup] kernel module version: ${KMOD_VER:-unknown}, major: ${KMOD_MAJOR:-unknown}\" && "
-        # If we know the kernel module version, force-install the matching
-        # nvidia-utils package (allow downgrades in case CUDA repo upgraded it).
+        # If we know the kernel module version, force-install matching nvidia-utils.
+        # Try -server first (Ubuntu HWE repos), fall back to plain name (CUDA repo).
         "if [ -n \"$KMOD_MAJOR\" ]; then "
-        "  echo \"[setup] force-installing nvidia-utils-${KMOD_MAJOR}-server to match kmod\" && "
-        "  sudo apt-get install -y --allow-downgrades --no-install-recommends "
-        "    nvidia-utils-${KMOD_MAJOR}-server 2>&1 | tail -3; "
+        "  echo \"[setup] force-installing nvidia-utils-${KMOD_MAJOR} variants\" && "
+        "  if sudo apt-get install -y --allow-downgrades --no-install-recommends "
+        "       nvidia-utils-${KMOD_MAJOR}-server 2>&1; then "
+        "    echo \"[setup] installed nvidia-utils-${KMOD_MAJOR}-server OK\"; "
+        "  elif sudo apt-get install -y --allow-downgrades --no-install-recommends "
+        "       nvidia-utils-${KMOD_MAJOR} 2>&1; then "
+        "    echo \"[setup] installed nvidia-utils-${KMOD_MAJOR} OK\"; "
+        "  else "
+        "    echo \"[setup] WARNING: could not install nvidia-utils for major ${KMOD_MAJOR}\"; "
+        "  fi; "
         "else "
-        "  echo '[setup] kernel module not loaded yet, falling back to dpkg heuristic' && "
+        "  echo '[setup] kernel module not loaded, falling back to dpkg heuristic' && "
         "  DRVER=$(dpkg -l | awk '/nvidia-kernel-common-[0-9]/{match($2,/[0-9]+/,m);print m[0];exit}') && "
         "  DRVER=${DRVER:-535} && "
         "  sudo apt-get install -y --allow-downgrades --no-install-recommends "
-        "    nvidia-utils-${DRVER}-server 2>&1 | tail -3; "
+        "    nvidia-utils-${DRVER}-server 2>&1 || "
+        "  sudo apt-get install -y --allow-downgrades --no-install-recommends "
+        "    nvidia-utils-${DRVER} 2>&1 || true; "
         "fi && "
+        # Refresh ldconfig so the new library symlinks are picked up immediately.
+        "sudo ldconfig && "
         # Symlink nvidia-smi into /usr/local/bin for all SSH session types.
         "NVSMI=$(find /usr /opt -name nvidia-smi -type f 2>/dev/null | head -1) && "
         "echo \"[setup] nvidia-smi at: $NVSMI\" && "
         "[ -n \"$NVSMI\" ] && sudo ln -sf \"$NVSMI\" /usr/local/bin/nvidia-smi || true && "
         # Restart docker so the NVIDIA container runtime picks up the correct library.
         "sudo systemctl restart docker 2>/dev/null || true && "
-        "echo '[setup] docker restarted after nvidia-utils pin'"
+        "echo '[setup] docker restarted after nvidia-utils pin' && "
+        # Final verification — output will appear in launch_instance JSON via nvidia_diag.
+        "echo \"[setup] nvidia-smi final check: $(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 | head -1)\""
     )
-    r = _ssh(restore_cmds, timeout=180)
+    r = _ssh(restore_cmds, timeout=300)
     results["nvidia_smi_accessible"] = r.returncode == 0
     print(f"[setup] nvidia-smi restore: {r.stdout.strip()}", file=sys.stderr)
 

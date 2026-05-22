@@ -314,6 +314,19 @@ def main() -> int:
             except Exception as e:
                 print(f"[launch] WARNING: setup_gpu_dependencies failed (non-fatal): {e}", file=sys.stderr)
 
+            # Post-setup nvidia diagnostic — captured in JSON so it appears in the isvctl log.
+            import subprocess as _diag_sp
+            _diag = _diag_sp.run(
+                ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
+                 "-o", "BatchMode=yes", "-i", key_file, f"{args.ssh_user}@{public_ip}",
+                 "echo KMOD=$(cat /sys/module/nvidia/version 2>/dev/null || echo N/A) && "
+                 "echo UTILS=$(dpkg -l 'nvidia-utils-*' 2>/dev/null | awk '/^ii/{print $2,$3}' | head -3 | tr '\\n' '|') && "
+                 "echo MLSO=$(ldconfig -p 2>/dev/null | grep libnvidia-ml | head -3 | tr '\\n' '|') && "
+                 "nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 | head -1"],
+                capture_output=True, text=True, timeout=30,
+            )
+            result["nvidia_diag"] = (_diag.stdout.strip() + _diag.stderr.strip())[:500]
+
     except ClientError as e:
         result["error"] = str(e)
         result["error_code"] = e.response.get("Error", {}).get("Code", "")
