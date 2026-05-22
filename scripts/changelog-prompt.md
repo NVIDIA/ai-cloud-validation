@@ -17,23 +17,34 @@ NVIDIA ISV NCP Validation Suite repository.
 
 ## Goal
 
-For every git tag of the form `vX.Y.Z` that is **not** already documented
-in `CHANGELOG.md`, add a complete `## [X.Y.Z] - YYYY-MM-DD` section, in
-descending version order, immediately above the first existing
-`## [X.Y.Z]` heading (or at the end of the file if no version sections
-exist yet). Do not modify the file header, the "How to update this file"
-block, or any version section that already has content.
+For every release version that is not yet documented in `CHANGELOG.md`,
+add a complete `## [X.Y.Z] - YYYY-MM-DD` section, in descending version
+order, immediately above the first existing `## [X.Y.Z]` heading (or at
+the end of the file if no version sections exist yet). A version is
+considered a release if either:
+
+1. There is a git tag of the form `vX.Y.Z`, OR
+2. The `version` field of the root `pyproject.toml` is newer than every
+   git tag — this is a **pending release** that has been bumped but is
+   not yet tagged (typically run as part of `make bump-*`).
+
+Do not modify the file header, the "How to update this file" block, or
+any version section that already has content.
 
 ## Steps
 
 1. Read `CHANGELOG.md` and list every `## [X.Y.Z]` heading already present.
 2. Run `git tag --sort=-v:refname` to list all release tags. Any tag of the
    form `vX.Y.Z` whose version is **not** already a heading in the file is
-   missing.
-3. For each missing tag, in chronological order (oldest first):
-   - Find the previous tag with `git tag --sort=v:refname` and list its
-     commits with
-     `git log --pretty='%H %s' <prev_tag>..<tag>`.
+   missing. Also read the root `pyproject.toml` — if its `version = "X.Y.Z"`
+   is newer than every git tag and not already a heading, treat it as a
+   pending release.
+3. For each missing version, in chronological order (oldest first):
+   - For a **tagged release**, the commit range is `<prev_tag>..<tag>`
+     (`git log --pretty='%H %s' <prev_tag>..<tag>`).
+   - For a **pending release**, the commit range is `<latest_tag>..HEAD`
+     (`git log --pretty='%H %s' <latest_tag>..HEAD`). Skip the bump
+     commit itself (`chore: update package versions to X.Y.Z`).
    - Each commit subject ends with the PR number in parentheses, e.g.
      `(#425)`. Fetch the PR for richer context from
      `https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/<N>` (use the
@@ -44,8 +55,10 @@ block, or any version section that already has content.
      sentences) that helps consumers of the repo understand what changed
      and why. Avoid implementation jargon when a behavior description is
      clearer.
-4. Pick the section date from the tag's commit date:
-   `git log -1 --format=%ad --date=short <tag>`.
+4. Pick the section date:
+   - For a **tagged release**: the tag's commit date,
+     `git log -1 --format=%ad --date=short <tag>`.
+   - For a **pending release**: today's date (UTC or local, your choice).
 
 ## Format
 

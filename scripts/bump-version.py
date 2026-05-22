@@ -44,6 +44,8 @@ PYPROJECT_FILES = [
     REPO_ROOT / "isvreporter" / "pyproject.toml",
 ]
 
+CHANGELOG_FILL_SCRIPT = REPO_ROOT / "scripts" / "changelog-fill.sh"
+
 VERSION_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
 # Official semver.org regex (https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string)
 SEMVER_RE = re.compile(
@@ -226,6 +228,30 @@ def bump(new_version: str) -> None:
         print(f"  {path.relative_to(REPO_ROOT)}: {old_version} -> {new_version}")
 
 
+def run_changelog_fill() -> None:
+    """Invoke scripts/changelog-fill.sh to backfill the new version's CHANGELOG section.
+
+    Best-effort: warns instead of failing the bump if changelog-fill exits
+    non-zero (e.g. no LLM CLI installed). The maintainer can re-run
+    `make changelog-fill` manually later.
+    """
+    if not CHANGELOG_FILL_SCRIPT.exists():
+        print(
+            f"  warning: {CHANGELOG_FILL_SCRIPT.relative_to(REPO_ROOT)} not found; skipping changelog fill",
+            file=sys.stderr,
+        )
+        return
+
+    print("\nRunning changelog-fill (this can take a few minutes)...")
+    result = subprocess.run(["bash", str(CHANGELOG_FILL_SCRIPT)], cwd=REPO_ROOT, check=False)
+    if result.returncode != 0:
+        print(
+            f"  warning: changelog-fill exited {result.returncode}; "
+            "run `make changelog-fill` manually after fixing the issue",
+            file=sys.stderr,
+        )
+
+
 def refresh_released_tests(new_version: str) -> None:
     """Refresh the released-test manifest from the current catalog."""
     try:
@@ -310,6 +336,8 @@ def main() -> None:
 
     print("\nRunning uv lock...")
     subprocess.run(["uv", "lock"], cwd=REPO_ROOT, check=True)
+
+    run_changelog_fill()
 
     print("\nDone. Review with 'git diff', then commit and open a PR.")
 
