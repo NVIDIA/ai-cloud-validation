@@ -314,18 +314,25 @@ def main() -> int:
             except Exception as e:
                 print(f"[launch] WARNING: setup_gpu_dependencies failed (non-fatal): {e}", file=sys.stderr)
 
-            # Post-setup nvidia diagnostic — written to /tmp/nvidia_diag.txt on toolbox
-            # so it's readable after the run regardless of isvctl log capture.
+            # Post-setup nvidia diagnostic — written to /tmp/nvidia_diag.txt on toolbox.
             import subprocess as _diag_sp
             _diag = _diag_sp.run(
                 ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
                  "-o", "UserKnownHostsFile=/dev/null",
                  "-o", "BatchMode=yes", "-i", key_file, f"{args.ssh_user}@{public_ip}",
-                 "echo '=== KMOD ===' && (cat /sys/module/nvidia/version 2>/dev/null || echo N/A) && "
-                 "echo '=== nvidia-utils dpkg ===' && (dpkg -l 'nvidia-utils-*' 'libnvidia-ml*' 2>/dev/null | grep '^ii' || echo none) && "
-                 "echo '=== libnvidia-ml ldconfig ===' && (ldconfig -p 2>/dev/null | grep libnvidia-ml || echo none) && "
-                 "echo '=== nvidia-smi ===' && nvidia-smi 2>&1 | head -10"],
-                capture_output=True, text=True, timeout=30,
+                 # 1. Try modprobe fresh and capture the exact error
+                 "echo '=== MODPROBE ===' && sudo modprobe nvidia 2>&1 && echo 'modprobe: OK' || echo 'modprobe: FAILED' ; "
+                 # 2. Kernel module version (populated only if modprobe succeeded)
+                 "echo '=== KMOD ===' && (cat /sys/module/nvidia/version 2>/dev/null || echo N/A) ; "
+                 # 3. What the libnvidia-ml.so.1 symlink actually resolves to
+                 "echo '=== MLSO symlink ===' && ls -la /lib/x86_64-linux-gnu/libnvidia-ml.so* 2>/dev/null || echo none ; "
+                 # 4. All nvidia/libnvidia packages installed
+                 "echo '=== dpkg nvidia ===' && dpkg -l 'nvidia-*' 'libnvidia-*' 2>/dev/null | grep '^ii' || echo none ; "
+                 # 5. nvidia-smi output
+                 "echo '=== nvidia-smi ===' && nvidia-smi 2>&1 | head -5 ; "
+                 # 6. lsmod nvidia
+                 "echo '=== lsmod ===' && lsmod | grep nvidia || echo 'not in lsmod'"],
+                capture_output=True, text=True, timeout=60,
             )
             diag_text = _diag.stdout.strip() or _diag.stderr.strip() or "no output"
             result["nvidia_diag"] = diag_text[:800]
