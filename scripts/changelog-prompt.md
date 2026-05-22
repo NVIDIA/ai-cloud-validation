@@ -49,24 +49,57 @@ version section that already has content.
 
 ## Format
 
-- Match the style of the existing `## [0.7.0]` section as the canonical
-  example.
-- Group bullets by intent using these subsections, in this order
-  (omit any that are empty):
-  - `### Added` — new validations, providers, CLI commands, config options
-    (`feat:` commits that introduce something new).
-  - `### Changed` — behavior or output changes downstream consumers may
-    notice (`feat:` or `refactor:` commits that alter existing behavior).
-  - `### Fixed` — bug fixes worth calling out (`fix:` commits).
-  - `### Removed` — removed or deprecated functionality.
-  - `### Security` — security-impacting fixes.
-  - `### Internal` — refactors, docs, tests, CI, and other non-user-facing
-    changes (`refactor:`, `docs:`, `test:`, `chore:` commits).
-- End every bullet with `(#N)` so it auto-links on GitHub.
+Group bullets by intent using these subsections, in this order (omit any
+that are empty):
+
+- `### Added` — new validations, providers, CLI commands, config options
+  (`feat:` commits that introduce something new).
+- `### Changed` — behavior or output changes downstream consumers may
+  notice (`feat:` or `refactor:` commits that alter existing behavior).
+- `### Fixed` — bug fixes worth calling out (`fix:` commits).
+- `### Removed` — removed or deprecated functionality.
+- `### Internal` — refactors, docs, tests, CI, and other non-user-facing
+  changes (`refactor:`, `docs:`, `test:`, `chore:` commits).
+
+### Bullet style by section
+
+For **Added / Changed / Fixed / Removed**, use a two-line
+bullet with a bold title, a linked PR reference, and a 1-2 sentence
+description indented two spaces under the title:
+
+```
+- **Concise title summarizing the change** ([#N](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/N))
+  One to two sentences explaining what changed and why. Describe the
+  user-visible behavior — not the implementation — and reference the
+  relevant validation ID, CLI flag, config key, or provider when useful.
+```
+
+For **Internal**, keep the original terse one-line form:
+
+```
+- Brief description (#N).
+```
+
+### Roll-up entries
+
+When several PRs are clearly part of one initiative (e.g. a sweeping
+refactor or a multi-PR feature series), collapse them into a single
+bullet with all PR refs inline and one shared description:
+
+```
+- **Common theme across the series** ([#A](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/A), [#B](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/B), [#C](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/C))
+  One description that covers the whole series. Prefer this over three
+  near-identical separate bullets.
+```
+
+### Always
+
 - Skip the version-bump commit itself
   (`chore: update package versions to X.Y.Z`).
 - Omit purely cosmetic chores (SPDX-header updates, lint-only changes,
   dependency lock-file refreshes) unless they have user-visible impact.
+- If a commit has no PR (initial commit, direct push), omit the
+  parenthetical entirely rather than inventing one.
 
 ## When done
 
