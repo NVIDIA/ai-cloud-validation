@@ -50,10 +50,16 @@ from common.ec2 import (  # noqa: E402
 )
 from common.ssh_utils import wait_for_ssh  # noqa: E402
 
-# Defaults
-DEFAULT_INSTANCE_TYPE = "zh1.52xlarge"
-DEFAULT_AMI_ID = "ami-8269e586aa484003948818fadcbb475a"
-DEFAULT_VPC_ID = "vpc-0b7f00012d3046f391a4e99399e456af"
+# Defaults — env vars take precedence over the hardcoded fallbacks.
+DEFAULT_INSTANCE_TYPE = os.environ.get("ZCOMPUTE_TEST_INSTANCE_TYPE", "zh1.52xlarge")
+DEFAULT_AMI_ID = os.environ.get(
+    "ZCOMPUTE_TEST_AMI_ID",
+    "ami-241c9a9e96d143dc90e1a5a50a3a8152",  # isv-ncp-gpu-baked-20260522
+)
+DEFAULT_VPC_ID = os.environ.get(
+    "ZCOMPUTE_TEST_VPC_ID",
+    "vpc-0b7f00012d3046f391a4e99399e456af",
+)
 DEFAULT_KEY_NAME = "isv-test-key"
 DEFAULT_SSH_USER = "ubuntu"
 
