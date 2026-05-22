@@ -304,17 +304,8 @@ are separate steps.
 ### Changelog
 
 [`CHANGELOG.md`](CHANGELOG.md) is the canonical, per-tag changelog (Keep a
-Changelog format). During your PR, add a one-line bullet under
-`## [Unreleased]` describing any user-visible change. The bump command
-promotes that section to the new version heading; after running it, re-read
-the new section and clean up wording before opening the release PR.
-
-If `[Unreleased]` is empty (or you want to backfill historical tags), the
-`make changelog-fill` target hands off a hardcoded prompt to an LLM CLI,
-which generates professional 2-3 sentence descriptions per commit by
-inspecting `git log` and fetching PR details. It auto-detects the first
-installed CLI in this priority order — `codex`, `claude`, `cursor-agent`
-— and picks the right invocation; pass `CLI=` to force a choice:
+Changelog format), populated by `make changelog-fill` rather than by PR
+authors. After cutting a release tag (typically via `make bump-*`), run:
 
 ```bash
 make changelog-fill                # auto-detect (codex -> claude -> cursor-agent)
@@ -323,8 +314,9 @@ make changelog-fill CLI=claude     # explicit claude
 make changelog-fill CLI=cursor     # explicit cursor-agent
 ```
 
-The chosen CLI edits `CHANGELOG.md` in place; review the diff before
-committing. The prompt lives in
+The chosen LLM CLI inspects `git log` and fetches PR details to generate
+the new section, then edits `CHANGELOG.md` in place. Review the diff and
+tidy any awkward wording before committing. The prompt lives in
 [`scripts/changelog-prompt.md`](scripts/changelog-prompt.md) and the
 dispatch logic in [`scripts/changelog-fill.sh`](scripts/changelog-fill.sh);
 either can be tweaked without changing the Makefile.
