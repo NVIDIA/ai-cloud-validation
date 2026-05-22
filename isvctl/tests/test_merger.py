@@ -449,6 +449,42 @@ class TestImportEndToEnd:
         result = merge_yaml_files([config_path])
         assert result["tests"]["platform"] == "observability"
 
+    def test_aws_observability_inherits_supported_validations(self) -> None:
+        """AWS observability imports the canonical suite and wires supported steps."""
+        result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "observability.yaml"])
+
+        assert result["tests"]["platform"] == "observability"
+        assert result["tests"]["cluster_name"] == "aws-observability-validation"
+
+        steps = result["commands"]["observability"]["steps"]
+        step_names = {step["name"] for step in steps}
+        assert {
+            "create_network",
+            "enable_vpc_flow_logs",
+            "launch_host",
+            "vpc_flow_logs",
+            "host_syslogs",
+            "bmc_sel_logs",
+            "bmc_gpu_telemetry",
+        } <= step_names
+
+        steps_by_name = {step["name"]: step for step in steps}
+        assert steps_by_name["host_syslogs"]["timeout"] >= 600
+        assert "{{steps.enable_vpc_flow_logs.flow_log_id}}" in steps_by_name["vpc_flow_logs"]["args"]
+        launch_host_args = steps_by_name["launch_host"]["args"]
+        key_name_arg = launch_host_args[launch_host_args.index("--key-name") + 1]
+        assert key_name_arg == "isv-observability-host-key-{{steps.create_network.network_id}}"
+
+        validations = result["tests"]["validations"]
+        assert validations["network_logs"]["checks"]["VpcFlowLogsCheck"]["step"] == "vpc_flow_logs"
+        assert validations["host_logs"]["checks"]["HostSyslogCheck"]["step"] == "host_syslogs"
+        assert validations["bmc_logs"]["checks"]["BmcSelLogsCheck"]["step"] == "bmc_sel_logs"
+        assert validations["bmc_telemetry"]["checks"]["BmcGpuTelemetryCheck"]["step"] == "bmc_gpu_telemetry"
+
+        excluded = set(result["tests"].get("exclude", {}).get("tests", []))
+        assert "BmcSelLogsCheck" not in excluded
+        assert "BmcGpuTelemetryCheck" not in excluded
+
     def test_aws_iam_commands_override_test_stubs(self) -> None:
         """AWS commands replace the test definition's placeholder stubs."""
         result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "iam.yaml"])

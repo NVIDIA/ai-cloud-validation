@@ -42,6 +42,19 @@ def _tests(names: list[str], probes: dict[str, Any] | None = None) -> dict[str, 
     return {name: dict(test_result) for name in names}
 
 
+def _provider_hidden_tests(names: list[str]) -> dict[str, dict[str, Any]]:
+    """Build a passing tests map for provider-hidden evidence."""
+    return {
+        name: {
+            "passed": True,
+            "provider_hidden": True,
+            "probes": {"bmc_endpoints_checked": 0},
+            "message": "AWS BMC plane is provider-owned",
+        }
+        for name in names
+    }
+
+
 def _vpc_flow_logs_output(**overrides: Any) -> dict[str, Any]:
     """Build passing VPC Flow Log step output."""
     probes: dict[str, Any] = {
@@ -137,6 +150,35 @@ def _bmc_gpu_telemetry_output(**overrides: Any) -> dict[str, Any]:
     return output
 
 
+def _bmc_sel_provider_hidden_output() -> dict[str, Any]:
+    """Build provider-hidden BMC SEL log step output."""
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "bmc_sel_logs",
+        "tests": _provider_hidden_tests(
+            ["sel_log_endpoint_reachable", "sel_log_source_present", "sel_entries_queryable"]
+        ),
+    }
+
+
+def _bmc_gpu_telemetry_provider_hidden_output() -> dict[str, Any]:
+    """Build provider-hidden BMC GPU telemetry step output."""
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "bmc_gpu_telemetry",
+        "tests": _provider_hidden_tests(
+            [
+                "telemetry_endpoint_reachable",
+                "gpu_metrics_present",
+                "host_os_gap_identified",
+                "telemetry_samples_recent",
+            ]
+        ),
+    }
+
+
 @pytest.mark.parametrize(
     ("validation_cls", "step_output", "expected"),
     [
@@ -152,6 +194,25 @@ def test_observability_checks_pass_with_required_evidence(
     expected: str,
 ) -> None:
     """Observability checks pass when required probes and evidence are present."""
+    result = validation_cls(config=_config(step_output)).execute()
+
+    assert result["passed"] is True
+    assert expected in result["output"]
+
+
+@pytest.mark.parametrize(
+    ("validation_cls", "step_output", "expected"),
+    [
+        (BmcSelLogsCheck, _bmc_sel_provider_hidden_output(), "provider-hidden"),
+        (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_provider_hidden_output(), "provider-hidden"),
+    ],
+)
+def test_bmc_observability_checks_pass_with_provider_hidden_evidence(
+    validation_cls: type[BmcSelLogsCheck | BmcGpuTelemetryCheck],
+    step_output: dict[str, Any],
+    expected: str,
+) -> None:
+    """BMC observability checks accept provider-hidden evidence without endpoint counts."""
     result = validation_cls(config=_config(step_output)).execute()
 
     assert result["passed"] is True

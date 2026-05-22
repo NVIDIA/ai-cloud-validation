@@ -39,6 +39,25 @@ def _is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _provider_hidden_message(validation: BaseValidation, required: list[str], label: str) -> str:
+    """Return a provider-hidden pass message when every required subtest carries that marker."""
+    tests = validation.config.get("step_output", {}).get("tests", {})
+    if not isinstance(tests, dict):
+        return ""
+
+    required_results = [tests.get(name) for name in required]
+    if not all(isinstance(result, dict) and result.get("provider_hidden") is True for result in required_results):
+        return ""
+
+    messages = [
+        message.strip()
+        for result in required_results
+        if isinstance(result, dict) and isinstance((message := result.get("message")), str) and message.strip()
+    ]
+    detail = messages[0] if messages else "BMC plane is provider-owned"
+    return f"{label} provider-hidden: {detail}"
+
+
 def _require_non_empty_strings(
     validation: BaseValidation, probes: dict[str, object], fields: list[str], label: str
 ) -> bool:
@@ -169,7 +188,10 @@ class BmcSelLogsCheck(BaseValidation):
     Step output:
         tests: dict with sel_log_endpoint_reachable, sel_log_source_present,
                sel_entries_queryable
-        tests.<check>.probes.bmc_endpoints_checked: Positive integer count of BMC endpoints inspected
+        For provider-hidden BMC planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.bmc_endpoints_checked: Positive integer count of BMC
+            endpoints inspected
         tests.<check>.probes.log_source: Non-empty SEL log source identifier
         tests.<check>.probes.entry_count: Non-negative integer count of SEL entries returned
     """
@@ -181,6 +203,9 @@ class BmcSelLogsCheck(BaseValidation):
         """Validate BMC SEL log results and evidence."""
         required = ["sel_log_endpoint_reachable", "sel_log_source_present", "sel_entries_queryable"]
         if not check_required_tests(self, required, "BMC SEL log tests failed"):
+            return
+        if message := _provider_hidden_message(self, required, "BMC SEL logs"):
+            self.set_passed(message)
             return
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["log_source"], "BMC SEL log"):
@@ -205,7 +230,10 @@ class BmcGpuTelemetryCheck(BaseValidation):
     Step output:
         tests: dict with telemetry_endpoint_reachable, gpu_metrics_present,
                host_os_gap_identified, telemetry_samples_recent
-        tests.<check>.probes.bmc_endpoints_checked: Positive integer count of BMC endpoints inspected
+        For provider-hidden BMC planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.bmc_endpoints_checked: Positive integer count of BMC
+            endpoints inspected
         tests.<check>.probes.telemetry_endpoint: Non-empty telemetry API/source identifier
         tests.<check>.probes.metric_names: Non-empty list of GPU metric names
         tests.<check>.probes.host_os_unavailable_metrics: Non-empty list of metrics not available
@@ -225,6 +253,9 @@ class BmcGpuTelemetryCheck(BaseValidation):
             "telemetry_samples_recent",
         ]
         if not check_required_tests(self, required, "BMC GPU telemetry tests failed"):
+            return
+        if message := _provider_hidden_message(self, required, "BMC GPU telemetry"):
+            self.set_passed(message)
             return
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_endpoint"], "BMC GPU telemetry"):

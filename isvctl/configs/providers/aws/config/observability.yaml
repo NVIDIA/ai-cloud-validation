@@ -1,0 +1,184 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# AWS Observability Validation Configuration
+#
+# Imports validations from the provider-agnostic observability canonical config.
+# AWS wires VPC Flow Logs and guest host syslog checks. Customer-visible BMC SEL
+# and Redfish GPU telemetry are not exposed by AWS EC2/EKS, so the BMC steps emit
+# provider-hidden evidence following the AWS security BMC pattern.
+#
+# Required IAM permissions:
+#   - Permissions required by providers/aws/config/network.yaml create/teardown
+#   - Permissions required by providers/aws/config/bare_metal.yaml launch/teardown
+#   - ec2:CreateFlowLogs, ec2:DescribeFlowLogs, ec2:DeleteFlowLogs
+#   - logs:CreateLogGroup, logs:DescribeLogGroups, logs:DeleteLogGroup
+#   - iam:CreateRole, iam:GetRole, iam:DeleteRole,
+#     iam:PutRolePolicy, iam:DeleteRolePolicy
+
+import:
+  - ../../../suites/observability.yaml
+
+version: "1.0"
+
+commands:
+  observability:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: create_network
+        phase: setup
+        command: "python3 ../scripts/network/create_vpc.py"
+        args:
+          - "--name"
+          - "isv-observability-vpc"
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.0.0.0/16"
+        timeout: 300
+
+      - name: enable_vpc_flow_logs
+        phase: setup
+        command: "python3 ../scripts/observability/setup_vpc_flow_logs.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--name"
+          - "isv-observability"
+        timeout: 300
+
+      - name: launch_host
+        phase: setup
+        command: "python3 ../scripts/bare_metal/launch_instance.py"
+        args:
+          - "--name"
+          - "isv-observability-host"
+          - "--instance-type"
+          - "{{instance_type}}"
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-id"
+          - "{{steps.create_network.subnets[0].subnet_id}}"
+          - "--key-name"
+          - "isv-observability-host-key-{{steps.create_network.network_id}}"
+        timeout: 2400
+
+      - name: vpc_flow_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--flow-log-id"
+          - "{{steps.enable_vpc_flow_logs.flow_log_id}}"
+          - "--aspect"
+          - "vpc_flow_logs"
+        timeout: 120
+
+      - name: host_syslogs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "host_syslogs"
+          - "--host"
+          - "{{steps.launch_host.public_ip}}"
+          - "--key-file"
+          - "{{steps.launch_host.key_file}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 600
+
+      - name: bmc_sel_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "bmc_sel_logs"
+        timeout: 60
+
+      - name: bmc_gpu_telemetry
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "bmc_gpu_telemetry"
+        timeout: 60
+
+      - name: teardown_host
+        phase: teardown
+        command: "python3 ../scripts/bare_metal/teardown.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_host.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--delete-key-pair"
+          - "--delete-security-group"
+          - "{{host_teardown_flag}}"
+        timeout: 2400
+
+      - name: teardown_flow_logs
+        phase: teardown
+        command: "python3 ../scripts/observability/teardown_vpc_flow_logs.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--flow-log-id"
+          - "{{steps.enable_vpc_flow_logs.flow_log_id}}"
+          - "--log-group-name"
+          - "{{steps.enable_vpc_flow_logs.log_group_name}}"
+          - "--role-name"
+          - "{{steps.enable_vpc_flow_logs.role_name}}"
+          - "--policy-name"
+          - "{{steps.enable_vpc_flow_logs.policy_name}}"
+          - "{{observability_teardown_flag}}"
+        timeout: 300
+
+      - name: teardown_network
+        phase: teardown
+        command: "python3 ../scripts/network/teardown.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--region"
+          - "{{region}}"
+          - "{{network_teardown_flag}}"
+        timeout: 900
+
+tests:
+  platform: observability
+  cluster_name: "aws-observability-validation"
+  description: "AWS observability validation for VPC Flow Logs and host syslogs"
+
+  settings:
+    region: "us-west-2"
+    instance_type: "g4dn.metal"
+    ssh_user: "ubuntu"
+    host_teardown_flag: "{{(env.AWS_OBSERVABILITY_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+    observability_teardown_flag: "{{(env.AWS_OBSERVABILITY_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+    network_teardown_flag: "{{(env.AWS_OBSERVABILITY_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
