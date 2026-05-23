@@ -285,7 +285,14 @@ def load_nvidia_modules(host: str, user: str, key_file: str) -> bool:
         )
 
     print(f"[ec2] loading NVIDIA modules on {host} ...", file=sys.stderr)
-    result = _ssh("sudo modprobe nvidia nvidia-uvm nvidia-modeset")
+    # modprobe loads the kernel modules; nvidia-modprobe -u creates the
+    # /dev/nvidia-uvm device node that CUDA (and NIM) require.
+    # Without the device node, nvidia-smi works but any CUDA app inside
+    # a container fails with CUDA_ERROR_SYSTEM_NOT_READY.
+    result = _ssh(
+        "sudo modprobe nvidia nvidia-uvm nvidia-modeset && "
+        "sudo nvidia-modprobe -u -c=0 2>/dev/null || true"
+    )
     loaded = result.returncode == 0 or "already" in result.stderr.lower()
 
     if not loaded and "not found" in result.stderr.lower():
