@@ -112,7 +112,7 @@ fi
 
 # ── §2. AWS Cloud Controller Manager ─────────────────────────────────────────
 log "§2 AWS Cloud Controller Manager ..."
-if kubectl get deployment aws-cloud-controller-manager -n kube-system >/dev/null 2>&1; then
+if helm list -n kube-system 2>/dev/null | grep -q aws-cloud-controller-manager; then
     skip "AWS CCM"
 else
     # ConfigMap for zcompute endpoint
@@ -137,7 +137,7 @@ EOF
         https://kubernetes.github.io/cloud-provider-aws 2>/dev/null || true
     helm repo update aws-cloud-controller-manager 2>/dev/null || true
 
-    helm install aws-cloud-controller-manager \
+    helm upgrade --install aws-cloud-controller-manager \
         aws-cloud-controller-manager/aws-cloud-controller-manager \
         --namespace kube-system \
         --set args[0]="--cloud-provider=aws" \
@@ -151,7 +151,7 @@ fi
 
 # ── §3. EBS CSI Driver ────────────────────────────────────────────────────────
 log "§3 EBS CSI Driver ..."
-if kubectl get deployment ebs-csi-controller -n kube-system >/dev/null 2>&1; then
+if helm list -n kube-system 2>/dev/null | grep -q aws-ebs-csi-driver; then
     skip "EBS CSI"
 else
     # Credentials secret (idempotent)
@@ -164,7 +164,7 @@ else
     helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver 2>/dev/null || true
     helm repo update aws-ebs-csi-driver 2>/dev/null || true
 
-    helm install aws-ebs-csi-driver aws-ebs-csi-driver/aws-ebs-csi-driver \
+    helm upgrade --install aws-ebs-csi-driver aws-ebs-csi-driver/aws-ebs-csi-driver \
         --namespace kube-system \
         --set "controller.env[0].name=AWS_EC2_ENDPOINT" \
         --set "controller.env[0].value=https://${ZCOMPUTE_IP}/api/v2/aws/ec2/" \
@@ -195,7 +195,7 @@ else
     helm repo add nvidia https://helm.ngc.nvidia.com/nvidia 2>/dev/null || true
     helm repo update nvidia 2>/dev/null || true
 
-    helm install gpu-operator nvidia/gpu-operator \
+    helm upgrade --install gpu-operator nvidia/gpu-operator \
         --namespace nvidia-gpu-operator \
         --create-namespace \
         --version "${GPU_OPERATOR_VERSION}" \

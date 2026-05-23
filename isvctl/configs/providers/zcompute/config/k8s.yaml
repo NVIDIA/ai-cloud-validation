@@ -103,12 +103,6 @@ tests:
       # Static cluster — no managed node pool API
       - K8sNodePoolCheck
 
-      # OIDC not configured on this EKS-D cluster
-      - K8sOidcIssuerCheck
-
-      # Flannel does not enforce NetworkPolicy
-      - K8sNetworkPolicyCheck
-
       # Requires an external (out-of-allow-list) vantage point to probe from
       - K8sApiNetworkAclCheck
 
