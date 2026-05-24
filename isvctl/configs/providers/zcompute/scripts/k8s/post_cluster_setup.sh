@@ -220,7 +220,7 @@ log "§5 MPI Operator ..."
 if kubectl get deployment mpi-operator -n mpi-operator >/dev/null 2>&1; then
     skip "MPI Operator"
 else
-    kubectl apply -f \
+    kubectl apply --server-side -f \
         "https://raw.githubusercontent.com/kubeflow/mpi-operator/${MPI_OPERATOR_VERSION}/deploy/v2beta1/mpi-operator.yaml"
     kubectl wait --for=condition=Available deployment/mpi-operator \
         -n mpi-operator --timeout=120s
