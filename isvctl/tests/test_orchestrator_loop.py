@@ -519,6 +519,102 @@ EOF
         assert cases["FieldExistsCheck"].find("error").attrib["type"] == "template_render_failed"
 
 
+class TestLabelFiltering:
+    """Tests for ``--label`` selection and its precedence over config exclusions.
+
+    These pin two non-obvious composition rules from ``Orchestrator.run``:
+    1. CLI labels (or pytest ``-k``/``-m``) bypass YAML
+       ``exclude.labels``/``exclude.markers`` for the same run.
+    2. CLI labels pre-filter entries by label first, then pytest's ``-k`` filter
+       applies on top - so a deselected entry shows the pytest-filter message,
+       not the label-mismatch message.
+
+    ``K8sNodeCountCheck`` is used as the test subject because it ships with
+    ``markers=["kubernetes"]`` (so labels fall back to ``("kubernetes",)``) and
+    short-circuits to ``set_passed`` when neither ``count`` nor ``min_count``
+    is configured - no kubectl invocation needed.
+    """
+
+    @staticmethod
+    def _config(*, exclude_labels: list[str] | None = None) -> RunConfig:
+        """Build a minimal config with one labeled validation.
+
+        ``K8sNodeCountCheck`` is configured without ``count``/``min_count`` so
+        it returns ``set_passed`` without touching kubectl.
+        """
+        return RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[StepConfig(name="probe", command="true", phase="test")],
+                )
+            },
+            tests=ValidationConfig(
+                platform="kubernetes",
+                validations={"cluster": {"checks": {"K8sNodeCountCheck": {}}}},
+                exclude={"labels": exclude_labels} if exclude_labels else {},
+            ),
+        )
+
+    def test_include_labels_bypass_config_label_exclusions(self) -> None:
+        """``--label X`` drops a config ``exclude.labels: [X]`` for that run.
+
+        Regression for the precedence rule wired in
+        ``Orchestrator._resolve_validation_entries``: without ``--label``, the
+        check is skipped pre-resolution by the config; with ``--label
+        kubernetes``, the same exclusion is bypassed and the check runs.
+        """
+        config = self._config(exclude_labels=["kubernetes"])
+
+        without_label = Orchestrator(config).run(phases=[Phase.TEST])
+        check = without_label.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        assert "excluded by label" in check["message"]
+
+        with_label = Orchestrator(config).run(phases=[Phase.TEST], include_labels=["kubernetes"])
+        bypassed = with_label.phases[0].details["validations"][0]
+        assert bypassed["state"] == "passed", bypassed
+        assert "excluded by label" not in bypassed["message"]
+
+    def test_pytest_k_filter_also_bypasses_config_label_exclusions(self) -> None:
+        """An explicit ``-k`` selection bypasses ``exclude.labels`` too.
+
+        The bypass branch in ``Orchestrator.run`` is
+        ``bool(include_labels) or _has_explicit_pytest_selection(args)``;
+        this covers the second leg so a future refactor can't drop it.
+        """
+        config = self._config(exclude_labels=["kubernetes"])
+
+        result = Orchestrator(config).run(
+            phases=[Phase.TEST],
+            extra_pytest_args=["-k", "K8sNodeCountCheck"],
+        )
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "passed", check
+        assert "excluded by label" not in check["message"]
+
+    def test_include_labels_compose_with_pytest_k_deselection(self) -> None:
+        """``--label X -- -k "not Y"`` lets pytest deselect on top of label pre-filter.
+
+        Pins the layering: the orchestrator resolves labeled entries to
+        ``ready`` so pytest sees them, then pytest's ``-k`` deselects. The
+        terminal skip reason must be the pytest-filter message - not the
+        label-mismatch message - otherwise the layering is broken.
+        """
+        config = self._config()
+
+        result = Orchestrator(config).run(
+            phases=[Phase.TEST],
+            include_labels=["kubernetes"],
+            extra_pytest_args=["-k", "not K8sNodeCountCheck"],
+        )
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        assert check["message"] == "excluded by pytest -k/-m filter"
+
+
 class TestTeardownOnlyPhase:
     """Tests for running teardown as the only requested phase.
 
