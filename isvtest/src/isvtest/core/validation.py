@@ -68,6 +68,7 @@ class BaseValidation(ABC):
     # Optional metadata
     description: ClassVar[str] = ""
     timeout: ClassVar[int] = 60
+    labels: ClassVar[list[str]] = []
     markers: ClassVar[list[str]] = []
     catalog_exclude: ClassVar[bool] = False
 
@@ -304,6 +305,35 @@ def get_validation_class(name: str) -> type[BaseValidation] | None:
     """
     cache = _discover_validation_classes()
     return cache.get(name)
+
+
+def _normalize_metadata_values(values: object) -> tuple[str, ...]:
+    """Return metadata values as a tuple of strings."""
+    if not values:
+        return ()
+    if isinstance(values, str):
+        return (values,)
+    try:
+        return tuple(str(value) for value in values)
+    except TypeError:
+        return (str(values),)
+
+
+def get_validation_markers(cls: type[BaseValidation]) -> tuple[str, ...]:
+    """Return legacy pytest markers for a validation class."""
+    return _normalize_metadata_values(getattr(cls, "markers", ()))
+
+
+def get_validation_labels(cls: type[BaseValidation]) -> tuple[str, ...]:
+    """Return public labels for a validation class.
+
+    During the labels transition, classes that do not define explicit labels
+    publish their existing pytest markers as labels.
+    """
+    labels = _normalize_metadata_values(getattr(cls, "labels", ()))
+    if labels:
+        return labels
+    return get_validation_markers(cls)
 
 
 def register_validation_class(cls: type[BaseValidation]) -> None:

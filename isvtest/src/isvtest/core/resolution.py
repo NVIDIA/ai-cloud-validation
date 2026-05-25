@@ -29,6 +29,7 @@ from jinja2 import ChainableUndefined, Environment, Undefined
 
 from isvtest.config.loader import _ternary
 from isvtest.core.discovery import discover_all_tests
+from isvtest.core.validation import get_validation_labels, get_validation_markers
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class State(StrEnum):
 class SkipReason(StrEnum):
     """Why a skipped validation did not run."""
 
-    EXCLUDED = "test_excluded"  # explicitly excluded by user (YAML markers/tests OR CLI -k/-m)
+    EXCLUDED = "test_excluded"  # explicitly excluded by user (YAML labels/markers/tests OR CLI -k/-m)
     PHASE_NOT_REQUESTED = "phase_not_requested"  # entry's phase wasn't in the requested phase set
     RUNTIME_SKIP = "runtime_skip"  # validation called pytest.skip(...) at runtime
     STEP_NO_OUTPUT = "step_no_output"  # step ran but produced no JSON output
@@ -73,6 +74,7 @@ class ValidationEntry:
     params_template: dict[str, Any]
     step: str | None = None
     phase: str | None = None
+    labels: tuple[str, ...] = ()
     markers: tuple[str, ...] = ()
 
 
@@ -104,7 +106,7 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
         Ordered validation entries. Adapter-handled categories are ignored
         because they are not BaseValidation pytest entries.
     """
-    markers_by_name = _validation_markers_by_name()
+    metadata_by_name = _validation_metadata_by_name()
     entries: list[ValidationEntry] = []
 
     for category, category_config in raw_config.items():
@@ -128,6 +130,8 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
             else:
                 params_template = copy.deepcopy(params_template)
 
+            base_name = _base_validation_name(name, metadata_by_name)
+            metadata = metadata_by_name.get(base_name, ((), ()))
             entries.append(
                 ValidationEntry(
                     name=name,
@@ -135,7 +139,8 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
                     params_template=params_template,
                     step=entry_step if isinstance(entry_step, str) else None,
                     phase=entry_phase if isinstance(entry_phase, str) else None,
-                    markers=markers_by_name.get(_base_validation_name(name, markers_by_name), ()),
+                    labels=metadata[0],
+                    markers=metadata[1],
                 )
             )
 
@@ -148,6 +153,8 @@ def resolve_entries(
     step_outputs: Mapping[str, dict[str, Any]],
     step_phases: Mapping[str, str],
     requested_phases: AbstractSet[str],
+    include_labels: AbstractSet[str],
+    exclude_labels: AbstractSet[str],
     exclude_markers: AbstractSet[str],
     exclude_tests: AbstractSet[str],
     released_tests: AbstractSet[str] | None,
@@ -160,7 +167,9 @@ def resolve_entries(
         step_outputs: Step outputs accumulated so far.
         step_phases: Mapping of configured, non-skipped step names to phases.
         requested_phases: Phase names requested by the invocation.
-        exclude_markers: Validation markers excluded by config.
+        include_labels: Validation labels required by CLI selection. All requested labels must be present.
+        exclude_labels: Validation labels excluded by config.
+        exclude_markers: Legacy validation markers excluded by config.
         exclude_tests: Validation names excluded by config.
         released_tests: Released test manifest, or None when unreleased checks are included.
         render_context: Jinja context for validation parameter rendering.
@@ -192,6 +201,30 @@ def resolve_entries(
 
         if entry.name in exclude_tests:
             resolved.append(_skip(entry, SkipReason.EXCLUDED, f"validation '{entry.name}' is excluded by name"))
+            continue
+
+        missing_include_labels = sorted(set(include_labels).difference(entry.labels))
+        if missing_include_labels:
+            label_list = ", ".join(sorted(include_labels))
+            resolved.append(
+                _skip(
+                    entry,
+                    SkipReason.EXCLUDED,
+                    f"validation '{entry.name}' does not match all selected labels: {label_list}",
+                )
+            )
+            continue
+
+        label_matches = sorted(set(entry.labels).intersection(exclude_labels))
+        if label_matches:
+            label_list = ", ".join(label_matches)
+            resolved.append(
+                _skip(
+                    entry,
+                    SkipReason.EXCLUDED,
+                    f"validation '{entry.name}' is excluded by label: {label_list}",
+                )
+            )
             continue
 
         marker_matches = sorted(set(entry.markers).intersection(exclude_markers))
@@ -291,13 +324,12 @@ def format_resolution_message(entry: ResolvedEntry) -> str:
 
 
 @cache
-def _validation_markers_by_name() -> dict[str, tuple[str, ...]]:
-    """Return discovered validation markers keyed by class name."""
-    markers: dict[str, tuple[str, ...]] = {}
+def _validation_metadata_by_name() -> dict[str, tuple[tuple[str, ...], tuple[str, ...]]]:
+    """Return discovered validation ``(labels, markers)`` metadata keyed by class name."""
+    metadata: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
     for cls in discover_all_tests():
-        cls_markers = getattr(cls, "markers", None) or []
-        markers[cls.__name__] = tuple(str(marker) for marker in cls_markers)
-    return markers
+        metadata[cls.__name__] = (get_validation_labels(cls), get_validation_markers(cls))
+    return metadata
 
 
 def resolve_class_key(name: str, keys: Iterable[str]) -> str | None:
@@ -316,9 +348,9 @@ def resolve_class_key(name: str, keys: Iterable[str]) -> str | None:
     return max(matches, key=len)
 
 
-def _base_validation_name(name: str, markers_by_name: Mapping[str, tuple[str, ...]]) -> str:
+def _base_validation_name(name: str, metadata_by_name: Mapping[str, object]) -> str:
     """Return the discovered base class name for a configured validation name."""
-    return resolve_class_key(name, markers_by_name) or name
+    return resolve_class_key(name, metadata_by_name) or name
 
 
 def _iter_validation_items(category: str, category_config: Any) -> list[tuple[str, Any, Any, Any]]:

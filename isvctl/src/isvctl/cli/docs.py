@@ -24,6 +24,7 @@ from typing import Any
 import typer
 import yaml
 from isvtest.core.discovery import discover_all_tests
+from isvtest.core.validation import get_validation_labels
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -134,11 +135,13 @@ def docs(
 
 @app.command()
 def tests(
-    marker: list[str] = typer.Option(
+    label: list[str] = typer.Option(
         None,
+        "--label",
+        "-l",
         "--marker",
         "-m",
-        help="Filter by marker (repeatable, e.g. -m kubernetes -m gpu)",
+        help="Filter by label (repeatable, e.g. -l kubernetes -l gpu; --marker is legacy)",
     ),
     config_file: Path | None = typer.Option(
         None,
@@ -150,7 +153,7 @@ def tests(
         dir_okay=False,
         readable=True,
     ),
-    flat: bool = typer.Option(False, "--flat", help="Flat list without grouping by marker"),
+    flat: bool = typer.Option(False, "--flat", help="Flat list without grouping by label"),
     info: str | None = typer.Option(
         None,
         "--info",
@@ -162,7 +165,7 @@ def tests(
 
     Examples:
         isvctl docs tests                          # All tests by category
-        isvctl docs tests -m kubernetes            # Only kubernetes tests
+        isvctl docs tests -l kubernetes            # Only kubernetes tests
         isvctl docs tests -f isvctl/configs/suites/k8s.yaml  # Tests from config file
         isvctl docs tests --flat                   # Flat alphabetical list
         isvctl docs tests -i GpuStressCheck     # Detailed info for a test
@@ -180,11 +183,11 @@ def tests(
         return
 
     if config_file:
-        _print_config_instances(all_classes, config_file, marker)
+        _print_config_instances(all_classes, config_file, label)
     elif flat:
-        _print_flat(all_classes, marker)
+        _print_flat(all_classes, label)
     else:
-        _print_grouped(all_classes, marker)
+        _print_grouped(all_classes, label)
 
 
 def _warn_duplicates(classes: list[type]) -> None:
@@ -227,7 +230,8 @@ def _print_test_info(classes: list[type], name: str) -> None:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="bold cyan")
     table.add_column()
-    table.add_row("Markers", ", ".join(cls.markers) if cls.markers else "(none)")
+    labels = get_validation_labels(cls)
+    table.add_row("Labels", ", ".join(labels) if labels else "(none)")
     table.add_row("Timeout", f"{cls.timeout}s")
     table.add_row("Source", source_display)
     console.print(table)
@@ -242,28 +246,28 @@ def _print_test_info(classes: list[type], name: str) -> None:
     console.print()
 
 
-def _print_grouped(classes: list[type], marker_filter: list[str] | None) -> None:
-    """Print tests grouped by marker category."""
-    by_marker: dict[str, list[type]] = defaultdict(list)
+def _print_grouped(classes: list[type], label_filter: list[str] | None) -> None:
+    """Print tests grouped by label category."""
+    by_label: dict[str, list[type]] = defaultdict(list)
 
     for cls in classes:
-        markers = cls.markers if cls.markers else ["uncategorized"]
-        for m in markers:
-            by_marker[m].append(cls)
+        labels = get_validation_labels(cls) or ("uncategorized",)
+        for item in labels:
+            by_label[item].append(cls)
 
-    if marker_filter:
-        by_marker = {k: v for k, v in by_marker.items() if k in marker_filter}
+    if label_filter:
+        by_label = {k: v for k, v in by_label.items() if k in label_filter}
 
-    if not by_marker:
-        console.print("[yellow]No tests found for the given markers.[/yellow]")
+    if not by_label:
+        console.print("[yellow]No tests found for the given labels.[/yellow]")
         raise typer.Exit(1)
 
-    total = len({cls.__name__ for group in by_marker.values() for cls in group})
-    console.print(f"\n[bold]Validation Tests[/bold] ({total} unique across {len(by_marker)} categories)\n")
+    total = len({cls.__name__ for group in by_label.values() for cls in group})
+    console.print(f"\n[bold]Validation Tests[/bold] ({total} unique across {len(by_label)} categories)\n")
 
-    for marker in sorted(by_marker):
+    for label_name in sorted(by_label):
         table = Table(
-            title=f"[bold cyan]{marker}[/bold cyan] ({len(by_marker[marker])})",
+            title=f"[bold cyan]{label_name}[/bold cyan] ({len(by_label[label_name])})",
             title_justify="left",
             show_header=True,
             header_style="bold",
@@ -272,13 +276,14 @@ def _print_grouped(classes: list[type], marker_filter: list[str] | None) -> None
         )
         table.add_column("Test", style="green", no_wrap=True)
         table.add_column("Description")
-        table.add_column("Markers", style="dim")
+        table.add_column("Labels", style="dim")
 
-        for cls in sorted(by_marker[marker], key=lambda c: c.__name__):
+        for cls in sorted(by_label[label_name], key=lambda c: c.__name__):
+            labels = get_validation_labels(cls)
             table.add_row(
                 cls.__name__,
                 cls.description or "-",
-                ", ".join(cls.markers) if cls.markers else "-",
+                ", ".join(labels) if labels else "-",
             )
 
         console.print(table)
@@ -342,7 +347,7 @@ def _resolve_class(instance_name: str, class_map: dict[str, type]) -> type | Non
     return None
 
 
-def _print_config_instances(classes: list[type], config_path: Path, marker_filter: list[str] | None) -> None:
+def _print_config_instances(classes: list[type], config_path: Path, label_filter: list[str] | None) -> None:
     """Print test instances as defined in a config file, grouped by config category."""
     class_map = {cls.__name__: cls for cls in classes}
     categories = _extract_config_instances(config_path)
@@ -351,20 +356,21 @@ def _print_config_instances(classes: list[type], config_path: Path, marker_filte
         console.print("[yellow]No validations found in config file.[/yellow]")
         raise typer.Exit(1)
 
-    if marker_filter:
+    if label_filter:
         filtered: dict[str, list[str]] = {}
         for cat, names in categories.items():
             matched = [
                 n
                 for n in names
-                if (cls := _resolve_class(n, class_map)) and any(m in (cls.markers or []) for m in marker_filter)
+                if (cls := _resolve_class(n, class_map))
+                and any(label in get_validation_labels(cls) for label in label_filter)
             ]
             if matched:
                 filtered[cat] = matched
         categories = filtered
 
     if not categories:
-        console.print("[yellow]No test instances match the given markers.[/yellow]")
+        console.print("[yellow]No test instances match the given labels.[/yellow]")
         raise typer.Exit(1)
 
     total = sum(len(names) for names in categories.values())
@@ -384,18 +390,19 @@ def _print_config_instances(classes: list[type], config_path: Path, marker_filte
         )
         table.add_column("Test", no_wrap=True)
         table.add_column("Description")
-        table.add_column("Markers", style="dim")
+        table.add_column("Labels", style="dim")
 
         for name in names:
             cls = _resolve_class(name, class_map)
             if cls:
+                labels = get_validation_labels(cls)
                 label = f"[green]{name}[/green]"
                 if cls.__name__ != name:
                     label += f" [dim]({cls.__name__})[/dim]"
                 table.add_row(
                     label,
                     cls.description or "-",
-                    ", ".join(cls.markers) if cls.markers else "-",
+                    ", ".join(labels) if labels else "-",
                 )
             else:
                 table.add_row(f"[green]{name}[/green]", "[red]not found[/red]", "-")
@@ -404,13 +411,13 @@ def _print_config_instances(classes: list[type], config_path: Path, marker_filte
         console.print()
 
 
-def _print_flat(classes: list[type], marker_filter: list[str] | None) -> None:
+def _print_flat(classes: list[type], label_filter: list[str] | None) -> None:
     """Print a flat alphabetical list of tests."""
-    if marker_filter:
-        classes = [cls for cls in classes if any(m in (cls.markers or []) for m in marker_filter)]
+    if label_filter:
+        classes = [cls for cls in classes if any(label in get_validation_labels(cls) for label in label_filter)]
 
     if not classes:
-        console.print("[yellow]No tests found for the given markers.[/yellow]")
+        console.print("[yellow]No tests found for the given labels.[/yellow]")
         raise typer.Exit(1)
 
     table = Table(
@@ -422,13 +429,14 @@ def _print_flat(classes: list[type], marker_filter: list[str] | None) -> None:
     )
     table.add_column("Test", style="green", no_wrap=True)
     table.add_column("Description")
-    table.add_column("Markers", style="dim")
+    table.add_column("Labels", style="dim")
 
     for cls in sorted(classes, key=lambda c: c.__name__):
+        labels = get_validation_labels(cls)
         table.add_row(
             cls.__name__,
             cls.description or "-",
-            ", ".join(cls.markers) if cls.markers else "-",
+            ", ".join(labels) if labels else "-",
         )
 
     console.print()

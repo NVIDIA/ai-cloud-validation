@@ -27,11 +27,11 @@
 #    StableIdentifierCheck, InstanceRebootCheck, SerialConsoleCheck,
 #    ConsoleRbacCheck, StepSuccessCheck). SSH-based host checks (ConnectivityCheck,
 #    GpuCheck, DriverCheck, CpuInfoCheck, NIM checks, etc.) are excluded
-#    via `exclude.markers: [ssh]` because a dummy-success stub cannot
+#    via `exclude.labels: [ssh]` because a dummy-success stub cannot
 #    spin up a real host to SSH into. The deploy_nim / teardown_nim
 #    steps are also skipped for the same reason.
 #
-# ACTION: Remove `exclude.markers: [ssh]` at the bottom once your
+# ACTION: Remove `exclude.labels: [ssh]` at the bottom once your
 #   stubs provision real instances with SSH access.
 #
 # Steps:
@@ -219,4 +219,4 @@ tests:
   # to the dummy public_ip. Pure JSON-contract checks still run.
   # Real ISVs remove this exclusion as their stubs come online.
   exclude:
-    markers: ["ssh"]
+    labels: ["ssh"]

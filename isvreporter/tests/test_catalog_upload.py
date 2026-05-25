@@ -43,7 +43,13 @@ class TestUploadTestCatalog:
         mock_urlopen.side_effect = [get_response, post_response]
 
         entries = [
-            {"name": "TestA", "description": "Test A", "markers": ["k8s"], "module": "mod.a"},
+            {
+                "name": "TestA",
+                "description": "Test A",
+                "labels": ["k8s"],
+                "markers": ["k8s"],
+                "module": "mod.a",
+            },
             {"name": "TestB", "description": "Test B", "markers": [], "module": "mod.b"},
         ]
 
@@ -66,6 +72,9 @@ class TestUploadTestCatalog:
         assert payload["isvTestVersion"] == "1.2.3"
         assert len(payload["entries"]) == 2
         assert payload["entries"][0]["name"] == "TestA"
+        assert payload["entries"][0]["labels"] == ["k8s"]
+        assert payload["entries"][0]["markers"] == ["k8s"]
+        assert payload["entries"][1]["labels"] == []
 
     @patch("isvreporter.client.urlopen")
     def test_skips_upload_when_version_exists(self, mock_urlopen: MagicMock) -> None:
@@ -165,5 +174,29 @@ class TestUploadTestCatalog:
 
         assert entry["name"] == "TestA"
         assert entry["description"] == ""
+        assert entry["labels"] == []
         assert entry["markers"] == []
         assert entry["module"] == ""
+
+    @patch("isvreporter.client.urlopen")
+    def test_legacy_markers_are_used_as_labels_when_labels_missing(self, mock_urlopen: MagicMock) -> None:
+        """Legacy catalog entries that only send markers still upload labels."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"status": "created"}).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_response
+
+        upload_test_catalog(
+            endpoint="https://api.example.com",
+            jwt_token="test-token",
+            isv_test_version="1.0.0",
+            entries=[{"name": "TestA", "markers": ["gpu"]}],
+        )
+
+        request = mock_urlopen.call_args[0][0]
+        payload = json.loads(request.data.decode())
+        entry = payload["entries"][0]
+
+        assert entry["labels"] == ["gpu"]
+        assert entry["markers"] == ["gpu"]

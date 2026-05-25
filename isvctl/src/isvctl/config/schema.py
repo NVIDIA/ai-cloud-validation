@@ -360,7 +360,9 @@ class ValidationConfig(BaseModel):
         default_factory=dict,
         description="Validation checks by category. Supports list format or group defaults with 'checks' key.",
     )
-    exclude: dict[str, Any] = Field(default_factory=dict, description="Exclusion rules")
+    exclude: dict[str, Any] = Field(
+        default_factory=dict, description="Exclusion rules. Prefer labels; markers is legacy."
+    )
 
 
 class RunConfig(BaseModel):

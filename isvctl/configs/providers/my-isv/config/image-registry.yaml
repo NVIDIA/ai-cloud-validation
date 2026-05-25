@@ -25,10 +25,10 @@
 #   (StepSuccessCheck, FieldExistsCheck, CrudOperationsCheck,
 #    InstanceStateCheck) on all 7 steps. The vm_ssh validation group
 #    (ConnectivityCheck + OsCheck on launch_instance) is excluded via
-#    `exclude.markers: [ssh]` because a dummy stub cannot stand up a
+#    `exclude.labels: [ssh]` because a dummy stub cannot stand up a
 #    real VM to SSH into.
 #
-# ACTION: Remove `exclude.markers: [ssh]` at the bottom once your
+# ACTION: Remove `exclude.labels: [ssh]` at the bottom once your
 #   stubs provision real instances with SSH access.
 #
 # Note on field names:
@@ -146,4 +146,4 @@ tests:
   # launch_instance) - would try to SSH into the dummy public_ip.
   # Real ISVs remove this exclusion as their stubs come online.
   exclude:
-    markers: ["ssh"]
+    labels: ["ssh"]

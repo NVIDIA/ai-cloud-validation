@@ -308,4 +308,4 @@ tests:
           api_endpoint: "{{ steps.setup.kubernetes.api_endpoint | default('', true) }}"
 
   exclude:
-    markers: []
+    labels: []

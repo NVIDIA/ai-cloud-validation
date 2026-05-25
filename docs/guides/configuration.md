@@ -480,7 +480,7 @@ EOF
 
 ## Available Validations
 
-For the full list of validations with descriptions and platform markers, see [isvtest package docs](../packages/isvtest.md#available-validations).
+For the full list of validations with descriptions and labels, see [isvtest package docs](../packages/isvtest.md#available-validations).
 
 Below is a summary by category.
 
@@ -607,20 +607,22 @@ Use the `tests.exclude` section to deselect tests before they run. Excluded test
 ```yaml
 tests:
   exclude:
-    platforms: []   # Deselect all tests with these platform markers
-    markers: []     # Deselect all tests with these markers
+    platforms: []   # Deselect all tests with these platform labels
+    labels: []      # Deselect all tests with these labels
     tests: []       # Deselect specific tests by name
     files: []       # Deselect all tests in these files
 ```
 
 ### Exclusion Types
 
-| Key | Behavior | Bypassed by `-k` / `-m`? |
-| --- | -------- | ------------------------ |
-| `platforms` | Removes tests whose markers include the listed platform (e.g., `bare_metal`, `kubernetes`) | No - always applied |
-| `markers` | Removes tests whose markers include any of the listed values (e.g., `workload`, `slow`) | Yes - explicit `-k` or `-m` overrides |
+| Key | Behavior | Bypassed by explicit selectors? |
+| --- | -------- | ------------------------------- |
+| `platforms` | Removes tests whose labels include the listed platform (e.g., `bare_metal`, `kubernetes`) | No - always applied |
+| `labels` | Removes tests whose labels include any of the listed values (e.g., `workload`, `slow`) | Yes - explicit `--label`, `-k`, or pytest `-m` overrides |
 | `tests` | Removes tests matching by exact name, prefix, or parametrized ID (e.g., `K8sNcclWorkload`, `K8sNimHelmWorkload-3b`) | No - always applied |
 | `files` | Removes tests whose source file matches (e.g., `test_host.py`) | No - always applied |
+
+`markers` is still accepted as a legacy alias for `labels`. If both are present, their values are combined for now.
 
 ### Examples
 
@@ -629,7 +631,7 @@ Skip all workload and slow tests (the most common use case):
 ```yaml
 tests:
   exclude:
-    markers:
+    labels:
       - workload
       - slow
 ```
@@ -654,30 +656,31 @@ isvctl test run -f isvctl/configs/suites/k8s.yaml -f my-overrides.yaml
 
 A template is provided in `isvctl/configs/overrides.yaml`. Note that `exclude` lists from later `-f` files **replace** earlier lists (they are not appended).
 
-### Interaction with `-k` and `-m`
+### Interaction with Explicit Selectors
 
-When you pass explicit pytest selectors via `--`:
+When you pass explicit selectors:
 
 ```bash
+isvctl test run -f config.yaml --label workload
 isvctl test run -f config.yaml -- -k "K8sNcclWorkload"
 isvctl test run -f config.yaml -- -m "workload"
 ```
 
-**Marker exclusions are bypassed**, allowing you to explicitly run tests that would normally be excluded. Platform, test name, and file exclusions still apply.
+**Label exclusions are bypassed**, allowing you to explicitly run tests that would normally be excluded. Platform, test name, and file exclusions still apply. Pytest `-m` remains available for advanced internal marker selection.
 
-## Test Markers
+## Test Labels
 
-Filter tests using pytest markers:
+Filter tests using labels:
 
 ```bash
 # Run only specific tests
 isvctl test run -f config.yaml -- -k "vpc_crud"
 
-# Run by marker
-isvctl test run -f config.yaml -- -m kubernetes
+# Run by label
+isvctl test run -f config.yaml --label kubernetes
 ```
 
-Available markers: `bare_metal`, `vm`, `kubernetes`, `slurm`, `gpu`, `network`, `ssh`, `security`, `iam`, `workload`, `slow`
+Available labels: `bare_metal`, `vm`, `kubernetes`, `slurm`, `gpu`, `network`, `ssh`, `security`, `iam`, `workload`, `slow`
 
 ## Related Documentation
 

@@ -428,6 +428,8 @@ EOF
                 "skipped": True,
                 "message": "step 'probe' did not produce output",
                 "category": "probe_checks",
+                "labels": [],
+                "markers": [],
                 "state": "skipped",
                 "skip_reason": "step_no_output",
                 "error_reason": None,

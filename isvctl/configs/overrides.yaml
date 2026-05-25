@@ -29,7 +29,7 @@ tests:
     # - K8sNodeCountCheck
     # - K8sNcclWorkload
 
-    # Exclude by marker (e.g., skip slow or workload tests)
-    markers: []
+    # Exclude by label (e.g., skip slow or workload tests)
+    labels: []
     # - slow
     # - workload

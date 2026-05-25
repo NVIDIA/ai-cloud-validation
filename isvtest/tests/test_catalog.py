@@ -15,9 +15,23 @@
 
 """Tests for the catalog module."""
 
+from typing import ClassVar
 from unittest.mock import patch
 
 from isvtest.catalog import build_catalog, get_catalog_version
+from isvtest.core.validation import BaseValidation
+
+
+class ExplicitLabelCatalogCheck(BaseValidation):
+    """Catalog fixture with labels that intentionally differ from markers."""
+
+    description = "Explicit labels"
+    markers: ClassVar[list[str]] = ["gpu"]
+    labels: ClassVar[list[str]] = ["accelerator", "long-running"]
+
+    def run(self) -> None:
+        """Mark the validation passed."""
+        self.set_passed()
 
 
 class TestBuildCatalog:
@@ -37,6 +51,7 @@ class TestBuildCatalog:
         for entry in catalog:
             assert "name" in entry
             assert "description" in entry
+            assert "labels" in entry
             assert "markers" in entry
             assert "module" in entry
 
@@ -46,6 +61,7 @@ class TestBuildCatalog:
         for entry in catalog:
             assert isinstance(entry["name"], str)
             assert isinstance(entry["description"], str)
+            assert isinstance(entry["labels"], list)
             assert isinstance(entry["markers"], list)
             assert isinstance(entry["module"], str)
 
@@ -84,6 +100,40 @@ class TestBuildCatalog:
         for entry in catalog:
             for marker in entry["markers"]:
                 assert isinstance(marker, str)
+
+    def test_labels_are_lists_of_strings(self) -> None:
+        """Test that labels are lists of strings."""
+        catalog = build_catalog()
+        for entry in catalog:
+            for label in entry["labels"]:
+                assert isinstance(label, str)
+
+    def test_labels_default_to_markers(self) -> None:
+        """Catalog entries expose labels even for legacy marker-only classes."""
+        catalog = build_catalog()
+
+        for entry in catalog:
+            assert entry["labels"] == entry["markers"]
+
+    def test_catalog_uses_explicit_labels_when_present(self) -> None:
+        """Explicit class labels are public metadata while markers remain for compatibility."""
+        with (
+            patch("isvtest.catalog.discover_all_tests", return_value=[ExplicitLabelCatalogCheck]),
+            patch("isvtest.catalog._build_platform_map", return_value={}),
+            patch("isvtest.catalog.load_released_test_filter", return_value=None),
+        ):
+            catalog = build_catalog()
+
+        assert catalog == [
+            {
+                "name": "ExplicitLabelCatalogCheck",
+                "description": "Explicit labels",
+                "labels": ["accelerator", "long-running"],
+                "markers": ["gpu"],
+                "module": __name__,
+                "platforms": [],
+            }
+        ]
 
     def test_modules_are_valid_python_paths(self) -> None:
         """Test that module paths look like valid Python module paths."""

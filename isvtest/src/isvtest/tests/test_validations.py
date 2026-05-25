@@ -24,7 +24,7 @@ from isvtest.config.loader import ConfigLoader
 from isvtest.core.discovery import discover_all_tests
 from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, resolve_class_key
 from isvtest.core.runners import LocalRunner
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, get_validation_labels, get_validation_markers
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 if TYPE_CHECKING:
@@ -43,6 +43,19 @@ def get_validation_results() -> list[dict[str, Any]]:
 def clear_validation_results() -> None:
     """Clear captured validation results before a new pytest run."""
     _validation_results.clear()
+
+
+def _pytest_marks_for_validation(
+    config: pytest.Config,
+    validation_class: type[BaseValidation],
+) -> list[Any]:
+    """Return pytest marks for a validation's labels and legacy markers."""
+    labels = get_validation_labels(validation_class)
+    markers = get_validation_markers(validation_class)
+    mark_names = tuple(dict.fromkeys([*markers, *labels]))
+    for mark_name in mark_names:
+        config.addinivalue_line("markers", f"{mark_name}: Validation label")
+    return [getattr(pytest.mark, mark_name) for mark_name in mark_names]
 
 
 def _resolve_validation_class(
@@ -164,9 +177,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                         continue
 
                 if target_class:
-                    # Get markers from class, ensuring we handle inheritance correctly
-                    markers = getattr(target_class, "markers", [])
-                    pytest_marks = [getattr(pytest.mark, m) for m in markers]
+                    pytest_marks = _pytest_marks_for_validation(metafunc.config, target_class)
 
                     # Merge inventory into validation config for validations that need it.
                     # Most validations (k8s, slurm, bare_metal) run commands locally and don't need inventory.
@@ -198,8 +209,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
                     # If class was not configured by exact or variant match, treat it as skipped.
                     if cls_name not in configured_classes:
-                        markers = getattr(cls, "markers", [])
-                        pytest_marks = [getattr(pytest.mark, m) for m in markers]
+                        pytest_marks = _pytest_marks_for_validation(metafunc.config, cls)
                         pytest_marks.append(pytest.mark.skip(reason="Not configured in config YAML"))
 
                         # Include inventory even for skipped tests (for consistency)
@@ -212,8 +222,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 if released_tests is not None and cls.__name__ not in released_tests:
                     continue
 
-                markers = getattr(cls, "markers", [])
-                pytest_marks = [getattr(pytest.mark, m) for m in markers]
+                pytest_marks = _pytest_marks_for_validation(metafunc.config, cls)
                 params.append(pytest.param(cls, {"inventory": cluster_inventory}, cls.__name__, marks=pytest_marks))
                 ids.append(cls.__name__)
 

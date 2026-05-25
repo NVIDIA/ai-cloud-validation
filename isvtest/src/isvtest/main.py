@@ -273,6 +273,7 @@ def run_pytest_tests(
     platform: str | None = None,
     config_file: str | None = None,
     inventory_path: str | None = None,
+    labels: list[str] | None = None,
     markers: list[str] | None = None,
     verbose: bool = False,
     extra_pytest_args: list[str] | None = None,
@@ -283,7 +284,8 @@ def run_pytest_tests(
         platform: Platform to validate (bare_metal, kubernetes, slurm, common, or all)
         config_file: Direct path to cluster configuration file
         inventory_path: Path to cluster inventory file (JSON or YAML)
-        markers: Pytest markers to filter tests (e.g., ['gpu', 'network'])
+        labels: Public labels to filter tests (e.g., ['gpu', 'network']). All must match.
+        markers: Legacy pytest markers to filter tests.
         verbose: Show verbose output
         extra_pytest_args: Additional arguments to pass to pytest
 
@@ -340,16 +342,17 @@ def run_pytest_tests(
     if inventory_path:
         pytest_args.extend(["--inventory", inventory_path])
 
+    marker_terms: list[str] = []
+
     # Add platform marker if specified
     if platform and platform != "all":
         normalized_platform = "bare_metal" if platform == "common" else platform
         if normalized_platform in ["bare_metal", "kubernetes", "slurm"]:
-            pytest_args.extend(["-m", normalized_platform])
+            marker_terms.append(normalized_platform)
 
-    # Add markers
-    if markers:
-        for marker in markers:
-            pytest_args.extend(["-m", marker])
+    marker_terms.extend([*(labels or []), *(markers or [])])
+    if marker_terms:
+        pytest_args.extend(["-m", " and ".join(marker_terms)])
 
     # Add any extra pytest arguments
     if extra_pytest_args:
@@ -390,12 +393,20 @@ def test_cmd(
             readable=True,
         ),
     ] = None,
+    labels: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--label",
+            "-l",
+            help="Label to filter tests (can be repeated; all selected labels must match)",
+        ),
+    ] = None,
     markers: Annotated[
         list[str] | None,
         typer.Option(
             "--markers",
             "-m",
-            help="Pytest markers to filter tests (can be repeated)",
+            help="Legacy alias for --label; pytest marker compatibility",
         ),
     ] = None,
     verbose: Annotated[
@@ -414,7 +425,7 @@ def test_cmd(
 
         isvtest test --platform bare_metal --config tests.yaml
 
-        isvtest test --config tests.yaml --markers gpu --markers network
+        isvtest test --config tests.yaml --label gpu --label network
 
         isvtest test --config tests.yaml -k test_gpu --maxfail=1
     """
@@ -424,6 +435,7 @@ def test_cmd(
     exit_code = run_pytest_tests(
         platform=platform.value,
         config_file=str(config) if config else None,
+        labels=labels,
         markers=markers,
         verbose=verbose,
         extra_pytest_args=extra_args,

@@ -204,9 +204,9 @@ isvctl test run -f config.yaml --phase teardown
 # Merge configs (later overrides earlier)
 isvctl test run -f base.yaml -f overrides.yaml
 
-# Filter validations with pytest args
+# Filter validations with labels or advanced pytest args
 isvctl test run -f config.yaml -- -k "SshConnectivity"
-isvctl test run -f config.yaml -- -m gpu
+isvctl test run -f config.yaml --label gpu
 isvctl test run -f config.yaml -- -m "not slow"
 
 # Debug: full output on failure

@@ -23,7 +23,7 @@ exercises.
 ## Coverage note
 
 These configs exclude validations that require SSH into a real host
-(`exclude.markers: [ssh]`) and skip steps that need real cloud APIs
+(`exclude.labels: [ssh]`) and skip steps that need real cloud APIs
 (e.g. `deploy_nim`), because dummy scripts can't spin up real hosts.
 Each YAML's header comment documents exactly which checks are excluded
 and why - remove those exclusions as your real scripts come online.

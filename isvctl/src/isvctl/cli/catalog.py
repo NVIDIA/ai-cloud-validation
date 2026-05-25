@@ -85,14 +85,14 @@ def list_cmd(
     )
     table.add_column("Test", style="green", no_wrap=True)
     table.add_column("Platforms", style="cyan")
-    table.add_column("Markers", style="dim")
+    table.add_column("Labels", style="dim")
     table.add_column("Description")
 
     for entry in sorted(catalog_entries, key=lambda e: e["name"]):
         table.add_row(
             entry["name"],
             ", ".join(entry.get("platforms") or []) or "-",
-            ", ".join(entry.get("markers") or []) or "-",
+            ", ".join(entry.get("labels") or entry.get("markers") or []) or "-",
             entry.get("description") or "-",
         )
 

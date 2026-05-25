@@ -99,7 +99,7 @@ tests:
         GpuMemoryCheck: {}
 
   exclude:
-    markers:
+    labels:
       - slow
       - workload
       - reframe

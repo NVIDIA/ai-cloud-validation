@@ -119,7 +119,7 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
 
     Deselects tests based on:
     - Excluded platforms
-    - Excluded markers (skipped if -k is used, allowing explicit test selection)
+    - Excluded labels (skipped if -k/-m is used, allowing explicit test selection)
     - Excluded test names
     - Excluded test file names
 
@@ -166,10 +166,11 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
             if any(platform in item_markers for platform in excluded_platforms):
                 should_exclude = True
 
-            # Exclude by marker (skipped if -k is used for explicit selection)
+            # Exclude by label (skipped if -k/-m is used for explicit selection).
+            # Legacy "markers" remains an alias during the labels transition.
             if not skip_marker_exclusions:
-                excluded_markers = exclude_config.get("markers", [])
-                if any(marker in item_markers for marker in excluded_markers):
+                excluded_labels = [*exclude_config.get("labels", []), *exclude_config.get("markers", [])]
+                if any(label in item_markers for label in excluded_labels):
                     should_exclude = True
 
             # Exclude by test name (supports exact match, prefix match, or parametrized ID match)

@@ -28,12 +28,12 @@
 #    StableIdentifierCheck, StepSuccessCheck). SSH-based host checks
 #    (Connectivity, Os, Gpu, Driver, CpuInfo, HostSoftware, GpuStress,
 #    Nccl, Training, Nvlink, InfiniBand, Ethernet, ContainerRuntime,
-#    CloudInit, NIM*) are excluded via `exclude.markers: [ssh]` because
+#    CloudInit, NIM*) are excluded via `exclude.labels: [ssh]` because
 #    a dummy stub cannot spin up a real host to SSH into. The
 #    deploy_nim / teardown_nim / reinstall_instance steps are also
 #    skipped for the same reason.
 #
-# ACTION: Remove `exclude.markers: [ssh]` at the bottom once your
+# ACTION: Remove `exclude.labels: [ssh]` at the bottom once your
 #   stubs provision real instances with SSH access.
 #
 # Steps:
@@ -285,4 +285,4 @@ tests:
   # Ethernet, ContainerRuntime, CloudInit, NIM*). Real ISVs remove this
   # exclusion as their stubs come online.
   exclude:
-    markers: ["ssh"]
+    labels: ["ssh"]

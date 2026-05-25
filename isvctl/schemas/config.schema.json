@@ -257,7 +257,7 @@
         },
         "exclude": {
           "additionalProperties": true,
-          "description": "Exclusion rules",
+          "description": "Exclusion rules. Prefer labels; markers is legacy.",
           "title": "Exclude",
           "type": "object"
         }

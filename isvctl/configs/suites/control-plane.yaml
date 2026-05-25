@@ -87,4 +87,4 @@ tests:
           step: delete_tenant
 
   exclude:
-    markers: []
+    labels: []

@@ -101,6 +101,14 @@ def run(
             help="Run only a specific phase of the test lifecycle",
         ),
     ] = Phase.ALL,
+    labels: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--label",
+            "-l",
+            help="Label to filter validations (can be repeated; all selected labels must match)",
+        ),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -150,7 +158,6 @@ def run(
         int | None,
         typer.Option(
             "--lab-id",
-            "-l",
             help="ISV Lab ID for result upload (required if uploading)",
         ),
     ] = None,
@@ -181,6 +188,7 @@ def run(
         isvctl test run -f lab.yaml -f commands.yaml -f suites/k8s.yaml
         isvctl test run -f config.yaml --set context.node_count=8
         isvctl test run -f config.yaml --phase setup
+        isvctl test run -f config.yaml --label gpu --label slow
         isvctl test run -f config.yaml -- -v -s -k "test_name"
     """
     setup_logging(verbose)
@@ -319,6 +327,7 @@ def run(
             result = orchestrator.run(
                 phases=phases,
                 extra_pytest_args=extra_pytest_args,
+                include_labels=labels,
                 verbose=verbose,
                 junitxml=str(junitxml),
             )

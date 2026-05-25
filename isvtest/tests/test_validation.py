@@ -16,13 +16,13 @@
 """Tests for validation module."""
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from isvtest.core.runners import CommandResult
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, get_validation_labels
 from isvtest.tests.test_validations import (
     _validation_results,
     clear_validation_results,
@@ -59,6 +59,27 @@ class ConcreteValidation(BaseValidation):
 
     description = "Test validation"
     timeout = 30
+
+    def run(self) -> None:
+        """Simple run implementation."""
+        self.set_passed("Test passed")
+
+
+class MarkerOnlyValidation(BaseValidation):
+    """Validation with legacy markers only."""
+
+    markers: ClassVar[list[str]] = ["gpu", "slow"]
+
+    def run(self) -> None:
+        """Simple run implementation."""
+        self.set_passed("Test passed")
+
+
+class LabelledValidation(BaseValidation):
+    """Validation with public labels overriding legacy markers."""
+
+    markers: ClassVar[list[str]] = ["gpu"]
+    labels: ClassVar[list[str]] = ["accelerator", "long-running"]
 
     def run(self) -> None:
         """Simple run implementation."""
@@ -219,6 +240,14 @@ class TestBaseValidation:
         validation = ConcreteValidation()
         assert validation.log is not None
         assert validation.log.name == "ConcreteValidation"
+
+    def test_get_validation_labels_falls_back_to_markers(self) -> None:
+        """Validation labels default to legacy markers during the transition."""
+        assert get_validation_labels(MarkerOnlyValidation) == ("gpu", "slow")
+
+    def test_get_validation_labels_prefers_explicit_labels(self) -> None:
+        """Validation classes can publish labels without changing pytest markers."""
+        assert get_validation_labels(LabelledValidation) == ("accelerator", "long-running")
 
 
 class TestInstanceListCheck:

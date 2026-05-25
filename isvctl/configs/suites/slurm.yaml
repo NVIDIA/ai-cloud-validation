@@ -132,4 +132,4 @@ tests:
           timeout: 60
 
   exclude:
-    markers: []
+    labels: []

@@ -35,6 +35,7 @@ import yaml
 from isvreporter.version import get_version
 
 from isvtest.core.discovery import discover_all_tests
+from isvtest.core.validation import get_validation_labels, get_validation_markers
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         List of catalog entry dicts, each containing:
             - name: Validation class name or variant name
             - description: Human-readable description from class metadata
+            - labels: List of public label strings (e.g. ["kubernetes", "gpu"])
             - markers: List of marker strings (e.g. ["kubernetes", "gpu"])
             - module: Fully qualified module path
             - platforms: List of platform strings (e.g. ["KUBERNETES"])
@@ -168,9 +170,11 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         if getattr(cls, "catalog_exclude", False):
             excluded_names.add(cls.__name__)
             continue
-        markers = list(getattr(cls, "markers", []))
+        labels = list(get_validation_labels(cls))
+        markers = list(get_validation_markers(cls))
         class_meta[cls.__name__] = {
             "description": getattr(cls, "description", "") or "",
+            "labels": labels,
             "markers": markers,
             "module": cls.__module__,
         }
@@ -194,6 +198,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             {
                 "name": name,
                 "description": meta["description"],
+                "labels": meta["labels"],
                 "markers": meta["markers"],
                 "module": meta["module"],
                 "platforms": sorted(platform_map.get(name, [])),
@@ -217,6 +222,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             {
                 "name": name,
                 "description": desc,
+                "labels": meta.get("labels", []),
                 "markers": meta.get("markers", []),
                 "module": meta.get("module", ""),
                 "platforms": sorted(platforms),

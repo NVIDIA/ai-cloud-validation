@@ -31,7 +31,7 @@
 #    The NET01-01 and NET02-02 checks validate
 #    provider-reported fabric metadata only. The DhcpIpManagementCheck
 #    validation needs to SSH into a real instance, so it is excluded
-#    via `exclude.markers: [ssh]`; the dhcp_ip_test step is also
+#    via `exclude.labels: [ssh]`; the dhcp_ip_test step is also
 #    `skip: true` for the same reason.
 #
 # Usage:
@@ -341,4 +341,4 @@ tests:
   # Skip SSH-based DhcpIpManagementCheck - it'd try to SSH into the dummy
   # instance. Real ISVs remove this exclusion as their stubs come online.
   exclude:
-    markers: ["ssh"]
+    labels: ["ssh"]

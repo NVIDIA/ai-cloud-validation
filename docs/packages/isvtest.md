@@ -56,7 +56,7 @@ isvtest/src/isvtest/
 
 ## Available Validations
 
-Validations are platform-agnostic checks that inspect JSON step output. They are organized by category and referenced by class name in YAML test configs. Each validation has a `description` and `markers` that indicate which platforms it applies to.
+Validations are platform-agnostic checks that inspect JSON step output. They are organized by category and referenced by class name in YAML test configs. Each validation has a `description` and public labels that indicate which platforms and capabilities it applies to.
 
 ### Generic (`validations/generic.py`)
 
@@ -250,16 +250,20 @@ tests:
 
 Canonical test configs live in `isvctl/configs/suites/` (vm.yaml, bare_metal.yaml, network.yaml, etc.). Provider-specific configs in `isvctl/configs/providers/<provider>/` import the canonical config and override commands with platform stubs.
 
-## Test Markers
+## Test Labels
 
-Filter tests using pytest markers:
+Filter tests using labels:
 
 - `bare_metal`, `vm`, `kubernetes`, `slurm` - Platform-specific
 - `gpu`, `network`, `ssh`, `security`, `iam` - Component-specific
 - `workload` - Workload-based tests (longer running)
 - `slow` - Tests that take longer than 5 minutes
 
-**Note:** By default, `workload` and `slow` markers are excluded. Use `-k` to explicitly run them.
+```bash
+isvtest test --config tests.yaml --label gpu --label network
+```
+
+**Note:** By default, `workload` and `slow` labels are excluded. Use `--label workload` or another explicit selector to run them. Pytest markers remain supported internally and through `--markers` as a legacy alias.
 
 ## Development
 

@@ -28,6 +28,7 @@ _FAKE_ENTRIES = [
     {
         "name": "AlphaCheck",
         "description": "Alpha description",
+        "labels": ["kubernetes"],
         "markers": ["kubernetes"],
         "module": "isvtest.validations.alpha",
         "platforms": ["KUBERNETES"],
@@ -35,6 +36,7 @@ _FAKE_ENTRIES = [
     {
         "name": "BetaCheck",
         "description": "",
+        "labels": [],
         "markers": [],
         "module": "isvtest.validations.beta",
         "platforms": [],

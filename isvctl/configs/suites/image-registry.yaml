@@ -119,4 +119,4 @@ tests:
         StepSuccessCheck: {}
 
   exclude:
-    markers: []
+    labels: []

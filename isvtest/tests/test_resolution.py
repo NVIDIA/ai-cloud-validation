@@ -42,6 +42,17 @@ class MarkerCheck(BaseValidation):
         self.set_passed()
 
 
+class LabelCheck(BaseValidation):
+    """Validation with labels that differ from markers used by parser tests."""
+
+    markers: ClassVar[list[str]] = ["gpu"]
+    labels: ClassVar[list[str]] = ["accelerator", "long-running"]
+
+    def run(self) -> None:
+        """Mark the validation passed."""
+        self.set_passed()
+
+
 class PlainCheck(BaseValidation):
     """Validation without markers used by parser tests."""
 
@@ -58,6 +69,7 @@ def _entry(
     step: str | None = None,
     phase: str | None = None,
     markers: tuple[str, ...] = (),
+    labels: tuple[str, ...] = (),
 ) -> ValidationEntry:
     """Build a minimal validation entry."""
     return ValidationEntry(
@@ -67,6 +79,7 @@ def _entry(
         step=step,
         phase=phase,
         markers=markers,
+        labels=labels,
     )
 
 
@@ -77,6 +90,8 @@ def _resolve(
     step_phases: dict[str, str] | None = None,
     requested_phases: set[str] | None = None,
     exclude_markers: set[str] | None = None,
+    include_labels: set[str] | None = None,
+    exclude_labels: set[str] | None = None,
     exclude_tests: set[str] | None = None,
     released_tests: set[str] | None = None,
     render_context: dict[str, Any] | None = None,
@@ -88,6 +103,8 @@ def _resolve(
         step_phases={} if step_phases is None else step_phases,
         requested_phases={"test"} if requested_phases is None else requested_phases,
         exclude_markers=set() if exclude_markers is None else exclude_markers,
+        include_labels=set() if include_labels is None else include_labels,
+        exclude_labels=set() if exclude_labels is None else exclude_labels,
         exclude_tests=set() if exclude_tests is None else exclude_tests,
         released_tests=released_tests,
         render_context={} if render_context is None else render_context,
@@ -102,6 +119,7 @@ def _resolve(
         (_entry("NewCheck"), {"released_tests": {"PlainCheck"}}, SkipReason.UNRELEASED),
         (_entry("PlainCheck"), {"exclude_tests": {"PlainCheck"}}, SkipReason.EXCLUDED),
         (_entry("MarkerCheck", markers=("slow",)), {"exclude_markers": {"slow"}}, SkipReason.EXCLUDED),
+        (_entry("LabelCheck", labels=("accelerator",)), {"exclude_labels": {"accelerator"}}, SkipReason.EXCLUDED),
         (_entry(step="create_cluster"), {"step_phases": {}}, SkipReason.STEP_NOT_CONFIGURED),
         (
             _entry(step="create_cluster"),
@@ -224,6 +242,8 @@ def test_resolve_entries_is_idempotent_from_original_entries() -> None:
         "step_phases": {},
         "requested_phases": {"test"},
         "exclude_markers": {"slow"},
+        "include_labels": set(),
+        "exclude_labels": set(),
         "exclude_tests": set(),
         "released_tests": None,
         "render_context": {},
@@ -235,13 +255,41 @@ def test_resolve_entries_is_idempotent_from_original_entries() -> None:
     assert second == first
 
 
-def test_parse_validations_supports_group_defaults_and_markers(
+def test_resolve_entries_requires_all_include_labels() -> None:
+    """Label selection is an AND filter across all requested labels."""
+    entries = [
+        _entry("GpuSlowCheck", labels=("gpu", "slow")),
+        _entry("GpuOnlyCheck", labels=("gpu",)),
+        _entry("SlowOnlyCheck", labels=("slow",)),
+    ]
+
+    results = resolve_entries(
+        entries,
+        step_outputs={},
+        step_phases={},
+        requested_phases={"test"},
+        include_labels={"gpu", "slow"},
+        exclude_labels=set(),
+        exclude_markers=set(),
+        exclude_tests=set(),
+        released_tests=None,
+        render_context={},
+    )
+
+    by_name = {result.entry.name: result for result in results}
+    assert by_name["GpuSlowCheck"].is_ready
+    assert by_name["GpuOnlyCheck"].skip_reason == SkipReason.EXCLUDED
+    assert by_name["SlowOnlyCheck"].skip_reason == SkipReason.EXCLUDED
+    assert "labels" in by_name["GpuOnlyCheck"].message
+
+
+def test_parse_validations_supports_group_defaults_and_labels(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Parser expands config groups and populates markers from discovered classes."""
+    """Parser expands config groups and populates labels from discovered classes."""
     monkeypatch.setattr(
         "isvtest.core.resolution.discover_all_tests",
-        lambda: [MarkerCheck, PlainCheck],
+        lambda: [MarkerCheck, LabelCheck, PlainCheck],
     )
     raw_config: dict[str, Any] = {
         "cluster": {
@@ -249,6 +297,7 @@ def test_parse_validations_supports_group_defaults_and_markers(
             "phase": "setup",
             "checks": {
                 "MarkerCheck": {"expected": 4},
+                "LabelCheck": {"expected": 8},
                 "PlainCheck": {},
             },
         },
@@ -264,6 +313,16 @@ def test_parse_validations_supports_group_defaults_and_markers(
             step="create_cluster",
             phase="setup",
             markers=("slow", "kubernetes"),
+            labels=("slow", "kubernetes"),
+        ),
+        ValidationEntry(
+            name="LabelCheck",
+            category="cluster",
+            params_template={"expected": 8},
+            step="create_cluster",
+            phase="setup",
+            markers=("gpu",),
+            labels=("accelerator", "long-running"),
         ),
         ValidationEntry(
             name="PlainCheck",
@@ -272,6 +331,7 @@ def test_parse_validations_supports_group_defaults_and_markers(
             step="create_cluster",
             phase="setup",
             markers=(),
+            labels=(),
         ),
     ]
 

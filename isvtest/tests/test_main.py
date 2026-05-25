@@ -15,6 +15,8 @@
 
 """Tests for isvtest.main module."""
 
+import pytest
+
 import isvtest.main
 from isvtest.core.resolution import ErrorReason, ResolvedEntry, SkipReason, State, ValidationEntry
 from isvtest.main import (
@@ -150,3 +152,52 @@ def test_run_validations_via_pytest_marks_unselected_entries_as_excluded() -> No
     assert nim.state == State.SKIPPED
     assert nim.skip_reason == SkipReason.EXCLUDED
     assert nim.message == "excluded by pytest -k/-m filter"
+
+
+def test_run_pytest_tests_uses_all_selected_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Label selection forwards one pytest marker expression with AND semantics."""
+    captured: dict[str, list[str]] = {}
+
+    def fake_pytest_main(args: list[str]) -> int:
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(isvtest.main.pytest, "main", fake_pytest_main)
+
+    exit_code = isvtest.main.run_pytest_tests(labels=["gpu", "slow"])
+
+    assert exit_code == 0
+    assert captured["args"][-2:] == ["-m", "gpu and slow"]
+
+
+def test_run_pytest_tests_combines_platform_and_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Platform and label filters use one pytest marker expression."""
+    captured: dict[str, list[str]] = {}
+
+    def fake_pytest_main(args: list[str]) -> int:
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(isvtest.main.pytest, "main", fake_pytest_main)
+
+    exit_code = isvtest.main.run_pytest_tests(platform="bare_metal", labels=["gpu"])
+
+    assert exit_code == 0
+    assert captured["args"].count("-m") == 1
+    assert captured["args"][-2:] == ["-m", "bare_metal and gpu"]
+
+
+def test_run_pytest_tests_keeps_markers_as_legacy_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The legacy markers option still selects by the same expression path."""
+    captured: dict[str, list[str]] = {}
+
+    def fake_pytest_main(args: list[str]) -> int:
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(isvtest.main.pytest, "main", fake_pytest_main)
+
+    exit_code = isvtest.main.run_pytest_tests(markers=["gpu"])
+
+    assert exit_code == 0
+    assert captured["args"][-2:] == ["-m", "gpu"]
