@@ -68,7 +68,7 @@ class BaseValidation(ABC):
     # Optional metadata
     description: ClassVar[str] = ""
     timeout: ClassVar[int] = 60
-    labels: ClassVar[list[str]] = []
+    labels: ClassVar[tuple[str, ...]] = ()
     markers: ClassVar[list[str]] = []
     catalog_exclude: ClassVar[bool] = False
 
