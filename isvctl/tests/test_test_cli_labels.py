@@ -16,7 +16,7 @@
 """Tests for isvctl test CLI label filtering."""
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from typer.testing import CliRunner
@@ -49,27 +49,48 @@ tests:
     return config
 
 
+class _FakeOrchestrator:
+    """Capture orchestrator options passed by the CLI for assertion in tests."""
+
+    captured: ClassVar[dict[str, Any]] = {}
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    def run(self, **kwargs: Any) -> OrchestratorResult:
+        type(self).captured.update(kwargs)
+        return OrchestratorResult(
+            success=True,
+            phases=[PhaseResult(phase=Phase.TEST, success=True, message="ok")],
+        )
+
+
 def test_test_run_forwards_label_filters(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """`isvctl test run -l/--label` passes requested labels to the orchestrator."""
     config = _write_config(tmp_path)
-    captured: dict[str, Any] = {}
-
-    class FakeOrchestrator:
-        """Capture orchestrator options passed by the CLI."""
-
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        def run(self, **kwargs: Any) -> OrchestratorResult:
-            captured.update(kwargs)
-            return OrchestratorResult(
-                success=True,
-                phases=[PhaseResult(phase=Phase.TEST, success=True, message="ok")],
-            )
-
-    monkeypatch.setattr(test_cli, "Orchestrator", FakeOrchestrator)
+    _FakeOrchestrator.captured = {}
+    monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
 
     result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--no-upload", "-l", "gpu", "--label", "slow"])
 
     assert result.exit_code == 0, result.output
-    assert captured["include_labels"] == ["gpu", "slow"]
+    assert _FakeOrchestrator.captured["include_labels"] == ["gpu", "slow"]
+
+
+def test_short_l_flag_binds_to_label_not_lab_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`-l` is the short flag for `--label`, not the legacy `--lab-id`.
+
+    Pre-PR, `-l 12345` mapped to `--lab-id 12345` (an int). This test pins the
+    rebinding so a future refactor can't silently restore the old mapping: an
+    all-digit value passed via `-l` must land in ``include_labels`` as a string,
+    and the orchestrator must run with the request (proving Typer did not reject
+    a non-int `--lab-id`).
+    """
+    config = _write_config(tmp_path)
+    _FakeOrchestrator.captured = {}
+    monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
+
+    result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--no-upload", "-l", "12345"])
+
+    assert result.exit_code == 0, result.output
+    assert _FakeOrchestrator.captured["include_labels"] == ["12345"]
