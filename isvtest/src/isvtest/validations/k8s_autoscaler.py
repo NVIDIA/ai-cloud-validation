@@ -20,6 +20,8 @@ from __future__ import annotations
 import shlex
 from typing import Any, ClassVar
 
+import pytest
+
 from isvtest.core.k8s import (
     KubectlParseError,
     get_kubectl_base_shell,
@@ -49,6 +51,9 @@ class K8sClusterAutoscalerCheck(BaseValidation):
       ``["cluster-autoscaler"]``.
     * ``label_selectors`` - label selectors used to discover deployments across
       all namespaces. Defaults cover common upstream manifests and Helm charts.
+    * ``require_autoscaler`` - when ``False`` (default), absent deployments
+      cause the check to skip rather than fail. Set to ``True`` to require a
+      Cluster Autoscaler integration on the cluster.
     """
 
     description: ClassVar[str] = "Verify upstream Cluster Autoscaler integration is installed and running."
@@ -77,15 +82,22 @@ class K8sClusterAutoscalerCheck(BaseValidation):
             self.set_failed("Invalid config: deployment_names and label_selectors cannot both be empty")
             return
 
+        require_autoscaler = bool(self.config.get("require_autoscaler", False))
+
         kubectl_base = get_kubectl_base_shell()
         deployments = self._discover_deployments(kubectl_base, namespaces, deployment_names, label_selectors)
         if deployments is None:
             return
         if not deployments:
-            self.set_failed(
+            msg = (
                 "No Cluster Autoscaler deployment found using "
-                f"names={deployment_names or '[]'} namespaces={namespaces or '[]'} selectors={label_selectors or '[]'}"
+                f"names={deployment_names or '[]'} namespaces={namespaces or '[]'} "
+                f"selectors={label_selectors or '[]'}"
             )
+            if require_autoscaler:
+                self.set_failed(msg)
+            else:
+                pytest.skip(f"{msg} (require_autoscaler is false)")
             return
 
         failures: list[str] = []

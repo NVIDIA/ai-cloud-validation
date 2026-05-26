@@ -136,6 +136,7 @@ tests:
         K8sDualStackNodeCheck:
           require_dual_stack: "auto" # true | false | "auto"
         K8sClusterAutoscalerCheck:
+          require_autoscaler: false
           namespace: "{{ steps.setup.kubernetes.cluster_autoscaler_namespace | default('kube-system', true) }}"
           deployment_names:
             - "{{ steps.setup.kubernetes.cluster_autoscaler_deployment | default('cluster-autoscaler', true) }}"

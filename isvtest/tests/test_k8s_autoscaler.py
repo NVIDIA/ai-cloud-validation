@@ -21,6 +21,8 @@ import json
 from collections.abc import Iterator
 from unittest.mock import patch
 
+import pytest
+
 from isvtest.core.runners import CommandResult
 from isvtest.validations.k8s_autoscaler import K8sClusterAutoscalerCheck
 
@@ -129,9 +131,29 @@ def test_cluster_autoscaler_falls_back_to_configured_deployment_name() -> None:
     )
 
 
-def test_cluster_autoscaler_fails_when_no_deployment_is_found() -> None:
-    """Verify absent Cluster Autoscaler deployments fail clearly."""
+def test_cluster_autoscaler_skips_when_no_deployment_is_found_by_default() -> None:
+    """Verify absent Cluster Autoscaler is treated as 'feature not installed' (skip)."""
     check = K8sClusterAutoscalerCheck(config={"label_selectors": [], "namespaces": ["kube-system"]})
+    with (
+        patch("isvtest.validations.k8s_autoscaler.get_kubectl_base_shell", return_value="kubectl"),
+        patch.object(
+            check,
+            "run_command",
+            return_value=_fail(stderr='Error from server (NotFound): deployments.apps "cluster-autoscaler" not found'),
+        ),
+        pytest.raises(pytest.skip.Exception) as excinfo,
+    ):
+        check.run()
+
+    assert "No Cluster Autoscaler deployment found" in str(excinfo.value)
+    assert "require_autoscaler is false" in str(excinfo.value)
+
+
+def test_cluster_autoscaler_fails_when_no_deployment_is_found_and_required() -> None:
+    """Verify require_autoscaler=True turns an absent deployment into a failure."""
+    check = K8sClusterAutoscalerCheck(
+        config={"label_selectors": [], "namespaces": ["kube-system"], "require_autoscaler": True}
+    )
     with (
         patch("isvtest.validations.k8s_autoscaler.get_kubectl_base_shell", return_value="kubectl"),
         patch.object(
