@@ -135,6 +135,14 @@ tests:
             "nvidia.com/mig.strategy": "single"
         K8sDualStackNodeCheck:
           require_dual_stack: "auto" # true | false | "auto"
+        K8sClusterAutoscalerCheck:
+          namespace: "{{ steps.setup.kubernetes.cluster_autoscaler_namespace | default('kube-system', true) }}"
+          deployment_names:
+            - "{{ steps.setup.kubernetes.cluster_autoscaler_deployment | default('cluster-autoscaler', true) }}"
+          label_selectors:
+            - "app.kubernetes.io/name=cluster-autoscaler"
+            - "app=cluster-autoscaler"
+            - "k8s-app=cluster-autoscaler"
         K8sNetworkPolicyCheck:
           image: "registry.k8s.io/e2e-test-images/agnhost:2.47"
           probe_port: 8080

@@ -36,6 +36,14 @@ kubernetes_version = "1.32"
 cluster_endpoint_public_access_cidrs = ["YOUR.IP.ADDRESS/32"]
 
 # -----------------------------------------------------------------------------
+# Cluster Autoscaler
+# -----------------------------------------------------------------------------
+
+install_cluster_autoscaler       = true
+cluster_autoscaler_chart_version = ""  # Empty uses the upstream chart repository default
+cluster_autoscaler_image_tag     = ""  # Empty derives v<kubernetes_version>.0
+
+# -----------------------------------------------------------------------------
 # System Node Group (non-GPU control plane workloads)
 # -----------------------------------------------------------------------------
 

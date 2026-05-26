@@ -67,7 +67,29 @@ variable "kubernetes_version" {
 variable "cluster_endpoint_public_access_cidrs" {
   description = "List of CIDR blocks to allow access to the EKS API server endpoint. MUST be set to your IP address(es). Example: [\"YOUR.IP.ADDRESS/32\"]"
   type        = list(string)
-  default     = ["203.0.113.0/24"]  # RFC 5737 TEST-NET-3 - non-routable, must override with your IP
+  default     = ["203.0.113.0/24"] # RFC 5737 TEST-NET-3 - non-routable, must override with your IP
+}
+
+# -----------------------------------------------------------------------------
+# Cluster Autoscaler Configuration
+# -----------------------------------------------------------------------------
+
+variable "install_cluster_autoscaler" {
+  description = "Install upstream Kubernetes Cluster Autoscaler via Helm for integration validation"
+  type        = bool
+  default     = true
+}
+
+variable "cluster_autoscaler_chart_version" {
+  description = "Optional upstream Cluster Autoscaler Helm chart version. Leave empty to use the chart repository default."
+  type        = string
+  default     = ""
+}
+
+variable "cluster_autoscaler_image_tag" {
+  description = "Optional Cluster Autoscaler image tag. Leave empty to derive v<kubernetes_version>.0."
+  type        = string
+  default     = ""
 }
 
 # -----------------------------------------------------------------------------

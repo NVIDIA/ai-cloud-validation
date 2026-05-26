@@ -480,6 +480,8 @@ cat << EOF
     "control_plane_address": "${CLUSTER_ENDPOINT}",
     "kubeconfig_path": "${KUBECONFIG_PATH}",
     "gpu_operator_namespace": "${GPU_OPERATOR_NS}",
+    "cluster_autoscaler_namespace": "kube-system",
+    "cluster_autoscaler_deployment": "cluster-autoscaler",
     "runtime_class": "${RUNTIME_CLASS}",
     "gpu_resource_name": "nvidia.com/gpu"
   },

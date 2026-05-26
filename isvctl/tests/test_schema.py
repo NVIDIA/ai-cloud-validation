@@ -373,6 +373,8 @@ class TestOutputSchemaValidation:
             "gpu_per_node": 4,
             "total_gpus": 8,
             "gpu_operator_namespace": "nvidia-gpu-operator",
+            "cluster_autoscaler_namespace": "kube-system",
+            "cluster_autoscaler_deployment": "cluster-autoscaler",
             "runtime_class": "nvidia",
             "gpu_resource_name": "nvidia.com/gpu",
         },
