@@ -16,9 +16,9 @@
 
 """Validate that relative links in markdown files point to existing targets.
 
-Checks all [text](path) links in tracked .md files, resolving relative paths
-from each file's directory.  External URLs (http/https/mailto) and anchor-only
-links (#section) are skipped.
+Checks [text](path) links outside fenced code blocks in tracked .md files,
+resolving relative paths from each file's directory.  External URLs
+(http/https/mailto) and anchor-only links (#section) are skipped.
 
 Exit codes:
     0  All links valid
@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 SKIP_PREFIXES = ("http://", "https://", "mailto:", "#")
 SKIP_DIRS = {".git", ".venv", ".terraform", "node_modules", "__pycache__"}
 
@@ -51,13 +52,22 @@ def repo_root() -> Path:
 def find_markdown_files(root: Path) -> list[Path]:
     """Find all tracked .md files, excluding generated directories."""
     files: list[Path] = []
-    for path in sorted(root.rglob("*.md")):
-        rel = path.relative_to(root)
+    result = subprocess.run(
+        ["git", "ls-files", "*.md"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    for line in result.stdout.splitlines():
+        rel = Path(line)
         if any(part in SKIP_DIRS for part in rel.parts):
             continue
         if any(part.startswith(".") for part in rel.parts) and rel.parts[0] != ".github":
             continue
-        files.append(path)
+        path = root / rel
+        if path.exists():
+            files.append(path)
     return files
 
 
@@ -65,7 +75,21 @@ def check_links(root: Path, md_files: list[Path]) -> list[tuple[Path, int, str]]
     """Return list of (file, line_number, url) for broken relative links."""
     broken: list[tuple[Path, int, str]] = []
     for md in md_files:
+        code_fence: tuple[str, int] | None = None
         for lineno, line in enumerate(md.read_text(errors="replace").splitlines(), start=1):
+            match = FENCE_RE.match(line)
+            if code_fence is None and match:
+                fence = match.group(1)
+                code_fence = (fence[0], len(fence))
+                continue
+            if code_fence is not None:
+                if match:
+                    fence = match.group(1)
+                    has_matching_fence = fence[0] == code_fence[0] and len(fence) >= code_fence[1]
+                    closes_current_fence = has_matching_fence and line[match.end() :].strip() == ""
+                    if closes_current_fence:
+                        code_fence = None
+                continue
             for url in LINK_RE.findall(line):
                 if any(url.startswith(p) for p in SKIP_PREFIXES):
                     continue
