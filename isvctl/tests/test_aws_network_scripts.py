@@ -33,6 +33,9 @@ from botocore.exceptions import ClientError
 ISVCTL_ROOT = Path(__file__).resolve().parents[1]
 AWS_NETWORK_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "network"
 MY_ISV_NETWORK_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "my-isv" / "scripts" / "network"
+STABLE_EGRESS_TEST_NAMES = {"create_instance", "probe_egress_ip", "egress_ip_stable"}
+STABLE_EGRESS_TOP_LEVEL_KEYS = {"success", "platform", "test_name", "tests"}
+STABLE_EGRESS_TEST_RESULT_KEYS = {"passed", "message", "probes"}
 
 
 def _load_network_script(script_name: str) -> ModuleType:
@@ -48,6 +51,18 @@ def _load_network_script(script_name: str) -> ModuleType:
 def _client_error(operation_name: str, code: str = "AccessDenied", message: str = "denied") -> ClientError:
     """Create a botocore ClientError for fake AWS client failures."""
     return ClientError({"Error": {"Code": code, "Message": message}}, operation_name)
+
+
+def _assert_stable_egress_contract(result: dict[str, Any]) -> None:
+    """Assert stable egress scripts emit the minimal provider JSON contract."""
+    assert set(result) == STABLE_EGRESS_TOP_LEVEL_KEYS
+    assert result["success"] is True
+    assert result["platform"] == "network"
+    assert result["test_name"] == "stable_egress_ip"
+    assert set(result["tests"]) == STABLE_EGRESS_TEST_NAMES
+    for test_result in result["tests"].values():
+        assert set(test_result) <= STABLE_EGRESS_TEST_RESULT_KEYS
+        assert isinstance(test_result["passed"], bool)
 
 
 class FakeServiceScopingEc2:
@@ -1596,3 +1611,111 @@ def test_my_isv_policy_propagation_demo_test_name_matches_suite_step() -> None:
     result: dict[str, Any] = json.loads(completed.stdout)
     assert result["test_name"] == "sg_policy_propagation"
     assert result["success"] is True
+
+
+class FakeStableEgressEc2:
+    """Fake EC2 client for stable egress IP main-path tests."""
+
+    def __init__(self) -> None:
+        """Track subnet creation without reaching AWS."""
+        self.created_subnet_cidrs: list[str] = []
+
+    def describe_availability_zones(self, Filters: list[dict[str, Any]]) -> dict[str, Any]:
+        """Return one available AZ."""
+        assert Filters == [{"Name": "state", "Values": ["available"]}]
+        return {"AvailabilityZones": [{"ZoneName": "us-west-2a"}]}
+
+    def create_subnet(self, VpcId: str, CidrBlock: str, AvailabilityZone: str) -> dict[str, Any]:
+        """Record the subnet CIDR used by main."""
+        assert VpcId == "vpc-egress"
+        assert AvailabilityZone == "us-west-2a"
+        self.created_subnet_cidrs.append(CidrBlock)
+        return {"Subnet": {"SubnetId": "subnet-egress"}}
+
+    def terminate_instances(self, InstanceIds: list[str]) -> dict[str, Any]:
+        """No-op terminate for cleanup."""
+        assert InstanceIds == ["i-egress"]
+        return {}
+
+    def delete_key_pair(self, KeyName: str) -> dict[str, Any]:
+        """No-op key cleanup."""
+        assert KeyName.startswith("isv-stable-egress-ip-")
+        return {}
+
+    def delete_security_group(self, GroupId: str) -> dict[str, Any]:
+        """No-op security group cleanup."""
+        assert GroupId == "sg-egress"
+        return {}
+
+    def delete_subnet(self, SubnetId: str) -> dict[str, Any]:
+        """No-op subnet cleanup."""
+        assert SubnetId == "subnet-egress"
+        return {}
+
+    def get_waiter(self, _name: str) -> Any:
+        """Return a waiter with a no-op wait method."""
+        return type("FakeWaiter", (), {"wait": lambda self, **kwargs: None})()
+
+
+def test_stable_egress_main_uses_cidr_parser_and_emits_minimal_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """AWS stable egress output should stay minimal and subnet CIDR derivation should be CIDR-aware."""
+    module = _load_network_script("stable_egress_ip_test.py")
+    fake_ec2 = FakeStableEgressEc2()
+
+    monkeypatch.setattr(module.boto3, "client", lambda service, region_name: fake_ec2)
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        module,
+        "create_test_vpc",
+        lambda ec2, cidr, name: {"passed": True, "vpc_id": "vpc-egress"},
+    )
+    monkeypatch.setattr(module, "create_internet_routing", lambda ec2, vpc_id, subnet_id, name, routing: None)
+    monkeypatch.setattr(module, "create_security_group", lambda ec2, vpc_id, name, description: "sg-egress")
+    monkeypatch.setattr(module, "create_key_pair", lambda ec2, key_name: "/tmp/isv-missing-egress-key.pem")
+    monkeypatch.setattr(
+        module,
+        "launch_instance",
+        lambda ec2, subnet_id, sg_id, key_name, name: {
+            "passed": True,
+            "instance_id": "i-egress",
+            "public_ip": "198.51.100.10",
+            "message": "Launched instance i-egress with public IP 198.51.100.10",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_egress_ip",
+        lambda public_ip, key_file, endpoint, probes, interval_seconds, ssh_user: {
+            "passed": True,
+            "ips": ["203.0.113.20"] * probes,
+            "endpoint": endpoint,
+            "probes": probes,
+            "message": f"Collected {probes} egress IP probes from {endpoint}",
+        },
+    )
+    monkeypatch.setattr(module, "delete_with_retry", lambda func, **kwargs: True)
+    monkeypatch.setattr(module, "delete_vpc", lambda ec2, vpc_id: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "stable_egress_ip_test.py",
+            "--region",
+            "us-west-2",
+            "--cidr",
+            "10.88.16.0/20",
+            "--probes",
+            "2",
+        ],
+    )
+
+    exit_code = module.main()
+
+    assert exit_code == 0
+    assert fake_ec2.created_subnet_cidrs == ["10.88.16.0/24"]
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    _assert_stable_egress_contract(payload)
+    assert payload["tests"]["probe_egress_ip"]["probes"] == 2

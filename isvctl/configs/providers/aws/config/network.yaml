@@ -305,6 +305,24 @@ commands:
         timeout: 600
         output_schema: stable_ip
 
+      # Test 10b: Stable Egress IP for NVIDIA service allowlists (DMS05-01, ~3 min)
+      - name: stable_egress_ip_test
+        phase: test
+        command: "python3 ../scripts/network/stable_egress_ip_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.100.0.0/16"
+          - "--probes"
+          - "3"
+          - "--interval-seconds"
+          - "2"
+          - "--endpoint"
+          - "https://api.ipify.org"
+        timeout: 600
+        output_schema: stable_egress_ip
+
       # Test 11: Floating IP Switch (~5 min)
       - name: floating_ip_test
         phase: test
