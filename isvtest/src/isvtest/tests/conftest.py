@@ -138,14 +138,14 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
     if not config_file_arg:
         return
 
-    # Check if -k or -m was used (explicit test selection bypasses marker exclusions)
+    # Check if -k or -m was used (explicit test selection bypasses label exclusions)
     keyword_expr = config.getoption("-k", default=None)
     marker_expr = config.getoption("-m", default=None)
-    skip_marker_exclusions = bool(keyword_expr) or bool(marker_expr)
+    skip_label_exclusions = bool(keyword_expr) or bool(marker_expr)
     if keyword_expr:
-        logger.info(f"Explicit test selection (-k '{keyword_expr}') - marker exclusions bypassed")
+        logger.info(f"Explicit test selection (-k '{keyword_expr}') - label exclusions bypassed")
     if marker_expr:
-        logger.info(f"Explicit marker selection (-m '{marker_expr}') - marker exclusions bypassed")
+        logger.info(f"Explicit label selection (-m '{marker_expr}') - label exclusions bypassed")
 
     try:
         loader = ConfigLoader()
@@ -172,7 +172,7 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
                 should_exclude = True
 
             # Exclude by label (skipped if -k/-m is used for explicit selection).
-            if not skip_marker_exclusions:
+            if not skip_label_exclusions:
                 excluded_labels = exclude_config.get("labels", [])
                 if any(label in item_markers for label in excluded_labels):
                     should_exclude = True

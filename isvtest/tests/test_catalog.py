@@ -26,7 +26,7 @@ class ExplicitLabelCatalogCheck(BaseValidation):
     """Catalog fixture with explicit labels."""
 
     description = "Explicit labels"
-    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long-running")
+    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long_running")
 
     def run(self) -> None:
         """Mark the validation passed."""
@@ -112,7 +112,7 @@ class TestBuildCatalog:
             {
                 "name": "ExplicitLabelCatalogCheck",
                 "description": "Explicit labels",
-                "labels": ["accelerator", "long-running"],
+                "labels": ["accelerator", "long_running"],
                 "module": __name__,
                 "platforms": [],
             }

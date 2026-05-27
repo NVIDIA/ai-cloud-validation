@@ -45,7 +45,7 @@ class KubernetesSlowCheck(BaseValidation):
 class AcceleratorCheck(BaseValidation):
     """Validation with accelerator-themed labels used by parser tests."""
 
-    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long-running")
+    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long_running")
 
     def run(self) -> None:
         """Mark the validation passed."""
@@ -312,7 +312,7 @@ def test_parse_validations_supports_group_defaults_and_labels(
             params_template={"expected": 8},
             step="create_cluster",
             phase="setup",
-            labels=("accelerator", "long-running"),
+            labels=("accelerator", "long_running"),
         ),
         ValidationEntry(
             name="PlainCheck",

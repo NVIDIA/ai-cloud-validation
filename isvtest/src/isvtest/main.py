@@ -119,7 +119,7 @@ def run_validations_via_pytest(
             pytest_args.extend(["-o", f"junit_suite_name={suite_name}"])
 
         # exclude.labels from YAML are read directly by conftest.py; passing them
-        # as -m args would flip conftest's "explicit marker selection" branch.
+        # as -m args would flip conftest's "explicit label selection" branch.
         if extra_pytest_args:
             pytest_args.extend(extra_pytest_args)
 
@@ -340,19 +340,19 @@ def run_pytest_tests(
     if inventory_path:
         pytest_args.extend(["--inventory", inventory_path])
 
-    marker_terms: list[str] = []
+    label_terms: list[str] = []
 
     # Platform label is selected via pytest -m so the validation conftest treats
     # it as explicit selection (same path used by --label).
     if platform and platform != "all":
         normalized_platform = "bare_metal" if platform == "common" else platform
         if normalized_platform in ["bare_metal", "kubernetes", "slurm"]:
-            marker_terms.append(normalized_platform)
+            label_terms.append(normalized_platform)
 
     if labels:
-        marker_terms.extend(labels)
-    if marker_terms:
-        pytest_args.extend(["-m", " and ".join(marker_terms)])
+        label_terms.extend(labels)
+    if label_terms:
+        pytest_args.extend(["-m", " and ".join(label_terms)])
 
     # Add any extra pytest arguments
     if extra_pytest_args:

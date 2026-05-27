@@ -68,7 +68,7 @@ class ConcreteValidation(BaseValidation):
 class LabelledValidation(BaseValidation):
     """Validation that publishes public labels."""
 
-    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long-running")
+    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long_running")
 
     def run(self) -> None:
         """Simple run implementation."""
@@ -240,7 +240,7 @@ class TestBaseValidation:
 
     def test_get_validation_labels_returns_declared_labels(self) -> None:
         """Validation labels come from the class's `labels` attribute."""
-        assert get_validation_labels(LabelledValidation) == ("accelerator", "long-running")
+        assert get_validation_labels(LabelledValidation) == ("accelerator", "long_running")
 
     def test_get_validation_labels_empty_when_unset(self) -> None:
         """Classes without labels surface an empty tuple, not the missing markers default."""
