@@ -128,6 +128,7 @@ Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job schedul
 | `verify_key_rejected` | test | `providers/my-isv/scripts/control-plane/verify_key_rejected.py` | `rejected`, `error_code` |
 | `list_tenants` | test | `providers/my-isv/scripts/control-plane/list_tenants.py` | `found_target`, `target_tenant`, `count` |
 | `get_tenant` | test | `providers/my-isv/scripts/control-plane/get_tenant.py` | `tenant_name`, `description` |
+| `s3_object_lifecycle` | test | `providers/my-isv/scripts/control-plane/s3_object_lifecycle.py` | `bucket_name`, `object_key`, `operations.{put,get,delete}` (get includes `content_matches`) |
 | `delete_access_key` | teardown | `providers/my-isv/scripts/control-plane/delete_access_key.py` | `resources_deleted` |
 | `delete_tenant` | teardown | `providers/my-isv/scripts/control-plane/delete_tenant.py` | `resources_deleted` |
 

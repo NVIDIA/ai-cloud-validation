@@ -22,6 +22,8 @@
 # - API Health: Authentication and service connectivity
 # - Access Key Lifecycle: Create, authenticate, disable, verify rejection, delete
 # - Tenant Lifecycle: Create, list, get info, delete
+# - S3 Object Lifecycle: PutObject -> GetObject (byte-compare) -> DeleteObject
+#   (DATASVC-XX-01 / issue #262: authenticated S3-compatible API data path)
 #
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/aws/config/control-plane.yaml
@@ -29,7 +31,9 @@
 # Required IAM Permissions:
 #   sts:GetCallerIdentity, iam:ListUsers, ec2:DescribeRegions, s3:ListBuckets,
 #   iam:CreateUser, iam:DeleteUser, iam:CreateAccessKey, iam:DeleteAccessKey, iam:UpdateAccessKey,
-#   resource-groups:CreateGroup, resource-groups:DeleteGroup, resource-groups:ListGroups, resource-groups:GetGroup
+#   resource-groups:CreateGroup, resource-groups:DeleteGroup, resource-groups:ListGroups, resource-groups:GetGroup,
+#   s3:CreateBucket, s3:DeleteBucket, s3:ListBucket, s3:ListBucketVersions,
+#   s3:PutObject, s3:GetObject, s3:DeleteObject, s3:DeleteObjectVersion
 
 import:
   - ../../../suites/control-plane.yaml
@@ -133,6 +137,15 @@ commands:
           - "--region"
           - "{{region}}"
         timeout: 60
+
+      # =======================================================================
+      # TEST: S3 Object Lifecycle (DATASVC-XX-01)
+      # =======================================================================
+      - name: s3_object_lifecycle
+        phase: test
+        command: "python3 ../scripts/control-plane/s3_object_lifecycle.py"
+        args: ["--region", "{{region}}"]
+        timeout: 120
 
       # =======================================================================
       # TEARDOWN: Cleanup Resources

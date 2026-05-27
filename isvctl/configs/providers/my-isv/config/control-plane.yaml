@@ -26,14 +26,16 @@
 #     2. create_access_key - Create test user + access key
 #     3. create_tenant     - Create test tenant
 #   TEST
-#     4. test_access_key     - Authenticate with the key
-#     5. disable_access_key  - Deactivate the key
-#     6. verify_key_rejected - Confirm disabled key is rejected
-#     7. list_tenants        - Find created tenant in list
-#     8. get_tenant          - Retrieve tenant details
+#     4. test_access_key      - Authenticate with the key
+#     5. disable_access_key   - Deactivate the key
+#     6. verify_key_rejected  - Confirm disabled key is rejected
+#     7. list_tenants         - Find created tenant in list
+#     8. get_tenant           - Retrieve tenant details
+#     9. s3_object_lifecycle  - PutObject -> GetObject (byte compare) -> DeleteObject
+#                               (DATASVC-XX-01 / issue #262: authenticated S3 data path)
 #   TEARDOWN
-#     9. delete_access_key - Clean up user + key
-#    10. delete_tenant     - Clean up tenant
+#    10. delete_access_key - Clean up user + key
+#    11. delete_tenant     - Clean up tenant
 #
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/control-plane.yaml
@@ -122,6 +124,12 @@ commands:
           - "--region"
           - "{{region}}"
         timeout: 60
+
+      - name: s3_object_lifecycle
+        phase: test
+        command: "python ../scripts/control-plane/s3_object_lifecycle.py"
+        args: ["--region", "{{region}}"]
+        timeout: 120
 
       - name: delete_access_key
         phase: teardown
