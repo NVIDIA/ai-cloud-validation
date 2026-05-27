@@ -34,8 +34,18 @@ spec:
               mpirun --allow-run-as-root -np 8 \
                      --bind-to none --map-by slot \
                      -x NCCL_DEBUG=INFO -x LD_LIBRARY_PATH \
+                     -x NCCL_IB_DISABLE -x NCCL_IB_HCA -x NCCL_IB_GID_INDEX -x NCCL_NET_GDR_LEVEL \
                      all_reduce_perf_mpi -b 8 -e 2G -f 2 -g 1 \
                      2>&1 | tee /results/nccl-allreduce_${TS}.log
+          env:
+            - name: NCCL_IB_DISABLE
+              value: "0"
+            - name: NCCL_IB_HCA
+              value: "^rocep75s0"  # exclude broken NIC (duplicate .16 IP on both nodes)
+            - name: NCCL_IB_GID_INDEX
+              value: "3"           # RoCE v2 — valid unique IPs on remaining NICs
+            - name: NCCL_NET_GDR_LEVEL
+              value: "0"           # host-bounce buffers; set to 2 only if nvidia_peermem loaded
           volumeMounts:
             - name: results
               mountPath: /results
