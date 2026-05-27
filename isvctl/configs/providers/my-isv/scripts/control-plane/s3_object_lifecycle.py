@@ -105,9 +105,7 @@ def main() -> int:
         result["success"] = True
     else:
         operations["put"]["error"] = "Not implemented"
-        result["error"] = (
-            "Not implemented - replace with your platform's PutObject/GetObject/DeleteObject logic"
-        )
+        result["error"] = "Not implemented - replace with your platform's PutObject/GetObject/DeleteObject logic"
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1

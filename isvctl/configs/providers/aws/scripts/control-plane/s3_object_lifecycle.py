@@ -29,7 +29,7 @@ Output JSON:
     "platform": "control_plane",
     "test_name": "s3_object_lifecycle",
     "bucket_name": "isv-validate-s3-xxxxxxxx",
-    "object_key": "isv-validate.txt",
+    "object_key": "isv-validate-xxxxxxxx.txt",
     "operations": {
         "put":    {"passed": true},
         "get":    {"passed": true, "content_matches": true},
@@ -116,19 +116,14 @@ def main() -> int:
     client_kwargs: dict[str, Any] = {"region_name": args.region}
     if args.endpoint_url:
         client_kwargs["endpoint_url"] = args.endpoint_url
-    try:
-        s3 = boto3.client("s3", **client_kwargs)
-    except NoCredentialsError as e:
-        result["error"] = f"No credentials: {e}"
-        print(json.dumps(result, indent=2))
-        return 1
+    s3 = boto3.client("s3", **client_kwargs)
 
     bucket_created = False
     try:
         try:
             _create_bucket(s3, bucket_name, args.region)
             bucket_created = True
-        except ClientError as e:
+        except (ClientError, NoCredentialsError) as e:
             result["error"] = f"CreateBucket failed: {e}"
             print(json.dumps(result, indent=2))
             return 1
@@ -138,6 +133,8 @@ def main() -> int:
             operations["put"]["passed"] = True
         except ClientError as e:
             _fail(operations["put"], e.response["Error"]["Code"], str(e))
+        except NoCredentialsError as e:
+            _fail(operations["put"], "NoCredentials", str(e))
 
         if operations["put"]["passed"]:
             try:
@@ -155,12 +152,16 @@ def main() -> int:
                     )
             except ClientError as e:
                 _fail(operations["get"], e.response["Error"]["Code"], str(e))
+            except NoCredentialsError as e:
+                _fail(operations["get"], "NoCredentials", str(e))
 
-        try:
-            s3.delete_object(Bucket=bucket_name, Key=object_key)
-            operations["delete"]["passed"] = True
-        except ClientError as e:
-            _fail(operations["delete"], e.response["Error"]["Code"], str(e))
+            try:
+                s3.delete_object(Bucket=bucket_name, Key=object_key)
+                operations["delete"]["passed"] = True
+            except ClientError as e:
+                _fail(operations["delete"], e.response["Error"]["Code"], str(e))
+            except NoCredentialsError as e:
+                _fail(operations["delete"], "NoCredentials", str(e))
 
         result["success"] = all(op["passed"] for op in operations.values())
 
