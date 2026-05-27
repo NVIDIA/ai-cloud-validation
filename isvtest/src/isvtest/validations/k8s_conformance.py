@@ -76,7 +76,7 @@ class K8sCncfConformanceCheck(BaseValidation):
     """Verify CNCF Kubernetes conformance by running the e2e Pod directly."""
 
     description = "Verify CNCF Kubernetes conformance by running the registry.k8s.io/conformance Pod."
-    markers: ClassVar[list[str]] = ["kubernetes", "l2", "slow"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "l2", "slow")
     timeout: ClassVar[int] = 120  # default for auxiliary commands
 
     _DEFAULT_TIMEOUT = 7200

@@ -293,7 +293,7 @@ def upload_test_catalog(
         jwt_token: JWT access token
         isv_test_version: Test suite version string (e.g. "1.2.3")
         entries: List of catalog entry dicts with keys:
-            name, description, labels, markers, module
+            name, description, labels, module
 
     Returns:
         True if catalog was uploaded or already exists, False on error
@@ -318,8 +318,7 @@ def upload_test_catalog(
             {
                 "name": e["name"],
                 "description": e.get("description", ""),
-                "labels": e.get("labels", e.get("markers", [])),
-                "markers": e.get("markers", []),
+                "labels": e.get("labels", []),
                 "module": e.get("module", ""),
                 "platforms": e.get("platforms", []),
             }

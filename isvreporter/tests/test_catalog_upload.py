@@ -47,10 +47,9 @@ class TestUploadTestCatalog:
                 "name": "TestA",
                 "description": "Test A",
                 "labels": ["k8s"],
-                "markers": ["k8s"],
                 "module": "mod.a",
             },
-            {"name": "TestB", "description": "Test B", "markers": [], "module": "mod.b"},
+            {"name": "TestB", "description": "Test B", "labels": [], "module": "mod.b"},
         ]
 
         result = upload_test_catalog(
@@ -73,7 +72,7 @@ class TestUploadTestCatalog:
         assert len(payload["entries"]) == 2
         assert payload["entries"][0]["name"] == "TestA"
         assert payload["entries"][0]["labels"] == ["k8s"]
-        assert payload["entries"][0]["markers"] == ["k8s"]
+        assert "markers" not in payload["entries"][0]
         assert payload["entries"][1]["labels"] == []
 
     @patch("isvreporter.client.urlopen")
@@ -175,12 +174,12 @@ class TestUploadTestCatalog:
         assert entry["name"] == "TestA"
         assert entry["description"] == ""
         assert entry["labels"] == []
-        assert entry["markers"] == []
+        assert "markers" not in entry
         assert entry["module"] == ""
 
     @patch("isvreporter.client.urlopen")
-    def test_legacy_markers_are_used_as_labels_when_labels_missing(self, mock_urlopen: MagicMock) -> None:
-        """Legacy catalog entries that only send markers still upload labels."""
+    def test_markers_field_is_not_forwarded(self, mock_urlopen: MagicMock) -> None:
+        """The upload payload no longer carries the legacy ``markers`` field."""
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps({"status": "created"}).encode()
         mock_response.__enter__ = MagicMock(return_value=mock_response)
@@ -191,7 +190,7 @@ class TestUploadTestCatalog:
             endpoint="https://api.example.com",
             jwt_token="test-token",
             isv_test_version="1.0.0",
-            entries=[{"name": "TestA", "markers": ["gpu"]}],
+            entries=[{"name": "TestA", "labels": ["gpu"], "markers": ["gpu"]}],
         )
 
         request = mock_urlopen.call_args[0][0]
@@ -199,4 +198,4 @@ class TestUploadTestCatalog:
         entry = payload["entries"][0]
 
         assert entry["labels"] == ["gpu"]
-        assert entry["markers"] == ["gpu"]
+        assert "markers" not in entry

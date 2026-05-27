@@ -40,7 +40,7 @@ class AccessKeyCreatedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check access key was created"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -71,7 +71,7 @@ class AccessKeyAuthenticatedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check access key can authenticate"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -100,7 +100,7 @@ class AccessKeyDisabledCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check access key was disabled"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -124,7 +124,7 @@ class AccessKeyRejectedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check disabled key is rejected"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -164,7 +164,7 @@ class ServiceAccountCredentialCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check service account long-lived credential auth"
-    markers: ClassVar[list[str]] = ["iam", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("iam", "security")
 
     def run(self) -> None:
         """Validate SA credential authentication from step output."""
@@ -208,7 +208,7 @@ class TenantCreatedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check tenant was created"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -240,7 +240,7 @@ class TenantListedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check tenant appears in list"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -273,7 +273,7 @@ class TenantInfoCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check tenant info retrieved"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

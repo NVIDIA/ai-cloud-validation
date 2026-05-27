@@ -187,8 +187,8 @@ def test_run_pytest_tests_combines_platform_and_labels(monkeypatch: pytest.Monke
     assert captured["args"][-2:] == ["-m", "bare_metal and gpu"]
 
 
-def test_run_pytest_tests_keeps_markers_as_legacy_alias(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The legacy markers option still selects by the same expression path."""
+def test_run_pytest_tests_omits_marker_arg_when_no_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without labels or a platform filter, no -m argument is forwarded to pytest."""
     captured: dict[str, list[str]] = {}
 
     def fake_pytest_main(args: list[str]) -> int:
@@ -197,7 +197,7 @@ def test_run_pytest_tests_keeps_markers_as_legacy_alias(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(isvtest.main.pytest, "main", fake_pytest_main)
 
-    exit_code = isvtest.main.run_pytest_tests(markers=["gpu"])
+    exit_code = isvtest.main.run_pytest_tests()
 
     assert exit_code == 0
-    assert captured["args"][-2:] == ["-m", "gpu"]
+    assert "-m" not in captured["args"]

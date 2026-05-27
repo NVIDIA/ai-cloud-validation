@@ -26,7 +26,7 @@ class BmCudaVersion(BaseValidation):
 
     description: ClassVar[str] = "Query CUDA version from nvidia-smi (driver-reported max CUDA version)"
     timeout: ClassVar[int] = 30
-    markers: ClassVar[list[str]] = ["bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         result = self.run_command("nvidia-smi")

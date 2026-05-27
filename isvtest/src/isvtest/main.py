@@ -118,7 +118,7 @@ def run_validations_via_pytest(
         if suite_name:
             pytest_args.extend(["-o", f"junit_suite_name={suite_name}"])
 
-        # exclude_markers from YAML are read directly by conftest.py; passing them
+        # exclude.labels from YAML are read directly by conftest.py; passing them
         # as -m args would flip conftest's "explicit marker selection" branch.
         if extra_pytest_args:
             pytest_args.extend(extra_pytest_args)
@@ -274,7 +274,6 @@ def run_pytest_tests(
     config_file: str | None = None,
     inventory_path: str | None = None,
     labels: list[str] | None = None,
-    markers: list[str] | None = None,
     verbose: bool = False,
     extra_pytest_args: list[str] | None = None,
 ) -> int:
@@ -285,7 +284,6 @@ def run_pytest_tests(
         config_file: Direct path to cluster configuration file
         inventory_path: Path to cluster inventory file (JSON or YAML)
         labels: Public labels to filter tests (e.g., ['gpu', 'network']). All must match.
-        markers: Legacy pytest markers to filter tests.
         verbose: Show verbose output
         extra_pytest_args: Additional arguments to pass to pytest
 
@@ -344,13 +342,15 @@ def run_pytest_tests(
 
     marker_terms: list[str] = []
 
-    # Add platform marker if specified
+    # Platform label is selected via pytest -m so the validation conftest treats
+    # it as explicit selection (same path used by --label).
     if platform and platform != "all":
         normalized_platform = "bare_metal" if platform == "common" else platform
         if normalized_platform in ["bare_metal", "kubernetes", "slurm"]:
             marker_terms.append(normalized_platform)
 
-    marker_terms.extend([*(labels or []), *(markers or [])])
+    if labels:
+        marker_terms.extend(labels)
     if marker_terms:
         pytest_args.extend(["-m", " and ".join(marker_terms)])
 
@@ -401,14 +401,6 @@ def test_cmd(
             help="Label to filter tests (can be repeated; all selected labels must match)",
         ),
     ] = None,
-    markers: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--markers",
-            "-m",
-            help="Legacy alias for --label; pytest marker compatibility",
-        ),
-    ] = None,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -436,7 +428,6 @@ def test_cmd(
         platform=platform.value,
         config_file=str(config) if config else None,
         labels=labels,
-        markers=markers,
         verbose=verbose,
         extra_pytest_args=extra_args,
     )

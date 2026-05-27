@@ -257,7 +257,7 @@
         },
         "exclude": {
           "additionalProperties": true,
-          "description": "Exclusion rules. Prefer labels; markers is legacy.",
+          "description": "Exclusion rules (keys: labels, platforms, tests, files)",
           "title": "Exclude",
           "type": "object"
         }

@@ -38,7 +38,7 @@ class BaseWorkloadCheck(BaseValidation):
 
     # Workloads usually have longer timeouts
     timeout: ClassVar[int] = 600
-    markers: ClassVar[list[str]] = ["workload"]
+    labels: ClassVar[tuple[str, ...]] = ("workload",)
 
     def __init__(self, runner: Runner | None = None, config: dict[str, Any] | None = None):
         super().__init__(runner, config)

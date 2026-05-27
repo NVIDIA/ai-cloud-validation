@@ -32,7 +32,7 @@ from isvtest.core.validation import BaseValidation
 
 class K8sNvidiaSmiCheck(BaseValidation):
     description = "Verify nvidia-smi is accessible and returns valid output on all GPU nodes."
-    markers: ClassVar[list[str]] = ["kubernetes", "gpu"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
 
     def run(self) -> None:
         # Configurable timeout, defaulting to 60 seconds for robustness
@@ -221,7 +221,7 @@ class K8sNvidiaSmiCheck(BaseValidation):
 
 class K8sDriverVersionCheck(K8sNvidiaSmiCheck):
     description = "Verify NVIDIA driver version matches expected across all GPU nodes."
-    markers: ClassVar[list[str]] = ["kubernetes", "gpu"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
 
     def run(self) -> None:
         expected_driver = self.config.get("driver_version")
@@ -264,7 +264,7 @@ class K8sGpuPodAccessCheck(K8sNvidiaSmiCheck):
     """
 
     description = "Verify GPU access from pods by running nvidia-smi (sees 1 allocated GPU per node)."
-    markers: ClassVar[list[str]] = ["kubernetes", "gpu"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
 
     def run(self) -> None:
         gpu_count_per_node = self.config.get("gpu_count")

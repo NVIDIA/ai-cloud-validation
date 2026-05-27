@@ -429,7 +429,6 @@ EOF
                 "message": "step 'probe' did not produce output",
                 "category": "probe_checks",
                 "labels": [],
-                "markers": [],
                 "state": "skipped",
                 "skip_reason": "step_no_output",
                 "error_reason": None,
@@ -524,15 +523,15 @@ class TestLabelFiltering:
 
     These pin two non-obvious composition rules from ``Orchestrator.run``:
     1. CLI labels (or pytest ``-k``/``-m``) bypass YAML
-       ``exclude.labels``/``exclude.markers`` for the same run.
+       ``exclude.labels`` for the same run.
     2. CLI labels pre-filter entries by label first, then pytest's ``-k`` filter
        applies on top - so a deselected entry shows the pytest-filter message,
        not the label-mismatch message.
 
     ``K8sNodeCountCheck`` is used as the test subject because it ships with
-    ``markers=["kubernetes"]`` (so labels fall back to ``("kubernetes",)``) and
-    short-circuits to ``set_passed`` when neither ``count`` nor ``min_count``
-    is configured - no kubectl invocation needed.
+    ``labels=("kubernetes",)`` and short-circuits to ``set_passed`` when
+    neither ``count`` nor ``min_count`` is configured - no kubectl invocation
+    needed.
     """
 
     @staticmethod

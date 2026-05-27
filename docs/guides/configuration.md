@@ -622,7 +622,7 @@ tests:
 | `tests` | Removes tests matching by exact name, prefix, or parametrized ID (e.g., `K8sNcclWorkload`, `K8sNimHelmWorkload-3b`) | No - always applied |
 | `files` | Removes tests whose source file matches (e.g., `test_host.py`) | No - always applied |
 
-`markers` is still accepted as a legacy alias for `labels`. If both are present, their values are combined for now.
+Labels are mirrored as pytest marks, so explicit selection with `--label`, `-- -k`, or `-- -m` bypasses `exclude.labels` for the same run.
 
 ### Examples
 

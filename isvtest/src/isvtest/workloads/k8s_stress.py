@@ -34,7 +34,7 @@ from isvtest.core.workload import BaseWorkloadCheck
 
 class K8sGpuStressWorkload(BaseWorkloadCheck):
     description = "Run GPU stress test on all GPU nodes in the cluster."
-    markers: ClassVar[list[str]] = ["workload", "kubernetes", "gpu", "slow"]
+    labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
 
     def run(self) -> None:
         # Get configuration

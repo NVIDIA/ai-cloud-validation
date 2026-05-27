@@ -44,7 +44,7 @@ class BmcManagementNetworkCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BMC management network is dedicated and restricted"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required BMC management-network results from step output."""
@@ -76,7 +76,7 @@ class BmcTenantIsolationCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BMC not reachable from tenant network"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required BMC isolation probe results from step output."""
@@ -123,7 +123,7 @@ class TenantIsolationCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check hard tenant isolation across network, data, compute, and storage"
-    markers: ClassVar[list[str]] = ["security", "network", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network", "iam")
 
     def run(self) -> None:
         """Validate the four tenant-isolation sub-claims from step output."""
@@ -169,7 +169,7 @@ class BmcProtocolSecurityCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BMC protocol security posture"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required BMC protocol security probe results."""
@@ -210,7 +210,7 @@ class BmcBastionAccessCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BMC reachable only via hardened bastion"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required BMC bastion-access results from step output."""
@@ -242,7 +242,7 @@ class MfaEnforcedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check admin interfaces protected by MFA"
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required MFA enforcement results from step output."""
@@ -273,7 +273,7 @@ class CentralizedKmsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check encrypted resources use centralized KMS"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required centralized-KMS results from step output."""
@@ -322,7 +322,7 @@ class CertRotationCycleCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check TLS certificates rotate within 60 days or auto-renew"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required certificate-rotation results from step output."""
@@ -382,7 +382,7 @@ class CustomerManagedKeyCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BYOK/customer-managed key encryption support"
-    markers: ClassVar[list[str]] = ["security", "workload", "slow"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "workload", "slow")
 
     def run(self) -> None:
         """Validate required BYOK/customer-managed key results from step output."""
@@ -440,7 +440,7 @@ class KmsEncryptionOptionCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check provider-managed and customer-managed KMS options exist"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required KMS encryption-option results from step output."""
@@ -487,7 +487,7 @@ class ApiEndpointIsolationCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check API endpoints not publicly accessible"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required API endpoint isolation probe results from step output."""
@@ -519,7 +519,7 @@ class ConsoleRbacCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check console access is restricted by RBAC"
-    markers: ClassVar[list[str]] = ["vm", "security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "security", "iam")
 
     def run(self) -> None:
         """Validate console RBAC provider proof from step output."""
@@ -572,7 +572,7 @@ class VirtualDeviceHardeningCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check USB, clipboard, and unnecessary virtual devices are disabled"
-    markers: ClassVar[list[str]] = ["vm", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "security")
 
     def run(self) -> None:
         """Validate virtual-device hardening evidence from step output."""
@@ -624,7 +624,7 @@ class OidcUserAuthCheck(BaseValidation):
     description: ClassVar[str] = (
         "Check user auth via OIDC validates signature, issuer, audience, expiration, and required claims"
     )
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required OIDC token verification probe results from step output."""
@@ -698,7 +698,7 @@ class ShortLivedCredentialsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check workloads and nodes receive credentials with finite, bounded TTL"
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required short-lived credentials results from step output."""
@@ -758,7 +758,7 @@ class LeastPrivilegePolicyCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check least-privilege access policies are user, resource, and network scoped"
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required least-privilege policy-dimension results from step output."""
@@ -803,7 +803,7 @@ class MinimalRoleEnforcementCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check minimal role denies out-of-scope compute, storage, and network APIs"
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required out-of-scope denial results from step output."""
@@ -849,7 +849,7 @@ class AuditLogEntryCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check management API calls are recorded in audit logs with required metadata"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required audit-log entry and metadata results from step output."""
@@ -891,7 +891,7 @@ class AuditLogRetentionCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check audit logs are retained for at least 30 days"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required audit-log retention results from step output."""

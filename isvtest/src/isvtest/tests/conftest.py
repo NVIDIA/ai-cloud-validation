@@ -28,32 +28,32 @@ pytest_plugins = ["isvtest.testing.subtests"]
 
 logger = setup_logger()
 
-# Custom pytest markers (registered here since pyproject.toml isn't shipped with wheel)
+# Validation labels pre-registered as pytest markers (registered here because
+# pyproject.toml isn't shipped with the wheel). Validation classes also
+# register their declared labels dynamically via _pytest_marks_for_validation,
+# but pre-registering the known set keeps the PytestUnknownMarkWarning quiet
+# during collection.
 #
-# NOTE: Do NOT add new markers here unless absolutely necessary.
-# Instead, use existing markers from this list. If you see a PytestUnknownMarkWarning
-# for a marker not in this list, either:
-# 1. Use an existing marker from this list instead
-# 2. Remove the unknown marker from the validation class
-# The warning is harmless but indicates a marker that won't filter properly.
+# NOTE: Do NOT add new entries here unless absolutely necessary. Prefer
+# reusing an existing label on the validation class's `labels` attribute.
 #
 CUSTOM_MARKERS = [
-    # Platform markers
+    # Platform
     "bare_metal: Bare metal node validation tests",
     "kubernetes: Kubernetes cluster validation tests",
     "slurm: Slurm scheduler validation tests",
     "vm: Virtual machine validation tests",
-    # Feature markers
+    # Feature
     "gpu: GPU-related tests",
     "iam: IAM identity and access management tests",
     "network: Network and interconnect tests",
     "security: Security-related tests (SG, NACL, IAM)",
     "ssh: Tests requiring SSH access to instances",
-    # Test type markers
+    # Test type
     "unit: Unit tests for library code (run in development/CI)",
     "validation: Infrastructure validation tests (run on target systems)",
     "workload: Workload-based validation tests (longer running)",
-    # Speed/scope markers
+    # Speed/scope
     "l2: Level 2 extended platform validation tests (longer running, e2e)",
     "slow: Tests that take longer than 5 minutes to run",
 ]
@@ -100,8 +100,8 @@ def _add_automatic_markers(items: list[pytest.Item]) -> None:
     Auto-added markers:
     - validation: All tests in tests/
 
-    Note: Platform-specific markers (bare_metal, kubernetes, slurm, etc.) are now
-    set on the check classes themselves via the 'markers' class variable.
+    Note: Platform-specific labels (bare_metal, kubernetes, slurm, etc.) are now
+    set on the check classes themselves via the 'labels' class variable.
 
     Args:
         items: List of collected test items to mark
@@ -122,6 +122,11 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
     - Excluded labels (skipped if -k/-m is used, allowing explicit test selection)
     - Excluded test names
     - Excluded test file names
+
+    `item_markers` here is the set of pytest mark names applied to a collected
+    item. Validation labels are mirrored into pytest marks (see
+    ``_pytest_marks_for_validation``), so excluding by label and matching by
+    pytest mark name is the same thing.
 
     Args:
         config: Pytest config object
@@ -167,9 +172,8 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
                 should_exclude = True
 
             # Exclude by label (skipped if -k/-m is used for explicit selection).
-            # Legacy "markers" remains an alias during the labels transition.
             if not skip_marker_exclusions:
-                excluded_labels = [*exclude_config.get("labels", []), *exclude_config.get("markers", [])]
+                excluded_labels = exclude_config.get("labels", [])
                 if any(label in item_markers for label in excluded_labels):
                     should_exclude = True
 

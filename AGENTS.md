@@ -95,12 +95,13 @@ configs to pytest format, runs native pytest, and returns rich in-memory results
 Validation classes live in `isvtest/src/isvtest/validations/` grouped by domain
 (`generic.py`, `cluster.py`, `instance.py`, `network.py`, `iam.py`, `security.py`,
 `host.py`, `k8s_*.py`, `slurm_*.py`, `bm_*.py`). Each subclass declares
-`markers: ClassVar[list[str]]` for filtering and is auto-discovered.
+`labels: ClassVar[tuple[str, ...]]` for filtering and is auto-discovered.
 `network.py` includes security group scoping checks for workloads, nodes, subnets,
 and services.
 
 Workloads (`isvtest/src/isvtest/workloads/`) are long-running tests (NIM, NCCL,
-stress) marked `["workload", "slow"]` with manifests and helper scripts colocated.
+stress) labelled `("workload", "slow", ...)` with manifests and helper scripts
+colocated.
 
 Test config loaded from YAML/JSON via `config/loader.py`. Global fixtures in
 `tests/conftest.py`. `tests/test_validations.py` dynamically generates pytest tests

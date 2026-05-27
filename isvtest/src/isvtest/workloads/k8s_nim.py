@@ -45,7 +45,7 @@ class K8sNimInferenceWorkload(BaseWorkloadCheck):
     """
 
     description = "Run NIM inference validation using Llama 3.2 3B model."
-    markers: ClassVar[list[str]] = ["workload", "kubernetes", "gpu", "slow"]
+    labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
 
     def run(self) -> None:
         """Execute the NIM inference workload."""

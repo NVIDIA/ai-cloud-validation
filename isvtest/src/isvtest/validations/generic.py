@@ -34,7 +34,6 @@ class FieldExistsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check required fields exist in output"
-    markers: ClassVar[list[str]] = []
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -71,7 +70,6 @@ class FieldValueCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check field has expected value"
-    markers: ClassVar[list[str]] = []
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -159,7 +157,6 @@ class SchemaValidation(BaseValidation):
     """
 
     description: ClassVar[str] = "Validate output matches JSON schema"
-    markers: ClassVar[list[str]] = []
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -269,7 +266,6 @@ class CrudOperationsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check all CRUD operations passed"
-    markers: ClassVar[list[str]] = []
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

@@ -25,7 +25,7 @@ from isvtest.core.validation import BaseValidation
 
 class K8sPodHealthCheck(BaseValidation):
     description = "Verify all pods in the cluster are in a healthy state (Running or Succeeded)."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         ignore_phases = self.config.get("ignore_phases", [])
@@ -62,7 +62,7 @@ class K8sPodHealthCheck(BaseValidation):
 
 class K8sNoPendingPodsCheck(BaseValidation):
     description = "Verify no pods are stuck in Pending state."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()
@@ -87,7 +87,7 @@ class K8sNoPendingPodsCheck(BaseValidation):
 
 class K8sNoErrorPodsCheck(BaseValidation):
     description = "Verify no pods are in Error or CrashLoopBackOff state."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()

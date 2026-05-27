@@ -21,7 +21,7 @@ The catalog is version-keyed by the installed isvtest package version.
 
 Platform tagging uses two sources (union of both):
   1. Config files - which checks appear in each isvctl/configs/suites/*.yaml
-  2. Class markers - e.g. markers=["bare_metal"] implies BARE_METAL platform
+  2. Class labels - e.g. labels=("bare_metal",) implies BARE_METAL platform
 
 This ensures checks get a platform badge in the UI even when they aren't listed
 in a YAML config (e.g. Bm* checks that only run on-host, not via SSH).
@@ -35,7 +35,7 @@ import yaml
 from isvreporter.version import get_version
 
 from isvtest.core.discovery import discover_all_tests
-from isvtest.core.validation import get_validation_labels, get_validation_markers
+from isvtest.core.validation import get_validation_labels
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 logger = logging.getLogger(__name__)
@@ -54,11 +54,11 @@ PLATFORM_CONFIGS: dict[str, list[str]] = {
     "VM": ["suites/vm.yaml"],
 }
 
-# Maps class-level markers to platform strings so checks that aren't listed
+# Maps class-level labels to platform strings so checks that aren't listed
 # in a YAML config still get the correct platform in the catalog.
-# Only platform-identifying markers are included; trait markers like "gpu",
+# Only platform-identifying labels are included; trait labels like "gpu",
 # "ssh", "workload", and "slow" are intentionally omitted.
-MARKER_TO_PLATFORM: dict[str, str] = {
+LABEL_TO_PLATFORM: dict[str, str] = {
     "bare_metal": "BARE_METAL",
     "iam": "IAM",
     "kubernetes": "KUBERNETES",
@@ -157,7 +157,6 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             - name: Validation class name or variant name
             - description: Human-readable description from class metadata
             - labels: List of public label strings (e.g. ["kubernetes", "gpu"])
-            - markers: List of marker strings (e.g. ["kubernetes", "gpu"])
             - module: Fully qualified module path
             - platforms: List of platform strings (e.g. ["KUBERNETES"])
     """
@@ -171,20 +170,18 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             excluded_names.add(cls.__name__)
             continue
         labels = list(get_validation_labels(cls))
-        markers = list(get_validation_markers(cls))
         class_meta[cls.__name__] = {
             "description": getattr(cls, "description", "") or "",
             "labels": labels,
-            "markers": markers,
             "module": cls.__module__,
         }
-        # Infer platforms from markers only for checks not already covered by
-        # canonical configs. Some markers (for example "security") are useful
+        # Infer platforms from labels only for checks not already covered by
+        # canonical configs. Some labels (for example "security") are useful
         # pytest filters but are not reliable platform ownership signals once a
         # check appears in a suite file.
         if cls.__name__ not in platform_map:
-            for marker in markers:
-                platform = MARKER_TO_PLATFORM.get(marker)
+            for label in labels:
+                platform = LABEL_TO_PLATFORM.get(label)
                 if platform:
                     platform_map.setdefault(cls.__name__, set()).add(platform)
 
@@ -199,7 +196,6 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
                 "name": name,
                 "description": meta["description"],
                 "labels": meta["labels"],
-                "markers": meta["markers"],
                 "module": meta["module"],
                 "platforms": sorted(platform_map.get(name, [])),
             }
@@ -223,7 +219,6 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
                 "name": name,
                 "description": desc,
                 "labels": meta.get("labels", []),
-                "markers": meta.get("markers", []),
                 "module": meta.get("module", ""),
                 "platforms": sorted(platforms),
             }

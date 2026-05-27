@@ -23,11 +23,10 @@ from isvtest.core.validation import BaseValidation
 
 
 class ExplicitLabelCatalogCheck(BaseValidation):
-    """Catalog fixture with labels that intentionally differ from markers."""
+    """Catalog fixture with explicit labels."""
 
     description = "Explicit labels"
-    markers: ClassVar[list[str]] = ["gpu"]
-    labels: ClassVar[list[str]] = ["accelerator", "long-running"]
+    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long-running")
 
     def run(self) -> None:
         """Mark the validation passed."""
@@ -52,8 +51,8 @@ class TestBuildCatalog:
             assert "name" in entry
             assert "description" in entry
             assert "labels" in entry
-            assert "markers" in entry
             assert "module" in entry
+            assert "markers" not in entry
 
     def test_entries_have_correct_types(self) -> None:
         """Test that entry values have the correct types."""
@@ -62,7 +61,6 @@ class TestBuildCatalog:
             assert isinstance(entry["name"], str)
             assert isinstance(entry["description"], str)
             assert isinstance(entry["labels"], list)
-            assert isinstance(entry["markers"], list)
             assert isinstance(entry["module"], str)
 
     def test_no_duplicate_names(self) -> None:
@@ -94,13 +92,6 @@ class TestBuildCatalog:
         assert "StepSuccessCheck" in names
         assert "FieldExistsCheck" in names
 
-    def test_markers_are_lists_of_strings(self) -> None:
-        """Test that markers are lists of strings."""
-        catalog = build_catalog()
-        for entry in catalog:
-            for marker in entry["markers"]:
-                assert isinstance(marker, str)
-
     def test_labels_are_lists_of_strings(self) -> None:
         """Test that labels are lists of strings."""
         catalog = build_catalog()
@@ -108,15 +99,8 @@ class TestBuildCatalog:
             for label in entry["labels"]:
                 assert isinstance(label, str)
 
-    def test_labels_default_to_markers(self) -> None:
-        """Catalog entries expose labels even for legacy marker-only classes."""
-        catalog = build_catalog()
-
-        for entry in catalog:
-            assert entry["labels"] == entry["markers"]
-
-    def test_catalog_uses_explicit_labels_when_present(self) -> None:
-        """Explicit class labels are public metadata while markers remain for compatibility."""
+    def test_catalog_emits_explicit_labels(self) -> None:
+        """Explicit class labels are the only source of catalog tag metadata."""
         with (
             patch("isvtest.catalog.discover_all_tests", return_value=[ExplicitLabelCatalogCheck]),
             patch("isvtest.catalog._build_platform_map", return_value={}),
@@ -129,7 +113,6 @@ class TestBuildCatalog:
                 "name": "ExplicitLabelCatalogCheck",
                 "description": "Explicit labels",
                 "labels": ["accelerator", "long-running"],
-                "markers": ["gpu"],
                 "module": __name__,
                 "platforms": [],
             }
@@ -142,13 +125,13 @@ class TestBuildCatalog:
             assert "." in entry["module"]
             assert entry["module"].startswith("isvtest.")
 
-    def test_suite_membership_overrides_marker_platforms(self) -> None:
-        """Regression: feature markers must not add extra platform ownership.
+    def test_suite_membership_overrides_label_platforms(self) -> None:
+        """Regression: trait labels must not add extra platform ownership.
 
-        A check can carry markers like ``["security", "network"]`` for pytest
+        A check can carry labels like ``("security", "network")`` for pytest
         filtering AND appear in a single suite YAML (e.g. ``security.yaml``).
         ``_build_platform_map`` must use the suite as the source of truth and
-        skip marker-derived platform inference in that case - otherwise the
+        skip label-derived platform inference in that case - otherwise the
         UI shows phantom platform badges.
 
         DO NOT add per-check asserts to this test. It is a property test
@@ -156,7 +139,7 @@ class TestBuildCatalog:
         breaks the invariant, the failure message names it.
         """
         from isvtest.catalog import (
-            MARKER_TO_PLATFORM,
+            LABEL_TO_PLATFORM,
             PLATFORM_CONFIGS,
             _extract_checks_from_config,
             _find_configs_dir,
@@ -175,12 +158,12 @@ class TestBuildCatalog:
             name = entry["name"]
             if name not in suite_platforms:
                 continue
-            marker_platforms = {MARKER_TO_PLATFORM[m] for m in entry["markers"] if m in MARKER_TO_PLATFORM}
+            label_platforms = {LABEL_TO_PLATFORM[label] for label in entry["labels"] if label in LABEL_TO_PLATFORM}
             expected = suite_platforms[name]
             actual = set(entry["platforms"])
-            phantom = (marker_platforms - expected) & actual
+            phantom = (label_platforms - expected) & actual
             assert not phantom, (
-                f"{name}: marker-derived platforms {sorted(phantom)} leaked "
+                f"{name}: label-derived platforms {sorted(phantom)} leaked "
                 f"into catalog; expected exactly {sorted(expected)}, "
                 f"got {sorted(actual)}"
             )

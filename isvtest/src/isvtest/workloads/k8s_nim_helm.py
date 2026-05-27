@@ -97,7 +97,7 @@ class K8sNimHelmWorkload(BaseWorkloadCheck):
     """
 
     description = "Deploy NIM using Helm chart and validate with GenAI-Perf."
-    markers: ClassVar[list[str]] = ["workload", "kubernetes", "gpu", "slow"]
+    labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
 
     # NIM Helm chart configuration
     # Reference: https://docs.nvidia.com/nim/large-language-models/latest/deploy-helm.html

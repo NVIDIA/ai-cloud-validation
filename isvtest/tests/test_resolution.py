@@ -32,21 +32,20 @@ from isvtest.core.resolution import (
 from isvtest.core.validation import BaseValidation
 
 
-class MarkerCheck(BaseValidation):
-    """Validation with markers used by parser tests."""
+class KubernetesSlowCheck(BaseValidation):
+    """Validation with multiple labels used by parser tests."""
 
-    markers: ClassVar[list[str]] = ["slow", "kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("slow", "kubernetes")
 
     def run(self) -> None:
         """Mark the validation passed."""
         self.set_passed()
 
 
-class LabelCheck(BaseValidation):
-    """Validation with labels that differ from markers used by parser tests."""
+class AcceleratorCheck(BaseValidation):
+    """Validation with accelerator-themed labels used by parser tests."""
 
-    markers: ClassVar[list[str]] = ["gpu"]
-    labels: ClassVar[list[str]] = ["accelerator", "long-running"]
+    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long-running")
 
     def run(self) -> None:
         """Mark the validation passed."""
@@ -54,7 +53,7 @@ class LabelCheck(BaseValidation):
 
 
 class PlainCheck(BaseValidation):
-    """Validation without markers used by parser tests."""
+    """Validation without labels used by parser tests."""
 
     def run(self) -> None:
         """Mark the validation passed."""
@@ -68,7 +67,6 @@ def _entry(
     params: dict[str, Any] | None = None,
     step: str | None = None,
     phase: str | None = None,
-    markers: tuple[str, ...] = (),
     labels: tuple[str, ...] = (),
 ) -> ValidationEntry:
     """Build a minimal validation entry."""
@@ -78,7 +76,6 @@ def _entry(
         params_template={} if params is None else params,
         step=step,
         phase=phase,
-        markers=markers,
         labels=labels,
     )
 
@@ -89,7 +86,6 @@ def _resolve(
     step_outputs: dict[str, dict[str, Any]] | None = None,
     step_phases: dict[str, str] | None = None,
     requested_phases: set[str] | None = None,
-    exclude_markers: set[str] | None = None,
     include_labels: set[str] | None = None,
     exclude_labels: set[str] | None = None,
     exclude_tests: set[str] | None = None,
@@ -102,7 +98,6 @@ def _resolve(
         step_outputs={} if step_outputs is None else step_outputs,
         step_phases={} if step_phases is None else step_phases,
         requested_phases={"test"} if requested_phases is None else requested_phases,
-        exclude_markers=set() if exclude_markers is None else exclude_markers,
         include_labels=set() if include_labels is None else include_labels,
         exclude_labels=set() if exclude_labels is None else exclude_labels,
         exclude_tests=set() if exclude_tests is None else exclude_tests,
@@ -118,7 +113,6 @@ def _resolve(
     [
         (_entry("NewCheck"), {"released_tests": {"PlainCheck"}}, SkipReason.UNRELEASED),
         (_entry("PlainCheck"), {"exclude_tests": {"PlainCheck"}}, SkipReason.EXCLUDED),
-        (_entry("MarkerCheck", markers=("slow",)), {"exclude_markers": {"slow"}}, SkipReason.EXCLUDED),
         (_entry("LabelCheck", labels=("accelerator",)), {"exclude_labels": {"accelerator"}}, SkipReason.EXCLUDED),
         (_entry(step="create_cluster"), {"step_phases": {}}, SkipReason.STEP_NOT_CONFIGURED),
         (
@@ -235,15 +229,14 @@ def test_resolve_entries_is_idempotent_from_original_entries() -> None:
     """Resolved entries can be reduced to entries and resolved again deterministically."""
     entries = [
         _entry("PlainCheck", params={"value": "static"}),
-        _entry("MarkerCheck", markers=("slow",)),
+        _entry("SlowCheck", labels=("slow",)),
     ]
     kwargs: dict[str, Any] = {
         "step_outputs": {},
         "step_phases": {},
         "requested_phases": {"test"},
-        "exclude_markers": {"slow"},
         "include_labels": set(),
-        "exclude_labels": set(),
+        "exclude_labels": {"slow"},
         "exclude_tests": set(),
         "released_tests": None,
         "render_context": {},
@@ -270,7 +263,6 @@ def test_resolve_entries_requires_all_include_labels() -> None:
         requested_phases={"test"},
         include_labels={"gpu", "slow"},
         exclude_labels=set(),
-        exclude_markers=set(),
         exclude_tests=set(),
         released_tests=None,
         render_context={},
@@ -289,15 +281,15 @@ def test_parse_validations_supports_group_defaults_and_labels(
     """Parser expands config groups and populates labels from discovered classes."""
     monkeypatch.setattr(
         "isvtest.core.resolution.discover_all_tests",
-        lambda: [MarkerCheck, LabelCheck, PlainCheck],
+        lambda: [KubernetesSlowCheck, AcceleratorCheck, PlainCheck],
     )
     raw_config: dict[str, Any] = {
         "cluster": {
             "step": "create_cluster",
             "phase": "setup",
             "checks": {
-                "MarkerCheck": {"expected": 4},
-                "LabelCheck": {"expected": 8},
+                "KubernetesSlowCheck": {"expected": 4},
+                "AcceleratorCheck": {"expected": 8},
                 "PlainCheck": {},
             },
         },
@@ -307,21 +299,19 @@ def test_parse_validations_supports_group_defaults_and_labels(
 
     assert entries == [
         ValidationEntry(
-            name="MarkerCheck",
+            name="KubernetesSlowCheck",
             category="cluster",
             params_template={"expected": 4},
             step="create_cluster",
             phase="setup",
-            markers=("slow", "kubernetes"),
             labels=("slow", "kubernetes"),
         ),
         ValidationEntry(
-            name="LabelCheck",
+            name="AcceleratorCheck",
             category="cluster",
             params_template={"expected": 8},
             step="create_cluster",
             phase="setup",
-            markers=("gpu",),
             labels=("accelerator", "long-running"),
         ),
         ValidationEntry(
@@ -330,7 +320,6 @@ def test_parse_validations_supports_group_defaults_and_labels(
             params_template={},
             step="create_cluster",
             phase="setup",
-            markers=(),
             labels=(),
         ),
     ]

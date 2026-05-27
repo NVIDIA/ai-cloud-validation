@@ -23,7 +23,7 @@ from isvtest.core.validation import BaseValidation
 
 class K8sGpuOperatorNamespaceCheck(BaseValidation):
     description = "Verify GPU Operator namespace exists."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         # Prefer config value, fall back to global setting
@@ -42,7 +42,7 @@ class K8sGpuOperatorNamespaceCheck(BaseValidation):
 
 class K8sGpuOperatorPodsCheck(BaseValidation):
     description = "Check if NVIDIA GPU Operator pods are running."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         # Prefer config value, fall back to global setting

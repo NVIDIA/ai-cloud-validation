@@ -22,7 +22,7 @@ from isvtest.core.validation import BaseValidation
 
 class K8sGpuLabelsCheck(BaseValidation):
     description = "Verify GPU nodes have proper NVIDIA labels."
-    markers: ClassVar[list[str]] = ["kubernetes", "gpu"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
 
     def run(self) -> None:
         label_selector = self.config.get("label_selector", "nvidia.com/gpu.present=true")
@@ -55,7 +55,7 @@ class K8sGpuCapacityCheck(BaseValidation):
     """
 
     description = "Verify node GPU capacity matches expected counts."
-    markers: ClassVar[list[str]] = ["kubernetes", "gpu"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
 
     def run(self) -> None:
         resource_name = self.config.get("resource_name", "nvidia.com/gpu")

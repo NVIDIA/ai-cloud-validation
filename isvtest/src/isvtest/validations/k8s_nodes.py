@@ -33,7 +33,7 @@ class K8sNodeCountCheck(BaseValidation):
     """
 
     description = "Verify the cluster has the expected number of nodes."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         expected_count = self.config.get("count")
@@ -143,7 +143,7 @@ def _scope_description(label_selector: str | None, exclude_selector: str | None)
 
 class K8sNodeReadyCheck(BaseValidation):
     description = "Verify all nodes in the cluster are in Ready state."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()
@@ -191,7 +191,7 @@ class K8sNodeReadyCheck(BaseValidation):
 
 class K8sExpectedNodesCheck(BaseValidation):
     description = "Verify all expected nodes from BoM are present in the cluster."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         expected_names = self.config.get("names", [])

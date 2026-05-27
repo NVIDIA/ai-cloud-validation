@@ -263,7 +263,7 @@ Filter tests using labels:
 isvtest test --config tests.yaml --label gpu --label network
 ```
 
-**Note:** By default, `workload` and `slow` labels are excluded. Use `--label workload` or another explicit selector to run them. Pytest markers remain supported internally and through `--markers` as a legacy alias.
+**Note:** By default, `workload` and `slow` labels are excluded. Use `--label workload` or another explicit selector to run them. Each label is mirrored as a pytest mark, so `-- -m "not slow"` and `-- -k "not Workload"` still filter pytest natively.
 
 ## Development
 

@@ -24,7 +24,7 @@ from isvtest.config.loader import ConfigLoader
 from isvtest.core.discovery import discover_all_tests
 from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, resolve_class_key
 from isvtest.core.runners import LocalRunner
-from isvtest.core.validation import BaseValidation, get_validation_labels, get_validation_markers
+from isvtest.core.validation import BaseValidation, get_validation_labels
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 if TYPE_CHECKING:
@@ -49,13 +49,11 @@ def _pytest_marks_for_validation(
     config: pytest.Config,
     validation_class: type[BaseValidation],
 ) -> list[Any]:
-    """Return pytest marks for a validation's labels and legacy markers."""
+    """Return pytest marks mirroring a validation class's labels."""
     labels = get_validation_labels(validation_class)
-    markers = get_validation_markers(validation_class)
-    mark_names = tuple(dict.fromkeys([*markers, *labels]))
-    for mark_name in mark_names:
-        config.addinivalue_line("markers", f"{mark_name}: Validation label")
-    return [getattr(pytest.mark, mark_name) for mark_name in mark_names]
+    for label in labels:
+        config.addinivalue_line("markers", f"{label}: Validation label")
+    return [getattr(pytest.mark, label) for label in labels]
 
 
 def _resolve_validation_class(

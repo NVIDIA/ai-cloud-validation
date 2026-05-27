@@ -92,7 +92,7 @@ def list_cmd(
         table.add_row(
             entry["name"],
             ", ".join(entry.get("platforms") or []) or "-",
-            ", ".join(entry.get("labels") or entry.get("markers") or []) or "-",
+            ", ".join(entry.get("labels") or []) or "-",
             entry.get("description") or "-",
         )
 

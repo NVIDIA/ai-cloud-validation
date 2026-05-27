@@ -134,7 +134,7 @@ class TestGetPlatformFromConfig:
 
     def test_config_without_platform(self, tmp_path: Path) -> None:
         """Test that missing platform field returns default."""
-        config = _write_config(tmp_path, "tests:\n  markers: [unit]\n")
+        config = _write_config(tmp_path, "tests:\n  labels: [unit]\n")
         assert get_platform_from_config(str(config)) == DEFAULT_PLATFORM
 
     def test_nonexistent_file_returns_default(self) -> None:
