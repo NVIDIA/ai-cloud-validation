@@ -110,6 +110,8 @@ tests:
           step: byoip_test
         StablePrivateIpCheck:
           step: stable_ip_test
+        StableEgressIpCheck:
+          step: stable_egress_ip_test
         FloatingIpCheck:
           step: floating_ip_test
           max_switch_seconds: 10

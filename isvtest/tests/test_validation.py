@@ -47,6 +47,7 @@ from isvtest.validations.network import (
     NvlinkDomainCheck,
     SgPolicyPropagationTimingCheck,
     SgPortSecurityPolicyCheck,
+    StableEgressIpCheck,
     StablePrivateIpCheck,
     VpcPeeringCheck,
 )
@@ -1223,6 +1224,64 @@ class TestStablePrivateIpCheck:
 
     def test_empty_tests(self) -> None:
         v = StablePrivateIpCheck(config={"step_output": {}})
+        result = v.execute()
+        assert result["passed"] is False
+
+
+class TestStableEgressIpCheck:
+    """Tests for StableEgressIpCheck validation."""
+
+    def test_egress_ip_stable(self) -> None:
+        """Verify egress IP remains stable across probes."""
+        tests = {
+            "create_instance": {"passed": True},
+            "probe_egress_ip": {
+                "passed": True,
+                "probes": 3,
+            },
+            "egress_ip_stable": {"passed": True},
+        }
+        v = StableEgressIpCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is True
+        assert result["output"] == "Egress IP stable across 3 probes"
+
+    def test_egress_ip_unstable(self) -> None:
+        """Verify detection of unstable egress IP across probes."""
+        tests = {
+            "create_instance": {"passed": True, "instance_id": "i-xxx"},
+            "probe_egress_ip": {
+                "passed": True,
+                "ips": ["3.5.1.2", "3.5.1.2", "3.5.9.99"],
+                "endpoint": "https://api.ipify.org",
+                "probes": 3,
+            },
+            "egress_ip_stable": {
+                "passed": False,
+                "distinct": 2,
+                "error": "Egress IP changed across probes: 3.5.1.2, 3.5.9.99",
+            },
+        }
+        v = StableEgressIpCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "egress_ip_stable" in result["error"]
+
+    def test_missing_probe_count_fails(self) -> None:
+        """Verify malformed successful output without probe count fails."""
+        tests = {
+            "create_instance": {"passed": True},
+            "probe_egress_ip": {"passed": True},
+            "egress_ip_stable": {"passed": True},
+        }
+        v = StableEgressIpCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "probe_egress_ip.probes" in result["error"]
+
+    def test_empty_tests(self) -> None:
+        """Verify behavior when step_output is empty."""
+        v = StableEgressIpCheck(config={"step_output": {}})
         result = v.execute()
         assert result["passed"] is False
 

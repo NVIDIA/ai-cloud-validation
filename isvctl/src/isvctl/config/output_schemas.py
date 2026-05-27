@@ -122,6 +122,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "byoip_validation": "byoip",
     "stable_ip_test": "stable_ip",
     "stable_ip_validation": "stable_ip",
+    "stable_egress_ip_test": "stable_egress_ip",
+    "stable_egress_ip_validation": "stable_egress_ip",
     "floating_ip_test": "floating_ip",
     "floating_ip_validation": "floating_ip",
     "dns_test": "localized_dns",
@@ -725,6 +727,23 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                     "ip_unchanged": {"type": "object"},
                 },
                 "description": "Stable private IP test results",
+            },
+        },
+        "additionalProperties": True,
+    },
+    "stable_egress_ip": {
+        "type": "object",
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "tests": {
+                "type": "object",
+                "properties": {
+                    "create_instance": {"type": "object"},
+                    "probe_egress_ip": {"type": "object"},
+                    "egress_ip_stable": {"type": "object"},
+                },
+                "description": "Stable egress IP test results",
             },
         },
         "additionalProperties": True,

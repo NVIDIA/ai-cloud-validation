@@ -1359,6 +1359,58 @@ class StablePrivateIpCheck(BaseValidation):
             self.set_passed(f"Private IP {ip} stable across stop/start")
 
 
+class StableEgressIpCheck(BaseValidation):
+    """Validate egress IP stability across repeated probes (DMS05-01).
+
+    NVIDIA cloud services use IP allowlists, so workloads that call out to
+    them must present a stable egress IP. A provider script launches a
+    test instance, probes its egress IP N times against an external
+    IP-discovery endpoint (e.g., https://api.ipify.org), and reports
+    whether every probe returned the same address.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        tests: dict with create_instance, probe_egress_ip, egress_ip_stable
+    """
+
+    description: ClassVar[str] = "Check egress IP stability across probes"
+    labels: ClassVar[tuple[str, ...]] = ("network",)
+
+    def run(self) -> None:
+        """Validate stable egress IP subtest results and record the outcome."""
+        step_output = self.config.get("step_output", {})
+        tests = step_output.get("tests", {})
+
+        if not tests:
+            self.set_failed("No 'tests' in step output")
+            return
+
+        required = [
+            "create_instance",
+            "probe_egress_ip",
+            "egress_ip_stable",
+        ]
+        failed = []
+
+        for test_name in required:
+            test_result = tests.get(test_name, {})
+            if not test_result.get("passed"):
+                error = test_result.get("error", "test not found")
+                failed.append(f"{test_name}: {error}")
+
+        if failed:
+            self.set_failed(f"Stable egress IP tests failed: {'; '.join(failed)}")
+        else:
+            probe_result = tests.get("probe_egress_ip", {})
+            probes = probe_result.get("probes")
+            if probes is None:
+                self.set_failed("Malformed stable egress IP step output: missing probe_egress_ip.probes")
+            else:
+                self.set_passed(f"Egress IP stable across {probes} probes")
+
+
 class FloatingIpCheck(BaseValidation):
     """Validate floating IP can be atomically switched between instances.
 
