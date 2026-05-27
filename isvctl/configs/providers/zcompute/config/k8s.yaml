@@ -1,16 +1,16 @@
 # zcompute EKS-D Kubernetes Validation Configuration
 #
-# Targets a pre-deployed EKS-D (Amazon EKS Distro) v1.30 cluster on zcompute.
+# Targets a pre-deployed EKS-D (Amazon EKS Distro) v1.35.2 cluster on zcompute.
 # The cluster is static — setup/teardown scripts query it, they do not provision it.
 #
 # Cluster topology:
-#   - 1 control-plane node  (k8s-master-sa-1)
-#   - 1+ CPU worker nodes   (ASG-managed, k8s-worker-*)
-#   - 1 GPU worker node     (hgx-worker, zh1.52xlarge, 8× H100 SXM5 80GB)
+#   - 1 control-plane node  (eksd)
+#   - 2 CPU worker nodes    (eksd-worker-0, eksd-worker-1)
+#   - 2 GPU worker nodes    (eksd-gpu-worke-0, eksd-gpu-worker-1, 8× H100 SXM5 80GB each)
 #
-# GPU Operator: nvidia-gpu-operator namespace, driver 535.161.08, CUDA 12.2
+# GPU Operator: zadara-system namespace (deployed via zadara-vm-chart), driver 575.57.08
 # Storage:      ebs-sc (block, ebs.csi.aws.com — zcompute AWS-compatible EBS)
-# CNI:          Flannel
+# CNI:          Cilium
 #
 # Usage:
 #   export KUBECONFIG=path/to/config-eksd-nkqa11
@@ -62,6 +62,15 @@ commands:
           TF_VAR_test_pool_taints_json: '[{"key":"isv.ncp.validation/dedicated","value":"test","effect":"NoSchedule"}]'
           TF_VAR_test_pool_node_type: "cpu"
 
+      - name: pre_test_cleanup
+        phase: test
+        command: "../scripts/k8s/pre_test_cleanup.sh"
+        timeout: 30
+        # Deletes Completed/Failed pods that hold nvidia.com/gpu resources permanently:
+        #   - nvidia-cuda-validator-* in zadara-system (GPU Operator init pods, never auto-GC'd)
+        #   - Any stale isvtest-* / NCCL / NIM pods from previous/interrupted runs
+        # Without this, NCCL and GPU stress workloads cannot acquire 8 GPUs per node.
+
       - name: destroy_test_node_pool
         phase: teardown
         command: "../scripts/k8s/destroy_node_pool.sh"
@@ -73,7 +82,7 @@ commands:
         timeout: 60
 
 tests:
-  description: "zcompute EKS-D GPU cluster validation (K8s v1.30, 8× H100)"
+  description: "zcompute EKS-D GPU cluster validation (K8s v1.35.2, 2× 8× H100 SXM5)"
 
   validations:
     k8s_workloads:
@@ -83,6 +92,12 @@ tests:
           # across all NCCL sizes (8B–4GB) lands at ~31 GB/s due to latency-dominated
           # small messages. Suite default of 100 targets direct P2P InfiniBand.
           min_bus_bw_gbps: 30
+
+        K8sNimHelmWorkload-3b:
+          # Override suite default (gpu_per_node=8) — NIM 3b with 8× H100 on zCompute
+          # tries tensor parallelism which fails (engine profile not found or NVLink/IMEX
+          # initialization issue). Single-GPU deployment works correctly on H100 SXM5 80GB.
+          gpu_count: 1
 
     kubernetes:
       checks:
@@ -114,3 +129,15 @@ tests:
       - K8sNoErrorPodsCheck
 
       # NIM workloads enabled — requires NGC_API_KEY to be set in environment
+
+      # K8sGpuStressWorkload is NOT excluded but requires the pytorch image to be
+      # pre-pulled on both GPU nodes (see CLUSTER-SETUP.md §12). The pre-pull
+      # DaemonSet must remain running during the test suite — do NOT delete it
+      # before the suite completes. If the workload still fails with empty logs,
+      # check CuPy availability: kubectl run cupy-check --rm -i --restart=Never
+      #   --image=nvcr.io/nvidia/pytorch:25.04-py3 -n default
+      #   --overrides='{"spec":{"nodeSelector":{"nvidia.com/gpu.present":"true"},
+      #     "tolerations":[{"operator":"Exists"}],"runtimeClassName":"nvidia",
+      #     "containers":[{"name":"t","image":"nvcr.io/nvidia/pytorch:25.04-py3",
+      #     "command":["python3","-c","import cupy; print(cupy.__version__)"],
+      #     "resources":{"limits":{"nvidia.com/gpu":"1"}}}]}}'

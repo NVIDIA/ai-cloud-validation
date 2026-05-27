@@ -21,9 +21,11 @@ All steps are written to be **idempotent** — they check before acting. It is s
 | 7 | [Fix AWS CCM](#7-fix-aws-cloud-controller-manager) | kubectl | Credentials, SSL cert, cloud.conf |
 | 8 | [Join GPU workers](#8-join-gpu-workers) | eksd-install join | HGX nodes join after CCM is healthy |
 | 9 | [Install MPI Operator](#9-mpi-operator) | kubectl apply | Required for K8sNcclMultiNodeWorkload |
-| 10 | [RDMA NIC IP fix](#10-rdma-nic-ip-fix) | ssh | Fix duplicate IP on enp75s0np0 |
-| 11 | [Image pre-pull](#11-pre-pull-large-images) | DaemonSet | Avoid timeout on first test run |
-| 12 | [Final verification checklist](#12-final-verification-checklist) | kubectl | Confirm all prereqs pass |
+| 10 | [Post-install cluster fixes](#10-post-install-cluster-fixes) | kubectl | Cilium operator scale, EBS CSI credentials |
+| 11 | [RDMA NIC IP fix](#11-rdma-nic-ip-fix) | ssh | Fix duplicate IP on enp75s0np0 |
+| 12 | [Pre-pull large images](#12-pre-pull-large-images) | DaemonSet | pytorch, hpc-benchmarks, NIM — ~30-45 min |
+| 13 | [Install Helm](#13-install-helm) | script | Required for K8sNimHelmWorkload tests |
+| 14 | [Final verification checklist](#14-final-verification-checklist) | kubectl | Confirm all prereqs pass |
 
 ---
 
@@ -398,7 +400,92 @@ kubectl api-resources --api-group=kubeflow.org | grep mpijobs
 
 ---
 
-## 10. RDMA NIC IP Fix
+## 10. Post-Install Cluster Fixes
+
+These fixes address known issues with how `zadara-vm-chart` and `eksd-install` configure the cluster that only manifest when running the NCP validation suite.
+
+### 10a. Scale Cilium Operator to 1 Replica
+
+`eksd-install cilium` deploys the `cilium-operator` Deployment with 2 replicas. The operator uses a hostPort and requires `node-role.kubernetes.io/control-plane` node affinity — but there is only 1 control-plane node. The second replica will be permanently Pending with `didn't have free ports for the requested pod ports`, causing `K8sNoPendingPodsCheck` to fail.
+
+```bash
+# Check current replica count
+kubectl get deployment cilium-operator -n kube-system
+
+# Scale to 1 (idempotent)
+kubectl scale deployment cilium-operator -n kube-system --replicas=1
+
+# Verify the pending pod terminates
+kubectl get pods -n kube-system | grep cilium-operator
+# Expected: exactly 1 Running pod
+```
+
+### 10b. Fix EBS CSI Driver Credentials and Endpoint
+
+`zadara-vm-chart` deploys EBS CSI without AWS credentials or the correct EC2 endpoint. The controller will log `no EC2 IMDS role found` (IMDS returns 404 on zCompute) and fail to provision any PVC. This causes all `K8sCsi*` checks to fail.
+
+```bash
+# Create credentials secret in zadara-system
+kubectl create secret generic aws-ebs-csi-credentials \
+  --namespace zadara-system \
+  --from-literal "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" \
+  --from-literal "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Inject credentials, region, and endpoint into ebs-plugin container
+kubectl set env deployment/ebs-csi-controller \
+  -n zadara-system \
+  -c ebs-plugin \
+  --from=secret/aws-ebs-csi-credentials
+
+kubectl set env deployment/ebs-csi-controller \
+  -n zadara-system \
+  -c ebs-plugin \
+  AWS_REGION=symphony \
+  AWS_EC2_ENDPOINT=https://${ZCOMPUTE_IP}/api/v2/aws/ec2/
+
+# Copy CA cert into zadara-system (the cert was created in kube-system for CCM — §7b)
+kubectl get configmap zcompute-ca-cert -n kube-system -o json \
+  | jq 'del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.namespace)' \
+  | kubectl apply -n zadara-system -f -
+
+# Mount CA cert and set SSL_CERT_FILE
+kubectl patch deployment ebs-csi-controller -n zadara-system --type=json -p='[
+  {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"zcompute-ca","configMap":{"name":"zcompute-ca-cert"}}},
+  {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"zcompute-ca","mountPath":"/etc/ssl/zcompute","readOnly":true}},
+  {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"SSL_CERT_FILE","value":"/etc/ssl/zcompute/ca.crt"}}
+]'
+
+kubectl rollout status deployment/ebs-csi-controller -n zadara-system --timeout=60s
+
+# Verify PVC provisioning works
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ebs-verify-pvc
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ebs-sc
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+
+# WaitForFirstConsumer — need a pod to trigger binding
+kubectl run ebs-verify --image=busybox:1.36 --restart=Never \
+  --overrides='{"spec":{"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"ebs-verify-pvc"}}],"containers":[{"name":"ebs-verify","image":"busybox:1.36","command":["sh","-c","echo ok"],"volumeMounts":[{"name":"d","mountPath":"/data"}]}]}}' \
+  -- sh -c "echo ok"
+
+kubectl wait --for=condition=Succeeded pod/ebs-verify --timeout=60s \
+  && echo "EBS CSI OK" \
+  && kubectl delete pod/ebs-verify pvc/ebs-verify-pvc -n default
+```
+
+---
+
+## 11. RDMA NIC IP Fix
 
 The HGX nodes have 8 Mellanox ConnectX RoCE NICs (`rocep75s0` through `rocep52s0`). The first NIC (`enp75s0np0`) may have the same IP on both GPU nodes, which prevents NCCL from using it. The other 7 NICs work correctly.
 
@@ -452,23 +539,34 @@ Once fixed, remove `NCCL_IB_HCA=^rocep75s0` from the MPIJob manifest (`isvtest/s
 
 ## 11. Pre-Pull Large Images
 
-NVIDIA workload images are 7–15 GB. Pull them once on all GPU nodes to avoid timeout failures.
+NVIDIA workload images are 7–20 GB. Pull them once on all GPU nodes to avoid timeout failures during the test run. Three images are required:
+
+| Image | Used by | Size |
+|-------|---------|------|
+| `nvcr.io/nvidia/hpc-benchmarks:25.04` | K8sNcclWorkload, K8sNcclMultiNodeWorkload | ~15 GB |
+| `nvcr.io/nvidia/pytorch:25.04-py3` | K8sGpuStressWorkload | ~20 GB |
+| `nvcr.io/nim/meta/llama-3.2-1b-instruct:latest` | K8sNimInferenceWorkload | ~8 GB |
 
 ```bash
-NGC_API_KEY="${NGC_API_KEY:-}"
+# Requires NGC_API_KEY to be set
+[[ -n "$NGC_API_KEY" ]] || { echo "Set NGC_API_KEY first"; exit 1; }
 
-# NGC pull secret (only if NGC_API_KEY is set)
-if [[ -n "$NGC_API_KEY" ]]; then
-    kubectl create secret docker-registry ngc-pull-secret \
-        --docker-server=nvcr.io \
-        --docker-username='$oauthtoken' \
-        --docker-password="${NGC_API_KEY}" \
-        --namespace default \
-        --dry-run=client -o yaml | kubectl apply -f -
-fi
+# Create NGC pull secret in default namespace (idempotent)
+kubectl create secret docker-registry ngc-pull-secret \
+    --docker-server=nvcr.io \
+    --docker-username='$oauthtoken' \
+    --docker-password="${NGC_API_KEY}" \
+    --namespace default \
+    --dry-run=client -o yaml | kubectl apply -f -
 
-# Pre-pull hpc-benchmarks on all GPU nodes
-cat <<'EOF' | kubectl apply -f -
+# Clean up any existing pre-pull DaemonSets
+for ds in prepull-hpc prepull-pytorch prepull-nim; do
+    kubectl delete daemonset "$ds" -n default 2>/dev/null || true
+done
+
+# Deploy all three pre-pull DaemonSets (they run in parallel — total ~30-45 min)
+kubectl apply -f - <<'EOF'
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -489,24 +587,116 @@ spec:
         - key: nvidia.com/gpu
           operator: Exists
           effect: NoSchedule
+      imagePullSecrets:
+        - name: ngc-pull-secret
       initContainers:
         - name: pull
           image: nvcr.io/nvidia/hpc-benchmarks:25.04
-          command: ["/bin/sh", "-c", "echo pulled"]
+          command: ["echo", "pulled"]
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+      containers:
+        - name: done
+          image: busybox:1.36
+          command: [sleep, infinity]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: prepull-pytorch
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: prepull-pytorch
+  template:
+    metadata:
+      labels:
+        app: prepull-pytorch
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      imagePullSecrets:
+        - name: ngc-pull-secret
+      initContainers:
+        - name: pull
+          image: nvcr.io/nvidia/pytorch:25.04-py3
+          command: ["echo", "pulled"]
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+      containers:
+        - name: done
+          image: busybox:1.36
+          command: [sleep, infinity]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: prepull-nim
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: prepull-nim
+  template:
+    metadata:
+      labels:
+        app: prepull-nim
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      imagePullSecrets:
+        - name: ngc-pull-secret
+      initContainers:
+        - name: pull
+          image: nvcr.io/nim/meta/llama-3.2-1b-instruct:latest
+          command: ["echo", "pulled"]
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
       containers:
         - name: done
           image: busybox:1.36
           command: [sleep, infinity]
 EOF
 
+# Wait for all three to complete on all GPU nodes
 kubectl wait --for=condition=Ready pods -l app=prepull-hpc -n default --timeout=1800s
-kubectl delete daemonset prepull-hpc -n default
-echo "hpc-benchmarks pre-pulled"
+kubectl wait --for=condition=Ready pods -l app=prepull-pytorch -n default --timeout=1800s
+kubectl wait --for=condition=Ready pods -l app=prepull-nim -n default --timeout=1800s
+
+kubectl delete daemonset prepull-hpc prepull-pytorch prepull-nim -n default
+echo "All images pre-pulled"
 ```
 
 ---
 
-## 12. Final Verification Checklist
+## 13. Install Helm
+
+Required for `K8sNimHelmWorkload-1b` and `K8sNimHelmWorkload-3b`. Run on the manager VM where `isvctl` is executed.
+
+```bash
+# Idempotent — safe to re-run
+if ! command -v helm &>/dev/null; then
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+helm version
+# Expected: version.BuildInfo{Version:"v3.x.x", ...}
+```
+
+---
+
+## 14. Final Verification Checklist
 
 Run before starting the NCP suite. All items must pass (or be acknowledged as known gaps):
 
@@ -568,12 +758,32 @@ ssh ubuntu@${HGX_NODE_2_IP} "ls /dev/infiniband/"
 ssh ubuntu@${HGX_NODE_1_IP} "ip -4 addr show enp75s0np0 | grep inet"
 ssh ubuntu@${HGX_NODE_2_IP} "ip -4 addr show enp75s0np0 | grep inet"
 # Expected: different IPs (e.g. 10.20.0.16 vs 10.20.0.17)
+
+# 14. Helm installed on manager VM
+helm version
+# Expected: version.BuildInfo{Version:"v3.x.x", ...}
+
+# 15. Large images cached on GPU nodes (no pull on first test run)
+for node in ${HGX_NODE_1_IP} ${HGX_NODE_2_IP}; do
+  echo "=== $node ==="
+  ssh ubuntu@$node "sudo crictl images 2>/dev/null | grep -E 'hpc-benchmarks|pytorch|llama'"
+done
+# Expected: hpc-benchmarks:25.04, pytorch:25.04-py3, llama-3.2-1b-instruct:latest on both nodes
+
+# 16. Cilium operator running as single replica (no pending pods)
+kubectl get pods -n kube-system | grep cilium-operator
+# Expected: exactly 1/1 Running pod
+
+# 17. EBS CSI can provision volumes (quick smoke test)
+kubectl get pvc -A | grep -v Bound || echo "No unbound PVCs"
 ```
 
 When all checks pass, run the NCP K8s suite:
 
 ```bash
-uv run isvctl test run -f isvctl/configs/providers/zcompute/config/k8s.yaml
+export NGC_API_KEY=<your-ngc-key>   # required for NIM tests
+
+uv run isvctl test run -f isvctl/configs/providers/zcompute/config/k8s.yaml 2>&1 | tee /tmp/ncp-k8s-run.log
 ```
 
 ---
