@@ -43,7 +43,8 @@ spec:
             limits:
               nvidia.com/gpu: 8 # overridden at runtime by K8sNcclWorkload
           securityContext:
-            #  runAsNonRoot: true
+            capabilities:
+              add: ["IPC_LOCK"]  # Required for RDMA: UCX ibv_reg_mr needs locked memory
             allowPrivilegeEscalation: false
       nodeSelector:
         nvidia.com/gpu.present: "true"
