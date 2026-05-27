@@ -25,7 +25,7 @@
 #   (NetworkProvisionedCheck, VpcCrudCheck, SubnetConfigCheck,
 #    VpcIsolationCheck, SgCrudCheck, SecurityBlockingCheck,
 #    NetworkConnectivityCheck, TrafficFlowCheck, VpcIpConfigCheck,
-#    ByoipCheck, StablePrivateIpCheck, FloatingIpCheck, LocalizedDnsCheck,
+#    ByoipCheck, StablePrivateIpCheck, StableEgressIpCheck, FloatingIpCheck, LocalizedDnsCheck,
 #    VpcPeeringCheck, SgPolicyPropagationTimingCheck,
 #    BackendSwitchFabricCheck, NvlinkDomainCheck, StepSuccessCheck).
 #    The NET01-01 and NET02-02 checks validate
@@ -258,6 +258,23 @@ commands:
         args: ["--region", "{{region}}", "--cidr", "10.91.0.0/16"]
         timeout: 60
         output_schema: stable_ip
+
+      - name: stable_egress_ip_test
+        phase: test
+        command: "python ../scripts/network/stable_egress_ip_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.100.0.0/16"
+          - "--probes"
+          - "3"
+          - "--interval-seconds"
+          - "2"
+          - "--endpoint"
+          - "https://api.ipify.org"
+        timeout: 60
+        output_schema: stable_egress_ip
 
       - name: floating_ip_test
         phase: test

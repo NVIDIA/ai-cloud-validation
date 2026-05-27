@@ -1719,3 +1719,33 @@ def test_stable_egress_main_uses_cidr_parser_and_emits_minimal_contract(
     payload: dict[str, Any] = json.loads(capsys.readouterr().out)
     _assert_stable_egress_contract(payload)
     assert payload["tests"]["probe_egress_ip"]["probes"] == 2
+
+
+def test_my_isv_stable_egress_demo_emits_minimal_contract() -> None:
+    """my-isv stable egress demo output should model the provider-neutral contract."""
+    script = MY_ISV_NETWORK_SCRIPTS / "stable_egress_ip_test.py"
+    env = os.environ | {"ISVCTL_DEMO_MODE": "1"}
+
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--region",
+                "demo-region",
+                "--probes",
+                "2",
+            ],
+            capture_output=True,
+            env=env,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"{script} timed out after {exc.timeout} seconds\nstdout: {exc.stdout!r}\nstderr: {exc.stderr!r}")
+
+    assert completed.returncode == 0, completed.stderr
+    payload: dict[str, Any] = json.loads(completed.stdout)
+    _assert_stable_egress_contract(payload)
+    assert payload["tests"]["probe_egress_ip"]["probes"] == 2
