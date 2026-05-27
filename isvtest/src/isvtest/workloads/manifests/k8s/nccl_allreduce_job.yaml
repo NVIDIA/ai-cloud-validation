@@ -35,6 +35,7 @@ spec:
                      --bind-to none --map-by slot \
                      -x NCCL_DEBUG=INFO -x LD_LIBRARY_PATH \
                      -x NCCL_IB_DISABLE -x NCCL_IB_HCA -x NCCL_IB_GID_INDEX -x NCCL_NET_GDR_LEVEL \
+                     -x UCX_TLS \
                      all_reduce_perf_mpi -b 8 -e 2G -f 2 -g 1 \
                      2>&1 | tee /results/nccl-allreduce_${TS}.log
           env:
@@ -46,6 +47,8 @@ spec:
               value: "3"           # RoCE v2 — valid unique IPs on remaining NICs
             - name: NCCL_NET_GDR_LEVEL
               value: "0"           # host-bounce buffers; set to 2 only if nvidia_peermem loaded
+            - name: UCX_TLS
+              value: "sm,cuda_copy,cuda_ipc"  # intra-node only; avoids IB (GID=0 LID routing not available)
           volumeMounts:
             - name: results
               mountPath: /results
