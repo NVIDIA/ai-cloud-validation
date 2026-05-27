@@ -59,9 +59,7 @@ def main() -> int:
     parser.add_argument("--region", required=True, help="Cloud region")
     parser.add_argument("--cidr", default="10.92.0.0/16", help="CIDR for test VPC")
     parser.add_argument("--probes", type=int, default=3, help="Number of egress IP probes")
-    parser.add_argument(
-        "--interval-seconds", type=float, default=2.0, help="Delay between probes"
-    )
+    parser.add_argument("--interval-seconds", type=float, default=2.0, help="Delay between probes")
     parser.add_argument(
         "--endpoint",
         default="https://api.ipify.org",
@@ -90,9 +88,7 @@ def main() -> int:
         }
         result["success"] = True
     else:
-        result["error"] = (
-            "Not implemented - replace with your platform's stable egress IP test logic"
-        )
+        result["error"] = "Not implemented - replace with your platform's stable egress IP test logic"
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1

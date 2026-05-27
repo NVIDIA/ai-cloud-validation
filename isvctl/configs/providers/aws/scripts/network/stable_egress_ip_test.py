@@ -90,9 +90,7 @@ def derive_subnet_cidr(cidr: str) -> str:
     return str(network)
 
 
-def create_internet_routing(
-    ec2: Any, vpc_id: str, subnet_id: str, name: str, routing: dict[str, str]
-) -> None:
+def create_internet_routing(ec2: Any, vpc_id: str, subnet_id: str, name: str, routing: dict[str, str]) -> None:
     """Create IGW + route table + default route + association.
 
     Each created resource's ID is written into ``routing`` immediately so a
@@ -127,9 +125,7 @@ def create_internet_routing(
         DestinationCidrBlock="0.0.0.0/0",
         GatewayId=routing["igw_id"],
     )
-    assoc = ec2.associate_route_table(
-        RouteTableId=routing["route_table_id"], SubnetId=subnet_id
-    )
+    assoc = ec2.associate_route_table(RouteTableId=routing["route_table_id"], SubnetId=subnet_id)
     routing["association_id"] = assoc["AssociationId"]
 
 
@@ -226,9 +222,7 @@ def probe_egress_ip(
             time.sleep(interval_seconds)
         exit_code, stdout, stderr = ssh_run(public_ip, ssh_user, key_file, cmd, timeout=15)
         if exit_code != 0:
-            result["error"] = (
-                f"probe {attempt}/{probes} failed (exit={exit_code}): {stderr.strip() or stdout.strip()}"
-            )
+            result["error"] = f"probe {attempt}/{probes} failed (exit={exit_code}): {stderr.strip() or stdout.strip()}"
             return result
         ip = stdout.strip()
         if not ip:
@@ -269,9 +263,7 @@ def main() -> int:
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     parser.add_argument("--cidr", default="10.100.0.0/16", help="CIDR for test VPC")
     parser.add_argument("--probes", type=int, default=3, help="Number of egress IP probes")
-    parser.add_argument(
-        "--interval-seconds", type=float, default=2.0, help="Delay between probes"
-    )
+    parser.add_argument("--interval-seconds", type=float, default=2.0, help="Delay between probes")
     parser.add_argument(
         "--endpoint",
         default="https://api.ipify.org",
