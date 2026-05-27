@@ -33,6 +33,7 @@ spec:
               # Note: '-np 8' is overridden at runtime by K8sNcclWorkload
               mpirun --allow-run-as-root -np 8 \
                      --bind-to none --map-by slot \
+                     --mca coll ^ucc \
                      -x NCCL_DEBUG=INFO -x LD_LIBRARY_PATH \
                      -x NCCL_IB_DISABLE -x NCCL_IB_HCA -x NCCL_IB_GID_INDEX -x NCCL_NET_GDR_LEVEL \
                      -x UCX_TLS \
