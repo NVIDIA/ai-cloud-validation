@@ -25,8 +25,9 @@ test scripts may have leaked on a hard crash:
     * ``isv-sec02-test-*``  - short_lived_credentials_test.py
     * ``isv-sec04-test-*``  - least_privilege_test.py
     * ``isv-sec11-test-*``  - tenant_isolation_test.py
-* SEC04/SEC11 fixtures (owned prefix + ``CreatedBy=isvtest`` tag):
+* SEC04/SEC11/SEC13 fixtures (owned prefix + ``CreatedBy=isvtest`` tag):
     * EC2 instances, EBS volumes, security groups, subnets, VPCs
+    * SEC13-only: NLBs, target groups, IAM server certs, IGWs, route tables
     * KMS aliases (SEC11 only, and the keys they target)
     * S3 buckets
 
@@ -49,17 +50,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import boto3
 from botocore.exceptions import ClientError, WaiterError
-from common.errors import delete_with_retry, handle_aws_errors
+from common.errors import TRANSIENT_AWS_CODES, delete_with_retry, handle_aws_errors
 
 OWNED_USER_PREFIXES: tuple[str, ...] = ("isv-sa-test-", "isv-sec02-test-", "isv-sec04-test-", "isv-sec11-test-")
 
 SEC04_PREFIX = "isv-sec04-test-"
 SEC11_PREFIX = "isv-sec11-test-"
-OWNED_RESOURCE_PREFIXES: tuple[str, ...] = (SEC04_PREFIX, SEC11_PREFIX)
+SEC13_PREFIX = "isv-sec13-test-"
+OWNED_RESOURCE_PREFIXES: tuple[str, ...] = (SEC04_PREFIX, SEC11_PREFIX, SEC13_PREFIX)
 SEC11_KMS_ALIAS_PREFIX = f"alias/{SEC11_PREFIX}"
+ELBV2_READ_PERMISSION_ERRORS = frozenset({"AccessDenied", "AccessDeniedException", "UnauthorizedOperation"})
 ISVTEST_TAG_FILTER = [
     {"Name": "tag:CreatedBy", "Values": ["isvtest"]},
 ]
+CERT_DELETE_TRANSIENT_CODES = TRANSIENT_AWS_CODES | frozenset({"DeleteConflict"})
+NLB_RESOURCE_RELEASE_TRANSIENT_CODES = TRANSIENT_AWS_CODES | frozenset({"DependencyViolation"})
+NLB_RESOURCE_RELEASE_RETRY_ATTEMPTS = 10
+NLB_RESOURCE_RELEASE_RETRY_BACKOFF_SECONDS = 3.0
+
+
+def _is_elbv2_read_permission_error(error: ClientError) -> bool:
+    """Return True when ELBv2 read access is unavailable for the SEC13 sweep."""
+    code = error.response.get("Error", {}).get("Code", "")
+    return code in ELBV2_READ_PERMISSION_ERRORS
+
+
+def _detach_internet_gateway(ec2: Any, *, internet_gateway_id: str, vpc_id: str) -> None:
+    """Detach an IGW, treating already-detached/not-found as successful cleanup."""
+    try:
+        ec2.detach_internet_gateway(InternetGatewayId=internet_gateway_id, VpcId=vpc_id)
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in {"Gateway.NotAttached", "InvalidInternetGatewayID.NotFound"}:
+            return
+        raise
 
 
 def _user_has_isvtest_tag(iam: Any, username: str) -> bool:
@@ -181,13 +205,38 @@ def _cleanup_owned_volumes(ec2: Any) -> list[str]:
 
 
 def _cleanup_owned_vpcs(ec2: Any) -> list[str]:
-    """Delete leftover owned VPCs and their dependencies (security groups, subnets)."""
+    """Delete leftover owned VPCs and their dependencies (SGs, subnets, IGWs, route tables)."""
     errors: list[str] = []
     vpcs = ec2.describe_vpcs(Filters=ISVTEST_TAG_FILTER).get("Vpcs", [])
     for vpc in vpcs:
         if not _resource_has_owned_name(vpc.get("Tags")):
             continue
         vpc_id = vpc["VpcId"]
+
+        # Custom route tables (skip the main route table; it gets deleted
+        # with the VPC). Subnet associations are dropped implicitly when
+        # the subnet is deleted, so no explicit disassociate is required.
+        route_tables = ec2.describe_route_tables(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]).get(
+            "RouteTables", []
+        )
+        for rt in route_tables:
+            if any(assoc.get("Main") for assoc in rt.get("Associations", [])):
+                continue
+            for assoc in rt.get("Associations", []):
+                assoc_id = assoc.get("RouteTableAssociationId")
+                if not assoc_id:
+                    continue
+                try:
+                    ec2.disassociate_route_table(AssociationId=assoc_id)
+                except ClientError as e:
+                    if e.response.get("Error", {}).get("Code") != "InvalidAssociationID.NotFound":
+                        errors.append(f"disassociate route table {assoc_id}: {e}")
+            if not delete_with_retry(
+                ec2.delete_route_table,
+                RouteTableId=rt["RouteTableId"],
+                resource_desc=f"route table {rt['RouteTableId']}",
+            ):
+                errors.append(f"delete route table {rt['RouteTableId']} failed")
 
         # Security groups (skip the default SG which cannot be deleted).
         sgs = ec2.describe_security_groups(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]).get("SecurityGroups", [])
@@ -208,15 +257,174 @@ def _cleanup_owned_vpcs(ec2: Any) -> list[str]:
                 ec2.delete_subnet,
                 SubnetId=subnet["SubnetId"],
                 resource_desc=f"subnet {subnet['SubnetId']}",
+                attempts=NLB_RESOURCE_RELEASE_RETRY_ATTEMPTS,
+                backoff_seconds=NLB_RESOURCE_RELEASE_RETRY_BACKOFF_SECONDS,
+                transient_codes=NLB_RESOURCE_RELEASE_TRANSIENT_CODES,
             ):
                 errors.append(f"delete subnet {subnet['SubnetId']} failed")
+
+        # IGWs must be detached + deleted before the VPC. Do this after
+        # subnet cleanup so NLB-managed public addresses have the best
+        # chance to disappear before DetachInternetGateway is attempted.
+        igws = ec2.describe_internet_gateways(
+            Filters=[{"Name": "attachment.vpc-id", "Values": [vpc_id]}],
+        ).get("InternetGateways", [])
+        for igw in igws:
+            igw_id = igw["InternetGatewayId"]
+            if not delete_with_retry(
+                _detach_internet_gateway,
+                ec2,
+                internet_gateway_id=igw_id,
+                vpc_id=vpc_id,
+                resource_desc=f"detach IGW {igw_id}",
+                attempts=NLB_RESOURCE_RELEASE_RETRY_ATTEMPTS,
+                backoff_seconds=NLB_RESOURCE_RELEASE_RETRY_BACKOFF_SECONDS,
+                transient_codes=NLB_RESOURCE_RELEASE_TRANSIENT_CODES,
+            ):
+                errors.append(f"detach IGW {igw_id} failed")
+            if not delete_with_retry(
+                ec2.delete_internet_gateway,
+                InternetGatewayId=igw_id,
+                resource_desc=f"IGW {igw_id}",
+                attempts=NLB_RESOURCE_RELEASE_RETRY_ATTEMPTS,
+                backoff_seconds=NLB_RESOURCE_RELEASE_RETRY_BACKOFF_SECONDS,
+                transient_codes=NLB_RESOURCE_RELEASE_TRANSIENT_CODES,
+            ):
+                errors.append(f"delete IGW {igw_id} failed")
 
         if not delete_with_retry(
             ec2.delete_vpc,
             VpcId=vpc_id,
             resource_desc=f"VPC {vpc_id}",
+            attempts=NLB_RESOURCE_RELEASE_RETRY_ATTEMPTS,
+            backoff_seconds=NLB_RESOURCE_RELEASE_RETRY_BACKOFF_SECONDS,
+            transient_codes=NLB_RESOURCE_RELEASE_TRANSIENT_CODES,
         ):
             errors.append(f"delete VPC {vpc_id} failed")
+    return errors
+
+
+def _cleanup_owned_load_balancers(elbv2: Any) -> list[str]:
+    """Delete leftover owned NLBs (SEC13). Listeners are removed implicitly with the LB."""
+    errors: list[str] = []
+    try:
+        paginator = elbv2.get_paginator("describe_load_balancers")
+        lbs: list[dict[str, Any]] = []
+        for page in paginator.paginate():
+            lbs.extend(page.get("LoadBalancers", []))
+    except ClientError as e:
+        if _is_elbv2_read_permission_error(e):
+            return []
+        return [f"describe load balancers: {e}"]
+
+    if not lbs:
+        return errors
+
+    arns = [lb["LoadBalancerArn"] for lb in lbs]
+    arn_to_lb = {lb["LoadBalancerArn"]: lb for lb in lbs}
+
+    owned_arns: list[str] = []
+    # describe_tags can take up to 20 ARNs per call.
+    for i in range(0, len(arns), 20):
+        batch = arns[i : i + 20]
+        try:
+            tag_descs = elbv2.describe_tags(ResourceArns=batch).get("TagDescriptions", [])
+        except ClientError as e:
+            errors.append(f"describe LB tags {batch}: {e}")
+            continue
+        for td in tag_descs:
+            tags = {t["Key"]: t["Value"] for t in td.get("Tags", [])}
+            if tags.get("CreatedBy") != "isvtest":
+                continue
+            if not (tags.get("Name", "") or "").startswith(OWNED_RESOURCE_PREFIXES):
+                continue
+            owned_arns.append(td["ResourceArn"])
+
+    for arn in owned_arns:
+        try:
+            elbv2.delete_load_balancer(LoadBalancerArn=arn)
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code != "LoadBalancerNotFound":
+                errors.append(f"delete load balancer {arn}: {e}")
+                continue
+        try:
+            elbv2.get_waiter("load_balancers_deleted").wait(
+                LoadBalancerArns=[arn],
+                WaiterConfig={"Delay": 10, "MaxAttempts": 30},
+            )
+        except (ClientError, WaiterError) as e:
+            errors.append(f"wait load balancer deleted {arn}: {e}")
+            continue
+        # Best-effort log line for owned-LB cleanup parity with other sweeps.
+        _ = arn_to_lb.get(arn)
+    return errors
+
+
+def _cleanup_owned_target_groups(elbv2: Any) -> list[str]:
+    """Delete leftover owned target groups (SEC13). LBs must be gone first."""
+    errors: list[str] = []
+    try:
+        paginator = elbv2.get_paginator("describe_target_groups")
+        tgs: list[dict[str, Any]] = []
+        for page in paginator.paginate():
+            tgs.extend(page.get("TargetGroups", []))
+    except ClientError as e:
+        if _is_elbv2_read_permission_error(e):
+            return []
+        return [f"describe target groups: {e}"]
+
+    if not tgs:
+        return errors
+
+    arns = [tg["TargetGroupArn"] for tg in tgs]
+    owned_arns: list[str] = []
+    for i in range(0, len(arns), 20):
+        batch = arns[i : i + 20]
+        try:
+            tag_descs = elbv2.describe_tags(ResourceArns=batch).get("TagDescriptions", [])
+        except ClientError as e:
+            errors.append(f"describe TG tags {batch}: {e}")
+            continue
+        for td in tag_descs:
+            tags = {t["Key"]: t["Value"] for t in td.get("Tags", [])}
+            if tags.get("CreatedBy") != "isvtest":
+                continue
+            if not (tags.get("Name", "") or "").startswith(OWNED_RESOURCE_PREFIXES):
+                continue
+            owned_arns.append(td["ResourceArn"])
+
+    for arn in owned_arns:
+        if not delete_with_retry(
+            elbv2.delete_target_group,
+            TargetGroupArn=arn,
+            resource_desc=f"target group {arn}",
+        ):
+            errors.append(f"delete target group {arn} failed")
+    return errors
+
+
+def _cleanup_owned_iam_server_certs(iam: Any) -> list[str]:
+    """Delete leftover owned IAM server certificates (SEC13 fixture leak)."""
+    errors: list[str] = []
+    try:
+        paginator = iam.get_paginator("list_server_certificates")
+        for page in paginator.paginate():
+            for meta in page.get("ServerCertificateMetadataList", []):
+                name = meta.get("ServerCertificateName", "")
+                if not name.startswith(SEC13_PREFIX):
+                    continue
+                if not delete_with_retry(
+                    iam.delete_server_certificate,
+                    ServerCertificateName=name,
+                    resource_desc=f"IAM server cert {name}",
+                    attempts=NLB_RESOURCE_RELEASE_RETRY_ATTEMPTS,
+                    backoff_seconds=NLB_RESOURCE_RELEASE_RETRY_BACKOFF_SECONDS,
+                    transient_codes=CERT_DELETE_TRANSIENT_CODES,
+                ):
+                    errors.append(f"delete IAM server cert {name} failed")
+    except ClientError as e:
+        errors.append(f"list server certificates: {e}")
     return errors
 
 
@@ -337,17 +545,26 @@ def main() -> int:
 
     iam = boto3.client("iam", region_name=args.region)
     ec2 = boto3.client("ec2", region_name=args.region)
+    elbv2 = boto3.client("elbv2", region_name=args.region)
     kms = boto3.client("kms", region_name=args.region)
     s3 = boto3.client("s3", region_name=args.region)
 
     resource_errors: list[str] = []
 
-    # Order matters: instances first (so volumes can be deleted), then
-    # volumes, then VPCs (which need empty subnets/SGs).
+    # Order matters:
+    #  - LBs first so NLB ENIs release before VPC sweep tries to delete
+    #    the subnets / security groups they were attached to.
+    #  - Target groups can only be deleted after their LB is gone.
+    #  - Instances before volumes (so volumes can be deleted).
+    #  - VPCs after compute is gone (subnets/SGs unreferenced).
+    #  - IAM server certs after their LB is gone (delete-conflict otherwise).
     try:
+        resource_errors.extend(_cleanup_owned_load_balancers(elbv2))
+        resource_errors.extend(_cleanup_owned_target_groups(elbv2))
         resource_errors.extend(_cleanup_owned_instances(ec2))
         resource_errors.extend(_cleanup_owned_volumes(ec2))
         resource_errors.extend(_cleanup_owned_vpcs(ec2))
+        resource_errors.extend(_cleanup_owned_iam_server_certs(iam))
         resource_errors.extend(_cleanup_owned_kms(kms))
         resource_errors.extend(_cleanup_owned_buckets(s3))
     except ClientError as e:

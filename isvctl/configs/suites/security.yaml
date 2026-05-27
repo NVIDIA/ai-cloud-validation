@@ -69,6 +69,11 @@ tests:
         ApiEndpointIsolationCheck:
           step: api_endpoint_isolation
 
+    insecure_protocols:
+      checks:
+        InsecureProtocolsCheck:
+          step: insecure_protocols_test
+
     mfa_enforcement:
       checks:
         MfaEnforcedCheck:

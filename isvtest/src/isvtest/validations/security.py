@@ -187,6 +187,54 @@ class BmcProtocolSecurityCheck(BaseValidation):
         self.set_passed(f"BMC protocol security posture verified ({bmc_count} endpoints tested)")
 
 
+class InsecureProtocolsCheck(BaseValidation):
+    """Validate insecure transport protocols are disabled (SEC13-02).
+
+    Verifies edge endpoints reject SSLv3, TLSv1.0, and TLSv1.1 and do not
+    serve plain HTTP on port 80. The probe issues a raw-socket ClientHello
+    per legacy version and classifies the response (Alert/RST/timeout =
+    refused; ServerHello with matching version = accepted).
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        endpoints_tested: Positive integer
+        tests: dict with sslv3_disabled, tlsv1_0_disabled,
+               tlsv1_1_disabled, plain_http_disabled
+    """
+
+    description: ClassVar[str] = "Check insecure protocols (HTTP, SSLv3, TLSv1.0, TLSv1.1) are disabled"
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
+
+    def run(self) -> None:
+        """Validate required insecure-protocol probe results from step output."""
+        step_output = self.config.get("step_output", {})
+        if step_output.get("skipped") is True:
+            pytest.skip(step_output.get("skip_reason") or "Insecure protocols validation skipped (not configured)")
+
+        if step_output.get("success") is False:
+            step_error = step_output.get("error") or step_output.get("message")
+            self.set_failed(step_error or "Insecure protocol step failed: no error message provided")
+            return
+
+        required = [
+            "sslv3_disabled",
+            "tlsv1_0_disabled",
+            "tlsv1_1_disabled",
+            "plain_http_disabled",
+        ]
+        if not check_required_tests(self, required, "Insecure protocols tests failed"):
+            return
+
+        endpoints_tested = step_output.get("endpoints_tested")
+        if type(endpoints_tested) is not int or endpoints_tested < 1:
+            self.set_failed("Insecure protocols output missing positive int 'endpoints_tested'")
+            return
+
+        self.set_passed(f"Insecure protocols disabled ({endpoints_tested} endpoints tested)")
+
+
 class BmcBastionAccessCheck(BaseValidation):
     """Validate BMC is only accessible via a hardened bastion.
 

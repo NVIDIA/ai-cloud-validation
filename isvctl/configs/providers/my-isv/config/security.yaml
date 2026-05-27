@@ -26,6 +26,7 @@
 #   SEC12-03: BMC bastion access (BmcBastionAccessCheck)
 #   CNP10-01: BMC protocol security (BmcProtocolSecurityCheck)
 #   SEC14-01: API endpoint isolation (ApiEndpointIsolationCheck)
+#   SEC13-02: Insecure protocols disabled (InsecureProtocolsCheck)
 #   SEC07-01: MFA enforcement (MfaEnforcedCheck)
 #   SEC09-01: Certificate rotation cycle (CertRotationCycleCheck)
 #   SEC09-02: Provider- and customer-managed KMS options (KmsEncryptionOptionCheck)
@@ -86,6 +87,12 @@ commands:
         phase: test
         command: "python ../scripts/security/api_endpoint_test.py"
         args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: insecure_protocols_test
+        phase: test
+        command: "python ../../shared/insecure_protocols_test.py"
+        args: ["--endpoints={{insecure_protocols_endpoints}}"]
         timeout: 60
 
       - name: mfa_enforcement
@@ -166,3 +173,4 @@ tests:
 
   settings:
     region: "my-isv-region-1"
+    insecure_protocols_endpoints: "{{env.EDGE_ENDPOINTS | default('', true)}}"

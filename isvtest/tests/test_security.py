@@ -29,6 +29,7 @@ from isvtest.validations.security import (
     CentralizedKmsCheck,
     CertRotationCycleCheck,
     CustomerManagedKeyCheck,
+    InsecureProtocolsCheck,
     KmsEncryptionOptionCheck,
     MfaEnforcedCheck,
     OidcUserAuthCheck,
@@ -953,3 +954,103 @@ class TestTenantIsolationCheck:
 
         with pytest.raises(pytest.skip.Exception, match="tenant isolation fixture not provisionable"):
             TenantIsolationCheck(config={"step_output": step_output}).execute()
+
+
+REQUIRED_INSECURE_PROTOCOL_TESTS = [
+    "sslv3_disabled",
+    "tlsv1_0_disabled",
+    "tlsv1_1_disabled",
+    "plain_http_disabled",
+]
+
+
+def _insecure_protocols_config(
+    tests: dict[str, dict[str, Any]] | None = None,
+    *,
+    endpoints_tested: int = 2,
+) -> dict[str, Any]:
+    """Build an InsecureProtocolsCheck validation config."""
+    default_tests = {
+        name: {"passed": True, "message": f"{name} confirmed"} for name in REQUIRED_INSECURE_PROTOCOL_TESTS
+    }
+    return {
+        "step_output": {
+            "success": True,
+            "platform": "security",
+            "test_name": "insecure_protocols",
+            "endpoints_tested": endpoints_tested,
+            "tests": tests if tests is not None else default_tests,
+        },
+    }
+
+
+class TestInsecureProtocolsCheck:
+    """Tests for SEC13-02 insecure-protocols validation."""
+
+    def test_all_required_tests_pass(self) -> None:
+        """Pass when every legacy protocol probe reports disabled."""
+        result = InsecureProtocolsCheck(config=_insecure_protocols_config()).execute()
+
+        assert result["passed"] is True
+        assert "Insecure protocols disabled (2 endpoints tested)" in result["output"]
+
+    def test_failed_step_without_error_fails_with_default_message(self) -> None:
+        """Fail when the step reports success=False without an error message."""
+        config = _insecure_protocols_config()
+        config["step_output"]["success"] = False
+        result = InsecureProtocolsCheck(config=config).execute()
+
+        assert result["passed"] is False
+        assert "Insecure protocol step failed: no error message provided" in result["error"]
+
+    def test_failed_probe_reports_contract_key(self) -> None:
+        """Fail when one of the four contract keys reports passed=False."""
+        tests = {name: {"passed": True} for name in REQUIRED_INSECURE_PROTOCOL_TESTS}
+        tests["tlsv1_0_disabled"] = {"passed": False, "error": "accepted on api.example.com:443"}
+        result = InsecureProtocolsCheck(config=_insecure_protocols_config(tests)).execute()
+
+        assert result["passed"] is False
+        assert "tlsv1_0_disabled" in result["error"]
+        assert "api.example.com:443" in result["error"]
+
+    def test_missing_required_key_fails(self) -> None:
+        """Fail when one of the four contract keys is absent."""
+        tests = {name: {"passed": True} for name in REQUIRED_INSECURE_PROTOCOL_TESTS if name != "plain_http_disabled"}
+        result = InsecureProtocolsCheck(config=_insecure_protocols_config(tests)).execute()
+
+        assert result["passed"] is False
+        assert "plain_http_disabled" in result["error"]
+
+    def test_missing_endpoints_tested_fails(self) -> None:
+        """Fail when endpoints_tested is absent even if all checks pass."""
+        config = _insecure_protocols_config()
+        del config["step_output"]["endpoints_tested"]
+        result = InsecureProtocolsCheck(config=config).execute()
+
+        assert result["passed"] is False
+        assert "endpoints_tested" in result["error"]
+
+    def test_zero_endpoints_tested_fails(self) -> None:
+        """Fail when endpoints_tested is non-positive (claims pass on nothing)."""
+        config = _insecure_protocols_config(endpoints_tested=0)
+        result = InsecureProtocolsCheck(config=config).execute()
+
+        assert result["passed"] is False
+        assert "endpoints_tested" in result["error"]
+
+    def test_skips_when_step_marks_skipped(self) -> None:
+        """pytest.skip when the step emits a structured skip."""
+        step_output = {
+            "success": True,
+            "skipped": True,
+            "skip_reason": "No SEC13-02 endpoints configured",
+        }
+        with pytest.raises(pytest.skip.Exception, match="No SEC13-02 endpoints configured"):
+            InsecureProtocolsCheck(config={"step_output": step_output}).execute()
+
+    def test_missing_tests_fails(self) -> None:
+        """Fail when the step output does not include contract tests."""
+        result = InsecureProtocolsCheck(config={"step_output": {}}).execute()
+
+        assert result["passed"] is False
+        assert "tests" in result["error"].lower()

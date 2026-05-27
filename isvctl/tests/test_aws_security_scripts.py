@@ -20,11 +20,12 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from email.message import Message
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, ClassVar
 from urllib.error import HTTPError
 
 import pytest
@@ -1165,11 +1166,15 @@ def test_sa_credential_main_fails_when_cleanup_fails(
 
 
 class FakePaginator:
-    """Fake paginator for list_users."""
+    """Fake paginator for teardown IAM listing calls."""
 
-    def paginate(self) -> list[dict[str, list[dict[str, str]]]]:
-        """Return one owned test user."""
-        return [{"Users": [{"UserName": "isv-sa-test-leftover"}]}]
+    def __init__(self, pages: list[dict[str, Any]] | None = None) -> None:
+        """Configure pages returned by paginate."""
+        self.pages = pages if pages is not None else [{"Users": [{"UserName": "isv-sa-test-leftover"}]}]
+
+    def paginate(self) -> list[dict[str, Any]]:
+        """Return configured fake pages."""
+        return self.pages
 
 
 class FakeTeardownIam:
@@ -1180,7 +1185,9 @@ class FakeTeardownIam:
         self.delete_user_called = False
 
     def get_paginator(self, operation_name: str) -> FakePaginator:
-        """Return a fake list_users paginator."""
+        """Return fake IAM paginators used by teardown."""
+        if operation_name == "list_server_certificates":
+            return FakePaginator([])
         assert operation_name == "list_users"
         return FakePaginator()
 
@@ -1247,10 +1254,10 @@ def test_teardown_main_fails_when_owned_user_cleanup_fails(
     no_sec11 = FakeNoSec11Resources()
 
     def fake_client(service_name: str, **kwargs: Any) -> Any:
-        """Return the fake IAM client; trivial empty stub for SEC11 sweep services."""
+        """Return the fake IAM client; trivial empty stub for security sweep services."""
         if service_name == "iam":
             return iam
-        if service_name in {"ec2", "kms", "s3"}:
+        if service_name in {"ec2", "elbv2", "kms", "s3"}:
             return no_sec11
         msg = f"unexpected service: {service_name}"
         raise AssertionError(msg)
@@ -3706,6 +3713,14 @@ class FakeSec11Ec2:
         """Return configured security groups."""
         return {"SecurityGroups": self.sgs}
 
+    def describe_internet_gateways(self, **_kwargs: Any) -> dict[str, Any]:
+        """SEC11 fixture has no IGWs; SEC13 sweep extension calls this."""
+        return {"InternetGateways": []}
+
+    def describe_route_tables(self, **_kwargs: Any) -> dict[str, Any]:
+        """SEC11 fixture has no custom route tables; SEC13 sweep extension calls this."""
+        return {"RouteTables": []}
+
     def delete_security_group(self, GroupId: str) -> None:
         """Record deleted SG id."""
         self.deleted_sgs.append(GroupId)
@@ -3870,3 +3885,1148 @@ def test_teardown_cleanup_owned_kms_deletes_alias_and_schedules_key_deletion() -
         "alias/isv-sec11-test-bbbb2222",
     ]
     assert scheduled_keys == ["key-sec11-a", "key-sec11-b"]
+
+
+# -- SEC13 insecure_protocols_test ---------------------------------------
+
+
+class _FakeWaiter:
+    """Waiter double that records wait arguments and can raise a configured failure."""
+
+    def __init__(self, fail: Exception | None = None) -> None:
+        """Store an optional failure raised from wait."""
+        self.fail = fail
+        self.waits: list[dict[str, Any]] = []
+
+    def wait(self, **kwargs: Any) -> None:
+        """Record waiter arguments and raise the configured failure when present."""
+        self.waits.append(kwargs)
+        if self.fail is not None:
+            raise self.fail
+
+
+class _FakeSec13Ec2:
+    """EC2 client double for SEC13 provisioning. Records every call."""
+
+    def __init__(self, fail_at: str | None = None, fail_with: ClientError | None = None) -> None:
+        """Initialize call tracking and optional method failure injection."""
+        self.fail_at = fail_at
+        self.fail_with = fail_with
+        self.calls: list[str] = []
+        self.created_tags: list[tuple[str, list[dict[str, str]]]] = []
+        self.create_subnet_calls: list[dict[str, Any]] = []
+        self.ingress_permissions: list[dict[str, Any]] = []
+        self.deletes: list[tuple[str, str]] = []
+        self.waiter = _FakeWaiter()
+
+    def _maybe_fail(self, method: str) -> None:
+        """Record a method call and raise its configured failure if matched."""
+        self.calls.append(method)
+        if method == self.fail_at and self.fail_with is not None:
+            raise self.fail_with
+
+    def create_vpc(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return a fake SEC13 VPC creation response."""
+        self._maybe_fail("create_vpc")
+        return {"Vpc": {"VpcId": "vpc-sec13"}}
+
+    def create_tags(self, Resources: list[str], Tags: list[dict[str, str]]) -> dict[str, Any]:
+        """Record tags applied to fake resources."""
+        self.calls.append("create_tags")
+        for r in Resources:
+            self.created_tags.append((r, Tags))
+        return {}
+
+    def get_waiter(self, _name: str) -> _FakeWaiter:
+        """Return the fake EC2 waiter."""
+        return self.waiter
+
+    def create_internet_gateway(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return a fake internet gateway creation response."""
+        self._maybe_fail("create_internet_gateway")
+        return {"InternetGateway": {"InternetGatewayId": "igw-sec13"}}
+
+    def attach_internet_gateway(self, **_kwargs: Any) -> dict[str, Any]:
+        """Record fake internet gateway attachment."""
+        self._maybe_fail("attach_internet_gateway")
+        return {}
+
+    def describe_availability_zones(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return available AZs for subnet creation."""
+        self.calls.append("describe_availability_zones")
+        return {"AvailabilityZones": [{"ZoneName": "us-west-2a"}, {"ZoneName": "us-west-2b"}]}
+
+    def create_subnet(self, **kwargs: Any) -> dict[str, Any]:
+        """Return a fake SEC13 subnet creation response."""
+        self._maybe_fail("create_subnet")
+        self.create_subnet_calls.append(kwargs)
+        return {"Subnet": {"SubnetId": f"subnet-sec13-{len(self.create_subnet_calls)}"}}
+
+    def create_route_table(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return a fake route table creation response."""
+        self._maybe_fail("create_route_table")
+        return {"RouteTable": {"RouteTableId": "rtb-sec13"}}
+
+    def create_route(self, **_kwargs: Any) -> dict[str, Any]:
+        """Record fake default route creation."""
+        self._maybe_fail("create_route")
+        return {}
+
+    def associate_route_table(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return a fake route table association response."""
+        self._maybe_fail("associate_route_table")
+        return {"AssociationId": f"rtbassoc-sec13-{self.calls.count('associate_route_table')}"}
+
+    def create_security_group(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return a fake security group creation response."""
+        self._maybe_fail("create_security_group")
+        return {"GroupId": "sg-sec13"}
+
+    def authorize_security_group_ingress(self, **kwargs: Any) -> dict[str, Any]:
+        """Record fake ingress authorization."""
+        self._maybe_fail("authorize_security_group_ingress")
+        self.ingress_permissions.append(kwargs)
+        return {}
+
+    def disassociate_route_table(self, **_kwargs: Any) -> None:
+        """Record fake route table disassociation."""
+        self.deletes.append(("disassociate_route_table", _kwargs.get("AssociationId", "")))
+
+    def delete_route_table(self, **kwargs: Any) -> None:
+        """Record fake route table deletion."""
+        self.deletes.append(("delete_route_table", kwargs["RouteTableId"]))
+
+    def delete_security_group(self, **kwargs: Any) -> None:
+        """Record fake security group deletion."""
+        self.deletes.append(("delete_security_group", kwargs["GroupId"]))
+
+    def delete_subnet(self, **kwargs: Any) -> None:
+        """Record fake subnet deletion."""
+        self.deletes.append(("delete_subnet", kwargs["SubnetId"]))
+
+    def detach_internet_gateway(self, **kwargs: Any) -> None:
+        """Record fake internet gateway detachment."""
+        self.deletes.append(("detach_internet_gateway", kwargs["InternetGatewayId"]))
+
+    def delete_internet_gateway(self, **kwargs: Any) -> None:
+        """Record fake internet gateway deletion."""
+        self.deletes.append(("delete_internet_gateway", kwargs["InternetGatewayId"]))
+
+    def delete_vpc(self, **kwargs: Any) -> None:
+        """Record fake VPC deletion."""
+        self.deletes.append(("delete_vpc", kwargs["VpcId"]))
+
+
+class _FakeSec13Iam:
+    """IAM client double for SEC13 provisioning."""
+
+    def __init__(
+        self,
+        *,
+        upload_error: ClientError | None = None,
+        delete_errors: list[ClientError] | None = None,
+    ) -> None:
+        """Initialize upload/delete tracking and optional fake failures."""
+        self.upload_error = upload_error
+        self.delete_errors = list(delete_errors or [])
+        self.uploaded_certs: list[dict[str, Any]] = []
+        self.deletes: list[str] = []
+        self.delete_attempts = 0
+
+    def upload_server_certificate(self, **kwargs: Any) -> dict[str, Any]:
+        """Record a fake IAM server certificate upload."""
+        if self.upload_error is not None:
+            raise self.upload_error
+        self.uploaded_certs.append(kwargs)
+        return {
+            "ServerCertificateMetadata": {
+                "Arn": f"arn:aws:iam::123:server-certificate/{kwargs['ServerCertificateName']}",
+            }
+        }
+
+    def delete_server_certificate(self, **kwargs: Any) -> None:
+        """Record or fail a fake IAM server certificate deletion."""
+        self.delete_attempts += 1
+        if self.delete_errors:
+            raise self.delete_errors.pop(0)
+        self.deletes.append(kwargs["ServerCertificateName"])
+
+
+class _FakeSec13Elbv2:
+    """ELBv2 client double for SEC13 provisioning."""
+
+    def __init__(self) -> None:
+        """Initialize fake ELBv2 create/delete call tracking."""
+        self.create_tg_calls: list[dict[str, Any]] = []
+        self.create_lb_calls: list[dict[str, Any]] = []
+        self.create_listener_calls: list[dict[str, Any]] = []
+        self.deletes: list[tuple[str, str]] = []
+        self.waiters: dict[str, _FakeWaiter] = {
+            "load_balancer_available": _FakeWaiter(),
+            "load_balancers_deleted": _FakeWaiter(),
+        }
+
+    def create_target_group(self, **kwargs: Any) -> dict[str, Any]:
+        """Record fake target group creation and return its ARN."""
+        self.create_tg_calls.append(kwargs)
+        return {"TargetGroups": [{"TargetGroupArn": "arn:tg:sec13"}]}
+
+    def create_load_balancer(self, **kwargs: Any) -> dict[str, Any]:
+        """Record fake load balancer creation and return its ARN and DNS name."""
+        self.create_lb_calls.append(kwargs)
+        return {
+            "LoadBalancers": [
+                {"LoadBalancerArn": "arn:lb:sec13", "DNSName": "sec13.elb.aws.example"},
+            ]
+        }
+
+    def create_listener(self, **kwargs: Any) -> dict[str, Any]:
+        """Record fake listener creation and return its ARN."""
+        self.create_listener_calls.append(kwargs)
+        return {"Listeners": [{"ListenerArn": "arn:listener:sec13"}]}
+
+    def get_waiter(self, name: str) -> _FakeWaiter:
+        """Return a named fake ELBv2 waiter."""
+        return self.waiters[name]
+
+    def delete_listener(self, **kwargs: Any) -> None:
+        """Record fake listener deletion."""
+        self.deletes.append(("delete_listener", kwargs["ListenerArn"]))
+
+    def delete_load_balancer(self, **kwargs: Any) -> None:
+        """Record fake load balancer deletion."""
+        self.deletes.append(("delete_load_balancer", kwargs["LoadBalancerArn"]))
+
+    def delete_target_group(self, **kwargs: Any) -> None:
+        """Record fake target group deletion."""
+        self.deletes.append(("delete_target_group", kwargs["TargetGroupArn"]))
+
+
+def _patch_sec13_boto(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+    ec2: _FakeSec13Ec2,
+    iam: _FakeSec13Iam,
+    elbv2: _FakeSec13Elbv2,
+) -> None:
+    """Patch module.boto3.client to dispatch to the supplied fakes."""
+
+    def _client(name: str, **_kwargs: Any) -> Any:
+        return {"ec2": ec2, "iam": iam, "elbv2": elbv2}[name]
+
+    monkeypatch.setattr(module.boto3, "client", _client)
+
+
+def _patch_sec13_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+    *,
+    demo_mode: bool = False,
+    aggregate: Callable[..., dict[str, Any]] | None = None,
+    record_calls: list[tuple[str, Any]] | None = None,
+) -> None:
+    """Patch ``_load_shared_probe`` to return a controlled stub."""
+
+    class _Probe:
+        """Shared probe stub for AWS SEC13 script tests."""
+
+        DEMO_MODE = demo_mode
+        REQUIRED_TESTS: ClassVar[list[str]] = [
+            "sslv3_disabled",
+            "tlsv1_0_disabled",
+            "tlsv1_1_disabled",
+            "plain_http_disabled",
+        ]
+
+        @staticmethod
+        def _demo_result() -> dict[str, Any]:
+            """Return a minimal demo-mode success payload."""
+            return {"success": True, "platform": "security", "test_name": "insecure_protocols", "demo": True}
+
+        @staticmethod
+        def _parse_endpoints(spec: str) -> list[tuple[str, int]]:
+            """Parse comma-separated fake endpoint values."""
+            out: list[tuple[str, int]] = []
+            for item in (s.strip() for s in spec.split(",") if s.strip()):
+                host, _, port = item.rpartition(":")
+                if not host or not port:
+                    msg = f"endpoint {item!r} must be host:port"
+                    raise ValueError(msg)
+                out.append((host, int(port)))
+            return out
+
+        @staticmethod
+        def _aggregate(endpoints: list[tuple[str, int]], http_port: int, timeout: float) -> dict[str, Any]:
+            """Return a fake successful aggregate or delegate to a supplied callback."""
+            if record_calls is not None:
+                record_calls.append(("aggregate", {"endpoints": endpoints, "http_port": http_port, "timeout": timeout}))
+            if aggregate is not None:
+                return aggregate(endpoints, http_port, timeout)
+            return {name: {"passed": True, "message": "ok", "probes": []} for name in _Probe.REQUIRED_TESTS}
+
+        @staticmethod
+        def probe_tls_version(host: str, port: int, version: int, timeout: float = 5.0) -> dict[str, Any]:
+            """Return a fake TLS refusal readiness result."""
+            return {"host": host, "port": port, "category": "refused"}
+
+    monkeypatch.setattr(module, "_load_shared_probe", lambda: _Probe)
+
+
+def test_sec13_demo_mode_short_circuits(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """DEMO_MODE makes the AWS script emit a dummy success without touching boto."""
+    module = _load_security_script("insecure_protocols_test.py")
+    _patch_sec13_probe(monkeypatch, module, demo_mode=True)
+
+    def _fail(*_a: Any, **_kw: Any) -> Any:
+        msg = "boto3.client must not be called in demo mode"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(module.boto3, "client", _fail)
+    monkeypatch.setattr("sys.argv", ["insecure_protocols_test.py", "--region", "us-west-2"])
+
+    rc = module.main()
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["demo"] is True
+
+
+def test_sec13_override_endpoints_skips_fixture(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--endpoints host:443` skips fixture provisioning and probes directly."""
+    module = _load_security_script("insecure_protocols_test.py")
+    record: list[tuple[str, Any]] = []
+    _patch_sec13_probe(monkeypatch, module, record_calls=record)
+
+    def _fail(*_a: Any, **_kw: Any) -> Any:
+        msg = "boto3.client must not be called when endpoints overridden"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(module.boto3, "client", _fail)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["insecure_protocols_test.py", "--region", "us-west-2", "--endpoints", "edge.example.com:8443"],
+    )
+
+    rc = module.main()
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["success"] is True
+    assert out["endpoints_tested"] == 1
+    assert record == [
+        ("aggregate", {"endpoints": [("edge.example.com", 8443)], "http_port": 80, "timeout": 5.0}),
+    ]
+
+
+def test_sec13_invalid_edge_http_port_env_emits_bad_input(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An invalid EDGE_HTTP_PORT default is rejected before any probing occurs."""
+    module = _load_security_script("insecure_protocols_test.py")
+    record: list[tuple[str, Any]] = []
+    _patch_sec13_probe(monkeypatch, module, record_calls=record)
+    monkeypatch.setenv("EDGE_HTTP_PORT", "70000")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["insecure_protocols_test.py", "--region", "us-west-2", "--endpoints", "edge.example.com:443"],
+    )
+
+    rc = module.main()
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["success"] is False
+    assert out["error_type"] == "bad_input"
+    assert "--http-port must be 1-65535" in out["error"]
+    assert record == []
+
+
+def test_sec13_access_denied_during_setup_emits_structured_skip(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pure-permission denial with no partial state yields a structured skip, not a failure."""
+    module = _load_security_script("insecure_protocols_test.py")
+    _patch_sec13_probe(monkeypatch, module)
+
+    ec2 = _FakeSec13Ec2(
+        fail_at="create_vpc",
+        fail_with=_client_error("CreateVpc", code="UnauthorizedOperation"),
+    )
+    iam = _FakeSec13Iam()
+    elbv2 = _FakeSec13Elbv2()
+    _patch_sec13_boto(monkeypatch, module, ec2, iam, elbv2)
+    monkeypatch.setattr("sys.argv", ["insecure_protocols_test.py", "--region", "us-west-2"])
+
+    rc = module.main()
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["skipped"] is True
+    assert out["skip_reason"] == "cannot provision SEC13-02 edge fixture: missing required setup permissions"
+    assert "UnauthorizedOperation" not in out["skip_reason"]
+    # No partial resources were created -> no teardown deletes recorded.
+    assert ec2.deletes == []
+    assert iam.deletes == []
+    assert elbv2.deletes == []
+
+
+def test_sec13_partial_access_denied_during_setup_emits_structured_skip_and_tears_down(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Permission denials after partial fixture creation still skip and clean up."""
+    module = _load_security_script("insecure_protocols_test.py")
+    _patch_sec13_probe(monkeypatch, module)
+
+    ec2 = _FakeSec13Ec2()
+    iam = _FakeSec13Iam(
+        upload_error=_client_error(
+            "UploadServerCertificate",
+            code="AccessDenied",
+            message="not authorized to perform iam:UploadServerCertificate",
+        )
+    )
+    elbv2 = _FakeSec13Elbv2()
+    _patch_sec13_boto(monkeypatch, module, ec2, iam, elbv2)
+    monkeypatch.setattr("sys.argv", ["insecure_protocols_test.py", "--region", "us-west-2"])
+
+    rc = module.main()
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["skipped"] is True
+    assert out["skip_reason"] == "cannot provision SEC13-02 edge fixture: missing required setup permissions"
+    assert "iam:UploadServerCertificate" not in out["skip_reason"]
+
+    delete_methods = {d[0] for d in ec2.deletes}
+    assert {
+        "delete_vpc",
+        "detach_internet_gateway",
+        "delete_internet_gateway",
+        "delete_subnet",
+        "delete_security_group",
+        "disassociate_route_table",
+        "delete_route_table",
+    } <= delete_methods
+    assert iam.deletes == []
+    assert elbv2.deletes == []
+
+
+def test_sec13_partial_setup_failure_runs_teardown(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When provisioning crashes mid-way the finally block deletes what it created."""
+    module = _load_security_script("insecure_protocols_test.py")
+    _patch_sec13_probe(monkeypatch, module)
+
+    ec2 = _FakeSec13Ec2(
+        fail_at="create_security_group",
+        fail_with=_client_error("CreateSecurityGroup", code="InternalError"),
+    )
+    iam = _FakeSec13Iam()
+    elbv2 = _FakeSec13Elbv2()
+    _patch_sec13_boto(monkeypatch, module, ec2, iam, elbv2)
+    monkeypatch.setattr("sys.argv", ["insecure_protocols_test.py", "--region", "us-west-2"])
+
+    rc = module.main()
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["success"] is False
+    assert out["error_type"] == "aws_error"
+    assert out["error"] == "provider operation failed"
+    assert "CreateSecurityGroup" not in out["error"]
+    delete_methods = {d[0] for d in ec2.deletes}
+    # VPC, IGW (detach + delete), subnet, route table (disassoc + delete) all created -> all torn down.
+    assert {
+        "delete_vpc",
+        "detach_internet_gateway",
+        "delete_internet_gateway",
+        "delete_subnet",
+        "disassociate_route_table",
+        "delete_route_table",
+    } <= delete_methods
+    # SG creation failed, no SG to delete.
+    assert "delete_security_group" not in delete_methods
+    # IAM cert / load balancer never reached.
+    assert iam.deletes == []
+    assert elbv2.deletes == []
+
+
+def test_sec13_happy_path_probes_load_balancer_dns_and_tears_down(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Full provision + probe + teardown emits the SEC13 contract and cleans up."""
+    module = _load_security_script("insecure_protocols_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+    record: list[tuple[str, Any]] = []
+    _patch_sec13_probe(monkeypatch, module, record_calls=record)
+
+    ec2 = _FakeSec13Ec2()
+    iam = _FakeSec13Iam()
+    elbv2 = _FakeSec13Elbv2()
+    _patch_sec13_boto(monkeypatch, module, ec2, iam, elbv2)
+    monkeypatch.setattr("sys.argv", ["insecure_protocols_test.py", "--region", "us-west-2"])
+
+    rc = module.main()
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["success"] is True
+    assert out["endpoints_tested"] == 1
+    # Probe was called against the load balancer DNS name on 443.
+    aggregate_calls = [c for c in record if c[0] == "aggregate"]
+    assert aggregate_calls == [
+        ("aggregate", {"endpoints": [("sec13.elb.aws.example", 443)], "http_port": 80, "timeout": 5.0}),
+    ]
+    # The fixture must terminate TLS at the load balancer layer without needing backend targets.
+    assert len(ec2.create_subnet_calls) == 2
+    assert {c["AvailabilityZone"] for c in ec2.create_subnet_calls} == {"us-west-2a", "us-west-2b"}
+    assert [c["CidrBlock"] for c in ec2.create_subnet_calls] == ["10.31.0.0/25", "10.31.0.128/25"]
+    assert ec2.ingress_permissions == [
+        {
+            "GroupId": "sg-sec13",
+            "IpPermissions": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 443,
+                    "ToPort": 443,
+                    "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": "SEC13-02 TLS probe ingress"}],
+                }
+            ],
+        }
+    ]
+    [lb_kwargs] = elbv2.create_lb_calls
+    assert lb_kwargs["Type"] == "application"
+    assert lb_kwargs["Subnets"] == ["subnet-sec13-1", "subnet-sec13-2"]
+    assert lb_kwargs["SecurityGroups"] == ["sg-sec13"]
+    assert elbv2.create_tg_calls == []
+    [listener_kwargs] = elbv2.create_listener_calls
+    assert listener_kwargs["SslPolicy"] == module.TLS_SECURITY_POLICY
+    assert listener_kwargs["Protocol"] == "HTTPS"
+    assert listener_kwargs["Port"] == 443
+    assert listener_kwargs["DefaultActions"] == [
+        {
+            "Type": "fixed-response",
+            "FixedResponseConfig": {
+                "StatusCode": "200",
+                "ContentType": "text/plain",
+                "MessageBody": "SEC13-02 probe endpoint",
+            },
+        }
+    ]
+    # All created resources got torn down.
+    ec2_delete_methods = {d[0] for d in ec2.deletes}
+    assert {
+        "delete_vpc",
+        "detach_internet_gateway",
+        "delete_internet_gateway",
+        "delete_subnet",
+        "delete_security_group",
+        "delete_route_table",
+        "disassociate_route_table",
+    } <= ec2_delete_methods
+    elbv2_delete_methods = {d[0] for d in elbv2.deletes}
+    assert {"delete_listener", "delete_load_balancer"} <= elbv2_delete_methods
+    assert len(iam.deletes) == 1
+    assert iam.deletes[0].startswith(module.FIXTURE_PREFIX)
+
+
+def test_sec13_unreachable_load_balancer_fails_before_protocol_aggregate(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Load balancer readiness failures surface as fixture errors instead of SEC13 failures."""
+    module = _load_security_script("insecure_protocols_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+    record: list[tuple[str, Any]] = []
+
+    class _Probe:
+        """Shared probe stub that never observes load balancer readiness."""
+
+        DEMO_MODE = False
+        REQUIRED_TESTS: ClassVar[list[str]] = [
+            "sslv3_disabled",
+            "tlsv1_0_disabled",
+            "tlsv1_1_disabled",
+            "plain_http_disabled",
+        ]
+
+        @staticmethod
+        def _parse_endpoints(_spec: str) -> list[tuple[str, int]]:
+            """Return no operator override endpoints."""
+            return []
+
+        @staticmethod
+        def _aggregate(endpoints: list[tuple[str, int]], http_port: int, timeout: float) -> dict[str, Any]:
+            """Record unexpected aggregate calls."""
+            record.append(("aggregate", {"endpoints": endpoints, "http_port": http_port, "timeout": timeout}))
+            return {name: {"passed": True, "message": "ok", "probes": []} for name in _Probe.REQUIRED_TESTS}
+
+        @staticmethod
+        def probe_tls_version(host: str, port: int, version: int, timeout: float = 5.0) -> dict[str, Any]:
+            """Return a timeout readiness probe result."""
+            return {
+                "host": host,
+                "port": port,
+                "requested_version": f"0x{version:04x}",
+                "category": "timeout",
+                "detail": "no response within budget",
+            }
+
+    monkeypatch.setattr(module, "_load_shared_probe", lambda: _Probe)
+
+    ec2 = _FakeSec13Ec2()
+    iam = _FakeSec13Iam()
+    elbv2 = _FakeSec13Elbv2()
+    _patch_sec13_boto(monkeypatch, module, ec2, iam, elbv2)
+    monkeypatch.setattr("sys.argv", ["insecure_protocols_test.py", "--region", "us-west-2"])
+
+    rc = module.main()
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["success"] is False
+    assert out["error_type"] == "fixture_unreachable"
+    assert "sec13.elb.aws.example:443 never became reachable" in out["error"]
+    assert "timeout" in out["error"]
+    assert record == []
+
+
+def test_sec13_resources_carry_owned_tags(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Every tagged EC2 resource carries CreatedBy=isvtest + isv-sec13-test- name."""
+    module = _load_security_script("insecure_protocols_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+    _patch_sec13_probe(monkeypatch, module)
+
+    ec2 = _FakeSec13Ec2()
+    iam = _FakeSec13Iam()
+    elbv2 = _FakeSec13Elbv2()
+    _patch_sec13_boto(monkeypatch, module, ec2, iam, elbv2)
+    monkeypatch.setattr("sys.argv", ["insecure_protocols_test.py", "--region", "us-west-2"])
+
+    rc = module.main()
+    assert rc == 0
+    _ = capsys.readouterr()
+
+    name_values = {dict((t["Key"], t["Value"]) for t in tags).get("Name", "") for _, tags in ec2.created_tags}
+    created_by_values = {
+        dict((t["Key"], t["Value"]) for t in tags).get("CreatedBy", "") for _, tags in ec2.created_tags
+    }
+    assert created_by_values == {"isvtest"}
+    assert all(v.startswith(module.FIXTURE_PREFIX) for v in name_values)
+
+
+def test_sec13_iam_server_certificate_delete_conflict_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """IAM DeleteConflict is expected while load balancer cert references are released."""
+    module = _load_security_script("insecure_protocols_test.py")
+    monkeypatch.setattr(module.delete_with_retry.__globals__["time"], "sleep", lambda _s: None)
+    fixture = module.Fixture(suffix="retry")
+    fixture.cert_name = f"{module.FIXTURE_PREFIX}retry"
+    fixture.created["iam_server_cert"] = True
+    iam = _FakeSec13Iam(
+        delete_errors=[_client_error("DeleteServerCertificate", code="DeleteConflict", message="still attached")]
+    )
+
+    errors = module._teardown_fixture(
+        ec2=_FakeSec13Ec2(),
+        iam=iam,
+        elbv2=_FakeSec13Elbv2(),
+        fixture=fixture,
+    )
+
+    assert errors == []
+    assert iam.delete_attempts == 2
+    assert iam.deletes == [fixture.cert_name]
+
+
+def test_sec13_cleanup_errors_do_not_expose_provider_resource_details(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cleanup diagnostics stay generic when provider deletes fail."""
+    module = _load_security_script("insecure_protocols_test.py")
+    monkeypatch.setattr(module.delete_with_retry.__globals__["time"], "sleep", lambda _s: None)
+    fixture = module.Fixture(suffix="leak", cert_name=f"{module.FIXTURE_PREFIX}leak")
+    fixture.created["iam_server_cert"] = True
+    iam = _FakeSec13Iam(
+        delete_errors=[
+            _client_error(
+                "DeleteServerCertificate",
+                code="AccessDenied",
+                message="not authorized for isv-sec13-test-leak",
+            )
+        ]
+    )
+
+    errors = module._teardown_fixture(
+        ec2=_FakeSec13Ec2(),
+        iam=iam,
+        elbv2=_FakeSec13Elbv2(),
+        fixture=fixture,
+    )
+
+    assert errors == ["resource_delete_failed: failed to delete server certificate"]
+    assert fixture.cert_name not in errors[0]
+    assert "AccessDenied" not in errors[0]
+
+
+def test_sec13_iam_server_certificate_delete_waits_for_vpc_dependency_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The IAM cert can remain in DeleteConflict until load-balancer-managed VPC resources drain."""
+    module = _load_security_script("insecure_protocols_test.py")
+    monkeypatch.setattr(module.delete_with_retry.__globals__["time"], "sleep", lambda _s: None)
+    events: list[str] = []
+    fixture = module.Fixture(
+        suffix="retry",
+        vpc_id="vpc-sec13",
+        igw_id="igw-sec13",
+        subnet_id="subnet-sec13",
+        cert_name=f"{module.FIXTURE_PREFIX}retry",
+        load_balancer_arn="arn:lb:sec13",
+    )
+    fixture.created.update(
+        {
+            "vpc": True,
+            "igw": True,
+            "igw_attached": True,
+            "subnet": True,
+            "iam_server_cert": True,
+            "load_balancer": True,
+        }
+    )
+
+    class FakeEc2(_FakeSec13Ec2):
+        """EC2 fake that records dependency cleanup ordering."""
+
+        def delete_subnet(self, **kwargs: Any) -> None:
+            """Record subnet deletion order and delegate to base fake."""
+            events.append("delete_subnet")
+            super().delete_subnet(**kwargs)
+
+        def detach_internet_gateway(self, **kwargs: Any) -> None:
+            """Record IGW detachment order and delegate to base fake."""
+            events.append("detach_internet_gateway")
+            super().detach_internet_gateway(**kwargs)
+
+        def delete_internet_gateway(self, **kwargs: Any) -> None:
+            """Record IGW deletion order and delegate to base fake."""
+            events.append("delete_internet_gateway")
+            super().delete_internet_gateway(**kwargs)
+
+        def delete_vpc(self, **kwargs: Any) -> None:
+            """Record VPC deletion order and delegate to base fake."""
+            events.append("delete_vpc")
+            super().delete_vpc(**kwargs)
+
+    class FakeIam(_FakeSec13Iam):
+        """IAM fake that reports DeleteConflict until VPC cleanup completes."""
+
+        def delete_server_certificate(self, **kwargs: Any) -> None:
+            """Fail certificate deletion until fake VPC deletion has occurred."""
+            events.append("delete_server_certificate")
+            if "delete_vpc" not in events:
+                raise _client_error("DeleteServerCertificate", code="DeleteConflict", message="still in use")
+            super().delete_server_certificate(**kwargs)
+
+    iam = FakeIam()
+
+    errors = module._teardown_fixture(
+        ec2=FakeEc2(),
+        iam=iam,
+        elbv2=_FakeSec13Elbv2(),
+        fixture=fixture,
+    )
+
+    assert errors == []
+    assert events.index("delete_vpc") < events.index("delete_server_certificate")
+    assert iam.deletes == [fixture.cert_name]
+
+
+def test_sec13_teardown_retries_load_balancer_managed_vpc_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Load balancer ENI/public-IP release can lag after the LB delete waiter completes."""
+    module = _load_security_script("insecure_protocols_test.py")
+    monkeypatch.setattr(module.delete_with_retry.__globals__["time"], "sleep", lambda _s: None)
+    fixture = module.Fixture(
+        suffix="retry",
+        vpc_id="vpc-sec13",
+        igw_id="igw-sec13",
+        subnet_id="subnet-sec13",
+        sg_id="sg-sec13",
+    )
+    fixture.created.update({"vpc": True, "igw": True, "igw_attached": True, "subnet": True, "sg": True})
+    dependency_error = _client_error("DeleteVpc", code="DependencyViolation", message="public address still mapped")
+
+    class FakeEc2(_FakeSec13Ec2):
+        """EC2 fake that fails each load-balancer-managed dependency once."""
+
+        def __init__(self) -> None:
+            """Initialize one transient dependency failure per cleanup call."""
+            super().__init__()
+            self.remaining_failures = {
+                "delete_security_group": 1,
+                "delete_subnet": 1,
+                "detach_internet_gateway": 1,
+                "delete_internet_gateway": 1,
+                "delete_vpc": 1,
+            }
+
+        def _fail_once(self, name: str) -> None:
+            """Raise the dependency error on the first call for ``name``."""
+            self.calls.append(name)
+            if self.remaining_failures[name] > 0:
+                self.remaining_failures[name] -= 1
+                raise dependency_error
+
+        def delete_security_group(self, **kwargs: Any) -> None:
+            """Fail once, then record fake security group deletion."""
+            self._fail_once("delete_security_group")
+            self.deletes.append(("delete_security_group", kwargs["GroupId"]))
+
+        def delete_subnet(self, **kwargs: Any) -> None:
+            """Fail once, then record fake subnet deletion."""
+            self._fail_once("delete_subnet")
+            self.deletes.append(("delete_subnet", kwargs["SubnetId"]))
+
+        def detach_internet_gateway(self, **kwargs: Any) -> None:
+            """Fail once, then record fake IGW detachment."""
+            self._fail_once("detach_internet_gateway")
+            self.deletes.append(("detach_internet_gateway", kwargs["InternetGatewayId"]))
+
+        def delete_internet_gateway(self, **kwargs: Any) -> None:
+            """Fail once, then record fake IGW deletion."""
+            self._fail_once("delete_internet_gateway")
+            self.deletes.append(("delete_internet_gateway", kwargs["InternetGatewayId"]))
+
+        def delete_vpc(self, **kwargs: Any) -> None:
+            """Fail once, then record fake VPC deletion."""
+            self._fail_once("delete_vpc")
+            self.deletes.append(("delete_vpc", kwargs["VpcId"]))
+
+    ec2 = FakeEc2()
+
+    errors = module._teardown_fixture(
+        ec2=ec2,
+        iam=_FakeSec13Iam(),
+        elbv2=_FakeSec13Elbv2(),
+        fixture=fixture,
+    )
+
+    assert errors == []
+    assert ec2.calls.count("delete_security_group") == 2
+    assert ec2.calls.count("delete_subnet") == 2
+    assert ec2.calls.count("detach_internet_gateway") == 2
+    assert ec2.calls.count("delete_internet_gateway") == 2
+    assert ec2.calls.count("delete_vpc") == 2
+
+
+# -- SEC13 teardown sweep extensions -------------------------------------
+
+
+def test_teardown_cleanup_owned_vpcs_detaches_igw_and_deletes_custom_route_tables() -> None:
+    """`_cleanup_owned_vpcs` strips non-main route tables and IGWs before VPC delete."""
+    module = _load_security_script("teardown.py")
+    deletes: list[tuple[str, str]] = []
+
+    class FakeEc2:
+        """EC2 fake with owned VPC dependencies for final sweep cleanup."""
+
+        def describe_vpcs(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return one owned SEC13 VPC."""
+            return {"Vpcs": [{"VpcId": "vpc-x", "Tags": [{"Key": "Name", "Value": "isv-sec13-test-aaaa"}]}]}
+
+        def describe_internet_gateways(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return one IGW attached to the owned VPC."""
+            return {"InternetGateways": [{"InternetGatewayId": "igw-x"}]}
+
+        def detach_internet_gateway(self, **kwargs: Any) -> None:
+            """Record IGW detachment."""
+            deletes.append(("detach_internet_gateway", kwargs["InternetGatewayId"]))
+
+        def delete_internet_gateway(self, **kwargs: Any) -> None:
+            """Record IGW deletion."""
+            deletes.append(("delete_internet_gateway", kwargs["InternetGatewayId"]))
+
+        def describe_route_tables(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return one main and one custom route table."""
+            return {
+                "RouteTables": [
+                    {
+                        "RouteTableId": "rtb-main",
+                        "Associations": [{"Main": True}],
+                    },
+                    {
+                        "RouteTableId": "rtb-custom",
+                        "Associations": [
+                            {"RouteTableAssociationId": "assoc-x", "Main": False},
+                        ],
+                    },
+                ]
+            }
+
+        def disassociate_route_table(self, **kwargs: Any) -> None:
+            """Record custom route table disassociation."""
+            deletes.append(("disassociate_route_table", kwargs["AssociationId"]))
+
+        def delete_route_table(self, **kwargs: Any) -> None:
+            """Record custom route table deletion."""
+            deletes.append(("delete_route_table", kwargs["RouteTableId"]))
+
+        def describe_security_groups(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return no security groups."""
+            return {"SecurityGroups": []}
+
+        def describe_subnets(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return no subnets."""
+            return {"Subnets": []}
+
+        def delete_vpc(self, **kwargs: Any) -> None:
+            """Record VPC deletion."""
+            deletes.append(("delete_vpc", kwargs["VpcId"]))
+
+    errors = module._cleanup_owned_vpcs(FakeEc2())
+
+    assert errors == []
+    delete_methods = [d[0] for d in deletes]
+    assert delete_methods == [
+        "disassociate_route_table",
+        "delete_route_table",
+        "detach_internet_gateway",
+        "delete_internet_gateway",
+        "delete_vpc",
+    ]
+    # Main route table was NOT touched.
+    assert ("delete_route_table", "rtb-main") not in deletes
+
+
+def test_teardown_cleanup_owned_vpcs_retries_nlb_managed_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The final sweep retries VPC dependencies while NLB ENIs/public IPs drain."""
+    module = _load_security_script("teardown.py")
+    monkeypatch.setattr(module.delete_with_retry.__globals__["time"], "sleep", lambda _s: None)
+    dependency_error = _client_error("DeleteVpc", code="DependencyViolation", message="public address still mapped")
+    calls: list[str] = []
+
+    class FakeEc2:
+        """EC2 fake that fails each final sweep dependency once."""
+
+        def __init__(self) -> None:
+            """Initialize one transient dependency failure per cleanup method."""
+            self.remaining_failures = {
+                "delete_subnet": 1,
+                "detach_internet_gateway": 1,
+                "delete_internet_gateway": 1,
+                "delete_vpc": 1,
+            }
+
+        def _fail_once(self, name: str) -> None:
+            """Raise the dependency error on the first call for ``name``."""
+            calls.append(name)
+            if self.remaining_failures[name] > 0:
+                self.remaining_failures[name] -= 1
+                raise dependency_error
+
+        def describe_vpcs(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return one owned SEC13 VPC."""
+            return {"Vpcs": [{"VpcId": "vpc-x", "Tags": [{"Key": "Name", "Value": "isv-sec13-test-aaaa"}]}]}
+
+        def describe_route_tables(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return no custom route tables."""
+            return {"RouteTables": []}
+
+        def describe_security_groups(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return no security groups."""
+            return {"SecurityGroups": []}
+
+        def describe_subnets(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return one owned subnet."""
+            return {"Subnets": [{"SubnetId": "subnet-x"}]}
+
+        def delete_subnet(self, **_kwargs: Any) -> None:
+            """Fail fake subnet deletion once."""
+            self._fail_once("delete_subnet")
+
+        def describe_internet_gateways(self, **_kwargs: Any) -> dict[str, Any]:
+            """Return one IGW attached to the owned VPC."""
+            return {"InternetGateways": [{"InternetGatewayId": "igw-x"}]}
+
+        def detach_internet_gateway(self, **_kwargs: Any) -> None:
+            """Fail fake IGW detachment once."""
+            self._fail_once("detach_internet_gateway")
+
+        def delete_internet_gateway(self, **_kwargs: Any) -> None:
+            """Fail fake IGW deletion once."""
+            self._fail_once("delete_internet_gateway")
+
+        def delete_vpc(self, **_kwargs: Any) -> None:
+            """Fail fake VPC deletion once."""
+            self._fail_once("delete_vpc")
+
+    errors = module._cleanup_owned_vpcs(FakeEc2())
+
+    assert errors == []
+    assert calls.count("delete_subnet") == 2
+    assert calls.count("detach_internet_gateway") == 2
+    assert calls.count("delete_internet_gateway") == 2
+    assert calls.count("delete_vpc") == 2
+
+
+def test_teardown_cleanup_owned_load_balancers_filters_by_tag() -> None:
+    """`_cleanup_owned_load_balancers` deletes only LBs tagged isvtest with owned prefix."""
+    module = _load_security_script("teardown.py")
+    deletes: list[str] = []
+    waited: list[list[str]] = []
+
+    class FakeElbv2:
+        """ELBv2 fake with owned and unowned load balancers."""
+
+        def get_paginator(self, _name: str) -> Any:
+            """Return a fake load-balancer paginator."""
+
+            class _P:
+                """Paginator double returning configured load balancers."""
+
+                def paginate(_self) -> list[dict[str, Any]]:
+                    """Return owned, unowned, and wrong-prefix load balancers."""
+                    return [
+                        {
+                            "LoadBalancers": [
+                                {"LoadBalancerArn": "arn:lb:owned"},
+                                {"LoadBalancerArn": "arn:lb:other"},
+                                {"LoadBalancerArn": "arn:lb:wrongprefix"},
+                            ]
+                        }
+                    ]
+
+            return _P()
+
+        def describe_tags(self, ResourceArns: list[str]) -> dict[str, Any]:
+            """Return tags for each fake load balancer ARN."""
+            mapping = {
+                "arn:lb:owned": [
+                    {"Key": "CreatedBy", "Value": "isvtest"},
+                    {"Key": "Name", "Value": "isv-sec13-test-aaaa-nlb"},
+                ],
+                "arn:lb:other": [
+                    {"Key": "Name", "Value": "production-lb"},
+                ],
+                "arn:lb:wrongprefix": [
+                    {"Key": "CreatedBy", "Value": "isvtest"},
+                    {"Key": "Name", "Value": "some-other-fixture"},
+                ],
+            }
+            return {"TagDescriptions": [{"ResourceArn": a, "Tags": mapping[a]} for a in ResourceArns]}
+
+        def delete_load_balancer(self, **kwargs: Any) -> None:
+            """Record fake load balancer deletion."""
+            deletes.append(kwargs["LoadBalancerArn"])
+
+        def get_waiter(self, _name: str) -> Any:
+            """Return a fake deletion waiter."""
+
+            class _W:
+                """Waiter double recording waited load balancers."""
+
+                def wait(_self, **kwargs: Any) -> None:
+                    """Record load balancer ARNs passed to the waiter."""
+                    waited.append(kwargs["LoadBalancerArns"])
+
+            return _W()
+
+    errors = module._cleanup_owned_load_balancers(FakeElbv2())
+
+    assert errors == []
+    assert deletes == ["arn:lb:owned"]
+    assert waited == [["arn:lb:owned"]]
+
+
+def test_teardown_elbv2_read_access_denied_is_noop() -> None:
+    """Missing ELBv2 read permissions skip the SEC13 sweep instead of failing teardown."""
+    module = _load_security_script("teardown.py")
+
+    class FakeElbv2:
+        """ELBv2 fake whose read pagination is denied."""
+
+        def get_paginator(self, name: str) -> Any:
+            """Return a paginator that raises AccessDenied for reads."""
+
+            class _P:
+                """Paginator double that raises a fake access-denied error."""
+
+                def paginate(_self) -> list[dict[str, Any]]:
+                    """Raise an access-denied error for the selected read operation."""
+                    operation = "DescribeLoadBalancers" if name == "describe_load_balancers" else "DescribeTargetGroups"
+                    raise _client_error(operation)
+
+            return _P()
+
+    assert module._cleanup_owned_load_balancers(FakeElbv2()) == []
+    assert module._cleanup_owned_target_groups(FakeElbv2()) == []
+
+
+def test_teardown_cleanup_owned_iam_server_certs_filters_by_prefix() -> None:
+    """`_cleanup_owned_iam_server_certs` deletes only ``isv-sec13-test-*`` certs."""
+    module = _load_security_script("teardown.py")
+    deleted: list[str] = []
+
+    class FakeIam:
+        """IAM fake with owned and production server certificates."""
+
+        def get_paginator(self, _name: str) -> Any:
+            """Return a fake server-certificate paginator."""
+
+            class _P:
+                """Paginator double returning fake server certificates."""
+
+                def paginate(_self) -> list[dict[str, Any]]:
+                    """Return owned and non-owned server certificate metadata."""
+                    return [
+                        {
+                            "ServerCertificateMetadataList": [
+                                {"ServerCertificateName": "isv-sec13-test-aaaa1111"},
+                                {"ServerCertificateName": "production-cert"},
+                                {"ServerCertificateName": "isv-sec13-test-bbbb2222"},
+                            ]
+                        }
+                    ]
+
+            return _P()
+
+        def delete_server_certificate(self, **kwargs: Any) -> None:
+            """Record fake server certificate deletion."""
+            deleted.append(kwargs["ServerCertificateName"])
+
+    errors = module._cleanup_owned_iam_server_certs(FakeIam())
+
+    assert errors == []
+    assert deleted == ["isv-sec13-test-aaaa1111", "isv-sec13-test-bbbb2222"]
+
+
+def test_teardown_cleanup_owned_iam_server_certs_retries_delete_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SEC13 cert deletion can lag while the deleted NLB releases its listener cert."""
+    module = _load_security_script("teardown.py")
+    monkeypatch.setattr(module.delete_with_retry.__globals__["time"], "sleep", lambda _s: None)
+    deleted: list[str] = []
+    delete_attempts = 0
+
+    class FakeIam:
+        """IAM fake that fails certificate deletion with DeleteConflict twice."""
+
+        def get_paginator(self, _name: str) -> Any:
+            """Return a paginator with one owned server certificate."""
+
+            class _P:
+                """Paginator double returning one owned certificate."""
+
+                def paginate(_self) -> list[dict[str, Any]]:
+                    """Return one owned server certificate metadata entry."""
+                    return [{"ServerCertificateMetadataList": [{"ServerCertificateName": "isv-sec13-test-aaaa1111"}]}]
+
+            return _P()
+
+        def delete_server_certificate(self, **kwargs: Any) -> None:
+            """Fail twice, then record fake certificate deletion."""
+            nonlocal delete_attempts
+            delete_attempts += 1
+            if delete_attempts < 3:
+                raise _client_error("DeleteServerCertificate", code="DeleteConflict", message="still in use")
+            deleted.append(kwargs["ServerCertificateName"])
+
+    errors = module._cleanup_owned_iam_server_certs(FakeIam())
+
+    assert errors == []
+    assert delete_attempts == 3
+    assert deleted == ["isv-sec13-test-aaaa1111"]
