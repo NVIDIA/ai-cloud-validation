@@ -86,10 +86,6 @@ tests:
         TenantInfoCheck:
           step: get_tenant
 
-    # DATASVC-XX-01: object-storage data-path lifecycle on an S3-compatible API.
-    # Scripts must emit operations: {put, get, delete} each with passed:bool, and
-    # the get operation must include content_matches:bool (byte compare of the
-    # written body) - set passed:false if bytes differ.
     s3_object_lifecycle:
       step: s3_object_lifecycle
       checks:

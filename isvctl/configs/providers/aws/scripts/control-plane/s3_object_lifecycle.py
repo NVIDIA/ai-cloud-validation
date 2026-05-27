@@ -170,6 +170,9 @@ def main() -> int:
             cleanup_error = _delete_bucket_best_effort(s3, bucket_name)
             if cleanup_error:
                 result.setdefault("cleanup_errors", []).append(cleanup_error)
+                cleanup_msg = f"Cleanup failed: {cleanup_error}"
+                result["error"] = f"{result['error']}; {cleanup_msg}" if result.get("error") else cleanup_msg
+                result["success"] = False
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1

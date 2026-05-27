@@ -56,6 +56,19 @@ class FieldExistsCheck(BaseValidation):
             self.set_passed(f"All required fields present: {', '.join(fields)}")
 
 
+def _get_field_value(step_output: dict[str, Any], field: str) -> tuple[bool, Any]:
+    """Return a top-level or dotted-path field from step output."""
+    if field in step_output:
+        return True, step_output[field]
+
+    current: Any = step_output
+    for part in field.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return False, None
+        current = current[part]
+    return True, current
+
+
 class FieldValueCheck(BaseValidation):
     """Check that a field has an expected value.
 
@@ -79,11 +92,10 @@ class FieldValueCheck(BaseValidation):
             self.set_failed("No 'field' specified")
             return
 
-        if field not in step_output:
+        found, actual = _get_field_value(step_output, field)
+        if not found:
             self.set_failed(f"Field '{field}' not found in output")
             return
-
-        actual = step_output[field]
 
         # Check exact match
         expected = self.config.get("expected")

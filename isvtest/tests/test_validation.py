@@ -31,6 +31,7 @@ from isvtest.tests.test_validations import (
     test_validation as run_validation_entry_point,
 )
 from isvtest.validations.bm_host_status import BmHostStatusLog
+from isvtest.validations.generic import FieldValueCheck
 from isvtest.validations.instance import (
     InstanceListCheck,
     InstancePowerCycleCheck,
@@ -2399,3 +2400,35 @@ class TestBmHostStatusLog:
         result = v.execute()
         assert result["passed"] is False
         assert "required_sources" in result["error"]
+
+
+def test_field_value_check_supports_nested_dot_paths() -> None:
+    """FieldValueCheck can assert nested step-output contract fields."""
+    validation = FieldValueCheck(
+        config={
+            "step_output": {"operations": {"get": {"passed": True, "content_matches": True}}},
+            "field": "operations.get.content_matches",
+            "expected": True,
+        }
+    )
+
+    result = validation.execute()
+
+    assert result["passed"] is True
+    assert "operations.get.content_matches=True" in result["output"]
+
+
+def test_field_value_check_requires_nested_dot_path_to_exist() -> None:
+    """Missing nested fields fail instead of silently passing."""
+    validation = FieldValueCheck(
+        config={
+            "step_output": {"operations": {"get": {"passed": True}}},
+            "field": "operations.get.content_matches",
+            "expected": True,
+        }
+    )
+
+    result = validation.execute()
+
+    assert result["passed"] is False
+    assert "Field 'operations.get.content_matches' not found" in result["error"]
