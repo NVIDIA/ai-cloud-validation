@@ -37,7 +37,6 @@ spec:
                     -np 8 \
                     --bind-to none --map-by slot \
                     -mca plm_rsh_args "-o StrictHostKeyChecking=no -o IdentityFile=/tmp/id_rsa" \
-                    --mca coll ^ucc \
                     -x NCCL_DEBUG=INFO -x LD_LIBRARY_PATH \
                     -x NCCL_IB_DISABLE -x NCCL_IB_HCA -x NCCL_IB_GID_INDEX -x NCCL_NET_GDR_LEVEL \
                     -x UCX_TLS=tcp,sm,cuda_copy,cuda_ipc \
