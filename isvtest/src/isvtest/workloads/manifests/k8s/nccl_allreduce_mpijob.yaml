@@ -36,7 +36,7 @@ spec:
                   exec mpirun --allow-run-as-root \
                     -np 8 \
                     --bind-to none --map-by slot \
-                    -mca plm_rsh_args "-o StrictHostKeyChecking=no -o IdentityFile=/tmp/id_rsa" \
+                    -mca plm_rsh_args "-o StrictHostKeyChecking=no -o IdentityFile=/tmp/id_rsa -p 2222" \
                     -x NCCL_DEBUG=INFO -x LD_LIBRARY_PATH \
                     -x NCCL_IB_DISABLE -x NCCL_IB_HCA -x NCCL_IB_GID_INDEX -x NCCL_NET_GDR_LEVEL \
                     -x UCX_TLS=tcp,sm,cuda_copy,cuda_ipc \
@@ -79,10 +79,10 @@ spec:
                 - -c
                 - |
                   command -v sshd >/dev/null || { apt-get update -qq && apt-get install -y -qq openssh-server >/dev/null 2>&1; }
-                  mkdir -p /var/run/sshd && ssh-keygen -A 2>/dev/null && exec /usr/sbin/sshd -De -o PermitRootLogin=yes -o StrictModes=no
+                  mkdir -p /var/run/sshd && ssh-keygen -A 2>/dev/null && exec /usr/sbin/sshd -De -p 2222 -o PermitRootLogin=yes -o StrictModes=no
               readinessProbe:
                 tcpSocket:
-                  port: 22
+                  port: 2222
                 initialDelaySeconds: 2
                 periodSeconds: 3
               env:
@@ -108,6 +108,7 @@ spec:
                   mountPath: /dev/shm
                 - name: infiniband
                   mountPath: /dev/infiniband
+          hostNetwork: true            # puts proxy threads in host netns so ibv_modify_qp can resolve RoCE neighbor entries
           nodeSelector:
             nvidia.com/gpu.present: "true"
           runtimeClassName: nvidia
