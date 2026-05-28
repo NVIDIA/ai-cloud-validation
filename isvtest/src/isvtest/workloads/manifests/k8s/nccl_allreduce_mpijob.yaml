@@ -89,7 +89,7 @@ spec:
                 - name: NCCL_IB_DISABLE
                   value: "0"
                 - name: NCCL_IB_HCA
-                  value: "^rocep75s0,mlx5_1,mlx5_2,mlx5_5,mlx5_6"  # exclude-list: rocep75s0 (dup IP) + mlx5_1/2/5/6 (ibv_modify_qp ENODEV); leaves 4 NICs (mlx5_0,3,4,7)
+                  value: "^rocep75s0,mlx5_4,mlx5_5,mlx5_6,mlx5_7"  # exclude Rail 2 (no cross-node routes); leaves mlx5_0,1,2,3 which have switch port ARP entries
                 - name: NCCL_IB_GID_INDEX
                   value: "3"           # RoCE v2 — valid unique IPs on the remaining NICs
                 - name: NCCL_NET_GDR_LEVEL
