@@ -37,7 +37,7 @@ import sys
 import time
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 # Ownership tag so cleanup and audits can tell suite-created volumes apart
 # from anything the account already had.
@@ -249,6 +249,10 @@ def detach_and_delete_volume(ec2: Any, volume_id: str) -> str | None:
         if code in _NOT_FOUND_CODES:
             return None
         return str(e)
+    except BotoCoreError as e:
+        # Waiter timeouts / transport errors must not propagate out of a
+        # best-effort cleanup path (callers run this in finally blocks).
+        return str(e)
 
 
 def delete_snapshot_best_effort(ec2: Any, snapshot_id: str) -> str | None:
@@ -260,6 +264,8 @@ def delete_snapshot_best_effort(ec2: Any, snapshot_id: str) -> str | None:
         code = e.response.get("Error", {}).get("Code", "")
         if code in _NOT_FOUND_CODES:
             return None
+        return str(e)
+    except BotoCoreError as e:
         return str(e)
 
 

@@ -48,7 +48,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/aws/scripts/ (for common.*)
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import BotoCoreError, ClientError
 from common import ebs
 from common.ssh_utils import ssh_run, wait_for_ssh
 
@@ -107,10 +107,12 @@ def main() -> int:
             result["snapshot_id"] = snapshot_id
             ebs.wait_for_snapshot_completed(ec2, snapshot_id)
             operations["create_snapshot"]["passed"] = True
-        except (ClientError, NoCredentialsError) as e:
+        except (ClientError, BotoCoreError) as e:
             _fail(operations["create_snapshot"], str(e))
             result["error"] = f"CreateSnapshot failed: {e}"
-            return _emit(result)
+            # snapshot_id may be set if creation succeeded but the wait failed -
+            # pass it so a partially-created snapshot is still cleaned up.
+            return _emit(result, ec2, restored_volume_id, snapshot_id)
 
         try:
             restored_volume_id = ebs.create_volume_from_snapshot(ec2, snapshot_id, availability_zone)
@@ -119,7 +121,7 @@ def main() -> int:
             ebs.attach_volume(ec2, restored_volume_id, args.instance_id, args.restore_device)
             ebs.wait_for_volume_in_use(ec2, restored_volume_id)
             operations["restore_volume"]["passed"] = True
-        except ClientError as e:
+        except (ClientError, BotoCoreError) as e:
             _fail(operations["restore_volume"], str(e))
             result["error"] = f"Restore failed: {e}"
             return _emit(result, ec2, restored_volume_id, snapshot_id)
@@ -149,7 +151,7 @@ def main() -> int:
 
         result["success"] = all(op["passed"] for op in operations.values())
         return _emit(result, ec2, restored_volume_id, snapshot_id)
-    except (ClientError, NoCredentialsError) as e:
+    except (ClientError, BotoCoreError) as e:
         result["error"] = str(e)
         return _emit(result, ec2, restored_volume_id, snapshot_id)
 

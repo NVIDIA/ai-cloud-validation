@@ -46,7 +46,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/aws/scripts/ (for common.*)
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import BotoCoreError, ClientError
 from common import ebs
 from common.ec2 import wait_for_public_ip
 from common.ssh_utils import wait_for_ssh
@@ -112,7 +112,7 @@ def main() -> int:
             print(json.dumps(result, indent=2))
             return 1
         operations["start"]["passed"] = True
-    except (ClientError, NoCredentialsError) as e:
+    except (ClientError, BotoCoreError) as e:
         result["error"] = f"Restart failed: {e}"
         print(json.dumps(result, indent=2))
         return 1
