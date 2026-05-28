@@ -50,7 +50,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/aws/scripts/ (for common.*)
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import BotoCoreError, ClientError
 from common import ebs
 from common.ssh_utils import ssh_run, wait_for_ssh
 
@@ -124,12 +124,12 @@ def main() -> int:
             ebs.modify_volume_size(ec2, args.volume_id, new_size)
             ebs.wait_for_modification_complete(ec2, args.volume_id)
             operations["modify_volume"]["passed"] = True
-        except (ClientError, NoCredentialsError, RuntimeError) as e:
+        except (ClientError, BotoCoreError, RuntimeError) as e:
             _fail(operations["modify_volume"], str(e))
             result["error"] = f"ModifyVolume failed: {e}"
             print(json.dumps(result, indent=2))
             return 1
-    except (ClientError, NoCredentialsError) as e:
+    except (ClientError, BotoCoreError) as e:
         result["error"] = str(e)
         print(json.dumps(result, indent=2))
         return 1

@@ -54,7 +54,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/aws/scripts/ (for common.*)
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import BotoCoreError, ClientError
 from common import ebs
 from common.ssh_utils import ssh_run, wait_for_ssh
 
@@ -148,7 +148,7 @@ def main() -> int:
         ebs.attach_volume(ec2, volume_id, args.instance_id, args.device)
         ebs.wait_for_volume_in_use(ec2, volume_id)
         operations["attach"]["passed"] = True
-    except (ClientError, NoCredentialsError) as e:
+    except (ClientError, BotoCoreError) as e:
         result["error"] = f"Volume create/attach failed: {e}"
         print(json.dumps(result, indent=2))
         return 1
