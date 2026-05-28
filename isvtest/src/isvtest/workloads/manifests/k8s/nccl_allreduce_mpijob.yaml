@@ -41,6 +41,7 @@ spec:
                     -x NCCL_IB_DISABLE -x NCCL_IB_HCA -x NCCL_IB_GID_INDEX -x NCCL_NET_GDR_LEVEL \
                     -x UCX_TLS=tcp,sm,cuda_copy,cuda_ipc \
                     -x OMPI_MCA_coll_hcoll_enable \
+                    -x OMPI_MCA_coll_fca_enable \
                     /usr/local/bin/all_reduce_perf_mpi -b 8 -e 4G -f 2 -g 1
               env:
                 - name: NCCL_IB_DISABLE
@@ -53,6 +54,8 @@ spec:
                   value: "0"           # host-bounce buffers; set to 2 only if nvidia_peermem is loaded
                 - name: OMPI_MCA_coll_hcoll_enable
                   value: "0"           # disable HCOLL; with 4 NICs HCOLL's 8-NIC requirement causes MPI_Init exit code 3
+                - name: OMPI_MCA_coll_fca_enable
+                  value: "0"           # disable FCA (same 8-NIC requirement, same exit code 3 symptom)
           tolerations:
             - key: "node-role.kubernetes.io/control-plane"
               operator: "Exists"
@@ -68,6 +71,7 @@ spec:
       replicas: 2
       template:
         spec:
+          hostPID: true          # required: makes /proc/1/ns/net point to host netns so nsenter populates host ARP table
           containers:
             - name: worker
               image: nvcr.io/nvidia/hpc-benchmarks:25.04
@@ -105,6 +109,8 @@ spec:
                   value: "0"           # host-bounce buffers; set to 2 only if nvidia_peermem is loaded
                 - name: OMPI_MCA_coll_hcoll_enable
                   value: "0"           # disable HCOLL; with 4 NICs HCOLL's 8-NIC requirement causes MPI_Init exit code 3
+                - name: OMPI_MCA_coll_fca_enable
+                  value: "0"           # disable FCA (same 8-NIC requirement, same exit code 3 symptom)
               securityContext:
                 privileged: true       # required to open /dev/infiniband/uverbs* (cgroup device whitelist)
               resources:
