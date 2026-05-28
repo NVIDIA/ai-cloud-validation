@@ -1,0 +1,157 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# my-isv Block Storage Validation Configuration - Living Example
+#
+# Imports validations from the provider-agnostic block-storage template and
+# wires the commands to the generic template scripts. Those scripts ship with
+# dummy-success values so this example runs end-to-end without any real cloud
+# infrastructure (ISVCTL_DEMO_MODE=1, used by `make demo-test`).
+#
+# The launch_instance / teardown steps reuse the VM scaffold scripts; the
+# volume steps live in scripts/block-storage/.
+#
+# Steps:
+#   SETUP
+#     1. launch_instance    - Provision the fixture instance
+#     2. create_volume      - Create + attach + format + mount + seed a volume
+#   TEST
+#     3. snapshot_lifecycle - DATASVC-XX-02 (#321): snapshot -> restore -> verify data
+#     4. volume_resize      - DATASVC-XX-03 (#322): grow volume + growpart/resize2fs
+#     5. volume_persistence - DATASVC-XX-04 (#323): stop/start -> verify reattach + data
+#   TEARDOWN
+#     6. teardown_volume    - Detach + delete the fixture volume
+#     7. teardown           - Terminate the instance
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/block-storage.yaml
+
+import:
+  - ../../../suites/block-storage.yaml
+
+version: "1.0"
+
+commands:
+  block_storage:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: launch_instance
+        phase: setup
+        command: "python ../scripts/vm/launch_instance.py"
+        args:
+          - "--name"
+          - "isv-test-block"
+          - "--instance-type"
+          - "{{instance_type}}"
+          - "--region"
+          - "{{region}}"
+        timeout: 60
+
+      - name: create_volume
+        phase: setup
+        command: "python ../scripts/block-storage/create_volume.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--size-gib"
+          - "{{volume_size_gib}}"
+        timeout: 60
+
+      - name: snapshot_lifecycle
+        phase: test
+        command: "python ../scripts/block-storage/snapshot_lifecycle.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--volume-id"
+          - "{{steps.create_volume.volume_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--expected-content"
+          - "{{steps.create_volume.sentinel_content}}"
+        timeout: 60
+
+      - name: volume_resize
+        phase: test
+        command: "python ../scripts/block-storage/volume_resize.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--volume-id"
+          - "{{steps.create_volume.volume_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--mount-point"
+          - "{{steps.create_volume.mount_point}}"
+        timeout: 60
+
+      - name: volume_persistence
+        phase: test
+        command: "python ../scripts/block-storage/volume_persistence.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--volume-id"
+          - "{{steps.create_volume.volume_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--mount-point"
+          - "{{steps.create_volume.mount_point}}"
+          - "--expected-content"
+          - "{{steps.create_volume.sentinel_content}}"
+        timeout: 60
+
+      - name: teardown_volume
+        phase: teardown
+        command: "python ../scripts/block-storage/teardown_volume.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--volume-id"
+          - "{{steps.create_volume.volume_id}}"
+          - "{{teardown_flag}}"
+        timeout: 60
+
+      - name: teardown
+        phase: teardown
+        command: "python ../scripts/vm/teardown.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--delete-key-pair"
+          - "--delete-security-group"
+        timeout: 60
+
+tests:
+  cluster_name: "my-isv-block-storage-validation"
+  description: "my-isv block storage validation (generic stubs, dummy overrides)"
+
+  settings:
+    region: "my-isv-region-1"
+    instance_type: "my-isv.standard.1x"
+    volume_size_gib: "10"
+    teardown_flag: "{{(env.BLOCK_STORAGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
