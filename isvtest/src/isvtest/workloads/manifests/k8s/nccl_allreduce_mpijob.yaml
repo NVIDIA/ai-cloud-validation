@@ -47,15 +47,15 @@ spec:
                 - name: NCCL_IB_DISABLE
                   value: "0"
                 - name: NCCL_IB_HCA
-                  value: "^rocep75s0,mlx5_1,mlx5_2,mlx5_5,mlx5_6"  # exclude-list: rocep75s0 (dup IP) + mlx5_1/2/5/6 (ibv_modify_qp ENODEV); leaves 4 NICs (mlx5_0,3,4,7)
+                  value: "^rocep75s0,mlx5_4,mlx5_5,mlx5_6,mlx5_7"  # exclude second rail (no cross-node routes); uses mlx5_0/1/2/3 which have switch port ARP entries
                 - name: NCCL_IB_GID_INDEX
                   value: "3"           # RoCE v2 — valid unique IPs on the remaining NICs
                 - name: NCCL_NET_GDR_LEVEL
                   value: "0"           # host-bounce buffers; set to 2 only if nvidia_peermem is loaded
                 - name: OMPI_MCA_coll_hcoll_enable
-                  value: "0"           # disable HCOLL; with 4 NICs HCOLL's 8-NIC requirement causes MPI_Init exit code 3
+                  value: "0"           # disable HCOLL (requires 8 NICs; we only have 4 active)
                 - name: OMPI_MCA_coll_fca_enable
-                  value: "0"           # disable FCA (same 8-NIC requirement, same exit code 3 symptom)
+                  value: "0"           # disable FCA (same requirement)
           tolerations:
             - key: "node-role.kubernetes.io/control-plane"
               operator: "Exists"
@@ -71,7 +71,6 @@ spec:
       replicas: 2
       template:
         spec:
-          hostPID: true          # required: makes /proc/1/ns/net point to host netns so nsenter populates host ARP table
           containers:
             - name: worker
               image: nvcr.io/nvidia/hpc-benchmarks:25.04
@@ -79,18 +78,6 @@ spec:
                 - /bin/bash
                 - -c
                 - |
-                  # Pre-warm host ARP table for all IB NIC IPs on both nodes.
-                  # ibv_modify_qp (RTR) fails with ENODEV if the host kernel has no
-                  # neighbor entry for the remote GID's IP. We ping all known IB NIC
-                  # IPs from the host network namespace to populate the ARP cache.
-                  nsenter --net=/proc/1/ns/net /bin/bash -c "
-                    for ip in 10.20.0.0 10.20.0.4 10.20.0.8 10.20.0.12 \
-                               10.20.0.16 10.20.0.20 10.20.0.24 10.20.0.28 \
-                               10.22.0.0 10.22.0.4 10.22.0.8 10.22.0.12 \
-                               10.22.0.16 10.22.0.20 10.22.0.24 10.22.0.28; do
-                      ping -c 2 -W 1 \$ip >/dev/null 2>&1 || true
-                    done
-                  " || true
                   command -v sshd >/dev/null || { apt-get update -qq && apt-get install -y -qq openssh-server >/dev/null 2>&1; }
                   mkdir -p /var/run/sshd && ssh-keygen -A 2>/dev/null && exec /usr/sbin/sshd -De -o PermitRootLogin=yes -o StrictModes=no
               readinessProbe:
