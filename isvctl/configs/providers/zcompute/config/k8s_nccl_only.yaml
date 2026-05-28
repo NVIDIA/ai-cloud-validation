@@ -1,0 +1,79 @@
+# zcompute — NCCL-only config for fast iteration on multi-node NCCL fixes
+#
+# Runs only the two NCCL workload checks (single-node + multi-node).
+# All other validations are excluded so a full round-trip takes ~10-15 min
+# instead of ~45 min, allowing rapid fix/test cycles.
+#
+# Usage (toolbox):
+#   source ~/suite.env
+#   uv run isvctl test run -f isvctl/configs/providers/zcompute/config/k8s_nccl_only.yaml -v \
+#     2>&1 | tee /tmp/ncp-k8s-nccl-run<N>.log
+
+import:
+  - ../../../suites/k8s.yaml
+
+version: "1.0"
+
+commands:
+  kubernetes:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: setup
+        phase: setup
+        command: "../scripts/k8s/setup.sh"
+        output_schema: cluster
+        timeout: 120
+
+      - name: pre_test_cleanup
+        phase: test
+        command: "../scripts/k8s/pre_test_cleanup.sh"
+        timeout: 30
+
+      - name: teardown
+        phase: teardown
+        command: "../scripts/k8s/teardown.sh"
+        timeout: 60
+
+tests:
+  description: "zcompute NCCL-only: single-node + multi-node (fast iteration config)"
+
+  validations:
+    k8s_workloads:
+      checks:
+        K8sNcclMultiNodeWorkload:
+          min_bus_bw_gbps: 30
+          startup_timeout: 600
+
+  exclude:
+    tests:
+      # Everything except NCCL workloads
+      - K8sNodePoolCheck
+      - K8sApiNetworkAclCheck
+      - K8sCncfConformanceCheck
+      - K8sNoErrorPodsCheck
+      - K8sNodeCountCheck
+      - K8sExpectedNodesCheck
+      - K8sNodeReadyCheck
+      - K8sNvidiaSmiCheck
+      - K8sDriverVersionCheck
+      - K8sGpuPodAccessCheck
+      - K8sGpuCapacityCheck
+      - K8sGpuOperatorNamespaceCheck
+      - K8sGpuOperatorPodsCheck
+      - K8sGpuLabelsCheck
+      - K8sPodHealthCheck
+      - K8sNoPendingPodsCheck
+      - K8sMigConfigCheck
+      - K8sDualStackNodeCheck
+      - K8sNetworkPolicyCheck
+      - K8sCsiStorageTypesCheck
+      - K8sCsiStorageQuotaApiCheck
+      - K8sCsiTenantScopedCredentialsCheck
+      - K8sCsiProvisioningModesCheck
+      - K8sOidcIssuerCheck
+      - K8sGpuStressWorkload
+      - K8sNimInferenceWorkload
+      - K8sNimHelmWorkload-1b
+      - K8sNimHelmWorkload-3b
+      - K8sApiServerMetricsCheck
+      - K8sControlPlaneLogsCheck

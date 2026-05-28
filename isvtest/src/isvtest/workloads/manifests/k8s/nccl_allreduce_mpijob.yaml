@@ -45,7 +45,7 @@ spec:
                 - name: NCCL_IB_DISABLE
                   value: "0"
                 - name: NCCL_IB_HCA
-                  value: "mlx5_0,mlx5_3,mlx5_4,mlx5_7"  # only NICs confirmed to have GID index 3; rocep75s0 excluded implicitly; mlx5_1/2/5/6 lack GID 3 → ibv_modify_qp ENODEV
+                  value: "^rocep75s0,mlx5_1,mlx5_2,mlx5_5,mlx5_6"  # exclude-list: rocep75s0 (dup IP) + mlx5_1/2/5/6 (no GID index 3 → ibv_modify_qp ENODEV); include-list breaks launcher (control-plane has no mlx5 devices → HPC-X ORTE fatal)
                 - name: NCCL_IB_GID_INDEX
                   value: "3"           # RoCE v2 — valid unique IPs on the remaining NICs
                 - name: NCCL_NET_GDR_LEVEL
@@ -81,7 +81,7 @@ spec:
                 - name: NCCL_IB_DISABLE
                   value: "0"
                 - name: NCCL_IB_HCA
-                  value: "mlx5_0,mlx5_3,mlx5_4,mlx5_7"  # only NICs confirmed to have GID index 3; rocep75s0 excluded implicitly; mlx5_1/2/5/6 lack GID 3 → ibv_modify_qp ENODEV
+                  value: "^rocep75s0,mlx5_1,mlx5_2,mlx5_5,mlx5_6"  # exclude-list: rocep75s0 (dup IP) + mlx5_1/2/5/6 (no GID index 3 → ibv_modify_qp ENODEV); include-list breaks launcher (control-plane has no mlx5 devices → HPC-X ORTE fatal)
                 - name: NCCL_IB_GID_INDEX
                   value: "3"           # RoCE v2 — valid unique IPs on the remaining NICs
                 - name: NCCL_NET_GDR_LEVEL
