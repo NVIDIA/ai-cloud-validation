@@ -50,12 +50,14 @@ from botocore.exceptions import ClientError, NoCredentialsError
 
 
 def _fail(op: dict[str, Any], code: str, message: str) -> None:
+    """Mark an operation as failed and attach normalized error details."""
     op["passed"] = False
     op["error_code"] = code
     op["error"] = message
 
 
 def _create_bucket(s3: Any, bucket: str, region: str) -> None:
+    """Create an S3 bucket, handling the us-east-1 LocationConstraint special case."""
     if region == "us-east-1":
         s3.create_bucket(Bucket=bucket)
     else:
@@ -85,6 +87,7 @@ def _delete_bucket_best_effort(s3: Any, bucket: str) -> str | None:
 
 
 def main() -> int:
+    """Run the S3 object lifecycle probe and print a structured JSON result."""
     parser = argparse.ArgumentParser(description="Exercise S3 object lifecycle (DATASVC-XX-01)")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     parser.add_argument(
