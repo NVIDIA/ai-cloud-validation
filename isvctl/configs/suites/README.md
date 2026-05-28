@@ -14,6 +14,7 @@ Suites:
 [`network`](network.yaml),
 [`vm`](vm.yaml),
 [`bare_metal`](bare_metal.yaml),
+[`block-storage`](block-storage.yaml),
 [`observability`](observability.yaml),
 [`k8s`](k8s.yaml),
 [`slurm`](slurm.yaml),
@@ -107,6 +108,22 @@ For the domain / script-count / AWS-reference overview see the
 | `teardown_nim` | teardown | `providers/shared/teardown_nim.py` | Shared NIM cleanup |
 | `teardown` | teardown | `providers/my-isv/scripts/bare_metal/teardown.py` | `resources_deleted`, `message` |
 | `verify_teardown` | teardown | `providers/my-isv/scripts/bare_metal/verify_terminated.py` | `checks.instance_terminated`, `checks.sg_deleted` |
+
+### Block Storage (`block-storage.yaml`)
+
+A shared fixture (`launch_instance` + `create_volume`) provisions one instance with a
+single attached, formatted, mounted, and seeded block volume. The three test-phase
+steps (DATASVC-XX-02/03/04) all reuse that fixture.
+
+| Step | Phase | Script | Key JSON Fields |
+|------|-------|--------|-----------------|
+| `launch_instance` | setup | `providers/my-isv/scripts/vm/launch_instance.py` | `instance_id`, `state`, `public_ip`, `key_file` (reuses VM script) |
+| `create_volume` | setup | `providers/my-isv/scripts/block-storage/create_volume.py` | `volume_id`, `mount_point`, `sentinel_content`, `operations.{create,attach,format,mount,write_sentinel}` |
+| `snapshot_lifecycle` | test | `providers/my-isv/scripts/block-storage/snapshot_lifecycle.py` | `volume_id`, `snapshot_id`, `operations.{create_snapshot,restore_volume,verify_data}` (verify_data includes `content_matches`) |
+| `volume_resize` | test | `providers/my-isv/scripts/block-storage/volume_resize.py` | `volume_id`, `operations.{modify_volume,grow_partition,resize_filesystem,verify_size}` |
+| `volume_persistence` | test | `providers/my-isv/scripts/block-storage/volume_persistence.py` | `volume_id`, `operations.{stop,start,verify_attached,verify_data}` (verify_data includes `content_matches`) |
+| `teardown_volume` | teardown | `providers/my-isv/scripts/block-storage/teardown_volume.py` | `resources_deleted`, `message` |
+| `teardown` | teardown | `providers/my-isv/scripts/vm/teardown.py` | `resources_deleted`, `message` (reuses VM script) |
 
 ### Kubernetes (`k8s.yaml`)
 
