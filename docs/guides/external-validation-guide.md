@@ -255,18 +255,18 @@ repo ships a ready-made scaffold:
 
 - [**my-isv scaffold**](../../isvctl/configs/providers/my-isv/scripts/README.md) --
   copy-and-fill-in stubs covering IAM, control-plane, VM, bare metal,
-  network, image registry, k8s, and Slurm. Each stub has a `TODO:` block
-  and a demo-mode fallback.
+  network, observability, image registry, security, k8s, and Slurm. Each
+  stub has a `TODO:` block and a demo-mode fallback.
 - [**Test suite contracts**](../../isvctl/configs/suites/README.md) --
   per-step JSON-field breakdown for every domain.
-- [**AWS reference**](../references/aws.md) - a complete working
-  implementation of every stub in the scaffold.
+- [**AWS reference**](../references/aws.md) - a working implementation for
+  domains with AWS-backed reference scripts.
 
 Preview the whole pipeline with no cloud:
 
 ```bash
-make demo-test   # sets ISVCTL_DEMO_MODE=1 and runs all 6 my-isv configs (~10s)
-# Domains: iam, control-plane, vm, bare_metal, network, image-registry
+make demo-test   # sets ISVCTL_DEMO_MODE=1 and runs all my-isv configs (~10s)
+# Domains are listed in the Makefile MY_ISV_DOMAINS variable.
 ```
 
 ---
@@ -275,6 +275,6 @@ make demo-test   # sets ISVCTL_DEMO_MODE=1 and runs all 6 my-isv configs (~10s)
 
 - [Configuration Guide](configuration.md) - Full config reference (steps, schemas, validations, templates)
 - [Validation Test Suites](../../isvctl/configs/suites/README.md) - Provider-agnostic test suites with step-by-step details
-- [AWS Reference Implementation](../references/aws.md) - Working AWS examples for all templates
+- [AWS Reference Implementation](../references/aws.md) - Working AWS examples for AWS-backed templates
 - [isvctl Package](../packages/isvctl.md) - CLI documentation
 - [Local Development](local-development.md) - Development setup

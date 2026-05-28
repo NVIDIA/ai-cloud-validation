@@ -32,6 +32,7 @@ template, then fill in the TODOs.
 | `vm/` | 9 | [`suites/vm.yaml`](../../../suites/vm.yaml) | [`config/vm.yaml`](../config/vm.yaml) | [`providers/aws/scripts/vm/`](../../aws/scripts/vm/) |
 | `bare_metal/` | 12 | [`suites/bare_metal.yaml`](../../../suites/bare_metal.yaml) | [`config/bare_metal.yaml`](../config/bare_metal.yaml) | [`providers/aws/scripts/bare_metal/`](../../aws/scripts/bare_metal/) |
 | `network/` | 18 | [`suites/network.yaml`](../../../suites/network.yaml) | [`config/network.yaml`](../config/network.yaml) | [`providers/aws/scripts/network/`](../../aws/scripts/network/) |
+| `observability/` | 1 | [`suites/observability.yaml`](../../../suites/observability.yaml) | [`config/observability.yaml`](../config/observability.yaml) | [`providers/aws/scripts/observability/`](../../aws/scripts/observability/) |
 | `image-registry/` | 7 | [`suites/image-registry.yaml`](../../../suites/image-registry.yaml) | [`config/image-registry.yaml`](../config/image-registry.yaml) | [`providers/aws/scripts/image-registry/`](../../aws/scripts/image-registry/) |
 | `security/` | 17 | [`suites/security.yaml`](../../../suites/security.yaml) | [`config/security.yaml`](../config/security.yaml) | [`providers/aws/scripts/security/`](../../aws/scripts/security/) |
 | `k8s/` | 9 shell | [`suites/k8s.yaml`](../../../suites/k8s.yaml) | - | [`providers/aws/scripts/eks/`](../../aws/scripts/eks/) |

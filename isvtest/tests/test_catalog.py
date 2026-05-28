@@ -154,7 +154,7 @@ class TestBuildCatalog:
                 for name in _extract_checks_from_config(configs_dir / relpath):
                     suite_platforms.setdefault(name, set()).add(platform)
 
-        for entry in build_catalog():
+        for entry in build_catalog(released_only=False):
             name = entry["name"]
             if name not in suite_platforms:
                 continue
@@ -170,6 +170,35 @@ class TestBuildCatalog:
             assert actual == expected, (
                 f"{name}: platforms should equal suite assignment {sorted(expected)}, got {sorted(actual)}"
             )
+
+    def test_observability_label_infers_platform_for_unlisted_checks(self) -> None:
+        """Checks labelled with `observability` are tagged OBSERVABILITY when not in any suite."""
+
+        class ObservabilityLabelledCheck(BaseValidation):
+            description = "Observability check labelled but not in any suite"
+            labels: ClassVar[tuple[str, ...]] = ("observability",)
+
+            def run(self) -> None:
+                self.set_passed()
+
+        ObservabilityLabelledCheck.__module__ = "isvtest.validations.fake"
+
+        with (
+            patch("isvtest.catalog.discover_all_tests", return_value=[ObservabilityLabelledCheck]),
+            patch("isvtest.catalog._build_platform_map", return_value={}),
+            patch("isvtest.catalog.load_released_test_filter", return_value=None),
+        ):
+            catalog = build_catalog()
+
+        assert catalog == [
+            {
+                "name": "ObservabilityLabelledCheck",
+                "description": "Observability check labelled but not in any suite",
+                "labels": ["observability"],
+                "module": "isvtest.validations.fake",
+                "platforms": ["OBSERVABILITY"],
+            }
+        ]
 
 
 class TestGetCatalogVersion:

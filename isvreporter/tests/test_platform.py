@@ -21,6 +21,7 @@ from isvreporter.platform import (
     BARE_METAL,
     DEFAULT_PLATFORM,
     KUBERNETES,
+    OBSERVABILITY,
     SLURM,
     get_platform_from_config,
     is_valid_platform,
@@ -67,6 +68,12 @@ class TestNormalizePlatform:
         assert normalize_platform("BARE_METAL") == BARE_METAL
         assert normalize_platform("bm") == BARE_METAL
 
+    def test_normalize_observability(self) -> None:
+        """Test that observability normalizes correctly."""
+        assert normalize_platform("observability") == OBSERVABILITY
+        assert normalize_platform("OBSERVABILITY") == OBSERVABILITY
+        assert normalize_platform("Observability") == OBSERVABILITY
+
     def test_normalize_empty_and_none(self) -> None:
         """Test that empty/None returns default platform."""
         assert normalize_platform(None) == DEFAULT_PLATFORM
@@ -95,6 +102,7 @@ class TestIsValidPlatform:
         assert is_valid_platform("bare_metal") is True
         assert is_valid_platform("bare-metal") is True
         assert is_valid_platform("bm") is True
+        assert is_valid_platform("observability") is True
 
     def test_valid_platforms_case_insensitive(self) -> None:
         """Test that platform validation is case insensitive."""
@@ -126,6 +134,11 @@ class TestGetPlatformFromConfig:
         """Test reading k8s alias from config."""
         config = _write_config(tmp_path, "tests:\n  platform: k8s\n")
         assert get_platform_from_config(str(config)) == KUBERNETES
+
+    def test_config_with_observability(self, tmp_path: Path) -> None:
+        """Test reading observability from config."""
+        config = _write_config(tmp_path, "tests:\n  platform: observability\n")
+        assert get_platform_from_config(str(config)) == OBSERVABILITY
 
     def test_config_without_tests_section(self, tmp_path: Path) -> None:
         """Test that missing tests section returns default."""

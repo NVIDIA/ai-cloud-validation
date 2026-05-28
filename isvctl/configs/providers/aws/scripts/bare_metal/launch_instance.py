@@ -199,6 +199,20 @@ def main() -> int:
 
     # Reuse existing instance if env vars are set
     if os.environ.get("AWS_BM_INSTANCE_ID") and os.environ.get("AWS_BM_KEY_FILE"):
+        if args.vpc_id or args.subnet_id:
+            result = {
+                "success": False,
+                "platform": "bm",
+                "instance_id": os.environ["AWS_BM_INSTANCE_ID"],
+                "region": args.region,
+                "reused": False,
+                "error": (
+                    "AWS_BM_INSTANCE_ID/AWS_BM_KEY_FILE reuse is not allowed with explicit --vpc-id/--subnet-id; "
+                    "unset the reuse environment variables or run a config that does not request explicit placement"
+                ),
+            }
+            print(json.dumps(result, indent=2))
+            return 1
         return reuse_existing_instance(args.region)
 
     ec2 = boto3.client("ec2", region_name=args.region)

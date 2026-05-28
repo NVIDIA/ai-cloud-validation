@@ -1,4 +1,4 @@
-MY_ISV_DOMAINS := bare_metal control-plane iam image-registry network security vm
+MY_ISV_DOMAINS := bare_metal control-plane iam image-registry network observability security vm
 DEMO_TARGETS := $(addprefix demo-,$(MY_ISV_DOMAINS))
 
 .PHONY: help pre-commit build test coverage clean lint format install bump-patch bump-fix bump-minor bump-feat bump-major bump bump-check \
