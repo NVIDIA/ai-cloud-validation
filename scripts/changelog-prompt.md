@@ -51,10 +51,10 @@ any version section that already has content.
      `gh pr view <N>` CLI if available, otherwise an HTTP fetch). If the PR
      is inaccessible, fall back to reading the commit itself with
      `git show <hash>`.
-   - For each PR, write a professional-grade description (max 2-3
-     sentences) that helps consumers of the repo understand what changed
-     and why. Avoid implementation jargon when a behavior description is
-     clearer.
+   - For each PR, write a professional-grade description (one sentence;
+     add a second only if genuinely needed) that helps consumers of the
+     repo understand what changed and why. Avoid implementation jargon
+     when a behavior description is clearer.
 4. Pick the section date:
    - For a **tagged release**: the tag's commit date,
      `git log -1 --format=%ad --date=short <tag>`.
@@ -77,14 +77,16 @@ that are empty):
 ### Bullet style by section
 
 For **Added / Changed / Fixed / Removed**, use a two-line
-bullet with a bold title, a linked PR reference, and a 1-2 sentence
-description indented two spaces under the title:
+bullet with a bold title, a linked PR reference, and a one-sentence
+description (a second sentence only if genuinely needed) indented two
+spaces under the title:
 
 ```
 - **Concise title summarizing the change** ([#N](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/N))
-  One to two sentences explaining what changed and why. Describe the
-  user-visible behavior — not the implementation — and reference the
-  relevant validation ID, CLI flag, config key, or provider when useful.
+  One sentence explaining what changed and why (add a second only if
+  genuinely needed). Describe the user-visible behavior — not the
+  implementation — and reference the relevant validation ID, CLI flag,
+  config key, or provider when useful.
 ```
 
 For **Internal**, use a terse one-line form with a linked PR ref (no
