@@ -29,7 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from isvctl.cli import setup_logging
-from isvctl.cli.common import get_output_dir
+from isvctl.cli.common import get_output_dir, print_error, print_progress
 
 logger = logging.getLogger(__name__)
 
@@ -123,36 +123,30 @@ def push(
     """
     setup_logging(verbose)
 
-    typer.echo("Building test catalog...")
+    print_progress("Building test catalog...")
     catalog_entries = build_catalog()
     catalog_version = get_catalog_version()
-    typer.echo(f"  {len(catalog_entries)} tests (version: {catalog_version})")
+    print_progress(f"  {len(catalog_entries)} tests (version: {catalog_version})")
 
     output_dir = get_output_dir()
     catalog_path = output_dir / "test_catalog.json"
     catalog_path.write_text(json.dumps({"isvTestVersion": catalog_version, "entries": catalog_entries}, indent=2))
-    typer.echo(f"  Saved to: {catalog_path}")
+    print_progress(f"  Saved to: {catalog_path}")
 
     if no_upload:
-        typer.echo("Skipping upload (--no-upload)")
+        print_progress("Skipping upload (--no-upload)")
         return
 
     from isvctl.reporting import check_upload_credentials, get_environment_config
 
     can_upload, client_id, client_secret = check_upload_credentials()
     if not can_upload or not client_id or not client_secret:
-        typer.echo(
-            typer.style("Error:", fg=typer.colors.RED) + " ISV_CLIENT_ID and/or ISV_CLIENT_SECRET not set",
-            err=True,
-        )
+        print_error("ISV_CLIENT_ID and/or ISV_CLIENT_SECRET not set")
         raise typer.Exit(1)
 
     endpoint, ssa_issuer = get_environment_config()
     if not endpoint or not ssa_issuer:
-        typer.echo(
-            typer.style("Error:", fg=typer.colors.RED) + " ISV_SERVICE_ENDPOINT and/or ISV_SSA_ISSUER not set",
-            err=True,
-        )
+        print_error("ISV_SERVICE_ENDPOINT and/or ISV_SSA_ISSUER not set")
         raise typer.Exit(1)
 
     from isvreporter.auth import get_jwt_token
@@ -165,7 +159,7 @@ def push(
         isv_test_version=catalog_version,
         entries=catalog_entries,
     ):
-        typer.echo(typer.style("[OK]", fg=typer.colors.GREEN) + " Catalog push complete")
+        print_progress(typer.style("[OK]", fg=typer.colors.GREEN) + " Catalog push complete")
     else:
-        typer.echo(typer.style("[FAIL]", fg=typer.colors.RED) + " Catalog upload failed")
+        print_error("Catalog upload failed")
         raise typer.Exit(1)

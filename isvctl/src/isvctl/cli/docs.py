@@ -30,6 +30,8 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
+from isvctl.cli.common import err_console, print_error, print_progress
+
 app = typer.Typer(help="Access ISV NCP Validation Suite documentation")
 
 console = Console()
@@ -108,18 +110,18 @@ def docs(
     local_docs = _find_local_docs()
 
     if not local_docs:
-        typer.echo("Documentation not found.")
-        typer.echo("Run from the install directory or clone the repository.")
+        print_error("Documentation not found.")
+        print_progress("Run from the install directory or clone the repository.")
         raise typer.Exit(1)
 
     if topic:
         if topic not in TOPICS:
-            typer.echo(f"Unknown topic: {topic}")
-            typer.echo(f"Available: {', '.join(TOPICS)}")
+            print_error(f"Unknown topic: {topic}")
+            print_progress(f"Available: {', '.join(TOPICS)}")
             raise typer.Exit(1)
         doc_file = local_docs / TOPICS[topic]
         if not doc_file.exists():
-            typer.echo(f"Topic file not found: {doc_file}")
+            print_error(f"Topic file not found: {doc_file}")
             raise typer.Exit(1)
     else:
         doc_file = local_docs / "README.md"
@@ -173,7 +175,7 @@ def tests(
     all_classes = list(discover_all_tests())
 
     if not all_classes:
-        console.print("[yellow]No validation tests discovered.[/yellow]")
+        err_console.print("[yellow]No validation tests discovered.[/yellow]")
         raise typer.Exit(1)
 
     _warn_duplicates(all_classes)
@@ -197,7 +199,7 @@ def _warn_duplicates(classes: list[type]) -> None:
         seen[cls.__name__] = seen.get(cls.__name__, 0) + 1
     dupes = [name for name, count in seen.items() if count > 1]
     if dupes:
-        console.print(f"[yellow]Warning: Duplicate test class names found: {', '.join(dupes)}[/yellow]")
+        err_console.print(f"[yellow]Warning: Duplicate test class names found: {', '.join(dupes)}[/yellow]")
 
 
 def _print_test_info(classes: list[type], name: str) -> None:
@@ -206,10 +208,10 @@ def _print_test_info(classes: list[type], name: str) -> None:
     cls = by_name.get(name)
 
     if cls is None:
-        console.print(f"[red]Test not found:[/red] {name}")
+        err_console.print(f"[red]Test not found:[/red] {name}")
         close = [c.__name__ for c in classes if name in c.__name__]
         if close:
-            console.print(f"[dim]Did you mean: {', '.join(close)}?[/dim]")
+            err_console.print(f"[dim]Did you mean: {', '.join(close)}?[/dim]")
         raise typer.Exit(1)
 
     source_file = Path(inspect.getfile(cls))
@@ -259,7 +261,7 @@ def _print_grouped(classes: list[type], label_filter: list[str] | None) -> None:
         by_label = {k: v for k, v in by_label.items() if k in label_filter}
 
     if not by_label:
-        console.print("[yellow]No tests found for the given labels.[/yellow]")
+        err_console.print("[yellow]No tests found for the given labels.[/yellow]")
         raise typer.Exit(1)
 
     total = len({cls.__name__ for group in by_label.values() for cls in group})
@@ -353,7 +355,7 @@ def _print_config_instances(classes: list[type], config_path: Path, label_filter
     categories = _extract_config_instances(config_path)
 
     if not categories:
-        console.print("[yellow]No validations found in config file.[/yellow]")
+        err_console.print("[yellow]No validations found in config file.[/yellow]")
         raise typer.Exit(1)
 
     if label_filter:
@@ -370,7 +372,7 @@ def _print_config_instances(classes: list[type], config_path: Path, label_filter
         categories = filtered
 
     if not categories:
-        console.print("[yellow]No test instances match the given labels.[/yellow]")
+        err_console.print("[yellow]No test instances match the given labels.[/yellow]")
         raise typer.Exit(1)
 
     total = sum(len(names) for names in categories.values())
@@ -417,7 +419,7 @@ def _print_flat(classes: list[type], label_filter: list[str] | None) -> None:
         classes = [cls for cls in classes if any(label in get_validation_labels(cls) for label in label_filter)]
 
     if not classes:
-        console.print("[yellow]No tests found for the given labels.[/yellow]")
+        err_console.print("[yellow]No tests found for the given labels.[/yellow]")
         raise typer.Exit(1)
 
     table = Table(

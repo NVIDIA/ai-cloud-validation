@@ -24,6 +24,8 @@ from typing import Annotated
 
 import typer
 
+from isvctl.cli.common import print_error, print_progress
+
 app = typer.Typer(
     name="provider",
     help="Manage provider scaffolds",
@@ -264,7 +266,7 @@ def scaffold(
                 if overwrite:
                     _assert_safe_to_overwrite(target_dir, template_dir)
                 else:
-                    typer.echo(f"Note: target exists; --overwrite would be required: {_display_path(target_dir)}")
+                    print_progress(f"Note: target exists; --overwrite would be required: {_display_path(target_dir)}")
             _print_next_steps(target_dir, "Would create")
             return
 
@@ -273,7 +275,7 @@ def scaffold(
 
         _copy_scaffold(template_dir, target_dir, provider_name)
     except (FileExistsError, FileNotFoundError, ValueError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
+        print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
     _print_next_steps(target_dir, "Created")

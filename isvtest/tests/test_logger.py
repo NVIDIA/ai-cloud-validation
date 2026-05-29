@@ -16,6 +16,7 @@
 """Tests for logger module."""
 
 import logging
+import sys
 
 from isvtest.core.logger import setup_logger
 
@@ -67,6 +68,13 @@ class TestSetupLogger:
         # Find the handler added by setup_logger
         stream_handlers = [h for h in logger.handlers if isinstance(h, logging.StreamHandler)]
         assert len(stream_handlers) >= 1
+
+    def test_handler_writes_to_stderr(self) -> None:
+        """Diagnostics must go to stderr, leaving stdout for machine-readable output."""
+        logger = setup_logger("test_logger_stderr")
+        stream_handlers = [h for h in logger.handlers if isinstance(h, logging.StreamHandler)]
+        assert stream_handlers
+        assert stream_handlers[0].stream is sys.stderr
 
     def test_no_duplicate_handlers(self) -> None:
         """Test that calling setup_logger twice doesn't add duplicate handlers."""

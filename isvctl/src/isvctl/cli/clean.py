@@ -27,6 +27,7 @@ import typer
 from isvctl.cleaner.operations import OPERATIONS
 from isvctl.cleaner.runner import OperationRunner
 from isvctl.cli import setup_logging
+from isvctl.cli.common import print_error, print_progress
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,7 @@ def run(
     try:
         operations_to_run = _validate_operations(operations)
     except typer.BadParameter as e:
-        typer.echo(f"Error: {e}", err=True)
+        print_error(str(e))
         raise typer.Exit(code=1)
 
     # Create runner instance
@@ -123,7 +124,7 @@ def run(
     )
 
     # Execute operations
-    typer.echo("Starting NVIDIA ISV Lab clean-up operations...")
+    print_progress("Starting NVIDIA ISV Lab clean-up operations...")
     results = runner.run_operations(operations_to_run)
 
     # Report results

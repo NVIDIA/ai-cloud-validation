@@ -17,7 +17,34 @@
 
 from pathlib import Path
 
+import typer
+from rich.console import Console
+
 OUTPUT_DIR_NAME = "_output"
+
+# Rich console for DIAGNOSTIC output (warnings/errors rendered with rich markup).
+# Primary data tables/markdown keep using a plain Console() at the call site.
+err_console = Console(stderr=True)
+
+
+def print_error(message: str) -> None:
+    """Write a standardized error message to stderr."""
+    typer.echo(typer.style("Error:", fg=typer.colors.RED) + f" {message}", err=True)
+
+
+def print_warning(message: str) -> None:
+    """Write a standardized warning message to stderr."""
+    typer.echo(typer.style("Warning:", fg=typer.colors.YELLOW) + f" {message}", err=True)
+
+
+def print_progress(message: str) -> None:
+    """Write a progress/status line to stderr (no prefix)."""
+    typer.echo(message, err=True)
+
+
+def print_step(message: str) -> None:
+    """Write a progress step with the '==>' marker to stderr."""
+    typer.echo(typer.style("==>", fg=typer.colors.GREEN) + f" {message}", err=True)
 
 
 def get_output_dir(root: Path | None = None) -> Path:

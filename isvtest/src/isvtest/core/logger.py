@@ -26,7 +26,9 @@ def setup_logger(name: str = "isvtest", level: int = logging.INFO) -> logging.Lo
 
     # Only add handler if logger doesn't have any handlers yet
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
+        # Diagnostics go to stderr so stdout stays reserved for primary,
+        # machine-consumable output (e.g. `isvctl catalog list --json`).
+        handler = logging.StreamHandler(sys.stderr)
         handler.setLevel(level)
 
         formatter = logging.Formatter(

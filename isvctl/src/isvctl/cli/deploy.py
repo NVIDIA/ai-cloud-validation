@@ -31,7 +31,7 @@ from isvreporter.config import get_endpoint, get_ssa_issuer
 from isvreporter.platform import get_platform_from_config
 
 from isvctl.cli import setup_logging
-from isvctl.cli.common import get_output_dir
+from isvctl.cli.common import get_output_dir, print_error, print_progress, print_step, print_warning
 from isvctl.orchestrator.loop import Phase
 from isvctl.remote import SCPTransfer, SSHClient, TarArchive
 from isvctl.remote.archive import DEFAULT_EXCLUDES as DEFAULT_ARCHIVE_EXCLUDES
@@ -115,21 +115,21 @@ def _print_configuration(
     upload_results: bool,
 ) -> None:
     """Print deployment configuration summary."""
-    typer.echo("=========================================")
-    typer.echo("Deployment Configuration")
-    typer.echo("=========================================")
-    typer.echo(f"Remote IP:        {remote_ip}")
-    typer.echo(f"SSH Port:         {port}")
+    print_progress("=========================================")
+    print_progress("Deployment Configuration")
+    print_progress("=========================================")
+    print_progress(f"Remote IP:        {remote_ip}")
+    print_progress(f"SSH Port:         {port}")
     if jumphost:
-        typer.echo(f"Jumphost:         {jumphost}")
-    typer.echo(f"Remote User:      {user}")
-    typer.echo(f"Remote Directory: {remote_dir}")
-    typer.echo(f"Config Files:     {' '.join(configs)}")
-    typer.echo(f"Phase:            {phase.value}")
-    typer.echo(f"Environment:      {environment}")
-    typer.echo(f"Upload Results:   {upload_results}")
-    typer.echo("=========================================")
-    typer.echo("")
+        print_progress(f"Jumphost:         {jumphost}")
+    print_progress(f"Remote User:      {user}")
+    print_progress(f"Remote Directory: {remote_dir}")
+    print_progress(f"Config Files:     {' '.join(configs)}")
+    print_progress(f"Phase:            {phase.value}")
+    print_progress(f"Environment:      {environment}")
+    print_progress(f"Upload Results:   {upload_results}")
+    print_progress("=========================================")
+    print_progress("")
 
 
 @app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
@@ -265,7 +265,7 @@ def run(
     try:
         configs = _resolve_config_paths(config_files, working_dir)
     except typer.BadParameter as e:
-        typer.echo(typer.style("Error:", fg=typer.colors.RED) + f" {e}", err=True)
+        print_error(str(e))
         raise typer.Exit(code=1)
 
     # Environment configuration
@@ -275,20 +275,13 @@ def run(
     upload_results = not no_upload
     if upload_results:
         if not lab_id:
-            typer.echo(
-                typer.style("Warning:", fg=typer.colors.YELLOW) + " --lab-id not specified, skipping result upload"
-            )
+            print_warning("--lab-id not specified, skipping result upload")
             upload_results = False
         else:
             can_upload, _, _ = check_upload_credentials()
             if not can_upload:
-                typer.echo(
-                    typer.style("Warning:", fg=typer.colors.YELLOW) + " ISV_CLIENT_ID and/or ISV_CLIENT_SECRET not set"
-                )
-                typer.echo(
-                    typer.style("Warning:", fg=typer.colors.YELLOW)
-                    + " Test results will not be uploaded to ISV Lab Service"
-                )
+                print_warning("ISV_CLIENT_ID and/or ISV_CLIENT_SECRET not set")
+                print_warning("Test results will not be uploaded to ISV Lab Service")
                 upload_results = False
             else:
                 endpoint = get_endpoint()
@@ -299,10 +292,7 @@ def run(
                         missing.append("ISV_SERVICE_ENDPOINT")
                     if not ssa_issuer:
                         missing.append("ISV_SSA_ISSUER")
-                    typer.echo(
-                        typer.style("Warning:", fg=typer.colors.YELLOW)
-                        + f" {', '.join(missing)} not set, skipping result upload"
-                    )
+                    print_warning(f"{', '.join(missing)} not set, skipping result upload")
                     upload_results = False
                 else:
                     os.environ["ISV_SERVICE_ENDPOINT"] = endpoint
@@ -331,7 +321,7 @@ def run(
 
     try:
         # Step 1: Create archive
-        typer.echo(typer.style("==>", fg=typer.colors.GREEN) + f" Creating archive: {archive_name}")
+        print_step(f"Creating archive: {archive_name}")
         archiver = TarArchive(working_dir=working_dir)
 
         archive_paths = list(DEFAULT_ARCHIVE_PATHS)
@@ -343,89 +333,59 @@ def run(
         )
 
         archive_size = archive_path.stat().st_size / (1024 * 1024)
-        typer.echo(
-            typer.style("==>", fg=typer.colors.GREEN) + f" Archive created successfully (size: {archive_size:.1f}MB)"
-        )
+        print_step(f"Archive created successfully (size: {archive_size:.1f}MB)")
 
         # Step 2: Test SSH connection
         if jumphost:
-            typer.echo(
-                typer.style("==>", fg=typer.colors.GREEN)
-                + f" Testing SSH connection to {remote_ip} via jumphost {jumphost}..."
-            )
+            print_step(f"Testing SSH connection to {remote_ip} via jumphost {jumphost}...")
         else:
-            typer.echo(typer.style("==>", fg=typer.colors.GREEN) + f" Testing SSH connection to {remote_ip}...")
+            print_step(f"Testing SSH connection to {remote_ip}...")
 
         conn_result = ssh.test_connection()
         if not conn_result.success:
             if ssh.is_connection_error(conn_result):
-                typer.echo(
-                    typer.style("Error:", fg=typer.colors.RED) + " SSH connection failed",
-                    err=True,
-                )
+                print_error("SSH connection failed")
                 if jumphost:
-                    typer.echo(
-                        f"  Could not connect to {remote_ip} via jumphost {jumphost}",
-                        err=True,
-                    )
-                    typer.echo(
-                        "  Hint: If using certificate-based auth, you may need to refresh your credentials",
-                        err=True,
-                    )
-                    typer.echo(
-                        "        (e.g., re-run your organization's SSH credential/bootstrap command)",
-                        err=True,
-                    )
+                    print_progress(f"  Could not connect to {remote_ip} via jumphost {jumphost}")
+                    print_progress("  Hint: If using certificate-based auth, you may need to refresh your credentials")
+                    print_progress("        (e.g., re-run your organization's SSH credential/bootstrap command)")
                 else:
-                    typer.echo(f"  Could not connect to {remote_ip}", err=True)
+                    print_progress(f"  Could not connect to {remote_ip}")
                 if conn_result.stderr:
-                    typer.echo(f"  Details: {conn_result.stderr.strip()}", err=True)
+                    print_progress(f"  Details: {conn_result.stderr.strip()}")
             else:
-                typer.echo(
-                    typer.style("Error:", fg=typer.colors.RED)
-                    + f" SSH connection test failed (exit code {conn_result.exit_code})",
-                    err=True,
-                )
+                print_error(f"SSH connection test failed (exit code {conn_result.exit_code})")
             raise typer.Exit(code=1)
 
-        typer.echo(typer.style("==>", fg=typer.colors.GREEN) + " SSH connection successful")
+        print_step("SSH connection successful")
 
         # Step 3: Check remote directory and uv installation
-        typer.echo(
-            typer.style("==>", fg=typer.colors.GREEN) + " Ensuring remote directory exists and uv is installed..."
-        )
+        print_step("Ensuring remote directory exists and uv is installed...")
 
         dir_result = ssh.ensure_directory(effective_remote_dir)
         if not dir_result.success:
-            typer.echo(
-                typer.style("Error:", fg=typer.colors.RED) + " Failed to create remote directory",
-                err=True,
-            )
+            print_error("Failed to create remote directory")
             if dir_result.stderr:
-                typer.echo(f"  Details: {dir_result.stderr.strip()}", err=True)
+                print_progress(f"  Details: {dir_result.stderr.strip()}")
             raise typer.Exit(code=1)
 
         if not ssh.check_command_exists("uv"):
-            typer.echo(
-                typer.style("Error:", fg=typer.colors.RED)
-                + " 'uv' is not installed on the remote machine (or not in PATH).",
-                err=True,
-            )
-            typer.echo("Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh")
-            typer.echo("Then ensure ~/.local/bin is in your PATH")
+            print_error("'uv' is not installed on the remote machine (or not in PATH).")
+            print_progress("Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh")
+            print_progress("Then ensure ~/.local/bin is in your PATH")
             raise typer.Exit(code=1)
 
         # Step 3: Upload archive
-        typer.echo(typer.style("==>", fg=typer.colors.GREEN) + " Copying archive to remote machine...")
+        print_step("Copying archive to remote machine...")
         scp.upload(archive_path, f"{effective_remote_dir}/{archive_name}")
-        typer.echo(typer.style("==>", fg=typer.colors.GREEN) + " Archive copied successfully")
+        print_step("Archive copied successfully")
 
         # Step 4: Create test run (if uploading results)
         test_run_id: str | None = None
         start_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         if upload_results and lab_id:
-            typer.echo(typer.style("==>", fg=typer.colors.GREEN) + " Creating test run in isvreporter...")
+            print_step("Creating test run in isvreporter...")
             # Derive platform from first config file
             platform = get_platform_from_config(config_files[0]) if config_files else "kubernetes"
             test_run_id = create_test_run(
@@ -438,16 +398,11 @@ def run(
                 isv_software_version=isv_software_version,
             )
             if not test_run_id:
-                typer.echo(
-                    typer.style("Warning:", fg=typer.colors.YELLOW)
-                    + " Failed to create test run, continuing without upload"
-                )
+                print_warning("Failed to create test run, continuing without upload")
                 upload_results = False
 
         # Step 5: Run tests on remote
-        typer.echo(
-            typer.style("==>", fg=typer.colors.GREEN) + " Extracting archive and running tests on remote machine..."
-        )
+        print_step("Extracting archive and running tests on remote machine...")
 
         # Build config args for isvctl
         config_args = " ".join(f"-f {c}" for c in configs)
@@ -498,33 +453,30 @@ exit ${{TEST_RESULT:-1}}
         result = ssh.execute(remote_script, stream=True)
         test_exit_code = result.exit_code
 
-        typer.echo("")
+        print_progress("")
 
         # Step 6: Download results (always download to working_dir)
-        typer.echo(typer.style("==>", fg=typer.colors.GREEN) + " Copying test results from remote machine...")
+        print_step("Copying test results from remote machine...")
 
         output_dir = get_output_dir(working_dir)
 
         local_log = output_dir / "pytest-output.log"
         if scp.download_optional(f"{effective_remote_dir}/pytest-output.log", local_log):
-            typer.echo(typer.style("==>", fg=typer.colors.GREEN) + f" Test log copied to {local_log}")
+            print_step(f"Test log copied to {local_log}")
         else:
-            typer.echo(typer.style("Warning:", fg=typer.colors.YELLOW) + " Failed to copy test log from remote")
+            print_warning("Failed to copy test log from remote")
 
         # Download JUnit XML
         local_junit: Path | None = output_dir / "junit-validation.xml"
         if scp.download_optional(f"{effective_remote_dir}/junit-validation.xml", local_junit):
-            typer.echo(typer.style("==>", fg=typer.colors.GREEN) + f" JUnit XML copied to {local_junit}")
+            print_step(f"JUnit XML copied to {local_junit}")
         else:
-            typer.echo(
-                typer.style("Warning:", fg=typer.colors.YELLOW)
-                + " Failed to copy JUnit XML from remote (may not exist)"
-            )
+            print_warning("Failed to copy JUnit XML from remote (may not exist)")
             local_junit = None
 
         # Step 7: Upload results to isvreporter (only if upload_results is enabled)
         if upload_results and test_run_id and lab_id:
-            typer.echo(typer.style("==>", fg=typer.colors.GREEN) + " Uploading test results to isvreporter...")
+            print_step("Uploading test results to isvreporter...")
 
             if update_test_run(
                 lab_id=lab_id,
@@ -535,9 +487,9 @@ exit ${{TEST_RESULT:-1}}
                 junit_xml=local_junit if local_junit and local_junit.exists() else None,
                 isv_software_version=isv_software_version,
             ):
-                typer.echo(typer.style("==>", fg=typer.colors.GREEN) + " Test results uploaded successfully")
+                print_step("Test results uploaded successfully")
             else:
-                typer.echo(typer.style("Warning:", fg=typer.colors.YELLOW) + " Failed to upload test results")
+                print_warning("Failed to upload test results")
 
         # Clean up downloaded artifacts (only if --cleanup flag is used)
         if cleanup:
@@ -548,18 +500,18 @@ exit ${{TEST_RESULT:-1}}
 
         # Final status
         if test_exit_code != 0:
-            typer.echo("")
-            typer.echo(typer.style("Error:", fg=typer.colors.RED) + " Remote execution tests failed")
+            print_progress("")
+            print_error("Remote execution tests failed")
             raise typer.Exit(code=1)
 
-        typer.echo("")
-        typer.echo(typer.style("==>", fg=typer.colors.GREEN) + " Deployment and testing completed successfully!")
+        print_progress("")
+        print_step("Deployment and testing completed successfully!")
 
     except ArchiveError as e:
-        typer.echo(typer.style("Error:", fg=typer.colors.RED) + f" Failed to create archive: {e}", err=True)
+        print_error(f"Failed to create archive: {e}")
         raise typer.Exit(code=1)
     except SCPTransferError as e:
-        typer.echo(typer.style("Error:", fg=typer.colors.RED) + f" File transfer failed: {e}", err=True)
+        print_error(f"File transfer failed: {e}")
         raise typer.Exit(code=1)
     finally:
         # Clean up archive
