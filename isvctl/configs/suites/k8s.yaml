@@ -66,11 +66,14 @@ tests:
     # string rendering doesn't mangle the structure, and K8sNodePoolCheck
     # json-parses them. The `step` field binds each check to the phase of
     # the operation it validates, so create can be asserted before update
-    # scales the same pool. The check is listed twice - once per operation -
-    # so list form is required (dict form would collide on the class name).
+    # scales the same pool. The check is listed once per operation/pool, so
+    # list form is required (dict form would collide on the class name).
+    # The separate CPU and GPU create checks prove distinct pools, each with
+    # its own instance type and node count, coexist in the same cluster.
     k8s_node_pools:
       - K8sNodePoolCheck:
-          # Create: pool reaches desired replica count.
+          # Create (CPU pool): pool reaches desired replica count with its
+          # specified CPU instance type.
           step: create_test_node_pool
           label_selector: "{{ steps.create_test_node_pool.label_selector }}"
           expected_replicas: "{{ steps.create_test_node_pool.expected_replicas | default(1, true) }}"
@@ -78,6 +81,18 @@ tests:
           expected_taints: "{{ steps.create_test_node_pool.expected_taints_json | default('[]', true) }}"
           expected_instance_types: "{{ steps.create_test_node_pool.expected_instance_types_json | default('[]', true) }}"
           node_type: "{{ steps.create_test_node_pool.node_type | default('cpu') }}"
+          wait_timeout: 900
+          poll_interval: 10
+      - K8sNodePoolCheck:
+          # Create (GPU pool): a separate pool reaches its own node count with
+          # its specified GPU instance type, coexisting with the CPU pool.
+          step: create_test_gpu_node_pool
+          label_selector: "{{ steps.create_test_gpu_node_pool.label_selector }}"
+          expected_replicas: "{{ steps.create_test_gpu_node_pool.expected_replicas | default(1, true) }}"
+          expected_labels: "{{ steps.create_test_gpu_node_pool.expected_labels_json | default('{}', true) }}"
+          expected_taints: "{{ steps.create_test_gpu_node_pool.expected_taints_json | default('[]', true) }}"
+          expected_instance_types: "{{ steps.create_test_gpu_node_pool.expected_instance_types_json | default('[]', true) }}"
+          node_type: "{{ steps.create_test_gpu_node_pool.node_type | default('gpu') }}"
           wait_timeout: 900
           poll_interval: 10
       - K8sNodePoolCheck:

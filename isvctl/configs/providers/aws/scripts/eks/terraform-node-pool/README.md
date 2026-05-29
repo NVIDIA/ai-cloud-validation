@@ -9,9 +9,20 @@ not `terraform apply` it by hand.
 
 ## State
 
-Local backend: `terraform.tfstate` in this directory. The main cluster state
-in `../terraform/terraform.tfstate` is read via `terraform_remote_state` but
-never written.
+Local backend: by default `terraform.tfstate` in this directory. The main
+cluster state in `../terraform/terraform.tfstate` is read via
+`terraform_remote_state` but never written.
+
+The module manages exactly one node group per state file. To run **several
+pools side by side** in the same cluster (e.g. a CPU pool and a GPU pool with
+independent node counts, per K8S06), give each pool its own state file via the
+`NODE_POOL_STATE_FILE` env var on `create_node_pool.sh`/`destroy_node_pool.sh`
+(e.g. `terraform.tfstate` for the CPU pool, `terraform-gpu.tfstate` for the
+GPU pool). The scripts pass it through with `terraform apply -state=<file>` /
+`terraform destroy -state=<file>`, so the pools never clobber one another's
+state. See the `create_test_node_pool` / `create_test_gpu_node_pool` steps in
+`../../../config/eks.yaml` for the wiring. A pool's destroy step must use the
+same `NODE_POOL_STATE_FILE` as its create step.
 
 ## Inputs
 

@@ -501,20 +501,46 @@ class TestImportEndToEnd:
         assert "kubernetes" in validations
         assert "k8s_workloads" in validations
         node_count_check = validations["kubernetes"]["checks"]["K8sNodeCountCheck"]
+        gpu_pod_access_check = validations["kubernetes"]["checks"]["K8sGpuPodAccessCheck"]
+        gpu_capacity_check = validations["kubernetes"]["checks"]["K8sGpuCapacityCheck"]
         node_count = node_count_check["count"]
         exclude_selector = node_count_check["exclude_label_selector"]
-        assert "steps.update_test_node_pool.label_selector" in exclude_selector
+        total_gpu_count = gpu_pod_access_check["total_gpu_count"]
+        expected_total = gpu_capacity_check["expected_total"]
+        # Separate CPU and GPU test pools both carry the stable pool marker, so
+        # the baseline node count excludes them with one static selector.
+        assert exclude_selector == "isv.ncp.validation/pool=test"
+
+        # Separate CPU and GPU node pools are created with independent state
+        # files and instance types (K8S06), each validated by its own check.
+        steps_by_name = {s["name"]: s for s in result["commands"]["kubernetes"]["steps"]}
+        cpu_create = steps_by_name["create_test_node_pool"]["env"]
+        gpu_create = steps_by_name["create_test_gpu_node_pool"]["env"]
+        assert cpu_create["NODE_POOL_STATE_FILE"] != gpu_create["NODE_POOL_STATE_FILE"]
+        assert cpu_create["TF_VAR_test_pool_node_type"] == "cpu"
+        assert gpu_create["TF_VAR_test_pool_node_type"] == "gpu"
+        # The GPU destroy step must target the GPU pool's state file.
+        assert (
+            steps_by_name["destroy_test_gpu_node_pool"]["env"]["NODE_POOL_STATE_FILE"]
+            == gpu_create["NODE_POOL_STATE_FILE"]
+        )
+        node_pool_checks = validations["k8s_node_pools"]
+        checked_steps = {next(iter(entry.values()))["step"] for entry in node_pool_checks}
+        assert {"create_test_node_pool", "create_test_gpu_node_pool", "update_test_node_pool"} <= checked_steps
+
         config = RunConfig.model_validate(result)
         context = Context(config)
         for step in config.get_steps("kubernetes"):
             context.set_step_phase(step.name, step.phase or "setup")
-        context.set_step_output("setup", {"kubernetes": {"node_count": 3}})
         context.set_step_output(
-            "update_test_node_pool",
-            {"label_selector": "eks.amazonaws.com/nodegroup=isv-test-pool"},
+            "setup",
+            {"kubernetes": {"node_count": 3, "gpu_node_count": 1, "gpu_per_node": 1, "total_gpus": 1}},
         )
+        context.set_step_output("create_test_gpu_node_pool", {"expected_replicas": 1})
         assert context.render_string(node_count) == "3"
-        assert context.render_string(exclude_selector) == "eks.amazonaws.com/nodegroup=isv-test-pool"
+        assert context.render_string(exclude_selector) == "isv.ncp.validation/pool=test"
+        assert context.render_string(total_gpu_count) == "2"
+        assert context.render_string(expected_total) == "2"
         assert result["tests"]["platform"] == "kubernetes"
 
     def test_aws_eks_does_not_hardcode_world_open_endpoint_allowlist(self) -> None:
