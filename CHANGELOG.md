@@ -30,6 +30,53 @@ Workflow:
 > attached to a milestone. The file you are reading now is the canonical
 > per-tag changelog.
 
+## [0.7.1] - 2026-05-29
+
+### Added
+
+- **Pre-flight diagnostics with `isvctl doctor`** ([#440](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/440))
+  Adds a provider-aware diagnostics command that checks local tools, required environment, and merged run configs before operators start a real validation run.
+- **Provider scaffold command** ([#409](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/409))
+  Adds `isvctl provider scaffold <name>` so ISVs can generate in-tree or external provider templates from `my-isv` without manually copying and rewriting config and script paths.
+- **Observability validation suite** ([#431](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/431))
+  Adds an observability domain covering VPC flow logs, host syslogs, BMC SEL logs, and BMC GPU telemetry, with `my-isv` demo wiring and AWS reference coverage where available.
+- **S3 object lifecycle validation (DATASVC-XX-01)** ([#438](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/438))
+  Adds a control-plane check that verifies authenticated S3-compatible object storage can complete a put/get/delete round trip without corrupting the object payload.
+- **Insecure protocol validation (SEC13-02)** ([#433](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/433))
+  Adds a security check that verifies configured edge endpoints refuse SSLv3, TLS 1.0, TLS 1.1, and plain HTTP, using either operator-provided endpoints or an AWS reference fixture.
+- **Stable egress IP validation (DMS05-01)** ([#436](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/436))
+  Adds a network check that confirms workloads leaving a provider VPC present a stable outbound IP across repeated probes, supporting allowlist-based integrations.
+- **Kubernetes Cluster Autoscaler validation** ([#435](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/435))
+  Adds `K8sClusterAutoscalerCheck` to discover Cluster Autoscaler deployments and verify deployment availability, pod readiness, and provider wiring for EKS.
+- **Separate CPU and GPU node-pool coverage (K8S06-01)** ([#442](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/442))
+  Extends the AWS K8S06 flow to provision and validate separate CPU and GPU EKS node pools while keeping their Terraform state isolated.
+- **Security-group behavior validations** ([#419](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/419), [#421](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/421))
+  Adds network checks for security-group policy propagation timing and port-security scoping so providers can prove rule changes become visible quickly and only the intended interface and port are allowed.
+- **VM specified-key validation** ([#420](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/420))
+  Adds `InstanceSpecifiedKeyCheck` to confirm launched or reused VM instances use the requested SSH key pair.
+- **TPM baseline policy for host software checks** ([#429](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/429))
+  Adds an opt-in TPM baseline policy to `HostSoftwareCheck` so operators can require a minimum TPM version per platform while leaving existing configs report-only by default.
+
+### Changed
+
+- **CLI diagnostics now go to stderr** ([#441](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/441))
+  Routes progress, warnings, errors, and logger output to stderr so stdout remains parseable for JSON, table, documentation, and result output.
+- **Validation labels replace marker terminology** ([#434](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/434), [#437](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/437))
+  Introduces `--label/-l` selection and `tests.exclude.labels`, then removes the legacy marker API, config alias, CLI option, and catalog/result/upload `markers` fields.
+- **K8s CSI quota validation checks actual usage** ([#430](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/430))
+  Tightens `K8sCsiStorageQuotaApiCheck` so namespace-wide and per-StorageClass quota usage must match the bound PVC capacity instead of only checking that quota objects exist.
+
+### Fixed
+
+- **GPU Operator CrashLoopBackOff pods fail health checks** ([#417](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/417))
+  Updates Kubernetes pod health helpers so GPU Operator pods in `CrashLoopBackOff` are no longer counted as healthy merely because their phase is still `Running`.
+
+### Internal
+
+- Add automated changelog backfill workflow and root `CHANGELOG.md` history ([#432](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/432)).
+- Add milestone release-notes generator script ([#426](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/426)).
+- Document the repository versioning policy in `CONTRIBUTING.md` ([#423](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/423)).
+
 ## [0.7.0] - 2026-05-15
 
 ### Added

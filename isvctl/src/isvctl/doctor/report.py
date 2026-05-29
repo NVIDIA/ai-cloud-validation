@@ -90,10 +90,13 @@ def render_rich(
                 indent = "      "
             else:
                 indent = "    "
+            # Pad names so the message column aligns within the group.
+            name_width = max((len(r.name) for r in items if r.message), default=0)
             for r in items:
                 line = f"{indent}{_glyph(r.status)} {r.name}"
                 if r.message:
-                    line += f"  {r.message}"
+                    pad = " " * (name_width - len(r.name))
+                    line += f":{pad}  {r.message}"
                 out.print(line)
                 if r.remediation and r.status in (Status.FAIL, Status.WARN):
                     out.print(f"{indent}    [dim]hint:[/dim] {r.remediation}")
