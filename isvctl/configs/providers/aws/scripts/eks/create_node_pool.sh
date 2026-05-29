@@ -24,9 +24,18 @@
 # K8sNodePoolCheck via {{steps.create_test_node_pool.*}} /
 # {{steps.update_test_node_pool.*}} in the suite config.
 #
+# The module manages a single node group per state file, so multiple
+# coexisting pools (e.g. a CPU pool and a GPU pool in the same cluster) are
+# kept independent by pointing each at its own local state via
+# NODE_POOL_STATE_FILE. The default preserves the original single-pool path.
+#
 # Environment variables (all optional):
 #   NODE_POOL_ACTION                  - Banner verb: "Creating" | "Updating"
 #                                       (default "Creating")
+#   NODE_POOL_STATE_FILE              - Local Terraform state filename within
+#                                       terraform-node-pool/ (default
+#                                       "terraform.tfstate"). Use a distinct
+#                                       file per coexisting pool.
 #   TF_AUTO_APPROVE                   - "true" to skip approval (default: false)
 #   TF_VAR_region                     - AWS region (default from cluster state)
 #   TF_VAR_test_pool_name             - Node pool name (default "isv-test-pool")
@@ -47,6 +56,17 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="${SCRIPT_DIR}/terraform-node-pool"
 CLUSTER_TF_DIR="${SCRIPT_DIR}/terraform"
+STATE_FILE="${NODE_POOL_STATE_FILE:-terraform.tfstate}"
+
+if [[ -z "${STATE_FILE}" ]] \
+    || [[ "${STATE_FILE}" == .* ]] \
+    || [[ "${STATE_FILE}" == *"/"* ]] \
+    || [[ "${STATE_FILE}" == *".."* ]] \
+    || [[ "${STATE_FILE}" == \~* ]] \
+    || [[ ! "${STATE_FILE}" =~ ^[A-Za-z0-9._-]+\.tfstate$ ]]; then
+    echo "Error: NODE_POOL_STATE_FILE must be a local .tfstate filename using only letters, numbers, dots, underscores, and hyphens." >&2
+    exit 1
+fi
 
 if ! command -v terraform &> /dev/null; then
     echo "Error: terraform not found - install from https://terraform.io" >&2
@@ -102,6 +122,7 @@ echo "  desired size: ${DESIRED_SIZE}" >&2
 echo "  ami type: ${AMI_TYPE}" >&2
 echo "  capacity: ${CAPACITY_TYPE}" >&2
 echo "  node type tag: ${NODE_TYPE}" >&2
+echo "  state file: ${STATE_FILE}" >&2
 echo "" >&2
 
 cd "${TF_DIR}"
@@ -119,22 +140,24 @@ export TF_VAR_capacity_type="${CAPACITY_TYPE}"
 export TF_VAR_labels="${LABELS_JSON}"
 export TF_VAR_taints="${TAINTS_JSON}"
 
+# Each pool keeps its own local state file so multiple node groups can coexist
+# in the same cluster without clobbering one another's state.
 TF_AUTO_APPROVE="${TF_AUTO_APPROVE:-false}"
 if [ "${TF_AUTO_APPROVE}" = "true" ]; then
-    terraform apply -auto-approve >&2
+    terraform apply -auto-approve -state="${STATE_FILE}" >&2
 else
-    terraform apply >&2
+    terraform apply -state="${STATE_FILE}" >&2
 fi
 
 # Read what Terraform actually created. expected_taints comes back with
 # Kubernetes effect spelling - the validation compares directly against
 # kubectl, so no further translation is needed.
-TF_OUT_NODE_POOL_NAME=$(terraform output -raw node_pool_name)
-TF_OUT_LABEL_SELECTOR=$(terraform output -raw label_selector)
-TF_OUT_DESIRED_SIZE=$(terraform output -raw desired_size)
-TF_OUT_EXPECTED_LABELS=$(terraform output -json expected_labels)
-TF_OUT_EXPECTED_TAINTS=$(terraform output -json expected_taints)
-TF_OUT_EXPECTED_INSTANCE_TYPES=$(terraform output -json expected_instance_types)
+TF_OUT_NODE_POOL_NAME=$(terraform output -state="${STATE_FILE}" -raw node_pool_name)
+TF_OUT_LABEL_SELECTOR=$(terraform output -state="${STATE_FILE}" -raw label_selector)
+TF_OUT_DESIRED_SIZE=$(terraform output -state="${STATE_FILE}" -raw desired_size)
+TF_OUT_EXPECTED_LABELS=$(terraform output -state="${STATE_FILE}" -json expected_labels)
+TF_OUT_EXPECTED_TAINTS=$(terraform output -state="${STATE_FILE}" -json expected_taints)
+TF_OUT_EXPECTED_INSTANCE_TYPES=$(terraform output -state="${STATE_FILE}" -json expected_instance_types)
 
 cd - > /dev/null
 
