@@ -81,7 +81,7 @@ bullet with a bold title, a linked PR reference, and a one-sentence
 description (a second sentence only if genuinely needed) indented two
 spaces under the title:
 
-```
+```md
 - **Concise title summarizing the change** ([#N](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/N))
   One sentence explaining what changed and why (add a second only if
   genuinely needed). Describe the user-visible behavior — not the
@@ -92,7 +92,7 @@ spaces under the title:
 For **Internal**, use a terse one-line form with a linked PR ref (no
 bold title, no description paragraph):
 
-```
+```md
 - Brief description ([#N](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/N)).
 ```
 
@@ -102,7 +102,7 @@ When several PRs are clearly part of one initiative (e.g. a sweeping
 refactor or a multi-PR feature series), collapse them into a single
 bullet with all PR refs inline and one shared description:
 
-```
+```md
 - **Common theme across the series** ([#A](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/A), [#B](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/B), [#C](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/C))
   One description that covers the whole series. Prefer this over three
   near-identical separate bullets.
