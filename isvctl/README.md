@@ -7,7 +7,11 @@ Unified controller for ISV Lab cluster lifecycle orchestration.
 ```bash
 # From workspace root
 uv sync
+uv run isvctl doctor
 uv run isvctl test run -f isvctl/configs/suites/k8s.yaml
+
+# Check a specific config before running it
+uv run isvctl doctor -f isvctl/configs/suites/k8s.yaml
 
 # View documentation
 uv run isvctl docs

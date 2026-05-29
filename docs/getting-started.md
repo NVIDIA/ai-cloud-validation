@@ -24,6 +24,12 @@ Verify installation:
 uv run isvctl --help
 ```
 
+Run a pre-flight check:
+
+```bash
+uv run isvctl doctor
+```
+
 ## Quick Start
 
 ### Try it without cloud credentials (~10s)
@@ -55,6 +61,12 @@ Then preview the generated VM flow without cloud access:
 
 ```bash
 ISVCTL_DEMO_MODE=1 uv run isvctl test run -f isvctl/configs/providers/acme/config/vm.yaml
+```
+
+Before a real provider run, check required tools, credentials, and config:
+
+```bash
+uv run isvctl doctor --provider aws -f isvctl/configs/providers/aws/config/control-plane.yaml
 ```
 
 ### Running Validation Tests

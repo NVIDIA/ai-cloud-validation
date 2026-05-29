@@ -42,6 +42,9 @@ isvctl test run -f isvctl/configs/suites/slurm.yaml
 # Create a provider scaffold
 isvctl provider scaffold acme
 
+# Check local readiness before a run
+isvctl doctor -f isvctl/configs/suites/k8s.yaml
+
 # Pass extra pytest args
 isvctl test run -f isvctl/configs/suites/k8s.yaml -- -v -s -k "NodeCount"
 ```
@@ -68,6 +71,25 @@ isvctl/
 ```
 
 ## Usage
+
+### Pre-flight Diagnostics
+
+Use `isvctl doctor` before longer runs or in CI to check local tools,
+environment variables, and config files.
+
+```bash
+# Check tools, environment, and default config discovery
+isvctl doctor
+
+# Validate a config file before running it
+isvctl doctor -f isvctl/configs/suites/k8s.yaml
+
+# Require provider-specific checks such as AWS tools and credentials
+isvctl doctor --provider aws -f isvctl/configs/providers/aws/config/control-plane.yaml
+
+# Machine-readable output; use --strict to treat warnings as failures
+isvctl doctor --json --strict
+```
 
 ### Run Validation
 
