@@ -1,0 +1,81 @@
+# zcompute — CNCF conformance-only config
+#
+# Runs K8sCncfConformanceCheck in certified-conformance mode against the EKS-D cluster.
+# This is a long-running test (1-3 hours depending on cluster speed).
+# Excluded from the main k8s.yaml run — kick off separately and leave it running.
+#
+# Usage (toolbox):
+#   source ~/suite.env
+#   uv run isvctl test run -f isvctl/configs/providers/zcompute/config/k8s_cncf_only.yaml -v \
+#     2>&1 | tee /tmp/ncp-k8s-cncf-run1.log
+
+import:
+  - ../../../suites/k8s.yaml
+
+version: "1.0"
+
+commands:
+  kubernetes:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: setup
+        phase: setup
+        command: "../scripts/k8s/setup.sh"
+        output_schema: cluster
+        timeout: 120
+
+      - name: pre_test_cleanup
+        phase: test
+        command: "../scripts/k8s/pre_test_cleanup.sh"
+        timeout: 30
+
+      - name: teardown
+        phase: teardown
+        command: "../scripts/k8s/teardown.sh"
+        timeout: 60
+
+tests:
+  description: "zcompute CNCF conformance (certified-conformance mode, EKS-D v1.35.2)"
+
+  validations:
+    k8s_conformance:
+      checks:
+        K8sCncfConformanceCheck:
+          mode: certified-conformance   # runs [Conformance] tests, no disruptive skip
+          timeout: 10800                # 3 hours — EKS-D on zCompute is slower than AWS
+          startup_timeout: 600          # time for registry.k8s.io/conformance image pull
+
+  exclude:
+    tests:
+      # Everything except CNCF conformance
+      - K8sNodePoolCheck
+      - K8sApiNetworkAclCheck
+      - K8sNodeCountCheck
+      - K8sExpectedNodesCheck
+      - K8sNodeReadyCheck
+      - K8sNvidiaSmiCheck
+      - K8sDriverVersionCheck
+      - K8sGpuPodAccessCheck
+      - K8sGpuCapacityCheck
+      - K8sGpuOperatorNamespaceCheck
+      - K8sGpuOperatorPodsCheck
+      - K8sGpuLabelsCheck
+      - K8sPodHealthCheck
+      - K8sNoPendingPodsCheck
+      - K8sNoErrorPodsCheck
+      - K8sMigConfigCheck
+      - K8sDualStackNodeCheck
+      - K8sNetworkPolicyCheck
+      - K8sCsiStorageTypesCheck
+      - K8sCsiStorageQuotaApiCheck
+      - K8sCsiTenantScopedCredentialsCheck
+      - K8sCsiProvisioningModesCheck
+      - K8sOidcIssuerCheck
+      - K8sNcclWorkload
+      - K8sNcclMultiNodeWorkload
+      - K8sGpuStressWorkload
+      - K8sNimInferenceWorkload
+      - K8sNimHelmWorkload-1b
+      - K8sNimHelmWorkload-3b
+      - K8sApiServerMetricsCheck
+      - K8sControlPlaneLogsCheck
