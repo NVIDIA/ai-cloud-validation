@@ -21,7 +21,7 @@ All steps are written to be **idempotent** — they check before acting. It is s
 | 7 | [Fix AWS CCM](#7-fix-aws-cloud-controller-manager) | kubectl | Credentials, SSL cert, cloud.conf |
 | 8 | [Join GPU workers](#8-join-gpu-workers) | eksd-install join | HGX nodes join after CCM is healthy |
 | 9 | [Install MPI Operator](#9-mpi-operator) | kubectl apply | Required for K8sNcclMultiNodeWorkload |
-| 10 | [Post-install cluster fixes](#10-post-install-cluster-fixes) | kubectl | Cilium operator scale, EBS CSI credentials |
+| 10 | [Post-install cluster fixes](#10-post-install-cluster-fixes) | kubectl | Cilium operator scale, EBS CSI credentials, NodePort range |
 | 11 | [RDMA NIC IP fix](#11-rdma-nic-ip-fix) | ssh | Fix duplicate IP on enp75s0np0 |
 | 12 | [Pre-pull large images](#12-pre-pull-large-images) | DaemonSet | pytorch, hpc-benchmarks, NIM — ~30-45 min |
 | 13 | [Install Helm](#13-install-helm) | script | Required for K8sNimHelmWorkload tests |
@@ -482,6 +482,35 @@ kubectl wait --for=condition=Succeeded pod/ebs-verify --timeout=60s \
   && echo "EBS CSI OK" \
   && kubectl delete pod/ebs-verify pvc/ebs-verify-pvc -n default
 ```
+
+### 10c. Fix kube-apiserver service-node-port-range
+
+`zadara-vm-chart` deploys EKS-D with `--service-node-port-range=20000-32767` on the kube-apiserver. The CNCF conformance tests (`[sig-network] Services should be able to create a functioning NodePort service [Conformance]` and related) allocate NodePorts and then validate the allocated port is within the **standard** range `30000-32767`. Ports in `20000-29999` are accepted by Kubernetes but rejected by the conformance checks, causing 5 failures.
+
+**Fix: change the range back to the standard `30000-32767` on the EKS-D control-plane node.**
+
+```bash
+# 1. Delete any existing NodePort services that may hold a port in 20000-29999
+#    (kubelet will refuse to restart apiserver if existing allocations conflict)
+kubectl delete svc test-np -n default --ignore-not-found
+kubectl delete deployment test-np -n default --ignore-not-found
+
+# 2. SSH to the EKS-D control-plane node and patch the static pod manifest
+ssh ubuntu@${EKSD_CONTROL_PLANE_IP} \
+  "sudo sed -i 's/--service-node-port-range=20000-32767/--service-node-port-range=30000-32767/' \
+   /etc/kubernetes/manifests/kube-apiserver.yaml"
+
+# 3. Kubelet detects the manifest change and restarts kube-apiserver automatically.
+#    Wait for it to come back healthy (usually < 60s):
+kubectl wait --for=condition=Ready pod -n kube-system -l component=kube-apiserver --timeout=120s
+
+# 4. Verify the flag is live
+kubectl get pod -n kube-system -l component=kube-apiserver -o jsonpath='{.items[0].spec.containers[0].command}' \
+  | tr ',' '\n' | grep node-port-range
+# Expected: --service-node-port-range=30000-32767
+```
+
+> **Note:** `EKSD_CONTROL_PLANE_IP` is the IP of the `eksd` node (the VM running the EKS-D control plane, separate from the manager-vm). After this change, all NodePort services will allocate ports in `30000-32767`.
 
 ---
 

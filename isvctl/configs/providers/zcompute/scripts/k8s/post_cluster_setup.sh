@@ -114,7 +114,8 @@ fi
 
 # ── §2. AWS Cloud Controller Manager ─────────────────────────────────────────
 log "§2 AWS Cloud Controller Manager ..."
-if helm list -n kube-system 2>/dev/null | grep -q aws-cloud-controller-manager; then
+if helm list -n kube-system 2>/dev/null | grep -q aws-cloud-controller-manager || \
+   kubectl get daemonset aws-cloud-controller-manager -n kube-system &>/dev/null; then
     skip "AWS CCM"
 else
     # ConfigMap for zcompute endpoint
