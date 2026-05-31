@@ -41,7 +41,7 @@ tests:
     k8s_workloads:
       checks:
         K8sNcclMultiNodeWorkload:
-          min_bus_bw_gbps: 30
+          min_bus_bw_gbps: 100
           startup_timeout: 600
 
   exclude:

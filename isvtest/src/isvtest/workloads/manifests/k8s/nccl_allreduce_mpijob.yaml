@@ -48,7 +48,7 @@ spec:
                 - name: NCCL_IB_DISABLE
                   value: "0"
                 - name: NCCL_IB_HCA
-                  value: "^rocep75s0,mlx5_4,mlx5_5,mlx5_6,mlx5_7"  # exclude second rail (no cross-node routes); uses mlx5_0/1/2/3 which have switch port ARP entries
+                  value: ""  # all 8 NICs active — no exclusion needed (all RoCE IPs are unique)
                 - name: NCCL_IB_GID_INDEX
                   value: "3"           # RoCE v2 — valid unique IPs on the remaining NICs
                 - name: NCCL_NET_GDR_LEVEL
@@ -122,7 +122,7 @@ spec:
                 - name: NCCL_IB_DISABLE
                   value: "0"
                 - name: NCCL_IB_HCA
-                  value: "^rocep75s0,mlx5_4,mlx5_5,mlx5_6,mlx5_7"  # exclude Rail 2 (no cross-node routes); leaves mlx5_0,1,2,3 which have switch port ARP entries
+                  value: ""  # all 8 NICs active — no exclusion needed (all RoCE IPs are unique)
                 - name: NCCL_IB_GID_INDEX
                   value: "3"           # RoCE v2 — valid unique IPs on the remaining NICs
                 - name: NCCL_NET_GDR_LEVEL

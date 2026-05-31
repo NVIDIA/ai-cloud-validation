@@ -88,10 +88,8 @@ tests:
     k8s_workloads:
       checks:
         K8sNcclMultiNodeWorkload:
-          # Routed RoCE via switch: large msgs (≥256MB) hit 105-115 GB/s; arithmetic avg
-          # across all NCCL sizes (8B–4GB) lands at ~31 GB/s due to latency-dominated
-          # small messages. Suite default of 100 targets direct P2P InfiniBand.
-          min_bus_bw_gbps: 30
+          # All 8 RoCE NICs active (unique IPs confirmed). Expecting ~130 GB/s peak.
+          min_bus_bw_gbps: 100
           # Workers take 3-4 min to start (GPU device plugin reclaims resources from the
           # just-completed single-node NCCL pod) + ~80s for apt-get install openssh-server.
           # Default 300s is not enough; 600s covers the full startup window comfortably.

@@ -44,8 +44,8 @@ skip() { echo -e "${YELLOW}[ SKIP ]${NC} $* (already done)"; }
 ZCOMPUTE_IP="${ZCOMPUTE_IP:-172.29.0.20}"
 AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:?Set AWS_ACCESS_KEY_ID}"
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:?Set AWS_SECRET_ACCESS_KEY}"
-HGX_NODE_1_IP="${HGX_NODE_1_IP:-192.168.0.190}"
-HGX_NODE_2_IP="${HGX_NODE_2_IP:-192.168.0.235}"
+HGX_NODE_1_IP="${HGX_NODE_1_IP:-172.31.2.159}"
+HGX_NODE_2_IP="${HGX_NODE_2_IP:-172.31.1.175}"
 HGX_SSH_KEY="${HGX_SSH_KEY:-}"
 HGX_SSH_PASS="${HGX_SSH_PASS:-}"
 HGX_SSH_USER="${HGX_SSH_USER:-ubuntu}"
@@ -419,9 +419,9 @@ else
     ((FAIL++)) || true
 fi
 
-# GPU Operator pods
+# GPU Operator pods (deployed by zadara-vm-chart into zadara-system, not nvidia-gpu-operator)
 chk "GPU Operator pods running" \
-    kubectl wait --for=condition=Ready pods --all -n nvidia-gpu-operator --timeout=60s
+    kubectl wait --for=condition=Ready pods -l app=gpu-operator -n zadara-system --timeout=60s
 
 # MPI Operator
 chk "MPI Operator available" \
@@ -431,9 +431,9 @@ chk "MPI Operator available" \
 chk "MPIJob CRD registered" \
     kubectl api-resources --api-group=kubeflow.org 2>/dev/null
 
-# Calico
-chk "Calico running" \
-    kubectl wait --for=condition=Available deployment/calico-kube-controllers -n calico-system --timeout=30s
+# Calico (skipped — zCompute uses Cilium as CNI, not Calico)
+chk "Cilium running" \
+    kubectl wait --for=condition=Ready pods -l k8s-app=cilium -n kube-system --timeout=30s
 
 # NetworkPolicy enforcement
 chk "NetworkPolicy API exists (Calico enforcing)" bash -c \
