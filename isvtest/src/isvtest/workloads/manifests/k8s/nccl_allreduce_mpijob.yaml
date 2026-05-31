@@ -49,15 +49,13 @@ spec:
                   value: "0"
                 # NCCL_IB_HCA intentionally unset — let NCCL auto-detect all 8 RoCE NICs
                 - name: NCCL_IB_GID_INDEX
-                  value: "3"           # RoCE v2 — valid unique IPs on the remaining NICs
+                  value: "3"           # RoCE v2
                 - name: NCCL_NET_GDR_LEVEL
-                  value: "0"           # host-bounce buffers; set to 2 only if nvidia_peermem is loaded
-                - name: OMPI_MCA_coll_hcoll_enable
-                  value: "0"           # disable HCOLL (requires 8 NICs; we only have 4 active)
-                - name: OMPI_MCA_coll_fca_enable
-                  value: "0"           # disable FCA (same requirement)
+                  value: "SYS"         # Enable GPUDirect RDMA — required for full bandwidth (~450 GB/s)
+                - name: NCCL_NVLS_ENABLE
+                  value: "1"           # Enable NVLink Switch (NVLS) tree for intra-node collectives
                 - name: NCCL_NCHANNELS_PER_NET_PEER
-                  value: "2"           # 2 net channels per inter-node GPU pair → engages 2 NICs per pair (4 total across 2 pairs)
+                  value: "2"           # 2 net channels per inter-node GPU pair
           tolerations:
             - key: "node-role.kubernetes.io/control-plane"
               operator: "Exists"
