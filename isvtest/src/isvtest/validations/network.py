@@ -81,6 +81,7 @@ class VpcCrudCheck(BaseValidation):
 
     description: ClassVar[str] = "Check VPC CRUD operations"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = ("SDN01-01", "SDN01-02", "SDN01-03", "SDN01-04")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -175,6 +176,7 @@ class VpcIsolationCheck(BaseValidation):
 
     description: ClassVar[str] = "Check VPC isolation"
     labels: ClassVar[tuple[str, ...]] = ("network", "security")
+    test_ids: ClassVar[tuple[str, ...]] = ("SDN04-02", "SDN04-03")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -409,6 +411,7 @@ class DhcpIpManagementCheck(BaseValidation):
     description: ClassVar[str] = "Check DHCP/IP management via SSH"
     timeout: ClassVar[int] = 60
     labels: ClassVar[tuple[str, ...]] = ("network", "ssh")
+    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-01",)
 
     def run(self) -> None:
         try:
@@ -572,6 +575,7 @@ class VpcIpConfigCheck(BaseValidation):
 
     description: ClassVar[str] = "Check VPC IP configuration"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-02",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1295,6 +1299,7 @@ class ByoipCheck(BaseValidation):
 
     description: ClassVar[str] = "Check BYOIP support"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = ("NET03-01",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1339,6 +1344,7 @@ class StablePrivateIpCheck(BaseValidation):
 
     description: ClassVar[str] = "Check private IP stability"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = ("SDN-XX-01",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1478,6 +1484,7 @@ class FloatingIpCheck(BaseValidation):
 
     description: ClassVar[str] = "Check floating IP switch"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = ("SDN05-01",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1529,6 +1536,7 @@ class LocalizedDnsCheck(BaseValidation):
 
     description: ClassVar[str] = "Check localized DNS"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = ("SDN06-01",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1575,6 +1583,7 @@ class VpcPeeringCheck(BaseValidation):
 
     description: ClassVar[str] = "Check VPC peering"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = ("SDN07-01",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
