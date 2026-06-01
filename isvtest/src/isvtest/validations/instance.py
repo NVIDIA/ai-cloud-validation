@@ -76,6 +76,7 @@ class InstanceSpecifiedKeyCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance launched with specified key"
     labels: ClassVar[tuple[str, ...]] = ("vm",)
+    test_ids: ClassVar[tuple[str, ...]] = ("AUTH-XX-02",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -132,6 +133,7 @@ class InstanceRebootCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance rebooted successfully"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP01-05", "CNP01-13")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -212,6 +214,7 @@ class InstancePowerCycleCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance recovered from power-cycle"
     labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP01-06",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -268,6 +271,7 @@ class StableIdentifierCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance ID is stable across lifecycle events"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP08-01", "CNP08-03")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -302,6 +306,7 @@ class InstanceCreatedCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance was created"
     labels: ClassVar[tuple[str, ...]] = ("vm",)
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP01-09",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -338,6 +343,7 @@ class InstanceStopCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance stopped successfully without being destroyed"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP01-07", "CNP01-14")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -380,6 +386,7 @@ class InstanceStartCheck(BaseValidation):
 
     description: ClassVar[str] = "Check stopped instance started successfully"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP01-08", "CNP01-15")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -422,6 +429,7 @@ class InstanceTagCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance tags are present"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP05-01", "CNP05-02")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -648,6 +656,7 @@ class InstanceListCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance list from VPC"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP01-11",)
 
     REQUIRED_FIELDS = ("instance_id", "state", "vpc_id")
 

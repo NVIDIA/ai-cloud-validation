@@ -1990,6 +1990,7 @@ class CloudInitCheck(BaseValidation):
     description: ClassVar[str] = "Validates cloud-init completed and metadata service is reachable"
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("ssh", "vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = ("BOOT02-01", "BOOT02-02")
 
     def run(self) -> None:
         try:
