@@ -19,12 +19,13 @@ from typing import ClassVar
 import pytest
 
 from isvtest.core.k8s import get_kubectl_base_shell
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import UNMAPPED, BaseValidation
 
 
 class K8sMigConfigCheck(BaseValidation):
     description = "Check if MIG (Multi-Instance GPU) labels are available and match configuration."
     labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         require_mig = self.config.get("require_mig", False)

@@ -20,8 +20,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-import pytest
-
 _spec = importlib.util.spec_from_file_location(
     "test_plan_coverage", Path(__file__).resolve().parent.parent / "test_plan_coverage.py"
 )
@@ -61,26 +59,30 @@ def test_build_coverage_counts_covered_and_released() -> None:
     assert coverage["plan_test_ids_covered_by_released_class"] == 1
 
 
-def test_completeness_errors_flags_unlisted_released_class() -> None:
-    """A released class with no test_ids that isn't allow-listed is an error."""
+def test_completeness_errors_flags_empty_test_ids() -> None:
+    """A class that declares no test_ids (empty tuple) is an error."""
     entries = [
         {"name": "MappedCheck", "labels": ["security"], "test_ids": ["SEC01-01"]},
         {"name": "ForgotCheck", "labels": ["security"], "test_ids": []},
-        {"name": "UnreleasedCheck", "labels": [], "test_ids": []},
     ]
-    errors = test_plan_coverage.completeness_errors(entries, released={"MappedCheck", "ForgotCheck"})
+    errors = test_plan_coverage.completeness_errors(entries)
     assert len(errors) == 1
     assert "ForgotCheck" in errors[0]
 
 
-def test_completeness_errors_respects_allowlist_and_release(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Allow-listed names and unreleased classes do not trigger completeness errors."""
-    monkeypatch.setattr(test_plan_coverage, "ALLOWLIST_UNMAPPED", frozenset({"GenericCheck"}))
+def test_completeness_errors_accepts_unmapped_sentinel() -> None:
+    """An explicit (UNMAPPED,) marker records an intentional gap and passes."""
     entries = [
-        {"name": "GenericCheck", "labels": [], "test_ids": []},  # allow-listed
-        {"name": "DraftCheck", "labels": [], "test_ids": []},  # not released
+        {"name": "GenericCheck", "labels": [], "test_ids": [test_plan_coverage.UNMAPPED]},
+        {"name": "GenericCheck-variant", "labels": [], "test_ids": [test_plan_coverage.UNMAPPED]},
     ]
-    assert test_plan_coverage.completeness_errors(entries, released={"GenericCheck"}) == []
+    assert test_plan_coverage.completeness_errors(entries) == []
+
+
+def test_real_test_ids_excludes_sentinel() -> None:
+    """real_test_ids strips the UNMAPPED sentinel, leaving only plan ids."""
+    assert test_plan_coverage.real_test_ids({"test_ids": ["SEC01-01", test_plan_coverage.UNMAPPED]}) == ["SEC01-01"]
+    assert test_plan_coverage.real_test_ids({"test_ids": [test_plan_coverage.UNMAPPED]}) == []
 
 
 def test_consistency_errors_flags_domain_mismatch() -> None:
@@ -110,10 +112,9 @@ def test_repo_metadata_passes_all_guardrails() -> None:
     plan_ids = set(test_plan_coverage.load_plan())
     entries = test_plan_coverage.catalog_entries()
     class_map = test_plan_coverage.class_test_id_map(entries)
-    released = test_plan_coverage.released_names()
 
     integrity = test_plan_coverage.integrity_errors(plan_ids, class_map)
-    completeness = test_plan_coverage.completeness_errors(entries, released)
+    completeness = test_plan_coverage.completeness_errors(entries)
     consistency = test_plan_coverage.consistency_errors(entries)
     assert not (integrity or completeness or consistency), "\n  ".join(
         ["test-plan coverage guardrails failed:", *integrity, *completeness, *consistency]

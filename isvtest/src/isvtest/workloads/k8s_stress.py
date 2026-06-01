@@ -29,12 +29,14 @@ from isvtest.config.settings import (
     get_k8s_namespace,
 )
 from isvtest.core.k8s import get_gpu_nodes, get_kubectl_base_shell, get_kubectl_command, get_node_gpu_count
+from isvtest.core.validation import UNMAPPED
 from isvtest.core.workload import BaseWorkloadCheck
 
 
 class K8sGpuStressWorkload(BaseWorkloadCheck):
     description = "Run GPU stress test on all GPU nodes in the cluster."
     labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         # Get configuration

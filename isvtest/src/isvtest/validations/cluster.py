@@ -20,7 +20,7 @@ Validations for Kubernetes clusters, GPU operators, and performance benchmarks.
 
 from typing import ClassVar
 
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import UNMAPPED, BaseValidation
 
 
 class NodeCountCheck(BaseValidation):
@@ -38,6 +38,7 @@ class NodeCountCheck(BaseValidation):
 
     description: ClassVar[str] = "Check cluster node count matches expected"
     labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -76,6 +77,7 @@ class ClusterHealthCheck(BaseValidation):
 
     description: ClassVar[str] = "Check cluster is healthy"
     labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -146,6 +148,7 @@ class PerformanceCheck(BaseValidation):
 
     description: ClassVar[str] = "Check workload performance meets requirements"
     labels: ClassVar[tuple[str, ...]] = ("workload",)
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:

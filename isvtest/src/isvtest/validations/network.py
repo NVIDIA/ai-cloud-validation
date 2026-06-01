@@ -35,7 +35,7 @@ from isvtest.core.ssh import (
     get_ssh_config,
     run_ssh_command,
 )
-from isvtest.core.validation import BaseValidation, check_required_tests
+from isvtest.core.validation import UNMAPPED, BaseValidation, check_required_tests
 
 
 class NetworkProvisionedCheck(BaseValidation):
@@ -52,6 +52,7 @@ class NetworkProvisionedCheck(BaseValidation):
 
     description: ClassVar[str] = "Check network was provisioned"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -124,6 +125,7 @@ class SubnetConfigCheck(BaseValidation):
 
     description: ClassVar[str] = "Check subnet configuration"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -272,6 +274,7 @@ class SecurityBlockingCheck(BaseValidation):
 
     description: ClassVar[str] = "Check security blocking rules"
     labels: ClassVar[tuple[str, ...]] = ("network", "security")
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -318,6 +321,7 @@ class NetworkConnectivityCheck(BaseValidation):
 
     description: ClassVar[str] = "Check network connectivity"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -361,6 +365,7 @@ class TrafficFlowCheck(BaseValidation):
 
     description: ClassVar[str] = "Check traffic flow"
     labels: ClassVar[tuple[str, ...]] = ("network",)
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

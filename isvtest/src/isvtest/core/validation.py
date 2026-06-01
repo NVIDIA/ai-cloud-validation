@@ -28,6 +28,12 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# Sentinel for ``test_ids`` marking a validation that intentionally maps to no
+# test-plan entry (a generic/reusable check, or one the plan has no item for).
+# An empty ``test_ids`` means "not yet linked" and fails the coverage
+# completeness guardrail; declare ``(UNMAPPED,)`` to record an intentional gap.
+UNMAPPED: str = "N/A"
+
 # Cache of discovered validation classes
 _validation_class_cache: dict[str, type[BaseValidation]] | None = None
 
@@ -70,8 +76,10 @@ class BaseValidation(ABC):
     timeout: ClassVar[int] = 60
     labels: ClassVar[tuple[str, ...]] = ()
     catalog_exclude: ClassVar[bool] = False
-    # Test-plan test IDs (e.g. "SEC01-01") this validation implements. Used to
-    # join the code to docs/test-plan.yaml without git/PR archaeology.
+    # Test-plan test IDs (e.g. "SEC01-01") this validation implements, used to
+    # join the code to docs/test-plan.yaml without git/PR archaeology. Declare
+    # ``(UNMAPPED,)`` when a check intentionally maps to no plan entry; an empty
+    # tuple is treated as "not yet linked" and fails the completeness guardrail.
     test_ids: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, runner: Runner | None = None, config: dict[str, Any] | None = None):

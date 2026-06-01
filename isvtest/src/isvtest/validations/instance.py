@@ -20,7 +20,7 @@ Validations for EC2 instances, virtual machines, and compute resources.
 
 from typing import ClassVar
 
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import UNMAPPED, BaseValidation
 from isvtest.validations.generic import check_operations_passed
 
 SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED = 30
@@ -40,6 +40,7 @@ class InstanceStateCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance is in expected state"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

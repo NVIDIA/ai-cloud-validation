@@ -50,7 +50,7 @@ from isvtest.core.ssh import (
     parse_cpu_range_count,
     run_ssh_command,
 )
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import UNMAPPED, BaseValidation
 
 
 def _extract_numeric_version_parts(version: object) -> list[int]:
@@ -289,6 +289,7 @@ class CpuInfoCheck(BaseValidation):
     description: ClassVar[str] = "Validates CPU, NUMA topology, and PCI configuration"
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("ssh", "bare_metal", "vm")
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         try:
@@ -1949,6 +1950,7 @@ class ContainerRuntimeCheck(BaseValidation):
     description: ClassVar[str] = "Tests container runtime and NVIDIA Docker support"
     timeout: ClassVar[int] = 300
     labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "workload", "slow", "bare_metal", "vm")
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
 
     def run(self) -> None:
         try:

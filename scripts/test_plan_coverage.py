@@ -24,8 +24,8 @@ which validation class", replacing brittle git/PR archaeology. It relies on each
 ``--check`` runs three CI guardrails:
 
 1. Integrity   - a class must not declare a ``test_ids`` value absent from the plan.
-2. Completeness - every *released* class must declare ``test_ids`` unless it is an
-   explicitly allow-listed generic/unmapped check (catches "we forgot one").
+2. Completeness - every class must declare ``test_ids``; an empty tuple is an
+   error (catches "we forgot one"). Use ``(UNMAPPED,)`` for an intentional gap.
 3. Consistency - a class's labels must match the domain its ``test_ids`` imply
    (e.g. a ``K8S*`` id requires a ``kubernetes`` label) - catches mis-assignments.
 
@@ -52,47 +52,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from isvtest.core.validation import UNMAPPED
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLAN_PATH = REPO_ROOT / "docs" / "test-plan.yaml"
-
-# Released validation classes intentionally left without ``test_ids`` - either
-# generic/reusable assertions or checks the test plan has no entry for (yet).
-# The completeness guardrail fails for any *other* released class that is missing
-# ``test_ids``, so this list is how we say "this gap is on purpose". Shrink it as
-# checks get linked or as plan entries are added.
-ALLOWLIST_UNMAPPED: frozenset[str] = frozenset(
-    {
-        # Generic, reusable building blocks (no single plan item).
-        "StepSuccessCheck",
-        "FieldExistsCheck",
-        "FieldValueCheck",
-        "CrudOperationsCheck",
-        "InstanceStateCheck",
-        # Host/infra helpers with no dedicated plan entry.
-        "ContainerRuntimeCheck",
-        "CpuInfoCheck",
-        "NetworkConnectivityCheck",
-        "NetworkProvisionedCheck",
-        "SecurityBlockingCheck",
-        "SubnetConfigCheck",
-        "TrafficFlowCheck",
-        # K8s health/GPU checks the plan has no corresponding entry for (yet).
-        "K8sDriverVersionCheck",
-        "K8sExpectedNodesCheck",
-        "K8sGpuCapacityCheck",
-        "K8sGpuLabelsCheck",
-        "K8sGpuPodAccessCheck",
-        "K8sGpuStressWorkload",
-        "K8sMigConfigCheck",
-        "K8sNoErrorPodsCheck",
-        "K8sNoPendingPodsCheck",
-        "K8sNodeCountCheck",
-        "K8sNodeReadyCheck",
-        "K8sNvidiaSmiCheck",
-        "K8sPodHealthCheck",
-    }
-)
 
 # Requirement family (the alpha prefix of a test_id, e.g. "K8S22-01" -> "K8S",
 # "SEC14-01" -> "SEC") -> a label the implementing class must carry. Only
@@ -131,10 +94,15 @@ def catalog_entries() -> list[dict[str, Any]]:
     return build_catalog(released_only=False)
 
 
+def real_test_ids(entry: dict[str, Any]) -> list[str]:
+    """Return an entry's declared test IDs excluding the ``UNMAPPED`` sentinel."""
+    return [t for t in (entry.get("test_ids") or []) if t != UNMAPPED]
+
+
 def class_test_id_map(entries: list[dict[str, Any]] | None = None) -> dict[str, list[str]]:
-    """Return a mapping of validation class/variant name to declared test IDs."""
+    """Return a mapping of class/variant name to its real (non-sentinel) test IDs."""
     entries = catalog_entries() if entries is None else entries
-    return {e["name"]: list(e["test_ids"]) for e in entries if e.get("test_ids")}
+    return {e["name"]: real_test_ids(e) for e in entries if real_test_ids(e)}
 
 
 def released_names() -> set[str]:
@@ -159,19 +127,24 @@ def integrity_errors(plan_ids: set[str], class_map: dict[str, list[str]]) -> lis
     return errors
 
 
-def completeness_errors(entries: list[dict[str, Any]], released: set[str]) -> list[str]:
-    """Errors for released classes missing ``test_ids`` and not explicitly allow-listed."""
+def completeness_errors(entries: list[dict[str, Any]]) -> list[str]:
+    """Errors for classes that declare no ``test_ids`` at all.
+
+    Every validation must make an explicit choice: link it to a plan id, or
+    declare ``(UNMAPPED,)`` for an intentional gap (generic check / no plan
+    entry). An empty ``test_ids`` means "not yet linked" and is an error, so a
+    new check can never silently slip through.
+    """
     errors: list[str] = []
+    seen: set[str] = set()
     for entry in entries:
-        name = entry["name"]
-        if entry.get("test_ids"):
+        base = entry["name"].split("-")[0]
+        if base in seen or entry.get("test_ids"):
             continue
-        if not _is_released(name, released):
-            continue
-        if name in ALLOWLIST_UNMAPPED or name.split("-")[0] in ALLOWLIST_UNMAPPED:
-            continue
+        seen.add(base)
         errors.append(
-            f"{name}: released class has no test_ids (link it to a test-plan id or add to ALLOWLIST_UNMAPPED)"
+            f"{entry['name']}: declares no test_ids - link it to a test-plan id, "
+            "or set (UNMAPPED,) for an intentional gap"
         )
     return sorted(errors)
 
@@ -186,19 +159,13 @@ def consistency_errors(entries: list[dict[str, Any]]) -> list[str]:
     errors: list[str] = []
     for entry in entries:
         labels = set(entry.get("labels") or [])
-        for tid in entry.get("test_ids") or []:
+        for tid in real_test_ids(entry):
             required = PREFIX_REQUIRED_LABELS.get(_req_family(tid))
             if required and required not in labels:
                 errors.append(
                     f"{entry['name']}: test_id {tid} implies label {required!r}, but class labels are {sorted(labels)}"
                 )
     return sorted(errors)
-
-
-def stale_allowlist(entries: list[dict[str, Any]]) -> list[str]:
-    """Return allow-listed names that now declare ``test_ids`` (allowlist can shrink)."""
-    mapped = {e["name"] for e in entries if e.get("test_ids")}
-    return sorted(n for n in ALLOWLIST_UNMAPPED if n in mapped)
 
 
 def build_coverage(
@@ -259,7 +226,7 @@ def render_review(entries: list[dict[str, Any]], plan_entries: dict[str, dict[st
         "|---|---|---|---|",
     ]
     for entry in sorted(entries, key=lambda e: e["name"]):
-        tids = entry.get("test_ids") or []
+        tids = real_test_ids(entry)
         if not tids:
             continue
         labels = ", ".join(entry.get("labels") or [])
@@ -285,11 +252,10 @@ def main(argv: list[str] | None = None) -> int:
     plan_ids = set(plan_entries)
     entries = catalog_entries()
     class_map = class_test_id_map(entries)
-    released = released_names()
 
     checks = {
         "integrity": integrity_errors(plan_ids, class_map),
-        "completeness": completeness_errors(entries, released),
+        "completeness": completeness_errors(entries),
         "consistency": consistency_errors(entries),
     }
     all_errors = [f"[{kind}] {msg}" for kind, msgs in checks.items() for msg in msgs]
@@ -303,10 +269,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if all_errors:
         sys.stderr.write("WARNING (run with --check in CI):\n  " + "\n  ".join(all_errors) + "\n")
-    for name in stale_allowlist(entries):
-        sys.stderr.write(f"NOTE: '{name}' is in ALLOWLIST_UNMAPPED but now declares test_ids; remove it.\n")
 
-    coverage = build_coverage(plan_entries, class_map, released)
+    coverage = build_coverage(plan_entries, class_map, released_names())
 
     if args.json:
         Path(args.json).write_text(json.dumps(coverage, indent=2) + "\n")

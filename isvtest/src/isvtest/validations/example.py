@@ -15,13 +15,14 @@
 
 from typing import ClassVar
 
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import UNMAPPED, BaseValidation
 
 
 class ExampleCheck(BaseValidation):
     """Example check demonstrating the BaseValidation pattern."""
 
     description = "An example check that verifies echo works."
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -42,6 +43,7 @@ class SecondExampleCheck(BaseValidation):
     """Second example check demonstrating the BaseValidation pattern."""
 
     description = "An example check that verifies echo works."
+    test_ids: ClassVar[tuple[str, ...]] = (UNMAPPED,)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
