@@ -41,6 +41,7 @@ class AccessKeyCreatedCheck(BaseValidation):
 
     description: ClassVar[str] = "Check access key was created"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
+    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-05",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -101,6 +102,7 @@ class AccessKeyDisabledCheck(BaseValidation):
 
     description: ClassVar[str] = "Check access key was disabled"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
+    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-06",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -165,6 +167,7 @@ class ServiceAccountCredentialCheck(BaseValidation):
 
     description: ClassVar[str] = "Check service account long-lived credential auth"
     labels: ClassVar[tuple[str, ...]] = ("iam", "security")
+    test_ids: ClassVar[tuple[str, ...]] = ("SEC03-01",)
 
     def run(self) -> None:
         """Validate SA credential authentication from step output."""

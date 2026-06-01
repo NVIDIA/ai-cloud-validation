@@ -79,6 +79,7 @@ class K8sNetworkPolicyCheck(BaseValidation):
     )
     timeout: ClassVar[int] = 300
     labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
+    test_ids: ClassVar[tuple[str, ...]] = ("K8S22-01",)
 
     def run(self) -> None:
         """Apply NetworkPolicy manifests and probe allowed/denied paths, recording subtests and a pass/fail outcome."""
@@ -357,6 +358,7 @@ class K8sDualStackNodeCheck(BaseValidation):
     description: ClassVar[str] = "Verify IPv4 and IPv6 addresses on dual-stack nodes."
     timeout: ClassVar[int] = 60
     labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
+    test_ids: ClassVar[tuple[str, ...]] = ("K8S22-01",)
 
     def run(self) -> None:
         """List cluster nodes and apply the ``require_dual_stack`` decision matrix, setting the validation pass/fail state."""
