@@ -27,6 +27,7 @@ class SlurmJobSubmission(BaseValidation):
     description: ClassVar[str] = "Verify Slurm job submission works with GPU access"
     timeout: ClassVar[int] = 60
     labels: ClassVar[tuple[str, ...]] = ("slurm",)
+    test_ids: ClassVar[tuple[str, ...]] = ("SLURM-XX-04",)
 
     def run(self) -> None:
         # Submit a simple job that lists GPUs

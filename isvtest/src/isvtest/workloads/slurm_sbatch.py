@@ -83,6 +83,7 @@ class SlurmSbatchWorkload(BaseWorkloadCheck):
     description: ClassVar[str] = "Run arbitrary sbatch script on Slurm cluster"
     timeout: ClassVar[int] = 1800
     labels: ClassVar[tuple[str, ...]] = ("workload", "slurm", "slow")
+    test_ids: ClassVar[tuple[str, ...]] = ("SLURM-XX-09",)
 
     def run(self) -> None:
         """Execute the sbatch workload."""

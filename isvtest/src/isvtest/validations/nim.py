@@ -73,6 +73,7 @@ class NimHealthCheck(BaseValidation):
     description: ClassVar[str] = "Validates NIM health endpoint"
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "bare_metal", "vm")
+    test_ids: ClassVar[tuple[str, ...]] = ("BMAAS-XX-10", "VMAAS-XX-12")
 
     def run(self) -> None:
         skip_reason = _is_nim_skipped(self.config)
@@ -133,6 +134,7 @@ class NimInferenceCheck(BaseValidation):
     description: ClassVar[str] = "Validates NIM inference via chat completions"
     timeout: ClassVar[int] = 300
     labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "workload", "slow", "bare_metal", "vm")
+    test_ids: ClassVar[tuple[str, ...]] = ("BMAAS-XX-10", "VMAAS-XX-12")
 
     def run(self) -> None:
         skip_reason = _is_nim_skipped(self.config)
@@ -258,6 +260,7 @@ class NimModelCheck(BaseValidation):
     description: ClassVar[str] = "Validates NIM model listing"
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "bare_metal", "vm")
+    test_ids: ClassVar[tuple[str, ...]] = ("BMAAS-XX-10", "VMAAS-XX-12")
 
     def run(self) -> None:
         skip_reason = _is_nim_skipped(self.config)

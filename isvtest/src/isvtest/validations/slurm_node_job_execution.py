@@ -68,6 +68,7 @@ class SlurmNodeJobExecution(BaseValidation):
     description: ClassVar[str] = "Verify all nodes in partition can execute SLURM jobs"
     timeout: ClassVar[int] = 300
     labels: ClassVar[tuple[str, ...]] = ("slurm",)
+    test_ids: ClassVar[tuple[str, ...]] = ("SLURM-XX-06",)
 
     def run(self) -> None:
         """Execute job tests on all nodes in the partition."""

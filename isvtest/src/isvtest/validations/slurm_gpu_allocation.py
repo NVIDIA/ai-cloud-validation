@@ -27,6 +27,7 @@ class SlurmGpuAllocation(BaseValidation):
     description: ClassVar[str] = "Verify Slurm can allocate GPUs to jobs"
     timeout: ClassVar[int] = 60
     labels: ClassVar[tuple[str, ...]] = ("slurm",)
+    test_ids: ClassVar[tuple[str, ...]] = ("SLURM-XX-05",)
 
     def run(self) -> None:
         # Get number of GPUs to request (default: 1)
