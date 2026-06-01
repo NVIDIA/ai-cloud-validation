@@ -20,6 +20,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _spec = importlib.util.spec_from_file_location(
     "test_plan_coverage", Path(__file__).resolve().parent.parent / "test_plan_coverage.py"
 )
@@ -59,13 +61,60 @@ def test_build_coverage_counts_covered_and_released() -> None:
     assert coverage["plan_test_ids_covered_by_released_class"] == 1
 
 
-def test_repo_class_metadata_references_only_known_test_ids() -> None:
-    """Guardrail: every test_ids value declared in code must exist in the plan.
+def test_completeness_errors_flags_unlisted_released_class() -> None:
+    """A released class with no test_ids that isn't allow-listed is an error."""
+    entries = [
+        {"name": "MappedCheck", "labels": ["security"], "test_ids": ["SEC01-01"]},
+        {"name": "ForgotCheck", "labels": ["security"], "test_ids": []},
+        {"name": "UnreleasedCheck", "labels": [], "test_ids": []},
+    ]
+    errors = test_plan_coverage.completeness_errors(entries, released={"MappedCheck", "ForgotCheck"})
+    assert len(errors) == 1
+    assert "ForgotCheck" in errors[0]
 
-    This fails loudly when a class's test_ids drifts from docs/test-plan.yaml
-    (typo, renamed/removed test_id), keeping the code<->plan link honest.
+
+def test_completeness_errors_respects_allowlist_and_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Allow-listed names and unreleased classes do not trigger completeness errors."""
+    monkeypatch.setattr(test_plan_coverage, "ALLOWLIST_UNMAPPED", frozenset({"GenericCheck"}))
+    entries = [
+        {"name": "GenericCheck", "labels": [], "test_ids": []},  # allow-listed
+        {"name": "DraftCheck", "labels": [], "test_ids": []},  # not released
+    ]
+    assert test_plan_coverage.completeness_errors(entries, released={"GenericCheck"}) == []
+
+
+def test_consistency_errors_flags_domain_mismatch() -> None:
+    """A class whose labels don't match its test_id domain is flagged."""
+    entries = [{"name": "WrongCheck", "labels": ["security"], "test_ids": ["K8S22-01"]}]
+    errors = test_plan_coverage.consistency_errors(entries)
+    assert len(errors) == 1
+    assert "WrongCheck" in errors[0]
+
+
+def test_consistency_errors_allows_cross_domain_and_unknown_prefix() -> None:
+    """Cross-domain labels pass; prefixes without a rule are ignored."""
+    entries = [
+        {"name": "SgCheck", "labels": ["network", "security"], "test_ids": ["SDN02-05"]},
+        {"name": "TenantCheck", "labels": ["iam"], "test_ids": ["CP-XX-07"]},  # CP has no rule
+    ]
+    assert test_plan_coverage.consistency_errors(entries) == []
+
+
+def test_repo_metadata_passes_all_guardrails() -> None:
+    """Guardrail: real class metadata passes integrity, completeness, and consistency.
+
+    Fails loudly if a class's test_ids drift from docs/test-plan.yaml, a released
+    class is missing test_ids without being allow-listed, or a mapping's domain
+    is inconsistent with the class labels.
     """
     plan_ids = set(test_plan_coverage.load_plan())
-    class_map = test_plan_coverage.class_test_id_map()
-    errors = test_plan_coverage.integrity_errors(plan_ids, class_map)
-    assert not errors, "Stale test_ids references:\n  " + "\n  ".join(errors)
+    entries = test_plan_coverage.catalog_entries()
+    class_map = test_plan_coverage.class_test_id_map(entries)
+    released = test_plan_coverage.released_names()
+
+    integrity = test_plan_coverage.integrity_errors(plan_ids, class_map)
+    completeness = test_plan_coverage.completeness_errors(entries, released)
+    consistency = test_plan_coverage.consistency_errors(entries)
+    assert not (integrity or completeness or consistency), "\n  ".join(
+        ["test-plan coverage guardrails failed:", *integrity, *completeness, *consistency]
+    )

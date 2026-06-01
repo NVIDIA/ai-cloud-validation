@@ -21,25 +21,31 @@ which validation class", replacing brittle git/PR archaeology. It relies on each
 ``BaseValidation`` subclass declaring the test-plan IDs it implements via the
 ``test_ids`` ClassVar (surfaced through the catalog).
 
-Two modes:
+``--check`` runs three CI guardrails:
 
-* default - print a coverage report (optionally emit JSON/Markdown).
-* ``--check`` - referential-integrity guardrail for CI: fail if any class
-  declares a ``test_ids`` value that does not exist in docs/test-plan.yaml.
+1. Integrity   - a class must not declare a ``test_ids`` value absent from the plan.
+2. Completeness - every *released* class must declare ``test_ids`` unless it is an
+   explicitly allow-listed generic/unmapped check (catches "we forgot one").
+3. Consistency - a class's labels must match the domain its ``test_ids`` imply
+   (e.g. a ``K8S*`` id requires a ``kubernetes`` label) - catches mis-assignments.
+
+Correctness beyond these heuristics needs a human: ``--review`` emits a
+class -> test_id -> plan-summary table for eyeballing.
 
 Offline: reads the committed test plan, the in-repo catalog, and the release
 manifest. No network access required.
 
 Usage:
-    python3 scripts/test_plan_coverage.py            # report
-    python3 scripts/test_plan_coverage.py --check    # CI guardrail
-    python3 scripts/test_plan_coverage.py --markdown coverage.md
+    python3 scripts/test_plan_coverage.py            # coverage report
+    python3 scripts/test_plan_coverage.py --check    # CI guardrails
+    python3 scripts/test_plan_coverage.py --review review.md
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -50,13 +56,62 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLAN_PATH = REPO_ROOT / "docs" / "test-plan.yaml"
 
+# Released validation classes intentionally left without ``test_ids`` - either
+# generic/reusable assertions or checks the test plan has no entry for (yet).
+# The completeness guardrail fails for any *other* released class that is missing
+# ``test_ids``, so this list is how we say "this gap is on purpose". Shrink it as
+# checks get linked or as plan entries are added.
+ALLOWLIST_UNMAPPED: frozenset[str] = frozenset(
+    {
+        # Generic, reusable building blocks (no single plan item).
+        "StepSuccessCheck",
+        "FieldExistsCheck",
+        "FieldValueCheck",
+        "CrudOperationsCheck",
+        "InstanceStateCheck",
+        # Host/infra helpers with no dedicated plan entry.
+        "ContainerRuntimeCheck",
+        "CpuInfoCheck",
+        "NetworkConnectivityCheck",
+        "NetworkProvisionedCheck",
+        "SecurityBlockingCheck",
+        "SubnetConfigCheck",
+        "TrafficFlowCheck",
+        # K8s health/GPU checks the plan has no corresponding entry for (yet).
+        "K8sDriverVersionCheck",
+        "K8sExpectedNodesCheck",
+        "K8sGpuCapacityCheck",
+        "K8sGpuLabelsCheck",
+        "K8sGpuPodAccessCheck",
+        "K8sGpuStressWorkload",
+        "K8sMigConfigCheck",
+        "K8sNoErrorPodsCheck",
+        "K8sNoPendingPodsCheck",
+        "K8sNodeCountCheck",
+        "K8sNodeReadyCheck",
+        "K8sNvidiaSmiCheck",
+        "K8sPodHealthCheck",
+    }
+)
+
+# Requirement family (the alpha prefix of a test_id, e.g. "K8S22-01" -> "K8S",
+# "SEC14-01" -> "SEC") -> a label the implementing class must carry. Only
+# unambiguous domains are listed; families where the class labels do not encode
+# the plan domain (CP, CNP, BOOT, AUTH, DMS, OBS, TELEM) are omitted to avoid
+# false positives - their correctness relies on --review instead.
+PREFIX_REQUIRED_LABELS: dict[str, str] = {
+    "SEC": "security",
+    "K8S": "kubernetes",
+    "SLURM": "slurm",
+    "SDN": "network",
+    "NET": "network",
+    "BMAAS": "bare_metal",
+    "VMAAS": "vm",
+}
+
 
 def load_plan(path: Path = PLAN_PATH) -> dict[str, dict[str, Any]]:
-    """Return a mapping of ``test_id`` to its test-plan entry.
-
-    Later duplicate ``test_id`` values overwrite earlier ones; duplicates are
-    reported separately by :func:`integrity_errors`.
-    """
+    """Return a mapping of ``test_id`` to its test-plan entry."""
     data = yaml.safe_load(path.read_text())
     entries: dict[str, dict[str, Any]] = {}
     for domain in data.get("domains", []):
@@ -69,18 +124,17 @@ def load_plan(path: Path = PLAN_PATH) -> dict[str, dict[str, Any]]:
     return entries
 
 
-def class_test_id_map() -> dict[str, list[str]]:
-    """Return a mapping of validation class/variant name to declared test IDs.
-
-    Includes unreleased classes so their metadata is validated too.
-    """
+def catalog_entries() -> list[dict[str, Any]]:
+    """Return all catalog entries (released + unreleased) with name/labels/test_ids."""
     from isvtest.catalog import build_catalog
 
-    return {
-        entry["name"]: list(entry.get("test_ids", []))
-        for entry in build_catalog(released_only=False)
-        if entry.get("test_ids")
-    }
+    return build_catalog(released_only=False)
+
+
+def class_test_id_map(entries: list[dict[str, Any]] | None = None) -> dict[str, list[str]]:
+    """Return a mapping of validation class/variant name to declared test IDs."""
+    entries = catalog_entries() if entries is None else entries
+    return {e["name"]: list(e["test_ids"]) for e in entries if e.get("test_ids")}
 
 
 def released_names() -> set[str]:
@@ -90,18 +144,61 @@ def released_names() -> set[str]:
     return load_released_tests()
 
 
-def integrity_errors(plan_ids: set[str], class_map: dict[str, list[str]]) -> list[str]:
-    """Return referential-integrity errors between class metadata and the plan.
+def _is_released(name: str, released: set[str]) -> bool:
+    """Return whether ``name`` (or its variant base ``Name-suffix``) is released."""
+    return name in released or name.split("-")[0] in released
 
-    An error is raised when a class declares a ``test_ids`` value that does not
-    exist in the test plan (typo or stale reference).
-    """
+
+def integrity_errors(plan_ids: set[str], class_map: dict[str, list[str]]) -> list[str]:
+    """Errors for classes declaring a ``test_id`` absent from the plan (typo/stale)."""
     errors: list[str] = []
     for name in sorted(class_map):
         for tid in class_map[name]:
             if tid not in plan_ids:
                 errors.append(f"{name}: declares unknown test_id {tid!r} (not in test-plan.yaml)")
     return errors
+
+
+def completeness_errors(entries: list[dict[str, Any]], released: set[str]) -> list[str]:
+    """Errors for released classes missing ``test_ids`` and not explicitly allow-listed."""
+    errors: list[str] = []
+    for entry in entries:
+        name = entry["name"]
+        if entry.get("test_ids"):
+            continue
+        if not _is_released(name, released):
+            continue
+        if name in ALLOWLIST_UNMAPPED or name.split("-")[0] in ALLOWLIST_UNMAPPED:
+            continue
+        errors.append(
+            f"{name}: released class has no test_ids (link it to a test-plan id or add to ALLOWLIST_UNMAPPED)"
+        )
+    return sorted(errors)
+
+
+def _req_family(test_id: str) -> str:
+    """Return the alpha requirement family of a test_id ("K8S22-01" -> "K8S")."""
+    return re.sub(r"\d+$", "", test_id.split("-")[0])
+
+
+def consistency_errors(entries: list[dict[str, Any]]) -> list[str]:
+    """Errors where a class's labels do not match the domain its ``test_ids`` imply."""
+    errors: list[str] = []
+    for entry in entries:
+        labels = set(entry.get("labels") or [])
+        for tid in entry.get("test_ids") or []:
+            required = PREFIX_REQUIRED_LABELS.get(_req_family(tid))
+            if required and required not in labels:
+                errors.append(
+                    f"{entry['name']}: test_id {tid} implies label {required!r}, but class labels are {sorted(labels)}"
+                )
+    return sorted(errors)
+
+
+def stale_allowlist(entries: list[dict[str, Any]]) -> list[str]:
+    """Return allow-listed names that now declare ``test_ids`` (allowlist can shrink)."""
+    mapped = {e["name"] for e in entries if e.get("test_ids")}
+    return sorted(n for n in ALLOWLIST_UNMAPPED if n in mapped)
 
 
 def build_coverage(
@@ -115,11 +212,10 @@ def build_coverage(
         for tid in tids:
             test_id_to_classes[tid].append(name)
 
-    def is_released(name: str) -> bool:
-        return name in released or name.split("-")[0] in released
-
     covered = {t for t in plan_entries if test_id_to_classes.get(t)}
-    covered_released = {t for t in plan_entries if any(is_released(c) for c in test_id_to_classes.get(t, []))}
+    covered_released = {
+        t for t in plan_entries if any(_is_released(c, released) for c in test_id_to_classes.get(t, []))
+    }
 
     return {
         "plan_test_ids": len(plan_entries),
@@ -152,34 +248,65 @@ def render_markdown(coverage: dict[str, Any], plan_entries: dict[str, dict[str, 
     return "\n".join(lines) + "\n"
 
 
+def render_review(entries: list[dict[str, Any]], plan_entries: dict[str, dict[str, Any]]) -> str:
+    """Render a class -> test_id -> plan-summary table for human correctness review."""
+    lines = [
+        "# test_ids review (class \u2192 plan)",
+        "",
+        "Eyeball that each class's `test_ids` summaries match what the class checks.",
+        "",
+        "| Class | Labels | test_ids | Plan summaries |",
+        "|---|---|---|---|",
+    ]
+    for entry in sorted(entries, key=lambda e: e["name"]):
+        tids = entry.get("test_ids") or []
+        if not tids:
+            continue
+        labels = ", ".join(entry.get("labels") or [])
+        summaries = " <br> ".join(f"{t}: {(plan_entries.get(t, {}).get('summary') or '')[:60]}" for t in tids)
+        lines.append(f"| `{entry['name']}` | {labels} | {', '.join(tids)} | {summaries} |")
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Returns a process exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Referential-integrity guardrail: exit non-zero if a class references an unknown test_id.",
+        help="CI guardrails: fail on integrity, completeness, or consistency errors.",
     )
     parser.add_argument("--json", metavar="PATH", help="Write the coverage report as JSON to PATH.")
     parser.add_argument("--markdown", metavar="PATH", help="Write the coverage report as Markdown to PATH.")
+    parser.add_argument("--review", metavar="PATH", help="Write the class->plan review table as Markdown to PATH.")
     args = parser.parse_args(argv)
 
     plan_entries = load_plan()
     plan_ids = set(plan_entries)
-    class_map = class_test_id_map()
+    entries = catalog_entries()
+    class_map = class_test_id_map(entries)
+    released = released_names()
 
-    errors = integrity_errors(plan_ids, class_map)
+    checks = {
+        "integrity": integrity_errors(plan_ids, class_map),
+        "completeness": completeness_errors(entries, released),
+        "consistency": consistency_errors(entries),
+    }
+    all_errors = [f"[{kind}] {msg}" for kind, msgs in checks.items() for msg in msgs]
+
     if args.check:
-        if errors:
-            sys.stderr.write("test-plan coverage check failed:\n  " + "\n  ".join(errors) + "\n")
+        if all_errors:
+            sys.stderr.write("test-plan coverage check failed:\n  " + "\n  ".join(all_errors) + "\n")
             return 1
-        print(f"OK: {len(class_map)} classes reference only known test IDs.")
+        print(f"OK: {len(class_map)} mapped classes pass integrity, completeness, and consistency.")
         return 0
 
-    if errors:
-        sys.stderr.write("WARNING: integrity errors found (run with --check in CI):\n  " + "\n  ".join(errors) + "\n")
+    if all_errors:
+        sys.stderr.write("WARNING (run with --check in CI):\n  " + "\n  ".join(all_errors) + "\n")
+    for name in stale_allowlist(entries):
+        sys.stderr.write(f"NOTE: '{name}' is in ALLOWLIST_UNMAPPED but now declares test_ids; remove it.\n")
 
-    coverage = build_coverage(plan_entries, class_map, released_names())
+    coverage = build_coverage(plan_entries, class_map, released)
 
     if args.json:
         Path(args.json).write_text(json.dumps(coverage, indent=2) + "\n")
@@ -187,6 +314,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.markdown:
         Path(args.markdown).write_text(render_markdown(coverage, plan_entries))
         print(f"Wrote {args.markdown}")
+    if args.review:
+        Path(args.review).write_text(render_review(entries, plan_entries))
+        print(f"Wrote {args.review}")
 
     print(f"Test-plan items:                     {coverage['plan_test_ids']}")
     print(f"Covered by >=1 class:                 {coverage['plan_test_ids_covered']}")
