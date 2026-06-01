@@ -31,8 +31,8 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#37 (closed)"
-                  - "#38 (closed)"
+                  - "#37"
+                  - "#38"
                 req_id: BOOT01
                 test_id: BOOT01-01
                 status: approved
@@ -43,7 +43,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#39 (closed)"
+                  - "#39"
                 req_id: BOOT01
                 test_id: BOOT01-02
                 status: approved
@@ -56,7 +56,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#40 (closed)"
+                  - "#40"
                 req_id: BOOT03
                 test_id: BOOT03-01
                 status: approved
@@ -67,7 +67,7 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#104 (closed)"
+                  - "#104"
                 req_id: BOOT03
                 test_id: BOOT03-02
                 status: approved
@@ -80,7 +80,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#41 (closed)"
+                  - "#41"
                 req_id: BOOT01
                 test_id: BOOT01-03
                 status: approved
@@ -93,7 +93,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#43 (closed)"
+                  - "#43"
                 req_id: BOOT01
                 test_id: BOOT01-04
                 status: approved
@@ -106,7 +106,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#44 (closed)"
+                  - "#44"
                 req_id: BOOT01
                 test_id: BOOT01-05
                 status: approved
@@ -154,7 +154,7 @@ domains:
                 priority: P1
                 notes: ""
                 github_issues:
-                  - "#247 (open)"
+                  - "#247"
               - summary: Access other components via a specified key as possible (SOL, Network devices)
                 milestone: M5
                 req_id: ""
@@ -163,7 +163,7 @@ domains:
                 priority: P1
                 notes: ""
                 github_issues:
-                  - "#248 (open)"
+                  - "#248"
       - name: Identity and Asset Mgmt (IAM)
         capabilities:
           - description: Manages users, service identities, roles, and permissions across tenants and services. Forms the security foundation of the platform.
@@ -177,7 +177,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#21 (closed)"
+                  - "#21"
                 req_id: ""
                 test_id: IAM-XX-01
                 status: approved
@@ -188,7 +188,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#23 (closed)"
+                  - "#23"
                 req_id: ""
                 test_id: IAM-XX-02
                 status: approved
@@ -203,7 +203,7 @@ domains:
                 status: approved
                 notes: ""
                 github_issues:
-                  - "#341 (open)"
+                  - "#341"
       - name: DDI
         capabilities:
           - description: core network services for name resolution, IP allocation, and address lifecycle management
@@ -215,7 +215,7 @@ domains:
                   - MiniCloud
                 milestone: M4
                 github_issues:
-                  - "#131 (closed)"
+                  - "#131"
                 req_id: ""
                 test_id: CP-XX-01
                 status: approved
@@ -226,7 +226,7 @@ domains:
                   - MiniCloud
                 milestone: M4
                 github_issues:
-                  - "#132 (closed)"
+                  - "#132"
                 req_id: ""
                 test_id: CP-XX-02
                 status: approved
@@ -270,8 +270,8 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#26 (closed)"
-                  - "#27 (closed)"
+                  - "#26"
+                  - "#27"
                 req_id: ""
                 test_id: CP-XX-03
                 status: approved
@@ -286,14 +286,14 @@ domains:
                 status: approved
                 notes: ""
                 github_issues:
-                  - "#261 (open)"
+                  - "#261"
               - summary: Access keys can be created, received, used to log in
                 priority: P0
                 dependencies:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#28 (closed)"
+                  - "#28"
                 req_id: ""
                 test_id: CP-XX-05
                 status: approved
@@ -306,7 +306,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#29 (closed)"
+                  - "#29"
                 req_id: ""
                 test_id: CP-XX-06
                 status: approved
@@ -317,7 +317,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#30 (closed)"
+                  - "#30"
                 req_id: ""
                 test_id: CP-XX-07
                 status: approved
@@ -328,7 +328,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#31 (closed)"
+                  - "#31"
                 req_id: ""
                 test_id: CP-XX-08
                 status: approved
@@ -339,8 +339,8 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#32 (closed)"
-                  - "#33 (closed)"
+                  - "#32"
+                  - "#33"
                 req_id: ""
                 test_id: CP-XX-09
                 status: approved
@@ -351,7 +351,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#34 (closed)"
+                  - "#34"
                 req_id: ""
                 test_id: CP-XX-10
                 status: approved
@@ -364,7 +364,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#35 (closed)"
+                  - "#35"
                 req_id: ""
                 test_id: CP-XX-11
                 status: approved
@@ -379,7 +379,7 @@ domains:
                   - MiniCloud
                 milestone: M4
                 github_issues:
-                  - "#133 (open)"
+                  - "#133"
                 req_id: ""
                 test_id: HWING-XX-01
                 status: approved
@@ -407,7 +407,7 @@ domains:
                 status: approved
                 notes: ""
                 github_issues:
-                  - "#315 (open)"
+                  - "#315"
               - summary: Check that OS is approved
                 priority: P1
                 dependencies:
@@ -418,7 +418,7 @@ domains:
                 status: approved
                 notes: ""
                 github_issues:
-                  - "#243 (open)"
+                  - "#243"
               - summary: Check that TPM Configuration can be set per host
                 priority: P1
                 dependencies:
@@ -429,7 +429,7 @@ domains:
                 status: approved
                 notes: ""
                 github_issues:
-                  - "#316 (open)"
+                  - "#316"
               - summary: Check that an updated BIOS is installed on all hardware
                 priority: P1
                 dependencies:
@@ -440,8 +440,8 @@ domains:
                 status: approved
                 notes: ""
                 github_issues:
-                  - "#319 (open)"
-                  - "#246 (open)"
+                  - "#319"
+                  - "#246"
               - summary: Check that the updated firmware is installed
                 labels:
                   - min_req
@@ -460,7 +460,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#259 (open)"
+                  - "#259"
                 req_id: CNP09
                 test_id: CNP09-02
                 status: pending
@@ -483,7 +483,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#49 (closed)"
+                  - "#49"
                 req_id: CNP01
                 test_id: CNP01-01
                 status: approved
@@ -495,8 +495,8 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#51 (closed)"
-                  - "#52 (closed)"
+                  - "#51"
+                  - "#52"
                 req_id: CNP01, CNP04
                 test_id: CNP01-02
                 status: approved
@@ -508,7 +508,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#53 (closed)"
+                  - "#53"
                 req_id: CNP01
                 test_id: CNP01-03
                 status: approved
@@ -521,8 +521,8 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#54 (closed)"
-                  - "#47 (closed)"
+                  - "#54"
+                  - "#47"
                 req_id: SEC21
                 test_id: SEC21-01
                 status: approved
@@ -535,7 +535,7 @@ domains:
                   - MiniCloud
                 milestone: M4
                 github_issues:
-                  - "#134 (open)"
+                  - "#134"
                 req_id: SEC21
                 test_id: SEC21-02
                 status: approved
@@ -548,7 +548,7 @@ domains:
                   - MiniCloud
                 milestone: M3
                 github_issues:
-                  - "#105 (closed)"
+                  - "#105"
                 req_id: CNP01
                 test_id: CNP01-04
                 status: approved
@@ -574,8 +574,8 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#48 (closed)"
-                  - "#56 (closed)"
+                  - "#48"
+                  - "#56"
                 req_id: ""
                 test_id: BMAAS-XX-03
                 status: approved
@@ -586,8 +586,8 @@ domains:
                 priority: P0
                 milestone: M1
                 github_issues:
-                  - "#50 (closed)"
-                  - "#57 (closed)"
+                  - "#50"
+                  - "#57"
                 req_id: CNP01
                 test_id: CNP01-05
                 status: approved
@@ -600,7 +600,7 @@ domains:
                   - MiniCloud
                 milestone: M4
                 github_issues:
-                  - "#135 (closed)"
+                  - "#135"
                 req_id: CNP01
                 test_id: CNP01-06
                 status: approved
@@ -611,8 +611,8 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#58 (closed)"
-                  - "#69 (closed)"
+                  - "#58"
+                  - "#69"
                 req_id: ""
                 test_id: BMAAS-XX-04
                 status: approved
@@ -626,7 +626,7 @@ domains:
                   - MiniCloud
                 milestone: M3
                 github_issues:
-                  - "#106 (closed)"
+                  - "#106"
                 req_id: CNP01
                 test_id: CNP01-07
                 status: approved
@@ -637,8 +637,8 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#107 (closed)"
-                  - "#113 (closed)"
+                  - "#107"
+                  - "#113"
                 req_id: BOOT02
                 test_id: BOOT02-01
                 status: approved
@@ -651,7 +651,7 @@ domains:
                   - MiniCloud
                 milestone: M3
                 github_issues:
-                  - "#108 (closed)"
+                  - "#108"
                 req_id: CNP01
                 test_id: CNP01-08
                 status: approved
@@ -667,8 +667,8 @@ domains:
                 status: approved
                 priority: P0
                 github_issues:
-                  - "#112 (closed)"
-                  - "#181 (closed)"
+                  - "#112"
+                  - "#181"
           - description: Nodes will be able to access expected resources on the local networks
             example: AWS EC2/Forge
             tests:
@@ -678,7 +678,7 @@ domains:
                   - MiniCloud
                 milestone: M4
                 github_issues:
-                  - "#136 (open)"
+                  - "#136"
                 req_id: ""
                 test_id: BMAAS-XX-05
                 status: approved
@@ -689,7 +689,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#60 (closed)"
+                  - "#60"
                 req_id: ""
                 test_id: BMAAS-XX-06
                 status: approved
@@ -705,7 +705,7 @@ domains:
                 test_id: BMAAS-XX-07
                 status: approved
                 github_issues:
-                  - "#250 (open)"
+                  - "#250"
               - summary: Serial console access is required (read-only sufficient, interactive preferred) (Bare Metal)
                 labels:
                   - min_req
@@ -714,8 +714,8 @@ domains:
                   - LimitedEnv
                 milestone: M3
                 github_issues:
-                  - "#109 (closed)"
-                  - "#114 (closed)"
+                  - "#109"
+                  - "#114"
                 req_id: CNP06
                 test_id: CNP06-01
                 status: approved
@@ -726,7 +726,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#61 (closed)"
+                  - "#61"
                 req_id: ""
                 test_id: BMAAS-XX-08
                 status: approved
@@ -739,8 +739,8 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#63 (closed)"
-                  - "#68 (closed)"
+                  - "#63"
+                  - "#68"
                 req_id: ""
                 test_id: BMAAS-XX-09
                 status: approved
@@ -754,8 +754,8 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#64 (closed)"
-                  - "#82 (closed)"
+                  - "#64"
+                  - "#82"
                 req_id: ""
                 test_id: BMAAS-XX-10
                 status: approved
@@ -767,7 +767,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#65 (closed)"
+                  - "#65"
                 req_id: ""
                 test_id: BMAAS-XX-11
                 status: approved
@@ -781,7 +781,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#66 (closed)"
+                  - "#66"
                 req_id: ""
                 test_id: BMAAS-XX-12
                 status: approved
@@ -792,7 +792,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#258 (open)"
+                  - "#258"
                 req_id: CNP06
                 test_id: CNP06-02
                 status: pending
@@ -805,9 +805,9 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#197 (open)"
-                  - "#196 (open)"
-                  - "#185 (closed)"
+                  - "#197"
+                  - "#196"
+                  - "#185"
                 req_id: CNP08
                 test_id: CNP08-01
                 status: pending
@@ -833,7 +833,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#42 (closed)"
+                  - "#42"
                 req_id: CNP01
                 test_id: CNP01-09
                 status: approved
@@ -847,7 +847,7 @@ domains:
                   - LimitedEnv
                 milestone: M2
                 github_issues:
-                  - "#51 (closed)"
+                  - "#51"
                 req_id: CNP01, CNP04
                 test_id: CNP01-10
                 status: approved
@@ -859,7 +859,7 @@ domains:
                   - LimitedEnv
                 milestone: M1
                 github_issues:
-                  - "#45 (closed)"
+                  - "#45"
                 req_id: CNP01
                 test_id: CNP01-11
                 status: approved
@@ -872,7 +872,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#46 (closed)"
+                  - "#46"
                 req_id: CNP01
                 test_id: CNP01-12
                 status: approved
@@ -885,7 +885,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#47 (closed)"
+                  - "#47"
                 req_id: SEC21
                 test_id: SEC21-03
                 status: approved
@@ -928,7 +928,7 @@ domains:
                   - LimitedEnv
                 milestone: M3
                 github_issues:
-                  - "#110 (closed)"
+                  - "#110"
                 req_id: CNP01
                 test_id: CNP01-14
                 status: approved
@@ -941,7 +941,7 @@ domains:
                   - LimitedEnv
                 milestone: M3
                 github_issues:
-                  - "#111 (closed)"
+                  - "#111"
                 req_id: CNP01
                 test_id: CNP01-15
                 status: approved
@@ -954,7 +954,7 @@ domains:
                   - LimitedEnv
                 milestone: M3
                 github_issues:
-                  - "#112 (closed)"
+                  - "#112"
                 req_id: CNP05
                 test_id: CNP05-02
                 status: approved
@@ -964,7 +964,7 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#113 (closed)"
+                  - "#113"
                 req_id: BOOT02
                 test_id: BOOT02-02
                 status: approved
@@ -991,7 +991,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#55 (closed)"
+                  - "#55"
                 req_id: ""
                 test_id: VMAAS-XX-05
                 status: approved
@@ -1002,7 +1002,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#59 (closed)"
+                  - "#59"
                 req_id: ""
                 test_id: VMAAS-XX-06
                 status: approved
@@ -1013,7 +1013,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#62 (closed)"
+                  - "#62"
                 req_id: ""
                 test_id: VMAAS-XX-07
                 status: approved
@@ -1034,7 +1034,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#67 (closed)"
+                  - "#67"
                 req_id: ""
                 test_id: VMAAS-XX-09
                 status: approved
@@ -1094,7 +1094,7 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#114 (closed)"
+                  - "#114"
                 req_id: CNP06
                 test_id: CNP06-03
                 status: approved
@@ -1108,7 +1108,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#198 (open)"
+                  - "#198"
                 req_id: CNP08
                 test_id: CNP08-03
                 status: pending
@@ -1131,7 +1131,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#256 (open)"
+                  - "#256"
                 req_id: CNP01
                 test_id: CNP01-16
                 status: pending
@@ -1142,7 +1142,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#257 (open)"
+                  - "#257"
                 req_id: CNP01
                 test_id: CNP01-17
                 status: pending
@@ -1158,7 +1158,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#11 (closed)"
+                  - "#11"
                 req_id: SDN01
                 test_id: SDN01-01
                 status: approved
@@ -1171,7 +1171,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#12 (closed)"
+                  - "#12"
                 req_id: SDN01
                 test_id: SDN01-02
                 status: approved
@@ -1184,7 +1184,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#13 (closed)"
+                  - "#13"
                 req_id: SDN01
                 test_id: SDN01-03
                 status: approved
@@ -1197,7 +1197,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#14 (closed)"
+                  - "#14"
                 req_id: SDN01
                 test_id: SDN01-04
                 status: approved
@@ -1208,7 +1208,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#16 (closed)"
+                  - "#16"
                 req_id: SDN04
                 test_id: SDN04-01
                 status: approved
@@ -1221,8 +1221,8 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#17 (closed)"
-                  - "#18 (closed)"
+                  - "#17"
+                  - "#18"
                 req_id: SDN04
                 test_id: SDN04-02
                 status: approved
@@ -1235,7 +1235,7 @@ domains:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#18 (closed)"
+                  - "#18"
                 req_id: SDN04
                 test_id: SDN04-03
                 status: approved
@@ -1246,7 +1246,7 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#115 (closed)"
+                  - "#115"
                 req_id: NET03, SDN01
                 test_id: NET03-01
                 status: approved
@@ -1257,7 +1257,7 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#116 (closed)"
+                  - "#116"
                 req_id: ""
                 test_id: SDN-XX-01
                 status: approved
@@ -1268,7 +1268,7 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#117 (closed)"
+                  - "#117"
                 req_id: SDN05
                 test_id: SDN05-01
                 status: approved
@@ -1279,7 +1279,7 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#118 (closed)"
+                  - "#118"
                 req_id: SDN06
                 test_id: SDN06-01
                 status: approved
@@ -1290,7 +1290,7 @@ domains:
                 priority: P0
                 milestone: M3
                 github_issues:
-                  - "#119 (closed)"
+                  - "#119"
                 req_id: SDN07
                 test_id: SDN07-01
                 status: approved
@@ -1304,9 +1304,9 @@ domains:
                 status: approved
                 priority: P0
                 github_issues:
-                  - "#199 (open)"
-                  - "#171 (closed)"
-                  - "#178 (closed)"
+                  - "#199"
+                  - "#171"
+                  - "#178"
               - summary: Retrieve a Security Group/list Security Groups
                 labels:
                   - min_req
@@ -1316,7 +1316,7 @@ domains:
                 status: approved
                 priority: P0
                 github_issues:
-                  - "#200 (open)"
+                  - "#200"
               - summary: Update a Security Group
                 labels:
                   - min_req
@@ -1326,7 +1326,7 @@ domains:
                 status: approved
                 priority: P0
                 github_issues:
-                  - "#201 (open)"
+                  - "#201"
               - summary: Delete a Security Group
                 labels:
                   - min_req
@@ -1336,14 +1336,14 @@ domains:
                 status: approved
                 priority: P0
                 github_issues:
-                  - "#202 (open)"
+                  - "#202"
               - summary: NVLink Partitioning
                 priority: P0
                 dependencies:
                   - LimitedEnv
                 milestone: M0
                 github_issues:
-                  - "#19 (closed)"
+                  - "#19"
                 req_id: CNP03
                 test_id: CNP03-01
                 status: approved
@@ -1491,7 +1491,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#281 (open)"
+                  - "#281"
                 req_id: SDN02
                 test_id: SDN02-05
                 status: pending
@@ -1502,7 +1502,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#282 (open)"
+                  - "#282"
                 req_id: SDN02
                 test_id: SDN02-06
                 status: pending
@@ -1513,7 +1513,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#283 (open)"
+                  - "#283"
                 req_id: SDN02
                 test_id: SDN02-07
                 status: pending
@@ -1524,7 +1524,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#284 (open)"
+                  - "#284"
                 req_id: SDN02
                 test_id: SDN02-08
                 status: pending
@@ -1535,7 +1535,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#285 (open)"
+                  - "#285"
                 req_id: SDN02
                 test_id: SDN02-09
                 status: pending
@@ -1548,7 +1548,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#289 (open)"
+                  - "#289"
                 req_id: SDN08
                 test_id: SDN08-01
                 status: pending
@@ -1561,7 +1561,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#286 (open)"
+                  - "#286"
                 req_id: SDN02
                 test_id: SDN02-10
                 status: pending
@@ -1574,7 +1574,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#290 (open)"
+                  - "#290"
                 req_id: SDN09
                 test_id: SDN09-01
                 status: pending
@@ -1585,7 +1585,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#291 (open)"
+                  - "#291"
                 req_id: SDN09
                 test_id: SDN09-02
                 status: pending
@@ -1596,7 +1596,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#292 (open)"
+                  - "#292"
                 req_id: SDN09
                 test_id: SDN09-03
                 status: pending
@@ -1633,7 +1633,7 @@ domains:
                 notes: ""
                 priority: ""
                 github_issues:
-                  - "#203 (open)"
+                  - "#203"
               - summary: "Resource discovery API: newly delivered capacity must be discoverable. This \"Resource Index\" must provide a stable resource identifer."
                 req_id: CAP03
                 test_id: CAP03-01
@@ -1641,7 +1641,7 @@ domains:
                 notes: ""
                 priority: ""
                 github_issues:
-                  - "#204 (open)"
+                  - "#204"
           - description: Stable Identifiers (Switches/Infrastructure)
             tests:
               - summary: Verify that switch identifiers are stable across reboots and firmware updates
@@ -1651,7 +1651,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#205 (open)"
+                  - "#205"
                 req_id: CNP08
                 test_id: CNP08-05
                 status: pending
@@ -1723,7 +1723,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#206 (open)"
+                  - "#206"
                 req_id: BFX01
                 test_id: BFX01-01
                 status: pending
@@ -1734,7 +1734,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#207 (open)"
+                  - "#207"
                 req_id: BFX01
                 test_id: BFX01-02
                 status: pending
@@ -1745,7 +1745,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#208 (open)"
+                  - "#208"
                 req_id: BFX01
                 test_id: BFX01-03
                 status: pending
@@ -1756,7 +1756,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#209 (open)"
+                  - "#209"
                 req_id: BFX01
                 test_id: BFX01-04
                 status: pending
@@ -1767,7 +1767,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#210 (open)"
+                  - "#210"
                 req_id: BFX01
                 test_id: BFX01-05
                 status: pending
@@ -1780,7 +1780,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#211 (open)"
+                  - "#211"
                 req_id: BFX02
                 test_id: BFX02-01
                 status: pending
@@ -1791,7 +1791,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#212 (open)"
+                  - "#212"
                 req_id: BFX02
                 test_id: BFX02-02
                 status: pending
@@ -1802,7 +1802,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#213 (open)"
+                  - "#213"
                 req_id: BFX02
                 test_id: BFX02-03
                 status: pending
@@ -1815,7 +1815,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#320 (open)"
+                  - "#320"
                 req_id: BFX03
                 test_id: BFX03-01
                 status: pending
@@ -1826,7 +1826,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#214 (open)"
+                  - "#214"
                 req_id: BFX03
                 test_id: BFX03-02
                 status: pending
@@ -1837,7 +1837,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#215 (open)"
+                  - "#215"
                 req_id: BFX03
                 test_id: BFX03-03
                 status: pending
@@ -1855,7 +1855,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#327 (open)"
+                  - "#327"
                 req_id: HSS01
                 test_id: HSS01-01
                 status: pending
@@ -1866,7 +1866,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#328 (open)"
+                  - "#328"
                 req_id: HSS02
                 test_id: HSS02-01
                 status: pending
@@ -1877,7 +1877,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#329 (open)"
+                  - "#329"
                 req_id: HSS03, K8S23
                 test_id: HSS03-01
                 status: pending
@@ -1888,7 +1888,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#330 (open)"
+                  - "#330"
                 req_id: HSS04
                 test_id: HSS04-01
                 status: pending
@@ -1899,7 +1899,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#331 (open)"
+                  - "#331"
                 req_id: HSS05
                 test_id: HSS05-01
                 status: pending
@@ -1917,7 +1917,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#326 (open)"
+                  - "#326"
                 req_id: DIR02
                 test_id: DIR02-01
                 status: pending
@@ -1928,7 +1928,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#324 (open)"
+                  - "#324"
                 req_id: DIR01
                 test_id: DIR01-01
                 status: pending
@@ -1939,7 +1939,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#325 (open)"
+                  - "#325"
                 req_id: DIR01
                 test_id: DIR01-02
                 status: pending
@@ -1952,7 +1952,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#263 (open)"
+                  - "#263"
                 req_id: DMS01
                 test_id: DMS01-01
                 status: pending
@@ -1963,7 +1963,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#264 (open)"
+                  - "#264"
                 req_id: DMS02
                 test_id: DMS02-01
                 status: pending
@@ -1974,7 +1974,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#265 (open)"
+                  - "#265"
                 req_id: DMS03
                 test_id: DMS03-01
                 status: pending
@@ -1985,7 +1985,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#266 (open)"
+                  - "#266"
                 req_id: DMS05
                 test_id: DMS05-01
                 status: pending
@@ -1998,7 +1998,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#358 (open)"
+                  - "#358"
                 req_id: STG02
                 test_id: STG02-01
                 status: pending
@@ -2009,7 +2009,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#359 (open)"
+                  - "#359"
                 req_id: STG03
                 test_id: STG03-01
                 status: pending
@@ -2020,7 +2020,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#360 (open)"
+                  - "#360"
                 req_id: STG04
                 test_id: STG04-01
                 status: pending
@@ -2031,7 +2031,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#361 (open)"
+                  - "#361"
                 req_id: STG05
                 test_id: STG05-01
                 status: pending
@@ -2044,7 +2044,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#296 (open)"
+                  - "#296"
                 req_id: SEC04
                 test_id: SEC04-01
                 status: pending
@@ -2057,7 +2057,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#332 (open)"
+                  - "#332"
                 req_id: HSS06
                 test_id: HSS06-01
                 status: pending
@@ -2072,7 +2072,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#333 (open)"
+                  - "#333"
                 req_id: HSS07
                 test_id: HSS07-01
                 status: pending
@@ -2083,7 +2083,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#334 (open)"
+                  - "#334"
                 req_id: HSS09
                 test_id: HSS09-01
                 status: pending
@@ -2094,7 +2094,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#335 (open)"
+                  - "#335"
                 req_id: HSS10
                 test_id: HSS10-01
                 status: pending
@@ -2105,7 +2105,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#336 (open)"
+                  - "#336"
                 req_id: HSS12
                 test_id: HSS12-01
                 status: pending
@@ -2116,7 +2116,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#337 (open)"
+                  - "#337"
                 req_id: HSS13
                 test_id: HSS13-01
                 status: pending
@@ -2127,7 +2127,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#338 (open)"
+                  - "#338"
                 req_id: HSS14
                 test_id: HSS14-01
                 status: pending
@@ -2138,7 +2138,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#339 (open)"
+                  - "#339"
                 req_id: HSS15
                 test_id: HSS15-01
                 status: pending
@@ -2149,7 +2149,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#340 (open)"
+                  - "#340"
                 req_id: HSS18
                 test_id: HSS18-01
                 status: pending
@@ -2165,7 +2165,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#262 (open)"
+                  - "#262"
                 req_id: ""
                 test_id: DATASVC-XX-01
                 status: pending
@@ -2181,7 +2181,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#272 (open)"
+                  - "#272"
                 req_id: K8S23
                 test_id: K8S23-01
                 status: pending
@@ -2192,7 +2192,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#321 (open)"
+                  - "#321"
                 req_id: ""
                 test_id: DATASVC-XX-02
                 status: pending
@@ -2203,7 +2203,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#322 (open)"
+                  - "#322"
                 req_id: ""
                 test_id: DATASVC-XX-03
                 status: pending
@@ -2214,7 +2214,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#323 (open)"
+                  - "#323"
                 req_id: ""
                 test_id: DATASVC-XX-04
                 status: pending
@@ -2419,7 +2419,7 @@ domains:
                 status: pending
                 notes: ""
                 github_issues:
-                  - "#217 (open)"
+                  - "#217"
           - description: Control Plane Isolation
             tests:
               - summary: per tenant k8s control plane outside of the tenant cluster/VPC
@@ -2500,7 +2500,7 @@ domains:
                 status: pending
                 priority: P0
                 github_issues:
-                  - "#233 (open)"
+                  - "#233"
           - description: k8s service account OIDC
             tests:
               - summary: test that the service account can be authorized with OIDC
@@ -2521,7 +2521,7 @@ domains:
                 status: approved
                 priority: P1
                 github_issues:
-                  - "#218 (open)"
+                  - "#218"
           - description: "TODO: L3 networking logging"
             tests:
               - summary: Verify that pod-to-pod L3 traffic flow logs are available and queryable
@@ -2543,7 +2543,7 @@ domains:
                 status: approved
                 priority: P0
                 github_issues:
-                  - "#219 (open)"
+                  - "#219"
           - description: "TODO: Dynamic provisioning, snapshots, and resizing"
             tests:
               - summary: "TODO: Helm version"
@@ -2569,7 +2569,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#273 (open)"
+                  - "#273"
                 req_id: K8S23
                 test_id: K8S23-04
                 status: pending
@@ -2580,7 +2580,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#274 (open)"
+                  - "#274"
                 req_id: K8S23
                 test_id: K8S23-05
                 status: pending
@@ -2591,7 +2591,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#275 (open)"
+                  - "#275"
                 req_id: K8S23
                 test_id: K8S23-06
                 status: pending
@@ -2602,7 +2602,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#276 (open)"
+                  - "#276"
                 req_id: K8S23
                 test_id: K8S23-07
                 status: pending
@@ -2626,7 +2626,7 @@ domains:
                 priority: P0
                 milestone: M5
                 github_issues:
-                  - "#220 (open)"
+                  - "#220"
           - description: "K8s Versioning & Compliance"
             tests:
               - summary: Verify support for the three most recent minor releases (N-2)
@@ -2704,7 +2704,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#271 (open)"
+                  - "#271"
                 req_id: K8S15
                 test_id: K8S15-01
                 status: pending
@@ -2729,7 +2729,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#301 (open)"
+                  - "#301"
                 req_id: SEC09
                 test_id: SEC09-01
                 status: pending
@@ -2740,7 +2740,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#302 (open)"
+                  - "#302"
                 req_id: SEC09
                 test_id: SEC09-02
                 status: pending
@@ -2753,7 +2753,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#267 (open)"
+                  - "#267"
                 req_id: ""
                 test_id: K8S-XX-08
                 status: pending
@@ -2778,8 +2778,8 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#269 (open)"
-                  - "#221 (open)"
+                  - "#269"
+                  - "#221"
                 req_id: K8S06
                 test_id: K8S06-01
                 status: pending
@@ -2790,8 +2790,8 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#270 (open)"
-                  - "#222 (open)"
+                  - "#270"
+                  - "#222"
                 req_id: K8S06
                 test_id: K8S06-02
                 status: pending
@@ -2802,7 +2802,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#223 (open)"
+                  - "#223"
                 req_id: K8S06
                 test_id: K8S06-03
                 status: pending
@@ -2813,7 +2813,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#224 (open)"
+                  - "#224"
                 req_id: K8S06
                 test_id: K8S06-04
                 status: pending
@@ -2826,7 +2826,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#225 (closed)"
+                  - "#225"
                 req_id: K8S07
                 test_id: K8S07-01
                 status: pending
@@ -2839,7 +2839,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#226 (closed)"
+                  - "#226"
                 req_id: K8S18
                 test_id: K8S18-01
                 status: pending
@@ -2852,7 +2852,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#227 (closed)"
+                  - "#227"
                 req_id: K8S20
                 test_id: K8S20-01
                 status: pending
@@ -2865,7 +2865,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#268 (open)"
+                  - "#268"
                 req_id: ""
                 test_id: K8S-XX-09
                 status: pending
@@ -2880,7 +2880,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#277 (open)"
+                  - "#277"
                 status: pending
       - name: Power Policy Management
         capabilities:
@@ -2982,7 +2982,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#342 (open)"
+                  - "#342"
                 req_id: ""
                 test_id: OBS-XX-05
                 status: pending
@@ -2995,7 +2995,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#343 (open)"
+                  - "#343"
                 req_id: ""
                 test_id: OBS-XX-06
                 status: pending
@@ -3006,7 +3006,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#344 (open)"
+                  - "#344"
                 req_id: ""
                 test_id: OBS-XX-07
                 status: pending
@@ -3017,7 +3017,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#345 (open)"
+                  - "#345"
                 req_id: ""
                 test_id: OBS-XX-08
                 status: pending
@@ -3028,7 +3028,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#346 (open)"
+                  - "#346"
                 req_id: ""
                 test_id: OBS-XX-09
                 status: pending
@@ -3039,7 +3039,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#347 (open)"
+                  - "#347"
                 req_id: ""
                 test_id: OBS-XX-10
                 status: pending
@@ -3052,7 +3052,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#348 (open)"
+                  - "#348"
                 req_id: ""
                 test_id: OBS-XX-11
                 status: pending
@@ -3063,7 +3063,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#349 (open)"
+                  - "#349"
                 req_id: ""
                 test_id: OBS-XX-12
                 status: pending
@@ -3074,7 +3074,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#350 (open)"
+                  - "#350"
                 req_id: ""
                 test_id: OBS-XX-13
                 status: pending
@@ -3085,7 +3085,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#351 (open)"
+                  - "#351"
                 req_id: ""
                 test_id: OBS-XX-14
                 status: pending
@@ -3096,7 +3096,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#352 (open)"
+                  - "#352"
                 req_id: ""
                 test_id: OBS-XX-15
                 status: pending
@@ -3107,7 +3107,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#353 (open)"
+                  - "#353"
                 req_id: ""
                 test_id: OBS-XX-16
                 status: pending
@@ -3118,7 +3118,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#354 (open)"
+                  - "#354"
                 req_id: ""
                 test_id: OBS-XX-17
                 status: pending
@@ -3129,7 +3129,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#355 (open)"
+                  - "#355"
                 req_id: ""
                 test_id: OBS-XX-18
                 status: pending
@@ -3140,7 +3140,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#356 (open)"
+                  - "#356"
                 req_id: ""
                 test_id: OBS-XX-19
                 status: pending
@@ -3165,7 +3165,7 @@ domains:
                   - MiniCloud
                 milestone: M3
                 github_issues:
-                  - "#120 (closed)"
+                  - "#120"
                 req_id: ""
                 test_id: TELEM-XX-02
                 status: approved
@@ -3178,7 +3178,7 @@ domains:
                   - LimitedEnv
                 milestone: M3
                 github_issues:
-                  - "#121 (closed)"
+                  - "#121"
                 req_id: ""
                 test_id: TELEM-XX-03
                 status: approved
@@ -3191,7 +3191,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#362 (open)"
+                  - "#362"
                 req_id: ""
                 test_id: TELEM-XX-04
                 status: pending
@@ -3204,7 +3204,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#363 (open)"
+                  - "#363"
                 req_id: ""
                 test_id: TELEM-XX-05
                 status: pending
@@ -3215,7 +3215,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#364 (open)"
+                  - "#364"
                 req_id: ""
                 test_id: TELEM-XX-06
                 status: pending
@@ -3228,7 +3228,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#365 (open)"
+                  - "#365"
                 req_id: ""
                 test_id: TELEM-XX-07
                 status: pending
@@ -3239,7 +3239,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#366 (open)"
+                  - "#366"
                 req_id: ""
                 test_id: TELEM-XX-08
                 status: pending
@@ -3256,7 +3256,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#306 (open)"
+                  - "#306"
                 req_id: SEC12
                 test_id: SEC12-01
                 status: pending
@@ -3267,7 +3267,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#307 (open)"
+                  - "#307"
                 req_id: SEC12
                 test_id: SEC12-02
                 status: pending
@@ -3278,7 +3278,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#260 (open)"
+                  - "#260"
                 req_id: CNP10
                 test_id: CNP10-01
                 status: pending
@@ -3289,7 +3289,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#308 (open)"
+                  - "#308"
                 req_id: SEC12
                 test_id: SEC12-03
                 status: pending
@@ -3302,7 +3302,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#309 (open)"
+                  - "#309"
                 req_id: SEC13
                 test_id: SEC13-01
                 status: pending
@@ -3315,7 +3315,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#311 (open)"
+                  - "#311"
                 req_id: SEC14
                 test_id: SEC14-01
                 status: pending
@@ -3326,7 +3326,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#310 (open)"
+                  - "#310"
                 req_id: SEC13
                 test_id: SEC13-02
                 status: pending
@@ -3339,7 +3339,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#287 (open)"
+                  - "#287"
                 req_id: SDN04
                 test_id: SDN04-04
                 status: pending
@@ -3350,7 +3350,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#288 (open)"
+                  - "#288"
                 req_id: SDN04
                 test_id: SDN04-05
                 status: pending
@@ -3365,7 +3365,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#305 (open)"
+                  - "#305"
                 status: pending
       - name: Authentication
         capabilities:
@@ -3378,7 +3378,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#293 (open)"
+                  - "#293"
                 req_id: SEC01
                 test_id: SEC01-01
                 status: pending
@@ -3391,7 +3391,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#294 (open)"
+                  - "#294"
                 req_id: SEC02
                 test_id: SEC02-01
                 status: pending
@@ -3404,7 +3404,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#295 (open)"
+                  - "#295"
                 req_id: SEC03
                 test_id: SEC03-01
                 status: pending
@@ -3417,7 +3417,7 @@ domains:
                 milestone: M5
                 notes: INFO
                 github_issues:
-                  - "#298 (open)"
+                  - "#298"
                 req_id: SEC07
                 test_id: SEC07-01
                 status: pending
@@ -3432,7 +3432,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#297 (open)"
+                  - "#297"
                 req_id: SEC04
                 test_id: SEC04-02
                 status: pending
@@ -3447,7 +3447,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#299 (open)"
+                  - "#299"
                 req_id: SEC08
                 test_id: SEC08-01
                 status: pending
@@ -3458,7 +3458,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#300 (open)"
+                  - "#300"
                 req_id: SEC08
                 test_id: SEC08-02
                 status: pending
@@ -3473,7 +3473,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#312 (open)"
+                  - "#312"
                 req_id: SEC21
                 test_id: SEC21-04
                 status: pending
@@ -3484,7 +3484,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#313 (open)"
+                  - "#313"
                 req_id: SEC21
                 test_id: SEC21-05
                 status: pending
@@ -3495,7 +3495,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#314 (open)"
+                  - "#314"
                 req_id: SEC21, SEC22
                 test_id: SEC21-06
                 status: pending
@@ -3520,7 +3520,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#303 (open)"
+                  - "#303"
                 req_id: SEC09, SEC10
                 test_id: SEC09-03
                 status: pending
@@ -3531,7 +3531,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#304 (open)"
+                  - "#304"
                 req_id: SEC09
                 test_id: SEC09-04
                 status: pending
@@ -3548,7 +3548,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#278 (open)"
+                  - "#278"
                 req_id: NET01
                 test_id: NET01-01
                 status: pending
@@ -3563,7 +3563,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#279 (open)"
+                  - "#279"
                 req_id: NET02
                 test_id: NET02-02
                 status: pending
@@ -3578,7 +3578,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#280 (open)"
+                  - "#280"
                 req_id: NET04
                 test_id: NET04-01
                 status: pending
@@ -3639,7 +3639,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#251 (open)"
+                  - "#251"
                 req_id: CAP01
                 test_id: CAP01-01
                 status: pending
@@ -3654,7 +3654,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#252 (open)"
+                  - "#252"
                 req_id: CAP04
                 test_id: CAP04-01
                 status: pending
@@ -3665,7 +3665,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#253 (open)"
+                  - "#253"
                 req_id: CAP04
                 test_id: CAP04-02
                 status: pending
@@ -3680,7 +3680,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#254 (open)"
+                  - "#254"
                 req_id: CAP05
                 test_id: CAP05-01
                 status: pending
@@ -3691,7 +3691,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#255 (open)"
+                  - "#255"
                 req_id: CAP05
                 test_id: CAP05-02
                 status: pending
@@ -3727,7 +3727,7 @@ domains:
                 milestone: M5
                 notes: ""
                 github_issues:
-                  - "#249 (open)"
+                  - "#249"
                 req_id: BM01
                 test_id: BM01-02
                 status: pending

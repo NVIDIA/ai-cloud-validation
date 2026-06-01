@@ -26,7 +26,9 @@ Usage:
     python3 test_plan_yaml_to_adoc.py [input.yaml]
 """
 
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -84,24 +86,84 @@ def span_cell(span: int, content: str) -> str:
     return f"{base} {content}" if content else base
 
 
-def fmt_gh_issues_adoc(entries: list[str] | None) -> str:
-    """Render `#N (state) ...` GitHub issue entries as linked AsciiDoc with status icons."""
+def collect_issue_numbers(data: dict[str, Any]) -> set[int]:
+    """Return every GitHub issue number referenced by ``github_issues`` in the plan."""
+    nums: set[int] = set()
+    for d in data.get("domains", []):
+        for comp in d.get("components", []):
+            for cap in comp.get("capabilities", []):
+                for test in cap.get("tests", []):
+                    for entry in test.get("github_issues", []) or []:
+                        m = re.search(r"#(\d+)", str(entry))
+                        if m:
+                            nums.add(int(m.group(1)))
+    return nums
+
+
+def fetch_issue_states(numbers: set[int]) -> dict[int, str]:
+    """Best-effort resolve ``{issue: "open"|"closed"}`` from live GitHub via ``gh``.
+
+    Issue open/closed state is derived data and is intentionally *not* stored in
+    the YAML; it is resolved here at render time. Returns ``{}`` on any failure
+    (no ``gh``, no network, no auth) so ``make plan`` still works offline - the
+    table then renders issue links without status icons.
+    """
+    if not numbers:
+        return {}
+    states: dict[int, str] = {}
+    ordered = sorted(numbers)
+    owner, name = GH_REPO.split("/")
+    try:
+        for i in range(0, len(ordered), 60):
+            chunk = ordered[i : i + 60]
+            aliases = " ".join(f"i{n}: issue(number:{n}){{number state}}" for n in chunk)
+            query = f'query{{repository(owner:"{owner}",name:"{name}"){{{aliases}}}}}'
+            result = subprocess.run(
+                ["gh", "api", "graphql", "-f", f"query={query}"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode != 0:
+                sys.stderr.write(
+                    f"warning: could not fetch issue state ({result.stderr.strip()[:120]}); "
+                    "rendering without status icons\n"
+                )
+                return {}
+            repo = json.loads(result.stdout).get("data", {}).get("repository", {})
+            for node in repo.values():
+                if node:
+                    states[node["number"]] = node["state"].lower()
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        sys.stderr.write(f"warning: could not fetch issue state ({exc}); rendering without status icons\n")
+        return {}
+    return states
+
+
+def fmt_gh_issues_adoc(entries: list[str] | None, states: dict[int, str]) -> str:
+    """Render bare ``#N`` GitHub issue entries as linked AsciiDoc.
+
+    Open/closed status icons are derived from ``states`` (live GitHub), not from
+    the YAML. Unknown state (e.g. rendered offline) yields a plain link.
+    """
     if not entries:
         return ""
     parts = []
     for entry in entries:
-        m = re.match(r"#(\d+)\s*\((\w+)\)(.*)", entry)
-        if m:
-            num, state, rest = m.group(1), m.group(2), m.group(3).strip()
-            link = f"https://github.com/{GH_REPO}/issues/{num}"
-            icon = "icon:check-circle[role=green]" if state == "closed" else "icon:exclamation-circle[role=red]"
-            label = f"{icon} {link}[#{num}]"
-            if "TODO" in rest:
-                todo_text = rest.lstrip("# ").strip()
-                label += f" [small]#({todo_text})#"
-            parts.append(label)
-        else:
+        m = re.match(r"#(\d+)", str(entry))
+        if not m:
             parts.append(esc_adoc(entry))
+            continue
+        num = m.group(1)
+        link = f"https://github.com/{GH_REPO}/issues/{num}"
+        state = states.get(int(num))
+        if state == "closed":
+            icon = "icon:check-circle[role=green] "
+        elif state == "open":
+            icon = "icon:exclamation-circle[role=red] "
+        else:
+            icon = ""
+        parts.append(f"{icon}{link}[#{num}]")
     return " +\n".join(parts)
 
 
@@ -136,6 +198,12 @@ def validate_test_plan(data: dict[str, Any]) -> None:
                     tid = t.get("test_id", "<no test_id>")
                     _validate_string_list("labels", t.get("labels"), tid, errors)
                     _validate_string_list("dependencies", t.get("dependencies"), tid, errors)
+                    for entry in t.get("github_issues") or []:
+                        if not re.fullmatch(r"#\d+", str(entry)):
+                            errors.append(
+                                f"{tid}: github_issues entry {entry!r} must be a bare '#N' reference - "
+                                "open/closed state is derived from GitHub at render time, not stored"
+                            )
     if errors:
         raise SystemExit("test-plan.yaml validation failed:\n  " + "\n  ".join(errors))
 
@@ -145,8 +213,11 @@ def validate_test_plan(data: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def generate_adoc(data: dict[str, Any], outfile: str) -> None:
-    """Write the test-plan AsciiDoc table for `data` to `outfile`."""
+def generate_adoc(data: dict[str, Any], outfile: str, states: dict[int, str]) -> None:
+    """Write the test-plan AsciiDoc table for `data` to `outfile`.
+
+    ``states`` maps issue number to live open/closed state for status icons.
+    """
     lines = [
         "////",
         "GENERATED FILE - DO NOT EDIT BY HAND.",
@@ -206,7 +277,7 @@ def generate_adoc(data: dict[str, Any], outfile: str) -> None:
                     parts.append(cell(fmt_list(test.get("labels", []))))
                     parts.append(cell(esc_adoc(test.get("notes", ""))))
                     parts.append(cell(esc_adoc(test.get("priority", ""))))
-                    parts.append(acell(fmt_gh_issues_adoc(test.get("github_issues", []))))
+                    parts.append(acell(fmt_gh_issues_adoc(test.get("github_issues", []), states)))
                     parts.append(cell(fmt_list(test.get("dependencies", []))))
                     parts.append(cell(esc_adoc(test.get("milestone", ""))))
                     parts.append(cell(esc_adoc(test.get("release", ""))))
@@ -238,8 +309,10 @@ def main() -> None:
 
     validate_test_plan(data)
 
+    states = fetch_issue_states(collect_issue_numbers(data))
+
     base = re.sub(r"\.(yaml|yml)$", "", infile)
-    generate_adoc(data, f"{base}.adoc")
+    generate_adoc(data, f"{base}.adoc", states)
 
 
 if __name__ == "__main__":

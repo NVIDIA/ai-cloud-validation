@@ -180,7 +180,7 @@ a|
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/247[#247]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/247[#247]
 |
 | M5
 |
@@ -453,7 +453,7 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/i
 |
 |
 | P1 (check w/ ISVs)
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/133[#133]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/133[#133]
 | MiniCloud
 | M4
 |
@@ -484,7 +484,7 @@ a|
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/315[#315]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/315[#315]
 | MiniCloud
 | M5
 |
@@ -512,7 +512,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/316[#316]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/316[#316]
 | MiniCloud
 | M5
 |
@@ -526,8 +526,8 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/319[#319] +
-icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/246[#246]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/319[#319] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/246[#246]
 | MiniCloud
 | M5
 |
@@ -555,7 +555,7 @@ a|
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/259[#259]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/259[#259]
 |
 | M5
 |
@@ -644,7 +644,7 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issu
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/134[#134]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/134[#134]
 | MiniCloud
 | M4
 |
@@ -821,7 +821,7 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issu
 |
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/136[#136]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/136[#136]
 | MiniCloud
 | M4
 |
@@ -851,7 +851,7 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/i
 |
 | REVIEW
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/250[#250]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/250[#250]
 |
 | M5
 |
@@ -952,7 +952,7 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/i
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/258[#258]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/258[#258]
 |
 | M5
 |
@@ -968,8 +968,8 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/197[#197] +
-icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/196[#196] +
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/197[#197] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/196[#196] +
 icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/185[#185]
 |
 | M5
@@ -1365,7 +1365,7 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/i
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/198[#198]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/198[#198]
 |
 | M5
 |
@@ -1395,7 +1395,7 @@ a|
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/256[#256]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/256[#256]
 |
 | M5
 |
@@ -1409,7 +1409,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/257[#257]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/257[#257]
 |
 | M5
 |
@@ -1595,7 +1595,7 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/i
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/199[#199] +
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/199[#199] +
 icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/171[#171] +
 icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/178[#178]
 |
@@ -1611,7 +1611,7 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issu
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/200[#200]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/200[#200]
 |
 |
 |
@@ -1625,7 +1625,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/201[#201]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/201[#201]
 |
 |
 |
@@ -1639,7 +1639,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/202[#202]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/202[#202]
 |
 |
 |
@@ -1907,7 +1907,7 @@ a|
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/281[#281]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/281[#281]
 |
 | M5
 |
@@ -1921,7 +1921,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/282[#282]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/282[#282]
 |
 | M5
 |
@@ -1935,7 +1935,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/283[#283]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/283[#283]
 |
 | M5
 |
@@ -1949,7 +1949,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/284[#284]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/284[#284]
 |
 | M5
 |
@@ -1963,7 +1963,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/285[#285]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/285[#285]
 |
 | M5
 |
@@ -1979,7 +1979,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/289[#289]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/289[#289]
 |
 | M5
 |
@@ -1995,7 +1995,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/286[#286]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/286[#286]
 |
 | M5
 |
@@ -2011,7 +2011,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/290[#290]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/290[#290]
 |
 | M5
 |
@@ -2025,7 +2025,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/291[#291]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/291[#291]
 |
 | M5
 |
@@ -2039,7 +2039,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/292[#292]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/292[#292]
 |
 | M5
 |
@@ -2427,7 +2427,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/329[#329]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/329[#329]
 |
 | M5
 |
@@ -2441,7 +2441,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/330[#330]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/330[#330]
 |
 | M5
 |
@@ -2529,7 +2529,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/263[#263]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/263[#263]
 |
 | M5
 |
@@ -2543,7 +2543,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/264[#264]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/264[#264]
 |
 | M5
 |
@@ -2557,7 +2557,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/265[#265]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/265[#265]
 |
 | M5
 |
@@ -2571,7 +2571,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/266[#266]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/266[#266]
 |
 | M5
 |
@@ -2645,7 +2645,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
 |
 | M5
 |
@@ -2793,7 +2793,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P2
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/262[#262]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/262[#262]
 |
 | M5
 |
@@ -2810,7 +2810,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P2
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/272[#272]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/272[#272]
 |
 | M5
 |
@@ -3264,7 +3264,7 @@ a|
 | min_req
 | k8s01
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/233[#233]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/233[#233]
 |
 |
 |
@@ -3328,7 +3328,7 @@ a|
 | min_req
 | K8s20
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/219[#219]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/219[#219]
 |
 |
 |
@@ -3372,7 +3372,7 @@ a|
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/273[#273]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/273[#273]
 |
 | M5
 |
@@ -3386,7 +3386,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/274[#274]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/274[#274]
 |
 | M5
 |
@@ -3400,7 +3400,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/275[#275]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/275[#275]
 |
 | M5
 |
@@ -3414,7 +3414,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/276[#276]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/276[#276]
 |
 | M5
 |
@@ -3552,7 +3552,7 @@ a|
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/271[#271]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/271[#271]
 |
 | M5
 |
@@ -3584,7 +3584,7 @@ a|
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/301[#301]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/301[#301]
 |
 | M5
 |
@@ -3598,7 +3598,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/302[#302]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/302[#302]
 |
 | M5
 |
@@ -3614,7 +3614,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/267[#267]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/267[#267]
 |
 | M5
 |
@@ -3646,8 +3646,8 @@ a|
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/269[#269] +
-icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/221[#221]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/269[#269] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/221[#221]
 |
 | M5
 |
@@ -3661,8 +3661,8 @@ icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/270[#270] +
-icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/222[#222]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/270[#270] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/222[#222]
 |
 | M5
 |
@@ -3676,7 +3676,7 @@ icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/223[#223]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/223[#223]
 |
 | M5
 |
@@ -3690,7 +3690,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/224[#224]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/224[#224]
 |
 | M5
 |
@@ -3770,7 +3770,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/277[#277]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/277[#277]
 |
 | M5
 |
@@ -4087,7 +4087,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/354[#354]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/354[#354]
 |
 | M5
 |
@@ -4101,7 +4101,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/355[#355]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/355[#355]
 |
 | M5
 |
@@ -4115,7 +4115,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/356[#356]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/356[#356]
 |
 | M5
 |
@@ -4176,7 +4176,7 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/i
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/362[#362]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/362[#362]
 |
 | M5
 |
@@ -4254,7 +4254,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/306[#306]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/306[#306]
 |
 | M5
 |
@@ -4268,7 +4268,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/307[#307]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/307[#307]
 |
 | M5
 |
@@ -4282,7 +4282,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/260[#260]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/260[#260]
 |
 | M5
 |
@@ -4296,7 +4296,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/308[#308]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/308[#308]
 |
 | M5
 |
@@ -4328,7 +4328,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/311[#311]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/311[#311]
 |
 | M5
 |
@@ -4342,7 +4342,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/310[#310]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/310[#310]
 |
 | M5
 |
@@ -4358,7 +4358,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/287[#287]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/287[#287]
 |
 | M5
 |
@@ -4372,7 +4372,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
 |
 | M5
 |
@@ -4388,7 +4388,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
 |
 | M5
 |
@@ -4405,7 +4405,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/293[#293]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/293[#293]
 |
 | M5
 |
@@ -4421,7 +4421,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/294[#294]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/294[#294]
 |
 | M5
 |
@@ -4437,7 +4437,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/295[#295]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/295[#295]
 |
 | M5
 |
@@ -4453,7 +4453,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 | INFO
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/298[#298]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/298[#298]
 |
 | M5
 |
@@ -4470,7 +4470,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/297[#297]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/297[#297]
 |
 | M5
 |
@@ -4487,7 +4487,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/299[#299]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/299[#299]
 |
 | M5
 |
@@ -4501,7 +4501,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/300[#300]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/300[#300]
 |
 | M5
 |
@@ -4518,7 +4518,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/312[#312]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/312[#312]
 |
 | M5
 |
@@ -4532,7 +4532,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/313[#313]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/313[#313]
 |
 | M5
 |
@@ -4546,7 +4546,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/314[#314]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/314[#314]
 |
 | M5
 |
@@ -4578,7 +4578,7 @@ a|
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/303[#303]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/303[#303]
 |
 | M5
 |
@@ -4592,7 +4592,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/304[#304]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/304[#304]
 |
 | M5
 |
@@ -4610,7 +4610,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/278[#278]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/278[#278]
 |
 | M5
 |
@@ -4627,7 +4627,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/279[#279]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/279[#279]
 |
 | M5
 |
@@ -4722,7 +4722,7 @@ a|
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/251[#251]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/251[#251]
 |
 | M5
 |
@@ -4739,7 +4739,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
 |
 | M5
 |
@@ -4753,7 +4753,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/253[#253]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/253[#253]
 |
 | M5
 |
@@ -4770,7 +4770,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/254[#254]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/254[#254]
 |
 | M5
 |
@@ -4784,7 +4784,7 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validati
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/255[#255]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/255[#255]
 |
 | M5
 |
@@ -4844,7 +4844,7 @@ a|
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/249[#249]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/249[#249]
 |
 | M5
 |
