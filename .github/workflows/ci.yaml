@@ -89,8 +89,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      # Blocking, offline, deterministic: every test_ids declared on a
-      # validation class must reference a real docs/test-plan.yaml entry.
       - name: Test-plan coverage integrity
         run: make plan-coverage CHECK=1
 
