@@ -470,6 +470,7 @@ class SerialConsoleCheck(BaseValidation):
 
     description: ClassVar[str] = "Check serial console access"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP06-01",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -522,6 +523,7 @@ class SerialConsoleRetentionCheck(BaseValidation):
 
     description: ClassVar[str] = "Check serial console log retention and queryability"
     labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP06-02",)
 
     def run(self) -> None:
         """Validate serial-console retention evidence from step output."""
@@ -597,6 +599,7 @@ class TopologyPlacementCheck(BaseValidation):
 
     description: ClassVar[str] = "Check topology-based placement support"
     labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
+    test_ids: ClassVar[tuple[str, ...]] = ("CNP01-04",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
