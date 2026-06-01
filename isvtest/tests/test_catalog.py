@@ -52,6 +52,7 @@ class TestBuildCatalog:
             assert "description" in entry
             assert "labels" in entry
             assert "module" in entry
+            assert "test_ids" in entry
             assert "markers" not in entry
 
     def test_entries_have_correct_types(self) -> None:
@@ -62,6 +63,7 @@ class TestBuildCatalog:
             assert isinstance(entry["description"], str)
             assert isinstance(entry["labels"], list)
             assert isinstance(entry["module"], str)
+            assert isinstance(entry["test_ids"], list)
 
     def test_no_duplicate_names(self) -> None:
         """Test that there are no duplicate test names in the catalog."""
@@ -115,6 +117,7 @@ class TestBuildCatalog:
                 "labels": ["accelerator", "long_running"],
                 "module": __name__,
                 "platforms": [],
+                "test_ids": [],
             }
         ]
 
@@ -197,6 +200,7 @@ class TestBuildCatalog:
                 "labels": ["observability"],
                 "module": "isvtest.validations.fake",
                 "platforms": ["OBSERVABILITY"],
+                "test_ids": [],
             }
         ]
 
