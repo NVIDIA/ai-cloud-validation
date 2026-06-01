@@ -112,6 +112,7 @@ class GpuOperatorInstalledCheck(BaseValidation):
 
     description: ClassVar[str] = "Check GPU operator installation"
     labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
+    test_ids: ClassVar[tuple[str, ...]] = ("K8S25-01",)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
