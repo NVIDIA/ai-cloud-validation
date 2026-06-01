@@ -72,6 +72,38 @@ jobs:
       - name: Run demo test
         run: make demo-test
 
+  test-plan:
+    name: Test Plan Guardrails
+    runs-on: linux-amd64-cpu4
+    needs: pre-commit
+    container:
+      image: ghcr.io/nvidia/dsx-cds-tools:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install dependencies
+        run: uv sync
+
+      # Blocking, offline, deterministic: every test_ids declared on a
+      # validation class must reference a real docs/test-plan.yaml entry.
+      - name: Test-plan coverage integrity
+        run: make plan-coverage CHECK=1
+
+      # Informational: the plan's #N (open/closed) annotations vs live GitHub.
+      # Non-blocking because it depends on external issue state (closing an
+      # unrelated issue should not fail an open PR). Run `make sync-plan` to fix.
+      # Promote to a blocking gate once annotations are routinely kept in sync.
+      - name: Test-plan issue-state drift (informational)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make sync-plan CHECK=1
+
   # ============================================================================
   # SECURITY STAGE
   # ============================================================================
@@ -174,6 +206,7 @@ jobs:
       - pre-commit
       - test
       - demo-test
+      - test-plan
       - security-secret-scan
       - security-codeql-scan
       # - security-trivy-scan  # Disabled - see comment above (Trivy supply chain compromise)
