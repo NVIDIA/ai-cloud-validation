@@ -56,29 +56,33 @@ DEFAULT_AMI_ID = os.environ.get(
     "ZCOMPUTE_TEST_AMI_ID",
     "ami-241c9a9e96d143dc90e1a5a50a3a8152",  # isv-ncp-gpu-baked-20260522
 )
-DEFAULT_VPC_ID = os.environ.get(
-    "ZCOMPUTE_TEST_VPC_ID",
-    "vpc-0b7f00012d3046f391a4e99399e456af",
-)
 DEFAULT_KEY_NAME = "isv-test-key"
 DEFAULT_SSH_USER = "ubuntu"
 
 
-def _get_default_subnet(ec2: Any, vpc_id: str) -> str:
-    """Return the first subnet found in the given VPC."""
-    resp = ec2.describe_subnets(
-        Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
-    )
-    subnets = resp.get("Subnets", [])
-    # zCompute may ignore the vpc-id filter — post-filter in Python
-    subnets = [s for s in subnets if s.get("VpcId") == vpc_id]
-    if not subnets:
-        # Fallback: fetch all subnets and post-filter
-        all_subnets = ec2.describe_subnets().get("Subnets", [])
-        subnets = [s for s in all_subnets if s.get("VpcId") == vpc_id]
+def _get_default_vpc_and_subnet(ec2: Any) -> tuple[str, str]:
+    """Auto-discover the first available VPC and one of its subnets.
+
+    zCompute ignores vpc-id filters on describe_subnets, so we fetch
+    all subnets and correlate them with VPCs in Python.
+
+    Priority:
+      1. ZCOMPUTE_TEST_VPC_ID env var (explicit override)
+      2. First VPC returned by describe_vpcs
+    """
+    vpc_id = os.environ.get("ZCOMPUTE_TEST_VPC_ID", "").strip()
+    if not vpc_id:
+        vpcs = ec2.describe_vpcs().get("Vpcs", [])
+        if not vpcs:
+            raise RuntimeError("No VPCs found in zCompute project")
+        vpc_id = vpcs[0]["VpcId"]
+        print(f"[launch] auto-discovered VPC: {vpc_id}", file=sys.stderr)
+
+    all_subnets = ec2.describe_subnets().get("Subnets", [])
+    subnets = [s for s in all_subnets if s.get("VpcId") == vpc_id]
     if not subnets:
         raise RuntimeError(f"No subnets found in VPC {vpc_id}")
-    return subnets[0]["SubnetId"]
+    return vpc_id, subnets[0]["SubnetId"]
 
 
 def _reuse_instance(ec2: Any, instance_id: str, key_file: str) -> dict[str, Any]:
@@ -171,10 +175,12 @@ def main() -> int:
             return 0 if result.get("success") else 1
 
         # Determine VPC and subnet.
-        vpc_id = args.vpc_id or DEFAULT_VPC_ID
-        subnet_id = args.subnet_id
-        if not subnet_id:
-            subnet_id = _get_default_subnet(ec2, vpc_id)
+        if args.vpc_id and args.subnet_id:
+            vpc_id, subnet_id = args.vpc_id, args.subnet_id
+        else:
+            vpc_id, subnet_id = _get_default_vpc_and_subnet(ec2)
+            if args.vpc_id:
+                vpc_id = args.vpc_id
         print(f"[launch] using VPC {vpc_id}, subnet {subnet_id}", file=sys.stderr)
 
         # Create (or reuse) key pair.
