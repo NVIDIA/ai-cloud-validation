@@ -41,7 +41,6 @@ class AccessKeyCreatedCheck(BaseValidation):
 
     description: ClassVar[str] = "Check access key was created"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
-    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-05",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -73,7 +72,6 @@ class AccessKeyAuthenticatedCheck(BaseValidation):
 
     description: ClassVar[str] = "Check access key can authenticate"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
-    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-05",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -103,7 +101,6 @@ class AccessKeyDisabledCheck(BaseValidation):
 
     description: ClassVar[str] = "Check access key was disabled"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
-    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-06",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -128,7 +125,6 @@ class AccessKeyRejectedCheck(BaseValidation):
 
     description: ClassVar[str] = "Check disabled key is rejected"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
-    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-06",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -213,7 +209,6 @@ class TenantCreatedCheck(BaseValidation):
 
     description: ClassVar[str] = "Check tenant was created"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
-    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-07",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -246,7 +241,6 @@ class TenantListedCheck(BaseValidation):
 
     description: ClassVar[str] = "Check tenant appears in list"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
-    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-08",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -280,7 +274,6 @@ class TenantInfoCheck(BaseValidation):
 
     description: ClassVar[str] = "Check tenant info retrieved"
     labels: ClassVar[tuple[str, ...]] = ("iam",)
-    test_ids: ClassVar[tuple[str, ...]] = ("CP-XX-09",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
