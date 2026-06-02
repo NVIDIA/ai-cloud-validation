@@ -72,52 +72,69 @@ tests:
         TrafficFlowCheck:
           step: traffic_validation
         VpcIpConfigCheck:
+          test_id: "CP-XX-02"
           step: vpc_ip_config
         DhcpIpManagementCheck:
+          test_id: "CP-XX-01"
           step: dhcp_ip_test
 
     sg_scoping:
       checks:
         SgWorkloadScopingCheck:
+          test_id: "SDN02-05"
           step: sg_workload_scoping
         SgNodeScopingCheck:
+          test_id: "SDN02-06"
           step: sg_node_scoping
         SgSubnetScopingCheck:
+          test_id: "SDN02-07"
           step: sg_subnet_scoping
         SgServiceScopingCheck:
+          test_id: "SDN02-09"
           step: sg_service_scoping
         SgPortSecurityPolicyCheck:
+          test_id: "SDN02-10"
           step: sg_port_security_policy
 
     sdn_policy:
       checks:
         SgPolicyPropagationTimingCheck:
+          test_id: "SDN02-08"
           step: sg_policy_propagation
           max_propagation_seconds: 10
 
     sdn_logging:
       checks:
         SdnHardwareFaultLoggingCheck:
+          test_id: "SDN09-01"
           step: sdn_hardware_fault_logging
         SdnLatencyPerfLoggingCheck:
+          test_id: "SDN09-02"
           step: sdn_latency_perf_logging
         SdnFilterAuditTrailCheck:
+          test_id: "SDN09-03"
           step: sdn_filter_audit_trail
 
     sdn:
       checks:
         ByoipCheck:
+          test_id: "NET03-01"
           step: byoip_test
         StablePrivateIpCheck:
+          test_id: "SDN-XX-01"
           step: stable_ip_test
         StableEgressIpCheck:
+          test_id: "DMS05-01"
           step: stable_egress_ip_test
         FloatingIpCheck:
+          test_id: "SDN05-01"
           step: floating_ip_test
           max_switch_seconds: 10
         LocalizedDnsCheck:
+          test_id: "SDN06-01"
           step: dns_test
         VpcPeeringCheck:
+          test_id: "SDN07-01"
           step: peering_test
 
     # Read-only metadata/API checks for provider-reported backend fabric
@@ -125,8 +142,10 @@ tests:
     fabric_topology:
       checks:
         BackendSwitchFabricCheck:
+          test_id: "NET01-01"
           step: backend_switch_fabric
         NvlinkDomainCheck:
+          test_id: "NET02-02"
           step: nvlink_domain
 
     teardown_checks:
