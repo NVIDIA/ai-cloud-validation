@@ -118,6 +118,14 @@ def main() -> int:
             # zcompute does not implement UpdateAccessKey — try symp CLI fallback
             symp_result = _disable_via_symp(args.access_key_id)
             result.update(symp_result)
+            if not result["success"]:
+                # symp not available — known platform gap (NK-19406).
+                # Exit 0 so the step does not fail the orchestration.
+                # AccessKeyDisabledCheck and AccessKeyRejectedCheck are excluded in config.
+                result["platform_gap"] = True
+                result["note"] = "iam:UpdateAccessKey not implemented on zCompute (NK-19406)."
+                print(json.dumps(result, indent=2))
+                return 0
         else:
             result["error"] = str(e)
 
