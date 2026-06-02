@@ -81,7 +81,8 @@ tests:
     cloud_init:
       step: launch_instance
       checks:
-        CloudInitCheck: {}
+        CloudInitCheck:
+          test_id: "BOOT02-01"
 
     instance_info:
       step: describe_instance
@@ -92,23 +93,32 @@ tests:
     ssh:
       step: describe_instance
       checks:
-        ConnectivityCheck: {}
+        ConnectivityCheck:
+          test_id: "BMAAS-XX-03"
         OsCheck:
+          # No BMaaS plan item for a host-OS image check (VMAAS-XX-05 is VM-only).
+          test_id: "N/A"
           expected_os: "ubuntu"
 
     gpu:
       step: describe_instance
       checks:
         GpuCheck:
+          test_id: "BMAAS-XX-08"
           expected_gpus: 8
 
     host_os:
       step: describe_instance
       checks:
-        VcpuPinningCheck: {}
+        # vCPU pinning / PCI passthrough / host-software are VMAAS plan items;
+        # the BMaaS plan has no equivalent, so these are intentional gaps here.
+        VcpuPinningCheck:
+          test_id: "N/A"
         PciBusCheck:
+          test_id: "N/A"
           expected_gpus: 8
-        HostSoftwareCheck: {}
+        HostSoftwareCheck:
+          test_id: "N/A"
 
     # Per-host status log sampling: verify journalctl/dmesg
     # are emitting fresh entries within max_age_minutes. Pass if at least
@@ -124,6 +134,7 @@ tests:
       step: describe_instance
       checks:
         GpuStressCheck:
+          test_id: "BMAAS-XX-09"
           runtime: 30
           memory_gb: 16
 
@@ -131,46 +142,55 @@ tests:
     nccl:
       step: describe_instance
       checks:
-        NcclCheck: {}
+        NcclCheck:
+          test_id: "BMAAS-XX-11"
 
     # DDP training workload - validates full training stack
     training:
       step: describe_instance
       checks:
         TrainingCheck:
+          test_id: "BMAAS-XX-12"
           steps: 50
 
     # Network / interconnect checks
     nvlink:
       step: describe_instance
       checks:
-        NvlinkCheck: {}
+        NvlinkCheck:
+          test_id: "BMAAS-XX-06"
 
     infiniband:
       step: describe_instance
       checks:
-        InfiniBandCheck: {}
+        InfiniBandCheck:
+          test_id: "BMAAS-XX-06"
 
     ethernet:
       step: describe_instance
       checks:
         EthernetCheck:
+          test_id: "BMAAS-XX-06"
           ping_target: "8.8.8.8"
 
     driver_info:
       step: describe_instance
       checks:
-        DriverCheck: {}
+        # No BMaaS plan item for a host driver/kernel check (VMAAS-XX-07 is VM-only).
+        DriverCheck:
+          test_id: "N/A"
 
     cpu_info:
       step: describe_instance
       checks:
-        CpuInfoCheck: {}
+        CpuInfoCheck:
+          test_id: "N/A"
 
     container_runtime:
       step: describe_instance
       checks:
-        ContainerRuntimeCheck: {}
+        ContainerRuntimeCheck:
+          test_id: "N/A"
 
     stop_checks:
       step: stop_instance

@@ -110,7 +110,7 @@ def test_repo_metadata_passes_all_guardrails() -> None:
     is inconsistent with the class labels.
     """
     plan_ids = set(test_plan_coverage.load_plan())
-    entries = test_plan_coverage.catalog_entries()
+    entries = test_plan_coverage.apply_config_test_ids(test_plan_coverage.catalog_entries())
     class_map = test_plan_coverage.class_test_id_map(entries)
 
     integrity = test_plan_coverage.integrity_errors(plan_ids, class_map)

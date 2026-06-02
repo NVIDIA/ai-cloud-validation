@@ -56,6 +56,7 @@ from isvtest.core.validation import UNMAPPED
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLAN_PATH = REPO_ROOT / "docs" / "test-plan.yaml"
+SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
 
 # Requirement family (the alpha prefix of a test_id, e.g. "K8S22-01" -> "K8S",
 # "SEC14-01" -> "SEC") -> a label the implementing class must carry. Only
@@ -97,6 +98,75 @@ def catalog_entries() -> list[dict[str, Any]]:
 def real_test_ids(entry: dict[str, Any]) -> list[str]:
     """Return an entry's declared test IDs excluding the ``UNMAPPED`` sentinel."""
     return [t for t in (entry.get("test_ids") or []) if t != UNMAPPED]
+
+
+def _iter_check_items(cat_config: Any) -> list[tuple[str, dict[str, Any]]]:
+    """Yield ``(check_name, params)`` pairs from a validation category config.
+
+    Handles the group-defaults form (``{step, checks: {...}|[...]}``) and the
+    bare list form, mirroring catalog._extract_checks_from_config.
+    """
+    items: list[tuple[str, dict[str, Any]]] = []
+
+    def _add(mapping: Any) -> None:
+        if isinstance(mapping, dict):
+            for name, params in mapping.items():
+                items.append((name, params if isinstance(params, dict) else {}))
+
+    if isinstance(cat_config, dict) and "checks" in cat_config:
+        checks_val = cat_config["checks"]
+        if isinstance(checks_val, dict):
+            _add(checks_val)
+        elif isinstance(checks_val, list):
+            for entry in checks_val:
+                _add(entry)
+    elif isinstance(cat_config, list):
+        for entry in cat_config:
+            _add(entry)
+    return items
+
+
+def config_test_id_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
+    """Return ``check_name -> test_ids`` declared inline in the suite configs.
+
+    Under the YAML model the (check, context) wiring is the source of truth, so
+    coverage reads the singular ``test_id`` straight from each check's params.
+    A given check name may appear in several suites (e.g. ConnectivityCheck in
+    both bare_metal and vm), so values still aggregate to a set across configs.
+    """
+    out: dict[str, set[str]] = defaultdict(set)
+    for path in sorted(suites_dir.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+        except Exception:
+            continue
+        validations = (data.get("tests") or {}).get("validations") or {}
+        for cat_config in validations.values():
+            for name, params in _iter_check_items(cat_config):
+                tid = params.get("test_id")
+                if isinstance(tid, str) and tid:
+                    out[name].add(tid)
+    return {name: sorted(ids) for name, ids in out.items()}
+
+
+def apply_config_test_ids(
+    entries: list[dict[str, Any]], config_map: dict[str, list[str]] | None = None
+) -> list[dict[str, Any]]:
+    """Return entries whose ``test_ids`` are unioned with config-declared ids.
+
+    During the pilot only some checks live in YAML, so this merges the two
+    sources; the end-state (all ids in YAML) is a no-op union over empty class
+    metadata.
+    """
+    config_map = config_test_id_map() if config_map is None else config_map
+    merged: list[dict[str, Any]] = []
+    for entry in entries:
+        cfg_ids = config_map.get(entry["name"], [])
+        if cfg_ids:
+            union = sorted(set(entry.get("test_ids") or []) | set(cfg_ids))
+            entry = {**entry, "test_ids": union}
+        merged.append(entry)
+    return merged
 
 
 def class_test_id_map(entries: list[dict[str, Any]] | None = None) -> dict[str, list[str]]:
@@ -250,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
 
     plan_entries = load_plan()
     plan_ids = set(plan_entries)
-    entries = catalog_entries()
+    entries = apply_config_test_ids(catalog_entries())
     class_map = class_test_id_map(entries)
 
     checks = {

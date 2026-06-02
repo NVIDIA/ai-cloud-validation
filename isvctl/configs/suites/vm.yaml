@@ -100,7 +100,8 @@ tests:
     cloud_init:
       step: launch_instance
       checks:
-        CloudInitCheck: {}
+        CloudInitCheck:
+          test_id: "BOOT02-02"
 
     # ─── Host-level validations anchored to describe_instance ────────
     # describe_instance runs AFTER reboot, so these checks prove the
@@ -114,38 +115,47 @@ tests:
     ssh:
       step: describe_instance
       checks:
-        ConnectivityCheck: {}
+        ConnectivityCheck:
+          test_id: "VMAAS-XX-01"
         OsCheck:
+          test_id: "VMAAS-XX-05"
           expected_os: "ubuntu"
 
     gpu:
       step: describe_instance
       checks:
         GpuCheck:
+          test_id: "VMAAS-XX-06"
           expected_gpus: 1
 
     host_os:
       step: describe_instance
       checks:
-        VcpuPinningCheck: {}
+        VcpuPinningCheck:
+          test_id: "VMAAS-XX-09"
         PciBusCheck:
+          test_id: "VMAAS-XX-09"
           expected_gpus: 1
-        HostSoftwareCheck: {}
+        HostSoftwareCheck:
+          test_id: "VMAAS-XX-07"
 
     driver_info:
       step: describe_instance
       checks:
-        DriverCheck: {}
+        DriverCheck:
+          test_id: "VMAAS-XX-07"
 
     cpu_info:
       step: describe_instance
       checks:
-        CpuInfoCheck: {}
+        CpuInfoCheck:
+          test_id: "N/A"
 
     container_runtime:
       step: describe_instance
       checks:
-        ContainerRuntimeCheck: {}
+        ContainerRuntimeCheck:
+          test_id: "N/A"
 
     # ─── Lifecycle validations ───────────────────────────────────────
     stop_checks:
