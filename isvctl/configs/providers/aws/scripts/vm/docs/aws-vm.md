@@ -154,7 +154,7 @@ Validates vCPU provisioning, online status, and NUMA topology.
 | `vcpu_count` | vCPU count matches `expected_vcpus` (if set) |
 | `vcpu_online` | All vCPUs are online |
 | `cpu_affinity` | CPU affinity mask of PID 1 spans all vCPUs |
-| `numa_topology` | All NUMA nodes have CPUs assigned |
+| `numa_topology` | Every vCPU is mapped to a NUMA node (CPU-less memory-only / GPU memory nodes are allowed) |
 | `gpu{N}_numa` | GPU PCI device NUMA node (GPU-CPU locality) |
 
 | Parameter | Type | Default | Description |

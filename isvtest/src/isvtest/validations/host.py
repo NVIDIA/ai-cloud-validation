@@ -45,6 +45,8 @@ from isvtest.core.ssh import (
     get_failed_subtests,
     get_ssh_client,
     get_ssh_config,
+    is_local_execution,
+    open_host_session,
     parse_cpu_range_count,
     run_ssh_command,
 )
@@ -354,12 +356,17 @@ class VcpuPinningCheck(BaseValidation):
     - All vCPUs are online
     - NUMA topology is consistent (vCPUs grouped by NUMA node)
     - CPU affinity mask covers all expected vCPUs
-    - CPU-to-NUMA mapping is balanced (no empty NUMA nodes)
+    - CPU-to-NUMA mapping accounts for every vCPU (CPU-less memory-only nodes
+      are valid: e.g. Grace-Hopper / Grace-Blackwell expose GPU memory as
+      additional NUMA nodes without CPUs)
     - GPU-to-NUMA locality: GPUs share NUMA node with assigned CPUs
 
     Config:
         host, key_file, user: SSH connection details
         expected_vcpus: Expected vCPU count (optional)
+        local: Run commands on the local host instead of via SSH (optional).
+            Use when the validation already executes on the target host, e.g.
+            via ``isvctl deploy run`` - avoids a redundant SSH hop and key.
     """
 
     description: ClassVar[str] = "Validates vCPU pinning and NUMA affinity"
@@ -367,24 +374,25 @@ class VcpuPinningCheck(BaseValidation):
     labels: ClassVar[tuple[str, ...]] = ("ssh", "vm")
 
     def run(self) -> None:
-        try:
-            import paramiko  # noqa: F401
-        except ImportError:
-            self.set_failed("paramiko not installed")
-            return
-
         ssh_cfg = get_ssh_config(self.config, self.config.get("inventory", {}))
         host = ssh_cfg["ssh_host"]
-        user = ssh_cfg["ssh_user"]
         key_path = ssh_cfg["ssh_key_path"]
         expected_vcpus = self.config.get("expected_vcpus")
+        local = is_local_execution(self.config)
+        target = host or "localhost"
 
-        if not host or not key_path:
-            self.set_failed("Missing host or key_file")
-            return
+        if not local:
+            try:
+                import paramiko  # noqa: F401
+            except ImportError:
+                self.set_failed("paramiko not installed")
+                return
+            if not host or not key_path:
+                self.set_failed("Missing host or key_file")
+                return
 
         try:
-            ssh = get_ssh_client(host, user, key_path)
+            ssh = open_host_session(ssh_cfg, self.config)
 
             # --- Check 1: vCPU count ---
             exit_code, stdout, _ = run_ssh_command(ssh, "nproc")
@@ -425,29 +433,52 @@ class VcpuPinningCheck(BaseValidation):
                 self.report_subtest("cpu_affinity", True, affinity_info[:80])
 
             # --- Check 4: NUMA topology ---
+            # CPU-less NUMA nodes are valid and expected: memory-only nodes and,
+            # on Grace-Hopper / Grace-Blackwell systems, GPU memory
+            # is exposed as additional CPU-less NUMA nodes. So we do not require
+            # every node to have CPUs; we only require that at least one node has
+            # CPUs and that the topology accounts for all vCPUs.
             exit_code, stdout, _ = run_ssh_command(ssh, "lscpu | grep -E '^NUMA node[0-9]+ CPU' || echo 'no_numa'")
             if exit_code == 0 and "no_numa" not in stdout:
                 numa_lines = [line.strip() for line in stdout.strip().split("\n") if line.strip()]
                 numa_nodes = len(numa_lines)
-                # Check all NUMA nodes have CPUs assigned (balanced)
-                all_have_cpus = all(":" in line and line.split(":")[-1].strip() != "" for line in numa_lines)
-                self.report_subtest(
-                    "numa_topology",
-                    all_have_cpus,
-                    f"{numa_nodes} NUMA node(s), all populated: {all_have_cpus}",
-                )
 
-                # Report per-node detail
+                node_cpus: list[tuple[str, str, int]] = []
                 for line in numa_lines:
                     parts = line.split(":")
                     if len(parts) == 2:
                         node_name = parts[0].strip().replace("NUMA ", "").replace(" CPU(s)", "")
                         cpus = parts[1].strip()
                         cpu_cnt = parse_cpu_range_count(cpus) if cpus else 0
+                        node_cpus.append((node_name, cpus, cpu_cnt))
+
+                cpu_node_count = sum(1 for _, _, cnt in node_cpus if cnt > 0)
+                memory_only_count = sum(1 for _, _, cnt in node_cpus if cnt == 0)
+                total_vcpus_mapped = sum(cnt for _, _, cnt in node_cpus)
+                # Consistent when at least one node has CPUs and every vCPU is mapped.
+                topology_ok = cpu_node_count > 0 and total_vcpus_mapped == vcpu_count
+                self.report_subtest(
+                    "numa_topology",
+                    topology_ok,
+                    f"{numa_nodes} NUMA node(s): {cpu_node_count} with CPUs, "
+                    f"{memory_only_count} memory-only; {total_vcpus_mapped}/{vcpu_count} vCPUs mapped",
+                )
+
+                # Report per-node detail. CPU-less nodes are valid memory-only /
+                # GPU memory nodes, so they are reported as passing informational
+                # entries rather than failures.
+                for node_name, cpus, cpu_cnt in node_cpus:
+                    if cpu_cnt > 0:
                         self.report_subtest(
                             f"numa_{node_name}",
-                            cpu_cnt > 0,
+                            True,
                             f"{node_name}: CPUs {cpus} ({cpu_cnt} cores)",
+                        )
+                    else:
+                        self.report_subtest(
+                            f"numa_{node_name}",
+                            True,
+                            f"{node_name}: no CPUs (memory-only / GPU memory node)",
                         )
             else:
                 self.report_subtest("numa_topology", True, "Single NUMA node (no NUMA)")
@@ -488,7 +519,7 @@ class VcpuPinningCheck(BaseValidation):
             elif expected_vcpus and vcpu_count != expected_vcpus:
                 self.set_failed(f"vCPU count mismatch: got {vcpu_count}, expected {expected_vcpus}")
             else:
-                self.set_passed(f"vCPU pinning check on {host} OK ({vcpu_count} vCPUs)")
+                self.set_passed(f"vCPU pinning check on {target} OK ({vcpu_count} vCPUs)")
 
         except Exception as e:
             self.set_failed(f"vCPU pinning check failed: {e}")
