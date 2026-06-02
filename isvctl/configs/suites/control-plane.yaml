@@ -66,24 +66,31 @@ tests:
     setup_checks:
       checks:
         AccessKeyCreatedCheck:
+          test_id: "CP-XX-05"
           step: create_access_key
         TenantCreatedCheck:
+          test_id: "CP-XX-07"
           step: create_tenant
 
     access_key_lifecycle:
       checks:
         AccessKeyAuthenticatedCheck:
+          test_id: "CP-XX-05"
           step: test_access_key
         AccessKeyDisabledCheck:
+          test_id: "CP-XX-06"
           step: disable_access_key
         AccessKeyRejectedCheck:
+          test_id: "CP-XX-06"
           step: verify_key_rejected
 
     tenant_lifecycle:
       checks:
         TenantListedCheck:
+          test_id: "CP-XX-08"
           step: list_tenants
         TenantInfoCheck:
+          test_id: "CP-XX-09"
           step: get_tenant
 
     s3_object_lifecycle:
