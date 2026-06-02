@@ -134,7 +134,6 @@ class InstanceRebootCheck(BaseValidation):
 
     description: ClassVar[str] = "Check instance rebooted successfully"
     labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
-    test_ids: ClassVar[tuple[str, ...]] = ("CNP01-05", "CNP01-13")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

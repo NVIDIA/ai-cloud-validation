@@ -230,6 +230,7 @@ tests:
       step: reboot_instance
       checks:
         InstanceRebootCheck:
+          test_id: "CNP01-05"
           max_uptime: 600
         StableIdentifierCheck:
           reference_id: "{{steps.launch_instance.instance_id}}"
