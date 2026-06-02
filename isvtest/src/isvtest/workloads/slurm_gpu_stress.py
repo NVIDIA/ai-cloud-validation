@@ -74,7 +74,6 @@ class SlurmGpuStressWorkload(BaseWorkloadCheck):
     description: ClassVar[str] = "Run GPU stress test on all Slurm nodes"
     timeout: ClassVar[int] = 1800
     labels: ClassVar[tuple[str, ...]] = ("workload", "slurm", "gpu", "slow")
-    test_ids: ClassVar[tuple[str, ...]] = ("SLURM-XX-07",)
 
     def run(self) -> None:
         """Execute GPU stress test on all nodes in the partition."""

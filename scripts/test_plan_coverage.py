@@ -149,6 +149,11 @@ def config_test_id_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     return {name: sorted(ids) for name, ids in out.items()}
 
 
+def _variant_base(name: str) -> str:
+    """Return the base class name for a variant entry ("SlurmPartition-cpu" -> "SlurmPartition")."""
+    return name.split("-")[0]
+
+
 def apply_config_test_ids(
     entries: list[dict[str, Any]], config_map: dict[str, list[str]] | None = None
 ) -> list[dict[str, Any]]:
@@ -157,13 +162,26 @@ def apply_config_test_ids(
     During the pilot only some checks live in YAML, so this merges the two
     sources; the end-state (all ids in YAML) is a no-op union over empty class
     metadata.
+
+    Some checks are wired only as variants (e.g. ``SlurmPartition-cpu``,
+    ``SlurmPartition-gpu``) while the catalog also carries the bare base class
+    (``SlurmPartition``). A variant's test_id is propagated up to its base so
+    the base entry is not orphaned once its class-level id is removed; variant
+    entries keep only their own id to preserve per-wiring precision.
     """
     config_map = config_test_id_map() if config_map is None else config_map
+    base_union: dict[str, set[str]] = defaultdict(set)
+    for name, ids in config_map.items():
+        base_union[_variant_base(name)].update(ids)
+
     merged: list[dict[str, Any]] = []
     for entry in entries:
-        cfg_ids = config_map.get(entry["name"], [])
+        name = entry["name"]
+        cfg_ids = set(config_map.get(name, []))
+        if name == _variant_base(name):
+            cfg_ids |= base_union.get(name, set())
         if cfg_ids:
-            union = sorted(set(entry.get("test_ids") or []) | set(cfg_ids))
+            union = sorted(set(entry.get("test_ids") or []) | cfg_ids)
             entry = {**entry, "test_ids": union}
         merged.append(entry)
     return merged

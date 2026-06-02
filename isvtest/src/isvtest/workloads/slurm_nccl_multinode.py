@@ -102,7 +102,6 @@ class SlurmNcclMultiNodeWorkload(BaseWorkloadCheck):
     description: ClassVar[str] = "Run NCCL AllReduce test across multiple Slurm nodes"
     timeout: ClassVar[int] = 1800
     labels: ClassVar[tuple[str, ...]] = ("workload", "slurm", "gpu", "slow")
-    test_ids: ClassVar[tuple[str, ...]] = ("SLURM-XX-08",)
 
     def run(self) -> None:
         """Execute multi-node NCCL test."""
