@@ -74,6 +74,7 @@ tests:
       - K8sNodePoolCheck:
           # Create (CPU pool): pool reaches desired replica count with its
           # specified CPU instance type.
+          test_id: "K8S06-01"
           step: create_test_node_pool
           label_selector: "{{ steps.create_test_node_pool.label_selector }}"
           expected_replicas: "{{ steps.create_test_node_pool.expected_replicas | default(1, true) }}"
@@ -86,6 +87,7 @@ tests:
       - K8sNodePoolCheck:
           # Create (GPU pool): a separate pool reaches its own node count with
           # its specified GPU instance type, coexisting with the CPU pool.
+          test_id: "K8S06-01"
           step: create_test_gpu_node_pool
           label_selector: "{{ steps.create_test_gpu_node_pool.label_selector }}"
           expected_replicas: "{{ steps.create_test_gpu_node_pool.expected_replicas | default(1, true) }}"
@@ -97,6 +99,7 @@ tests:
           poll_interval: 10
       - K8sNodePoolCheck:
           # Update (scale): same pool converges to the new count.
+          test_id: "K8S06-02"
           step: update_test_node_pool
           label_selector: "{{ steps.update_test_node_pool.label_selector }}"
           expected_replicas: "{{ steps.update_test_node_pool.expected_replicas | default(2, true) }}"
@@ -106,6 +109,8 @@ tests:
           node_type: "{{ steps.update_test_node_pool.node_type | default('cpu') }}"
           wait_timeout: 900
           poll_interval: 10
+          # GAP: K8S06-03 (delete a node pool) is not validated - no K8sNodePoolCheck
+          # wiring exercises a delete. Add a delete step + check to cover it.
 
     kubernetes:
       checks:
