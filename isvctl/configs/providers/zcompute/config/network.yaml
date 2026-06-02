@@ -149,6 +149,28 @@ commands:
         timeout: 120
         output_schema: localized_dns
 
+      # SG Scoping: workload, subnet, service
+      - name: sg_workload_scoping
+        phase: test
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/sg_scoping_test.py"
+        args: ["--region", "{{region}}", "--scope", "workload"]
+        timeout: 120
+        output_schema: sg_workload_scoping
+
+      - name: sg_subnet_scoping
+        phase: test
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/sg_scoping_test.py"
+        args: ["--region", "{{region}}", "--scope", "subnet"]
+        timeout: 120
+        output_schema: sg_subnet_scoping
+
+      - name: sg_service_scoping
+        phase: test
+        command: "python3 ../scripts/network/ssl_wrapper.py ../../aws/scripts/network/sg_scoping_test.py"
+        args: ["--region", "{{region}}", "--scope", "service"]
+        timeout: 180
+        output_schema: sg_service_scoping
+
       # Test 13: VPC Peering (confirmed working in zCompute)
       - name: peering_test
         phase: test
@@ -194,11 +216,8 @@ tests:
       - TrafficFlowCheck
       # DNS — under investigation for zCompute support
       # - LocalizedDnsCheck
-      # SG scoping — subnet scope needs NACLs, service scope needs VPC endpoints
-      - SgWorkloadScopingCheck
-      - SgNodeScopingCheck
-      - SgSubnetScopingCheck
-      - SgServiceScopingCheck
+      # SG scoping — testing all 3 on zCompute
+      - SgNodeScopingCheck  # no step configured for node scoping
       # SDN logging — CloudWatch/CloudTrail not in zCompute
       - SdnHardwareFaultLoggingCheck
       - SdnLatencyPerfLoggingCheck
