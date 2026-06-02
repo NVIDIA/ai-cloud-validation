@@ -90,12 +90,14 @@ tests:
     console_rbac:
       step: console_rbac
       checks:
-        ConsoleRbacCheck: {}
+        ConsoleRbacCheck:
+          test_id: "CNP01-16"
 
     virtual_device_hardening:
       step: virtual_device_hardening
       checks:
-        VirtualDeviceHardeningCheck: {}
+        VirtualDeviceHardeningCheck:
+          test_id: "CNP01-17"
 
     cloud_init:
       step: launch_instance

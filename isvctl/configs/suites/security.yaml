@@ -47,96 +47,115 @@ tests:
     bmc_management_network:
       checks:
         BmcManagementNetworkCheck:
+          test_id: "SEC12-01"
           step: bmc_management_network
 
     bmc_isolation:
       checks:
         BmcTenantIsolationCheck:
+          test_id: "SEC12-02"
           step: bmc_tenant_isolation
 
     bmc_protocol_security:
       checks:
         BmcProtocolSecurityCheck:
+          test_id: "CNP10-01"
           step: bmc_protocol_security
 
     bmc_bastion_access:
       checks:
         BmcBastionAccessCheck:
+          test_id: "SEC12-03"
           step: bmc_bastion_access
 
     api_security:
       checks:
         ApiEndpointIsolationCheck:
+          test_id: "SEC14-01"
           step: api_endpoint_isolation
 
     insecure_protocols:
       checks:
         InsecureProtocolsCheck:
+          test_id: "SEC13-02"
           step: insecure_protocols_test
 
     mfa_enforcement:
       checks:
         MfaEnforcedCheck:
+          test_id: "SEC07-01"
           step: mfa_enforcement
 
     cert_rotation:
       checks:
         CertRotationCycleCheck:
+          test_id: "SEC09-01"
           step: cert_rotation_test
 
     kms_encryption_options:
       checks:
         KmsEncryptionOptionCheck:
+          test_id: "SEC09-02"
           step: kms_encryption_options_test
 
     centralized_kms:
       checks:
         CentralizedKmsCheck:
+          test_id: "SEC09-03"
           step: centralized_kms_test
 
     customer_managed_key:
       checks:
         CustomerManagedKeyCheck:
+          test_id: "SEC09-04"
           step: customer_managed_key_test
 
     service_account_auth:
       checks:
         ServiceAccountCredentialCheck:
+          test_id: "SEC03-01"
           step: sa_credential_test
 
     user_auth_oidc:
       checks:
         OidcUserAuthCheck:
+          test_id: "SEC01-01"
           step: oidc_user_auth_test
 
     short_lived_credentials:
       checks:
         ShortLivedCredentialsCheck:
+          test_id: "SEC02-01"
           step: short_lived_credentials_test
 
     least_privilege_policy:
       checks:
         LeastPrivilegePolicyCheck:
+          test_id: "SEC04-01"
           step: least_privilege_test
 
     minimal_role_enforcement:
       checks:
         MinimalRoleEnforcementCheck:
+          test_id: "SEC04-02"
           step: least_privilege_test
 
     audit_log_entry:
       checks:
         AuditLogEntryCheck:
+          test_id: "SEC08-01"
           step: audit_logging_test
 
     audit_log_retention:
       checks:
         AuditLogRetentionCheck:
+          test_id: "SEC08-02"
           step: audit_logging_test
 
     tenant_isolation:
       checks:
         TenantIsolationCheck:
+          test_id: "SEC11-01"
           step: tenant_isolation_test
 
     teardown_checks:

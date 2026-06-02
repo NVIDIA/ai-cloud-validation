@@ -169,7 +169,6 @@ class ServiceAccountCredentialCheck(BaseValidation):
 
     description: ClassVar[str] = "Check service account long-lived credential auth"
     labels: ClassVar[tuple[str, ...]] = ("iam", "security")
-    test_ids: ClassVar[tuple[str, ...]] = ("SEC03-01",)
 
     def run(self) -> None:
         """Validate SA credential authentication from step output."""
