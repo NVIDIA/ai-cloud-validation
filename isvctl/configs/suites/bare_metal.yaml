@@ -51,6 +51,7 @@ tests:
     setup_checks:
       step: launch_instance
       checks:
+        # InstanceStateCheck: generic check (no plan test_id)
         InstanceStateCheck:
           expected_state: "running"
 
@@ -94,6 +95,7 @@ tests:
     instance_info:
       step: describe_instance
       checks:
+        # InstanceStateCheck: generic check (no plan test_id)
         InstanceStateCheck:
           expected_state: "running"
 
@@ -222,6 +224,7 @@ tests:
     start_ssh:
       step: start_instance
       checks:
+        # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
         ConnectivityCheck:
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
@@ -233,6 +236,7 @@ tests:
     start_gpu:
       step: start_instance
       checks:
+        # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
         GpuCheck:
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
@@ -243,18 +247,21 @@ tests:
         InstanceRebootCheck:
           test_id: "CNP01-05"
           max_uptime: 600
+        # StableIdentifierCheck -> CNP08-01 (declared in the "start_checks" section)
         StableIdentifierCheck:
           reference_id: "{{steps.launch_instance.instance_id}}"
 
     reboot_state:
       step: reboot_instance
       checks:
+        # InstanceStateCheck: generic check (no plan test_id)
         InstanceStateCheck:
           expected_state: "running"
 
     reboot_ssh:
       step: reboot_instance
       checks:
+        # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
         ConnectivityCheck:
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
@@ -266,6 +273,7 @@ tests:
     reboot_gpu:
       step: reboot_instance
       checks:
+        # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
         GpuCheck:
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
@@ -277,18 +285,21 @@ tests:
         InstancePowerCycleCheck:
           test_id: "CNP01-06"
           max_recovery_time: 900
+        # StableIdentifierCheck -> CNP08-01 (declared in the "start_checks" section)
         StableIdentifierCheck:
           reference_id: "{{steps.launch_instance.instance_id}}"
 
     power_cycle_state:
       step: power_cycle_instance
       checks:
+        # InstanceStateCheck: generic check (no plan test_id)
         InstanceStateCheck:
           expected_state: "running"
 
     power_cycle_ssh:
       step: power_cycle_instance
       checks:
+        # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
         ConnectivityCheck: {}
         OsCheck:
           expected_os: "ubuntu"
@@ -296,6 +307,7 @@ tests:
     power_cycle_gpu:
       step: power_cycle_instance
       checks:
+        # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
         GpuCheck:
           expected_gpus: 8
 
@@ -303,6 +315,7 @@ tests:
     reinstall_state:
       step: reinstall_instance
       checks:
+        # InstanceStateCheck: generic check (no plan test_id)
         InstanceStateCheck:
           expected_state: "running"
         StableIdentifierCheck:
@@ -311,6 +324,7 @@ tests:
     reinstall_ssh:
       step: reinstall_instance
       checks:
+        # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
         ConnectivityCheck: {}
         OsCheck:
           expected_os: "ubuntu"
@@ -318,6 +332,7 @@ tests:
     reinstall_gpu:
       step: reinstall_instance
       checks:
+        # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
         GpuCheck: {}
 
     nim_health:
