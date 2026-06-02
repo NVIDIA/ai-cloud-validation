@@ -134,7 +134,8 @@ tests:
       step: host_status_log
       checks:
         StepSuccessCheck: {}
-        BmHostStatusLog: {}
+        BmHostStatusLog:
+          test_id: "BMAAS-XX-07"
 
     # GPU stress test - PyTorch matrix multiplications on all GPUs
     gpu_stress:
@@ -322,17 +323,20 @@ tests:
     nim_health:
       step: deploy_nim
       checks:
-        NimHealthCheck: {}
+        NimHealthCheck:
+          test_id: "BMAAS-XX-10"
 
     nim_models:
       step: deploy_nim
       checks:
-        NimModelCheck: {}
+        NimModelCheck:
+          test_id: "BMAAS-XX-10"
 
     nim_inference:
       step: deploy_nim
       checks:
         NimInferenceCheck:
+          test_id: "BMAAS-XX-10"
           prompt: "What is CUDA?"
           max_tokens: 50
 

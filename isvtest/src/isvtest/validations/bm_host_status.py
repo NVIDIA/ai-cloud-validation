@@ -38,7 +38,6 @@ class BmHostStatusLog(BaseValidation):
     description: ClassVar[str] = "Verify per-host status log (journalctl/dmesg) is producing fresh entries"
     timeout: ClassVar[int] = 60
     labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
-    test_ids: ClassVar[tuple[str, ...]] = ("BMAAS-XX-07",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

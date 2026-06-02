@@ -81,7 +81,6 @@ class VpcCrudCheck(BaseValidation):
 
     description: ClassVar[str] = "Check VPC CRUD operations"
     labels: ClassVar[tuple[str, ...]] = ("network",)
-    test_ids: ClassVar[tuple[str, ...]] = ("SDN01-01", "SDN01-02", "SDN01-03", "SDN01-04")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -176,7 +175,6 @@ class VpcIsolationCheck(BaseValidation):
 
     description: ClassVar[str] = "Check VPC isolation"
     labels: ClassVar[tuple[str, ...]] = ("network", "security")
-    test_ids: ClassVar[tuple[str, ...]] = ("SDN04-02", "SDN04-03")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -222,7 +220,6 @@ class SgCrudCheck(BaseValidation):
 
     description: ClassVar[str] = "Check security group CRUD operations"
     labels: ClassVar[tuple[str, ...]] = ("network", "security")
-    test_ids: ClassVar[tuple[str, ...]] = ("SDN02-01", "SDN02-02", "SDN02-03", "SDN02-04")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

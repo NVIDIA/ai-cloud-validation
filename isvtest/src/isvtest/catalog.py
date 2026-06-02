@@ -35,7 +35,7 @@ import yaml
 from isvreporter.version import get_version
 
 from isvtest.core.discovery import discover_all_tests
-from isvtest.core.validation import get_validation_labels, get_validation_test_ids
+from isvtest.core.validation import get_validation_labels
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 logger = logging.getLogger(__name__)
@@ -178,7 +178,6 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             "description": getattr(cls, "description", "") or "",
             "labels": labels,
             "module": cls.__module__,
-            "test_ids": list(get_validation_test_ids(cls)),
         }
         # Infer platforms from labels only for checks not already covered by
         # canonical configs. Some labels (for example "security") are useful
@@ -203,7 +202,6 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
                 "labels": meta["labels"],
                 "module": meta["module"],
                 "platforms": sorted(platform_map.get(name, [])),
-                "test_ids": meta["test_ids"],
             }
         )
 
@@ -227,7 +225,6 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
                 "labels": meta.get("labels", []),
                 "module": meta.get("module", ""),
                 "platforms": sorted(platforms),
-                "test_ids": meta.get("test_ids", []),
             }
         )
 

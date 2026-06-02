@@ -225,17 +225,20 @@ tests:
     nim_health:
       step: deploy_nim
       checks:
-        NimHealthCheck: {}
+        NimHealthCheck:
+          test_id: "VMAAS-XX-12"
 
     nim_models:
       step: deploy_nim
       checks:
-        NimModelCheck: {}
+        NimModelCheck:
+          test_id: "VMAAS-XX-12"
 
     nim_inference:
       step: deploy_nim
       checks:
         NimInferenceCheck:
+          test_id: "VMAAS-XX-12"
           prompt: "What is CUDA?"
           max_tokens: 50
 
