@@ -123,6 +123,7 @@ def main() -> int:
                 # Exit 0 so the step does not fail the orchestration.
                 # AccessKeyDisabledCheck and AccessKeyRejectedCheck are excluded in config.
                 result["platform_gap"] = True
+                result["status"] = "NotImplemented"
                 result["note"] = "iam:UpdateAccessKey not implemented on zCompute (NK-19406)."
                 print(json.dumps(result, indent=2))
                 return 0
