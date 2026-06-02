@@ -42,7 +42,6 @@ class K8sControlPlaneLogsCheck(BaseValidation):
     description: ClassVar[str] = "Verify Kubernetes control-plane logs can be viewed or exported."
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
-    test_ids: ClassVar[tuple[str, ...]] = ("K8S20-01",)
 
     def run(self) -> None:
         """Parse the check config, resolve each component, and retrieve its logs.

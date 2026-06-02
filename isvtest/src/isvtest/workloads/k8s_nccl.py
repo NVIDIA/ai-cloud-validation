@@ -37,7 +37,6 @@ class K8sNcclWorkload(BaseWorkloadCheck):
 
     description = "Run NCCL allreduce test on Kubernetes."
     labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
-    test_ids: ClassVar[tuple[str, ...]] = ("K8S-XX-05",)
 
     def run(self) -> None:
         # Get configuration

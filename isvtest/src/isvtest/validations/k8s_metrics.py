@@ -46,7 +46,6 @@ class K8sApiServerMetricsCheck(BaseValidation):
     description: ClassVar[str] = "Verify kube-apiserver exposes /metrics in Prometheus text format."
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
-    test_ids: ClassVar[tuple[str, ...]] = ("K8S07-01",)
 
     def run(self) -> None:
         """Query the API server /metrics endpoint and verify expected metric names are exposed."""

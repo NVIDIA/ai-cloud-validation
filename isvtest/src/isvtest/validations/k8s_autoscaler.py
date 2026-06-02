@@ -58,7 +58,6 @@ class K8sClusterAutoscalerCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify upstream Cluster Autoscaler integration is installed and running."
     labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
-    test_ids: ClassVar[tuple[str, ...]] = ("K8S-XX-08",)
 
     def run(self) -> None:
         """Find Cluster Autoscaler deployments and verify their replicas and pods are healthy."""

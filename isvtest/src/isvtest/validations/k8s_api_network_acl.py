@@ -60,7 +60,6 @@ class K8sApiNetworkAclCheck(BaseValidation):
     description: ClassVar[str] = "Verify the Kubernetes API endpoint is protected by network access controls."
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
-    test_ids: ClassVar[tuple[str, ...]] = ("K8S15-01",)
 
     def run(self) -> None:
         """Execute the authorized baseline probe and unauthorized probe flow."""

@@ -133,8 +133,10 @@ tests:
           expected_per_node: "{{ steps.setup.kubernetes.gpu_per_node | default(4, true) }}"
           expected_total: "{{ steps.setup.kubernetes.total_gpus | default(16, true) }}"
         K8sGpuOperatorNamespaceCheck:
+          test_id: "K8S25-01"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
         K8sGpuOperatorPodsCheck:
+          test_id: "K8S25-01"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
         K8sGpuLabelsCheck:
           label_selector: "nvidia.com/gpu.present=true"
@@ -149,8 +151,10 @@ tests:
             "nvidia.com/mig.capable": "true"
             "nvidia.com/mig.strategy": "single"
         K8sDualStackNodeCheck:
+          test_id: "K8S22-01"
           require_dual_stack: "auto" # true | false | "auto"
         K8sClusterAutoscalerCheck:
+          test_id: "K8S-XX-08"
           require_autoscaler: false
           namespace: "{{ steps.setup.kubernetes.cluster_autoscaler_namespace | default('kube-system', true) }}"
           deployment_names:
@@ -160,6 +164,7 @@ tests:
             - "app=cluster-autoscaler"
             - "k8s-app=cluster-autoscaler"
         K8sNetworkPolicyCheck:
+          test_id: "K8S22-01"
           image: "registry.k8s.io/e2e-test-images/agnhost:2.47"
           probe_port: 8080
           probe_timeout_s: 10
@@ -170,6 +175,7 @@ tests:
     k8s_storage:
       checks:
         K8sCsiStorageTypesCheck:
+          test_id: "K8S23-04"
           # StorageClass names by type; omit (or leave empty) to skip that type.
           # Env overrides: K8S_CSI_BLOCK_SC, K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
           block_storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
@@ -179,6 +185,7 @@ tests:
           bind_timeout_s: 120
           namespace_prefix: "isvtest-csi-types"
         K8sCsiStorageQuotaApiCheck:
+          test_id: "K8S23-07"
           # Uses the block StorageClass by default; skips entirely when unset.
           # per_sc_quota must exceed pvc_request so the usage PVC fits, and
           # over_quota_request must exceed per_sc_quota so admission rejects it.
@@ -191,6 +198,7 @@ tests:
           quota_settle_s: 30
           namespace_prefix: "isvtest-csi-quota"
         K8sCsiTenantScopedCredentialsCheck:
+          test_id: "K8S23-06"
           # Pure read-only check: verifies CSI credentials are tenant-scoped
           # by construction (Secret namespaces, labels/annotations, RBAC,
           # and node-plugin volume topology). Skipped entirely when no
@@ -201,6 +209,7 @@ tests:
           forbidden_labels:
             - "shared-across-clusters=true"
         K8sCsiProvisioningModesCheck:
+          test_id: "K8S23-05"
           # Exercises dynamic and static CSI provisioning end-to-end with a
           # BusyBox mount + canary-file write/read. Skipped entirely when
           # dynamic_storage_class is unset. The static subtest is skipped
@@ -219,11 +228,13 @@ tests:
 
     k8s_identity:
       checks:
-        K8sOidcIssuerCheck: {}
+        K8sOidcIssuerCheck:
+          test_id: "K8S18-01"
 
     k8s_conformance:
       checks:
         K8sCncfConformanceCheck:
+          test_id: "K8S01-01"
           # Valid `mode` values (see docs/guides/configuration.md#kubernetes-conformance-modes):
           #   - "certified-conformance": full [Conformance] suite, serial. Required
           #     for CNCF certification; expect multi-hour runtime.
@@ -240,9 +251,11 @@ tests:
     k8s_workloads:
       checks:
         K8sNcclWorkload:
+          test_id: "K8S-XX-05"
           min_bus_bw_gbps: 100
           timeout: 600
         K8sNcclMultiNodeWorkload:
+          test_id: "K8S-XX-05"
           nodes: "{{ steps.setup.kubernetes.gpu_node_count | default(2, true) }}"
           min_bus_bw_gbps: 100
           quick_mode: false
@@ -253,8 +266,10 @@ tests:
           runtime: 30
           timeout: 300
         K8sNimInferenceWorkload:
+          test_id: "K8S-XX-03"
           timeout: 1500
         K8sNimHelmWorkload-1b:
+          test_id: "K8S-XX-04"
           model: "meta/llama-3.2-1b-instruct"
           model_tag: "latest"
           gpu_count: 1
@@ -262,6 +277,7 @@ tests:
           genai_perf_requests: 100
           genai_perf_concurrency: 4
         K8sNimHelmWorkload-3b:
+          test_id: "K8S-XX-04"
           model: "meta/llama-3.2-3b-instruct"
           model_tag: "latest"
           gpu_count: "{{ steps.setup.kubernetes.gpu_per_node | default(4, true) }}"
@@ -271,8 +287,10 @@ tests:
 
     k8s_observability:
       checks:
-        K8sApiServerMetricsCheck: {}
+        K8sApiServerMetricsCheck:
+          test_id: "K8S07-01"
         K8sControlPlaneLogsCheck:
+          test_id: "K8S20-01"
           # mode=auto resolves each component independently: kubectl when a
           # control-plane pod exists in `namespace`, else `commands[component]`.
           # This covers hybrid clusters (some components as static pods, others
@@ -303,6 +321,7 @@ tests:
     k8s_network:
       checks:
         K8sApiNetworkAclCheck:
+          test_id: "K8S15-01"
           # Probe-based, provider-agnostic: verifies the reviewed cluster's
           # Kubernetes API endpoint refuses connections from a source that
           # should be blocked. By default the validation uses the configured
