@@ -212,6 +212,18 @@ def main() -> int:
     parser.add_argument("--vpc-id", required=True, help="VPC ID to delete")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     parser.add_argument("--skip-destroy", action="store_true", help="Skip actual destroy")
+    parser.add_argument(
+        "--service-vm-settle-seconds",
+        type=int,
+        default=int(os.environ.get("AWS_NETWORK_SERVICE_VM_SETTLE_SECONDS", "60")),
+        help=(
+            "Seconds to wait before deleting the VPC, so asynchronous VPC service VMs (e.g. the "
+            "DNS/CoreDNS VM, which is provisioned in the background and is not visible via the EC2 "
+            "API) can finish coming up before teardown. Deleting too soon can race that "
+            "provisioning and leave the service VM orphaned. Set to 0 to disable. "
+            "Env: AWS_NETWORK_SERVICE_VM_SETTLE_SECONDS."
+        ),
+    )
     args = parser.parse_args()
 
     result = {
@@ -231,6 +243,17 @@ def main() -> int:
         return 0
 
     ec2 = boto3.client("ec2", region_name=args.region)
+
+    # A VPC's DNS (CoreDNS) service VM is provisioned asynchronously after the VPC reports
+    # available and is not visible through the EC2 API. Deleting the VPC while that
+    # provisioning is still in flight can race it and orphan the service VM, so settle first.
+    if args.service_vm_settle_seconds > 0:
+        logger.info(
+            "Waiting %ss for asynchronous VPC service VMs to settle before teardown "
+            "(--service-vm-settle-seconds=0 or AWS_NETWORK_SERVICE_VM_SETTLE_SECONDS=0 to disable)",
+            args.service_vm_settle_seconds,
+        )
+        time.sleep(args.service_vm_settle_seconds)
 
     try:
         deleted = teardown_vpc(ec2, args.vpc_id)
