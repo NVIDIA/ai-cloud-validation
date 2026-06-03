@@ -2491,3 +2491,98 @@ def test_field_value_check_requires_nested_dot_path_to_exist() -> None:
 
     assert result["passed"] is False
     assert "Field 'operations.get.content_matches' not found" in result["error"]
+
+
+def _gb200_numa_lscpu() -> str:
+    """lscpu NUMA lines for a GB200 node: 2 CPU nodes + 32 CPU-less nodes."""
+    lines = ["NUMA node0 CPU(s):0-71", "NUMA node1 CPU(s):72-143"]
+    lines += [f"NUMA node{n} CPU(s):" for n in range(2, 34)]
+    return "\n".join(lines)
+
+
+def _vcpu_responder(numa_lscpu: str, vcpus: int, *, online: str | None = None):
+    """Build a run_ssh_command side_effect keyed on command substrings."""
+    online_range = online if online is not None else f"0-{vcpus - 1}"
+
+    def _run(_ssh: Any, command: str, *_args: Any, **_kwargs: Any) -> tuple[int, str, str]:
+        if command == "nproc":
+            return (0, f"{vcpus}\n", "")
+        if "cpu/online" in command:
+            return (0, f"{online_range}\n", "")
+        if "taskset" in command:
+            return (0, "pid 1's current affinity mask: " + "f" * 16, "")
+        if "NUMA node" in command:
+            return (0, numa_lscpu, "")
+        if "nvidia-smi" in command:
+            return (0, "0, 00000008:01:00.0\n", "")
+        if "numa_node" in command:
+            return (0, "2\n", "")
+        return (0, "", "")
+
+    return _run
+
+
+class TestVcpuPinningCheckLocalMode:
+    """VcpuPinningCheck in local mode (runs commands on the host, no SSH key)."""
+
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_gb200_topology_passes(self, mock_ssh_cfg: MagicMock, mock_run: MagicMock) -> None:
+        """CPU-less GPU-memory NUMA nodes (GB200) must not fail numa_topology."""
+        from isvtest.validations.host import VcpuPinningCheck
+
+        mock_ssh_cfg.return_value = {"ssh_host": "", "ssh_user": "ubuntu", "ssh_key_path": ""}
+        mock_run.side_effect = _vcpu_responder(_gb200_numa_lscpu(), 144)
+
+        result = VcpuPinningCheck(config={"local": True}).execute()
+
+        assert result["passed"] is True
+        assert "144 vCPUs" in result["output"]
+        subtests = {s["name"]: s for s in result["subtests"]}
+        assert subtests["numa_topology"]["passed"] is True
+        assert "2 with CPUs, 32 memory-only" in subtests["numa_topology"]["message"]
+        # Every CPU-less node is reported as a passing (informational) subtest.
+        assert subtests["numa_node2"]["passed"] is True
+        assert subtests["numa_node33"]["passed"] is True
+
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_local_mode_does_not_require_key(self, mock_ssh_cfg: MagicMock, mock_run: MagicMock) -> None:
+        """Local mode skips the host/key_file requirement."""
+        from isvtest.validations.host import VcpuPinningCheck
+
+        mock_ssh_cfg.return_value = {"ssh_host": "", "ssh_user": "ubuntu", "ssh_key_path": ""}
+        mock_run.side_effect = _vcpu_responder("NUMA node0 CPU(s):0-3", 4)
+
+        result = VcpuPinningCheck(config={"local": True}).execute()
+
+        assert result["passed"] is True
+        assert "Missing host or key_file" not in (result["error"] or "")
+
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_unmapped_vcpus_fail_topology(self, mock_ssh_cfg: MagicMock, mock_run: MagicMock) -> None:
+        """numa_topology fails when the NUMA CPU listing doesn't account for all vCPUs."""
+        from isvtest.validations.host import VcpuPinningCheck
+
+        mock_ssh_cfg.return_value = {"ssh_host": "", "ssh_user": "ubuntu", "ssh_key_path": ""}
+        # 8 vCPUs reported by nproc, but NUMA lists only 4 -> inconsistent.
+        mock_run.side_effect = _vcpu_responder("NUMA node0 CPU(s):0-3", 8)
+
+        result = VcpuPinningCheck(config={"local": True}).execute()
+
+        assert result["passed"] is False
+        subtests = {s["name"]: s for s in result["subtests"]}
+        assert subtests["numa_topology"]["passed"] is False
+
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_non_local_missing_key_fails(self, mock_ssh_cfg: MagicMock) -> None:
+        """Without local mode, a missing key_file is still a failure."""
+        from isvtest.validations.host import VcpuPinningCheck
+
+        mock_ssh_cfg.return_value = {"ssh_host": "10.0.0.1", "ssh_user": "ubuntu", "ssh_key_path": ""}
+
+        result = VcpuPinningCheck(config={}).execute()
+
+        assert result["passed"] is False
+        assert "Missing host or key_file" in result["error"]
