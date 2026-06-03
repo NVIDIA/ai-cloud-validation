@@ -25,7 +25,7 @@ import time
 # the operator has an ssh-agent running with multiple identities. Without
 # the agent disable, agent-offered keys are tried first and exhaust
 # MaxAuthTries before the `-i` key is reached, producing spurious auth
-# failures. Mirrors the AWS oracle's ssh_utils canonical options.
+# failures. Mirrors the AWS provider's ssh_utils canonical options.
 _SSH_OPTS: tuple[str, ...] = (
     "-o",
     "StrictHostKeyChecking=no",
@@ -78,7 +78,7 @@ def ssh_run(
 ) -> tuple[int, str, str]:
     """Run a single command over SSH. Returns ``(exit_code, stdout, stderr)``.
 
-    Sister to the AWS oracle's ``common.ssh_utils.ssh_run`` — same return
+    Sister to the AWS provider's ``common.ssh_utils.ssh_run`` — same return
     contract so guest probes can be reused verbatim. Errors map to fixed
     sentinel exit codes (124 for timeout, 255 for OSError) instead of
     raising, mirroring the AWS helper.
@@ -112,7 +112,7 @@ def wait_for_ssh(
     max_attempts: int = 30,
     interval: int = 10,
 ) -> bool:
-    """Poll until SSH accepts a connection. Mirrors AWS oracle's wait_for_ssh.
+    """Poll until SSH accepts a connection. Mirrors AWS provider's wait_for_ssh.
 
     Single-success gate — NOT sufficient as a post-lifecycle stability
     gate (see ``wait_for_ssh_stable``).

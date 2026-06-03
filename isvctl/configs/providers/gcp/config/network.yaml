@@ -1,0 +1,396 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+# GCP Network (VPC / Compute Engine) Validation Configuration.
+#
+# Imports the provider-agnostic network contract from suites/network.yaml
+# and wires every step to a Compute Engine stub under
+# providers/gcp/scripts/network/. Steps mirror the AWS provider order.
+#
+# Compute Engine divergences baked into this wiring:
+#
+#   * Networks own no CIDR — `--cidr` is an aggregate the stubs carve
+#     subnetwork ranges from.
+#   * Subnetworks are regional; the `az` field is populated from real
+#     zones in the configured region.
+#   * Instance APIs are zone-scoped — VM-launching steps pin `--zone`
+#     explicitly (no silent fallback) and forward the effective zone.
+#   * VpcIpConfigCheck.auto_assign_ip_mode=instance: Compute Engine
+#     external IPs are attached per-NIC via accessConfigs, not as a
+#     subnet auto-assign flag. FloatingIpCheck.max_switch_seconds=20:
+#     ephemeral->static promotion measured ~12s, over the 10s default.
+#     Both overrides use the REQUIRED group-nested shape (the flat shape
+#     is silently dropped by isvtest's loader at main.py:244).
+#   * BackendSwitchFabricCheck is excluded: public Compute APIs expose no
+#     leaf/spine/core switch identifiers (documented portability gap), so
+#     the backend_switch_fabric step is omitted rather than fabricated.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/gcp/config/network.yaml
+
+import:
+  - ../../../suites/network.yaml
+
+version: "1.0"
+
+commands:
+  network:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # Setup: shared custom-mode VPC + subnets + SSH/ICMP firewall.
+      - name: create_network
+        phase: setup
+        command: "python3 ../scripts/network/create_vpc.py"
+        args:
+          - "--name"
+          - "isv-shared-vpc"
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.0.0.0/16"
+        timeout: 300
+
+      # Test 1: VPC CRUD (create/read/update/routing-toggle/delete).
+      - name: vpc_crud
+        phase: test
+        command: "python3 ../scripts/network/vpc_crud_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.99.0.0/16"
+        timeout: 180
+        output_schema: vpc_crud
+
+      # Test 2: Subnet configuration (multi-AZ via real region zones).
+      - name: subnet_config
+        phase: test
+        command: "python3 ../scripts/network/subnet_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.98.0.0/16"
+          - "--subnet-count"
+          - "4"
+        timeout: 240
+        output_schema: subnet_config
+
+      # Test 3: VPC isolation (no peering / no cross-routes / default-deny).
+      - name: vpc_isolation
+        phase: test
+        command: "python3 ../scripts/network/isolation_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr-a"
+          - "10.97.0.0/16"
+          - "--cidr-b"
+          - "10.96.0.0/16"
+        timeout: 240
+        output_schema: vpc_isolation
+
+      # Test 4a: Firewall (SG) CRUD lifecycle.
+      - name: sg_crud
+        phase: test
+        command: "python3 ../scripts/network/sg_crud_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.95.0.0/16"
+        timeout: 240
+        output_schema: sg_crud
+
+      # Test 4b: Security blocking (default-deny, explicit-deny, egress).
+      - name: security_blocking
+        phase: test
+        command: "python3 ../scripts/network/security_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.94.0.0/16"
+        timeout: 240
+        output_schema: security_blocking
+
+      # Test 4c: SG scoping - workload level (tag-scoped firewall + 2 VMs).
+      - name: sg_workload_scoping
+        phase: test
+        command: "python3 ../scripts/network/sg_scoping_test.py"
+        args: ["--region", "{{region}}", "--zone", "{{zone}}", "--scope", "workload"]
+        timeout: 600
+
+      # Test 4d: SG scoping - node level.
+      - name: sg_node_scoping
+        phase: test
+        command: "python3 ../scripts/network/sg_scoping_test.py"
+        args: ["--region", "{{region}}", "--zone", "{{zone}}", "--scope", "node"]
+        timeout: 600
+
+      # Test 4e: SG scoping - subnet level (CIDR-constrained firewall).
+      - name: sg_subnet_scoping
+        phase: test
+        command: "python3 ../scripts/network/sg_scoping_test.py"
+        args: ["--region", "{{region}}", "--zone", "{{zone}}", "--scope", "subnet"]
+        timeout: 300
+
+      # Test 4f: SG scoping - service level (targetServiceAccounts + 2 VMs).
+      # >=600s: 180s SA IAM propagation + VM create + cleanup.
+      - name: sg_service_scoping
+        phase: test
+        command: "python3 ../scripts/network/sg_scoping_test.py"
+        args: ["--region", "{{region}}", "--zone", "{{zone}}", "--scope", "service"]
+        timeout: 900
+
+      # Test 4g: SDN hardware-fault logging (Cloud Logging system events).
+      - name: sdn_hardware_fault_logging
+        phase: test
+        command: "python3 ../scripts/network/sdn_logging_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--aspect"
+          - "hardware_faults"
+        timeout: 180
+
+      # Test 4h: SDN latency/perf logging (VPC Flow Logs + Monitoring).
+      - name: sdn_latency_perf_logging
+        phase: test
+        command: "python3 ../scripts/network/sdn_logging_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--aspect"
+          - "latency_perf"
+        timeout: 240
+
+      # Test 4i: SDN filter audit trail (firewall CRUD + Admin Activity logs).
+      - name: sdn_filter_audit_trail
+        phase: test
+        command: "python3 ../scripts/network/sdn_logging_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--aspect"
+          - "audit_trail"
+        timeout: 900
+
+      # Test 5: Connectivity (instance-to-instance + internet via SSH).
+      - name: connectivity_test
+        phase: test
+        command: "python3 ../scripts/network/test_connectivity.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-ids"
+          - "{{steps.create_network.subnets | map(attribute='subnet_id') | join(',')}}"
+          - "--sg-id"
+          - "{{steps.create_network.security_group_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{zone}}"
+        timeout: 900
+        output_schema: connectivity_result
+
+      # Test 6: Traffic validation (allow/deny ICMP + internet).
+      - name: traffic_validation
+        phase: test
+        command: "python3 ../scripts/network/traffic_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{zone}}"
+          - "--cidr"
+          - "10.93.0.0/16"
+        timeout: 1200
+        output_schema: traffic_flow
+
+      # Test 7: VPC IP configuration (DDI; read-only).
+      - name: vpc_ip_config
+        phase: test
+        command: "python3 ../scripts/network/vpc_ip_config_test.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--region"
+          - "{{region}}"
+          # Networks own no CIDR — forward the create-time aggregate so the
+          # contract's top-level cidr is contract-shaped, not derived from
+          # the live subnet ranges.
+          - "--cidr"
+          - "{{steps.create_network.cidr}}"
+        timeout: 120
+        output_schema: vpc_ip_config
+
+      # Test 8: DHCP IP management (DDI; SSH probe into a launched VM).
+      - name: dhcp_ip_test
+        phase: test
+        command: "python3 ../scripts/network/dhcp_ip_test.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-id"
+          - "{{steps.create_network.subnets[0].subnet_id}}"
+          - "--sg-id"
+          - "{{steps.create_network.security_group_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{zone}}"
+        timeout: 600
+        output_schema: dhcp_ip
+
+      # Test 9: BYOIP (custom + standard subnet CIDRs).
+      - name: byoip_test
+        phase: test
+        command: "python3 ../scripts/network/byoip_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--custom-cidr"
+          - "100.64.0.0/16"
+          - "--standard-cidr"
+          - "10.90.0.0/16"
+        # byoip_test creates + tears down several async resources (networks,
+        # subnetworks, addresses); slow GCP subnet deletes push the step past
+        # 240s, so allow operational margin for the full create+cleanup cycle.
+        timeout: 600
+        output_schema: byoip
+
+      # Test 10: Stable private IP (persists across stop/start).
+      - name: stable_ip_test
+        phase: test
+        command: "python3 ../scripts/network/stable_ip_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{zone}}"
+          - "--cidr"
+          - "10.91.0.0/16"
+        timeout: 900
+        output_schema: stable_ip
+
+      # Test 11: Floating IP (atomic static-IP reassociation, <20s).
+      - name: floating_ip_test
+        phase: test
+        command: "python3 ../scripts/network/floating_ip_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{zone}}"
+          - "--cidr"
+          - "10.92.0.0/16"
+          - "--max-switch-seconds"
+          - "20"
+        timeout: 900
+        output_schema: floating_ip
+
+      # Test 12: Localized DNS (Cloud DNS private managed zone).
+      - name: dns_test
+        phase: test
+        command: "python3 ../scripts/network/dns_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.89.0.0/16"
+          - "--domain"
+          - "internal.isv.test"
+        timeout: 300
+        output_schema: localized_dns
+
+      # Test 13: VPC peering (bilateral add_peering on both sides).
+      - name: peering_test
+        phase: test
+        command: "python3 ../scripts/network/peering_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr-a"
+          - "10.88.0.0/16"
+          - "--cidr-b"
+          - "10.87.0.0/16"
+        timeout: 300
+        output_schema: vpc_peering
+
+      # Test 14: NVLink domain (accelerator metadata; ephemeral probe VM).
+      - name: nvlink_domain
+        phase: test
+        command: "python3 ../scripts/network/nvlink_domain_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{zone}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--node-id"
+          - "none"
+        timeout: 600
+        output_schema: nvlink_domain
+
+      # Teardown: destroy the shared VPC + probe VMs / firewalls / subnets
+      # / routes / peerings left on it. Gated on network_created so an
+      # adopted operator network is preserved.
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/network/teardown.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--network-created"
+          - "{{steps.create_network.network_created | default('false')}}"
+          - "--key-file"
+          - "{{steps.dhcp_ip_test.key_file | default('none', true)}}"
+          - "--key-name"
+          - "{{steps.dhcp_ip_test.key_name | default('none', true)}}"
+          - "--key-created"
+          - "{{steps.dhcp_ip_test.key_created | default('false')}}"
+        timeout: 600
+        output_schema: teardown
+
+tests:
+  cluster_name: "gcp-network-validation"
+  description: "GCP VPC and Compute Engine network validation tests"
+
+  settings:
+    region: "us-central1"
+    # Compute Engine instance APIs are zone-scoped; pin the launch zone
+    # explicitly (no silent region->zone fallback) and forward it into
+    # every VM-launching step.
+    zone: "us-central1-a"
+
+  # GCP-specific validator overrides. GROUP-NESTED shape is REQUIRED —
+  # the flat `validations.<Validator>.provider_config.<key>` shape is
+  # silently dropped by isvtest/src/isvtest/main.py:244. Sibling
+  # validators in the same group are preserved by the deep-merge.
+  validations:
+    network:
+      checks:
+        VpcIpConfigCheck:
+          auto_assign_ip_mode: instance
+    sdn:
+      checks:
+        FloatingIpCheck:
+          max_switch_seconds: 20
+
+  # BackendSwitchFabricCheck: public Compute Engine APIs expose no
+  # leaf/spine/core switch identifiers. Excluded as a documented
+  # portability gap (the backend_switch_fabric step is omitted above so
+  # there is no orphaned step output).
+  exclude:
+    tests:
+      - BackendSwitchFabricCheck

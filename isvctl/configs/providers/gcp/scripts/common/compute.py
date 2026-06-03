@@ -4,7 +4,7 @@
 """Shared Compute Engine helpers for GCP VM stubs.
 
 This module is the canonical home for Compute Engine divergences from
-the AWS oracle:
+the AWS provider:
 
   * ``resolve_project`` — env / ADC project resolution because the
     harness does NOT forward GOOGLE_CLOUD_PROJECT to spawned stubs.
@@ -117,12 +117,11 @@ def unique_suffix(base: str, *, length: int = 8) -> str:
 # --------------------------------------------------------------------- #
 
 
-# Preferred GPU zones for L4 capacity walk. The list starts from the
-# reviewed regional priority order and includes capacity-advised sibling
-# zones observed in live Compute Engine stockout responses, so the
-# multi-zone walker is not limited to stale static availability notes.
-# Refresh this in lock-step with the knowledge file when operators update
-# priorities.
+# Preferred GPU zones for L4 capacity walk. The list captures a regional
+# priority order plus capacity-advised sibling zones observed in live
+# Compute Engine stockout responses, so the multi-zone walker is not
+# limited to stale static availability notes. Refresh this list when
+# operators update priorities.
 PREFERRED_ZONES: tuple[str, ...] = (
     "us-central1-a",
     "us-central1-b",
@@ -162,8 +161,8 @@ _ZONE_RE = re.compile(r"^[a-z]+-[a-z]+[0-9]+-[a-z]+$")
 # types must keep the API
 # default to preserve live-migrate behavior. The prefix list covers the
 # documented GPU families (g2 = L4, a2 = A100, a3 = H100/H200, n1 with
-# attached guest accelerators); broader matching belongs in the
-# knowledge file, not in the source.
+# attached guest accelerators); extend the prefix list here as new GPU
+# families ship.
 _GPU_MACHINE_PREFIXES: tuple[str, ...] = ("g2-", "a2-", "a3-")
 
 
@@ -266,13 +265,13 @@ def select_zones(
         order, then fall back cross-region to the rest of
         ``PREFERRED_ZONES``. ONLY when the region has no preferred
         zone live (e.g., region missing from the curated capacity list)
-        do we fall back to the region's other live zones — preserves
-        operator's reviewed capacity contract while keeping an
+        do we fall back to the region's other live zones — preserves the
+        operator-configured capacity ordering while keeping an
         offline-region escape hatch.
       * An empty value falls back to the full ``PREFERRED_ZONES``.
 
     Setting ``zone_walk=False`` returns at most one candidate so
-    callers can disable the walk locally (mirrors the AWS oracle's
+    callers can disable the walk locally (mirrors the AWS provider's
     no-fallback behavior for unit tests).
     """
     if not region_or_zone:
@@ -421,7 +420,7 @@ def narrow_region_to_zone(region_or_zone: str, default_zone_letter: str = "a") -
 #
 # TERMINATED in Compute Engine means "stopped" (not deleted); REPAIRING
 # is mapped to "unknown" because the guest is unreachable during host-
-# failure recovery and treating it as running would weaken oracle parity.
+# failure recovery and treating it as running would weaken AWS provider parity.
 # DEPROVISIONING (the post-delete transient) maps to "stopping" so the
 # canonical "if state in ('stopping',)" branches downstream see it.
 _RAW_TO_CANONICAL: dict[str, str] = {
@@ -454,13 +453,25 @@ def canonical_state(raw: str | None) -> str:
 # --------------------------------------------------------------------- #
 
 
-def wait_for_zonal_op(project: str, zone: str, operation_name: str, *, timeout: int = 600) -> compute_v1.Operation:
+def wait_for_zonal_op(
+    project: str,
+    zone: str,
+    operation_name: str,
+    *,
+    timeout: int = 600,
+    poll_interval: float = 3,
+) -> compute_v1.Operation:
     """Block until a zonal Compute Operation reaches DONE.
 
     Raises ``RuntimeError`` if the operation's error list is non-empty.
     The joined message includes ``op.error.errors[].code`` so the
     multi-zone walk classifier can match canonical STOCKOUT tokens
     (zone_capacity_handling shape 4).
+
+    ``poll_interval`` is the inter-poll sleep; the 3s default keeps API
+    chatter low for slow ops (boot/create), but latency-sensitive callers
+    that time a short op window (e.g. the floating-IP switch) pass a tighter
+    interval so the measured time is not dominated by poll slop.
     """
     client = compute_v1.ZoneOperationsClient()
     deadline = time.monotonic() + timeout
@@ -473,7 +484,7 @@ def wait_for_zonal_op(project: str, zone: str, operation_name: str, *, timeout: 
             return op
         if time.monotonic() >= deadline:
             raise TimeoutError(f"Zonal operation {operation_name} did not complete in {timeout}s")
-        time.sleep(3)
+        time.sleep(poll_interval)
 
 
 def retry_zonal_lifecycle_op(
@@ -803,7 +814,7 @@ def delete_local_keypair(priv_path: str) -> bool:
 
 
 # Compute Engine firewall rules do NOT accept a labels field on the proto.
-# The closest analog to the AWS oracle's CreatedBy=isvtest tag-based
+# The closest analog to the AWS provider's CreatedBy=isvtest tag-based
 # check is to embed
 # the ownership marker in the rule's description and require an exact
 # match on adopt.
