@@ -30,6 +30,18 @@ Workflow:
 > attached to a milestone. The file you are reading now is the canonical
 > per-tag changelog.
 
+## [0.7.2] - 2026-06-03
+
+### Added
+
+- **Local host execution for host validations** ([#445](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/445))
+  Adds `local: true` so host validations such as `VcpuPinningCheck` can run probes directly on the target node during deployed runs, avoiding a second SSH hop and private key requirement.
+
+### Fixed
+
+- **GB200 NUMA topology support for `VcpuPinningCheck`** ([#445](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/445))
+  Allows CPU-less memory or GPU-memory NUMA nodes and validates that every vCPU is mapped to a NUMA node, so Grace-Hopper and Grace-Blackwell systems no longer fail the topology subtest incorrectly.
+
 ## [0.7.1] - 2026-05-29
 
 ### Added
