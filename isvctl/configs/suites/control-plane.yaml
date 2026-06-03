@@ -22,6 +22,9 @@
 # only inspects JSON output fields. As long as your scripts output the
 # right fields, the validations pass regardless of which cloud you use.
 #
+# Every check in this suite carries at least the ``control_plane`` label so
+# the whole suite is selectable with ``-m control_plane``.
+#
 # Coverage notes:
 # - API Health (check_api) is provider-agnostic: at minimum it must prove
 #   authenticated reachability of the platform's object-storage / S3-compatible
@@ -58,6 +61,7 @@ tests:
       step: check_api
       checks:
         FieldExistsCheck:
+          labels: ["control_plane"]
           fields: ["account_id", "tests"]
         # DATASVC-XX-01 (S3-compatible API w/ authenticated endpoints):
         # authenticated-endpoint half - a successful authenticated check_api
@@ -65,6 +69,7 @@ tests:
         # "s3_object_lifecycle" section, which declares the same test_id.
         FieldValueCheck:
           test_id: "DATASVC-XX-01"
+          labels: ["control_plane"]
           field: "success"
           expected: true
 
@@ -72,30 +77,37 @@ tests:
       checks:
         AccessKeyCreatedCheck:
           test_id: "CP-XX-05"
+          labels: ["control_plane"]
           step: create_access_key
         TenantCreatedCheck:
           test_id: "CP-XX-07"
+          labels: ["control_plane"]
           step: create_tenant
 
     access_key_lifecycle:
       checks:
         AccessKeyAuthenticatedCheck:
           test_id: "CP-XX-05"
+          labels: ["control_plane"]
           step: test_access_key
         AccessKeyDisabledCheck:
           test_id: "CP-XX-06"
+          labels: ["control_plane"]
           step: disable_access_key
         AccessKeyRejectedCheck:
           test_id: "CP-XX-06"
+          labels: ["control_plane"]
           step: verify_key_rejected
 
     tenant_lifecycle:
       checks:
         TenantListedCheck:
           test_id: "CP-XX-08"
+          labels: ["control_plane"]
           step: list_tenants
         TenantInfoCheck:
           test_id: "CP-XX-09"
+          labels: ["control_plane"]
           step: get_tenant
 
     s3_object_lifecycle:
@@ -103,18 +115,23 @@ tests:
       checks:
         # Data-path half of DATASVC-XX-01 (object put/get/delete); the
         # authenticated-endpoint half is the FieldValueCheck in "api_health".
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          labels: ["control_plane"]
         FieldExistsCheck:
+          labels: ["control_plane"]
           fields: ["bucket_name", "object_key", "operations"]
         CrudOperationsCheck:
           test_id: "DATASVC-XX-01"
+          labels: ["control_plane"]
           operations: ["put", "get", "delete"]
 
     teardown_checks:
       checks:
         StepSuccessCheck-delete_access_key:
+          labels: ["control_plane"]
           step: delete_access_key
         StepSuccessCheck-delete_tenant:
+          labels: ["control_plane"]
           step: delete_tenant
 
   exclude:
