@@ -16,7 +16,7 @@
 """Tests for validation module."""
 
 import json
-from typing import Any, ClassVar
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -69,13 +69,20 @@ class ConcreteValidation(BaseValidation):
 
 
 class LabelledValidation(BaseValidation):
-    """Validation that publishes public labels."""
+    """Validation that publishes public labels.
 
-    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long_running")
+    Labels normally live on the YAML wiring now; this fixture sets the
+    attribute dynamically (below) purely to exercise ``get_validation_labels``.
+    """
 
     def run(self) -> None:
         """Simple run implementation."""
         self.set_passed("Test passed")
+
+
+# Assigned dynamically rather than declared as a class attribute, so the label
+# exists only to exercise the getattr-based reader, not as class metadata.
+LabelledValidation.labels = ("accelerator", "long_running")
 
 
 class UnlabelledValidation(BaseValidation):

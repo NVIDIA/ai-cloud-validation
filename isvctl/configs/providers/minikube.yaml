@@ -48,6 +48,8 @@ tests:
     # Host-level GPU checks (not in k8s.yaml)
     bare_metal:
       checks:
+        BmDriverInstalled:
+          labels: ["bare_metal"]
         BmDriverVersion:
           labels: ["bare_metal"]
           min_version: "580.0"

@@ -37,7 +37,6 @@ class NodeCountCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check cluster node count matches expected"
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -75,7 +74,6 @@ class ClusterHealthCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check cluster is healthy"
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -111,7 +109,6 @@ class GpuOperatorInstalledCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check GPU operator installation"
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -144,7 +141,6 @@ class PerformanceCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check workload performance meets requirements"
-    labels: ClassVar[tuple[str, ...]] = ("workload",)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:

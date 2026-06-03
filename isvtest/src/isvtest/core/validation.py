@@ -68,7 +68,6 @@ class BaseValidation(ABC):
     # Optional metadata
     description: ClassVar[str] = ""
     timeout: ClassVar[int] = 60
-    labels: ClassVar[tuple[str, ...]] = ()
     catalog_exclude: ClassVar[bool] = False
     # Test-plan IDs now live in the suite YAML wiring (``test_id`` per check),
     # not on the class. Kept as an empty default so the catalog can still read

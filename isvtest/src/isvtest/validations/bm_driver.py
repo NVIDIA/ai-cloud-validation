@@ -26,7 +26,6 @@ class BmDriverInstalled(BaseValidation):
 
     description: ClassVar[str] = "Verify NVIDIA driver is installed and accessible via nvidia-smi"
     timeout: ClassVar[int] = 30
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         result = self.run_command("nvidia-smi")
