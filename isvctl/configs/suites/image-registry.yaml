@@ -22,6 +22,10 @@
 # only inspects JSON output fields. As long as your scripts output the
 # right fields, the validations pass regardless of which cloud you use.
 #
+# Every check in this suite carries at least the ``image_registry`` label so
+# the whole suite is selectable with ``-m image_registry``; checks that are
+# also domain-specific (ssh) inherit those trait labels from their class.
+#
 # Quick start:
 #   1. Copy providers/my-isv/config/image-registry.yaml to providers/<your-platform>/config/image-registry.yaml
 #   2. Replace stub paths with your platform scripts
@@ -54,22 +58,27 @@ tests:
     image_upload:
       step: upload_image
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          labels: ["image_registry"]
         # BOOT01-01: upload a custom OS image (remote URL).
         FieldExistsCheck:
           test_id: "BOOT01-01"
+          labels: ["image_registry"]
           fields: ["image_id", "storage_bucket", "disk_ids"]
 
     # --- Image CRUD ---
     image_crud:
       step: crud_image
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          labels: ["image_registry"]
         FieldExistsCheck:
+          labels: ["image_registry"]
           fields: ["image_id", "operations"]
         # BOOT03-02: CRUD (get/list/create/delete) custom OS images for fast boot.
         CrudOperationsCheck:
           test_id: "BOOT03-02"
+          labels: ["image_registry"]
           operations: ["get", "list", "create", "delete"]
 
     # --- VM Launch from Image ---
@@ -79,26 +88,33 @@ tests:
         # BOOT01-05: a VM image can be installed onto a VMaaS system.
         StepSuccessCheck:
           test_id: "BOOT01-05"
+          labels: ["image_registry"]
         FieldExistsCheck:
+          labels: ["image_registry"]
           fields: ["instance_id", "public_ip", "key_path"]
         InstanceStateCheck:
+          labels: ["image_registry"]
           expected_state: "running"
 
     vm_ssh:
       step: launch_instance
       checks:
-        ConnectivityCheck: {}
+        ConnectivityCheck:
+          labels: ["image_registry"]
         OsCheck:
+          labels: ["image_registry"]
           expected_os: "ubuntu"
 
     # --- OS Install Config CRUD ---
     install_config_crud:
       step: crud_install_config
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          labels: ["image_registry"]
         # BOOT01-02: CRUD an OS install configuration (e.g. iPXE/Carbide).
         FieldExistsCheck:
           test_id: "BOOT01-02"
+          labels: ["image_registry"]
           fields: ["config_id", "config_name", "operations"]
 
     # --- OS Image on BMaaS ---
@@ -108,9 +124,12 @@ tests:
         # BOOT01-03: an OS image can be installed on a BMaaS system.
         StepSuccessCheck:
           test_id: "BOOT01-03"
+          labels: ["image_registry"]
         FieldExistsCheck:
+          labels: ["image_registry"]
           fields: ["instance_id", "image_id", "instance_state"]
         InstanceStateCheck:
+          labels: ["image_registry"]
           expected_state: "running"
 
     # --- OS Install Config on BMaaS ---
@@ -120,15 +139,19 @@ tests:
         # BOOT01-04: an OS install configuration can be installed on a BMaaS system.
         StepSuccessCheck:
           test_id: "BOOT01-04"
+          labels: ["image_registry"]
         FieldExistsCheck:
+          labels: ["image_registry"]
           fields: ["instance_id", "config_id", "instance_state"]
         InstanceStateCheck:
+          labels: ["image_registry"]
           expected_state: "running"
 
     teardown_checks:
       step: teardown
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          labels: ["image_registry"]
 
   exclude:
     labels: []
