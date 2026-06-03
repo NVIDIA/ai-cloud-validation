@@ -39,7 +39,6 @@ class InstanceStateCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance is in expected state"
-    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -75,7 +74,6 @@ class InstanceSpecifiedKeyCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance launched with specified key"
-    labels: ClassVar[tuple[str, ...]] = ("vm",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -131,7 +129,6 @@ class InstanceRebootCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance rebooted successfully"
-    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -211,7 +208,6 @@ class InstancePowerCycleCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance recovered from power-cycle"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -300,7 +296,6 @@ class InstanceCreatedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance was created"
-    labels: ClassVar[tuple[str, ...]] = ("vm",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -336,7 +331,6 @@ class InstanceStopCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance stopped successfully without being destroyed"
-    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -378,7 +372,6 @@ class InstanceStartCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check stopped instance started successfully"
-    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -420,7 +413,6 @@ class InstanceTagCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance tags are present"
-    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -468,7 +460,6 @@ class SerialConsoleCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check serial console access"
-    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -520,7 +511,6 @@ class SerialConsoleRetentionCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check serial console log retention and queryability"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         """Validate serial-console retention evidence from step output."""
@@ -595,7 +585,6 @@ class TopologyPlacementCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check topology-based placement support"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -643,7 +632,6 @@ class InstanceListCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance list from VPC"
-    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     REQUIRED_FIELDS = ("instance_id", "state", "vpc_id")
 
