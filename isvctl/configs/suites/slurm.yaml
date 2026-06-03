@@ -16,6 +16,10 @@
 # Slurm Cluster Validation Configuration
 # For HPC clusters with Slurm workload manager
 #
+# Every check carries at least the ``slurm`` label (so the suite is selectable
+# with ``-m slurm``); GPU/workload/slow trait labels live on the wiring rather
+# than the validation class.
+#
 # Usage:
 #   isvctl test run -f isvctl/configs/suites/slurm.yaml
 #   isvctl test run -f isvctl/configs/suites/slurm.yaml -- -v -s
@@ -54,33 +58,41 @@ tests:
       checks:
         SlurmInfoAvailable:
           test_id: "SLURM-XX-02"
+          labels: ["slurm"]
           min_partitions: 1
         SlurmPartition-cpu:
           test_id: "SLURM-XX-03"
+          labels: ["slurm"]
           partition_name: "cpu"
           expected_nodes: "{{ steps.setup.slurm.partitions.cpu.nodes | default([]) | length }}"
           required_nodes: '{{ steps.setup.slurm.partitions.cpu.nodes | default([]) | tojson }}'
           require_available: true
         SlurmPartition-gpu:
           test_id: "SLURM-XX-03"
+          labels: ["slurm"]
           partition_name: "gpu"
           expected_nodes: "{{ steps.setup.slurm.partitions.gpu.nodes | default([]) | length }}"
           required_nodes: '{{ steps.setup.slurm.partitions.gpu.nodes | default([]) | tojson }}'
           require_available: true
         SlurmJobSubmission:
           test_id: "SLURM-XX-04"
+          labels: ["slurm"]
         SlurmGpuAllocation-1gpu:
           test_id: "SLURM-XX-05"
+          labels: ["slurm"]
           num_gpus: 1
         SlurmGpuAllocation-2gpu:
           test_id: "SLURM-XX-05"
+          labels: ["slurm"]
           num_gpus: 2
         SlurmNodeJobExecution-cpu:
           test_id: "SLURM-XX-06"
+          labels: ["slurm"]
           partition_name: "cpu"
           storage_path: "{{ steps.setup.slurm.storage_path | default('/tmp') }}"
         SlurmNodeJobExecution-gpu:
           test_id: "SLURM-XX-06"
+          labels: ["slurm"]
           partition_name: "gpu"
           storage_path: "{{ steps.setup.slurm.storage_path | default('/tmp') }}"
 
@@ -89,6 +101,7 @@ tests:
       checks:
         SlurmGpuStressWorkload:
           test_id: "SLURM-XX-07"
+          labels: ["slurm", "gpu", "workload", "slow"]
           partition: "{{ steps.setup.slurm.default_partition | default('gpu') }}"
           runtime: 30
           memory_gb: 16
@@ -98,6 +111,7 @@ tests:
         # Multi-node NCCL test - validates GPU communication across nodes
         SlurmNcclMultiNodeWorkload:
           test_id: "SLURM-XX-08"
+          labels: ["slurm", "gpu", "workload", "slow"]
           partition: "{{ steps.setup.slurm.default_partition | default('gpu') }}"
           nodes: "{{ steps.setup.slurm.partitions.gpu.nodes | default([]) | length }}"
           # gpus_per_node: auto-detected from partition GRES if not specified
@@ -108,6 +122,7 @@ tests:
         # Run GPU job from manifest file with variable substitution
         SlurmSbatchWorkload-gpu:
           test_id: "SLURM-XX-09"
+          labels: ["slurm", "workload", "slow"]
           script: "example_gpu_job.sbatch"
           variables:
             JOB_NAME: "demo-gpu-test"
@@ -121,6 +136,7 @@ tests:
         # Run CPU job from manifest file
         SlurmSbatchWorkload-cpu:
           test_id: "SLURM-XX-09"
+          labels: ["slurm", "workload", "slow"]
           script: "example_cpu_job.sbatch"
           variables:
             JOB_NAME: "demo-cpu-test"
@@ -133,6 +149,7 @@ tests:
         # Inline script (no manifest file needed)
         SlurmSbatchWorkload-inline:
           test_id: "SLURM-XX-09"
+          labels: ["slurm", "workload", "slow"]
           script_content: |
             #!/bin/bash
             #SBATCH --job-name=inline-test

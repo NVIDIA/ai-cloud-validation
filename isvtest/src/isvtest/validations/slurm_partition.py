@@ -35,7 +35,6 @@ class SlurmInfoAvailable(BaseValidation):
 
     description: ClassVar[str] = "Check that sinfo command works"
     timeout: ClassVar[int] = 30
-    labels: ClassVar[tuple[str, ...]] = ("slurm",)
 
     def run(self) -> None:
         result = self.run_command("sinfo -o '%P %a %l %D %N'")
@@ -99,7 +98,6 @@ class SlurmPartition(BaseValidation):
 
     description: ClassVar[str] = "Check that a Slurm partition exists and is properly configured"
     timeout: ClassVar[int] = 30
-    labels: ClassVar[tuple[str, ...]] = ("slurm",)
 
     def run(self) -> None:
         partitions = get_partitions(self)
