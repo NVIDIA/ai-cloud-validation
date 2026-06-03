@@ -26,7 +26,6 @@ class BmGpuDetection(BaseValidation):
 
     description: ClassVar[str] = "Verify at least one GPU is detected via nvidia-smi"
     timeout: ClassVar[int] = 30
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "gpu")
 
     def run(self) -> None:
         """Query nvidia-smi and verify at least one GPU is detected."""
@@ -62,7 +61,6 @@ class BmGpuHealth(BaseValidation):
 
     description: ClassVar[str] = "Query GPU health metrics (temperature, utilization)"
     timeout: ClassVar[int] = 30
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "gpu")
 
     def run(self) -> None:
         """Query GPU health metrics and validate temperature/utilization values."""
@@ -126,7 +124,6 @@ class BmGpuComputeCapability(BaseValidation):
 
     description: ClassVar[str] = "Query GPU compute capability (e.g., 8.0, 9.0)"
     timeout: ClassVar[int] = 30
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "gpu")
 
     def run(self) -> None:
         """Query and validate GPU compute capability format."""

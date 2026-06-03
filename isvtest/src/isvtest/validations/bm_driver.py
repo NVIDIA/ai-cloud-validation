@@ -43,7 +43,6 @@ class BmDriverVersion(BaseValidation):
 
     description: ClassVar[str] = "Query NVIDIA driver version and validate format"
     timeout: ClassVar[int] = 30
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         result = self.run_command("nvidia-smi --query-gpu=driver_version --format=csv,noheader")

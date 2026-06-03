@@ -172,14 +172,13 @@ def _build_label_map() -> dict[str, set[str]]:
     if not configs_dir:
         return {}
 
+    # Scan every config (suites AND providers), not just the canonical suites:
+    # on-host checks (bm_*) are wired only in provider configs, so their labels
+    # live there. Per-check ``labels:`` declared anywhere in YAML are unioned.
     label_map: dict[str, set[str]] = {}
-    for config_files in PLATFORM_CONFIGS.values():
-        for config_file in config_files:
-            config_path = configs_dir / config_file
-            if not config_path.exists():
-                continue
-            for name, labels in _extract_check_labels_from_config(config_path).items():
-                label_map.setdefault(name, set()).update(labels)
+    for config_path in sorted(configs_dir.rglob("*.yaml")):
+        for name, labels in _extract_check_labels_from_config(config_path).items():
+            label_map.setdefault(name, set()).update(labels)
 
     for name, labels in list(label_map.items()):
         base = name.split("-")[0]

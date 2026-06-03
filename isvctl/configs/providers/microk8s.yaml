@@ -49,13 +49,18 @@ tests:
     bare_metal:
       checks:
         BmDriverVersion:
+          labels: ["bare_metal"]
           min_version: "580.0"
         BmCudaVersion:
+          labels: ["bare_metal"]
           min_version: "12.0"
         BmGpuDetection:
+          labels: ["bare_metal", "gpu"]
           expected_count: "{{ steps.setup.kubernetes.gpu_per_node | default(1, true) }}"
-        BmGpuHealth: {}
+        BmGpuHealth:
+          labels: ["bare_metal", "gpu"]
         BmGpuComputeCapability:
+          labels: ["bare_metal", "gpu"]
           expected_compute_capability: "8.0"
 
     # Override K8s defaults for single-node
