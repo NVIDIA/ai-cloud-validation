@@ -15,7 +15,6 @@
 
 import uuid
 from pathlib import Path
-from typing import ClassVar
 
 from isvtest.config.settings import (
     get_k8s_namespace,
@@ -36,7 +35,6 @@ class K8sNcclWorkload(BaseWorkloadCheck):
     """
 
     description = "Run NCCL allreduce test on Kubernetes."
-    labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
 
     def run(self) -> None:
         # Get configuration

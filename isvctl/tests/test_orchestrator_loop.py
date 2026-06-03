@@ -591,17 +591,18 @@ class TestLabelFiltering:
        applies on top - so a deselected entry shows the pytest-filter message,
        not the label-mismatch message.
 
-    ``K8sNodeCountCheck`` is used as the test subject because it ships with
-    ``labels=("kubernetes",)`` and short-circuits to ``set_passed`` when
-    neither ``count`` nor ``min_count`` is configured - no kubectl invocation
-    needed.
+    ``K8sNodeCountCheck`` is used as the test subject because it carries the
+    ``kubernetes`` label on its wiring (labels live in the suite YAML, not the
+    class) and short-circuits to ``set_passed`` when neither ``count`` nor
+    ``min_count`` is configured - no kubectl invocation needed.
     """
 
     @staticmethod
     def _config(*, exclude_labels: list[str] | None = None) -> RunConfig:
         """Build a minimal config with one labeled validation.
 
-        ``K8sNodeCountCheck`` is configured without ``count``/``min_count`` so
+        ``K8sNodeCountCheck`` is wired with ``labels: ["kubernetes"]`` (the
+        label now lives on the wiring) and without ``count``/``min_count`` so
         it returns ``set_passed`` without touching kubectl.
         """
         return RunConfig(
@@ -613,7 +614,7 @@ class TestLabelFiltering:
             },
             tests=ValidationConfig(
                 platform="kubernetes",
-                validations={"cluster": {"checks": {"K8sNodeCountCheck": {}}}},
+                validations={"cluster": {"checks": {"K8sNodeCountCheck": {"labels": ["kubernetes"]}}}},
                 exclude={"labels": exclude_labels} if exclude_labels else {},
             ),
         )

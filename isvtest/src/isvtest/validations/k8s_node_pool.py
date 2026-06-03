@@ -71,7 +71,6 @@ class K8sNodePoolCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify a node pool matches its expected replicas, labels, taints, and instance type."
     timeout: ClassVar[int] = 900
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "slow")
 
     def run(self) -> None:
         """Poll until the node pool converges, then assert labels/taints/instance-type per node."""

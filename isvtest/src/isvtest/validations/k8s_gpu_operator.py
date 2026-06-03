@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import shlex
-from typing import ClassVar
 
 from isvtest.config.settings import get_k8s_gpu_operator_namespace
 from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail, pod_status_reason
@@ -23,7 +22,6 @@ from isvtest.core.validation import BaseValidation
 
 class K8sGpuOperatorNamespaceCheck(BaseValidation):
     description = "Verify GPU Operator namespace exists."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         # Prefer config value, fall back to global setting
@@ -42,7 +40,6 @@ class K8sGpuOperatorNamespaceCheck(BaseValidation):
 
 class K8sGpuOperatorPodsCheck(BaseValidation):
     description = "Check if NVIDIA GPU Operator pods are running."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         # Prefer config value, fall back to global setting

@@ -102,7 +102,6 @@ class K8sNcclMultiNodeWorkload(BaseWorkloadCheck):
 
     description: ClassVar[str] = "Run NCCL AllReduce test across multiple K8s nodes (MPIJob)"
     timeout: ClassVar[int] = 1800
-    labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
 
     def run(self) -> None:
         """Execute multi-node NCCL test via MPIJob."""

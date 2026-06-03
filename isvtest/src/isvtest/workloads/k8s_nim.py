@@ -22,7 +22,6 @@ and runs basic inference validation.
 import subprocess
 import uuid
 from pathlib import Path
-from typing import ClassVar
 
 from isvtest.config.settings import get_k8s_namespace
 from isvtest.core.k8s import (
@@ -45,7 +44,6 @@ class K8sNimInferenceWorkload(BaseWorkloadCheck):
     """
 
     description = "Run NIM inference validation using Llama 3.2 3B model."
-    labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
 
     def run(self) -> None:
         """Execute the NIM inference workload."""

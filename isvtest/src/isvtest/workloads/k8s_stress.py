@@ -17,7 +17,6 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import ClassVar
 
 from isvtest.config.settings import (
     get_gpu_cuda_arch,
@@ -34,7 +33,6 @@ from isvtest.core.workload import BaseWorkloadCheck
 
 class K8sGpuStressWorkload(BaseWorkloadCheck):
     description = "Run GPU stress test on all GPU nodes in the cluster."
-    labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
 
     def run(self) -> None:
         # Get configuration

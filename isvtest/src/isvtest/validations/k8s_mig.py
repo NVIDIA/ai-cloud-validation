@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import json
-from typing import ClassVar
 
 import pytest
 
@@ -24,7 +23,6 @@ from isvtest.core.validation import BaseValidation
 
 class K8sMigConfigCheck(BaseValidation):
     description = "Check if MIG (Multi-Instance GPU) labels are available and match configuration."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
 
     def run(self) -> None:
         require_mig = self.config.get("require_mig", False)

@@ -198,7 +198,6 @@ class K8sCsiStorageTypesCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify CSI supports block, shared filesystem, and NFS storage classes."
     timeout: ClassVar[int] = 300
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Create an ephemeral namespace, probe each configured storage type, and record subtests."""
@@ -452,7 +451,6 @@ class K8sCsiStorageQuotaApiCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify Kubernetes-native APIs expose storage quota and per-PVC/PV usage."
     timeout: ClassVar[int] = 300
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Drive the four-subtest quota-API probe against a single ephemeral namespace."""
@@ -952,7 +950,6 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify CSI credentials are tenant-scoped by construction."
     timeout: ClassVar[int] = 300
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Drive the five read-only subtests over CSI drivers, Secrets, RBAC, and pods."""
@@ -1514,7 +1511,6 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify CSI supports dynamic and static provisioning."
     timeout: ClassVar[int] = 600
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Drive the dynamic + static provisioning subtests against an ephemeral namespace."""

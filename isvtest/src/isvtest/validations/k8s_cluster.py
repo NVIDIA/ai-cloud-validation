@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import ClassVar
 
 from isvtest.core.k8s import (
     get_kubectl_base_shell,
@@ -25,7 +24,6 @@ from isvtest.core.validation import BaseValidation
 
 class K8sPodHealthCheck(BaseValidation):
     description = "Verify all pods in the cluster are in a healthy state (Running or Succeeded)."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         ignore_phases = self.config.get("ignore_phases", [])
@@ -62,7 +60,6 @@ class K8sPodHealthCheck(BaseValidation):
 
 class K8sNoPendingPodsCheck(BaseValidation):
     description = "Verify no pods are stuck in Pending state."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()
@@ -87,7 +84,6 @@ class K8sNoPendingPodsCheck(BaseValidation):
 
 class K8sNoErrorPodsCheck(BaseValidation):
     description = "Verify no pods are in Error or CrashLoopBackOff state."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()

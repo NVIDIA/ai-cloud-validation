@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import shlex
-from typing import ClassVar
 
 from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail, names_from_items
 from isvtest.core.validation import BaseValidation
@@ -33,7 +32,6 @@ class K8sNodeCountCheck(BaseValidation):
     """
 
     description = "Verify the cluster has the expected number of nodes."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         expected_count = self.config.get("count")
@@ -143,7 +141,6 @@ def _scope_description(label_selector: str | None, exclude_selector: str | None)
 
 class K8sNodeReadyCheck(BaseValidation):
     description = "Verify all nodes in the cluster are in Ready state."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()
@@ -191,7 +188,6 @@ class K8sNodeReadyCheck(BaseValidation):
 
 class K8sExpectedNodesCheck(BaseValidation):
     description = "Verify all expected nodes from BoM are present in the cluster."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         expected_names = self.config.get("names", [])

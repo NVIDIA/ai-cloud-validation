@@ -29,7 +29,7 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 
@@ -97,8 +97,6 @@ class K8sNimHelmWorkload(BaseWorkloadCheck):
     """
 
     description = "Deploy NIM using Helm chart and validate with GenAI-Perf."
-    labels: ClassVar[tuple[str, ...]] = ("workload", "kubernetes", "gpu", "slow")
-
     # NIM Helm chart configuration
     # Reference: https://docs.nvidia.com/nim/large-language-models/latest/deploy-helm.html
     # The chart is downloaded directly from NGC, not from a Helm repository

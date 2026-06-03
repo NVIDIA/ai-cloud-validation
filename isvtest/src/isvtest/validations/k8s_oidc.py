@@ -37,7 +37,6 @@ class K8sOidcIssuerCheck(BaseValidation):
     description: ClassVar[str] = (
         "Verify the cluster exposes a valid OIDC Issuer endpoint for workload identity federation."
     )
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Fetch the OIDC discovery document and validate its shape and issuer URL."""
