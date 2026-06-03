@@ -82,6 +82,28 @@ def test_consistency_errors_allows_cross_domain_and_unknown_prefix() -> None:
     assert test_plan_coverage.consistency_errors(entries) == []
 
 
+def test_apply_config_labels_unions_yaml_labels_onto_entries() -> None:
+    """YAML-wiring labels are unioned onto an entry's class labels."""
+    entries = [{"name": "StepSuccessCheck", "labels": []}]
+    merged = test_plan_coverage.apply_config_labels(entries, {"StepSuccessCheck": ["security"]})
+    assert merged[0]["labels"] == ["security"]
+
+
+def test_apply_config_labels_propagates_variant_labels_to_base() -> None:
+    """A variant's YAML labels propagate up to its base class entry."""
+    entries = [{"name": "SlurmPartition", "labels": []}]
+    merged = test_plan_coverage.apply_config_labels(entries, {"SlurmPartition-gpu": ["slurm"]})
+    assert merged[0]["labels"] == ["slurm"]
+
+
+def test_consistency_passes_when_yaml_label_supplies_domain() -> None:
+    """A SEC test_id on a label-less class passes once YAML supplies the label."""
+    entries = [{"name": "StepSuccessCheck", "labels": [], "test_ids": ["SEC21-03"]}]
+    assert test_plan_coverage.consistency_errors(entries)  # missing label -> error
+    merged = test_plan_coverage.apply_config_labels(entries, {"StepSuccessCheck": ["security"]})
+    assert test_plan_coverage.consistency_errors(merged) == []
+
+
 def test_repo_metadata_passes_all_guardrails() -> None:
     """Guardrail: real metadata passes integrity and consistency.
 
@@ -90,7 +112,9 @@ def test_repo_metadata_passes_all_guardrails() -> None:
     completeness check: a check with no test_id is allowed.
     """
     plan_ids = set(test_plan_coverage.load_plan())
-    entries = test_plan_coverage.apply_config_test_ids(test_plan_coverage.catalog_entries())
+    entries = test_plan_coverage.apply_config_labels(
+        test_plan_coverage.apply_config_test_ids(test_plan_coverage.catalog_entries())
+    )
     class_map = test_plan_coverage.class_test_id_map(entries)
 
     integrity = test_plan_coverage.integrity_errors(plan_ids, class_map)

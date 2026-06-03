@@ -156,6 +156,59 @@ def config_test_id_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     return {name: sorted(ids) for name, ids in out.items()}
 
 
+def config_label_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
+    """Return ``check_name -> labels`` declared inline in the suite configs.
+
+    Mirrors :func:`config_test_id_map` for the ``labels`` key. Labels are being
+    migrated from class ``labels`` ClassVars onto the (check, context) wiring, so
+    coverage's domain-consistency guardrail must read them from YAML too. A check
+    name appearing in several suites aggregates to the union of its labels.
+    """
+    out: dict[str, set[str]] = defaultdict(set)
+    for path in sorted(suites_dir.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+        except Exception:
+            continue
+        validations = (data.get("tests") or {}).get("validations") or {}
+        for cat_config in validations.values():
+            for name, params in _iter_check_items(cat_config):
+                labels = params.get("labels")
+                if isinstance(labels, str):
+                    labels = [labels]
+                if isinstance(labels, list):
+                    out[name].update(label for label in labels if isinstance(label, str) and label)
+    return {name: sorted(labels) for name, labels in out.items()}
+
+
+def apply_config_labels(
+    entries: list[dict[str, Any]], label_map: dict[str, list[str]] | None = None
+) -> list[dict[str, Any]]:
+    """Return entries whose ``labels`` are unioned with config-declared labels.
+
+    Mirrors :func:`apply_config_test_ids`: during the migration only some labels
+    live in YAML, so this merges YAML labels onto the catalog's class labels. A
+    variant's labels propagate up to its base class so the base entry (whose
+    class-level label may have been removed) carries the same domain labels.
+    """
+    label_map = config_label_map() if label_map is None else label_map
+    base_union: dict[str, set[str]] = defaultdict(set)
+    for name, labels in label_map.items():
+        base_union[_variant_base(name)].update(labels)
+
+    merged: list[dict[str, Any]] = []
+    for entry in entries:
+        name = entry["name"]
+        cfg_labels = set(label_map.get(name, []))
+        if name == _variant_base(name):
+            cfg_labels |= base_union.get(name, set())
+        if cfg_labels:
+            union = sorted(set(entry.get("labels") or []) | cfg_labels)
+            entry = {**entry, "labels": union}
+        merged.append(entry)
+    return merged
+
+
 def _variant_base(name: str) -> str:
     """Return the base class name for a variant entry ("SlurmPartition-cpu" -> "SlurmPartition")."""
     return name.split("-")[0]
@@ -323,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
 
     plan_entries = load_plan()
     plan_ids = set(plan_entries)
-    entries = apply_config_test_ids(catalog_entries())
+    entries = apply_config_labels(apply_config_test_ids(catalog_entries()))
     class_map = class_test_id_map(entries)
 
     checks = {

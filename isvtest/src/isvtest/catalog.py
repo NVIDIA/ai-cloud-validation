@@ -115,6 +115,79 @@ def _extract_checks_from_config(config_path: Path) -> list[str]:
     return checks
 
 
+def _extract_check_labels_from_config(config_path: Path) -> dict[str, set[str]]:
+    """Extract per-check ``labels`` declared on a config's validation wiring.
+
+    Mirrors :func:`_extract_checks_from_config` but captures the ``labels`` list
+    from each check's params (list, group-defaults, and dict forms).
+    """
+    try:
+        data = yaml.safe_load(config_path.read_text())
+    except Exception:
+        return {}
+
+    validations = (data or {}).get("tests", {}).get("validations", {})
+    result: dict[str, set[str]] = {}
+
+    def _add(name: str, params: Any) -> None:
+        if not isinstance(params, dict):
+            return
+        labels = params.get("labels")
+        if isinstance(labels, str):
+            labels = [labels]
+        if isinstance(labels, list):
+            valid = {label for label in labels if isinstance(label, str) and label}
+            if valid:
+                result.setdefault(name, set()).update(valid)
+
+    def _add_mapping(mapping: Any) -> None:
+        if isinstance(mapping, dict):
+            for name, params in mapping.items():
+                _add(name, params)
+
+    for _cat, cat_config in validations.items():
+        if isinstance(cat_config, dict) and "checks" in cat_config:
+            checks_val = cat_config["checks"]
+            if isinstance(checks_val, dict):
+                _add_mapping(checks_val)
+            elif isinstance(checks_val, list):
+                for check in checks_val:
+                    _add_mapping(check)
+        elif isinstance(cat_config, list):
+            for check in cat_config:
+                _add_mapping(check)
+
+    return result
+
+
+def _build_label_map() -> dict[str, set[str]]:
+    """Map check name -> labels declared on its suite YAML wiring.
+
+    Labels are migrating from class ``labels`` ClassVars onto the (check,
+    context) wiring. The catalog unions these so a check's tag metadata stays
+    correct after its class-level labels are removed. A variant's labels
+    propagate up to its base name so the base entry is not left bare.
+    """
+    configs_dir = _find_configs_dir()
+    if not configs_dir:
+        return {}
+
+    label_map: dict[str, set[str]] = {}
+    for config_files in PLATFORM_CONFIGS.values():
+        for config_file in config_files:
+            config_path = configs_dir / config_file
+            if not config_path.exists():
+                continue
+            for name, labels in _extract_check_labels_from_config(config_path).items():
+                label_map.setdefault(name, set()).update(labels)
+
+    for name, labels in list(label_map.items()):
+        base = name.split("-")[0]
+        if base != name:
+            label_map.setdefault(base, set()).update(labels)
+    return label_map
+
+
 def _build_platform_map() -> dict[str, set[str]]:
     """Build a mapping from test name to set of platform strings.
 
@@ -165,6 +238,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             - platforms: List of platform strings (e.g. ["KUBERNETES"])
     """
     platform_map = _build_platform_map()
+    label_map = _build_label_map()
 
     # Build class metadata lookup, skipping classes marked for exclusion
     class_meta: dict[str, dict[str, Any]] = {}
@@ -173,7 +247,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         if getattr(cls, "catalog_exclude", False):
             excluded_names.add(cls.__name__)
             continue
-        labels = list(get_validation_labels(cls))
+        labels = sorted(set(get_validation_labels(cls)) | label_map.get(cls.__name__, set()))
         class_meta[cls.__name__] = {
             "description": getattr(cls, "description", "") or "",
             "labels": labels,
@@ -218,11 +292,12 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         desc = meta.get("description", "")
         if variant_suffix:
             desc = f"{desc} ({variant_suffix.lstrip('-')})" if desc else variant_suffix.lstrip("-")
+        labels = sorted(set(meta.get("labels", [])) | label_map.get(name, set()))
         catalog.append(
             {
                 "name": name,
                 "description": desc,
-                "labels": meta.get("labels", []),
+                "labels": labels,
                 "module": meta.get("module", ""),
                 "platforms": sorted(platforms),
             }

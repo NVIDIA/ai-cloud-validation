@@ -267,7 +267,6 @@ class StableIdentifierCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance ID is stable across lifecycle events"
-    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

@@ -45,12 +45,31 @@ def clear_validation_results() -> None:
     _validation_results.clear()
 
 
+def _config_labels(validation_config: Any) -> tuple[str, ...]:
+    """Return labels declared on a check's YAML wiring (``labels: [...]``)."""
+    raw = validation_config.get("labels") if isinstance(validation_config, dict) else None
+    if isinstance(raw, str):
+        return (raw,)
+    if isinstance(raw, (list, tuple)):
+        return tuple(label for label in raw if isinstance(label, str) and label)
+    return ()
+
+
 def _pytest_marks_for_validation(
     config: pytest.Config,
     validation_class: type[BaseValidation],
+    validation_config: Any = None,
 ) -> list[Any]:
-    """Return pytest marks mirroring a validation class's labels."""
-    labels = get_validation_labels(validation_class)
+    """Return pytest marks mirroring a validation's labels.
+
+    Labels come from the class ``labels`` attribute unioned with any per-wiring
+    ``labels`` declared in the suite YAML, so a label can live on the wiring
+    rather than the class (the YAML being migrated to as the source of truth).
+    """
+    labels: list[str] = list(get_validation_labels(validation_class))
+    for label in _config_labels(validation_config):
+        if label not in labels:
+            labels.append(label)
     for label in labels:
         config.addinivalue_line("markers", f"{label}: Validation label")
     return [getattr(pytest.mark, label) for label in labels]
@@ -175,7 +194,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                         continue
 
                 if target_class:
-                    pytest_marks = _pytest_marks_for_validation(metafunc.config, target_class)
+                    pytest_marks = _pytest_marks_for_validation(metafunc.config, target_class, validation_config)
 
                     # Merge inventory into validation config for validations that need it.
                     # Most validations (k8s, slurm, bare_metal) run commands locally and don't need inventory.
