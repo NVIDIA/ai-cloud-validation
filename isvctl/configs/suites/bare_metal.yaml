@@ -421,7 +421,7 @@ tests:
       step: verify_teardown
       checks:
         StepSuccessCheck:
-          test_id: "SEC21-03"
+          test_id: "SEC21-01"
           labels: ["bare_metal", "security"]
 
     # Hardware ingestion: expected-machine manifest vs discovered machines.
