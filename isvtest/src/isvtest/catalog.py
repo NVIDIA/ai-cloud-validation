@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 PLATFORM_CONFIGS: dict[str, list[str]] = {
     "BARE_METAL": ["suites/bare_metal.yaml"],
     "CONTROL_PLANE": ["suites/control-plane.yaml"],
+    "HARDWARE": ["suites/hardware_ingestion.yaml", "suites/dpu_health.yaml"],
     "IAM": ["suites/iam.yaml"],
     "IMAGE_REGISTRY": ["suites/image-registry.yaml"],
     "KUBERNETES": ["suites/k8s.yaml"],
@@ -62,6 +63,7 @@ PLATFORM_CONFIGS: dict[str, list[str]] = {
 LABEL_TO_PLATFORM: dict[str, str] = {
     "bare_metal": "BARE_METAL",
     "control_plane": "CONTROL_PLANE",
+    "hardware": "HARDWARE",
     "iam": "IAM",
     "image_registry": "IMAGE_REGISTRY",
     "kubernetes": "KUBERNETES",

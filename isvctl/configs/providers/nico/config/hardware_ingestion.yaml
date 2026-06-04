@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NICo Hardware Ingestion Validation Configuration
+#
+# Imports the provider-agnostic hardware_ingestion contract and wires the
+# command to the NICo ingestion script in scripts/hardware_ingestion/.
+#
+# Architecture:
+#   - verify_ingestion.py queries the NICo API for expected-machine and
+#     machine records, compares by chassis serial number
+#   - HardwareIngestionCheck (from the imported suite) validates the results
+#
+# Prerequisites:
+#   - NGC_API_KEY environment variable set with org access
+#   - Expected machines pre-registered via NICo API or nico-admin-cli
+#   - NGC_ORG and NICO_SITE_ID environment variables set
+#
+# Usage:
+#   NGC_API_KEY=<key> NGC_ORG=<org> NICO_SITE_ID=<uuid> \
+#     uv run isvctl test run -f isvctl/configs/providers/nico/config/hardware_ingestion.yaml
+
+import:
+  - ../../../suites/hardware_ingestion.yaml
+
+version: "1.0"
+
+commands:
+  hardware_ingestion:
+    phases: ["test"]
+    steps:
+      # ─── Step 1: Verify Hardware Ingestion ─────────────────────────
+      # Compares expected-machine manifest against discovered machines.
+      # Output includes per-machine status, health, GPU/DPU counts.
+      - name: verify_ingestion
+        phase: test
+        command: "python ../scripts/hardware_ingestion/verify_ingestion.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+        timeout: 120
+
+tests:
+  cluster_name: "nico-hardware-ingestion-validation"
+  description: "Verify all expected NICo hardware is ingested and healthy"
+
+  settings:
+    org: "{{env.NGC_ORG}}"
+    site_id: "{{env.NICO_SITE_ID}}"
