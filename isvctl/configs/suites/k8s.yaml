@@ -116,8 +116,18 @@ tests:
           node_type: "{{ steps.update_test_node_pool.node_type | default('cpu') }}"
           wait_timeout: 900
           poll_interval: 10
-          # GAP: K8S06-03 (delete a node pool) is not validated - no K8sNodePoolCheck
-          # wiring exercises a delete. Add a delete step + check to cover it.
+      - K8sNodePoolCheck:
+          # Delete: assert the throwaway pool reaches zero nodes after the
+          # delete step. Selector comes from its create step; the label/taint/
+          # instance-type assertions are omitted (no nodes to check).
+          test_id: "K8S06-03"
+          labels: ["kubernetes", "slow"]
+          step: delete_test_node_pool
+          label_selector: "{{ steps.create_test_delete_node_pool.label_selector }}"
+          expected_replicas: 0
+          node_type: "{{ steps.create_test_delete_node_pool.node_type | default('cpu') }}"
+          wait_timeout: 900
+          poll_interval: 10
 
     kubernetes:
       checks:

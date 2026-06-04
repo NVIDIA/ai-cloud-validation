@@ -112,6 +112,22 @@ commands:
           TF_VAR_test_pool_labels_json: '{"isv.ncp.validation/workload":"gpu-compute"}'
           TF_VAR_test_pool_node_type: "gpu"
 
+      # Throwaway pool for the delete leg (K8S06-03): created here, removed in
+      # the test phase. CPU-only with its own state file so no other check
+      # depends on it.
+      - name: create_test_delete_node_pool
+        phase: setup
+        command: "../scripts/eks/create_node_pool.sh"
+        output_schema: node_pool
+        timeout: 900 # 15 min - EKS node group join can take 5-8 min
+        env:
+          TF_AUTO_APPROVE: "true"
+          NODE_POOL_STATE_FILE: "terraform-delete.tfstate"
+          TF_VAR_test_pool_name: "isv-test-delete-pool"
+          TF_VAR_test_pool_instance_types: '["m6i.large"]'
+          TF_VAR_test_pool_desired_size: "1"
+          TF_VAR_test_pool_node_type: "cpu"
+
       # Scale the CPU pool to a new target count. Re-applies the
       # terraform-node-pool module with a bumped desired_size; create_node_pool.sh
       # is reused because `terraform apply` is idempotent. The emitted
@@ -133,6 +149,16 @@ commands:
           TF_VAR_test_pool_labels_json: '{"isv.ncp.validation/workload":"data-ingest"}'
           TF_VAR_test_pool_taints_json: '[{"key":"isv.ncp.validation/dedicated","value":"test","effect":"NoSchedule"}]'
           TF_VAR_test_pool_node_type: "cpu"
+
+      # Delete the throwaway pool (K8S06-03). In the test phase so the matching
+      # K8sNodePoolCheck can assert it reaches zero nodes after all test steps.
+      - name: delete_test_node_pool
+        phase: test
+        command: "../scripts/eks/destroy_node_pool.sh"
+        timeout: 900
+        env:
+          TF_AUTO_APPROVE: "true"
+          NODE_POOL_STATE_FILE: "terraform-delete.tfstate"
 
       # Teardown order: destroy both test node pools before tearing down the
       # cluster so their ENIs/instances are freed before the VPC comes down.
@@ -162,6 +188,16 @@ commands:
         env:
           TF_AUTO_APPROVE: "true"
           SHARED_VPC_CLUSTER_STATE_FILE: "terraform.tfstate"
+
+      # Safety net in case the test phase (which normally deletes it) didn't
+      # run; idempotent when the state is already empty.
+      - name: destroy_test_delete_node_pool
+        phase: teardown
+        command: "../scripts/eks/destroy_node_pool.sh"
+        timeout: 900
+        env:
+          TF_AUTO_APPROVE: "true"
+          NODE_POOL_STATE_FILE: "terraform-delete.tfstate"
 
       - name: teardown
         phase: teardown
