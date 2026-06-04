@@ -69,10 +69,6 @@ class BaseValidation(ABC):
     description: ClassVar[str] = ""
     timeout: ClassVar[int] = 60
     catalog_exclude: ClassVar[bool] = False
-    # Test-plan IDs now live in the suite YAML wiring (``test_id`` per check),
-    # not on the class. Kept as an empty default so the catalog can still read
-    # the attribute; any remaining class-level values are mid-migration.
-    test_ids: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, runner: Runner | None = None, config: dict[str, Any] | None = None):
         self.config = config or {}
@@ -324,11 +320,6 @@ def _normalize_metadata_values(values: object) -> tuple[str, ...]:
 def get_validation_labels(cls: type[BaseValidation]) -> tuple[str, ...]:
     """Return public labels for a validation class."""
     return _normalize_metadata_values(getattr(cls, "labels", ()))
-
-
-def get_validation_test_ids(cls: type[BaseValidation]) -> tuple[str, ...]:
-    """Return the test-plan test IDs a validation class declares it implements."""
-    return _normalize_metadata_values(getattr(cls, "test_ids", ()))
 
 
 def register_validation_class(cls: type[BaseValidation]) -> None:
