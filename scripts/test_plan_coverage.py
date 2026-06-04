@@ -55,6 +55,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from isvtest.catalog import iter_config_checks
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLAN_PATH = REPO_ROOT / "docs" / "test-plan.yaml"
@@ -66,8 +67,8 @@ SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
 UNMAPPED = "N/A"
 
 # Requirement family (the alpha prefix of a test_id, e.g. "K8S22-01" -> "K8S",
-# "SEC14-01" -> "SEC") -> a label the implementing class must carry. Only
-# unambiguous domains are listed; families where the class labels do not encode
+# "SEC14-01" -> "SEC") -> a label the implementing check must carry. Only
+# unambiguous domains are listed; families where the wiring labels do not encode
 # the plan domain (CP, CNP, BOOT, AUTH, DMS, OBS, TELEM) are omitted to avoid
 # false positives - their correctness relies on --review instead.
 PREFIX_REQUIRED_LABELS: dict[str, str] = {
@@ -107,32 +108,6 @@ def real_test_ids(entry: dict[str, Any]) -> list[str]:
     return [t for t in (entry.get("test_ids") or []) if t != UNMAPPED]
 
 
-def _iter_check_items(cat_config: Any) -> list[tuple[str, dict[str, Any]]]:
-    """Yield ``(check_name, params)`` pairs from a validation category config.
-
-    Handles the group-defaults form (``{step, checks: {...}|[...]}``) and the
-    bare list form, mirroring catalog._extract_checks_from_config.
-    """
-    items: list[tuple[str, dict[str, Any]]] = []
-
-    def _add(mapping: Any) -> None:
-        if isinstance(mapping, dict):
-            for name, params in mapping.items():
-                items.append((name, params if isinstance(params, dict) else {}))
-
-    if isinstance(cat_config, dict) and "checks" in cat_config:
-        checks_val = cat_config["checks"]
-        if isinstance(checks_val, dict):
-            _add(checks_val)
-        elif isinstance(checks_val, list):
-            for entry in checks_val:
-                _add(entry)
-    elif isinstance(cat_config, list):
-        for entry in cat_config:
-            _add(entry)
-    return items
-
-
 def config_test_id_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     """Return ``check_name -> test_ids`` declared inline in the suite configs.
 
@@ -143,41 +118,29 @@ def config_test_id_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     """
     out: dict[str, set[str]] = defaultdict(set)
     for path in sorted(suites_dir.glob("*.yaml")):
-        try:
-            data = yaml.safe_load(path.read_text()) or {}
-        except Exception:
-            continue
-        validations = (data.get("tests") or {}).get("validations") or {}
-        for cat_config in validations.values():
-            for name, params in _iter_check_items(cat_config):
-                tid = params.get("test_id")
-                if isinstance(tid, str) and tid:
-                    out[name].add(tid)
+        for name, params in iter_config_checks(path):
+            tid = params.get("test_id")
+            if isinstance(tid, str) and tid:
+                out[name].add(tid)
     return {name: sorted(ids) for name, ids in out.items()}
 
 
 def config_label_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     """Return ``check_name -> labels`` declared inline in the suite configs.
 
-    Mirrors :func:`config_test_id_map` for the ``labels`` key. Labels are being
-    migrated from class ``labels`` ClassVars onto the (check, context) wiring, so
-    coverage's domain-consistency guardrail must read them from YAML too. A check
-    name appearing in several suites aggregates to the union of its labels.
+    Mirrors :func:`config_test_id_map` for the ``labels`` key. Labels live on
+    the (check, context) wiring, so coverage's domain-consistency guardrail reads
+    them from YAML. A check name appearing in several suites aggregates to the
+    union of its labels.
     """
     out: dict[str, set[str]] = defaultdict(set)
     for path in sorted(suites_dir.glob("*.yaml")):
-        try:
-            data = yaml.safe_load(path.read_text()) or {}
-        except Exception:
-            continue
-        validations = (data.get("tests") or {}).get("validations") or {}
-        for cat_config in validations.values():
-            for name, params in _iter_check_items(cat_config):
-                labels = params.get("labels")
-                if isinstance(labels, str):
-                    labels = [labels]
-                if isinstance(labels, list):
-                    out[name].update(label for label in labels if isinstance(label, str) and label)
+        for name, params in iter_config_checks(path):
+            labels = params.get("labels")
+            if isinstance(labels, str):
+                labels = [labels]
+            if isinstance(labels, list):
+                out[name].update(label for label in labels if isinstance(label, str) and label)
     return {name: sorted(labels) for name, labels in out.items()}
 
 
@@ -186,10 +149,9 @@ def apply_config_labels(
 ) -> list[dict[str, Any]]:
     """Return entries whose ``labels`` are unioned with config-declared labels.
 
-    Mirrors :func:`apply_config_test_ids`: during the migration only some labels
-    live in YAML, so this merges YAML labels onto the catalog's class labels. A
-    variant's labels propagate up to its base class so the base entry (whose
-    class-level label may have been removed) carries the same domain labels.
+    Mirrors :func:`apply_config_test_ids`: merges the YAML wiring labels onto
+    each catalog entry. A variant's labels propagate up to its base class so the
+    base entry carries the same domain labels.
     """
     label_map = config_label_map() if label_map is None else label_map
     base_union: dict[str, set[str]] = defaultdict(set)
@@ -289,7 +251,7 @@ def consistency_errors(entries: list[dict[str, Any]]) -> list[str]:
             required = PREFIX_REQUIRED_LABELS.get(_req_family(tid))
             if required and required not in labels:
                 errors.append(
-                    f"{entry['name']}: test_id {tid} implies label {required!r}, but class labels are {sorted(labels)}"
+                    f"{entry['name']}: test_id {tid} implies label {required!r}, but wiring labels are {sorted(labels)}"
                 )
     return sorted(errors)
 

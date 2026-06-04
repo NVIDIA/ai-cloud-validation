@@ -28,8 +28,6 @@ from typing import Any
 from jinja2 import ChainableUndefined, Environment, Undefined
 
 from isvtest.config.loader import _ternary
-from isvtest.core.discovery import discover_all_tests
-from isvtest.core.validation import get_validation_labels
 
 logger = logging.getLogger(__name__)
 
@@ -95,14 +93,13 @@ class ResolvedEntry:
         return self.state is None and self.skip_reason is None and self.error_reason is None
 
 
-def _merge_labels(class_labels: tuple[str, ...], params_template: Any) -> tuple[str, ...]:
-    """Union a class's labels with per-wiring ``labels`` from the YAML config.
+def _wiring_labels(params_template: Any) -> tuple[str, ...]:
+    """Return the per-wiring ``labels`` declared on a check's YAML config.
 
-    Labels are declared per-check in the YAML wiring; union them with any
-    class-level ``labels`` ClassVar (kept for back-compat) so include/exclude-
-    label filtering honors both sources.
+    Labels live on the per-check YAML wiring and drive include/exclude-label
+    filtering. Accepts a single string or a list/tuple of strings.
     """
-    labels = list(class_labels)
+    labels: list[str] = []
     cfg_labels = params_template.get("labels") if isinstance(params_template, dict) else None
     if isinstance(cfg_labels, str):
         cfg_labels = [cfg_labels]
@@ -123,7 +120,6 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
         Ordered validation entries. Adapter-handled categories are ignored
         because they are not BaseValidation pytest entries.
     """
-    metadata_by_name = _validation_metadata_by_name()
     entries: list[ValidationEntry] = []
 
     for category, category_config in raw_config.items():
@@ -147,8 +143,7 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
             else:
                 params_template = copy.deepcopy(params_template)
 
-            base_name = _base_validation_name(name, metadata_by_name)
-            labels = _merge_labels(metadata_by_name.get(base_name, ()), params_template)
+            labels = _wiring_labels(params_template)
             entries.append(
                 ValidationEntry(
                     name=name,
@@ -325,12 +320,6 @@ def format_resolution_message(entry: ResolvedEntry) -> str:
     return ""
 
 
-@cache
-def _validation_metadata_by_name() -> dict[str, tuple[str, ...]]:
-    """Return discovered validation labels keyed by class name."""
-    return {cls.__name__: get_validation_labels(cls) for cls in discover_all_tests()}
-
-
 def resolve_class_key(name: str, keys: Iterable[str]) -> str | None:
     """Resolve a configured validation name to its discovered class key.
 
@@ -345,11 +334,6 @@ def resolve_class_key(name: str, keys: Iterable[str]) -> str | None:
     if not matches:
         return None
     return max(matches, key=len)
-
-
-def _base_validation_name(name: str, metadata_by_name: Mapping[str, object]) -> str:
-    """Return the discovered base class name for a configured validation name."""
-    return resolve_class_key(name, metadata_by_name) or name
 
 
 def _iter_validation_items(category: str, category_config: Any) -> list[tuple[str, Any, Any, Any]]:

@@ -83,7 +83,7 @@ def test_consistency_errors_allows_cross_domain_and_unknown_prefix() -> None:
 
 
 def test_apply_config_labels_unions_yaml_labels_onto_entries() -> None:
-    """YAML-wiring labels are unioned onto an entry's class labels."""
+    """YAML-wiring labels are unioned onto a catalog entry's existing labels."""
     entries = [{"name": "StepSuccessCheck", "labels": []}]
     merged = test_plan_coverage.apply_config_labels(entries, {"StepSuccessCheck": ["security"]})
     assert merged[0]["labels"] == ["security"]

@@ -24,7 +24,7 @@ from isvtest.config.loader import ConfigLoader
 from isvtest.core.discovery import discover_all_tests
 from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, resolve_class_key
 from isvtest.core.runners import LocalRunner
-from isvtest.core.validation import BaseValidation, get_validation_labels
+from isvtest.core.validation import BaseValidation
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 if TYPE_CHECKING:
@@ -57,19 +57,13 @@ def _config_labels(validation_config: Any) -> tuple[str, ...]:
 
 def _pytest_marks_for_validation(
     config: pytest.Config,
-    validation_class: type[BaseValidation],
     validation_config: Any = None,
 ) -> list[Any]:
-    """Return pytest marks mirroring a validation's labels.
+    """Return pytest marks mirroring a check's wiring labels.
 
-    Labels come from the class ``labels`` attribute unioned with any per-wiring
-    ``labels`` declared in the suite YAML, so a label can live on the wiring
-    rather than the class (the YAML being migrated to as the source of truth).
+    Labels are declared per-check in the suite YAML wiring (``labels: [...]``).
     """
-    labels: list[str] = list(get_validation_labels(validation_class))
-    for label in _config_labels(validation_config):
-        if label not in labels:
-            labels.append(label)
+    labels = list(_config_labels(validation_config))
     for label in labels:
         config.addinivalue_line("markers", f"{label}: Validation label")
     return [getattr(pytest.mark, label) for label in labels]
@@ -194,7 +188,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                         continue
 
                 if target_class:
-                    pytest_marks = _pytest_marks_for_validation(metafunc.config, target_class, validation_config)
+                    pytest_marks = _pytest_marks_for_validation(metafunc.config, validation_config)
 
                     # Merge inventory into validation config for validations that need it.
                     # Most validations (k8s, slurm, bare_metal) run commands locally and don't need inventory.
@@ -226,7 +220,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
                     # If class was not configured by exact or variant match, treat it as skipped.
                     if cls_name not in configured_classes:
-                        pytest_marks = _pytest_marks_for_validation(metafunc.config, cls)
+                        pytest_marks = _pytest_marks_for_validation(metafunc.config)
                         pytest_marks.append(pytest.mark.skip(reason="Not configured in config YAML"))
 
                         # Include inventory even for skipped tests (for consistency)
@@ -239,7 +233,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 if released_tests is not None and cls.__name__ not in released_tests:
                     continue
 
-                pytest_marks = _pytest_marks_for_validation(metafunc.config, cls)
+                pytest_marks = _pytest_marks_for_validation(metafunc.config)
                 params.append(pytest.param(cls, {"inventory": cluster_inventory}, cls.__name__, marks=pytest_marks))
                 ids.append(cls.__name__)
 

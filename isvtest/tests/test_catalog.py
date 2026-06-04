@@ -103,7 +103,7 @@ class TestBuildCatalog:
             patch("isvtest.catalog.discover_all_tests", return_value=[ExplicitLabelCatalogCheck]),
             patch("isvtest.catalog._build_platform_map", return_value={}),
             patch(
-                "isvtest.catalog._build_label_map",
+                "isvtest.catalog.build_label_map",
                 return_value={"ExplicitLabelCatalogCheck": {"accelerator", "long_running"}},
             ),
             patch("isvtest.catalog.load_released_test_filter", return_value=None),
@@ -188,7 +188,7 @@ class TestBuildCatalog:
             patch("isvtest.catalog.discover_all_tests", return_value=[ObservabilityLabelledCheck]),
             patch("isvtest.catalog._build_platform_map", return_value={}),
             patch(
-                "isvtest.catalog._build_label_map",
+                "isvtest.catalog.build_label_map",
                 return_value={"ObservabilityLabelledCheck": {"observability"}},
             ),
             patch("isvtest.catalog.load_released_test_filter", return_value=None),

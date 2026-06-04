@@ -271,14 +271,8 @@ def test_resolve_entries_requires_all_include_labels() -> None:
     assert "labels" in by_name["GpuOnlyCheck"].message
 
 
-def test_parse_validations_supports_group_defaults_and_labels(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_parse_validations_supports_group_defaults_and_labels() -> None:
     """Parser expands config groups and populates labels from the wiring."""
-    monkeypatch.setattr(
-        "isvtest.core.resolution.discover_all_tests",
-        lambda: [KubernetesSlowCheck, AcceleratorCheck, PlainCheck],
-    )
     raw_config: dict[str, Any] = {
         "cluster": {
             "step": "create_cluster",
@@ -321,12 +315,8 @@ def test_parse_validations_supports_group_defaults_and_labels(
     ]
 
 
-def test_parse_validations_preserves_list_order(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_parse_validations_preserves_list_order() -> None:
     """Parser keeps list-format validation order for report and execution order."""
-    monkeypatch.setattr(
-        "isvtest.core.resolution.discover_all_tests",
-        lambda: [PlainCheck],
-    )
     raw_config: dict[str, Any] = {
         "checks": [
             {"PlainCheck": {"step": "first"}},
@@ -339,12 +329,8 @@ def test_parse_validations_preserves_list_order(monkeypatch: pytest.MonkeyPatch)
     assert [entry.step for entry in entries] == ["first", "second"]
 
 
-def test_parse_validations_emits_invalid_for_non_dict_list_items(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_parse_validations_emits_invalid_for_non_dict_list_items() -> None:
     """Stray scalars/lists in YAML produce ERROR(invalid_config) instead of vanishing."""
-    monkeypatch.setattr(
-        "isvtest.core.resolution.discover_all_tests",
-        lambda: [PlainCheck],
-    )
     raw_config: dict[str, Any] = {
         "cluster": {
             "checks": [

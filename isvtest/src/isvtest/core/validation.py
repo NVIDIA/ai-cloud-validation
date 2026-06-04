@@ -305,23 +305,6 @@ def get_validation_class(name: str) -> type[BaseValidation] | None:
     return cache.get(name)
 
 
-def _normalize_metadata_values(values: object) -> tuple[str, ...]:
-    """Return metadata values as a tuple of strings."""
-    if not values:
-        return ()
-    if isinstance(values, str):
-        return (values,)
-    try:
-        return tuple(str(value) for value in values)
-    except TypeError:
-        return (str(values),)
-
-
-def get_validation_labels(cls: type[BaseValidation]) -> tuple[str, ...]:
-    """Return public labels for a validation class."""
-    return _normalize_metadata_values(getattr(cls, "labels", ()))
-
-
 def register_validation_class(cls: type[BaseValidation]) -> None:
     """Register a validation class for discovery.
 

@@ -21,13 +21,15 @@ The catalog is version-keyed by the installed isvtest package version.
 
 Platform tagging uses two sources (union of both):
   1. Config files - which checks appear in each isvctl/configs/suites/*.yaml
-  2. Class labels - e.g. labels=("bare_metal",) implies BARE_METAL platform
+  2. Wiring labels - e.g. a check wired with labels: [bare_metal] implies the
+     BARE_METAL platform
 
-This ensures checks get a platform badge in the UI even when they aren't listed
-in a YAML config (e.g. Bm* checks that only run on-host, not via SSH).
+This ensures checks get a platform badge in the UI even when they only appear
+in provider configs (e.g. Bm* checks that run on-host, not via SSH).
 """
 
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +37,6 @@ import yaml
 from isvreporter.version import get_version
 
 from isvtest.core.discovery import discover_all_tests
-from isvtest.core.validation import get_validation_labels
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 logger = logging.getLogger(__name__)
@@ -55,8 +56,8 @@ PLATFORM_CONFIGS: dict[str, list[str]] = {
     "VM": ["suites/vm.yaml"],
 }
 
-# Maps class-level labels to platform strings so checks that aren't listed
-# in a YAML config still get the correct platform in the catalog.
+# Maps wiring labels to platform strings so a check's platform can be inferred
+# from its labels when it isn't otherwise tied to a platform.
 # Only platform-identifying labels are included; trait labels like "gpu",
 # "ssh", "workload", and "slow" are intentionally omitted.
 LABEL_TO_PLATFORM: dict[str, str] = {
@@ -84,54 +85,51 @@ def _find_configs_dir() -> Path | None:
     return None
 
 
-def _extract_checks_from_config(config_path: Path) -> list[str]:
-    """Extract all validation check names from a config file.
+def iter_config_checks(config_path: Path) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield ``(check_name, params)`` for every check wired in a config file.
 
-    Handles list format, group-defaults format (with 'checks' key as list
-    or dict), and keeps variant names (e.g. 'K8sNimHelmWorkload-3b') as-is.
+    Walks ``tests.validations`` handling the bare-list form, the group-defaults
+    form (``{step, checks: {...}|[...]}``), and the dict form. Variant names
+    (e.g. ``K8sNimHelmWorkload-3b``) are kept as-is; ``params`` is normalized to
+    a dict (empty when a check carries no params). Shared by the catalog and the
+    test-plan coverage script so the form-handling lives in one place.
     """
     try:
         data = yaml.safe_load(config_path.read_text())
     except Exception:
-        return []
+        return
 
     validations = (data or {}).get("tests", {}).get("validations", {})
-    checks: list[str] = []
+    if not isinstance(validations, dict):
+        return
 
-    for _cat, cat_config in validations.items():
+    def _from_mapping(mapping: Any) -> Iterator[tuple[str, dict[str, Any]]]:
+        if isinstance(mapping, dict):
+            for name, params in mapping.items():
+                yield name, params if isinstance(params, dict) else {}
+
+    for cat_config in validations.values():
         if isinstance(cat_config, dict) and "checks" in cat_config:
             checks_val = cat_config["checks"]
             if isinstance(checks_val, dict):
-                checks.extend(checks_val.keys())
-            else:
+                yield from _from_mapping(checks_val)
+            elif isinstance(checks_val, list):
                 for check in checks_val:
-                    if isinstance(check, dict):
-                        checks.extend(check.keys())
+                    yield from _from_mapping(check)
         elif isinstance(cat_config, list):
             for check in cat_config:
-                if isinstance(check, dict):
-                    checks.extend(check.keys())
+                yield from _from_mapping(check)
 
-    return checks
+
+def _extract_checks_from_config(config_path: Path) -> list[str]:
+    """Extract all validation check names from a config file."""
+    return [name for name, _ in iter_config_checks(config_path)]
 
 
 def _extract_check_labels_from_config(config_path: Path) -> dict[str, set[str]]:
-    """Extract per-check ``labels`` declared on a config's validation wiring.
-
-    Mirrors :func:`_extract_checks_from_config` but captures the ``labels`` list
-    from each check's params (list, group-defaults, and dict forms).
-    """
-    try:
-        data = yaml.safe_load(config_path.read_text())
-    except Exception:
-        return {}
-
-    validations = (data or {}).get("tests", {}).get("validations", {})
+    """Extract per-check ``labels`` declared on a config's validation wiring."""
     result: dict[str, set[str]] = {}
-
-    def _add(name: str, params: Any) -> None:
-        if not isinstance(params, dict):
-            return
+    for name, params in iter_config_checks(config_path):
         labels = params.get("labels")
         if isinstance(labels, str):
             labels = [labels]
@@ -139,33 +137,16 @@ def _extract_check_labels_from_config(config_path: Path) -> dict[str, set[str]]:
             valid = {label for label in labels if isinstance(label, str) and label}
             if valid:
                 result.setdefault(name, set()).update(valid)
-
-    def _add_mapping(mapping: Any) -> None:
-        if isinstance(mapping, dict):
-            for name, params in mapping.items():
-                _add(name, params)
-
-    for _cat, cat_config in validations.items():
-        if isinstance(cat_config, dict) and "checks" in cat_config:
-            checks_val = cat_config["checks"]
-            if isinstance(checks_val, dict):
-                _add_mapping(checks_val)
-            elif isinstance(checks_val, list):
-                for check in checks_val:
-                    _add_mapping(check)
-        elif isinstance(cat_config, list):
-            for check in cat_config:
-                _add_mapping(check)
-
     return result
 
 
-def _build_label_map() -> dict[str, set[str]]:
-    """Map check name -> labels declared on its suite YAML wiring.
+def build_label_map() -> dict[str, set[str]]:
+    """Map check name -> labels declared on its suite/provider YAML wiring.
 
-    Labels live on the per-check YAML wiring, so the catalog reads them from
-    there. A variant's labels propagate up to its base name so the base entry
-    is not left bare.
+    Labels live on the per-check YAML wiring, so this scans every config and
+    unions the ``labels:`` declared on each check. A variant's labels propagate
+    up to its base name so the base entry is not left bare. Shared by the
+    catalog and ``isvctl docs`` so both report the same labels.
     """
     configs_dir = _find_configs_dir()
     if not configs_dir:
@@ -236,7 +217,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             - platforms: List of platform strings (e.g. ["KUBERNETES"])
     """
     platform_map = _build_platform_map()
-    label_map = _build_label_map()
+    label_map = build_label_map()
 
     # Build class metadata lookup, skipping classes marked for exclusion
     class_meta: dict[str, dict[str, Any]] = {}
@@ -245,7 +226,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         if getattr(cls, "catalog_exclude", False):
             excluded_names.add(cls.__name__)
             continue
-        labels = sorted(set(get_validation_labels(cls)) | label_map.get(cls.__name__, set()))
+        labels = sorted(label_map.get(cls.__name__, set()))
         class_meta[cls.__name__] = {
             "description": getattr(cls, "description", "") or "",
             "labels": labels,

@@ -23,8 +23,8 @@ from typing import Any
 
 import typer
 import yaml
+from isvtest.catalog import build_label_map
 from isvtest.core.discovery import discover_all_tests
-from isvtest.core.validation import get_validation_labels
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -180,16 +180,28 @@ def tests(
 
     _warn_duplicates(all_classes)
 
+    # Labels live on the YAML wiring, so source them from the same map the
+    # catalog uses (check/variant name -> labels across all configs).
+    label_map = build_label_map()
+
     if info:
-        _print_test_info(all_classes, info)
+        _print_test_info(all_classes, info, label_map)
         return
 
     if config_file:
-        _print_config_instances(all_classes, config_file, label)
+        _print_config_instances(all_classes, config_file, label, label_map)
     elif flat:
-        _print_flat(all_classes, label)
+        _print_flat(all_classes, label, label_map)
     else:
-        _print_grouped(all_classes, label)
+        _print_grouped(all_classes, label, label_map)
+
+
+def _labels_for(label_map: dict[str, set[str]], *names: str) -> list[str]:
+    """Return sorted wiring labels for the first of ``names`` present in the map."""
+    for name in names:
+        if name in label_map:
+            return sorted(label_map[name])
+    return []
 
 
 def _warn_duplicates(classes: list[type]) -> None:
@@ -202,7 +214,7 @@ def _warn_duplicates(classes: list[type]) -> None:
         err_console.print(f"[yellow]Warning: Duplicate test class names found: {', '.join(dupes)}[/yellow]")
 
 
-def _print_test_info(classes: list[type], name: str) -> None:
+def _print_test_info(classes: list[type], name: str, label_map: dict[str, set[str]]) -> None:
     """Print detailed info for a single test class."""
     by_name = {cls.__name__: cls for cls in classes}
     cls = by_name.get(name)
@@ -232,7 +244,7 @@ def _print_test_info(classes: list[type], name: str) -> None:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="bold cyan")
     table.add_column()
-    labels = get_validation_labels(cls)
+    labels = _labels_for(label_map, cls.__name__)
     table.add_row("Labels", ", ".join(labels) if labels else "(none)")
     table.add_row("Timeout", f"{cls.timeout}s")
     table.add_row("Source", source_display)
@@ -248,12 +260,12 @@ def _print_test_info(classes: list[type], name: str) -> None:
     console.print()
 
 
-def _print_grouped(classes: list[type], label_filter: list[str] | None) -> None:
+def _print_grouped(classes: list[type], label_filter: list[str] | None, label_map: dict[str, set[str]]) -> None:
     """Print tests grouped by label category."""
     by_label: dict[str, list[type]] = defaultdict(list)
 
     for cls in classes:
-        labels = get_validation_labels(cls) or ("uncategorized",)
+        labels = _labels_for(label_map, cls.__name__) or ["uncategorized"]
         for item in labels:
             by_label[item].append(cls)
 
@@ -281,7 +293,7 @@ def _print_grouped(classes: list[type], label_filter: list[str] | None) -> None:
         table.add_column("Labels", style="dim")
 
         for cls in sorted(by_label[label_name], key=lambda c: c.__name__):
-            labels = get_validation_labels(cls)
+            labels = _labels_for(label_map, cls.__name__)
             table.add_row(
                 cls.__name__,
                 cls.description or "-",
@@ -349,7 +361,9 @@ def _resolve_class(instance_name: str, class_map: dict[str, type]) -> type | Non
     return None
 
 
-def _print_config_instances(classes: list[type], config_path: Path, label_filter: list[str] | None) -> None:
+def _print_config_instances(
+    classes: list[type], config_path: Path, label_filter: list[str] | None, label_map: dict[str, set[str]]
+) -> None:
     """Print test instances as defined in a config file, grouped by config category."""
     class_map = {cls.__name__: cls for cls in classes}
     categories = _extract_config_instances(config_path)
@@ -365,7 +379,7 @@ def _print_config_instances(classes: list[type], config_path: Path, label_filter
                 n
                 for n in names
                 if (cls := _resolve_class(n, class_map))
-                and any(label in get_validation_labels(cls) for label in label_filter)
+                and any(label in _labels_for(label_map, n, cls.__name__) for label in label_filter)
             ]
             if matched:
                 filtered[cat] = matched
@@ -397,7 +411,7 @@ def _print_config_instances(classes: list[type], config_path: Path, label_filter
         for name in names:
             cls = _resolve_class(name, class_map)
             if cls:
-                labels = get_validation_labels(cls)
+                labels = _labels_for(label_map, name, cls.__name__)
                 label = f"[green]{name}[/green]"
                 if cls.__name__ != name:
                     label += f" [dim]({cls.__name__})[/dim]"
@@ -413,10 +427,12 @@ def _print_config_instances(classes: list[type], config_path: Path, label_filter
         console.print()
 
 
-def _print_flat(classes: list[type], label_filter: list[str] | None) -> None:
+def _print_flat(classes: list[type], label_filter: list[str] | None, label_map: dict[str, set[str]]) -> None:
     """Print a flat alphabetical list of tests."""
     if label_filter:
-        classes = [cls for cls in classes if any(label in get_validation_labels(cls) for label in label_filter)]
+        classes = [
+            cls for cls in classes if any(label in _labels_for(label_map, cls.__name__) for label in label_filter)
+        ]
 
     if not classes:
         err_console.print("[yellow]No tests found for the given labels.[/yellow]")
@@ -434,7 +450,7 @@ def _print_flat(classes: list[type], label_filter: list[str] | None) -> None:
     table.add_column("Labels", style="dim")
 
     for cls in sorted(classes, key=lambda c: c.__name__):
-        labels = get_validation_labels(cls)
+        labels = _labels_for(label_map, cls.__name__)
         table.add_row(
             cls.__name__,
             cls.description or "-",

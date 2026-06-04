@@ -96,10 +96,8 @@ Validation classes live in `isvtest/src/isvtest/validations/` grouped by domain
 (`generic.py`, `cluster.py`, `instance.py`, `network.py`, `iam.py`, `security.py`,
 `host.py`, `k8s_*.py`, `slurm_*.py`, `bm_*.py`). Each subclass is auto-discovered.
 Filtering labels live on the YAML wiring (`labels: [...]` per check in the suite/
-provider configs), not on the class; the catalog, pytest marks, and the
-orchestrator's include/exclude-label filtering all read them from there (unioned
-with any class-level labels for back-compat). `network.py` includes security group
-scoping checks for workloads, nodes, subnets, and services.
+provider configs), not on the class; the catalog, pytest marks, `isvctl docs`,
+and the orchestrator's include/exclude-label filtering all read them from there.
 
 Workloads (`isvtest/src/isvtest/workloads/`) are long-running tests (NIM, NCCL,
 stress) labelled `("workload", "slow", ...)` with manifests and helper scripts
