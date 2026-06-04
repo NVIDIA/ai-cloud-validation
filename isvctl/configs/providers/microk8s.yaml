@@ -48,20 +48,28 @@ tests:
     # Host-level GPU checks (not in k8s.yaml)
     bare_metal:
       checks:
+        # On-host NVIDIA-stack checks (BMAAS-XX-08 "Verify NVIDIA hardware",
+        # already covered by the bare_metal suite's GpuCheck); N/A here.
         BmDriverInstalled:
+          test_id: "N/A"
           labels: ["bare_metal"]
         BmDriverVersion:
+          test_id: "N/A"
           labels: ["bare_metal"]
           min_version: "580.0"
         BmCudaVersion:
+          test_id: "N/A"
           labels: ["bare_metal"]
           min_version: "12.0"
         BmGpuDetection:
+          test_id: "N/A"
           labels: ["bare_metal", "gpu"]
           expected_count: "{{ steps.setup.kubernetes.gpu_per_node | default(1, true) }}"
         BmGpuHealth:
+          test_id: "N/A"
           labels: ["bare_metal", "gpu"]
         BmGpuComputeCapability:
+          test_id: "N/A"
           labels: ["bare_metal", "gpu"]
           expected_compute_capability: "8.0"
 

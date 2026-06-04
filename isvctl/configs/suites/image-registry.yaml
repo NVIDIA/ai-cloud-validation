@@ -92,7 +92,9 @@ tests:
         FieldExistsCheck:
           labels: ["image_registry"]
           fields: ["instance_id", "public_ip", "key_path"]
+        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
+          test_id: "N/A"
           labels: ["image_registry"]
           expected_state: "running"
 
@@ -128,7 +130,9 @@ tests:
         FieldExistsCheck:
           labels: ["image_registry"]
           fields: ["instance_id", "image_id", "instance_state"]
+        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
+          test_id: "N/A"
           labels: ["image_registry"]
           expected_state: "running"
 
@@ -143,7 +147,9 @@ tests:
         FieldExistsCheck:
           labels: ["image_registry"]
           fields: ["instance_id", "config_id", "instance_state"]
+        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
+          test_id: "N/A"
           labels: ["image_registry"]
           expected_state: "running"
 

@@ -56,8 +56,9 @@ tests:
     setup_checks:
       step: launch_instance
       checks:
-        # InstanceStateCheck: generic check (no plan test_id)
+        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
 
@@ -108,8 +109,9 @@ tests:
     instance_info:
       step: describe_instance
       checks:
-        # InstanceStateCheck: generic check (no plan test_id)
+        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
 
@@ -293,8 +295,9 @@ tests:
     reboot_state:
       step: reboot_instance
       checks:
-        # InstanceStateCheck: generic check (no plan test_id)
+        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
 
@@ -337,8 +340,9 @@ tests:
     power_cycle_state:
       step: power_cycle_instance
       checks:
-        # InstanceStateCheck: generic check (no plan test_id)
+        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
 
@@ -364,8 +368,9 @@ tests:
     reinstall_state:
       step: reinstall_instance
       checks:
-        # InstanceStateCheck: generic check (no plan test_id)
+        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
         StableIdentifierCheck:
