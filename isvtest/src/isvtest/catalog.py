@@ -306,11 +306,11 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         if released_tests is None:
             logger.info("Including unreleased tests in catalog because %s is enabled", INCLUDE_UNRELEASED_ENV)
         else:
-            before = len(catalog)
+            omitted_names = sorted(entry["name"] for entry in catalog if entry["name"] not in released_tests)
             catalog = [entry for entry in catalog if entry["name"] in released_tests]
-            omitted = before - len(catalog)
-            if omitted:
-                logger.info("Omitted %d unreleased tests from catalog", omitted)
+            if omitted_names:
+                logger.info("Omitted %d unreleased tests from catalog", len(omitted_names))
+                logger.debug("Unreleased tests omitted from catalog: %s", ", ".join(omitted_names))
 
     logger.info("Built test catalog with %d entries", len(catalog))
     return catalog

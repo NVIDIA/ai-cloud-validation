@@ -30,3 +30,12 @@ def setup_logging(verbose: bool) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+    # isvtest configures its own "isvtest" logger with a dedicated handler and
+    # propagate=False, so the basicConfig above never reaches isvtest.* logs.
+    # Mirror the level onto that logger (and its handlers) so -v actually
+    # surfaces isvtest debug output.
+    isvtest_logger = logging.getLogger("isvtest")
+    isvtest_logger.setLevel(level)
+    for handler in isvtest_logger.handlers:
+        handler.setLevel(level)
