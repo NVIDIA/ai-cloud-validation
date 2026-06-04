@@ -2,12 +2,12 @@
   "ncps": {
     "gcp": {
       "network": {
-        "factory_commit": "c26e25b51b083427b062412853041841479fa5cc",
-        "isv_commit": "9b79e34037435b8567e3cd79e18dae01ae1ea0e2"
+        "factory_commit": "c7ace2d3fd207d5563c0a97ad32e128a8203d5a0",
+        "isv_commit": "562f594dde6cb3a7ea1b63ddfd5217a9ed5a5467"
       },
       "vm": {
-        "factory_commit": "21869ef830d5a088250206c37c757c4ffc28eeeb",
-        "isv_commit": "9b79e34037435b8567e3cd79e18dae01ae1ea0e2"
+        "factory_commit": "c7ace2d3fd207d5563c0a97ad32e128a8203d5a0",
+        "isv_commit": "562f594dde6cb3a7ea1b63ddfd5217a9ed5a5467"
       }
     }
   },

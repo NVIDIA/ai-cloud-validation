@@ -1,5 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Shared Compute Engine helpers for GCP VM stubs.
 
@@ -28,6 +40,7 @@ the AWS provider:
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import subprocess
@@ -809,6 +822,137 @@ def delete_local_keypair(priv_path: str) -> bool:
 
 
 # --------------------------------------------------------------------- #
+# Trusted SSH/RDP firewall source ranges                                #
+# --------------------------------------------------------------------- #
+
+# The only trusted source of SSH (tcp/22) / RDP (tcp/3389) firewall ingress
+# is this operator environment variable. There is NO open-internet fallback:
+# a generated firewall must never allow tcp/22 or tcp/3389 from 0.0.0.0/0.
+TRUSTED_SSH_SOURCE_ENV_VAR = "NETWORK_FIREWALL_TRUST_IP"
+
+
+def resolve_trusted_ssh_source_ranges(env_value: str | None = None) -> list[str]:
+    """Resolve trusted SSH/RDP ingress source ranges from the operator env.
+
+    Reads ``NETWORK_FIREWALL_TRUST_IP`` (the only trusted source for SSH/RDP
+    ingress) and normalizes it to a list of IPv4 CIDR strings used verbatim
+    as a firewall rule's ``sourceRanges``.
+
+    Accepted input (comma-separated):
+      * a bare IPv4 address (normalized to a ``/32`` host CIDR), or
+      * an IPv4 CIDR (e.g. ``203.0.113.0/24``).
+
+    Raises ``ValueError`` (operator-actionable) when the variable is unset,
+    empty, non-IPv4, malformed, or normalizes to an all-internet range such
+    as ``0.0.0.0/0``. The caller surfaces the message as a launch error,
+    sets ``success=false``, and exits non-zero — there is no fallback range.
+    """
+    raw = env_value if env_value is not None else os.environ.get(TRUSTED_SSH_SOURCE_ENV_VAR)
+    if raw is None or not raw.strip():
+        raise ValueError(
+            f"{TRUSTED_SSH_SOURCE_ENV_VAR} is unset; it is the only trusted source for "
+            "SSH/RDP firewall ingress. Set it to your operator IPv4 address or CIDR "
+            "(e.g. 203.0.113.4 or 203.0.113.0/24) and re-run."
+        )
+
+    ranges: list[str] = []
+    for token in (t.strip() for t in raw.split(",")):
+        if not token:
+            continue
+        spec = token if "/" in token else f"{token}/32"
+        try:
+            net = ipaddress.ip_network(spec, strict=False)
+        except ValueError as exc:
+            raise ValueError(
+                f"{TRUSTED_SSH_SOURCE_ENV_VAR} entry {token!r} is not a valid IPv4 "
+                f"address or CIDR: {exc}"
+            ) from exc
+        if net.version != 4:
+            raise ValueError(
+                f"{TRUSTED_SSH_SOURCE_ENV_VAR} entry {token!r} is not IPv4; only IPv4 "
+                "SSH/RDP ingress ranges are accepted."
+            )
+        if net.prefixlen == 0:
+            raise ValueError(
+                f"{TRUSTED_SSH_SOURCE_ENV_VAR} entry {token!r} normalizes to the open "
+                "internet (0.0.0.0/0), which is forbidden for SSH/RDP ingress."
+            )
+        ranges.append(str(net))
+
+    if not ranges:
+        raise ValueError(f"{TRUSTED_SSH_SOURCE_ENV_VAR} contained no usable IPv4 source ranges.")
+    return ranges
+
+
+# --------------------------------------------------------------------- #
+# SSH public-key metadata readback (specified-key contract)            #
+# --------------------------------------------------------------------- #
+
+
+def _ssh_pubkey_body(pubkey_line: str) -> str | None:
+    """Return the base64 key blob from an OpenSSH public-key line, or None.
+
+    An OpenSSH public key is ``<type> <base64-blob> [comment]``; every blob
+    base64-encodes a length-prefixed type and so begins with ``AAAA``. The
+    blob is the stable matcher across the ``<user>:<key>`` framing Compute
+    Engine stores instance keys under (the comment / user prefix varies).
+    """
+    for token in pubkey_line.split():
+        if token.startswith("AAAA"):
+            return token
+    return None
+
+
+def instance_has_pubkey(instance: compute_v1.Instance, pubkey_line: str) -> bool:
+    """Return True iff ``pubkey_line`` is present in the instance's ssh-keys metadata.
+
+    Reads ``instance.metadata.items[key == "ssh-keys"]`` and matches on the
+    base64 key blob. Returns False when the instance carries no ssh-keys
+    metadata or the blob is absent — the honest "key not confirmed" signal
+    backing ``instance_key_name``.
+    """
+    body = _ssh_pubkey_body(pubkey_line)
+    if not body:
+        return False
+    metadata = getattr(instance, "metadata", None)
+    for item in getattr(metadata, "items", None) or []:
+        if item.key == "ssh-keys" and body in (item.value or ""):
+            return True
+    return False
+
+
+def pubkey_from_private_key(priv_path: str) -> str | None:
+    """Best-effort: return the OpenSSH public-key line paired with ``priv_path``.
+
+    Prefers a sibling ``<priv_path>.pub`` (written by ``generate_ssh_keypair``);
+    falls back to ``ssh-keygen -y`` for an operator-supplied key with no
+    ``.pub`` on disk. Returns None when neither yields a key (e.g. an encrypted
+    operator key) so the caller can emit an honest "not confirmed".
+    """
+    pub = Path(f"{priv_path}.pub")
+    if pub.exists():
+        try:
+            text = pub.read_text().strip()
+            if text:
+                return text
+        except OSError:
+            pass
+    try:
+        proc = subprocess.run(
+            ["ssh-keygen", "-y", "-f", priv_path],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip() or None
+
+
+# --------------------------------------------------------------------- #
 # Firewall (verified-reuse, returns created bool)                       #
 # --------------------------------------------------------------------- #
 
@@ -823,14 +967,23 @@ _ISV_FIREWALL_DESCRIPTION = f"ISV validation SSH firewall rule ({_ISV_OWNERSHIP_
 ISV_NETWORK_TAG = "isv-test-vm"
 
 
-def _firewall_matches_ssh_shape(rule: compute_v1.Firewall, network_short: str) -> bool:
+def _firewall_matches_ssh_shape(
+    rule: compute_v1.Firewall,
+    network_short: str,
+    source_ranges: list[str],
+) -> bool:
     """Return True iff the existing firewall rule matches the SSH-allow shape.
 
-    Rule #7 invariant: every caller-depended property must be verified on
-    reuse-adoption. A rule with the ownership marker + description + port
-    shape but ``disabled=True`` would be silently adopted, then SSH would
-    time out at cloud-init wait and teardown would skip the rule (because
-    ``firewall_created=False``). Reject disabled rules up front.
+    Every caller-depended property must be verified on reuse-adoption. A rule
+    with the ownership marker + description + port shape but ``disabled=True``
+    would be silently adopted, then SSH would time out at cloud-init wait and
+    teardown would skip the rule (because ``firewall_created=False``). Reject
+    disabled rules up front.
+
+    ``source_ranges`` is the operator-trusted set derived from
+    ``NETWORK_FIREWALL_TRUST_IP``; a pre-existing rule whose source ranges do
+    not exactly equal it (including any rule that still allows ``0.0.0.0/0``)
+    is NOT reusable.
     """
     if rule.disabled:
         return False
@@ -838,14 +991,13 @@ def _firewall_matches_ssh_shape(rule: compute_v1.Firewall, network_short: str) -
         return False
     if rule.direction != "INGRESS":
         return False
-    # Rule #7 requires every caller-depended invariant be verified on
-    # reuse-adoption. Use set-equality (not membership) so a rule with
-    # extra CIDRs (`["0.0.0.0/0", "10.0.0.0/8"]`) or extra target tags
-    # is REJECTED rather than silently adopted with `firewall_created=
-    # False` — adopting a superset rule weakens the test contract AND
-    # persists post-run because teardown gates on the `firewall_created`
-    # flag.
-    if set(rule.source_ranges) != {"0.0.0.0/0"}:
+    # Every caller-depended invariant must be verified on reuse-adoption. Use
+    # set-equality (not membership) against the trusted source ranges so a rule
+    # with extra CIDRs (e.g. an added `0.0.0.0/0`) or extra target tags is
+    # REJECTED rather than silently adopted with `firewall_created=False` —
+    # adopting a superset rule weakens the ingress policy AND persists post-run
+    # because teardown gates on the `firewall_created` flag.
+    if set(rule.source_ranges) != set(source_ranges):
         return False
     if set(rule.target_tags) != {ISV_NETWORK_TAG}:
         return False
@@ -876,6 +1028,7 @@ def insert_ssh_firewall(
     project: str,
     name: str,
     network_short: str,
+    source_ranges: list[str],
 ) -> tuple[str, Any]:
     """Submit a verified-reuse SSH firewall insert and return ``(name, op)``.
 
@@ -887,13 +1040,18 @@ def insert_ssh_firewall(
     ``firewall_created=True`` so cleanup-on-failure deletes the
     accepted-but-uncomfirmed rule.
 
+    ``source_ranges`` is the operator-trusted IPv4 source list resolved from
+    ``NETWORK_FIREWALL_TRUST_IP`` (see ``resolve_trusted_ssh_source_ranges``).
+    It is used verbatim as the rule's ``sourceRanges`` and as the reuse-match
+    criterion — there is no open-internet fallback.
+
     Returns ``(name, op)``. ``op`` is ``None`` iff the call adopted a
     verified-reuse existing rule (no wait required); otherwise the
     caller MUST block on ``wait_for_global_op(project, op.name, ...)``.
 
-    Adoption is gated on the same three checks as before: ownership
-    marker present, description matches what we'd produce, shape
-    matches (network/direction/source/target tag/tcp22).
+    Adoption is gated on the same checks as before: ownership marker present,
+    description matches what we'd produce, shape matches
+    (network/direction/source-ranges/target tag/tcp22).
     """
     fw_client = compute_v1.FirewallsClient()
     network_url = f"projects/{project}/global/networks/{network_short}"
@@ -903,7 +1061,7 @@ def insert_ssh_firewall(
     rule.network = network_url
     rule.direction = "INGRESS"
     rule.priority = 1000
-    rule.source_ranges = ["0.0.0.0/0"]
+    rule.source_ranges = list(source_ranges)
     rule.target_tags = [ISV_NETWORK_TAG]
     rule.description = _ISV_FIREWALL_DESCRIPTION
 
@@ -926,10 +1084,10 @@ def insert_ssh_firewall(
                 f"firewall {name!r} description differs: expected "
                 f"{_ISV_FIREWALL_DESCRIPTION!r}, got {existing.description!r}"
             ) from None
-        if not _firewall_matches_ssh_shape(existing, network_short):
+        if not _firewall_matches_ssh_shape(existing, network_short, source_ranges):
             raise RuntimeError(
-                f"firewall {name!r} exists but shape (network/direction/source/tags/tcp22) "
-                "does not match; refusing to adopt"
+                f"firewall {name!r} exists but shape (network/direction/source-ranges/tags/tcp22) "
+                "does not match the trusted ingress policy; refusing to adopt"
             ) from None
         print(f"  reusing verified firewall rule: {name}", file=sys.stderr)
         return name, None

@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Test network connectivity between probe instances in the shared VPC.
 
@@ -17,12 +29,19 @@ Engine. Documented divergences:
   * VPC validation cross-checks subnetwork.network and firewall.network
     against the supplied network by EXACT tail match (scope-binding
     equality, never substring/startswith), via ``short_name``.
-  * The shared ``--sg-id`` firewall (from create_vpc) already allows
-    tcp:22 + icmp from 0.0.0.0/0, but it scopes to the whole network with
-    no target tags. VM1->VM2 PRIVATE ICMP is allowed by it, but to keep
-    the probe self-sufficient we create a small intra-VPC INGRESS firewall
-    allowing icmp+tcp from the validated subnets' CIDR ranges, suffixed,
-    targeting the probe network tag, and delete it in ``finally``.
+  * The shared ``--sg-id`` firewall (from create_vpc) allows tcp:22 ONLY
+    from the operator-trusted ranges (``NETWORK_FIREWALL_TRUST_IP``), never
+    0.0.0.0/0; create_vpc adds a SEPARATE network-wide ICMP rule. Both are
+    network-scoped (no target tags), so the workstation->VM1 public-SSH path
+    works whenever the runner's egress is within the trusted ranges — a
+    foundation/operator concern, not retried here. To keep VM1->VM2 PRIVATE
+    ICMP self-sufficient regardless of the shared rules' exact shape, we
+    still create a small intra-VPC INGRESS firewall allowing ICMP only from
+    the validated subnets' CIDR ranges (RFC1918, never 0.0.0.0/0), suffixed,
+    targeting the probe network tag, and delete it in ``finally``. tcp/22 is
+    deliberately NOT in this rule: the only SSH is workstation->VM1 over the
+    public IP (shared --sg-id rule), so adding tcp/22 here would open an
+    admin port from a broad LAN range with no probe that needs it.
   * This step uses the SHARED create_network VPC; it does NOT create its
     own network.
 
@@ -203,13 +222,17 @@ def main() -> int:
         key_priv, key_created = generate_ssh_keypair(key_name)
         ssh_pubkey = read_ssh_pubkey(key_priv)
 
-        # 3. Intra-VPC ICMP + TCP firewall. The shared --sg-id rule already
-        # allows tcp:22 + icmp from 0.0.0.0/0, but it carries no target
-        # tags. To keep the VM1->VM2 PRIVATE probe self-sufficient (and not
-        # depend on the shared rule's exact shape) we add a tag-scoped
-        # INGRESS rule sourced from the validated subnets' CIDR ranges. An
-        # allow rule MUST carry at least one Allowed with I_p_protocol set
-        # (empty allowed[] -> HTTP 400).
+        # 3. Intra-VPC ICMP firewall for the VM1->VM2 PRIVATE probe. That probe
+        # is ICMP-only (step 7 SSHes into VM1 over its PUBLIC IP — governed by
+        # the shared --sg-id rule's operator-trusted tcp:22 — then PINGs VM2's
+        # PRIVATE IP). No VM ever SSHes to another VM's private IP, so this
+        # tag-scoped rule needs ICMP only: adding tcp:22 here would open an
+        # admin port from the subnet CIDRs / 10.0.0.0/8, which the firewall
+        # ingress policy forbids (tcp/22 ingress must be env-derived, never a
+        # broad LAN range). To keep the private probe self-sufficient (and not
+        # depend on the shared rules' exact shape) the rule is sourced from the
+        # validated subnets' CIDR ranges. An allow rule MUST carry at least one
+        # Allowed with I_p_protocol set (empty allowed[] -> HTTP 400).
         subnet_ranges: list[str] = []
         for subnet_id in subnet_ids:
             subnet = get_subnetwork(project, args.region, subnet_id)
@@ -221,7 +244,7 @@ def main() -> int:
             args.vpc_id,
             project,
             direction="INGRESS",
-            allowed=[make_allowed("icmp"), make_allowed("tcp", ["22"])],
+            allowed=[make_allowed("icmp")],
             source_ranges=subnet_ranges or ["10.0.0.0/8"],
             target_tags=[ISV_NETWORK_TAG],
         )

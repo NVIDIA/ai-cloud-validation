@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Security-blocking negative tests on Compute Engine (test phase, self-contained).
 
@@ -60,11 +72,8 @@ from common.network import (
     list_firewalls_for_network,
     make_allowed,
     make_denied,
+    resolve_trusted_firewall_sources,
 )
-
-# The "specific SSH" source CIDR — a single external range, NOT 0.0.0.0/0,
-# so the test demonstrates source-restricted ingress.
-SSH_SOURCE_CIDR = "203.0.113.0/24"
 
 
 @handle_gcp_errors
@@ -98,6 +107,13 @@ def main() -> int:
     created_firewalls: list[str] = []
 
     try:
+        # Resolve the operator-trusted SSH source range(s) BEFORE creating
+        # anything so an unset/invalid/broad NETWORK_FIREWALL_TRUST_IP fails
+        # closed with no half-created network to clean up. tcp/22 ingress has
+        # no fallback source range — the only trusted source is the operator
+        # env var (see common.network.resolve_trusted_firewall_sources).
+        trusted_ssh_sources = resolve_trusted_firewall_sources()
+
         # create_vpc: custom-mode network + one regional subnetwork.
         subnet_cidr = carve_subnet_cidrs(args.cidr, 1)[0]
         # Stamp/record each tracker BEFORE its insert helper: insert_* runs
@@ -126,8 +142,11 @@ def main() -> int:
             ),
         }
 
-        # sg_allows_specific_ssh: INGRESS firewall allowing tcp:22 from a
-        # single source CIDR. Read back and assert source_ranges + allowed.
+        # sg_allows_specific_ssh: INGRESS firewall allowing tcp:22 from the
+        # operator-trusted source range(s) only — NOT 0.0.0.0/0. tcp/22 is an
+        # admin port, so its source is the env-derived trust list (resolved
+        # above). Read back and assert the allow + that source_ranges EQUALS
+        # the env-derived policy list exactly (membership alone is too weak).
         created_firewalls.append(ssh_fw)
         insert_firewall(
             project,
@@ -137,15 +156,16 @@ def main() -> int:
                 project,
                 direction="INGRESS",
                 allowed=[make_allowed("tcp", ["22"])],
-                source_ranges=[SSH_SOURCE_CIDR],
+                source_ranges=trusted_ssh_sources,
             ),
         )
         fw = get_firewall(project, ssh_fw)
         ssh_allowed = any(entry.I_p_protocol == "tcp" and "22" in (entry.ports or []) for entry in fw.allowed or ())
+        ssh_source_match = set(fw.source_ranges or ()) == set(trusted_ssh_sources)
         result["tests"]["sg_allows_specific_ssh"] = {
-            "passed": ssh_allowed and SSH_SOURCE_CIDR in list(fw.source_ranges or []),
+            "passed": ssh_allowed and ssh_source_match,
             "sg_id": ssh_fw,
-            "allowed_cidr": SSH_SOURCE_CIDR,
+            "allowed_cidr": trusted_ssh_sources,
         }
 
         # sg_denies_vpc_icmp: the ssh-only firewall must NOT allow icmp.

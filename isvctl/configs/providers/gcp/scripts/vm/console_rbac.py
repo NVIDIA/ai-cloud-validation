@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Console RBAC probe for Compute Engine serial console access.
 
@@ -11,9 +23,9 @@ The suite contract requires three subtests:
 
 GCP has no AWS-style ``simulate_principal_policy`` equivalent for Compute
 Engine serial console access (``instances.testIamPermissions`` and
-``instances.getSerialPortOutput`` both evaluate the caller). Per the
-reviewed GCP knowledge file, RBAC evidence must come from REAL probe
-principals:
+``instances.getSerialPortOutput`` both evaluate the caller). Because the
+APIs evaluate the caller rather than a simulated principal, RBAC evidence
+must come from REAL probe principals:
 
   * a denied service account WITHOUT
     ``compute.instances.getSerialPortOutput`` on the target VM,
@@ -37,7 +49,7 @@ for projects where the operator cannot allow IAM mutation. The fallback
 is opt-in via the env vars themselves; otherwise the self-provisioned
 path runs.
 
-Per the reviewed knowledge file (target_sdk_quirks #4 / #5):
+Compute Engine serial-console RBAC implementation notes:
   * Direct IAMCredentials REST token minting is the stable path. Avoid
     ``google.auth.impersonated_credentials.Credentials`` with local
     authorized-user ADC — its refresh code can call a private
@@ -56,6 +68,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
 import time
 import urllib.error
@@ -92,11 +105,10 @@ _TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 _HTTP_TIMEOUT_S = 30
 
 # Minimal predefined role granting serial-port-output read. ``roles/
-# compute.viewer`` includes the permission and is broader than necessary;
-# the knowledge file lists it as the acceptable predefined role for this
-# probe ("``roles/compute.viewer`` or an equivalent minimal serial-output
-# custom role"). A custom role would be tighter but requires extra
-# provisioning the probe does not need.
+# compute.viewer`` includes the permission and is broader than necessary,
+# but is the acceptable predefined role for this probe (an equivalent
+# minimal serial-output custom role would be tighter but requires extra
+# provisioning the probe does not need).
 _ALLOWED_TARGET_ROLE = "roles/compute.viewer"
 _TOKEN_CREATOR_ROLE = "roles/iam.serviceAccountTokenCreator"
 
@@ -233,22 +245,63 @@ def _create_service_account(
     return email
 
 
-def _delete_service_account(*, project: str, token: str, email: str) -> bool:
-    """Delete a service account; NotFound is success."""
+def _delete_service_account(
+    *,
+    project: str,
+    token: str,
+    email: str,
+    attempts: int = 5,
+    backoff: float = 2.0,
+) -> bool:
+    """Delete a service account; NotFound is success.
+
+    Bounded retry/backoff on transient IAM cleanup failures (HTTP 429 / 5xx
+    and socket-level errors) so a single flaky delete call doesn't orphan the
+    probe SA into the run namespace — the same transient envelope the
+    grant-side read-modify-write retries use. 404 (already gone) is success;
+    other 4xx are non-retryable.
+    """
     url = f"{_IAM_BASE}/projects/{project}/serviceAccounts/{email}"
-    try:
-        _http_request("DELETE", url, token)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
+    last_error: str | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            _http_request("DELETE", url, token)
             return True
-        print(f"  delete_service_account({email}) HTTP {e.code}: {_http_error_body(e)}", file=sys.stderr)
-        return False
-    return True
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return True
+            last_error = f"HTTP {e.code}: {_http_error_body(e)}"
+            if e.code == 429 or 500 <= e.code < 600:
+                time.sleep(backoff * attempt)
+                continue
+            print(f"  delete_service_account({email}) {last_error}", file=sys.stderr)
+            return False
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last_error = f"network error ({type(e).__name__}): {e}"
+            time.sleep(backoff * attempt)
+            continue
+    print(f"  delete_service_account({email}) exhausted: {last_error}", file=sys.stderr)
+    return False
 
 
 def _service_account_resource(project: str, sa_email: str) -> str:
     """REST resource path for an SA (used by SA-resource IAM policy calls)."""
     return f"projects/{project}/serviceAccounts/{sa_email}"
+
+
+def _is_member_propagation_error(body: dict[str, Any]) -> bool:
+    """True if a setIamPolicy 400 body means the member SA has not propagated.
+
+    A freshly-created service account referenced as an IAM *member* is
+    eventually consistent: the policy write is rejected with HTTP 400
+    ('... does not exist') until the member converges (same window as the
+    TokenCreator binding handled in ``_mint_access_token``). Malformed-policy
+    400s (unknown member type, unsupported role) carry different text and are
+    intentionally NOT matched, so they stay non-retryable. ``body`` is the
+    parsed JSON from ``_http_error_body``; serialize it so the match works
+    whether the text lands in ``error.message`` or the ``raw`` fallback.
+    """
+    return "does not exist" in json.dumps(body).lower()
 
 
 def _modify_iam_policy(
@@ -262,6 +315,7 @@ def _modify_iam_policy(
     get_method: str = "POST",
     attempts: int = 5,
     backoff: float = 1.0,
+    member_propagation_delay: float = 0.0,
 ) -> bool:
     """Read-modify-write an IAM policy with etag retry.
 
@@ -342,12 +396,26 @@ def _modify_iam_policy(
             _http_request("POST", set_url, token, body={"policy": new_policy})
             return True
         except urllib.error.HTTPError as e:
-            last_error = f"setIamPolicy HTTP {e.code}: {_http_error_body(e)}"
+            body = _http_error_body(e)
+            last_error = f"setIamPolicy HTTP {e.code}: {body}"
+            # A brand-new SA referenced as a member is eventually consistent;
+            # setIamPolicy rejects the binding with HTTP 400 ('... does not
+            # exist') until it propagates (~3 min observed). Callers that add a
+            # just-created SA opt in via member_propagation_delay and retry the
+            # read-modify-write on a flat delay until the member converges.
+            if e.code == 400 and member_propagation_delay > 0 and _is_member_propagation_error(body):
+                print(
+                    f"  iam grant: member {member} not yet propagated; retrying in {member_propagation_delay:.0f}s",
+                    file=sys.stderr,
+                )
+                time.sleep(member_propagation_delay)
+                continue
             # 409 stale etag (refresh GET on next iter), 429 rate-limit, and 5xx
             # transient server errors all warrant the read-modify-write retry.
             if e.code in (409, 429) or 500 <= e.code < 600:
                 time.sleep(backoff * attempt)
                 continue
+            print(f"  setIamPolicy non-retryable: {last_error}", file=sys.stderr)
             return False
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             # Same socket-level coverage as the getIamPolicy arm — mid-read
@@ -394,7 +462,16 @@ def _grant_target_role(
     token: str,
     sa_email: str,
 ) -> bool:
-    """Grant the allowed SA the target-VM serial-output role."""
+    """Grant the allowed SA the target-VM serial-output role.
+
+    ``sa_email`` is a probe SA created seconds earlier in this same step.
+    A brand-new SA referenced as an IAM member is eventually consistent, so
+    the instance setIamPolicy is rejected with HTTP 400 ('... does not exist')
+    until the member propagates. Opt into the member-propagation retry (flat
+    15s, ~3 min budget — the convergence window already documented on
+    ``_mint_access_token``) so the grant lands deterministically instead of
+    nondeterministically failing when the SA was minted moments ago.
+    """
     base = f"{_COMPUTE_BASE}/projects/{project}/zones/{zone}/instances/{instance}"
     return _modify_iam_policy(
         get_url=f"{base}/getIamPolicy",
@@ -404,6 +481,8 @@ def _grant_target_role(
         role=_ALLOWED_TARGET_ROLE,
         member=f"serviceAccount:{sa_email}",
         get_method="GET",
+        attempts=14,
+        member_propagation_delay=15.0,
     )
 
 
@@ -572,24 +651,51 @@ def _wait_probe_vm_insert(
     return True, "probe VM insert wait done"
 
 
-def _delete_probe_vm(*, project: str, zone: str, token: str, name: str) -> bool:
-    """Delete the probe VM; NotFound counts as success."""
+def _delete_probe_vm(
+    *,
+    project: str,
+    zone: str,
+    token: str,
+    name: str,
+    attempts: int = 5,
+    backoff: float = 2.0,
+) -> bool:
+    """Delete the probe VM; NotFound counts as success.
+
+    Bounded retry/backoff on transient delete-submit failures (HTTP 429 / 5xx
+    and socket-level errors) mirrors the SA-cleanup envelope so a flaky
+    Compute Engine call doesn't orphan the probe VM into the run namespace.
+    A wait-side failure is NOT retried here (the delete op is already in
+    flight); it surfaces as a cleanup error for the next sweep.
+    """
     url = f"{_COMPUTE_BASE}/projects/{project}/zones/{zone}/instances/{name}"
-    try:
-        _, op = _http_request("DELETE", url, token)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return True
-        print(f"  delete_probe_vm({name}) HTTP {e.code}: {_http_error_body(e)}", file=sys.stderr)
-        return False
-    op_name = op.get("name", "")
-    if op_name:
+    last_error: str | None = None
+    for attempt in range(1, attempts + 1):
         try:
-            wait_for_zonal_op(project, zone, op_name, timeout=180)
-        except Exception as e:
-            print(f"  delete_probe_vm wait failed: {e}", file=sys.stderr)
+            _, op = _http_request("DELETE", url, token)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return True
+            last_error = f"HTTP {e.code}: {_http_error_body(e)}"
+            if e.code == 429 or 500 <= e.code < 600:
+                time.sleep(backoff * attempt)
+                continue
+            print(f"  delete_probe_vm({name}) {last_error}", file=sys.stderr)
             return False
-    return True
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last_error = f"network error ({type(e).__name__}): {e}"
+            time.sleep(backoff * attempt)
+            continue
+        op_name = op.get("name", "")
+        if op_name:
+            try:
+                wait_for_zonal_op(project, zone, op_name, timeout=180)
+            except Exception as e:
+                print(f"  delete_probe_vm wait failed: {e}", file=sys.stderr)
+                return False
+        return True
+    print(f"  delete_probe_vm({name}) exhausted: {last_error}", file=sys.stderr)
+    return False
 
 
 def _self_provisioned_probe(
@@ -614,10 +720,23 @@ def _self_provisioned_probe(
     caller_member = _resolve_caller_member(caller_token)
     result["caller"] = caller_member
 
-    suffix = unique_suffix("rbac", length=8).split("-", 1)[-1]
-    denied_sa_id = f"isv-rbac-denied-{suffix}"[:30]
-    allowed_sa_id = f"isv-rbac-allowed-{suffix}"[:30]
-    probe_vm_name = f"isv-rbac-probe-{suffix}"[:62]
+    # The GCP service-account local-part (segment before ``@<project>.iam.``)
+    # is hard-capped at 30 chars. A run-id-only suffix is NOT enough: the
+    # run-id alone collapses two distinct logical SAs onto the same name if a
+    # transient in-step cleanup of one fails and the next attempt inside the
+    # same run hits 409 ALREADY_EXISTS. Fold a per-invocation discriminator
+    # (4 hex chars) BETWEEN the static prefix and the run-id suffix so every
+    # invocation gets a fresh name, and so the 30-char truncation can never
+    # drop the discriminator or the trailing run-id token. The ``isv-`` prefix
+    # + trailing run-id suffix still match the external sweep regex
+    # ``^isv-.*-<run_id_suffix>$``. Shorter ``-d`` / ``-a`` prefixes (vs
+    # ``denied`` / ``allowed``) keep clear headroom under the cap; the human
+    # role stays legible via each SA's displayName.
+    run_suffix = unique_suffix("rbac", length=8).split("-", 1)[-1]
+    invocation_tag = secrets.token_hex(2)  # 4 hex chars, per-invocation
+    denied_sa_id = f"isv-rbac-d-{invocation_tag}-{run_suffix}"[:30]
+    allowed_sa_id = f"isv-rbac-a-{invocation_tag}-{run_suffix}"[:30]
+    probe_vm_name = f"isv-rbac-probe-{invocation_tag}-{run_suffix}"[:62]
 
     created: dict[str, Any] = {
         "denied_sa": "",

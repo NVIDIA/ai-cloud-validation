@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Launch a GPU VM on Compute Engine for VM-domain validation.
 
@@ -54,13 +66,16 @@ from common.compute import (
     generate_ssh_keypair,
     get_instance,
     insert_ssh_firewall,
+    instance_has_pubkey,
     is_gpu_machine_type,
     is_zone_unavailable,
     narrow_region_to_zone,
     poll_instance_state,
+    pubkey_from_private_key,
     read_ssh_pubkey,
     resolve_image,
     resolve_project,
+    resolve_trusted_ssh_source_ranges,
     retry_zonal_lifecycle_op,
     select_zones,
     short_name,
@@ -231,6 +246,7 @@ def _reuse_existing_instance(
     instance_id: str,
     key_file: str,
     ssh_user: str,
+    requested_key_name: str,
 ) -> int:
     """Mirror the AWS oracle's ``AWS_VM_INSTANCE_ID``/``AWS_VM_KEY_FILE`` reuse path.
 
@@ -265,6 +281,12 @@ def _reuse_existing_instance(
         "firewall_name": None,
         "security_group_id": None,
         "key_name": None,
+        # Specified-key contract (same as the create branch): requested label
+        # plus the label confirmed against the adopted instance's ssh-keys
+        # metadata. instance_key_name stays None until the readback proves the
+        # operator key is present.
+        "requested_key_name": requested_key_name,
+        "instance_key_name": None,
         "ssh_user": ssh_user,
         "reused": True,
         "tags": {},
@@ -277,7 +299,7 @@ def _reuse_existing_instance(
 
         if cstate == "stopped":
             print(f"  {instance_id} is stopped — starting it", file=sys.stderr)
-            # Sister-stub consistency (rule #4): the dedicated
+            # Sister-stub consistency: the dedicated
             # `start_instance.py` wraps the start sync+wait pair in the
             # in-zone retry-with-backoff envelope (3 attempts, 60s/120s
             # backoff). The reuse-from-stopped path runs the SAME
@@ -317,7 +339,7 @@ def _reuse_existing_instance(
         result["tags"] = derived_tags
 
         # Derive the firewall handle from live state if possible — never
-        # fabricate (rule #1 oracle-derivation parity). The gating flags
+        # fabricate a value the API did not return. The gating flags
         # stay False either way, so this is purely informational.
         derived_fw = _find_ssh_firewall_for_instance(project, inst)
         if derived_fw:
@@ -326,11 +348,27 @@ def _reuse_existing_instance(
 
         # Compute Engine has no managed key-pair store and no live
         # `KeyName` field on the instance record. There is no portable
-        # counterpart to the AWS oracle signal, and the reviewed GCP
-        # knowledge file requires emitting `result["key_name"] = None`
-        # rather than synthesizing a basename / `<user>@reuse` token.
-        # Local PEM identity flows through `key_file` alone.
+        # counterpart to the AWS oracle signal, so `result["key_name"]`
+        # stays None rather than synthesizing a basename / `<user>@reuse`
+        # token. Local PEM identity flows through `key_file` alone.
         result["key_name"] = None
+
+        # Specified-key contract on the reuse path. Derive the operator key's
+        # public half from the supplied key_file and confirm it against the
+        # adopted instance's ssh-keys metadata (readback — never assumed).
+        # instance_key_name carries the requested label only when confirmed.
+        reuse_pubkey = pubkey_from_private_key(key_file)
+        key_confirmed = bool(reuse_pubkey) and instance_has_pubkey(inst, reuse_pubkey)
+        result["instance_key_name"] = requested_key_name if key_confirmed else None
+        result.setdefault("tests", {})["specified_key"] = {
+            "passed": key_confirmed,
+            "message": (
+                f"Requested SSH key {requested_key_name!r} confirmed in instance ssh-keys metadata"
+                if key_confirmed
+                else f"Requested SSH key {requested_key_name!r} not found in instance ssh-keys metadata"
+            ),
+            "probes": ["instance_ssh_keys_metadata"],
+        }
 
         if cstate != "running" or not result["public_ip"]:
             result["error"] = f"Instance {instance_id} is {cstate!r} or has no external IP"
@@ -465,6 +503,7 @@ def main() -> int:
             instance_id=reuse_instance,
             key_file=reuse_key,
             ssh_user=args.ssh_user,
+            requested_key_name=args.key_name,
         )
 
     # Apply the RUN_ID suffix. Compute Engine names ARE the API IDs —
@@ -502,8 +541,17 @@ def main() -> int:
         # Compute Engine has no managed key-pair store; local PEM
         # identity flows through `key_file` end-to-end. The CLI accepts
         # `--key-name` for AWS-oracle invocation parity but the emitted
-        # result is unconditionally None per the reviewed GCP knowledge.
+        # `key_name` is unconditionally None — there is no server-side
+        # key-pair identifier on Compute Engine.
         "key_name": None,
+        # Specified-key contract: the operator-requested SSH-key label and
+        # the label CONFIRMED present on the launched instance via an
+        # ssh-keys metadata readback. `requested_key_name` is the honest
+        # "requested" value; `instance_key_name` stays None until the
+        # readback proves the injected public key is on the instance, so a
+        # pre-readback failure fails InstanceSpecifiedKeyCheck honestly.
+        "requested_key_name": args.key_name,
+        "instance_key_name": None,
         # Producer-side sentinel defense: initialize to the canonical
         # sentinel so an exception BEFORE generate_ssh_keypair (e.g.,
         # resolve_image raising) still emits a non-empty value. The
@@ -544,7 +592,14 @@ def main() -> int:
     fw_name = firewall_name_suffixed
 
     try:
-        # 0. Resolve image. Three operator-supplied shapes are honored
+        # 0a. Resolve the trusted SSH ingress source ranges from the operator
+        # environment. NETWORK_FIREWALL_TRUST_IP is the ONLY trusted source for
+        # the launch firewall's tcp/22 ingress — there is no open-internet
+        # fallback. An unset/empty/non-IPv4/0.0.0.0/0 value fails the launch
+        # here, before any key, firewall, or instance is created.
+        ssh_source_ranges = resolve_trusted_ssh_source_ranges()
+
+        # 0b. Resolve image. Three operator-supplied shapes are honored
         # (operator scope wins):
         #   * Full self-link (``https://...`` or ``projects/<P>/global/
         #     images/<N>``) — pass through verbatim; Compute Engine
@@ -642,6 +697,7 @@ def main() -> int:
             project=project,
             name=firewall_name_suffixed,
             network_short=args.vpc_id,
+            source_ranges=ssh_source_ranges,
         )
         if fw_op is not None:
             firewall_created = True
@@ -733,8 +789,8 @@ def main() -> int:
                     # so the stamped value remains a valid teardown
                     # target whether the walker succeeds later or
                     # exhausts every candidate. Clearing it broke the
-                    # cleanup-provenance chain on full-walk exhaustion
-                    # (rule #6) — teardown then lost the deterministic
+                    # cleanup-provenance chain on full-walk exhaustion —
+                    # teardown then lost the deterministic
                     # name and the leaked instance in zone A survived.
                     instance_created = False
                 else:
@@ -774,8 +830,8 @@ def main() -> int:
         # Only emit canonical tag keys when the backing label is actually
         # present on the live instance. Falling back to the REQUESTED
         # values would fabricate a vacuous readback round-trip and mask
-        # any regression in `canonical_tags_to_labels` projection (rule
-        # #1 oracle-derivation parity; mirrors the reuse-branch shape).
+        # any regression in `canonical_tags_to_labels` projection
+        # (values must be derived from live state; mirrors the reuse-branch shape).
         actual_labels = dict(getattr(inst, "labels", {}) or {})
         derived_tags: dict[str, str] = {}
         if "isv_name" in actual_labels:
@@ -783,6 +839,24 @@ def main() -> int:
         if "createdby" in actual_labels:
             derived_tags["CreatedBy"] = actual_labels["createdby"]
         result["tags"] = derived_tags
+
+        # 6b. Specified-key contract. Confirm the public key this stub
+        # injected is actually present in the instance's `ssh-keys` metadata
+        # (readback — never pre-stamped). `key_name` stays None (no managed
+        # key-pair store); `instance_key_name` carries the requested label
+        # only when the readback proves the key, so
+        # InstanceSpecifiedKeyCheck (requested == instance) passes honestly.
+        key_confirmed = instance_has_pubkey(inst, ssh_pubkey)
+        result["instance_key_name"] = args.key_name if key_confirmed else None
+        result.setdefault("tests", {})["specified_key"] = {
+            "passed": key_confirmed,
+            "message": (
+                f"Requested SSH key {args.key_name!r} confirmed in instance ssh-keys metadata"
+                if key_confirmed
+                else f"Requested SSH key {args.key_name!r} not found in instance ssh-keys metadata"
+            ),
+            "probes": ["instance_ssh_keys_metadata"],
+        }
 
         # 7. Best-effort readiness gate — SSH OR cloud-init counts as
         # success. Failing BOTH is the only honest reason to call launch

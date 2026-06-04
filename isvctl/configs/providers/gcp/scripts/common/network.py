@@ -1,5 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Shared Compute Engine helpers for GCP network stubs.
 
@@ -34,6 +46,7 @@ Compute Engine network facts that shape these helpers:
 from __future__ import annotations
 
 import ipaddress
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -73,6 +86,72 @@ DEFAULT_SSH_USER = "ubuntu"
 # Metadata-server resolver — the only internal-DNS source Compute Engine
 # exposes to Linux guests. There is no per-VPC DHCP-options API.
 METADATA_DNS_SERVER = "169.254.169.254"
+
+
+# --------------------------------------------------------------------- #
+# Operator firewall-ingress policy (SSH / RDP trusted source)           #
+# --------------------------------------------------------------------- #
+
+# The ONLY trusted source of SSH (tcp/22) / RDP (tcp/3389) ingress ranges is
+# this operator environment variable. Generated firewalls MUST NOT open those
+# admin ports from 0.0.0.0/0: SSH/RDP ingress must come from the operator-
+# trusted source range, never the whole internet (see docs/references/gcp.md).
+# Live mode is additionally rejected when this var is unset, so a live run
+# always supplies it; the runtime resolver below is the stub-side fail-closed
+# defense.
+FIREWALL_TRUST_IP_ENV = "NETWORK_FIREWALL_TRUST_IP"
+_FORBIDDEN_FIREWALL_RANGES = {"0.0.0.0/0"}
+
+
+class OperatorConfigError(RuntimeError):
+    """A required operator env var is unset or invalid — fail closed.
+
+    Raised by :func:`resolve_trusted_firewall_sources`. Callers let it
+    propagate so the step records the operator error, sets ``success=false``,
+    and exits non-zero. There is no fallback source range for SSH/RDP ingress.
+    """
+
+
+def resolve_trusted_firewall_sources(env_var: str = FIREWALL_TRUST_IP_ENV) -> list[str]:
+    """Return the operator-trusted SSH/RDP ingress CIDRs from the environment.
+
+    Reads ``NETWORK_FIREWALL_TRUST_IP`` and normalizes it to the list assigned
+    to a firewall's ``source_ranges``. Bare IPv4 addresses normalize to ``/32``;
+    comma-separated IPv4 CIDRs are allowed. There is NO fallback: when the var
+    is unset, empty, non-IPv4, or normalizes to the all-internet range
+    ``0.0.0.0/0``, raise :class:`OperatorConfigError` so the stub fails closed
+    rather than opening tcp/22 or tcp/3389 to the whole internet.
+
+    Mirrors the live-mode firewall ingress gate so the stub and that gate agree
+    on what is acceptable.
+    """
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        raise OperatorConfigError(
+            f"operator error: {env_var} is required to open SSH/RDP firewall "
+            f"ingress. Set it to a trusted IPv4 address or CIDR (e.g. "
+            f"203.0.113.10 or 203.0.113.0/24); 0.0.0.0/0 is forbidden."
+        )
+    sources: list[str] = []
+    for token in raw.split(","):
+        value = token.strip()
+        if not value:
+            raise OperatorConfigError(f"operator error: {env_var} contains an empty CIDR entry.")
+        try:
+            network = ipaddress.ip_network(value, strict=False)
+        except ValueError as exc:
+            raise OperatorConfigError(f"operator error: invalid {env_var} entry {value!r}: {exc}") from None
+        if network.version != 4:
+            raise OperatorConfigError(
+                f"operator error: {env_var} entry {value!r} must be IPv4 (SSH/RDP trust ranges are IPv4)."
+            )
+        rendered = str(network)
+        if rendered in _FORBIDDEN_FIREWALL_RANGES:
+            raise OperatorConfigError(
+                f"operator error: {env_var} value {rendered} is forbidden; it defeats the SSH/RDP ingress guardrail."
+            )
+        sources.append(rendered)
+    return sources
 
 
 # --------------------------------------------------------------------- #

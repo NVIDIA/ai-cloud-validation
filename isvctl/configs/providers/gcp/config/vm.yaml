@@ -1,5 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # GCP VM (Compute Engine) Validation Configuration.
 #
@@ -148,9 +160,12 @@ commands:
           - "{{ssh_user}}"
         timeout: 120
 
-      # 5. Stop (compute_v1.stop) — pre-gates on cloud-init. Cap parity
-      # with the AWS oracle stop step; cloud-init waits and op-poll
-      # retries are bounded by deadlines inside the stub.
+      # 5. Stop (compute_v1.stop) — pre-gates on cloud-init. The step cap
+      # must be strictly greater than the longest SINGLE internal wait:
+      # the 600s cloud-init `--wait` pre-gate and the 600s 'stopped' state
+      # poll. 900s gives headroom above that 600s deadline, matching the
+      # reboot step's cap. Internal waits are deadline-bounded inside the
+      # stub and return fast in practice, so the cap is not a sum.
       - name: stop_instance
         phase: test
         command: "python3 ../scripts/vm/stop_instance.py"
@@ -167,20 +182,36 @@ commands:
           - "{{steps.launch_instance.public_ip}}"
           - "--ssh-user"
           - "{{ssh_user}}"
-        timeout: 600
+        timeout: 900
 
-      # 6. Start (compute_v1.start) — re-reads fresh public IP. Cap
-      # parity with the AWS oracle's start step (AWS uses 300s, this is
-      # 2x to absorb GCP's slower compute_v1.start operation polling and
-      # cloud-init re-arming on g2-standard-8). SSH stability and
-      # cloud-init waits are bounded inside the stub via deadlines so
-      # this cap is not a sum of internal waits.
+      # 6. Start (compute_v1.start) — re-reads fresh public IP. The step
+      # cap must be strictly greater than the longest SINGLE internal
+      # wait: the 600s cloud-init `--wait` after start ('running' state
+      # poll, public-IP poll, and the SSH-stability gate are all shorter).
+      # 900s gives headroom above that 600s deadline, matching the reboot
+      # step's cap and absorbing GCP's slower compute_v1.start operation
+      # polling and cloud-init re-arming on g2-standard-8. Internal waits
+      # are deadline-bounded inside the stub, so the cap is not a sum.
+      #
+      # --instance-id reads from stop_instance (launch_instance fallback)
+      # rather than launch_instance directly. start_instance.py hard-gates
+      # on the canonical 'stopped' state (mirrors the AWS oracle: a start
+      # against a running VM is an error, so the lifecycle proves a real
+      # stop→start transition, not a no-op). stop_instance is the only step
+      # that stops the VM, so it is a true ordering dependency of this step.
+      # The orchestrator derives per-step live-slice scope purely from
+      # {{steps.*}} references, so without a stop_instance reference an
+      # isolated start_instance slice would skip stop_instance, leave the VM
+      # RUNNING, and fail the stopped precondition. Reading instance_id from
+      # stop_instance keeps it in scope (mirroring how reboot_instance
+      # chains start_instance.public_ip); the boolean-mode launch_instance
+      # default keeps the value resolving if stop_instance is ever absent.
       - name: start_instance
         phase: test
         command: "python3 ../scripts/vm/start_instance.py"
         args:
           - "--instance-id"
-          - "{{steps.launch_instance.instance_id}}"
+          - "{{steps.stop_instance.instance_id | default(steps.launch_instance.instance_id, true)}}"
           - "--region"
           - "{{region}}"
           - "--zone"
@@ -189,7 +220,7 @@ commands:
           - "{{steps.launch_instance.key_file}}"
           - "--ssh-user"
           - "{{ssh_user}}"
-        timeout: 600
+        timeout: 900
 
       # 7. Reset (compute_v1.reset) — SSH-drop wait + stability gate.
       # Cap parity with the AWS oracle reboot step; ssh-drop, ssh-stable,
@@ -247,17 +278,30 @@ commands:
           - "{{steps.reboot_instance.ssh_user | default(ssh_user, true)}}"
         timeout: 1800
 
-      # 10. Teardown NIM (shared paramiko script). Non-empty sentinel
-      # defaults so an upstream skip doesn't collapse the args (empty
-      # defaults are DROPPED by the orchestrator's _render_args).
+      # 10. Teardown NIM (shared paramiko script). The host/key chain
+      # resolves to a RUNNING NIM host, falling through to the non-empty
+      # "none" sentinel (which the shared script treats as a policy-skip:
+      # success=True / skipped=True) when none exists. deploy_nim above
+      # only ever deploys onto steps.reboot_instance.public_ip, so a
+      # post-reboot host (or its start_instance predecessor) is the only
+      # place a NIM container can live. launch_instance is deliberately
+      # NOT a fallback here: stop_instance releases the ephemeral external
+      # IP, so launch_instance.public_ip is stale/unreachable after a stop
+      # and SSH to it hangs until the step times out. Dropping it lets a
+      # stop-terminal run (e.g. the stop_instance per-step slice, where
+      # start/reboot/deploy_nim are skipped) fall through to "none" and
+      # policy-skip instead of timing out. The non-empty sentinel also
+      # keeps the argv pair from collapsing (empty defaults are DROPPED by
+      # the orchestrator's _render_args). The full domain run is unchanged:
+      # reboot_instance.public_ip wins as before.
       - name: teardown_nim
         phase: teardown
         command: "python3 ../../shared/teardown_nim.py"
         args:
           - "--host"
-          - "{{steps.reboot_instance.public_ip | default(steps.start_instance.public_ip, true) | default(steps.launch_instance.public_ip, true) | default('none', true)}}"
+          - "{{steps.reboot_instance.public_ip | default(steps.start_instance.public_ip, true) | default('none', true)}}"
           - "--key-file"
-          - "{{steps.reboot_instance.key_file | default(steps.start_instance.key_file, true) | default(steps.launch_instance.key_file, true) | default('none', true)}}"
+          - "{{steps.reboot_instance.key_file | default(steps.start_instance.key_file, true) | default('none', true)}}"
           - "--user"
           - "{{steps.reboot_instance.ssh_user | default(ssh_user, true)}}"
         timeout: 180

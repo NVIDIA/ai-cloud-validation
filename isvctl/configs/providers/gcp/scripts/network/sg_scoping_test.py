@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Test security-group / firewall rule scoping at workload, node, subnet, or service level.
 
@@ -111,9 +116,20 @@ _TOKENINFO_URL = "https://www.googleapis.com/oauth2/v1/tokeninfo"
 # --------------------------------------------------------------------- #
 
 
-def _ssh_allowed() -> list[Any]:
-    """Return a one-entry tcp:22 allow list (empty allowed[] is rejected with HTTP 400)."""
-    return [make_allowed("tcp", ["22"])]
+# Non-admin TCP port used purely to give each scoping firewall a non-empty
+# allowed[] (empty allowed[] is rejected with HTTP 400). These tests verify
+# firewall SCOPING — by target_tags, target_service_accounts, or subnet CIDR
+# in source_ranges — via instances.get / firewalls.get read-backs, NOT by
+# making a connection (every probe VM is launched with external_ip=False).
+# SSH/RDP are never exercised, so the rule deliberately avoids the admin ports
+# tcp/22 and tcp/3389 (whose ingress is governed by NETWORK_FIREWALL_TRUST_IP);
+# a non-admin port keeps the rule honest about what it does and what it does not.
+_PROBE_PORT = "8080"
+
+
+def _probe_allowed() -> list[Any]:
+    """Return a one-entry non-admin tcp allow list (empty allowed[] is rejected with HTTP 400)."""
+    return [make_allowed("tcp", [_PROBE_PORT])]
 
 
 # --------------------------------------------------------------------- #
@@ -162,7 +178,7 @@ def _drive_tag_scope(project: str, zone: str, scope: str) -> dict[str, Any]:
             network_name,
             project,
             direction="INGRESS",
-            allowed=_ssh_allowed(),
+            allowed=_probe_allowed(),
             source_ranges=["0.0.0.0/0"],
             target_tags=[test_tag],
         )
@@ -270,7 +286,7 @@ def _drive_subnet(project: str, zone: str) -> dict[str, Any]:
             network_name,
             project,
             direction="INGRESS",
-            allowed=_ssh_allowed(),
+            allowed=_probe_allowed(),
             source_ranges=[cidr_a],
         )
         firewall_created = True
@@ -367,9 +383,22 @@ def _bind_service_account_user(sa_email: str, member: str) -> None:
     iam.set_iam_policy(request=request)
 
 
-def _delete_target_sa(sa_email: str) -> None:
-    """Delete the test-owned SA (eventually-consistent; raises NotFound when gone)."""
-    iam_admin_v1.IAMClient().delete_service_account(name=f"projects/-/serviceAccounts/{sa_email}")
+def _delete_target_sa(sa_email: str) -> bool:
+    """Delete the test-owned SA with bounded retry; return True iff it is gone.
+
+    NotFound / already-absent counts as success (the eventual-consistency
+    window is absorbed by the retry). Returns False only when a documented
+    transient IAM failure (rate-limit / 5xx / timeout) persists past the retry
+    budget, so the caller can fold the genuine leak into the cleanup error
+    list. Wraps ``common.errors.delete_with_retry`` — the canonical GCP cleanup
+    envelope used for every other delete here.
+    """
+    iam = iam_admin_v1.IAMClient()
+    return delete_with_retry(
+        iam.delete_service_account,
+        name=f"projects/-/serviceAccounts/{sa_email}",
+        resource_desc=f"service account {sa_email}",
+    )
 
 
 def _insert_instance_with_iam_propagation(
@@ -478,7 +507,7 @@ def _drive_service(project: str, zone: str) -> dict[str, Any]:
             network_name,
             project,
             direction="INGRESS",
-            allowed=_ssh_allowed(),
+            allowed=_probe_allowed(),
             source_ranges=["0.0.0.0/0"],
             target_service_accounts=[sa_email],
         )
@@ -566,7 +595,9 @@ def _cleanup(
     """Best-effort teardown of every created resource. Returns a list of error strings.
 
     Dependency order: instances -> firewalls -> service accounts -> subnets
-    -> networks. SA deletion is eventually-consistent — log but never block.
+    -> networks. SA deletion retries the eventual-consistency / transient IAM
+    window (NotFound counts as gone); a genuine post-retry leak is recorded as
+    a cleanup error so the step cannot report a clean cleanup while leaking.
     """
     errors: list[str] = []
 
@@ -579,12 +610,8 @@ def _cleanup(
             errors.append(f"delete firewall {name}")
 
     for sa_email in service_accounts or ():
-        try:
-            _delete_target_sa(sa_email)
-        except gax.NotFound:
-            pass
-        except Exception as e:  # eventually-consistent: log, do not block
-            print(f"  warn: delete SA {sa_email} (non-blocking): {e}", file=sys.stderr)
+        if not _delete_target_sa(sa_email):
+            errors.append(f"delete service account {sa_email}")
 
     for name in subnets:
         if not delete_with_retry(delete_subnetwork, project, region, name, resource_desc=f"subnetwork {name}"):

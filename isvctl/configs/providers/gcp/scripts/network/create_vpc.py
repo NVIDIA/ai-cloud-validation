@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Create the shared Compute Engine VPC for network validation (setup phase).
 
@@ -19,8 +31,12 @@ Documented divergences:
     ``internet_gateway_id`` field is OMITTED.
   * There is NO per-VPC route table resource — ``route_table_id`` is
     OMITTED.
-  * Firewall rules are project-scoped + network-bound; the SSH/ICMP INGRESS
-    rule's name is emitted as ``security_group_id``.
+  * Firewall rules are project-scoped + network-bound. SSH (tcp/22) ingress
+    is restricted to the operator-trusted source ranges
+    (``NETWORK_FIREWALL_TRUST_IP``) — never 0.0.0.0/0 — and that rule's name is
+    emitted as ``security_group_id``. ICMP is a SEPARATE intra-VPC rule (scoped
+    to the aggregate CIDR + the trusted source) so instance-to-instance
+    connectivity probes keep working without widening the SSH restriction.
   * There is NO DHCP-options resource — ``dhcp_options`` is synthesized from
     the metadata-server resolver (169.254.169.254) via dhcp_options_payload.
   * ``Network`` / ``Subnetwork`` / ``Firewall`` protos have NO ``labels``
@@ -64,6 +80,7 @@ from common.network import (
     make_allowed,
     network_has_isv_ownership,
     region_zones,
+    resolve_trusted_firewall_sources,
     usable_ip_count,
 )
 from google.api_core import exceptions as gax
@@ -88,6 +105,7 @@ def main() -> int:
     # resource so parallel runs don't collide on AlreadyExists.
     network_name = unique_suffix(args.name)
     firewall_name = unique_suffix(f"{args.name}-fw")
+    icmp_firewall_name = unique_suffix(f"{args.name}-icmp-fw")
 
     result: dict[str, Any] = {
         "success": False,
@@ -106,8 +124,15 @@ def main() -> int:
     network_created = False
     created_subnet_names: list[str] = []
     firewall_created = False
+    icmp_firewall_created = False
 
     try:
+        # Resolve the operator-trusted SSH source range(s) BEFORE creating
+        # anything so an unset/invalid/broad NETWORK_FIREWALL_TRUST_IP fails
+        # closed with no half-created network to clean up (there is no fallback
+        # source range for SSH/RDP ingress).
+        trusted_ssh_sources = resolve_trusted_firewall_sources()
+
         # Resolve real zones in the configured region BEFORE creating
         # anything so an invalid/unauthorized region fails fast (no
         # half-created network to clean up).
@@ -172,16 +197,18 @@ def main() -> int:
                 }
             )
 
-        # 3. SSH + ICMP INGRESS firewall (emitted as security_group_id).
-        # An allow rule MUST carry at least one Allowed with I_p_protocol
-        # set (empty allowed[] -> HTTP 400).
+        # 3a. SSH INGRESS firewall (emitted as security_group_id). SSH (tcp/22)
+        # is an admin port: its source is restricted to the operator-trusted
+        # ranges resolved above, NEVER 0.0.0.0/0.
+        # An allow rule MUST carry at least one Allowed with I_p_protocol set
+        # (empty allowed[] -> HTTP 400).
         fw = build_firewall(
             firewall_name,
             network_name,
             project,
             direction="INGRESS",
-            allowed=[make_allowed("tcp", ["22"]), make_allowed("icmp")],
-            source_ranges=["0.0.0.0/0"],
+            allowed=[make_allowed("tcp", ["22"])],
+            source_ranges=trusted_ssh_sources,
         )
         # Stamp the created tracker BEFORE the insert (mirrors the network
         # stamp at step 1): the name is deterministic, so if the insert ack
@@ -191,6 +218,25 @@ def main() -> int:
         # never-created firewall is a harmless NotFound no-op.
         firewall_created = True
         insert_firewall(project, fw)
+
+        # 3b. ICMP INGRESS firewall — a SEPARATE rule so the SSH restriction
+        # above is not widened. ICMP is not an admin port, so the trust-IP
+        # policy does not apply; scope it to the VPC aggregate CIDR (for
+        # instance-to-instance connectivity probes) plus the operator-trusted
+        # source (so an operator host can ping the probe VMs) rather than the
+        # whole internet. Teardown enumerates every run-owned firewall on the
+        # network, so this rule is cleaned up without a dedicated emit.
+        icmp_sources = sorted({args.cidr, *trusted_ssh_sources})
+        icmp_fw = build_firewall(
+            icmp_firewall_name,
+            network_name,
+            project,
+            direction="INGRESS",
+            allowed=[make_allowed("icmp")],
+            source_ranges=icmp_sources,
+        )
+        icmp_firewall_created = True
+        insert_firewall(project, icmp_fw)
 
         # 4. DHCP options — synthesized from the metadata-server resolver;
         # no DHCP-options API exists. domain_name is OMITTED (the schema
@@ -215,6 +261,11 @@ def main() -> int:
             if firewall_created:
                 print(f"Cleanup-on-failure: deleting firewall {firewall_name}", file=sys.stderr)
                 delete_with_retry(delete_firewall, project, firewall_name, resource_desc=f"firewall {firewall_name}")
+            if icmp_firewall_created:
+                print(f"Cleanup-on-failure: deleting firewall {icmp_firewall_name}", file=sys.stderr)
+                delete_with_retry(
+                    delete_firewall, project, icmp_firewall_name, resource_desc=f"firewall {icmp_firewall_name}"
+                )
             for subnet_name in created_subnet_names:
                 print(f"Cleanup-on-failure: deleting subnetwork {subnet_name}", file=sys.stderr)
                 delete_with_retry(

@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Test private-IP stability across stop/start on Compute Engine (step ``stable_ip_test``).
 
@@ -61,6 +73,7 @@ from common.network import (
     insert_network,
     insert_subnetwork,
     make_allowed,
+    resolve_trusted_firewall_sources,
 )
 from google.cloud import compute_v1
 
@@ -100,6 +113,13 @@ def main() -> int:
     key_created = False
 
     try:
+        # SSH ingress source ranges resolve BEFORE any resource is created so an
+        # unset/invalid NETWORK_FIREWALL_TRUST_IP fails closed with nothing to
+        # clean up. tcp/22 must never open to 0.0.0.0/0 — the firewall ingress
+        # gate forbids it (see common.network.resolve_trusted_firewall_sources);
+        # there is no fallback source range. Mirrors create_vpc / floating_ip.
+        trusted_ssh_sources = resolve_trusted_firewall_sources()
+
         key_priv, key_created = generate_ssh_keypair(key_name)
         ssh_pubkey = read_ssh_pubkey(key_priv)
 
@@ -121,7 +141,7 @@ def main() -> int:
             project,
             direction="INGRESS",
             allowed=[make_allowed("tcp", ["22"]), make_allowed("icmp")],
-            source_ranges=["0.0.0.0/0"],
+            source_ranges=trusted_ssh_sources,
             target_tags=[ISV_NETWORK_TAG],
         )
         fw_created = True

@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Test real network traffic flow on Compute Engine (step ``traffic_validation``).
 
@@ -65,6 +77,7 @@ from common.network import (
     insert_network,
     insert_subnetwork,
     make_allowed,
+    resolve_trusted_firewall_sources,
 )
 from common.ssh_utils import ssh_run, wait_for_ssh_stable
 
@@ -107,6 +120,7 @@ def main() -> int:
     network_name = unique_suffix("isv-traffic-net")
     subnet_name = unique_suffix("isv-traffic-subnet")
     fw_allow_name = unique_suffix("isv-traffic-fw-allow")
+    fw_allow_icmp_name = unique_suffix("isv-traffic-fw-allow-icmp")
     fw_deny_name = unique_suffix("isv-traffic-fw-deny")
     source_name = unique_suffix("isv-traffic-source")
     target_allow_name = unique_suffix("isv-traffic-target-allow")
@@ -126,6 +140,7 @@ def main() -> int:
     network_created = False
     subnet_created = False
     fw_allow_created = False
+    fw_allow_icmp_created = False
     fw_deny_created = False
     source_created = False
     target_allow_created = False
@@ -134,6 +149,13 @@ def main() -> int:
     key_created = False
 
     try:
+        # SSH ingress source ranges resolve BEFORE any resource is created so an
+        # unset/invalid NETWORK_FIREWALL_TRUST_IP fails closed with nothing to
+        # clean up. tcp/22 must never open to 0.0.0.0/0 — the firewall ingress
+        # gate forbids it (see common.network.resolve_trusted_firewall_sources);
+        # there is no fallback source range. Mirrors create_vpc / floating_ip.
+        trusted_ssh_sources = resolve_trusted_firewall_sources()
+
         # Local SSH key pair (verified-reuse). Public key pushed via metadata.
         key_priv, key_created = generate_ssh_keypair(key_name)
         ssh_pubkey = read_ssh_pubkey(key_priv)
@@ -164,34 +186,55 @@ def main() -> int:
             "message": "no-op on Compute Engine — service-account model",
         }
 
-        # 4. create_security_groups — allow firewall (icmp + tcp:22 on
-        # ALLOW_TAG) and a deny setup (deny-tagged target gets NO ICMP allow
-        # under custom-mode default-deny INGRESS). The allow rule MUST carry
-        # at least one Allowed with I_p_protocol set (empty allowed[] -> 400).
+        # 4. create_security_groups — the allow setup is split into TWO rules
+        # so the admin-port restriction is not widened to the whole internet:
+        #   * fw_allow: tcp:22 (SSH) scoped to the operator-trusted source only
+        #     (NEVER 0.0.0.0/0) — the harness SSHes the allow-tagged source VM.
+        #   * fw_allow_icmp: a SEPARATE icmp rule scoped to the test subnet CIDR
+        #     so the source VM can ping the allow-tagged target over ICMP. ICMP
+        #     is not an admin port, so the trust-IP policy does not apply; the
+        #     subnet CIDR (RFC1918) is the honest source for instance-to-
+        #     instance probes, not 0.0.0.0/0.
+        # Each allow rule MUST carry at least one Allowed with I_p_protocol set
+        # (empty allowed[] -> HTTP 400). The deny-tagged target gets NO ICMP
+        # allow under custom-mode default-deny INGRESS.
         fw_allow = build_firewall(
             fw_allow_name,
             network_name,
             project,
             direction="INGRESS",
-            allowed=[make_allowed("icmp"), make_allowed("tcp", ["22"])],
-            source_ranges=["0.0.0.0/0"],
+            allowed=[make_allowed("tcp", ["22"])],
+            source_ranges=trusted_ssh_sources,
             target_tags=[ALLOW_TAG],
         )
         fw_allow_created = True
         insert_firewall(project, fw_allow)
+        icmp_sources = sorted({subnet_cidr, *trusted_ssh_sources})
+        fw_allow_icmp = build_firewall(
+            fw_allow_icmp_name,
+            network_name,
+            project,
+            direction="INGRESS",
+            allowed=[make_allowed("icmp")],
+            source_ranges=icmp_sources,
+            target_tags=[ALLOW_TAG],
+        )
+        fw_allow_icmp_created = True
+        insert_firewall(project, fw_allow_icmp)
         # Deny target needs SSH-less inbound denial of ICMP but the SOURCE
         # still SSHes only to the allow-tagged target; the deny target is a
         # ping destination only. To keep the deny target reachable for
         # nothing (it is only pinged), we add a tcp:22 allow on DENY_TAG so
         # the rule is non-empty AND honestly carries NO icmp allow — ICMP to
-        # the deny target is blocked by default-deny INGRESS.
+        # the deny target is blocked by default-deny INGRESS. The tcp:22 source
+        # is the operator-trusted range (NEVER 0.0.0.0/0), same as fw_allow.
         fw_deny = build_firewall(
             fw_deny_name,
             network_name,
             project,
             direction="INGRESS",
             allowed=[make_allowed("tcp", ["22"])],
-            source_ranges=["0.0.0.0/0"],
+            source_ranges=trusted_ssh_sources,
             target_tags=[DENY_TAG],
         )
         fw_deny_created = True
@@ -363,6 +406,10 @@ def main() -> int:
             delete_firewall, project, fw_allow_name, resource_desc=f"firewall {fw_allow_name}"
         ):
             cleanup_errors.append(f"firewall {fw_allow_name}")
+        if fw_allow_icmp_created and not delete_with_retry(
+            delete_firewall, project, fw_allow_icmp_name, resource_desc=f"firewall {fw_allow_icmp_name}"
+        ):
+            cleanup_errors.append(f"firewall {fw_allow_icmp_name}")
         if fw_deny_created and not delete_with_retry(
             delete_firewall, project, fw_deny_name, resource_desc=f"firewall {fw_deny_name}"
         ):
