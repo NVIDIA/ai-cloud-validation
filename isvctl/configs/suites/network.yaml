@@ -22,9 +22,6 @@
 # only inspects JSON output fields. As long as your scripts output the
 # right fields, the validations pass regardless of which cloud you use.
 #
-# Every check in this suite carries at least the ``network`` label so the
-# whole suite is selectable with ``-m network``.
-#
 # Quick start:
 #   1. Copy providers/my-isv/config/network.yaml to providers/<your-platform>/config/network.yaml
 #   2. Replace stub paths with your platform scripts
@@ -83,8 +80,7 @@ tests:
           labels: ["network"]
           step: vpc_crud
           operations: ["delete_vpc"]
-        # No plan item for subnet count / multi-AZ layout (SDN04-01 covers
-        # exclusive-subnet isolation, not subnet topology).
+        # no test id for subnet count / multi-AZ layout (SDN04-01 covers exclusive-subnet isolation, not subnet topology).
         SubnetConfigCheck:
           test_id: "N/A"
           labels: ["network"]
@@ -92,8 +88,7 @@ tests:
           min_subnets: 4
           require_multi_az: true
         VpcIsolationCheck:
-          # SDN04-03 (E/W isolation) is exercised by the same check but is not
-          # separately attributable under a single test_id.
+          # SDN04-03 (E/W isolation) is exercised by the same check but is not separately attributable under a single test_id.
           test_id: "SDN04-02"
           labels: ["network", "security"]
           step: vpc_isolation

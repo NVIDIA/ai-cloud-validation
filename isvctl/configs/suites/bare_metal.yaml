@@ -22,11 +22,6 @@
 # only inspects JSON output fields. As long as your scripts output the
 # right fields, the validations pass regardless of which cloud you use.
 #
-# Every check in this suite carries at least the ``bare_metal`` label so the
-# whole suite is selectable with ``-m bare_metal``; host checks also carry
-# their trait labels (ssh, gpu, network, workload, slow) on the wiring so
-# those filters work without the labels living on the validation class.
-#
 # Quick start:
 #   1. Copy providers/my-isv/config/bare_metal.yaml to providers/<your-platform>/config/bare_metal.yaml
 #   2. Replace stub paths with your platform scripts
@@ -56,7 +51,6 @@ tests:
     setup_checks:
       step: launch_instance
       checks:
-        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
           test_id: "N/A"
           labels: ["bare_metal"]
@@ -66,8 +60,7 @@ tests:
       step: list_instances
       checks:
         InstanceListCheck:
-          # CNP01-11 (list nodes) is a VMaaS plan item; the BMaaS plan has no
-          # equivalent list-nodes item.
+          # CNP01-11 (list nodes) is a VMaaS plan item; the BMaaS plan has no equivalent list-nodes item.
           test_id: "N/A"
           labels: ["bare_metal"]
           min_count: 1
@@ -109,7 +102,6 @@ tests:
     instance_info:
       step: describe_instance
       checks:
-        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
           test_id: "N/A"
           labels: ["bare_metal"]
@@ -295,7 +287,6 @@ tests:
     reboot_state:
       step: reboot_instance
       checks:
-        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
           test_id: "N/A"
           labels: ["bare_metal"]
@@ -340,7 +331,6 @@ tests:
     power_cycle_state:
       step: power_cycle_instance
       checks:
-        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
           test_id: "N/A"
           labels: ["bare_metal"]
@@ -368,7 +358,6 @@ tests:
     reinstall_state:
       step: reinstall_instance
       checks:
-        # InstanceStateCheck: generic state helper, no plan item.
         InstanceStateCheck:
           test_id: "N/A"
           labels: ["bare_metal"]
@@ -431,10 +420,6 @@ tests:
     sanitization:
       step: verify_teardown
       checks:
-        # SEC21-03: the security label lives on this wiring (not the generic
-        # StepSuccessCheck class) so the SEC* consistency guardrail is satisfied
-        # without affecting the other teardown guards that reuse this check.
-        # bare_metal keeps the check inside this suite's -m bare_metal selection.
         StepSuccessCheck:
           test_id: "SEC21-03"
           labels: ["bare_metal", "security"]

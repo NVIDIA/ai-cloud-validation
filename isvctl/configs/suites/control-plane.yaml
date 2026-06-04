@@ -22,9 +22,6 @@
 # only inspects JSON output fields. As long as your scripts output the
 # right fields, the validations pass regardless of which cloud you use.
 #
-# Every check in this suite carries at least the ``control_plane`` label so
-# the whole suite is selectable with ``-m control_plane``.
-#
 # Coverage notes:
 # - API Health (check_api) is provider-agnostic: at minimum it must prove
 #   authenticated reachability of the platform's object-storage / S3-compatible

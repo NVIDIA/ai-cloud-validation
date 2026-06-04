@@ -22,9 +22,6 @@
 # This file defines WHAT to validate, not HOW to run it. Each validation
 # only inspects JSON output fields.
 #
-# Every check in this suite carries at least the ``security`` label so the
-# whole suite is selectable with ``-m security``.
-#
 # Quick start:
 #   1. Copy providers/my-isv/config/security.yaml to providers/<your-platform>/config/security.yaml
 #   2. Replace stub paths with your platform scripts

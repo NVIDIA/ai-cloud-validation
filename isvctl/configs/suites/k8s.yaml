@@ -121,11 +121,6 @@ tests:
 
     kubernetes:
       checks:
-        # K8sNodeReadyCheck carries K8S05-01 (Create a K8s Instance): all nodes
-        # reaching Ready is the canonical proof the cluster was created and is
-        # operational. The remaining cluster-health and GPU-functional sanity
-        # checks below carry test_id "N/A" - they add depth but map to no
-        # additional plan item.
         K8sNodeCountCheck:
           test_id: "N/A"
           labels: ["kubernetes"]

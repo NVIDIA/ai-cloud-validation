@@ -16,10 +16,6 @@
 # Slurm Cluster Validation Configuration
 # For HPC clusters with Slurm workload manager
 #
-# Every check carries at least the ``slurm`` label (so the suite is selectable
-# with ``-m slurm``); GPU/workload/slow trait labels live on the wiring rather
-# than the validation class.
-#
 # Usage:
 #   isvctl test run -f isvctl/configs/suites/slurm.yaml
 #   isvctl test run -f isvctl/configs/suites/slurm.yaml -- -v -s

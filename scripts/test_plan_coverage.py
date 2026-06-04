@@ -60,7 +60,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PLAN_PATH = REPO_ROOT / "docs" / "test-plan.yaml"
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
 
-# YAML sentinel: a wired check that intentionally maps to no plan item declares
+# YAML sentinel: a wired check that intentionally maps to no test id declares
 # ``test_id: "N/A"``. It is stripped from coverage so it counts as "no mapping"
 # without being mistaken for a real plan id (which would fail the integrity check).
 UNMAPPED = "N/A"

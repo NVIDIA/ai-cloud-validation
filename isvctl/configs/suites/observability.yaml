@@ -17,9 +17,6 @@
 #
 # Provider configs import this file and provide their own scripts for each
 # step. Validations consume only provider-neutral JSON fields.
-#
-# Every check in this suite carries at least the ``observability`` label so
-# the whole suite is selectable with ``-m observability``.
 
 version: "1.0"
 
