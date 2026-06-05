@@ -22,7 +22,10 @@ probes, agent heartbeat status, and capability inventory.
 NICo API endpoints used:
   GET /v2/org/{org}/forge/machine?siteId={site_id}&includeMetadata=true
 
-Auth: NGC Bearer token via NGC_API_KEY env var.
+Auth:
+  - NICO_BEARER_TOKEN, or
+  - OIDC client_credentials via NICO_ISSUER_URL,
+    NICO_CLIENT_ID, NICO_CLIENT_SECRET, and optional NICO_OIDC_SCOPE.
 
 Required JSON output fields:
   {
@@ -46,7 +49,7 @@ Required JSON output fields:
   }
 
 Usage:
-    NGC_API_KEY=<key> python check_dpu_health.py --org <org> --site-id <uuid>
+    NICO_BEARER_TOKEN=<token> python check_dpu_health.py --org <org> --site-id <uuid>
 
 Reference:
     OpenAPI spec: ncp-isv-carbide-proxy-service/src/main/resources/docs/openapi/forge_api.yaml
@@ -54,13 +57,13 @@ Reference:
 
 import argparse
 import json
-import os
 import sys
+from pathlib import Path
 
 # Allow importing from sibling common/ directory
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.nico_client import DEFAULT_API_BASE, forge_get_all, sum_capabilities
+from common.nico_client import DEFAULT_API_BASE, NicoAuthError, forge_get_all, resolve_auth, sum_capabilities
 
 # Known DPU-related alert targets and probe IDs from the NICo API.
 # The stub uses these for pre-filtering; the validation class should
@@ -102,11 +105,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    token = os.environ.get("NGC_API_KEY", "")
-    if not token:
-        print(json.dumps({"success": False, "error": "NGC_API_KEY not set"}))
-        return 1
-
     result: dict = {
         "success": False,
         "platform": "nico",
@@ -116,11 +114,13 @@ def main() -> int:
     }
 
     try:
+        auth = resolve_auth()
+
         # Fetch all machines with metadata (paginated)
         machines = forge_get_all(
             args.org,
             "machine",
-            token,
+            auth.token,
             base_url=args.api_base,
             params={"siteId": args.site_id, "includeMetadata": "true"},
             result_key="machines",
@@ -178,6 +178,9 @@ def main() -> int:
         result["machines_checked"] = len(result["machines"])
         result["success"] = True
 
+    except NicoAuthError as e:
+        result["error_type"] = "auth"
+        result["error"] = str(e)
     except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
 

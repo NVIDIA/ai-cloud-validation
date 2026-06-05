@@ -24,12 +24,14 @@
 #   - HardwareIngestionCheck (from the imported suite) validates the results
 #
 # Prerequisites:
-#   - NGC_API_KEY environment variable set with org access
+#   - NICO_API_BASE set when using a non-production or port-forwarded NICo API
+#   - NICO_BEARER_TOKEN set, or OIDC client credentials configured via
+#     NICO_ISSUER_URL, NICO_CLIENT_ID, and NICO_CLIENT_SECRET
 #   - Expected machines pre-registered via NICo API or nico-admin-cli
 #   - NGC_ORG and NICO_SITE_ID environment variables set
 #
 # Usage:
-#   NGC_API_KEY=<key> NGC_ORG=<org> NICO_SITE_ID=<uuid> \
+#   NICO_BEARER_TOKEN=<token> NGC_ORG=<org> NICO_SITE_ID=<uuid> \
 #     uv run isvctl test run -f isvctl/configs/providers/nico/config/hardware_ingestion.yaml
 
 import:
@@ -52,6 +54,8 @@ commands:
           - "{{org}}"
           - "--site-id"
           - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
         timeout: 120
 
 tests:
@@ -61,3 +65,4 @@ tests:
   settings:
     org: "{{env.NGC_ORG}}"
     site_id: "{{env.NICO_SITE_ID}}"
+    nico_api_base: "{{env.NICO_API_BASE | default('https://api.ngc.nvidia.com/v2/org')}}"

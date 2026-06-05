@@ -15,18 +15,156 @@
 
 """Shared NICo API client for NICo validation scripts.
 
-Handles authenticated GET requests with pagination and proper URL encoding.
-The NICo REST API uses /forge/ in its URL path (legacy name).
+Handles authentication, authenticated GET requests with pagination, and proper
+URL encoding. The NICo REST API uses /forge/ in its URL path (legacy name).
 """
 
+import base64
 import json
-from typing import Any
-from urllib.error import HTTPError
+import os
+from typing import Any, NamedTuple
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 DEFAULT_API_BASE = "https://api.ngc.nvidia.com/v2/org"
 DEFAULT_PAGE_SIZE = 100
+OIDC_TOKEN_TIMEOUT_SECONDS = 30
+
+
+class NicoAuthError(RuntimeError):
+    """Raised when NICo authentication cannot be resolved."""
+
+
+class NicoAuth(NamedTuple):
+    """Resolved NICo bearer credential with a non-secret source label."""
+
+    token: str
+    source: str
+
+
+def _env(name: str) -> str:
+    """Return a stripped environment value or an empty string."""
+    return os.environ.get(name, "").strip()
+
+
+def resolve_auth(*, timeout: int = OIDC_TOKEN_TIMEOUT_SECONDS) -> NicoAuth:
+    """Resolve NICo API authentication from environment variables.
+
+    Resolution order:
+    1. ``NICO_BEARER_TOKEN`` for locally supplied tokens.
+    2. OIDC client credentials using ``NICO_ISSUER_URL``,
+       ``NICO_CLIENT_ID``, and ``NICO_CLIENT_SECRET``.
+
+    ``NGC_API_KEY`` is intentionally not used for NICo authentication.
+    """
+    bearer_token = _env("NICO_BEARER_TOKEN")
+    if bearer_token:
+        return NicoAuth(token=bearer_token, source="NICO_BEARER_TOKEN")
+
+    issuer_url = _env("NICO_ISSUER_URL")
+    client_id = _env("NICO_CLIENT_ID")
+    client_secret = _env("NICO_CLIENT_SECRET")
+    scope = _env("NICO_OIDC_SCOPE")
+
+    missing = [
+        name
+        for name, value in (
+            ("NICO_ISSUER_URL", issuer_url),
+            ("NICO_CLIENT_ID", client_id),
+            ("NICO_CLIENT_SECRET", client_secret),
+        )
+        if not value
+    ]
+    if missing:
+        raise NicoAuthError(
+            "NICo authentication is not configured; set NICO_BEARER_TOKEN or configure "
+            f"OIDC client credentials (missing: {', '.join(missing)})"
+        )
+
+    return NicoAuth(
+        token=_request_oidc_token(
+            issuer_url=issuer_url,
+            client_id=client_id,
+            client_secret=client_secret,
+            scope=scope,
+            timeout=timeout,
+        ),
+        source="oidc_client_credentials",
+    )
+
+
+def _request_oidc_token(
+    *,
+    issuer_url: str,
+    client_id: str,
+    client_secret: str,
+    scope: str = "",
+    timeout: int = OIDC_TOKEN_TIMEOUT_SECONDS,
+) -> str:
+    """Request an access token using OIDC client_credentials."""
+    token_url = _discover_oidc_token_endpoint(issuer_url=issuer_url, timeout=timeout)
+    form = {"grant_type": "client_credentials"}
+    if scope:
+        form["scope"] = scope
+
+    credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    request = Request(
+        token_url,
+        data=urlencode(form).encode(),
+        headers={
+            "Authorization": f"Basic {credentials}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode())
+    except HTTPError as e:
+        body = ""
+        if e.fp:
+            body = e.fp.read().decode(errors="replace")[:300]
+        detail = f"HTTP {e.code}"
+        if body:
+            detail = f"{detail}: {body}"
+        raise NicoAuthError(f"OIDC token request failed ({detail})") from e
+    except URLError as e:
+        raise NicoAuthError(f"OIDC token request failed: {e.reason}") from e
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise NicoAuthError("OIDC token response was not valid JSON") from e
+
+    token = payload.get("access_token")
+    if not isinstance(token, str) or not token.strip():
+        raise NicoAuthError("OIDC token response did not contain access_token")
+    return token.strip()
+
+
+def _discover_oidc_token_endpoint(*, issuer_url: str, timeout: int = OIDC_TOKEN_TIMEOUT_SECONDS) -> str:
+    """Resolve the OIDC token endpoint from issuer metadata."""
+    discovery_url = f"{issuer_url.rstrip('/')}/.well-known/openid-configuration"
+    request = Request(discovery_url)
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode())
+    except HTTPError as e:
+        body = ""
+        if e.fp:
+            body = e.fp.read().decode(errors="replace")[:300]
+        detail = f"HTTP {e.code}"
+        if body:
+            detail = f"{detail}: {body}"
+        raise NicoAuthError(f"OIDC discovery failed ({detail})") from e
+    except URLError as e:
+        raise NicoAuthError(f"OIDC discovery failed: {e.reason}") from e
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise NicoAuthError("OIDC discovery response was not valid JSON") from e
+
+    token_endpoint = payload.get("token_endpoint")
+    if not isinstance(token_endpoint, str) or not token_endpoint.strip():
+        raise NicoAuthError("OIDC discovery response did not contain token_endpoint")
+    return token_endpoint.strip()
 
 
 def forge_get(
