@@ -222,7 +222,7 @@ def forge_get_all(
 
     Args:
         org: NGC org name.
-        path: API path relative to /nico/.
+        path: API path relative to /carbide/ (e.g., "machine", "expected-machine").
         token: Bearer token.
         base_url: NICo API base URL.
         params: Additional query parameters.
