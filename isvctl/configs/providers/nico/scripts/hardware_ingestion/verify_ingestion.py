@@ -17,11 +17,13 @@
 """Verify hardware ingestion against NICo expected-machine manifest.
 
 Calls the NICo REST API to compare expected-machine records against
-actually discovered machines. Matches by chassis serial number.
+actually discovered machines. Each expected-machine record carries the
+authoritative link to its discovered machine via the ``machineId`` field
+(null when not yet ingested), so we join on that rather than chassis serial.
 
 NICo API endpoints used:
   GET /v2/org/{org}/carbide/expected-machine?siteId={site_id}
-  GET /v2/org/{org}/carbide/machine?siteId={site_id}&includeMetadata=true
+  GET /v2/org/{org}/carbide/machine?siteId={site_id}
 
 Auth:
   - NICO_BEARER_TOKEN, or
@@ -103,7 +105,8 @@ def main() -> int:
     try:
         auth = resolve_auth()
 
-        # Fetch all expected machines (paginated)
+        # Fetch all expected machines (paginated). Each carries machineId, the
+        # authoritative link to a discovered machine (null when not ingested).
         expected_machines = forge_get_all(
             args.org,
             "expected-machine",
@@ -113,67 +116,33 @@ def main() -> int:
             result_key="expectedMachines",
         )
 
-        # Fetch all actual machines with metadata (paginated)
+        # Fetch all actual machines (paginated). status, machineCapabilities and
+        # health are top-level, so no metadata is needed -- we join by machine id.
         actual_machines = forge_get_all(
             args.org,
             "machine",
             auth.token,
             base_url=args.api_base,
-            params={"siteId": args.site_id, "includeMetadata": "true"},
+            params={"siteId": args.site_id},
             result_key="machines",
         )
 
-        # Build lookup by chassis serial, tracking collisions
-        actual_by_serial: dict[str, dict] = {}
-        for m in actual_machines:
-            metadata = m.get("metadata", {})
-            dmi = metadata.get("dmiData", {})
-            serial = dmi.get("chassisSerial", m.get("id", ""))
-            if serial in actual_by_serial:
-                # Collision: multiple machines with same serial -- keep both IDs
-                existing_id = actual_by_serial[serial].get("id", "?")
-                new_id = m.get("id", "?")
-                result.setdefault("warnings", []).append(
-                    f"Duplicate chassis serial {serial}: machines {existing_id} and {new_id}"
-                )
-            actual_by_serial[serial] = m
-
-        expected_serials: set[str] = set()
+        actual_by_id: dict[str, dict] = {m["id"]: m for m in actual_machines if m.get("id")}
+        linked_machine_ids: set[str] = set()
         machines_detail: list[dict] = []
 
         for em in expected_machines:
-            serial = em.get("chassisSerialNumber", "")
-            expected_serials.add(serial)
+            expected_machine_id = em.get("id", "")
+            machine_id = em.get("machineId")
+            # Manifest chassis serial, kept purely as a debug aid (matching is by id).
+            chassis_serial = em.get("chassisSerialNumber", "")
 
-            actual = actual_by_serial.get(serial)
-            if actual:
-                capabilities = actual.get("machineCapabilities", [])
-                cap_types = list({c.get("type", "") for c in capabilities})
-                health = actual.get("health", {})
-
+            if not machine_id:
+                result["missing"].append({"expected_machine_id": expected_machine_id, "chassis_serial": chassis_serial})
                 machines_detail.append(
                     {
-                        "chassis_serial": serial,
-                        "expected_machine_id": em.get("id", ""),
-                        "machine_id": actual.get("id", ""),
-                        "status": actual.get("status", "Unknown"),
-                        "health": classify_health(health),
-                        "gpu_count": sum_capabilities(capabilities, "GPU"),
-                        "dpu_count": sum_capabilities(capabilities, "DPU"),
-                        "capabilities": cap_types,
-                    }
-                )
-            else:
-                result["missing"].append(
-                    {
-                        "chassis_serial": serial,
-                        "expected_machine_id": em.get("id", ""),
-                    }
-                )
-                machines_detail.append(
-                    {
-                        "chassis_serial": serial,
-                        "expected_machine_id": em.get("id", ""),
+                        "chassis_serial": chassis_serial,
+                        "expected_machine_id": expected_machine_id,
                         "machine_id": None,
                         "status": "NotFound",
                         "health": "unknown",
@@ -182,18 +151,31 @@ def main() -> int:
                         "capabilities": [],
                     }
                 )
+                continue
 
-        # Find extra machines (ingested but not expected)
-        actual_serials = set(actual_by_serial.keys())
-        extra_serials = actual_serials - expected_serials
-        for serial in sorted(extra_serials):
-            m = actual_by_serial[serial]
-            result["extra"].append(
+            linked_machine_ids.add(machine_id)
+            actual = actual_by_id.get(machine_id) or {}
+            capabilities = actual.get("machineCapabilities") or []
+            cap_types = list({c.get("type", "") for c in capabilities})
+            health = actual.get("health") or {}
+
+            machines_detail.append(
                 {
-                    "chassis_serial": serial,
-                    "machine_id": m.get("id", ""),
+                    "chassis_serial": chassis_serial,
+                    "expected_machine_id": expected_machine_id,
+                    "machine_id": machine_id,
+                    "status": actual.get("status", "Unknown"),
+                    "health": classify_health(health),
+                    "gpu_count": sum_capabilities(capabilities, "GPU"),
+                    "dpu_count": sum_capabilities(capabilities, "DPU"),
+                    "capabilities": cap_types,
                 }
             )
+
+        # Find extra machines (discovered but not linked to any expected machine)
+        for machine_id in actual_by_id:
+            if machine_id not in linked_machine_ids:
+                result["extra"].append({"machine_id": machine_id})
 
         matched = [m for m in machines_detail if m.get("machine_id") is not None]
 

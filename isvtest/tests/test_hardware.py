@@ -161,6 +161,12 @@ class TestHardwareIngestionCheck:
         check.run()
         assert check._passed is True
         assert "2 expected machines ingested" in check._output
+        # Each OK machine emits passing status + health subtests (parity with DpuHealthCheck)
+        status_subtests = [r for r in check._subtest_results if r.get("name", "").startswith("machine_status_")]
+        health_subtests = [r for r in check._subtest_results if r.get("name", "").startswith("machine_health_")]
+        assert len(status_subtests) == 2
+        assert len(health_subtests) == 2
+        assert all(r["passed"] for r in status_subtests + health_subtests)
 
     def test_step_failure(self) -> None:
         """Step itself failed -- validation should fail with error detail."""

@@ -60,7 +60,7 @@ class HardwareIngestionCheck(BaseValidation):
         missing: list[dict] -- expected machines not linked to discovered machines
         extra: list[dict] -- discovered machines not in expected list
         machines: list[dict] -- per-machine details:
-            chassis_serial: str
+            chassis_serial: str -- manifest serial, debug aid only
             expected_machine_id: str
             machine_id: str | None
             status: str (MachineStatus enum)
@@ -134,14 +134,27 @@ class HardwareIngestionCheck(BaseValidation):
                     passed=False,
                     message=f"Machine {label} status is {status}, expected one of {acceptable_statuses}",
                 )
-
-            if require_healthy and health != "healthy":
-                unhealthy_machines.append(f"{label}({health})")
+            else:
                 self.report_subtest(
-                    f"machine_health_{label}",
-                    passed=False,
-                    message=f"Machine {label} health is {health}, expected healthy",
+                    f"machine_status_{label}",
+                    passed=True,
+                    message=f"Machine {label} status is {status}",
                 )
+
+            if require_healthy:
+                if health != "healthy":
+                    unhealthy_machines.append(f"{label}({health})")
+                    self.report_subtest(
+                        f"machine_health_{label}",
+                        passed=False,
+                        message=f"Machine {label} health is {health}, expected healthy",
+                    )
+                else:
+                    self.report_subtest(
+                        f"machine_health_{label}",
+                        passed=True,
+                        message=f"Machine {label} health is healthy",
+                    )
 
         # Overall result
         matched_count = step_output.get("matched_count", 0)
