@@ -20,7 +20,7 @@ Queries the NICo REST API for machine health data including DPU-specific
 probes, agent heartbeat status, and capability inventory.
 
 NICo API endpoints used:
-  GET /v2/org/{org}/forge/machine?siteId={site_id}&includeMetadata=true
+  GET /v2/org/{org}/carbide/machine?siteId={site_id}&type=DPU&includeMetadata=true
 
 Auth:
   - NICO_BEARER_TOKEN, or
@@ -72,18 +72,24 @@ DPU_ALERT_TARGETS = {"forge-dpu-agent", "dpu"}
 DPU_ALERT_IDS = {"heartbeattimeout", "dpudiskutilizationcheck"}
 
 
+def _lower_field(data: dict, field: str) -> str:
+    """Return a lowercase string field, treating JSON null as missing."""
+    value = data.get(field)
+    return value.lower() if isinstance(value, str) else ""
+
+
 def _is_dpu_alert(alert: dict) -> bool:
     """Check if a health alert is DPU-related."""
-    target = alert.get("target", "").lower()
-    alert_id = alert.get("id", "").lower()
+    target = _lower_field(alert, "target")
+    alert_id = _lower_field(alert, "id")
     return any(t in target for t in DPU_ALERT_TARGETS) or any(i in alert_id for i in DPU_ALERT_IDS)
 
 
 def _has_dpu_heartbeat(health: dict) -> bool:
     """Check if DPU agent heartbeat is active (no HeartbeatTimeout alerts on DPU targets)."""
-    for alert in health.get("alerts", []):
-        target = alert.get("target", "").lower()
-        alert_id = alert.get("id", "").lower()
+    for alert in health.get("alerts") or []:
+        target = _lower_field(alert, "target")
+        alert_id = _lower_field(alert, "id")
         if "dpu" in target and "heartbeat" in alert_id:
             return False
     return True
@@ -91,7 +97,7 @@ def _has_dpu_heartbeat(health: dict) -> bool:
 
 def _extract_health_successes(health: dict) -> list[str]:
     """Extract health probe success IDs."""
-    return [s.get("id", "") for s in health.get("successes", []) if s.get("id")]
+    return [s.get("id", "") for s in health.get("successes") or [] if s.get("id")]
 
 
 def main() -> int:
@@ -122,17 +128,17 @@ def main() -> int:
             "machine",
             auth.token,
             base_url=args.api_base,
-            params={"siteId": args.site_id, "includeMetadata": "true"},
+            params={"siteId": args.site_id, "type": "DPU", "includeMetadata": "true"},
             result_key="machines",
         )
 
         for machine in machines:
             machine_id = machine.get("id", "")
-            metadata = machine.get("metadata", {})
-            dmi = metadata.get("dmiData", {})
+            metadata = machine.get("metadata") or {}
+            dmi = metadata.get("dmiData") or {}
             chassis_serial = dmi.get("chassisSerial", machine_id)
-            health = machine.get("health", {})
-            capabilities = machine.get("machineCapabilities", [])
+            health = machine.get("health") or {}
+            capabilities = machine.get("machineCapabilities") or []
 
             # Count DPU capabilities (sum count field, not entries)
             dpu_count = sum_capabilities(capabilities, "DPU")
@@ -150,7 +156,7 @@ def main() -> int:
 
             # Extract health data
             health_successes = _extract_health_successes(health)
-            all_alerts = health.get("alerts", [])
+            all_alerts = health.get("alerts") or []
             dpu_alerts = [
                 {"id": a.get("id", ""), "target": a.get("target", ""), "message": a.get("message", "")}
                 for a in all_alerts

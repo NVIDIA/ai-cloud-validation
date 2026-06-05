@@ -180,9 +180,9 @@ def forge_get(
 
     Args:
         org: NGC org name.
-        path: API path relative to /forge/ (e.g., "machine", "expected-machine").
-        token: NGC Bearer token.
-        base_url: Forge API base URL (default: NGC production).
+        path: API path relative to /carbide/ (e.g., "machine", "expected-machine").
+        token: Bearer token.
+        base_url: NICo API base URL (default: NGC production).
         params: Query parameters (will be URL-encoded).
         timeout: Request timeout in seconds.
 
@@ -192,7 +192,7 @@ def forge_get(
     Raises:
         HTTPError: On non-2xx response.
     """
-    url = f"{base_url}/{org}/forge/{path}"
+    url = f"{base_url}/{org}/carbide/{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
 
@@ -223,8 +223,8 @@ def forge_get_all(
     Args:
         org: NGC org name.
         path: API path relative to /forge/.
-        token: NGC Bearer token.
-        base_url: Forge API base URL.
+        token: Bearer token.
+        base_url: NICo API base URL.
         params: Additional query parameters.
         result_key: JSON key containing the results array. If None, the response
             itself is expected to be a list, or auto-detected from common keys.

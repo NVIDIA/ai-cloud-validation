@@ -17,10 +17,12 @@
 
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
+import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -31,6 +33,7 @@ from isvctl.config.merger import merge_yaml_files
 ISVCTL_ROOT = Path(__file__).resolve().parents[1]
 NICO_COMMON = ISVCTL_ROOT / "configs" / "providers" / "nico" / "scripts" / "common"
 NICO_CONFIG = ISVCTL_ROOT / "configs" / "providers" / "nico" / "config"
+NICO_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "nico" / "scripts"
 
 
 class _Response:
@@ -58,6 +61,15 @@ def _load_nico_client() -> ModuleType:
     return module
 
 
+def _load_dpu_health_script() -> ModuleType:
+    script_path = NICO_SCRIPTS / "dpu" / "check_dpu_health.py"
+    spec = importlib.util.spec_from_file_location("test_check_dpu_health", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_nico_auth_prefers_explicit_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """A locally supplied NICo bearer token should be the simplest auth path."""
     module = _load_nico_client()
@@ -76,10 +88,15 @@ def test_nico_auth_uses_oidc_client_credentials(monkeypatch: pytest.MonkeyPatch)
     """When no bearer token is supplied, NICo auth should use client_credentials."""
     module = _load_nico_client()
     monkeypatch.delenv("NICO_BEARER_TOKEN", raising=False)
+    client_id = "client-id"
+    client_secret = "client-secret"
     monkeypatch.setenv("NICO_ISSUER_URL", "https://issuer.example/")
-    monkeypatch.setenv("NICO_CLIENT_ID", "client-id")
-    monkeypatch.setenv("NICO_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("NICO_CLIENT_ID", client_id)
+    monkeypatch.setenv("NICO_CLIENT_SECRET", client_secret)
     monkeypatch.setenv("NICO_OIDC_SCOPE", "read:nico")
+    # Build the placeholder Basic header instead of hardcoding its Base64 form
+    # so secret scanners do not mistake the test fixture for a live credential.
+    expected_authorization = "Basic " + base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
     seen: list[dict[str, Any]] = []
 
     def fake_urlopen(request, timeout: int = 30):
@@ -113,7 +130,7 @@ def test_nico_auth_uses_oidc_client_credentials(monkeypatch: pytest.MonkeyPatch)
         {
             "url": "https://issuer.example/oauth/token",
             "timeout": 30,
-            "authorization": "Basic Y2xpZW50LWlkOmNsaWVudC1zZWNyZXQ=",
+            "authorization": expected_authorization,
             "content_type": "application/x-www-form-urlencoded",
             "form": {"grant_type": ["client_credentials"], "scope": ["read:nico"]},
         },
@@ -135,3 +152,89 @@ def test_nico_configs_expose_api_base_setting(config_name: str, platform: str, s
     assert step["name"] == step_name
     assert "--api-base" in step["args"]
     assert "{{nico_api_base}}" in step["args"]
+
+
+def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """NICo JSON null list fields should not crash DPU health extraction."""
+    module = _load_dpu_health_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(
+        module,
+        "forge_get_all",
+        lambda *args, **kwargs: [
+            {
+                "id": "machine-1",
+                "metadata": {"dmiData": {"chassisSerial": "serial-1"}},
+                "status": "Ready",
+                "machineCapabilities": None,
+                "health": {"alerts": None, "successes": None},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["check_dpu_health.py", "--org", "test-org", "--site-id", "site-1"],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0, payload
+    assert payload["success"] is True
+    assert payload["machines_checked"] == 1
+    assert payload["machines"][0]["dpu_count"] == 0
+    assert payload["machines"][0]["dpu_capability"] is None
+    assert payload["machines"][0]["health_successes"] == []
+    assert payload["machines"][0]["health_alerts"] == []
+    assert payload["machines"][0]["dpu_agent_heartbeat"] is True
+
+
+def test_dpu_health_script_treats_nullable_alert_fields_as_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """NICo health alerts can contain null target fields."""
+    module = _load_dpu_health_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(
+        module,
+        "forge_get_all",
+        lambda *args, **kwargs: [
+            {
+                "id": "machine-1",
+                "status": "Ready",
+                "machineCapabilities": [{"type": "DPU", "name": "DPU", "count": 1}],
+                "health": {
+                    "successes": [{"id": "DpuDiskUtilizationCheck", "target": None}],
+                    "alerts": [
+                        {
+                            "id": "ContainerExists",
+                            "target": None,
+                            "message": "container inventory unavailable",
+                        }
+                    ],
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["check_dpu_health.py", "--org", "test-org", "--site-id", "site-1"],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0, payload
+    assert payload["success"] is True
+    assert payload["machines"][0]["health_summary"] == "unhealthy"
+    assert payload["machines"][0]["health_successes"] == ["DpuDiskUtilizationCheck"]
+    assert payload["machines"][0]["health_alerts"] == []
+    assert payload["machines"][0]["dpu_agent_heartbeat"] is True
