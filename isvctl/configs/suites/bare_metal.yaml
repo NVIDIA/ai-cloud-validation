@@ -317,5 +317,23 @@ tests:
       checks:
         StepSuccessCheck: {}
 
+    # Hardware ingestion: expected-machine manifest vs discovered machines.
+    # Only runs for providers that implement the verify_ingestion step.
+    ingestion_check:
+      step: verify_ingestion
+      checks:
+        HardwareIngestionCheck:
+          min_machines: 1
+          expected_status: ["Ready", "InUse"]
+          require_healthy: true
+
+    # DPU health: presence, agent heartbeat, and machine-level health alerts.
+    # Only runs for providers that implement the check_dpu_health step.
+    dpu_health:
+      step: check_dpu_health
+      checks:
+        DpuHealthCheck:
+          require_heartbeat: true
+
   exclude:
     labels: []

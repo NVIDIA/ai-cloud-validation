@@ -158,22 +158,16 @@ def test_nico_auth_uses_oidc_client_credentials(monkeypatch: pytest.MonkeyPatch)
     ]
 
 
-@pytest.mark.parametrize(
-    "config_name,platform,step_name",
-    [
-        ("hardware_ingestion.yaml", "hardware_ingestion", "verify_ingestion"),
-        ("dpu_health.yaml", "dpu_health", "check_dpu_health"),
-    ],
-)
-def test_nico_configs_expose_api_base_setting(config_name: str, platform: str, step_name: str) -> None:
-    """Shipped NICo configs should pass a configurable API base to scripts."""
-    merged = merge_yaml_files([NICO_CONFIG / config_name])
-    step = merged["commands"][platform]["steps"][0]
+@pytest.mark.parametrize("step_name", ["verify_ingestion", "check_dpu_health"])
+def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
+    """The shipped NICo bare_metal config should pass a configurable API base to scripts."""
+    merged = merge_yaml_files([NICO_CONFIG / "bare_metal.yaml"])
+    steps = merged["commands"]["bare_metal"]["steps"]
+    step = next(s for s in steps if s["name"] == step_name)
 
     assert merged["tests"]["settings"]["nico_api_base"] == (
         "{{env.NICO_API_BASE | default('https://api.ngc.nvidia.com/v2/org')}}"
     )
-    assert step["name"] == step_name
     assert "--api-base" in step["args"]
     assert "{{nico_api_base}}" in step["args"]
 

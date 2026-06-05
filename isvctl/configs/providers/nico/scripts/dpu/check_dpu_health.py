@@ -51,6 +51,9 @@ Required JSON output fields:
 Usage:
     NICO_BEARER_TOKEN=<token> python check_dpu_health.py --org <org> --site-id <uuid>
 
+    Wired via the bare_metal suite:
+      uv run isvctl test run -f isvctl/configs/providers/nico/config/bare_metal.yaml
+
 Reference:
     OpenAPI spec: ncp-isv-carbide-proxy-service/src/main/resources/docs/openapi/forge_api.yaml
 """

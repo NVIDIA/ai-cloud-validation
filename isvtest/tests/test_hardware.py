@@ -220,6 +220,9 @@ class TestHardwareIngestionCheck:
         check.run()
         assert check._passed is False
         assert "bad status" in check._error
+        # Failure summary should identify the offending machine (id + serial)
+        assert "m-001" in check._error
+        assert "SN-001" in check._error
 
     def test_machine_unhealthy(self) -> None:
         """Machine ingested and Ready but unhealthy."""
@@ -494,6 +497,7 @@ class TestDpuHealthCheck:
         assert check._passed is False
         assert "1/3" in check._error
         assert "m-002" in check._error
+        assert "SN-002" in check._error  # offending machine's serial is surfaced
         assert "m-001" not in check._error
         assert "m-003" not in check._error
 

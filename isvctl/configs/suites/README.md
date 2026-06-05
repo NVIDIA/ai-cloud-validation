@@ -19,9 +19,7 @@ Suites:
 [`slurm`](slurm.yaml),
 [`control-plane`](control-plane.yaml),
 [`image-registry`](image-registry.yaml),
-[`security`](security.yaml),
-[`hardware_ingestion`](hardware_ingestion.yaml),
-[`dpu_health`](dpu_health.yaml).
+[`security`](security.yaml).
 For the domain / script-count / AWS-reference overview see the
 [my-isv scaffold README](../providers/my-isv/scripts/README.md#domains).
 
@@ -109,6 +107,8 @@ For the domain / script-count / AWS-reference overview see the
 | `teardown_nim` | teardown | `providers/shared/teardown_nim.py` | Shared NIM cleanup |
 | `teardown` | teardown | `providers/my-isv/scripts/bare_metal/teardown.py` | `resources_deleted`, `message` |
 | `verify_teardown` | teardown | `providers/my-isv/scripts/bare_metal/verify_terminated.py` | `checks.instance_terminated`, `checks.sg_deleted` |
+| `verify_ingestion` | test | `providers/nico/scripts/hardware_ingestion/verify_ingestion.py` | `expected_count`, `ingested_count`, `matched_count`, `missing`, `extra`, `machines[].status`, `machines[].health` |
+| `check_dpu_health` | test | `providers/nico/scripts/dpu/check_dpu_health.py` | `machines_checked`, `machines[].dpu_count`, `machines[].dpu_agent_heartbeat`, `machines[].health_summary`, `machines[].health_alerts` |
 
 ### Kubernetes (`k8s.yaml`)
 
@@ -177,18 +177,6 @@ Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job schedul
 | `short_lived_credentials_test` | test | `providers/my-isv/scripts/security/short_lived_credentials_test.py` | SEC02-01: workloads and nodes receive credentials with finite, bounded TTL |
 | `tenant_isolation_test` | test | `providers/my-isv/scripts/security/tenant_isolation_test.py` | SEC11-01: hard tenant isolation across network/data/compute/storage |
 | `teardown` | teardown | `providers/my-isv/scripts/security/teardown.py` | Cleanup test resources |
-
-### Hardware Ingestion (`hardware_ingestion.yaml`)
-
-| Step | Phase | Script | Key JSON Fields |
-|------|-------|--------|-----------------|
-| `verify_ingestion` | test | `providers/nico/scripts/hardware_ingestion/verify_ingestion.py` | `expected_count`, `ingested_count`, `matched_count`, `missing`, `extra`, `machines[].status`, `machines[].health` |
-
-### DPU Health (`dpu_health.yaml`)
-
-| Step | Phase | Script | Key JSON Fields |
-|------|-------|--------|-----------------|
-| `check_dpu_health` | test | `providers/nico/scripts/dpu/check_dpu_health.py` | `machines_checked`, `machines[].dpu_count`, `machines[].dpu_agent_heartbeat`, `machines[].health_summary`, `machines[].health_alerts` |
 
 ## Related Documentation
 

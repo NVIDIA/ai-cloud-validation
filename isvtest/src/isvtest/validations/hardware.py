@@ -72,7 +72,7 @@ class HardwareIngestionCheck(BaseValidation):
 
     description: ClassVar[str] = "Check all expected hardware is ingested and matches manifest"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("hardware", "ingestion")
+    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "ingestion")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -126,9 +126,10 @@ class HardwareIngestionCheck(BaseValidation):
 
             status = machine.get("status", "Unknown")
             health = machine.get("health", "unknown")
+            serial = machine.get("chassis_serial") or "n/a"
 
             if status not in acceptable_statuses:
-                bad_status_machines.append(f"{label}({status})")
+                bad_status_machines.append(f"{label} (serial={serial}, status={status})")
                 self.report_subtest(
                     f"machine_status_{label}",
                     passed=False,
@@ -143,7 +144,7 @@ class HardwareIngestionCheck(BaseValidation):
 
             if require_healthy:
                 if health != "healthy":
-                    unhealthy_machines.append(f"{label}({health})")
+                    unhealthy_machines.append(f"{label} (serial={serial}, health={health})")
                     self.report_subtest(
                         f"machine_health_{label}",
                         passed=False,
@@ -162,13 +163,14 @@ class HardwareIngestionCheck(BaseValidation):
         if missing or bad_status_machines or (require_healthy and unhealthy_machines):
             issues: list[str] = []
             if missing:
-                issues.append(f"{len(missing)} missing")
+                missing_ids = ", ".join(_machine_label(m) for m in missing)
+                issues.append(f"{len(missing)} missing [{missing_ids}]")
             if bad_status_machines:
-                issues.append(f"{len(bad_status_machines)} bad status")
+                issues.append(f"{len(bad_status_machines)} bad status [{', '.join(bad_status_machines)}]")
             if unhealthy_machines:
-                issues.append(f"{len(unhealthy_machines)} unhealthy")
+                issues.append(f"{len(unhealthy_machines)} unhealthy [{', '.join(unhealthy_machines)}]")
             self.set_failed(
-                f"Hardware ingestion issues: {', '.join(issues)}. {matched_count}/{expected_count} machines matched."
+                f"Hardware ingestion issues: {'; '.join(issues)}. {matched_count}/{expected_count} machines matched."
             )
         else:
             self.set_passed(f"All {matched_count} expected machines ingested and healthy")
@@ -208,7 +210,7 @@ class DpuHealthCheck(BaseValidation):
 
     description: ClassVar[str] = "Check DPU health and agent heartbeat status"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("hardware", "dpu")
+    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "dpu")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -311,9 +313,9 @@ class DpuHealthCheck(BaseValidation):
         # Overall result
         total = len(machines)
         if failed_machines:
-            self.set_failed(
-                f"DPU health issues on {len(failed_machines)}/{total} machine(s): {', '.join(failed_machines)}"
-            )
+            serial_by_label = {_machine_label(m): (m.get("chassis_serial") or "n/a") for m in machines}
+            failed_desc = ", ".join(f"{lbl} (serial={serial_by_label.get(lbl, 'n/a')})" for lbl in failed_machines)
+            self.set_failed(f"DPU health issues on {len(failed_machines)}/{total} machine(s): {failed_desc}")
         else:
             self.set_passed(f"All {total} machine(s) have healthy DPUs")
 
@@ -347,7 +349,7 @@ class DpuNetworkCheck(BaseValidation):
 
     description: ClassVar[str] = "Check DPU network interfaces and overlay connectivity"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("hardware", "dpu", "network")
+    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "dpu", "network")
 
     # Valid running states for DPU extension deployments
     _DEPLOYMENT_OK_STATUSES: ClassVar[set[str]] = {"Running", "Pending"}
