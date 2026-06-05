@@ -176,6 +176,9 @@ SENSITIVE_ENV_VARS: frozenset[str] = frozenset(
         # NVIDIA
         "NGC_API_KEY",
         "NGC_NIM_API_KEY",
+        # NICo
+        "NICO_BEARER_TOKEN",
+        "NICO_CLIENT_SECRET",
         # ISV
         "ISV_CLIENT_SECRET",
     }
