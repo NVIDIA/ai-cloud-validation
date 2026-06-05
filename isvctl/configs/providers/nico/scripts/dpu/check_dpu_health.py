@@ -36,7 +36,6 @@ Required JSON output fields:
     "machines": [
       {
         "machine_id": "...",
-        "chassis_serial": "...",
         "status": "Ready",
         "dpu_count": 2,
         "dpu_capability": {"type": "DPU", "name": "BlueField-3", "count": 2},
@@ -134,17 +133,22 @@ def main() -> int:
 
         for machine in machines:
             machine_id = machine.get("id", "")
-            metadata = machine.get("metadata") or {}
-            dmi = metadata.get("dmiData") or {}
-            chassis_serial = dmi.get("chassisSerial", machine_id)
             health = machine.get("health") or {}
             capabilities = machine.get("machineCapabilities") or []
+
+            # Build DPU capability summary
+            dpu_caps = [c for c in capabilities if c.get("type") == "DPU"]
+
+            # The server-side type=DPU filter is ignored by API versions that
+            # key off capabilityType, so non-DPU machines can come back in the
+            # response. Skip them here so DPU health checks only run against
+            # machines that actually have a DPU.
+            if not dpu_caps:
+                continue
 
             # Count DPU capabilities (sum count field, not entries)
             dpu_count = sum_capabilities(capabilities, "DPU")
 
-            # Build DPU capability summary
-            dpu_caps = [c for c in capabilities if c.get("type") == "DPU"]
             dpu_capability = None
             if dpu_caps:
                 first_dpu = dpu_caps[0]
@@ -170,7 +174,6 @@ def main() -> int:
             result["machines"].append(
                 {
                     "machine_id": machine_id,
-                    "chassis_serial": chassis_serial,
                     "status": machine.get("status", "Unknown"),
                     "dpu_count": dpu_count,
                     "dpu_capability": dpu_capability,

@@ -217,7 +217,9 @@ def test_doctor_nico_provider_accepts_oidc_credentials(
     monkeypatch.setenv("NICO_ISSUER_URL", "https://issuer.example")
     monkeypatch.setenv("NICO_CLIENT_ID", "client-id")
     monkeypatch.setenv("NICO_CLIENT_SECRET", secret)
-    monkeypatch.setattr(env_checks, "_resolve_nico_doctor_token", lambda: ("oidc-token", "OIDC client_credentials configured"))
+    monkeypatch.setattr(
+        env_checks, "_resolve_nico_doctor_token", lambda: ("oidc-token", "OIDC client_credentials configured")
+    )
     monkeypatch.setattr(env_checks, "_probe_nico_api", lambda org, site_id, api_base, token: True)
 
     result = runner.invoke(app, ["--check", "env", "--provider", "nico"])

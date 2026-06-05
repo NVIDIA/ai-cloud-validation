@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import importlib.util
 import json
 import sys
@@ -61,12 +62,32 @@ def _load_nico_client() -> ModuleType:
     return module
 
 
+@contextlib.contextmanager
+def _isolated_common_imports():
+    """Make a nico script's ``from common...`` resolve to the nico scripts package.
+
+    Other providers (e.g. aws) ship a sibling top-level ``common`` package, and an
+    earlier test in the suite may have cached it in ``sys.modules``. Drop any cached
+    ``common`` modules for the duration of the load, then restore them.
+    """
+    saved = {name: mod for name, mod in sys.modules.items() if name == "common" or name.startswith("common.")}
+    for name in saved:
+        del sys.modules[name]
+    try:
+        yield
+    finally:
+        for name in [n for n in sys.modules if n == "common" or n.startswith("common.")]:
+            del sys.modules[name]
+        sys.modules.update(saved)
+
+
 def _load_dpu_health_script() -> ModuleType:
     script_path = NICO_SCRIPTS / "dpu" / "check_dpu_health.py"
     spec = importlib.util.spec_from_file_location("test_check_dpu_health", script_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
     return module
 
 
@@ -137,10 +158,13 @@ def test_nico_auth_uses_oidc_client_credentials(monkeypatch: pytest.MonkeyPatch)
     ]
 
 
-@pytest.mark.parametrize("config_name,platform,step_name", [
-    ("hardware_ingestion.yaml", "hardware_ingestion", "verify_ingestion"),
-    ("dpu_health.yaml", "dpu_health", "check_dpu_health"),
-])
+@pytest.mark.parametrize(
+    "config_name,platform,step_name",
+    [
+        ("hardware_ingestion.yaml", "hardware_ingestion", "verify_ingestion"),
+        ("dpu_health.yaml", "dpu_health", "check_dpu_health"),
+    ],
+)
 def test_nico_configs_expose_api_base_setting(config_name: str, platform: str, step_name: str) -> None:
     """Shipped NICo configs should pass a configurable API base to scripts."""
     merged = merge_yaml_files([NICO_CONFIG / config_name])
@@ -167,9 +191,8 @@ def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
         lambda *args, **kwargs: [
             {
                 "id": "machine-1",
-                "metadata": {"dmiData": {"chassisSerial": "serial-1"}},
                 "status": "Ready",
-                "machineCapabilities": None,
+                "machineCapabilities": [{"type": "DPU", "name": "BlueField-3", "count": 2}],
                 "health": {"alerts": None, "successes": None},
             }
         ],
@@ -187,11 +210,41 @@ def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
     assert exit_code == 0, payload
     assert payload["success"] is True
     assert payload["machines_checked"] == 1
-    assert payload["machines"][0]["dpu_count"] == 0
-    assert payload["machines"][0]["dpu_capability"] is None
+    assert payload["machines"][0]["dpu_count"] == 2
     assert payload["machines"][0]["health_successes"] == []
     assert payload["machines"][0]["health_alerts"] == []
     assert payload["machines"][0]["dpu_agent_heartbeat"] is True
+
+
+def test_dpu_health_script_skips_machines_without_dpu(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Machines without a DPU capability are filtered out client-side."""
+    module = _load_dpu_health_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(
+        module,
+        "forge_get_all",
+        lambda *args, **kwargs: [
+            {"id": "gpu-only", "status": "Ready", "machineCapabilities": [{"type": "GPU", "name": "H100", "count": 8}]},
+            {"id": "no-caps", "status": "Ready", "machineCapabilities": None},
+        ],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["check_dpu_health.py", "--org", "test-org", "--site-id", "site-1"],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0, payload
+    assert payload["success"] is True
+    assert payload["machines_checked"] == 0
+    assert payload["machines"] == []
 
 
 def test_dpu_health_script_treats_nullable_alert_fields_as_empty(

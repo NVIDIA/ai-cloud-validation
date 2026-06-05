@@ -349,8 +349,7 @@ def _resolve_nico_doctor_token() -> tuple[str, str]:
     ]
     if missing:
         raise RuntimeError(
-            "set NICO_BEARER_TOKEN or configure OIDC client_credentials "
-            f"(missing: {', '.join(missing)})"
+            f"set NICO_BEARER_TOKEN or configure OIDC client_credentials (missing: {', '.join(missing)})"
         )
 
     token = _request_nico_oidc_token(
@@ -483,9 +482,7 @@ def check_env(providers: list[str] | None = None) -> CategoryReport:
     """
     results: list[CheckResult] = []
     provider_strict_vars = {
-        name
-        for prov in providers or []
-        for name in _PROVIDER_STRICT_ENV_VARS.get(prov, frozenset())
+        name for prov in providers or [] for name in _PROVIDER_STRICT_ENV_VARS.get(prov, frozenset())
     }
     for var in _VARS:
         if var.name in provider_strict_vars:

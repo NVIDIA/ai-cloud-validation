@@ -26,6 +26,17 @@ from typing import ClassVar
 from isvtest.core.validation import BaseValidation
 
 
+def _machine_label(machine: dict) -> str:
+    """Human-facing identifier for a machine.
+
+    Prefers the NICo machine id, then the expected-machine id, then the
+    chassis serial. Chassis serial is unreliable as a display label: it is
+    only populated for provider-scoped tokens and otherwise falls back to the
+    machine id upstream, so it should not be shown as if it were a serial.
+    """
+    return machine.get("machine_id") or machine.get("expected_machine_id") or machine.get("chassis_serial") or "unknown"
+
+
 class HardwareIngestionCheck(BaseValidation):
     """Validate that all expected hardware has been ingested and matches the manifest.
 
@@ -80,7 +91,7 @@ class HardwareIngestionCheck(BaseValidation):
         # Check for missing machines (expected but not ingested)
         missing = step_output.get("missing", [])
         if missing:
-            serial_list = ", ".join(m.get("chassis_serial", "unknown") for m in missing)
+            serial_list = ", ".join(_machine_label(m) for m in missing)
             self.report_subtest(
                 "missing_machines",
                 passed=False,
@@ -90,7 +101,7 @@ class HardwareIngestionCheck(BaseValidation):
         # Report extra machines as informational (not a failure in shared environments)
         extra = step_output.get("extra", [])
         if extra:
-            serial_list = ", ".join(m.get("chassis_serial", "unknown") for m in extra)
+            serial_list = ", ".join(_machine_label(m) for m in extra)
             self.report_subtest(
                 "extra_machines",
                 passed=True,
@@ -106,8 +117,8 @@ class HardwareIngestionCheck(BaseValidation):
         bad_status_machines: list[str] = []
 
         for machine in machines:
-            serial = machine.get("chassis_serial", "unknown")
             machine_id = machine.get("machine_id")
+            label = _machine_label(machine)
 
             if not machine_id:
                 # Expected machine not linked to discovered machine
@@ -117,19 +128,19 @@ class HardwareIngestionCheck(BaseValidation):
             health = machine.get("health", "unknown")
 
             if status not in acceptable_statuses:
-                bad_status_machines.append(f"{serial}({status})")
+                bad_status_machines.append(f"{label}({status})")
                 self.report_subtest(
-                    f"machine_status_{serial}",
+                    f"machine_status_{label}",
                     passed=False,
-                    message=f"Machine {serial} status is {status}, expected one of {acceptable_statuses}",
+                    message=f"Machine {label} status is {status}, expected one of {acceptable_statuses}",
                 )
 
             if require_healthy and health != "healthy":
-                unhealthy_machines.append(f"{serial}({health})")
+                unhealthy_machines.append(f"{label}({health})")
                 self.report_subtest(
-                    f"machine_health_{serial}",
+                    f"machine_health_{label}",
                     passed=False,
-                    message=f"Machine {serial} health is {health}, expected healthy",
+                    message=f"Machine {label} health is {health}, expected healthy",
                 )
 
         # Overall result
@@ -169,7 +180,6 @@ class DpuHealthCheck(BaseValidation):
         machines_checked: int
         machines: list[dict]:
             machine_id: str
-            chassis_serial: str
             status: str
             dpu_count: int
             dpu_capability: dict | None
@@ -204,52 +214,51 @@ class DpuHealthCheck(BaseValidation):
         failed_machines: list[str] = []
 
         for machine in machines:
-            machine_id = machine.get("machine_id", "unknown")
-            serial = machine.get("chassis_serial", machine_id)
+            label = _machine_label(machine)
 
             # Check DPU count
             dpu_count = machine.get("dpu_count", 0)
             if dpu_count == 0:
                 self.report_subtest(
-                    f"dpu_presence_{serial}",
+                    f"dpu_presence_{label}",
                     passed=False,
-                    message=f"Machine {serial}: no DPUs detected",
+                    message=f"Machine {label}: no DPUs detected",
                 )
-                failed_machines.append(serial)
+                failed_machines.append(label)
                 # Still check alerts below -- there may be relevant health info
 
             elif expected_dpu_count is not None and dpu_count != expected_dpu_count:
                 self.report_subtest(
-                    f"dpu_count_{serial}",
+                    f"dpu_count_{label}",
                     passed=False,
-                    message=(f"Machine {serial}: expected {expected_dpu_count} DPUs, got {dpu_count}"),
+                    message=(f"Machine {label}: expected {expected_dpu_count} DPUs, got {dpu_count}"),
                 )
-                if serial not in failed_machines:
-                    failed_machines.append(serial)
+                if label not in failed_machines:
+                    failed_machines.append(label)
                 # Don't continue -- still check heartbeat and alerts
 
             else:
                 self.report_subtest(
-                    f"dpu_count_{serial}",
+                    f"dpu_count_{label}",
                     passed=True,
-                    message=f"Machine {serial}: {dpu_count} DPU(s) detected",
+                    message=f"Machine {label}: {dpu_count} DPU(s) detected",
                 )
 
             # Check DPU agent heartbeat
             heartbeat = machine.get("dpu_agent_heartbeat", False)
             if require_heartbeat and not heartbeat:
                 self.report_subtest(
-                    f"dpu_heartbeat_{serial}",
+                    f"dpu_heartbeat_{label}",
                     passed=False,
-                    message=f"Machine {serial}: DPU agent heartbeat missing",
+                    message=f"Machine {label}: DPU agent heartbeat missing",
                 )
-                if serial not in failed_machines:
-                    failed_machines.append(serial)
+                if label not in failed_machines:
+                    failed_machines.append(label)
             elif heartbeat:
                 self.report_subtest(
-                    f"dpu_heartbeat_{serial}",
+                    f"dpu_heartbeat_{label}",
                     passed=True,
-                    message=f"Machine {serial}: DPU agent heartbeat active",
+                    message=f"Machine {label}: DPU agent heartbeat active",
                 )
 
             # Check health_summary (covers ALL alerts, not just DPU-substring-filtered)
@@ -262,17 +271,17 @@ class DpuHealthCheck(BaseValidation):
                     else "unhealthy (see machine health for details)"
                 )
                 self.report_subtest(
-                    f"dpu_health_{serial}",
+                    f"dpu_health_{label}",
                     passed=False,
-                    message=f"Machine {serial}: {alert_msgs}",
+                    message=f"Machine {label}: {alert_msgs}",
                 )
-                if serial not in failed_machines:
-                    failed_machines.append(serial)
+                if label not in failed_machines:
+                    failed_machines.append(label)
             else:
                 self.report_subtest(
-                    f"dpu_health_{serial}",
+                    f"dpu_health_{label}",
                     passed=True,
-                    message=f"Machine {serial}: health status OK",
+                    message=f"Machine {label}: health status OK",
                 )
 
             # Report successful health probes (informational)
@@ -280,9 +289,9 @@ class DpuHealthCheck(BaseValidation):
             dpu_probes = [s for s in successes if "dpu" in s.lower()]
             if dpu_probes:
                 self.report_subtest(
-                    f"dpu_probes_{serial}",
+                    f"dpu_probes_{label}",
                     passed=True,
-                    message=(f"Machine {serial}: {len(dpu_probes)} DPU probe(s) passing: {', '.join(dpu_probes)}"),
+                    message=(f"Machine {label}: {len(dpu_probes)} DPU probe(s) passing: {', '.join(dpu_probes)}"),
                 )
 
         # Overall result

@@ -281,5 +281,12 @@ def sum_capabilities(capabilities: list[dict[str, Any]], cap_type: str) -> int:
 
     Per the OpenAPI spec, MachineCapability.count is the device count
     (e.g., count=2 means 2 DPUs). We sum across all entries of the type.
+    count is nullable (*int); a missing or null count is treated as 1.
     """
-    return sum(c.get("count", 1) for c in capabilities if c.get("type") == cap_type)
+    total = 0
+    for c in capabilities:
+        if c.get("type") != cap_type:
+            continue
+        count = c.get("count")
+        total += count if isinstance(count, int) else 1
+    return total

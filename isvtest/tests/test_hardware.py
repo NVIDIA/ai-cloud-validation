@@ -358,7 +358,7 @@ class TestDpuHealthCheck:
         check = DpuHealthCheck(config={"step_output": _dpu_health_output(machines=machines)})
         check.run()
         assert check._passed is False
-        assert "SN-001" in check._error
+        assert "m-001" in check._error
 
     def test_wrong_dpu_count(self) -> None:
         """DPU count doesn't match expected -- still checks heartbeat and alerts."""
@@ -487,9 +487,9 @@ class TestDpuHealthCheck:
         check.run()
         assert check._passed is False
         assert "1/3" in check._error
-        assert "SN-002" in check._error
-        assert "SN-001" not in check._error
-        assert "SN-003" not in check._error
+        assert "m-002" in check._error
+        assert "m-001" not in check._error
+        assert "m-003" not in check._error
 
     def test_unhealthy_summary_without_dpu_alerts(self) -> None:
         """Machine unhealthy from non-DPU alerts -- still flagged via health_summary."""
