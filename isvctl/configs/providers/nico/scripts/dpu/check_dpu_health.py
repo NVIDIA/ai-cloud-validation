@@ -36,6 +36,7 @@ Required JSON output fields:
     "machines": [
       {
         "machine_id": "...",
+        "chassis_serial": "...",
         "status": "Ready",
         "dpu_count": 2,
         "dpu_capability": {"type": "DPU", "name": "BlueField-3", "count": 2},
@@ -135,6 +136,9 @@ def main() -> int:
             machine_id = machine.get("id", "")
             health = machine.get("health") or {}
             capabilities = machine.get("machineCapabilities") or []
+            # Real chassis serial, debug aid only (empty when metadata is absent;
+            # never falls back to machine_id). Display/matching keys off machine_id.
+            chassis_serial = ((machine.get("metadata") or {}).get("dmiData") or {}).get("chassisSerial", "")
 
             # Build DPU capability summary
             dpu_caps = [c for c in capabilities if c.get("type") == "DPU"]
@@ -174,6 +178,7 @@ def main() -> int:
             result["machines"].append(
                 {
                     "machine_id": machine_id,
+                    "chassis_serial": chassis_serial,
                     "status": machine.get("status", "Unknown"),
                     "dpu_count": dpu_count,
                     "dpu_capability": dpu_capability,

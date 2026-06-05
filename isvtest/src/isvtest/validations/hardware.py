@@ -193,6 +193,7 @@ class DpuHealthCheck(BaseValidation):
         machines_checked: int
         machines: list[dict]:
             machine_id: str
+            chassis_serial: str -- debug aid only, may be empty
             status: str
             dpu_count: int
             dpu_capability: dict | None

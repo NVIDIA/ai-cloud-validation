@@ -192,6 +192,7 @@ def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
             {
                 "id": "machine-1",
                 "status": "Ready",
+                "metadata": {"dmiData": {"chassisSerial": "SER-1"}},
                 "machineCapabilities": [{"type": "DPU", "name": "BlueField-3", "count": 2}],
                 "health": {"alerts": None, "successes": None},
             }
@@ -211,6 +212,8 @@ def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
     assert payload["success"] is True
     assert payload["machines_checked"] == 1
     assert payload["machines"][0]["dpu_count"] == 2
+    # chassis_serial is a debug aid sourced from dmiData (never falls back to machine_id)
+    assert payload["machines"][0]["chassis_serial"] == "SER-1"
     assert payload["machines"][0]["health_successes"] == []
     assert payload["machines"][0]["health_alerts"] == []
     assert payload["machines"][0]["dpu_agent_heartbeat"] is True
