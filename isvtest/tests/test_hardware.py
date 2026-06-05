@@ -409,7 +409,7 @@ class TestDpuHealthCheck:
                 "health_alerts": [
                     {
                         "id": "HeartbeatTimeout",
-                        "target": "forge-dpu-agent",
+                        "target": "nico-dpu-agent",
                         "message": "No heartbeat for 300s",
                     },
                 ],
@@ -467,7 +467,7 @@ class TestDpuHealthCheck:
                 "health_summary": "unhealthy",
                 "health_successes": [],
                 "health_alerts": [
-                    {"id": "HeartbeatTimeout", "target": "forge-dpu-agent", "message": "No heartbeat"},
+                    {"id": "HeartbeatTimeout", "target": "nico-dpu-agent", "message": "No heartbeat"},
                 ],
                 "dpu_agent_heartbeat": False,
             },

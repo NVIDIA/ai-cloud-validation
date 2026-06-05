@@ -16,7 +16,7 @@
 """Shared NICo API client for NICo validation scripts.
 
 Handles authentication, authenticated GET requests with pagination, and proper
-URL encoding. The NICo REST API uses /forge/ in its URL path (legacy name).
+URL encoding.
 """
 
 import base64
@@ -176,7 +176,7 @@ def forge_get(
     params: dict[str, str] | None = None,
     timeout: int = 30,
 ) -> dict[str, Any]:
-    """Make an authenticated GET request to a single Forge API page.
+    """Make an authenticated GET request to a single NICo API page.
 
     Args:
         org: NGC org name.
@@ -218,11 +218,11 @@ def forge_get_all(
     page_size: int = DEFAULT_PAGE_SIZE,
     timeout: int = 30,
 ) -> list[dict[str, Any]]:
-    """Fetch all pages from a paginated Forge API endpoint.
+    """Fetch all pages from a paginated NICo API endpoint.
 
     Args:
         org: NGC org name.
-        path: API path relative to /forge/.
+        path: API path relative to /nico/.
         token: Bearer token.
         base_url: NICo API base URL.
         params: Additional query parameters.
@@ -250,7 +250,7 @@ def forge_get_all(
         elif result_key and result_key in resp:
             items = resp[result_key]
         else:
-            # Auto-detect: look for common Forge API result keys
+            # Auto-detect: look for common NICo API result keys
             for key in ("machines", "expectedMachines", "instances", "sites"):
                 if key in resp:
                     items = resp[key]

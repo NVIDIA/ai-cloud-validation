@@ -20,8 +20,8 @@ Calls the NICo REST API to compare expected-machine records against
 actually discovered machines. Matches by chassis serial number.
 
 NICo API endpoints used:
-  GET /v2/org/{org}/forge/expected-machine?siteId={site_id}
-  GET /v2/org/{org}/forge/machine?siteId={site_id}&includeMetadata=true
+  GET /v2/org/{org}/carbide/expected-machine?siteId={site_id}
+  GET /v2/org/{org}/carbide/machine?siteId={site_id}&includeMetadata=true
 
 Auth:
   - NICO_BEARER_TOKEN, or
@@ -80,11 +80,11 @@ from common.nico_client import (
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify NICo hardware ingestion")
     parser.add_argument("--org", required=True, help="NGC org name")
-    parser.add_argument("--site-id", required=True, help="Forge site UUID")
+    parser.add_argument("--site-id", required=True, help="NICo site UUID")
     parser.add_argument(
         "--api-base",
         default=DEFAULT_API_BASE,
-        help="Forge API base URL (default: NGC production)",
+        help="NICo API base URL (default: NGC production)",
     )
     args = parser.parse_args()
 

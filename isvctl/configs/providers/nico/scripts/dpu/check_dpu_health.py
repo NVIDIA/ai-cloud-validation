@@ -68,7 +68,7 @@ from common.nico_client import DEFAULT_API_BASE, NicoAuthError, forge_get_all, r
 # Known DPU-related alert targets and probe IDs from the NICo API.
 # The stub uses these for pre-filtering; the validation class should
 # also check health_summary for a complete picture.
-DPU_ALERT_TARGETS = {"forge-dpu-agent", "dpu"}
+DPU_ALERT_TARGETS = {"carbide-dpu-agent", "dpu"}
 DPU_ALERT_IDS = {"heartbeattimeout", "dpudiskutilizationcheck"}
 
 
