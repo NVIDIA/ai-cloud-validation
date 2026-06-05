@@ -22,6 +22,7 @@ import contextlib
 import importlib.util
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -54,6 +55,7 @@ class _Response:
 
 
 def _load_nico_client() -> ModuleType:
+    """Load the shared NICo client module directly from the provider scripts."""
     script_path = NICO_COMMON / "nico_client.py"
     spec = importlib.util.spec_from_file_location("test_nico_client", script_path)
     assert spec and spec.loader
@@ -63,7 +65,7 @@ def _load_nico_client() -> ModuleType:
 
 
 @contextlib.contextmanager
-def _isolated_common_imports():
+def _isolated_common_imports() -> Iterator[None]:
     """Make a nico script's ``from common...`` resolve to the nico scripts package.
 
     Other providers (e.g. aws) ship a sibling top-level ``common`` package, and an
@@ -82,6 +84,7 @@ def _isolated_common_imports():
 
 
 def _load_dpu_health_script() -> ModuleType:
+    """Load the check_dpu_health script as a module for direct unit testing."""
     script_path = NICO_SCRIPTS / "dpu" / "check_dpu_health.py"
     spec = importlib.util.spec_from_file_location("test_check_dpu_health", script_path)
     assert spec and spec.loader

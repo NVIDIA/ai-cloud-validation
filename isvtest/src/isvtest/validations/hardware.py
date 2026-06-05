@@ -21,12 +21,12 @@ Validations for NICo bare metal hardware lifecycle:
 - DPU network readiness (interfaces, BGP, extension services)
 """
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from isvtest.core.validation import BaseValidation
 
 
-def _machine_label(machine: dict) -> str:
+def _machine_label(machine: dict[str, Any]) -> str:
     """Human-facing identifier for a machine.
 
     Prefers the NICo machine id, then the expected-machine id, then the
@@ -75,6 +75,7 @@ class HardwareIngestionCheck(BaseValidation):
     labels: ClassVar[tuple[str, ...]] = ("bare_metal", "ingestion")
 
     def run(self) -> None:
+        """Validate ingestion: every expected machine is linked, healthy, and in an acceptable state."""
         step_output = self.config.get("step_output", {})
 
         if not step_output.get("success"):
@@ -213,6 +214,7 @@ class DpuHealthCheck(BaseValidation):
     labels: ClassVar[tuple[str, ...]] = ("bare_metal", "dpu")
 
     def run(self) -> None:
+        """Validate DPU presence, agent heartbeat, and machine-level health for each machine."""
         step_output = self.config.get("step_output", {})
 
         if not step_output.get("success"):
@@ -355,6 +357,7 @@ class DpuNetworkCheck(BaseValidation):
     _DEPLOYMENT_OK_STATUSES: ClassVar[set[str]] = {"Running", "Pending"}
 
     def run(self) -> None:
+        """Validate DPU network readiness: interface status, BGP, and extension deployments."""
         step_output = self.config.get("step_output", {})
 
         if not step_output.get("success"):

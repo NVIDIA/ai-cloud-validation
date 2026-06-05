@@ -236,10 +236,13 @@ def forge_get_all(
     """
     all_items: list[dict[str, Any]] = []
     page_number = 1
+    # The API caps page size at 100; compare against the effective size (not the
+    # caller's raw page_size) so a request for >100 doesn't stop after one page.
+    effective_page_size = min(page_size, 100)
 
     while True:
         page_params = dict(params or {})
-        page_params["pageSize"] = str(min(page_size, 100))
+        page_params["pageSize"] = str(effective_page_size)
         page_params["pageNumber"] = str(page_number)
 
         resp = forge_get(org, path, token, base_url=base_url, params=page_params, timeout=timeout)
@@ -262,7 +265,7 @@ def forge_get_all(
         all_items.extend(items)
 
         # Check if there are more pages
-        if len(items) < page_size:
+        if len(items) < effective_page_size:
             break
 
         page_number += 1

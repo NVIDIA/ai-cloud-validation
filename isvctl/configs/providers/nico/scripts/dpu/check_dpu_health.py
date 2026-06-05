@@ -62,6 +62,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -75,20 +76,20 @@ DPU_ALERT_TARGETS = {"carbide-dpu-agent", "dpu"}
 DPU_ALERT_IDS = {"heartbeattimeout", "dpudiskutilizationcheck"}
 
 
-def _lower_field(data: dict, field: str) -> str:
+def _lower_field(data: dict[str, Any], field: str) -> str:
     """Return a lowercase string field, treating JSON null as missing."""
     value = data.get(field)
     return value.lower() if isinstance(value, str) else ""
 
 
-def _is_dpu_alert(alert: dict) -> bool:
+def _is_dpu_alert(alert: dict[str, Any]) -> bool:
     """Check if a health alert is DPU-related."""
     target = _lower_field(alert, "target")
     alert_id = _lower_field(alert, "id")
     return any(t in target for t in DPU_ALERT_TARGETS) or any(i in alert_id for i in DPU_ALERT_IDS)
 
 
-def _has_dpu_heartbeat(health: dict) -> bool:
+def _has_dpu_heartbeat(health: dict[str, Any]) -> bool:
     """Check if DPU agent heartbeat is active (no HeartbeatTimeout alerts on DPU targets)."""
     for alert in health.get("alerts") or []:
         target = _lower_field(alert, "target")
@@ -98,12 +99,13 @@ def _has_dpu_heartbeat(health: dict) -> bool:
     return True
 
 
-def _extract_health_successes(health: dict) -> list[str]:
+def _extract_health_successes(health: dict[str, Any]) -> list[str]:
     """Extract health probe success IDs."""
     return [s.get("id", "") for s in health.get("successes") or [] if s.get("id")]
 
 
 def main() -> int:
+    """Query NICo machine health and print DPU health JSON to stdout."""
     parser = argparse.ArgumentParser(description="Check DPU health on NICo machines")
     parser.add_argument("--org", required=True, help="NGC org name")
     parser.add_argument("--site-id", required=True, help="Forge site UUID")
@@ -114,7 +116,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result: dict = {
+    result: dict[str, Any] = {
         "success": False,
         "platform": "nico",
         "site_id": args.site_id,

@@ -68,6 +68,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -83,6 +84,7 @@ from common.nico_client import (
 
 
 def main() -> int:
+    """Compare the expected-machine manifest with discovered machines and print JSON."""
     parser = argparse.ArgumentParser(description="Verify NICo hardware ingestion")
     parser.add_argument("--org", required=True, help="NGC org name")
     parser.add_argument("--site-id", required=True, help="NICo site UUID")
@@ -93,7 +95,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result: dict = {
+    result: dict[str, Any] = {
         "success": False,
         "platform": "nico",
         "site_id": args.site_id,
@@ -130,9 +132,9 @@ def main() -> int:
             result_key="machines",
         )
 
-        actual_by_id: dict[str, dict] = {m["id"]: m for m in actual_machines if m.get("id")}
+        actual_by_id: dict[str, dict[str, Any]] = {m["id"]: m for m in actual_machines if m.get("id")}
         linked_machine_ids: set[str] = set()
-        machines_detail: list[dict] = []
+        machines_detail: list[dict[str, Any]] = []
 
         for em in expected_machines:
             expected_machine_id = em.get("id", "")
