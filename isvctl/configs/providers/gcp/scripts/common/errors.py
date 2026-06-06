@@ -145,7 +145,11 @@ def delete_with_retry(
                 delay = backoff_seconds * attempt
                 logger.warning(
                     "Transient error deleting %s (attempt %d/%d): %s; retrying in %.1fs",
-                    resource_desc, attempt, attempts, e, delay,
+                    resource_desc,
+                    attempt,
+                    attempts,
+                    e,
+                    delay,
                 )
                 time.sleep(delay)
                 continue
@@ -159,7 +163,11 @@ def delete_with_retry(
                 delay = backoff_seconds * (attempt + 1) * 2
                 logger.warning(
                     "Dependency-in-use deleting %s (attempt %d/%d): %s; retrying in %.1fs",
-                    resource_desc, attempt, attempts, e, delay,
+                    resource_desc,
+                    attempt,
+                    attempts,
+                    e,
+                    delay,
                 )
                 time.sleep(delay)
                 continue
@@ -176,7 +184,11 @@ def delete_with_retry(
                 delay = backoff_seconds * (attempt + 1) * 2
                 logger.warning(
                     "Dependency-in-use (op error) deleting %s (attempt %d/%d): %s; retrying in %.1fs",
-                    resource_desc, attempt, attempts, e, delay,
+                    resource_desc,
+                    attempt,
+                    attempts,
+                    e,
+                    delay,
                 )
                 time.sleep(delay)
                 continue
@@ -186,6 +198,54 @@ def delete_with_retry(
     if last_error is not None:
         logger.error("Exhausted retries deleting %s: %s", resource_desc, last_error)
     return False
+
+
+def modify_iam_policy_with_retry(
+    read_policy: Callable[[], Any],
+    write_policy: Callable[[Any], Any],
+    mutate: Callable[[Any], None],
+    *,
+    resource_desc: str = "resource",
+    attempts: int = 5,
+    backoff_seconds: float = 2.0,
+) -> None:
+    """Read-modify-write an IAM policy with bounded retry (refresh-GET each attempt).
+
+    A GET-then-SET IAM-policy mutation races two transient conditions: a
+    backend 5xx / 429, and a stale-etag conflict (HTTP 409 -> ``gax.Aborted``)
+    when another writer updated the policy between the read and the write. Both
+    are retryable, and on retry the policy MUST be re-read so the fresh etag is
+    used — so ``read_policy`` is called anew each attempt, ``mutate`` applies
+    the change in place, and ``write_policy`` commits it.
+
+    This is the IAM-policy-mutation analog of ``delete_with_retry`` (which only
+    covers the delete surface): a single ``get_iam_policy`` -> append binding ->
+    ``set_iam_policy`` without this envelope aborts the whole caller on the
+    first transient. Both classify under ``TRANSIENT_EXCEPTIONS`` (which already
+    includes ``gax.Aborted``). Re-raises the last error once the budget is
+    exhausted so the caller folds the failure into a structured error rather
+    than silently dropping the binding.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            policy = read_policy()
+            mutate(policy)
+            write_policy(policy)
+            return
+        except TRANSIENT_EXCEPTIONS as e:
+            if attempt >= attempts:
+                logger.exception("Failed to modify IAM policy on %s after %d attempts", resource_desc, attempts)
+                raise
+            delay = backoff_seconds * attempt
+            logger.warning(
+                "Transient error modifying IAM policy on %s (attempt %d/%d): %s; retrying in %.1fs",
+                resource_desc,
+                attempt,
+                attempts,
+                e,
+                delay,
+            )
+            time.sleep(delay)
 
 
 def handle_gcp_errors[**P](func: Callable[P, int]) -> Callable[P, int]:
@@ -202,10 +262,12 @@ def handle_gcp_errors[**P](func: Callable[P, int]) -> Callable[P, int]:
             return func(*args, **kwargs)
         except Exception as e:
             error_type, error_msg = classify_gcp_error(e)
-            print(json.dumps(
-                {"success": False, "error_type": error_type, "error": error_msg},
-                indent=2,
-            ))
+            print(
+                json.dumps(
+                    {"success": False, "error_type": error_type, "error": error_msg},
+                    indent=2,
+                )
+            )
             return 1
 
     return wrapper

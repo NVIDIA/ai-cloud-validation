@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# GCP IAM (service account) Validation Configuration.
+#
+# Imports the provider-agnostic IAM contract from suites/iam.yaml and wires
+# every step to a Cloud IAM stub under providers/gcp/scripts/iam/. Steps
+# mirror the AWS reference order (create_user -> test_credentials -> teardown).
+#
+# Cloud IAM divergences baked into this wiring:
+#
+#   * GCP has no human IAM users. The closest managed, provider-owned
+#     identity primitive for this suite is a service account, so create_user
+#     creates a service account and emits its email as `username`.
+#   * `--create-access-key` mints credential MATERIAL, not a user-managed
+#     JSON key. Under hardened org policy
+#     (constraints/iam.disableServiceAccountKeyCreation) user-managed keys
+#     can be blocked, so the portable primary path is a short-lived OAuth2
+#     access token minted via IAMCredentials.generateAccessToken. The
+#     AWS-shaped output names are preserved for contract compatibility:
+#     `access_key_id` is the service account unique_id (non-secret, equals
+#     tokeninfo.azp) and `secret_access_key` is the short-lived token.
+#   * create_user grants the ADC principal roles/iam.serviceAccountTokenCreator
+#     on the new service account, then mints the token. That binding is
+#     eventually-consistent — observed up to ~180s on hardened orgs — so the
+#     mint retries inside create_user (12 x 15s) and the step timeout floor is
+#     420s (180s propagation budget + create/bind/mint margin).
+#   * `--credential-secret` is marked sensitive so the short-lived token is
+#     redacted from orchestrator logs.
+#   * `--project` is threaded as a single `--project=<value>` token so an
+#     empty value survives the orchestrator's empty-arg dropping; the stubs
+#     fall back to GOOGLE_CLOUD_PROJECT / GCLOUD_PROJECT / ADC when it is blank.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/gcp/config/iam.yaml
+
+import:
+  - ../../../suites/iam.yaml
+
+version: "1.0"
+
+commands:
+  iam:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # Setup: create a service account and mint a short-lived impersonation
+      # token. >=420s: 180s tokenCreator-binding propagation budget (12 x 15s)
+      # plus margin for create + bind + initial mint + transient retries.
+      - name: create_user
+        phase: setup
+        command: "python3 ../scripts/iam/create_user.py"
+        args:
+          - "--username"
+          - "isv-test-user"
+          - "--create-access-key"
+          - "--project={{project | default('')}}"
+        timeout: 420
+
+      # Test: prove the minted token is live for the expected service account
+      # (tokeninfo.azp == access_key_id) and authenticates an IAM self-read.
+      - name: test_credentials
+        phase: test
+        command: "python3 ../scripts/iam/test_credentials.py"
+        args:
+          - "--username"
+          - "{{steps.create_user.username}}"
+          - "--credential-id"
+          - "{{steps.create_user.access_key_id}}"
+          - "--credential-secret"
+          - "{{steps.create_user.secret_access_key}}"
+          - "--project={{steps.create_user.project | default(project) | default('')}}"
+        sensitive_args: ["--credential-secret"]
+        timeout: 120
+
+      # Teardown: delete the service account. The short-lived token self-expires
+      # (no user-managed key to delete). Idempotent — NotFound is success.
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/iam/delete_user.py"
+        args:
+          - "--username"
+          - "{{steps.create_user.username}}"
+          - "--project={{steps.create_user.project | default(project) | default('')}}"
+          - "{{teardown_flag}}"
+        timeout: 180
+
+tests:
+  cluster_name: "gcp-iam-validation"
+  description: "GCP IAM (service account) lifecycle validation"
+
+  settings:
+    # Operator project. Blank means the stubs fall back to
+    # GOOGLE_CLOUD_PROJECT / GCLOUD_PROJECT / ADC (the harness does not
+    # forward those env vars to spawned stubs, so threading via Jinja here is
+    # the explicit path; the stub's ADC fallback is the safety net).
+    project: "{{env.GOOGLE_CLOUD_PROJECT | default('', true)}}"
+    teardown_flag: "{{(env.GCP_IAM_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"

@@ -10,10 +10,11 @@ This page covers the operator setup needed to run `isvctl` tests against GCP.
 |--------|--------|---------|------------|
 | **VM** | [`providers/gcp/config/vm.yaml`](../../isvctl/configs/providers/gcp/config/vm.yaml) | [`providers/gcp/scripts/vm/`](../../isvctl/configs/providers/gcp/scripts/vm/) | [`suites/vm.yaml`](../../isvctl/configs/suites/vm.yaml) |
 | **Network** | [`providers/gcp/config/network.yaml`](../../isvctl/configs/providers/gcp/config/network.yaml) | [`providers/gcp/scripts/network/`](../../isvctl/configs/providers/gcp/scripts/network/) | [`suites/network.yaml`](../../isvctl/configs/suites/network.yaml) |
+| **IAM** | [`providers/gcp/config/iam.yaml`](../../isvctl/configs/providers/gcp/config/iam.yaml) | [`providers/gcp/scripts/iam/`](../../isvctl/configs/providers/gcp/scripts/iam/) | [`suites/iam.yaml`](../../isvctl/configs/suites/iam.yaml) |
 
 Shared GCP utilities (compute helpers, SSH wrappers, retry envelopes, error classifiers) are in [`providers/gcp/scripts/common/`](../../isvctl/configs/providers/gcp/scripts/common/).
 
-Other domains (IAM, Bare Metal, EKS, Control Plane, Image Registry, Security) are not yet implemented for GCP.
+Other domains (Bare Metal, EKS, Control Plane, Image Registry, Security) are not yet implemented for GCP.
 
 ## Prerequisites
 
@@ -131,6 +132,7 @@ before a `live` run — live mode is rejected when a required var is unset.
 | `NETWORK_FIREWALL_TRUST_IP` | **Required** (vm, network) | none — fail closed (no fallback) | Trusted IPv4 source range(s) for SSH (tcp/22) and RDP (tcp/3389) firewall ingress. A bare IPv4 normalizes to `/32`; comma-separated IPv4 CIDRs are allowed. The suite never opens these admin ports from `0.0.0.0/0`: when this var is unset, empty, non-IPv4, or `0.0.0.0/0`, the affected step emits an operator error, sets `success=false`, and exits non-zero. |
 | `GCP_VM_IMAGE` | Optional (vm) | public DLVM family `common-cu129-ubuntu-2204-nvidia-580` | Operator image short-name or self-link for `launch_instance` (flows to `--ami-id`); resolves as exact-name, then family alias, under the image project. See [§5](#5-gpu-image-and-docker-requirement-for-deploy_nim). |
 | `GCP_VM_IMAGE_PROJECT` | Optional (vm) | `deeplearning-platform-release` | Project hosting the operator image (flows to `--image-project`). When unset (and `GCP_VM_IMAGE` is also unset) the stub falls back to the public DLVM project. See [§5](#5-gpu-image-and-docker-requirement-for-deploy_nim). |
+| `GCP_IAM_SKIP_TEARDOWN` | Optional (iam) | unset — teardown runs | When `true`, the IAM `teardown` step returns success without deleting the service account it created (run a standalone `--phase teardown` later to clean up). See [IAM domain](#iam-domain-service-accounts). |
 
 `GOOGLE_CLOUD_PROJECT` / `GCLOUD_PROJECT` (§3) and `NGC_API_KEY` (§4) are also
 read by the suite but are not part of the firewall / image-override contract
@@ -152,6 +154,49 @@ uv run isvctl test run -f isvctl/configs/providers/gcp/config/vm.yaml
 ```
 
 The VM suite exercises 11 subtests end-to-end: launch (with GPU + cloud-init + SSH stability gate), tag verification, serial console output, console-RBAC probe (creates two short-lived probe service accounts + a second probe VM), idempotent stop / start / reboot lifecycle, describe (host OS / driver / CPU / container runtime checks), NIM deploy + inference, teardown of all created resources. Wall-clock is roughly 30–45 minutes on a clean operator environment; capacity stockout in one zone triggers a documented walk to the next zone in the preferred list.
+
+## IAM domain (service accounts)
+
+Google Cloud has no human IAM users, so the IAM suite is an adaptation: the
+closest managed, provider-owned identity primitive is a **service account**.
+The suite's `create_user` step creates a uniquely-named service account,
+`test_credentials` proves a credential minted for it authenticates, and
+`teardown` deletes it.
+
+Because hardened organizations commonly block user-managed service-account
+keys (`constraints/iam.disableServiceAccountKeyCreation`), the portable
+**primary credential path is keyless**: `create_user` grants the ADC principal
+`roles/iam.serviceAccountTokenCreator` on the new service account and mints a
+short-lived (600s) OAuth2 access token via
+`IAMCredentials.generateAccessToken`. No JSON key file is ever written, so
+`iam.disableServiceAccountKeyCreation` does **not** need to be disabled. The
+AWS-shaped output field names are preserved for contract compatibility:
+`access_key_id` is the service account `unique_id` (non-secret) and
+`secret_access_key` is the short-lived token (redacted from logs).
+
+### IAM roles
+
+The principal running the IAM suite (user or service account) needs, on the
+project:
+
+- `roles/iam.serviceAccountAdmin` — create and delete the test service account.
+- `roles/iam.serviceAccountTokenCreator` — the suite grants this dynamically on
+  the *new* service account, so the running principal needs the project-level
+  binding that lets it set that policy and call `generateAccessToken`.
+
+The newly-granted `tokenCreator` binding is eventually-consistent — convergence
+up to ~180s has been observed on hardened orgs — so `create_user` retries the
+token mint (12 × 15s) and its step timeout floor is 420s.
+
+### Running
+
+```bash
+# Prerequisites: ADC + a resolvable project (GOOGLE_CLOUD_PROJECT or ADC).
+uv run isvctl test run -f isvctl/configs/providers/gcp/config/iam.yaml
+```
+
+Set `GCP_IAM_SKIP_TEARDOWN=true` to keep the created service account after a
+run (clean up later with `--phase teardown`).
 
 ## Supported zones for L4 GPU VM tests
 
