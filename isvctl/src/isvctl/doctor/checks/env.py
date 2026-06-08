@@ -33,7 +33,6 @@ from urllib.request import Request, urlopen
 from isvctl.doctor.result import CategoryReport, CheckResult, Status
 from isvctl.redaction import redact_text
 
-_NICO_DEFAULT_API_BASE = "https://api.ngc.nvidia.com/v2/org"
 _NICO_TOKEN_TIMEOUT_SECONDS = 30
 
 
@@ -148,7 +147,13 @@ _VARS: tuple[_Var, ...] = (
         "NICO_API_BASE",
         "NICo",
         Requirement.OPTIONAL,
-        "NICo API base URL; defaults to production NGC if unset",
+        "NICo API base URL",
+    ),
+    _Var(
+        "NICO_ORGANIZATION",
+        "NICo",
+        Requirement.OPTIONAL,
+        "NICo organization name used in the API path",
     ),
     _Var(
         "NICO_SITE_ID",
@@ -163,10 +168,10 @@ _VARS: tuple[_Var, ...] = (
         "local NICo bearer token for API authentication",
     ),
     _Var(
-        "NICO_ISSUER_URL",
+        "NICO_SSA_ISSUER",
         "NICo",
         Requirement.OPTIONAL,
-        "OIDC issuer URL for NICo client_credentials auth",
+        "SSA issuer URL for NICo client_credentials auth",
     ),
     _Var(
         "NICO_CLIENT_ID",
@@ -335,13 +340,13 @@ def _resolve_nico_doctor_token() -> tuple[str, str]:
     if bearer:
         return bearer, "bearer token configured"
 
-    issuer_url = _env_value("NICO_ISSUER_URL")
+    issuer_url = _env_value("NICO_SSA_ISSUER")
     client_id = _env_value("NICO_CLIENT_ID")
     client_secret = _env_value("NICO_CLIENT_SECRET")
     missing = [
         name
         for name, value in (
-            ("NICO_ISSUER_URL", issuer_url),
+            ("NICO_SSA_ISSUER", issuer_url),
             ("NICO_CLIENT_ID", client_id),
             ("NICO_CLIENT_SECRET", client_secret),
         )
@@ -361,9 +366,9 @@ def _resolve_nico_doctor_token() -> tuple[str, str]:
     return token, "OIDC client_credentials configured"
 
 
-def _probe_nico_api(org: str, site_id: str, api_base: str, token: str) -> bool:
+def _probe_nico_api(organization: str, site_id: str, api_base: str, token: str) -> bool:
     """Probe the NICo site endpoint with the resolved token."""
-    url = f"{api_base.rstrip('/')}/{org}/carbide/site/{site_id}"
+    url = f"{api_base.rstrip('/')}/{organization}/carbide/site/{site_id}"
     request = Request(url, headers={"Authorization": f"Bearer {token}"})
     with urlopen(request, timeout=10) as response:
         response.read()
@@ -372,21 +377,24 @@ def _probe_nico_api(org: str, site_id: str, api_base: str, token: str) -> bool:
 
 def _check_nico_provider() -> list[CheckResult]:
     """NICo readiness checks for `isvctl doctor --provider nico`."""
-    api_base = _env_value("NICO_API_BASE") or _NICO_DEFAULT_API_BASE
-    org = _env_value("NGC_ORG")
+    api_base = _env_value("NICO_API_BASE")
+    organization = _env_value("NICO_ORGANIZATION")
     site_id = _env_value("NICO_SITE_ID")
     results = [
         CheckResult(
             name="NICO_API_BASE",
-            status=Status.OK,
-            message="set" if _env_value("NICO_API_BASE") else f"default ({_NICO_DEFAULT_API_BASE})",
+            status=Status.OK if api_base else Status.FAIL,
+            message="set" if api_base else "unset (required)",
+            remediation=None if api_base else "export NICO_API_BASE with the NICo API base URL",
             group="NICo",
         ),
         CheckResult(
-            name="NGC_ORG",
-            status=Status.OK if org else Status.FAIL,
-            message="set" if org else "unset (required)",
-            remediation=None if org else "export NGC_ORG with the org segment used by the NICo API",
+            name="NICO_ORGANIZATION",
+            status=Status.OK if organization else Status.FAIL,
+            message="set" if organization else "unset (required)",
+            remediation=None
+            if organization
+            else "export NICO_ORGANIZATION with the NICo organization name used in the API path",
             group="NICo",
         ),
         CheckResult(
@@ -422,7 +430,7 @@ def _check_nico_provider() -> list[CheckResult]:
             )
         )
 
-    if not org or not site_id or not token:
+    if not api_base or not organization or not site_id or not token:
         results.append(
             CheckResult(
                 name="NICo API",
@@ -434,7 +442,7 @@ def _check_nico_provider() -> list[CheckResult]:
         return results
 
     try:
-        reachable = _probe_nico_api(org, site_id, api_base, token)
+        reachable = _probe_nico_api(organization, site_id, api_base, token)
     except (HTTPError, URLError, OSError, RuntimeError) as exc:
         results.append(
             CheckResult(
@@ -442,7 +450,7 @@ def _check_nico_provider() -> list[CheckResult]:
                 status=Status.FAIL,
                 message="unreachable or unauthorized",
                 detail=str(exc),
-                remediation="check NICO_API_BASE, NGC_ORG, NICO_SITE_ID, credentials, and any port-forward",
+                remediation="check NICO_API_BASE, NICO_ORGANIZATION, NICO_SITE_ID, credentials, and any port-forward",
                 group="NICo",
             )
         )
@@ -466,7 +474,7 @@ _PROVIDER_CHECKS: dict[str, Callable[[], list[CheckResult]]] = {
     "nico": _check_nico_provider,
 }
 _PROVIDER_STRICT_ENV_VARS: dict[str, frozenset[str]] = {
-    "nico": frozenset({"NICO_API_BASE", "NICO_SITE_ID"}),
+    "nico": frozenset({"NICO_API_BASE", "NICO_ORGANIZATION", "NICO_SITE_ID"}),
 }
 
 

@@ -190,7 +190,7 @@ def test_doctor_nico_provider_accepts_bearer_token(
     """--provider nico should accept the local bearer-token workflow."""
     secret = "nico-secret-token"
     monkeypatch.setenv("NICO_API_BASE", "http://127.0.0.1:8080/v2/org")
-    monkeypatch.setenv("NGC_ORG", "test-org")
+    monkeypatch.setenv("NICO_ORGANIZATION", "test-org")
     monkeypatch.setenv("NICO_SITE_ID", "site-1")
     monkeypatch.setenv("NICO_BEARER_TOKEN", secret)
     monkeypatch.setattr(env_checks, "_probe_nico_api", lambda org, site_id, api_base, token: True)
@@ -212,9 +212,9 @@ def test_doctor_nico_provider_accepts_oidc_credentials(
     """--provider nico should accept non-interactive OIDC client credentials."""
     secret = "nico-client-secret"
     monkeypatch.setenv("NICO_API_BASE", "http://127.0.0.1:8080/v2/org")
-    monkeypatch.setenv("NGC_ORG", "test-org")
+    monkeypatch.setenv("NICO_ORGANIZATION", "test-org")
     monkeypatch.setenv("NICO_SITE_ID", "site-1")
-    monkeypatch.setenv("NICO_ISSUER_URL", "https://issuer.example")
+    monkeypatch.setenv("NICO_SSA_ISSUER", "https://issuer.example")
     monkeypatch.setenv("NICO_CLIENT_ID", "client-id")
     monkeypatch.setenv("NICO_CLIENT_SECRET", secret)
     monkeypatch.setattr(
@@ -238,7 +238,7 @@ def test_doctor_nico_provider_requires_auth(
 ) -> None:
     """--provider nico should fail before a run when neither auth path is configured."""
     monkeypatch.setenv("NICO_API_BASE", "http://127.0.0.1:8080/v2/org")
-    monkeypatch.setenv("NGC_ORG", "test-org")
+    monkeypatch.setenv("NICO_ORGANIZATION", "test-org")
     monkeypatch.setenv("NICO_SITE_ID", "site-1")
 
     result = runner.invoke(app, ["--check", "env", "--provider", "nico"])
@@ -248,6 +248,26 @@ def test_doctor_nico_provider_requires_auth(
     assert "NICO_BEARER_TOKEN" in result.output
 
 
+def test_doctor_nico_provider_requires_api_base(
+    monkeypatch: pytest.MonkeyPatch,
+    all_tools_present: None,
+    all_env_unset: None,
+) -> None:
+    """--provider nico should require callers to choose the NICo API base."""
+    monkeypatch.setenv("NICO_ORGANIZATION", "test-org")
+    monkeypatch.setenv("NICO_SITE_ID", "site-1")
+    monkeypatch.setenv("NICO_BEARER_TOKEN", "nico-secret-token")
+
+    result = runner.invoke(app, ["--check", "env", "--provider", "nico"])
+
+    assert result.exit_code == 1
+    assert "NICO_API_BASE" in result.output
+    assert "unset (required)" in result.output
+    assert "export NICO_API_BASE" in result.output
+    assert "NICo API" in result.output
+    assert "skipped until NICo config and auth are complete" in result.output
+
+
 def test_doctor_nico_provider_labels_oidc_request_failure_as_auth_failed(
     monkeypatch: pytest.MonkeyPatch,
     all_tools_present: None,
@@ -255,9 +275,9 @@ def test_doctor_nico_provider_labels_oidc_request_failure_as_auth_failed(
 ) -> None:
     """A rejected token request is configured auth that failed, not missing config."""
     monkeypatch.setenv("NICO_API_BASE", "http://127.0.0.1:8080/v2/org")
-    monkeypatch.setenv("NGC_ORG", "test-org")
+    monkeypatch.setenv("NICO_ORGANIZATION", "test-org")
     monkeypatch.setenv("NICO_SITE_ID", "site-1")
-    monkeypatch.setenv("NICO_ISSUER_URL", "https://issuer.example")
+    monkeypatch.setenv("NICO_SSA_ISSUER", "https://issuer.example")
     monkeypatch.setenv("NICO_CLIENT_ID", "client-id")
     monkeypatch.setenv("NICO_CLIENT_SECRET", "client-secret")
     monkeypatch.setattr(
@@ -273,6 +293,40 @@ def test_doctor_nico_provider_labels_oidc_request_failure_as_auth_failed(
     assert "auth failed" in result.output
     assert "token request failed" in result.output
     assert "NICo auth:           not configured" not in result.output
+
+
+def test_doctor_nico_auth_reads_ssa_issuer_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Doctor should resolve OIDC client_credentials from NICO_SSA_ISSUER."""
+    seen: dict[str, str] = {}
+
+    def fake_request_token(*, issuer_url: str, client_id: str, client_secret: str, scope: str) -> str:
+        seen.update(
+            {
+                "issuer_url": issuer_url,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "scope": scope,
+            }
+        )
+        return "oidc-token"
+
+    monkeypatch.delenv("NICO_BEARER_TOKEN", raising=False)
+    monkeypatch.setenv("NICO_SSA_ISSUER", "https://issuer.example")
+    monkeypatch.setenv("NICO_CLIENT_ID", "client-id")
+    monkeypatch.setenv("NICO_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("NICO_OIDC_SCOPE", "read:nico")
+    monkeypatch.setattr(env_checks, "_request_nico_oidc_token", fake_request_token)
+
+    token, label = env_checks._resolve_nico_doctor_token()
+
+    assert token == "oidc-token"
+    assert label == "OIDC client_credentials configured"
+    assert seen == {
+        "issuer_url": "https://issuer.example",
+        "client_id": "client-id",
+        "client_secret": "client-secret",
+        "scope": "read:nico",
+    }
 
 
 def test_nico_oidc_token_request_reports_http_error_body(monkeypatch: pytest.MonkeyPatch) -> None:

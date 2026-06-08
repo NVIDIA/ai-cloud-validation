@@ -27,7 +27,7 @@ NICo API endpoints used:
 
 Auth:
   - NICO_BEARER_TOKEN, or
-  - OIDC client_credentials via NICO_ISSUER_URL,
+  - OIDC client_credentials via NICO_SSA_ISSUER,
     NICO_CLIENT_ID, NICO_CLIENT_SECRET, and optional NICO_OIDC_SCOPE.
 
 Required JSON output fields:
@@ -55,7 +55,7 @@ Required JSON output fields:
   }
 
 Usage:
-    NICO_BEARER_TOKEN=<token> python verify_ingestion.py --org <org> --site-id <uuid>
+    NICO_BEARER_TOKEN=<token> python verify_ingestion.py --org <org> --site-id <uuid> --api-base <url>
 
     Wired via the bare_metal suite:
       uv run isvctl test run -f isvctl/configs/providers/nico/config/bare_metal.yaml
@@ -74,7 +74,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common.nico_client import (
-    DEFAULT_API_BASE,
     NicoAuthError,
     classify_health,
     forge_get_all,
@@ -90,8 +89,8 @@ def main() -> int:
     parser.add_argument("--site-id", required=True, help="NICo site UUID")
     parser.add_argument(
         "--api-base",
-        default=DEFAULT_API_BASE,
-        help="NICo API base URL (default: NGC production)",
+        required=True,
+        help="NICo API base URL",
     )
     args = parser.parse_args()
 

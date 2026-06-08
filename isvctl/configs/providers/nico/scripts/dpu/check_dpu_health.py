@@ -24,7 +24,7 @@ NICo API endpoints used:
 
 Auth:
   - NICO_BEARER_TOKEN, or
-  - OIDC client_credentials via NICO_ISSUER_URL,
+  - OIDC client_credentials via NICO_SSA_ISSUER,
     NICO_CLIENT_ID, NICO_CLIENT_SECRET, and optional NICO_OIDC_SCOPE.
 
 Required JSON output fields:
@@ -49,7 +49,7 @@ Required JSON output fields:
   }
 
 Usage:
-    NICO_BEARER_TOKEN=<token> python check_dpu_health.py --org <org> --site-id <uuid>
+    NICO_BEARER_TOKEN=<token> python check_dpu_health.py --org <org> --site-id <uuid> --api-base <url>
 
     Wired via the bare_metal suite:
       uv run isvctl test run -f isvctl/configs/providers/nico/config/bare_metal.yaml
@@ -67,7 +67,7 @@ from typing import Any
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.nico_client import DEFAULT_API_BASE, NicoAuthError, forge_get_all, resolve_auth, sum_capabilities
+from common.nico_client import NicoAuthError, forge_get_all, resolve_auth, sum_capabilities
 
 # Known DPU-related alert targets and probe IDs from the NICo API.
 # The stub uses these for pre-filtering; the validation class should
@@ -111,8 +111,8 @@ def main() -> int:
     parser.add_argument("--site-id", required=True, help="Forge site UUID")
     parser.add_argument(
         "--api-base",
-        default=DEFAULT_API_BASE,
-        help="Forge API base URL (default: NGC production)",
+        required=True,
+        help="Forge API base URL",
     )
     args = parser.parse_args()
 

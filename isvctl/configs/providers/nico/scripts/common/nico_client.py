@@ -27,7 +27,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-DEFAULT_API_BASE = "https://api.ngc.nvidia.com/v2/org"
 DEFAULT_PAGE_SIZE = 100
 OIDC_TOKEN_TIMEOUT_SECONDS = 30
 
@@ -53,7 +52,7 @@ def resolve_auth(*, timeout: int = OIDC_TOKEN_TIMEOUT_SECONDS) -> NicoAuth:
 
     Resolution order:
     1. ``NICO_BEARER_TOKEN`` for locally supplied tokens.
-    2. OIDC client credentials using ``NICO_ISSUER_URL``,
+    2. OIDC client credentials using ``NICO_SSA_ISSUER``,
        ``NICO_CLIENT_ID``, and ``NICO_CLIENT_SECRET``.
 
     ``NGC_API_KEY`` is intentionally not used for NICo authentication.
@@ -62,7 +61,7 @@ def resolve_auth(*, timeout: int = OIDC_TOKEN_TIMEOUT_SECONDS) -> NicoAuth:
     if bearer_token:
         return NicoAuth(token=bearer_token, source="NICO_BEARER_TOKEN")
 
-    issuer_url = _env("NICO_ISSUER_URL")
+    issuer_url = _env("NICO_SSA_ISSUER")
     client_id = _env("NICO_CLIENT_ID")
     client_secret = _env("NICO_CLIENT_SECRET")
     scope = _env("NICO_OIDC_SCOPE")
@@ -70,7 +69,7 @@ def resolve_auth(*, timeout: int = OIDC_TOKEN_TIMEOUT_SECONDS) -> NicoAuth:
     missing = [
         name
         for name, value in (
-            ("NICO_ISSUER_URL", issuer_url),
+            ("NICO_SSA_ISSUER", issuer_url),
             ("NICO_CLIENT_ID", client_id),
             ("NICO_CLIENT_SECRET", client_secret),
         )
@@ -172,7 +171,7 @@ def forge_get(
     path: str,
     token: str,
     *,
-    base_url: str = DEFAULT_API_BASE,
+    base_url: str,
     params: dict[str, str] | None = None,
     timeout: int = 30,
 ) -> dict[str, Any]:
@@ -182,7 +181,7 @@ def forge_get(
         org: NGC org name.
         path: API path relative to /carbide/ (e.g., "machine", "expected-machine").
         token: Bearer token.
-        base_url: NICo API base URL (default: NGC production).
+        base_url: NICo API base URL.
         params: Query parameters (will be URL-encoded).
         timeout: Request timeout in seconds.
 
@@ -212,7 +211,7 @@ def forge_get_all(
     path: str,
     token: str,
     *,
-    base_url: str = DEFAULT_API_BASE,
+    base_url: str,
     params: dict[str, str] | None = None,
     result_key: str | None = None,
     page_size: int = DEFAULT_PAGE_SIZE,

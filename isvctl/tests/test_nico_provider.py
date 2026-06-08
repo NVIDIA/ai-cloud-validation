@@ -22,7 +22,7 @@ import contextlib
 import importlib.util
 import json
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -94,11 +94,22 @@ def _load_dpu_health_script() -> ModuleType:
     return module
 
 
+def _load_ingestion_script() -> ModuleType:
+    """Load the verify_ingestion script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "hardware_ingestion" / "verify_ingestion.py"
+    spec = importlib.util.spec_from_file_location("test_verify_ingestion", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
 def test_nico_auth_prefers_explicit_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """A locally supplied NICo bearer token should be the simplest auth path."""
     module = _load_nico_client()
     monkeypatch.setenv("NICO_BEARER_TOKEN", "local-token")
-    monkeypatch.setenv("NICO_ISSUER_URL", "https://issuer.example")
+    monkeypatch.setenv("NICO_SSA_ISSUER", "https://issuer.example")
     monkeypatch.setenv("NICO_CLIENT_ID", "client-id")
     monkeypatch.setenv("NICO_CLIENT_SECRET", "client-secret")
 
@@ -114,7 +125,7 @@ def test_nico_auth_uses_oidc_client_credentials(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("NICO_BEARER_TOKEN", raising=False)
     client_id = "client-id"
     client_secret = "client-secret"
-    monkeypatch.setenv("NICO_ISSUER_URL", "https://issuer.example/")
+    monkeypatch.setenv("NICO_SSA_ISSUER", "https://issuer.example/")
     monkeypatch.setenv("NICO_CLIENT_ID", client_id)
     monkeypatch.setenv("NICO_CLIENT_SECRET", client_secret)
     monkeypatch.setenv("NICO_OIDC_SCOPE", "read:nico")
@@ -168,11 +179,37 @@ def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None
     steps = merged["commands"]["bare_metal"]["steps"]
     step = next(s for s in steps if s["name"] == step_name)
 
-    assert merged["tests"]["settings"]["nico_api_base"] == (
-        "{{env.NICO_API_BASE | default('https://api.ngc.nvidia.com/v2/org')}}"
-    )
+    assert merged["tests"]["settings"]["org"] == "{{env.NICO_ORGANIZATION}}"
+    assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
     assert "--api-base" in step["args"]
     assert "{{nico_api_base}}" in step["args"]
+
+
+@pytest.mark.parametrize(
+    ("script_name", "load_script"),
+    [
+        ("verify_ingestion.py", _load_ingestion_script),
+        ("check_dpu_health.py", _load_dpu_health_script),
+    ],
+)
+def test_nico_scripts_require_api_base(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    script_name: str,
+    load_script: Callable[[], ModuleType],
+) -> None:
+    """NICo scripts should not fall back to a built-in API base."""
+    module = load_script()
+    monkeypatch.setattr(sys, "argv", [script_name, "--org", "test-org", "--site-id", "site-1"])
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", lambda *args, **kwargs: [])
+
+    with pytest.raises(SystemExit) as exc_info:
+        module.main()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "--api-base" in captured.err
 
 
 def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
@@ -198,7 +235,15 @@ def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["check_dpu_health.py", "--org", "test-org", "--site-id", "site-1"],
+        [
+            "check_dpu_health.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://127.0.0.1:8080/v2/org",
+        ],
     )
 
     exit_code = module.main()
@@ -234,7 +279,15 @@ def test_dpu_health_script_skips_machines_without_dpu(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["check_dpu_health.py", "--org", "test-org", "--site-id", "site-1"],
+        [
+            "check_dpu_health.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://127.0.0.1:8080/v2/org",
+        ],
     )
 
     exit_code = module.main()
@@ -278,7 +331,15 @@ def test_dpu_health_script_treats_nullable_alert_fields_as_empty(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["check_dpu_health.py", "--org", "test-org", "--site-id", "site-1"],
+        [
+            "check_dpu_health.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://127.0.0.1:8080/v2/org",
+        ],
     )
 
     exit_code = module.main()
