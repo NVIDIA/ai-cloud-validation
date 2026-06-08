@@ -95,9 +95,8 @@ def _probe_text(probe: dict[str, Any]) -> str:
     return " ".join(p for p in parts if isinstance(p, str)).lower()
 
 
-def _matches_category(probe: dict[str, Any], keywords: tuple[str, ...]) -> bool:
-    """Check whether a probe belongs to a category by keyword substring match."""
-    text = _probe_text(probe)
+def _matches_keywords(text: str, keywords: tuple[str, ...]) -> bool:
+    """Check whether precomputed probe text contains any category keyword."""
     return any(keyword in text for keyword in keywords)
 
 
@@ -106,13 +105,18 @@ def categorize_health(health: dict[str, Any]) -> dict[str, dict[str, Any]]:
     successes = health.get("successes") or []
     alerts = health.get("alerts") or []
 
+    # Compute each probe's match text once, then reuse it across every category
+    # rather than rebuilding the lowercased string per (probe, category) pair.
+    success_texts = [(s, _probe_text(s)) for s in successes]
+    alert_texts = [(a, _probe_text(a)) for a in alerts]
+
     categories: dict[str, dict[str, Any]] = {}
     for category, keywords in CATEGORY_KEYWORDS.items():
-        probe_ids = [s.get("id", "") for s in successes if _matches_category(s, keywords) and s.get("id")]
+        probe_ids = [s.get("id", "") for s, text in success_texts if _matches_keywords(text, keywords) and s.get("id")]
         cat_alerts = [
             {"id": a.get("id", ""), "target": a.get("target", ""), "message": a.get("message", "")}
-            for a in alerts
-            if _matches_category(a, keywords)
+            for a, text in alert_texts
+            if _matches_keywords(text, keywords)
         ]
         categories[category] = {
             "present": bool(probe_ids or cat_alerts),
