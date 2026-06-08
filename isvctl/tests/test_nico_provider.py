@@ -23,7 +23,7 @@ import importlib.util
 import json
 import sys
 from collections.abc import Callable, Iterator
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -690,8 +690,6 @@ def test_host_health_script_computes_observation_age(
 ) -> None:
     """A valid observedAt timestamp yields a non-negative age in seconds."""
     module = _load_host_health_script()
-    from datetime import datetime, timedelta
-
     observed = (datetime.now(UTC) - timedelta(seconds=42)).strftime("%Y-%m-%dT%H:%M:%SZ")
     machines = [{"id": "m-3", "status": "Ready", "health": {"observedAt": observed, "successes": [], "alerts": []}}]
 
@@ -747,6 +745,7 @@ def test_host_health_real_world_bmc_sensors_pass_by_default(
     alerts. HostHealthCheck should pass: a report is returned and there are no
     alerts -- no dedicated memory probe is required.
     """
+    # Local import: isvtest validation framework only needed for this end-to-end test
     from isvtest.validations.health import HostHealthCheck
 
     module = _load_host_health_script()
@@ -783,6 +782,7 @@ def test_host_health_leak_alert_fails_validation_end_to_end(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End-to-end: a leak-detection alert flows through to a HostHealthCheck failure."""
+    # Local import: isvtest validation framework only needed for this end-to-end test
     from isvtest.validations.health import HostHealthCheck
 
     module = _load_host_health_script()
@@ -851,6 +851,7 @@ def test_health_aggregation_script_output_satisfies_validation_contract(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End-to-end: NICo aggregation JSON should pass HealthAggregationCheck."""
+    # Local import: isvtest validation framework only needed for this end-to-end test
     from isvtest.validations.health import HealthAggregationCheck
 
     module = _load_health_aggregation_script()
