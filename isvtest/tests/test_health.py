@@ -26,19 +26,19 @@ from isvtest.validations.health import HealthAggregationCheck, HostHealthCheck
 # ---------------------------------------------------------------------------
 
 
-def _category(
+def _alert(
     *,
-    present: bool = True,
-    healthy: bool = True,
-    probes: list[str] | None = None,
-    alerts: list[dict[str, Any]] | None = None,
+    probe_id: str = "BmcSensor",
+    target: str = "",
+    message: str = "",
+    classifications: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Build a single per-category health summary."""
+    """Build a single host health alert record."""
     return {
-        "present": present,
-        "healthy": healthy,
-        "probes": probes if probes is not None else (["probe"] if present else []),
-        "alerts": alerts or [],
+        "id": probe_id,
+        "target": target,
+        "message": message,
+        "classifications": classifications or [],
     }
 
 
@@ -48,22 +48,19 @@ def _host(
     status: str = "Ready",
     health_present: bool = True,
     observed_age_seconds: int | None = 10,
-    categories: dict[str, dict[str, Any]] | None = None,
+    probe_ids: list[str] | None = None,
+    alerts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a per-host health record."""
-    if categories is None:
-        categories = {
-            "gpu": _category(),
-            "thermal": _category(),
-            "memory": _category(),
-        }
     return {
         "host_id": host_id,
         "chassis_serial": f"SER-{host_id}",
         "status": status,
         "health_present": health_present,
+        "healthy": not alerts,
         "observed_age_seconds": observed_age_seconds,
-        "categories": categories,
+        "probe_ids": probe_ids if probe_ids is not None else ["BmcSensor", "BgpDaemonEnabled"],
+        "alerts": alerts or [],
     }
 
 
@@ -136,45 +133,15 @@ def _aggregation_output(
 class TestHostHealthCheck:
     """Tests for HostHealthCheck validation."""
 
-    def test_all_categories_present_and_healthy(self) -> None:
-        """A host that surfaces healthy GPU/thermal/memory health passes."""
+    def test_healthy_host_passes(self) -> None:
+        """A host with a fresh report and no alerts passes."""
         check = HostHealthCheck(config={"step_output": _host_health_output()})
         check.run()
         assert check._passed is True, check._error
-        # report + gpu + thermal + memory subtests, all passing.
+        # report + alerts subtests, both passing.
         subtests = [r for r in check._subtest_results if r["name"].startswith("host_m-001_")]
-        assert len(subtests) == 4
+        assert {r["name"] for r in subtests} == {"host_m-001_report", "host_m-001_alerts"}
         assert all(r["passed"] for r in subtests)
-
-    def test_missing_category_is_not_fatal_by_default(self) -> None:
-        """A missing category is informational by default (NICo alert-driven model)."""
-        categories = {"gpu": _category(), "thermal": _category(), "memory": _category(present=False)}
-        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[_host(categories=categories)])})
-        check.run()
-        assert check._passed is True, check._error
-        mem = next(r for r in check._subtest_results if r["name"] == "host_m-001_memory")
-        assert mem["skipped"] is True
-
-    def test_missing_report_fails(self) -> None:
-        """A host the health API returns nothing for fails the baseline check."""
-        host = _host(health_present=False)
-        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[host])})
-        check.run()
-        assert check._passed is False
-        assert "no health report" in check._error
-        report = next(r for r in check._subtest_results if r["name"] == "host_m-001_report")
-        assert report["passed"] is False
-
-    def test_report_with_no_categories_passes(self) -> None:
-        """A fresh report with no recognized categories still passes by default."""
-        categories = {
-            "gpu": _category(present=False),
-            "thermal": _category(present=False),
-            "memory": _category(present=False),
-        }
-        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[_host(categories=categories)])})
-        check.run()
-        assert check._passed is True, check._error
 
     def test_step_failure(self) -> None:
         """A failed step is reported with its error detail."""
@@ -190,49 +157,107 @@ class TestHostHealthCheck:
         assert check._passed is False
         assert "No hosts" in check._error
 
-    def test_missing_required_category_fails_when_required(self) -> None:
-        """With require_present enabled, a host missing the memory signal fails coverage."""
-        categories = {"gpu": _category(), "thermal": _category(), "memory": _category(present=False)}
-        check = HostHealthCheck(
-            config={
-                "step_output": _host_health_output(hosts=[_host(categories=categories)]),
-                "require_present": True,
-            }
+    def test_missing_report_fails(self) -> None:
+        """A host the health API returns nothing for fails the baseline check."""
+        host = _host(health_present=False, probe_ids=[])
+        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[host])})
+        check.run()
+        assert check._passed is False
+        assert "no health report" in check._error
+        report = next(r for r in check._subtest_results if r["name"] == "host_m-001_report")
+        assert report["passed"] is False
+
+    def test_any_alert_fails_by_default(self) -> None:
+        """By default any alert (regardless of classification) fails the host."""
+        host = _host(alerts=[_alert(probe_id="HeartbeatTimeout", message="dpu agent silent")])
+        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[host])})
+        check.run()
+        assert check._passed is False
+        assert "HeartbeatTimeout" in check._error
+        alerts_sub = next(r for r in check._subtest_results if r["name"] == "host_m-001_alerts")
+        assert alerts_sub["passed"] is False
+        assert "HeartbeatTimeout" in alerts_sub["message"]
+
+    def test_leak_detection_alert_fails(self) -> None:
+        """A liquid-cooling leak (BmcLeakDetection/Leak) fails the host."""
+        host = _host(
+            probe_ids=["BmcSensor", "BmcLeakDetection"],
+            alerts=[
+                _alert(
+                    probe_id="BmcLeakDetection",
+                    target="RackLeakDetector_1",
+                    message="Leak detector reports leak",
+                    classifications=["Leak"],
+                )
+            ],
         )
+        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[host])})
         check.run()
         assert check._passed is False
-        assert "missing memory" in check._error
-        mem = next(r for r in check._subtest_results if r["name"] == "host_m-001_memory")
-        assert mem["passed"] is False
+        alerts_sub = next(r for r in check._subtest_results if r["name"] == "host_m-001_alerts")
+        assert alerts_sub["passed"] is False
+        assert "BmcLeakDetection" in alerts_sub["message"]
+        assert "Leak" in alerts_sub["message"]
 
-    def test_alerting_category_fails(self) -> None:
-        """A present-but-alerting category fails and names the alert."""
-        categories = {
-            "gpu": _category(),
-            "thermal": _category(healthy=False, probes=[], alerts=[{"id": "Temperature", "message": "overtemp"}]),
-            "memory": _category(),
-        }
-        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[_host(categories=categories)])})
-        check.run()
-        assert check._passed is False
-        assert "thermal unhealthy" in check._error
-        thermal = next(r for r in check._subtest_results if r["name"] == "host_m-001_thermal")
-        assert thermal["passed"] is False
-        assert "overtemp" in thermal["message"]
-
-    def test_required_categories_override(self) -> None:
-        """Only the configured categories are required."""
-        categories = {"gpu": _category(), "thermal": _category(present=False), "memory": _category(present=False)}
+    def test_fail_on_classifications_scopes_failures(self) -> None:
+        """With fail_on_classifications set, only matching alerts are blocking."""
+        host = _host(
+            alerts=[
+                _alert(probe_id="BmcSensor", message="warn", classifications=["SensorWarning"]),
+            ],
+        )
         check = HostHealthCheck(
             config={
-                "step_output": _host_health_output(hosts=[_host(categories=categories)]),
-                "required_categories": ["gpu"],
+                "step_output": _host_health_output(hosts=[host]),
+                "fail_on_classifications": ["SensorCritical", "SensorFailure", "Leak"],
             }
         )
         check.run()
         assert check._passed is True, check._error
-        names = {r["name"] for r in check._subtest_results}
-        assert names == {"host_m-001_report", "host_m-001_gpu"}
+        alerts_sub = next(r for r in check._subtest_results if r["name"] == "host_m-001_alerts")
+        assert alerts_sub["passed"] is True
+
+    def test_fail_on_classifications_catches_matching_alert(self) -> None:
+        """A matching classification still fails when fail_on_classifications is set."""
+        host = _host(
+            alerts=[_alert(probe_id="BmcSensor", message="crit", classifications=["SensorCritical"])],
+        )
+        check = HostHealthCheck(
+            config={
+                "step_output": _host_health_output(hosts=[host]),
+                "fail_on_classifications": ["SensorCritical"],
+            }
+        )
+        check.run()
+        assert check._passed is False
+        assert "BmcSensor" in check._error
+
+    def test_require_probes_coverage(self) -> None:
+        """require_probes enforces that specific probe IDs are present."""
+        host = _host(probe_ids=["BgpDaemonEnabled"])
+        check = HostHealthCheck(
+            config={
+                "step_output": _host_health_output(hosts=[host]),
+                "require_probes": ["BmcSensor"],
+            }
+        )
+        check.run()
+        assert check._passed is False
+        assert "missing probes BmcSensor" in check._error
+        probes_sub = next(r for r in check._subtest_results if r["name"] == "host_m-001_probes")
+        assert probes_sub["passed"] is False
+
+    def test_require_probes_present_passes(self) -> None:
+        """require_probes passes when the required probe IDs are present."""
+        host = _host(probe_ids=["BmcSensor", "BgpDaemonEnabled"])
+        check = HostHealthCheck(
+            config={
+                "step_output": _host_health_output(hosts=[host]),
+                "require_probes": ["BmcSensor"],
+            }
+        )
+        check.run()
+        assert check._passed is True, check._error
 
     def test_freshness_stale_fails(self) -> None:
         """An observation older than max_observation_age_seconds fails."""

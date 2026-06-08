@@ -31,8 +31,9 @@
 #   - query_metrics.py aggregates per-status node and GPU counts into the
 #     Delivered / Healthy / Reserved / Active governance buckets;
 #     GovernanceMetricsCheck verifies the API contract (CAP01-01).
-#   - query_host_health.py maps machine health probes into GPU/thermal/memory
-#     categories; HostHealthCheck validates per-host coverage (CAP05-01).
+#   - query_host_health.py reports each machine's health probes, alerts, and
+#     classifications; HostHealthCheck validates the per-host report is
+#     alert-free (CAP05-01). Leak detection (BmcLeakDetection/Leak) is included.
 #   - query_health_aggregation.py rolls host health up to the nodegroup
 #     primitive; HealthAggregationCheck validates it (CAP05-02).
 #

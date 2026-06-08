@@ -16,12 +16,20 @@
 
 """Query per-host health for all machines at a NICo site (CAP05-01).
 
-NICo exposes host health as a probe report (``health.successes`` and
-``health.alerts``), where each probe has a stable ``id`` and an optional
-``target`` component. This script maps those probes into the GPU-state,
-thermal, and memory-health categories NVIDIA requires a per-host health API to
-surface, and reports the freshness of the observation so the validation can
-confirm the data is real-time.
+NICo exposes host health as an alert-driven report (``health.successes`` and
+``health.alerts``): a healthy subsystem is simply the absence of an alert, so a
+passing per-category probe is not guaranteed. Each probe has a stable ``id``
+(e.g. ``BmcSensor``, ``BmcLeakDetection``, ``HeartbeatTimeout``), an optional
+``target`` component, and ``classifications`` (e.g. ``SensorCritical``,
+``Leak``). This script reports, per host, the probe IDs the API returned, every
+alert with its classifications, and the observation freshness, so the
+validation can assert the per-host health API works and the host is healthy.
+
+It additionally emits an *informational* component breakdown (GPU / thermal /
+memory / cooling) derived from probe targets -- NICo folds a GPU/DIMM
+temperature into a ``BmcSensor`` whose ``target`` names the component, and
+liquid-cooling leaks into ``BmcLeakDetection`` -- but the validation does not
+gate on this breakdown.
 
 NICo API endpoints used:
   GET /v2/org/{org}/carbide/machine?siteId={site_id}&includeMetadata=true
@@ -42,11 +50,19 @@ Required JSON output fields:
         "host_id": "...",
         "chassis_serial": "...",
         "status": "Ready",
+        "health_present": true,
+        "healthy": true,
         "observed_age_seconds": 12,
-        "categories": {
-          "gpu":     {"present": true, "healthy": true,  "probes": ["GpuRemappedRows"], "alerts": []},
-          "thermal": {"present": true, "healthy": true,  "probes": ["Temperature"],     "alerts": []},
-          "memory":  {"present": true, "healthy": false, "probes": [], "alerts": [{"id": "MemoryEcc", "message": "..."}]}
+        "probe_ids": ["BmcSensor", "BgpDaemonEnabled"],
+        "alerts": [
+          {"id": "BmcLeakDetection", "target": "RackLeakDetector_1",
+           "message": "...", "classifications": ["Leak"]}
+        ],
+        "components": {
+          "gpu":     {"present": true, "alerting": false, "probes": ["BmcSensor"]},
+          "thermal": {"present": true, "alerting": false, "probes": ["BmcSensor"]},
+          "memory":  {"present": false, "alerting": false, "probes": []},
+          "cooling": {"present": true, "alerting": false, "probes": ["BmcLeakDetection"]}
         }
       }
     ]
@@ -59,7 +75,9 @@ Usage:
       uv run isvctl test run -f isvctl/configs/providers/nico/config/bare_metal.yaml
 
 Reference:
-    OpenAPI spec: rest-api/openapi/spec.yaml (HealthReport / HealthProbe* schemas)
+    Probe IDs:        infra-controller docs/architecture/health/health_probe_ids.md
+    Classifications:  infra-controller docs/architecture/health/health_alert_classifications.md
+    OpenAPI spec:     rest-api/openapi/spec.yaml (HealthReport / HealthProbe* schemas)
 """
 
 import argparse
@@ -74,13 +92,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common.nico_client import NicoAuthError, forge_get_all, resolve_auth
 
-# Substring keywords that map a NICo health probe (by id or target) into one of
-# the categories a per-host health API must surface for CAP05-01. Lowercased
-# comparison; a probe matches a category if any keyword appears in its id or target.
-CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
+# Substring keywords that map a NICo health probe (by id/target/message) into an
+# informational hardware component bucket. NICo does not model GPU/thermal/memory
+# as first-class probes -- a GPU or DIMM temperature surfaces as a ``BmcSensor``
+# whose target names the component, and a coolant leak as ``BmcLeakDetection`` --
+# so this breakdown is best-effort and for visibility only. The validation gates
+# on probe IDs, alerts, and classifications, not on these buckets.
+COMPONENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "gpu": ("gpu", "nvlink", "nvswitch", "nvml", "xid", "vbios", "vgpu"),
-    "thermal": ("temp", "thermal", "fan", "coolant", "cooling"),
+    "thermal": ("temp", "thermal", "fan"),
     "memory": ("memory", "ecc", "dimm", "rowremap", "row_remap", "hbm", "sram"),
+    "cooling": ("leak", "coolant", "cooling", "cdu", "liquid", "water"),
 }
 
 
@@ -96,35 +118,51 @@ def _probe_text(probe: dict[str, Any]) -> str:
 
 
 def _matches_keywords(text: str, keywords: tuple[str, ...]) -> bool:
-    """Check whether precomputed probe text contains any category keyword."""
+    """Check whether precomputed probe text contains any component keyword."""
     return any(keyword in text for keyword in keywords)
 
 
-def categorize_health(health: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Map a NICo health report into per-category presence/health summaries."""
+def _classifications(probe: dict[str, Any]) -> list[str]:
+    """Return a probe's classification strings, tolerating null/missing values."""
+    return [c for c in (probe.get("classifications") or []) if isinstance(c, str)]
+
+
+def summarize_alert(alert: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a NICo health alert to the provider-neutral fields validations use."""
+    return {
+        "id": alert.get("id", ""),
+        "target": alert.get("target", ""),
+        "message": alert.get("message", ""),
+        "classifications": _classifications(alert),
+    }
+
+
+def component_breakdown(health: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Map a NICo health report into an informational per-component summary."""
     successes = health.get("successes") or []
     alerts = health.get("alerts") or []
 
-    # Compute each probe's match text once, then reuse it across every category
-    # rather than rebuilding the lowercased string per (probe, category) pair.
+    # Compute each probe's match text once, then reuse it across every component
+    # rather than rebuilding the lowercased string per (probe, component) pair.
     success_texts = [(s, _probe_text(s)) for s in successes]
     alert_texts = [(a, _probe_text(a)) for a in alerts]
 
-    categories: dict[str, dict[str, Any]] = {}
-    for category, keywords in CATEGORY_KEYWORDS.items():
-        probe_ids = [s.get("id", "") for s, text in success_texts if _matches_keywords(text, keywords) and s.get("id")]
-        cat_alerts = [
-            {"id": a.get("id", ""), "target": a.get("target", ""), "message": a.get("message", "")}
-            for a, text in alert_texts
-            if _matches_keywords(text, keywords)
-        ]
-        categories[category] = {
-            "present": bool(probe_ids or cat_alerts),
-            "healthy": len(cat_alerts) == 0,
+    components: dict[str, dict[str, Any]] = {}
+    for component, keywords in COMPONENT_KEYWORDS.items():
+        probe_ids = sorted(
+            {
+                s.get("id", "")
+                for s, text in (*success_texts, *alert_texts)
+                if _matches_keywords(text, keywords) and s.get("id")
+            }
+        )
+        alerting = any(_matches_keywords(text, keywords) for _, text in alert_texts)
+        components[component] = {
+            "present": bool(probe_ids),
+            "alerting": alerting,
             "probes": probe_ids,
-            "alerts": cat_alerts,
         }
-    return categories
+    return components
 
 
 def observed_age_seconds(health: dict[str, Any], *, now: datetime | None = None) -> int | None:
@@ -147,8 +185,34 @@ def observed_age_seconds(health: dict[str, Any], *, now: datetime | None = None)
     return max(0, int((reference - parsed).total_seconds()))
 
 
+def host_health(machine: dict[str, Any]) -> dict[str, Any]:
+    """Build the per-host health record from a NICo machine payload."""
+    health = machine.get("health") or {}
+    successes = health.get("successes") or []
+    alerts = health.get("alerts") or []
+    chassis_serial = ((machine.get("metadata") or {}).get("dmiData") or {}).get("chassisSerial", "")
+
+    probe_ids = sorted({p.get("id", "") for p in (*successes, *alerts) if p.get("id")})
+    # The health API returned a report for this host if it carries any probe data
+    # or an observation timestamp (NICo only lists alerts on failure, so a healthy
+    # host can have an empty successes list).
+    health_present = bool(successes or alerts or health.get("observedAt"))
+
+    return {
+        "host_id": machine.get("id", ""),
+        "chassis_serial": chassis_serial,
+        "status": machine.get("status", "Unknown"),
+        "health_present": health_present,
+        "healthy": len(alerts) == 0,
+        "observed_age_seconds": observed_age_seconds(health),
+        "probe_ids": probe_ids,
+        "alerts": [summarize_alert(a) for a in alerts],
+        "components": component_breakdown(health),
+    }
+
+
 def main() -> int:
-    """Query NICo machine health and print per-host category health JSON."""
+    """Query NICo machine health and print per-host health JSON to stdout."""
     parser = argparse.ArgumentParser(description="Query per-host health on NICo machines")
     parser.add_argument("--org", required=True, help="NGC org name")
     parser.add_argument("--site-id", required=True, help="NICo site UUID")
@@ -175,26 +239,7 @@ def main() -> int:
             result_key="machines",
         )
 
-        for machine in machines:
-            health = machine.get("health") or {}
-            chassis_serial = ((machine.get("metadata") or {}).get("dmiData") or {}).get("chassisSerial", "")
-            # The health API returned a report for this host if it carries any
-            # probe data or an observation timestamp (NICo only lists alerts on
-            # failure, so a healthy host can have an empty successes list).
-            health_present = bool(
-                (health.get("successes") or []) or (health.get("alerts") or []) or health.get("observedAt")
-            )
-            result["hosts"].append(
-                {
-                    "host_id": machine.get("id", ""),
-                    "chassis_serial": chassis_serial,
-                    "status": machine.get("status", "Unknown"),
-                    "health_present": health_present,
-                    "observed_age_seconds": observed_age_seconds(health),
-                    "categories": categorize_health(health),
-                }
-            )
-
+        result["hosts"] = [host_health(machine) for machine in machines]
         result["hosts_checked"] = len(result["hosts"])
         result["success"] = True
 

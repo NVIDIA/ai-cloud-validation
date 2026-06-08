@@ -609,11 +609,11 @@ def test_governance_script_output_satisfies_validation_contract(
     assert check._passed is True, check._error
 
 
-def test_host_health_script_categorizes_probes(
+def test_host_health_script_reports_probes_and_components(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Health probes should be mapped into GPU/thermal/memory categories."""
+    """The script reports probe IDs and an informational component breakdown."""
     module = _load_host_health_script()
     machines = [
         {
@@ -623,9 +623,8 @@ def test_host_health_script_categorizes_probes(
             "health": {
                 "observedAt": None,
                 "successes": [
-                    {"id": "GpuRemappedRows", "target": "GPU0"},
-                    {"id": "Temperature", "target": "CPU1 Temp"},
-                    {"id": "MemoryEcc", "target": "DIMM_A1"},
+                    {"id": "BmcSensor", "target": "GPU0_Temp", "message": "temperature 'GPU0_Temp': OK"},
+                    {"id": "BmcSensor", "target": "DIMM_A1", "message": "temperature 'DIMM_A1': OK"},
                     {"id": "BgpDaemonEnabled", "target": None},
                 ],
                 "alerts": [],
@@ -641,17 +640,21 @@ def test_host_health_script_categorizes_probes(
     assert host["host_id"] == "m-1"
     assert host["chassis_serial"] == "SER-1"
     assert host["health_present"] is True
-    cats = host["categories"]
-    assert cats["gpu"] == {"present": True, "healthy": True, "probes": ["GpuRemappedRows"], "alerts": []}
-    assert cats["thermal"]["present"] is True and cats["thermal"]["probes"] == ["Temperature"]
-    assert cats["memory"]["present"] is True and cats["memory"]["probes"] == ["MemoryEcc"]
+    assert host["healthy"] is True
+    assert host["probe_ids"] == ["BgpDaemonEnabled", "BmcSensor"]
+    assert host["alerts"] == []
+    # Informational component breakdown: the GPU/DIMM temp sensors map to those buckets.
+    comps = host["components"]
+    assert comps["gpu"]["present"] is True and comps["gpu"]["probes"] == ["BmcSensor"]
+    assert comps["thermal"]["present"] is True
+    assert comps["memory"]["present"] is True
 
 
-def test_host_health_script_flags_category_alert(
+def test_host_health_script_surfaces_alert_classifications(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """An alert on a GPU target should mark the gpu category unhealthy."""
+    """Alerts (incl. leak detection) are surfaced with their classifications."""
     module = _load_host_health_script()
     machines = [
         {
@@ -659,19 +662,26 @@ def test_host_health_script_flags_category_alert(
             "status": "Error",
             "health": {
                 "successes": None,
-                "alerts": [{"id": "GpuXidError", "target": "GPU3", "message": "Xid 79"}],
+                "alerts": [
+                    {
+                        "id": "BmcLeakDetection",
+                        "target": "RackLeakDetector_1",
+                        "message": "Leak detector reports leak",
+                        "classifications": ["Leak", "LeakDetector"],
+                    }
+                ],
             },
         }
     ]
 
     payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
 
-    cats = payload["hosts"][0]["categories"]
-    assert cats["gpu"]["present"] is True
-    assert cats["gpu"]["healthy"] is False
-    assert cats["gpu"]["alerts"][0]["message"] == "Xid 79"
-    # No thermal or memory probes were returned for this host.
-    assert cats["thermal"] == {"present": False, "healthy": True, "probes": [], "alerts": []}
+    host = payload["hosts"][0]
+    assert host["healthy"] is False
+    assert host["alerts"][0]["id"] == "BmcLeakDetection"
+    assert host["alerts"][0]["classifications"] == ["Leak", "LeakDetector"]
+    assert host["components"]["cooling"]["present"] is True
+    assert host["components"]["cooling"]["alerting"] is True
 
 
 def test_host_health_script_computes_observation_age(
@@ -690,36 +700,6 @@ def test_host_health_script_computes_observation_age(
     age = payload["hosts"][0]["observed_age_seconds"]
     assert isinstance(age, int)
     assert 40 <= age <= 120
-
-
-def test_host_health_script_output_satisfies_validation_contract(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """End-to-end: NICo host-health JSON should pass HostHealthCheck."""
-    from isvtest.validations.health import HostHealthCheck
-
-    module = _load_host_health_script()
-    machines = [
-        {
-            "id": "m-1",
-            "status": "Ready",
-            "health": {
-                "successes": [
-                    {"id": "GpuRemappedRows", "target": "GPU0"},
-                    {"id": "Temperature", "target": "GPU0 Temp"},
-                    {"id": "GpuMemoryEcc", "target": "GPU0"},
-                ],
-                "alerts": [],
-            },
-        }
-    ]
-
-    payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
-
-    check = HostHealthCheck(config={"step_output": payload})
-    check.run()
-    assert check._passed is True, check._error
 
 
 def test_governance_script_surfaces_api_errors(
@@ -761,11 +741,11 @@ def test_host_health_real_world_bmc_sensors_pass_by_default(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A healthy NICo host (BmcSensor probes, no memory probe) passes by default.
+    """A healthy NICo host (BmcSensor probes, no alerts) passes by default.
 
-    Mirrors a live NICo site where machine health surfaces BMC sensors (mapped
-    to thermal/gpu by target) but no dedicated memory probe. With the default
-    config (require_present false), the absent memory category must not fail.
+    Mirrors a live NICo site where machine health surfaces BMC sensors and no
+    alerts. HostHealthCheck should pass: a report is returned and there are no
+    alerts -- no dedicated memory probe is required.
     """
     from isvtest.validations.health import HostHealthCheck
 
@@ -790,12 +770,46 @@ def test_host_health_real_world_bmc_sensors_pass_by_default(
 
     host = payload["hosts"][0]
     assert host["health_present"] is True
-    assert host["categories"]["thermal"]["present"] is True
-    assert host["categories"]["memory"]["present"] is False
+    assert host["healthy"] is True
+    assert host["components"]["memory"]["present"] is False
 
     check = HostHealthCheck(config={"step_output": payload})
     check.run()
     assert check._passed is True, check._error
+
+
+def test_host_health_leak_alert_fails_validation_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: a leak-detection alert flows through to a HostHealthCheck failure."""
+    from isvtest.validations.health import HostHealthCheck
+
+    module = _load_host_health_script()
+    machines = [
+        {
+            "id": "m-1",
+            "status": "Error",
+            "health": {
+                "successes": [{"id": "BmcSensor", "target": "GPU0_Temp", "message": "temperature 'GPU0_Temp': OK"}],
+                "alerts": [
+                    {
+                        "id": "BmcLeakDetection",
+                        "target": "TrayLeakDetector_3",
+                        "message": "2 leaking trays",
+                        "classifications": ["Leak"],
+                    }
+                ],
+            },
+        }
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
+
+    check = HostHealthCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is False
+    assert "BmcLeakDetection" in check._error or "1 alert(s)" in check._error
 
 
 # ---------------------------------------------------------------------------

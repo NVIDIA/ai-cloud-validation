@@ -34,11 +34,6 @@ from typing import Any, ClassVar
 
 from isvtest.core.validation import BaseValidation
 
-# Health categories a per-host health API must surface for CAP05-01. The step
-# script is responsible for mapping provider-specific probes into these
-# categories; the validation only checks the resulting per-category summary.
-DEFAULT_REQUIRED_CATEGORIES: tuple[str, ...] = ("gpu", "thermal", "memory")
-
 
 def _host_label(host: dict[str, Any]) -> str:
     """Human-facing identifier for a host record."""
@@ -46,27 +41,28 @@ def _host_label(host: dict[str, Any]) -> str:
 
 
 class HostHealthCheck(BaseValidation):
-    """Validate the per-host health API returns a fresh, healthy report.
+    """Validate the per-host health API returns a fresh, alert-free report.
 
-    NICo (and similar providers) expose host health as an alert-driven report:
-    a healthy subsystem is simply the absence of an alert, so a passing probe
-    per category is not guaranteed. This check therefore asserts, for every
-    host, that the health API returns a report and that any health categories
-    it does surface (GPU state, thermal status, memory health) are not
-    alerting. Category *coverage* can additionally be required via
-    ``require_present`` for providers whose API enumerates every category.
+    NICo exposes host health as an alert-driven report keyed on probe IDs
+    (``BmcSensor``, ``BmcLeakDetection``, ``HeartbeatTimeout``, ...) and alert
+    ``classifications`` (``SensorCritical``, ``Leak``, ...): a healthy subsystem
+    is simply the absence of an alert. This check asserts, for every host, that
+    the per-host health API returns a report and that the host carries no
+    blocking alerts. By default *any* alert is blocking; set
+    ``fail_on_classifications`` to narrow that to specific severities.
 
     Config:
         step_output: Step output containing per-host health data.
-        required_categories: Categories to evaluate (default: ["gpu", "thermal",
-            "memory"]). A category that is present must be healthy; a missing
-            one only fails when ``require_present`` is true.
         require_report: Whether each host must return a health report at all
             (default: true) -- the baseline "the per-host health API works"
             assertion.
-        require_present: Whether each required category must expose at least one
-            probe (default: false). Enable for providers whose health API
-            enumerates GPU/thermal/memory coverage explicitly.
+        fail_on_classifications: Optional list of alert classifications that are
+            blocking (e.g. ["SensorCritical", "SensorFailure", "Leak"]). When
+            omitted (default), ANY alert fails the host, matching how
+            DpuHealthCheck and HardwareIngestionCheck treat alerts.
+        require_probes: Optional list of probe IDs that must be present for each
+            host (default: [] = coverage not enforced). Use to require specific
+            signals, e.g. ["BmcSensor"] or ["BmcLeakDetection"].
         max_observation_age_seconds: When set, each host's health observation
             must be no older than this many seconds (default: None = freshness
             not enforced).
@@ -81,21 +77,28 @@ class HostHealthCheck(BaseValidation):
             chassis_serial: str -- debug aid only, may be empty
             status: str
             health_present: bool -- the API returned any health data for the host
+            healthy: bool -- no alerts at all
             observed_age_seconds: int | None -- age of the health observation
-            categories: dict[str, dict]:
-                <category>:
-                    present: bool -- the API surfaced at least one probe
-                    healthy: bool -- no alerts in this category
-                    probes: list[str] -- probe IDs contributing to this category
-                    alerts: list[dict] -- alerting probes ({id, message})
+            probe_ids: list[str] -- distinct probe IDs the API returned
+            alerts: list[dict] -- {id, target, message, classifications}
+            components: dict -- informational GPU/thermal/memory/cooling breakdown
     """
 
-    description: ClassVar[str] = "Check per-host health API returns a fresh, healthy report"
+    description: ClassVar[str] = "Check per-host health API returns a fresh, alert-free report"
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("bare_metal", "health")
 
+    def _blocking_alerts(self, host: dict[str, Any], fail_on: list[str] | None) -> list[dict[str, Any]]:
+        """Return the host alerts that count as blocking under the config."""
+        alerts = host.get("alerts") or []
+        if fail_on is None:
+            # Default: any alert is blocking (parity with the other BM checks).
+            return list(alerts)
+        wanted = set(fail_on)
+        return [a for a in alerts if wanted.intersection(a.get("classifications") or [])]
+
     def run(self) -> None:
-        """Validate per-host report presence, category health, coverage, and freshness."""
+        """Validate per-host report presence, absence of alerts, coverage, and freshness."""
         step_output = self.config.get("step_output", {})
 
         if not step_output.get("success"):
@@ -107,9 +110,9 @@ class HostHealthCheck(BaseValidation):
             self.set_failed("No hosts found in step output")
             return
 
-        required_categories = self.config.get("required_categories", list(DEFAULT_REQUIRED_CATEGORIES))
         require_report = self.config.get("require_report", True)
-        require_present = self.config.get("require_present", False)
+        fail_on_classifications = self.config.get("fail_on_classifications")
+        require_probes = self.config.get("require_probes", [])
         max_age = self.config.get("max_observation_age_seconds")
 
         # Maps each failing host label to a short reason for the summary line.
@@ -117,7 +120,6 @@ class HostHealthCheck(BaseValidation):
 
         for host in hosts:
             label = _host_label(host)
-            categories = host.get("categories") or {}
 
             # Baseline: the per-host health API must return a report at all.
             if require_report:
@@ -133,50 +135,47 @@ class HostHealthCheck(BaseValidation):
                 self.report_subtest(
                     f"host_{label}_report",
                     passed=True,
-                    message=f"Host {label}: health report returned",
+                    message=f"Host {label}: health report returned ({len(host.get('probe_ids') or [])} probe(s))",
                 )
 
-            for category in required_categories:
-                summary = categories.get(category) or {}
-                present = bool(summary.get("present"))
-                healthy = bool(summary.get("healthy"))
-                probes = summary.get("probes") or []
-                alerts = summary.get("alerts") or []
+            # Alerts: by default any alert is blocking; otherwise only those whose
+            # classifications match fail_on_classifications.
+            blocking = self._blocking_alerts(host, fail_on_classifications)
+            if blocking:
+                detail = "; ".join(
+                    f"{a.get('id', '?')}[{','.join(a.get('classifications') or []) or 'unclassified'}]: "
+                    f"{a.get('message', '?')}"
+                    for a in blocking
+                )
+                self.report_subtest(
+                    f"host_{label}_alerts",
+                    passed=False,
+                    message=f"Host {label}: {len(blocking)} alert(s) -- {detail}",
+                )
+                alert_ids = ", ".join(sorted({a.get("id", "?") for a in blocking}))
+                failed.setdefault(label, f"alerts: {alert_ids}")
+            else:
+                self.report_subtest(
+                    f"host_{label}_alerts",
+                    passed=True,
+                    message=f"Host {label}: no {'blocking ' if fail_on_classifications else ''}alerts",
+                )
 
-                if not present:
-                    if require_present:
-                        self.report_subtest(
-                            f"host_{label}_{category}",
-                            passed=False,
-                            message=f"Host {label}: no {category} health signal returned by the API",
-                        )
-                        failed.setdefault(label, f"missing {category}")
-                    else:
-                        self.report_subtest(
-                            f"host_{label}_{category}",
-                            passed=True,
-                            skipped=True,
-                            message=f"Host {label}: no {category} signal returned (coverage not enforced)",
-                        )
-                    continue
-
-                if not healthy:
-                    alert_msgs = (
-                        "; ".join(f"{a.get('id', '?')}: {a.get('message', '?')}" for a in alerts)
-                        if alerts
-                        else "alerting (no detail)"
-                    )
+            if require_probes:
+                present = set(host.get("probe_ids") or [])
+                missing = [p for p in require_probes if p not in present]
+                if missing:
                     self.report_subtest(
-                        f"host_{label}_{category}",
+                        f"host_{label}_probes",
                         passed=False,
-                        message=f"Host {label}: {category} unhealthy -- {alert_msgs}",
+                        message=f"Host {label}: missing required probe(s): {', '.join(missing)}",
                     )
-                    failed.setdefault(label, f"{category} unhealthy")
+                    failed.setdefault(label, f"missing probes {', '.join(missing)}")
                 else:
                     self.report_subtest(
-                        f"host_{label}_{category}",
+                        f"host_{label}_probes",
                         passed=True,
-                        message=f"Host {label}: {category} healthy ({len(probes)} probe(s))",
+                        message=f"Host {label}: required probe(s) present: {', '.join(require_probes)}",
                     )
 
             if max_age is not None:
