@@ -91,12 +91,12 @@ class HardwareIngestionCheck(BaseValidation):
 
         # Check for missing machines (expected but not ingested)
         missing = step_output.get("missing", [])
+        missing_ids = ", ".join(_machine_label(m) for m in missing)
         if missing:
-            serial_list = ", ".join(_machine_label(m) for m in missing)
             self.report_subtest(
                 "missing_machines",
                 passed=False,
-                message=f"{len(missing)} expected machine(s) not ingested: {serial_list}",
+                message=f"{len(missing)} expected machine(s) not ingested: {missing_ids}",
             )
 
         # Report extra machines as informational (not a failure in shared environments)
@@ -164,7 +164,6 @@ class HardwareIngestionCheck(BaseValidation):
         if missing or bad_status_machines or (require_healthy and unhealthy_machines):
             issues: list[str] = []
             if missing:
-                missing_ids = ", ".join(_machine_label(m) for m in missing)
                 issues.append(f"{len(missing)} missing [{missing_ids}]")
             if bad_status_machines:
                 issues.append(f"{len(bad_status_machines)} bad status [{', '.join(bad_status_machines)}]")
@@ -229,10 +228,13 @@ class DpuHealthCheck(BaseValidation):
         expected_dpu_count = self.config.get("expected_dpu_count")
         require_heartbeat = self.config.get("require_heartbeat", True)
 
-        failed_machines: list[str] = []
+        # Maps the label of each failing machine to its chassis serial (insertion
+        # order preserved, so the failure summary lists machines in scan order).
+        failed: dict[str, str] = {}
 
         for machine in machines:
             label = _machine_label(machine)
+            serial = machine.get("chassis_serial") or "n/a"
 
             # Check DPU count
             dpu_count = machine.get("dpu_count", 0)
@@ -242,7 +244,7 @@ class DpuHealthCheck(BaseValidation):
                     passed=False,
                     message=f"Machine {label}: no DPUs detected",
                 )
-                failed_machines.append(label)
+                failed[label] = serial
                 # Still check alerts below -- there may be relevant health info
 
             elif expected_dpu_count is not None and dpu_count != expected_dpu_count:
@@ -251,8 +253,7 @@ class DpuHealthCheck(BaseValidation):
                     passed=False,
                     message=(f"Machine {label}: expected {expected_dpu_count} DPUs, got {dpu_count}"),
                 )
-                if label not in failed_machines:
-                    failed_machines.append(label)
+                failed[label] = serial
                 # Don't continue -- still check heartbeat and alerts
 
             else:
@@ -270,8 +271,7 @@ class DpuHealthCheck(BaseValidation):
                     passed=False,
                     message=f"Machine {label}: DPU agent heartbeat missing",
                 )
-                if label not in failed_machines:
-                    failed_machines.append(label)
+                failed[label] = serial
             elif heartbeat:
                 self.report_subtest(
                     f"dpu_heartbeat_{label}",
@@ -293,8 +293,7 @@ class DpuHealthCheck(BaseValidation):
                     passed=False,
                     message=f"Machine {label}: {alert_msgs}",
                 )
-                if label not in failed_machines:
-                    failed_machines.append(label)
+                failed[label] = serial
             else:
                 self.report_subtest(
                     f"dpu_health_{label}",
@@ -314,10 +313,9 @@ class DpuHealthCheck(BaseValidation):
 
         # Overall result
         total = len(machines)
-        if failed_machines:
-            serial_by_label = {_machine_label(m): (m.get("chassis_serial") or "n/a") for m in machines}
-            failed_desc = ", ".join(f"{lbl} (serial={serial_by_label.get(lbl, 'n/a')})" for lbl in failed_machines)
-            self.set_failed(f"DPU health issues on {len(failed_machines)}/{total} machine(s): {failed_desc}")
+        if failed:
+            failed_desc = ", ".join(f"{lbl} (serial={ser})" for lbl, ser in failed.items())
+            self.set_failed(f"DPU health issues on {len(failed)}/{total} machine(s): {failed_desc}")
         else:
             self.set_passed(f"All {total} machine(s) have healthy DPUs")
 

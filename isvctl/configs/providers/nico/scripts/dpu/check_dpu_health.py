@@ -67,7 +67,7 @@ from typing import Any
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.nico_client import NicoAuthError, forge_get_all, resolve_auth, sum_capabilities
+from common.nico_client import NicoAuthError, classify_health, forge_get_all, resolve_auth, sum_capabilities
 
 # Known DPU-related alert targets and probe IDs from the NICo API.
 # The stub uses these for pre-filtering; the validation class should
@@ -158,14 +158,12 @@ def main() -> int:
             # Count DPU capabilities (sum count field, not entries)
             dpu_count = sum_capabilities(capabilities, "DPU")
 
-            dpu_capability = None
-            if dpu_caps:
-                first_dpu = dpu_caps[0]
-                dpu_capability = {
-                    "type": "DPU",
-                    "name": first_dpu.get("name", "Unknown"),
-                    "count": dpu_count,
-                }
+            # dpu_caps is non-empty here -- machines without a DPU are skipped above.
+            dpu_capability = {
+                "type": "DPU",
+                "name": dpu_caps[0].get("name", "Unknown"),
+                "count": dpu_count,
+            }
 
             # Extract health data
             health_successes = _extract_health_successes(health)
@@ -177,8 +175,8 @@ def main() -> int:
             ]
             heartbeat = _has_dpu_heartbeat(health)
 
-            # health_summary: unhealthy if ANY alerts (not just DPU-filtered ones)
-            health_summary = "unhealthy" if all_alerts else "healthy"
+            # health_summary covers ANY alerts, not just the DPU-filtered ones above.
+            health_summary = classify_health(health)
 
             result["machines"].append(
                 {

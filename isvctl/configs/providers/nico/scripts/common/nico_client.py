@@ -246,7 +246,8 @@ def forge_get_all(
 
         resp = forge_get(org, path, token, base_url=base_url, params=page_params, timeout=timeout)
 
-        # Extract items from response
+        # The NICo API is not uniform: some endpoints return a bare JSON list,
+        # others wrap the array under result_key (or another well-known key).
         if isinstance(resp, list):
             items = resp
         elif result_key and result_key in resp:

@@ -172,6 +172,40 @@ def test_nico_auth_uses_oidc_client_credentials(monkeypatch: pytest.MonkeyPatch)
     ]
 
 
+def test_forge_get_all_handles_bare_list_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Some NICo endpoints return a top-level JSON list rather than a wrapped object."""
+    module = _load_nico_client()
+
+    def fake_forge_get(org, path, token, *, base_url, params=None, timeout=30):
+        # First page is full (== effective page size) so pagination continues;
+        # the short second page ends it.
+        if int(params["pageNumber"]) == 1:
+            return [{"id": f"m-{i}"} for i in range(100)]
+        return [{"id": "m-100"}]
+
+    monkeypatch.setattr(module, "forge_get", fake_forge_get)
+
+    items = module.forge_get_all("org", "machine", "tok", base_url="http://x", result_key="machines")
+
+    assert len(items) == 101
+    assert items[0] == {"id": "m-0"}
+    assert items[-1] == {"id": "m-100"}
+
+
+def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Other NICo endpoints wrap the results array under result_key."""
+    module = _load_nico_client()
+
+    def fake_forge_get(org, path, token, *, base_url, params=None, timeout=30):
+        return {"machines": [{"id": "m-1"}], "pageNumber": 1}
+
+    monkeypatch.setattr(module, "forge_get", fake_forge_get)
+
+    items = module.forge_get_all("org", "machine", "tok", base_url="http://x", result_key="machines")
+
+    assert items == [{"id": "m-1"}]
+
+
 @pytest.mark.parametrize("step_name", ["verify_ingestion", "check_dpu_health"])
 def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
     """The shipped NICo bare_metal config should pass a configurable API base to scripts."""
