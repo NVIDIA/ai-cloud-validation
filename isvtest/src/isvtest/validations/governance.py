@@ -16,8 +16,7 @@
 """Governance and capacity-fleet metrics validations.
 
 Validations that assert a provider's governance API exposes the Delivered,
-Healthy, Reserved, and Active capacity metrics for nodes and GPUs (test ID
-CAP01-01).
+Healthy, Reserved, and Active capacity metrics for nodes and GPUs (test ID CAP01-01).
 """
 
 from __future__ import annotations
