@@ -105,6 +105,17 @@ def _load_ingestion_script() -> ModuleType:
     return module
 
 
+def _load_governance_metrics_script() -> ModuleType:
+    """Load the query_metrics (governance) script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "governance" / "query_metrics.py"
+    spec = importlib.util.spec_from_file_location("test_governance_query_metrics", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
 def test_nico_auth_prefers_explicit_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """A locally supplied NICo bearer token should be the simplest auth path."""
     module = _load_nico_client()
@@ -206,7 +217,10 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
     assert items == [{"id": "m-1"}]
 
 
-@pytest.mark.parametrize("step_name", ["verify_ingestion", "check_dpu_health"])
+@pytest.mark.parametrize(
+    "step_name",
+    ["verify_ingestion", "check_dpu_health", "query_governance_metrics"],
+)
 def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
     """The shipped NICo bare_metal config should pass a configurable API base to scripts."""
     merged = merge_yaml_files([NICO_CONFIG / "bare_metal.yaml"])
@@ -224,6 +238,7 @@ def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None
     [
         ("verify_ingestion.py", _load_ingestion_script),
         ("check_dpu_health.py", _load_dpu_health_script),
+        ("query_metrics.py", _load_governance_metrics_script),
     ],
 )
 def test_nico_scripts_require_api_base(
@@ -386,3 +401,183 @@ def test_dpu_health_script_treats_nullable_alert_fields_as_empty(
     assert payload["machines"][0]["health_successes"] == ["DpuDiskUtilizationCheck"]
     assert payload["machines"][0]["health_alerts"] == []
     assert payload["machines"][0]["dpu_agent_heartbeat"] is True
+
+
+# ---------------------------------------------------------------------------
+# query_metrics (governance) script
+# ---------------------------------------------------------------------------
+
+
+def _governance_machine(
+    *,
+    status: str,
+    gpus: int = 8,
+    alerts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a minimal NICo machine payload used to drive the governance script."""
+    return {
+        "id": f"m-{status.lower()}-{gpus}",
+        "status": status,
+        "machineCapabilities": [{"type": "GPU", "name": "H100", "count": gpus}],
+        "health": {"alerts": alerts or []},
+    }
+
+
+def _run_governance_script(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    machines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Drive the governance script with mocked auth/API and return its JSON output."""
+    module = _load_governance_metrics_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", lambda *args, **kwargs: machines)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_metrics.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://127.0.0.1:8080/v2/org",
+        ],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0, payload
+    return payload
+
+
+def test_governance_script_classifies_each_status_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Each MachineStatus value should land in the correct governance bucket."""
+    machines = [
+        _governance_machine(status="Ready", gpus=8),
+        _governance_machine(status="Ready", gpus=8, alerts=[{"id": "FanSpeed"}]),
+        _governance_machine(status="Maintenance", gpus=8),
+        _governance_machine(status="InUse", gpus=8),
+        _governance_machine(status="InUse", gpus=4),
+        _governance_machine(status="Error", gpus=8),
+        # The next two must be ignored entirely so they cannot leak into
+        # Reserved/Active via permissive status matching.
+        _governance_machine(status="Decommissioned", gpus=8),
+        _governance_machine(status="Unknown", gpus=8),
+    ]
+
+    payload = _run_governance_script(monkeypatch, capsys, machines)
+
+    assert payload["success"] is True
+    assert payload["platform"] == "nico"
+    assert payload["site_id"] == "site-1"
+    assert payload["machine_count"] == len(machines)
+
+    metrics = payload["metrics"]
+    # Delivered excludes the Decommissioned + Unknown machines.
+    assert metrics["delivered"] == {"nodes": 6, "gpus": 44}
+    # Healthy excludes the machine with the FanSpeed alert.
+    assert metrics["healthy"] == {"nodes": 5, "gpus": 36}
+    # Reserved = InUse + Maintenance.
+    assert metrics["reserved"] == {"nodes": 3, "gpus": 20}
+    # Active = InUse only.
+    assert metrics["active"] == {"nodes": 2, "gpus": 12}
+
+
+def test_governance_script_empty_site_returns_zero_buckets(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A site with no machines should still emit all four buckets zeroed out."""
+    payload = _run_governance_script(monkeypatch, capsys, machines=[])
+
+    assert payload["machine_count"] == 0
+    assert payload["metrics"] == {
+        "delivered": {"nodes": 0, "gpus": 0},
+        "healthy": {"nodes": 0, "gpus": 0},
+        "reserved": {"nodes": 0, "gpus": 0},
+        "active": {"nodes": 0, "gpus": 0},
+    }
+
+
+def test_governance_script_tolerates_missing_optional_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Nullable capability and health fields must not crash aggregation."""
+    machines = [
+        # No capabilities and no health at all -- counted as delivered + healthy
+        # (no alerts means healthy) but contributes zero GPUs.
+        {"id": "no-caps", "status": "Ready"},
+        # Null inner fields, common in real responses.
+        {"id": "null-fields", "status": "Ready", "machineCapabilities": None, "health": None},
+    ]
+
+    payload = _run_governance_script(monkeypatch, capsys, machines)
+
+    assert payload["metrics"]["delivered"] == {"nodes": 2, "gpus": 0}
+    assert payload["metrics"]["healthy"] == {"nodes": 2, "gpus": 0}
+    assert payload["metrics"]["reserved"] == {"nodes": 0, "gpus": 0}
+    assert payload["metrics"]["active"] == {"nodes": 0, "gpus": 0}
+
+
+def test_governance_script_output_satisfies_validation_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: NICo governance JSON should pass GovernanceMetricsCheck."""
+    from isvtest.validations.governance import GovernanceMetricsCheck
+
+    payload = _run_governance_script(
+        monkeypatch,
+        capsys,
+        machines=[
+            _governance_machine(status="Ready", gpus=8),
+            _governance_machine(status="InUse", gpus=8),
+        ],
+    )
+
+    check = GovernanceMetricsCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is True, check._error
+
+
+def test_governance_script_surfaces_api_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Exceptions from the NICo client should be reported, not raised."""
+    module = _load_governance_metrics_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+
+    def _boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("simulated outage")
+
+    monkeypatch.setattr(module, "forge_get_all", _boom)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_metrics.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://127.0.0.1:8080/v2/org",
+        ],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["success"] is False
+    assert "simulated outage" in payload["error"]
