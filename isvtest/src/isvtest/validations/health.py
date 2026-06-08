@@ -46,20 +46,27 @@ def _host_label(host: dict[str, Any]) -> str:
 
 
 class HostHealthCheck(BaseValidation):
-    """Validate the per-host health API returns GPU, thermal, and memory health.
+    """Validate the per-host health API returns a fresh, healthy report.
 
-    For every host, asserts that the health API surfaces a signal for each
-    required category (default GPU state, thermal status, memory health) and
-    that none of those categories are alerting. Optionally enforces that the
-    health observation is recent ("real-time") via ``max_observation_age_seconds``.
+    NICo (and similar providers) expose host health as an alert-driven report:
+    a healthy subsystem is simply the absence of an alert, so a passing probe
+    per category is not guaranteed. This check therefore asserts, for every
+    host, that the health API returns a report and that any health categories
+    it does surface (GPU state, thermal status, memory health) are not
+    alerting. Category *coverage* can additionally be required via
+    ``require_present`` for providers whose API enumerates every category.
 
     Config:
         step_output: Step output containing per-host health data.
-        required_categories: Categories that must be present and healthy
-            (default: ["gpu", "thermal", "memory"]).
+        required_categories: Categories to evaluate (default: ["gpu", "thermal",
+            "memory"]). A category that is present must be healthy; a missing
+            one only fails when ``require_present`` is true.
+        require_report: Whether each host must return a health report at all
+            (default: true) -- the baseline "the per-host health API works"
+            assertion.
         require_present: Whether each required category must expose at least one
-            probe (default: true). When false, a category with no probes is
-            treated as "nothing to fail" rather than a coverage gap.
+            probe (default: false). Enable for providers whose health API
+            enumerates GPU/thermal/memory coverage explicitly.
         max_observation_age_seconds: When set, each host's health observation
             must be no older than this many seconds (default: None = freshness
             not enforced).
@@ -73,6 +80,7 @@ class HostHealthCheck(BaseValidation):
             host_id: str
             chassis_serial: str -- debug aid only, may be empty
             status: str
+            health_present: bool -- the API returned any health data for the host
             observed_age_seconds: int | None -- age of the health observation
             categories: dict[str, dict]:
                 <category>:
@@ -82,12 +90,12 @@ class HostHealthCheck(BaseValidation):
                     alerts: list[dict] -- alerting probes ({id, message})
     """
 
-    description: ClassVar[str] = "Check per-host health API returns GPU, thermal, and memory health"
+    description: ClassVar[str] = "Check per-host health API returns a fresh, healthy report"
     timeout: ClassVar[int] = 120
     labels: ClassVar[tuple[str, ...]] = ("bare_metal", "health")
 
     def run(self) -> None:
-        """Validate per-host category coverage, category health, and freshness."""
+        """Validate per-host report presence, category health, coverage, and freshness."""
         step_output = self.config.get("step_output", {})
 
         if not step_output.get("success"):
@@ -100,7 +108,8 @@ class HostHealthCheck(BaseValidation):
             return
 
         required_categories = self.config.get("required_categories", list(DEFAULT_REQUIRED_CATEGORIES))
-        require_present = self.config.get("require_present", True)
+        require_report = self.config.get("require_report", True)
+        require_present = self.config.get("require_present", False)
         max_age = self.config.get("max_observation_age_seconds")
 
         # Maps each failing host label to a short reason for the summary line.
@@ -109,6 +118,23 @@ class HostHealthCheck(BaseValidation):
         for host in hosts:
             label = _host_label(host)
             categories = host.get("categories") or {}
+
+            # Baseline: the per-host health API must return a report at all.
+            if require_report:
+                if not host.get("health_present"):
+                    self.report_subtest(
+                        f"host_{label}_report",
+                        passed=False,
+                        message=f"Host {label}: health API returned no report",
+                    )
+                    failed.setdefault(label, "no health report")
+                    # No report means there is nothing further to evaluate.
+                    continue
+                self.report_subtest(
+                    f"host_{label}_report",
+                    passed=True,
+                    message=f"Host {label}: health report returned",
+                )
 
             for category in required_categories:
                 summary = categories.get(category) or {}
@@ -130,7 +156,7 @@ class HostHealthCheck(BaseValidation):
                             f"host_{label}_{category}",
                             passed=True,
                             skipped=True,
-                            message=f"Host {label}: no {category} signal (require_present disabled)",
+                            message=f"Host {label}: no {category} signal returned (coverage not enforced)",
                         )
                     continue
 
@@ -181,7 +207,7 @@ class HostHealthCheck(BaseValidation):
             failed_desc = ", ".join(f"{lbl} ({reason})" for lbl, reason in failed.items())
             self.set_failed(f"Host health issues on {len(failed)}/{total} host(s): {failed_desc}")
         else:
-            self.set_passed(f"All {total} host(s) report healthy {', '.join(required_categories)} via the health API")
+            self.set_passed(f"All {total} host(s) return a healthy report via the per-host health API")
 
 
 class HealthAggregationCheck(BaseValidation):

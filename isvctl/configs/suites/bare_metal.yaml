@@ -347,12 +347,15 @@ tests:
 
     # Per-host health API: GPU state, thermal status, memory health (CAP05-01).
     # Only runs for providers that implement the query_host_health step.
+    # require_present is left at its default (false) because alert-driven health
+    # APIs (e.g. NICo) only surface a category when it is failing; set it true
+    # for providers whose API enumerates every category as a passing probe.
     host_health:
       step: query_host_health
       checks:
         HostHealthCheck:
           required_categories: ["gpu", "thermal", "memory"]
-          require_present: true
+          require_report: true
 
     # Primitive-level health aggregation at the nodegroup/reservation level
     # (CAP05-02). Only runs for providers that implement the

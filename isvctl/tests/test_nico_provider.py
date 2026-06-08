@@ -640,6 +640,7 @@ def test_host_health_script_categorizes_probes(
     host = payload["hosts"][0]
     assert host["host_id"] == "m-1"
     assert host["chassis_serial"] == "SER-1"
+    assert host["health_present"] is True
     cats = host["categories"]
     assert cats["gpu"] == {"present": True, "healthy": True, "probes": ["GpuRemappedRows"], "alerts": []}
     assert cats["thermal"]["present"] is True and cats["thermal"]["probes"] == ["Temperature"]
@@ -754,6 +755,47 @@ def test_governance_script_surfaces_api_errors(
     assert exit_code == 1
     assert payload["success"] is False
     assert "simulated outage" in payload["error"]
+
+
+def test_host_health_real_world_bmc_sensors_pass_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A healthy NICo host (BmcSensor probes, no memory probe) passes by default.
+
+    Mirrors a live NICo site where machine health surfaces BMC sensors (mapped
+    to thermal/gpu by target) but no dedicated memory probe. With the default
+    config (require_present false), the absent memory category must not fail.
+    """
+    from isvtest.validations.health import HostHealthCheck
+
+    module = _load_host_health_script()
+    machines = [
+        {
+            "id": "m-1",
+            "status": "Ready",
+            "health": {
+                "observedAt": None,
+                "successes": [
+                    {"id": "BmcSensor", "target": "GPU0_Temp", "message": "temperature 'GPU0_Temp': OK"},
+                    {"id": "BmcSensor", "target": "FAN1", "message": "fan 'FAN1': OK"},
+                    {"id": "BgpDaemonEnabled", "target": None},
+                ],
+                "alerts": [],
+            },
+        }
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
+
+    host = payload["hosts"][0]
+    assert host["health_present"] is True
+    assert host["categories"]["thermal"]["present"] is True
+    assert host["categories"]["memory"]["present"] is False
+
+    check = HostHealthCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is True, check._error
 
 
 # ---------------------------------------------------------------------------

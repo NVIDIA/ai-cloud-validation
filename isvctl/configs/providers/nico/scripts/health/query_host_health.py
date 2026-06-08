@@ -85,8 +85,13 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
 
 
 def _probe_text(probe: dict[str, Any]) -> str:
-    """Return the lowercased ``id`` + ``target`` text used for category matching."""
-    parts = [probe.get("id"), probe.get("target")]
+    """Return the lowercased ``id`` + ``target`` + ``message`` text for matching.
+
+    NICo reports BMC sensors under a single ``BmcSensor`` probe id and carries
+    the sensor identity in ``target`` and the entity type in ``message`` (e.g.
+    ``power_supply``, ``temperature``), so all three fields are searched.
+    """
+    parts = [probe.get("id"), probe.get("target"), probe.get("message")]
     return " ".join(p for p in parts if isinstance(p, str)).lower()
 
 
@@ -169,11 +174,18 @@ def main() -> int:
         for machine in machines:
             health = machine.get("health") or {}
             chassis_serial = ((machine.get("metadata") or {}).get("dmiData") or {}).get("chassisSerial", "")
+            # The health API returned a report for this host if it carries any
+            # probe data or an observation timestamp (NICo only lists alerts on
+            # failure, so a healthy host can have an empty successes list).
+            health_present = bool(
+                (health.get("successes") or []) or (health.get("alerts") or []) or health.get("observedAt")
+            )
             result["hosts"].append(
                 {
                     "host_id": machine.get("id", ""),
                     "chassis_serial": chassis_serial,
                     "status": machine.get("status", "Unknown"),
+                    "health_present": health_present,
                     "observed_age_seconds": observed_age_seconds(health),
                     "categories": categorize_health(health),
                 }

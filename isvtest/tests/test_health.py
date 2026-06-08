@@ -46,6 +46,7 @@ def _host(
     *,
     host_id: str = "m-001",
     status: str = "Ready",
+    health_present: bool = True,
     observed_age_seconds: int | None = 10,
     categories: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -60,6 +61,7 @@ def _host(
         "host_id": host_id,
         "chassis_serial": f"SER-{host_id}",
         "status": status,
+        "health_present": health_present,
         "observed_age_seconds": observed_age_seconds,
         "categories": categories,
     }
@@ -139,9 +141,40 @@ class TestHostHealthCheck:
         check = HostHealthCheck(config={"step_output": _host_health_output()})
         check.run()
         assert check._passed is True, check._error
+        # report + gpu + thermal + memory subtests, all passing.
         subtests = [r for r in check._subtest_results if r["name"].startswith("host_m-001_")]
-        assert len(subtests) == 3
+        assert len(subtests) == 4
         assert all(r["passed"] for r in subtests)
+
+    def test_missing_category_is_not_fatal_by_default(self) -> None:
+        """A missing category is informational by default (NICo alert-driven model)."""
+        categories = {"gpu": _category(), "thermal": _category(), "memory": _category(present=False)}
+        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[_host(categories=categories)])})
+        check.run()
+        assert check._passed is True, check._error
+        mem = next(r for r in check._subtest_results if r["name"] == "host_m-001_memory")
+        assert mem["skipped"] is True
+
+    def test_missing_report_fails(self) -> None:
+        """A host the health API returns nothing for fails the baseline check."""
+        host = _host(health_present=False)
+        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[host])})
+        check.run()
+        assert check._passed is False
+        assert "no health report" in check._error
+        report = next(r for r in check._subtest_results if r["name"] == "host_m-001_report")
+        assert report["passed"] is False
+
+    def test_report_with_no_categories_passes(self) -> None:
+        """A fresh report with no recognized categories still passes by default."""
+        categories = {
+            "gpu": _category(present=False),
+            "thermal": _category(present=False),
+            "memory": _category(present=False),
+        }
+        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[_host(categories=categories)])})
+        check.run()
+        assert check._passed is True, check._error
 
     def test_step_failure(self) -> None:
         """A failed step is reported with its error detail."""
@@ -157,29 +190,20 @@ class TestHostHealthCheck:
         assert check._passed is False
         assert "No hosts" in check._error
 
-    def test_missing_required_category_fails(self) -> None:
-        """A host missing the memory signal fails coverage."""
+    def test_missing_required_category_fails_when_required(self) -> None:
+        """With require_present enabled, a host missing the memory signal fails coverage."""
         categories = {"gpu": _category(), "thermal": _category(), "memory": _category(present=False)}
-        check = HostHealthCheck(config={"step_output": _host_health_output(hosts=[_host(categories=categories)])})
+        check = HostHealthCheck(
+            config={
+                "step_output": _host_health_output(hosts=[_host(categories=categories)]),
+                "require_present": True,
+            }
+        )
         check.run()
         assert check._passed is False
         assert "missing memory" in check._error
         mem = next(r for r in check._subtest_results if r["name"] == "host_m-001_memory")
         assert mem["passed"] is False
-
-    def test_missing_category_allowed_when_require_present_false(self) -> None:
-        """With require_present disabled, a missing category is skipped, not failed."""
-        categories = {"gpu": _category(), "thermal": _category(), "memory": _category(present=False)}
-        check = HostHealthCheck(
-            config={
-                "step_output": _host_health_output(hosts=[_host(categories=categories)]),
-                "require_present": False,
-            }
-        )
-        check.run()
-        assert check._passed is True, check._error
-        mem = next(r for r in check._subtest_results if r["name"] == "host_m-001_memory")
-        assert mem["skipped"] is True
 
     def test_alerting_category_fails(self) -> None:
         """A present-but-alerting category fails and names the alert."""
@@ -208,7 +232,7 @@ class TestHostHealthCheck:
         check.run()
         assert check._passed is True, check._error
         names = {r["name"] for r in check._subtest_results}
-        assert names == {"host_m-001_gpu"}
+        assert names == {"host_m-001_report", "host_m-001_gpu"}
 
     def test_freshness_stale_fails(self) -> None:
         """An observation older than max_observation_age_seconds fails."""
