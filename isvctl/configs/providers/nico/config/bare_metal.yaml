@@ -17,7 +17,8 @@
 #
 # Imports the provider-agnostic bare_metal contract and wires the NICo
 # hardware-lifecycle steps. NICo currently implements the hardware ingestion,
-# DPU health, and governance-metrics steps; the remaining bare_metal
+# DPU health, governance-metrics, and unified host-health steps; the remaining
+# bare_metal
 # validations are skipped automatically because their steps are not defined
 # here (a future PR will wire the full lifecycle so NICo can pass the entire
 # BM suite).
@@ -30,6 +31,10 @@
 #   - query_metrics.py aggregates per-status node and GPU counts into the
 #     Delivered / Healthy / Reserved / Active governance buckets;
 #     GovernanceMetricsCheck verifies the API contract (CAP01-01).
+#   - query_host_health.py maps machine health probes into GPU/thermal/memory
+#     categories; HostHealthCheck validates per-host coverage (CAP05-01).
+#   - query_health_aggregation.py rolls host health up to the nodegroup
+#     primitive; HealthAggregationCheck validates it (CAP05-02).
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -88,6 +93,36 @@ commands:
       - name: query_governance_metrics
         phase: test
         command: "python ../scripts/governance/query_metrics.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Query Per-Host Health (CAP05-01) ──────────────────────────
+      # Maps each machine's health probes into GPU state, thermal status,
+      # and memory health, plus the freshness of the observation.
+      - name: query_host_health
+        phase: test
+        command: "python ../scripts/health/query_host_health.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Aggregate Health by Nodegroup (CAP05-02) ──────────────────
+      # Rolls per-host health up to the InstanceType (nodegroup) primitive
+      # with per-group healthy/unhealthy counts and an aggregate status.
+      - name: query_health_aggregation
+        phase: test
+        command: "python ../scripts/health/query_health_aggregation.py"
         args:
           - "--org"
           - "{{org}}"

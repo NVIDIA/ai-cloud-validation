@@ -345,5 +345,23 @@ tests:
         GovernanceMetricsCheck:
           min_delivered_nodes: 1
 
+    # Per-host health API: GPU state, thermal status, memory health (CAP05-01).
+    # Only runs for providers that implement the query_host_health step.
+    host_health:
+      step: query_host_health
+      checks:
+        HostHealthCheck:
+          required_categories: ["gpu", "thermal", "memory"]
+          require_present: true
+
+    # Primitive-level health aggregation at the nodegroup/reservation level
+    # (CAP05-02). Only runs for providers that implement the
+    # query_health_aggregation step.
+    health_aggregation:
+      step: query_health_aggregation
+      checks:
+        HealthAggregationCheck:
+          min_groups: 1
+
   exclude:
     labels: []
