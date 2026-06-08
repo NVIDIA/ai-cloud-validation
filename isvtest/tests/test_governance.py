@@ -73,9 +73,7 @@ class TestGovernanceMetricsCheck:
 
     def test_step_failure_propagates(self) -> None:
         """When the underlying step reports failure the check should fail."""
-        check = GovernanceMetricsCheck(
-            config={"step_output": _metrics_output(success=False, error="API down")}
-        )
+        check = GovernanceMetricsCheck(config={"step_output": _metrics_output(success=False, error="API down")})
         check.run()
         assert check._passed is False
         assert "API down" in check._error
@@ -172,9 +170,7 @@ class TestGovernanceMetricsCheck:
     def test_min_delivered_thresholds_enforced(self) -> None:
         """Configurable minimum thresholds enforce a delivered fleet floor."""
         output = _metrics_output(delivered={"nodes": 0, "gpus": 0})
-        check = GovernanceMetricsCheck(
-            config={"step_output": output, "min_delivered_nodes": 1}
-        )
+        check = GovernanceMetricsCheck(config={"step_output": output, "min_delivered_nodes": 1})
         check.run()
         assert check._passed is False
         assert "Delivered nodes 0" in check._error
@@ -182,9 +178,7 @@ class TestGovernanceMetricsCheck:
     def test_min_delivered_thresholds_default_zero(self) -> None:
         """Without overrides, a zero-machine site is still well-formed."""
         zero = {"nodes": 0, "gpus": 0}
-        output = _metrics_output(
-            delivered=zero, healthy=zero, reserved=zero, active=zero
-        )
+        output = _metrics_output(delivered=zero, healthy=zero, reserved=zero, active=zero)
         check = GovernanceMetricsCheck(config={"step_output": output})
         check.run()
         assert check._passed is True

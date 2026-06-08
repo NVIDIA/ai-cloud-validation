@@ -80,25 +80,15 @@ DELIVERED_EXCLUDE_STATUSES: frozenset[str] = frozenset({"Decommissioned", "Unkno
 RESERVED_STATUSES: frozenset[str] = frozenset({"InUse", "Maintenance"})
 ACTIVE_STATUSES: frozenset[str] = frozenset({"InUse"})
 
-# Empty metric template so every bucket appears in the output (even when zero)
-# and the validation does not have to special-case missing keys.
-_EMPTY_BUCKET: dict[str, int] = {"nodes": 0, "gpus": 0}
+# The four governance buckets, in conventional order. Listed once so every
+# bucket appears in the output (even when zero) and the validation does not
+# have to special-case missing keys.
+METRIC_BUCKETS: tuple[str, ...] = ("delivered", "healthy", "reserved", "active")
 
 
 def _empty_metrics() -> dict[str, dict[str, int]]:
     """Return a fresh zeroed metrics dict with all four required buckets."""
-    return {
-        "delivered": dict(_EMPTY_BUCKET),
-        "healthy": dict(_EMPTY_BUCKET),
-        "reserved": dict(_EMPTY_BUCKET),
-        "active": dict(_EMPTY_BUCKET),
-    }
-
-
-def _add(bucket: dict[str, int], nodes: int, gpus: int) -> None:
-    """Accumulate node and GPU counts into ``bucket`` in place."""
-    bucket["nodes"] += nodes
-    bucket["gpus"] += gpus
+    return {bucket: {"nodes": 0, "gpus": 0} for bucket in METRIC_BUCKETS}
 
 
 def aggregate_metrics(machines: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
@@ -107,25 +97,26 @@ def aggregate_metrics(machines: list[dict[str, Any]]) -> dict[str, dict[str, int
 
     for machine in machines:
         status = machine.get("status") or "Unknown"
-        capabilities = machine.get("machineCapabilities") or []
-        gpu_count = sum_capabilities(capabilities, "GPU")
-        health = machine.get("health") or {}
-
         if status in DELIVERED_EXCLUDE_STATUSES:
             # Decommissioned/Unknown machines are ignored entirely so they
             # cannot leak into Reserved or Active via a sloppy status string.
             continue
 
-        _add(metrics["delivered"], nodes=1, gpus=gpu_count)
+        gpus = sum_capabilities(machine.get("machineCapabilities") or [], "GPU")
+        health = machine.get("health") or {}
 
-        if classify_health(health) == "healthy":
-            _add(metrics["healthy"], nodes=1, gpus=gpu_count)
-
-        if status in RESERVED_STATUSES:
-            _add(metrics["reserved"], nodes=1, gpus=gpu_count)
-
-        if status in ACTIVE_STATUSES:
-            _add(metrics["active"], nodes=1, gpus=gpu_count)
+        # A delivered machine contributes one node and its GPUs to every bucket
+        # whose membership condition it satisfies.
+        membership = {
+            "delivered": True,
+            "healthy": classify_health(health) == "healthy",
+            "reserved": status in RESERVED_STATUSES,
+            "active": status in ACTIVE_STATUSES,
+        }
+        for bucket, matched in membership.items():
+            if matched:
+                metrics[bucket]["nodes"] += 1
+                metrics[bucket]["gpus"] += gpus
 
     return metrics
 

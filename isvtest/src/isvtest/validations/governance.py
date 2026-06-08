@@ -138,9 +138,7 @@ class GovernanceMetricsCheck(BaseValidation):
             self.set_failed(f"Governance metrics invariants violated: {'; '.join(failures)}")
             return
 
-        self.set_passed(
-            f"Governance metrics OK (delivered: nodes={delivered_nodes}, gpus={delivered_gpus})"
-        )
+        self.set_passed(f"Governance metrics OK (delivered: nodes={delivered_nodes}, gpus={delivered_gpus})")
 
     def _coerce_non_negative_int(self, key: str, *, default: int) -> int | None:
         """Read ``key`` from config and coerce to int >= 0; fail otherwise."""
@@ -164,7 +162,5 @@ class GovernanceMetricsCheck(BaseValidation):
                 sub = buckets[subset][resource]
                 sup = buckets[superset][resource]
                 if sub > sup:
-                    failures.append(
-                        f"{subset} {resource} ({sub}) exceeds {superset} {resource} ({sup})"
-                    )
+                    failures.append(f"{subset} {resource} ({sub}) exceeds {superset} {resource} ({sup})")
         return failures
