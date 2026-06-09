@@ -24,12 +24,11 @@ Required JSON output fields:
     "success": true,
     "platform": "security",
     "test_name": "mfa_enforcement",
-    "interfaces_checked": 4,
+    "interfaces_checked": 3,
     "tests": {
-      "root_mfa_enabled":    {"passed": true},  # admin/root account has MFA
-      "console_users_mfa":   {"passed": true},  # all console users have MFA
-      "api_mfa_policy":      {"passed": true},  # API calls require MFA
-      "cli_mfa_policy":      {"passed": true}   # CLI calls require MFA
+      "admin_account_mfa":       {"passed": true},  # root/admin account requires MFA
+      "interactive_access_mfa":  {"passed": true},  # console/UI sign-in requires MFA
+      "programmatic_access_mfa": {"passed": true}   # API+CLI access is MFA-gated
     }
   }
 
@@ -58,31 +57,29 @@ def main() -> int:
         "test_name": "mfa_enforcement",
         "interfaces_checked": 0,
         "tests": {
-            "root_mfa_enabled": {"passed": False},
-            "console_users_mfa": {"passed": False},
-            "api_mfa_policy": {"passed": False},
-            "cli_mfa_policy": {"passed": False},
+            "admin_account_mfa": {"passed": False},
+            "interactive_access_mfa": {"passed": False},
+            "programmatic_access_mfa": {"passed": False},
         },
     }
 
     # ╔══════════════════════════════════════════════════════════════════╗
     # ║  TODO: Replace this block with your platform's MFA enforcement   ║
-    # ║  test.                                                           ║
+    # ║  test. Emit {"passed": bool} per outcome, attested via your      ║
+    # ║  platform's native MFA control:                                  ║
     # ║                                                                  ║
-    # ║  Example checks:                                                 ║
-    # ║    1. Verify root/admin account has MFA device attached          ║
-    # ║    2. Verify all console-login users have MFA registered         ║
-    # ║    3. Verify policies require MFA for sensitive API calls        ║
-    # ║    4. Verify CLI sessions require MFA token                      ║
+    # ║    1. admin_account_mfa       - root/admin account requires MFA  ║
+    # ║    2. interactive_access_mfa  - console/UI sign-in requires MFA  ║
+    # ║    3. programmatic_access_mfa - principal API+CLI is MFA-gated   ║
+    # ║                                 (not machine/token credentials)  ║
     # ╚══════════════════════════════════════════════════════════════════╝
 
     if DEMO_MODE:
-        result["interfaces_checked"] = 4
+        result["interfaces_checked"] = 3
         result["tests"] = {
-            "root_mfa_enabled": {"passed": True, "message": "Root MFA enabled"},
-            "console_users_mfa": {"passed": True, "message": "2/2 console users have MFA"},
-            "api_mfa_policy": {"passed": True, "message": "MFA condition in API policy"},
-            "cli_mfa_policy": {"passed": True, "message": "MFA condition in CLI policy"},
+            "admin_account_mfa": {"passed": True, "message": "Admin account MFA enabled"},
+            "interactive_access_mfa": {"passed": True, "message": "2/2 console users have MFA"},
+            "programmatic_access_mfa": {"passed": True, "message": "MFA condition in programmatic-access policy"},
         }
         result["success"] = True
     else:

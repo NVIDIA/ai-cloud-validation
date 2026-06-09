@@ -285,8 +285,19 @@ class MfaEnforcedCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
-        tests: dict with root_mfa_enabled, console_users_mfa,
-               api_mfa_policy, cli_mfa_policy
+        tests: dict with admin_account_mfa, interactive_access_mfa,
+               programmatic_access_mfa
+
+    Subtest semantics (platform-neutral outcomes; each platform attests them
+    via its own native control):
+        admin_account_mfa:       the root / super-admin account requires MFA.
+        interactive_access_mfa:  interactive (console / UI) sign-in requires MFA.
+        programmatic_access_mfa: programmatic (API + CLI) access by principals
+            is MFA-gated -- attested via the platform's native control (e.g. an
+            AWS IAM MFA-deny policy, or an org-level enforced-login-MFA signal
+            where human API/CLI access rides the gated session). Scoped to
+            principal (human/identity) access; it does not assert MFA on pure
+            machine/token credentials, which not all platforms gate.
     """
 
     description: ClassVar[str] = "Check admin interfaces protected by MFA"
@@ -295,10 +306,9 @@ class MfaEnforcedCheck(BaseValidation):
     def run(self) -> None:
         """Validate required MFA enforcement results from step output."""
         required = [
-            "root_mfa_enabled",
-            "console_users_mfa",
-            "api_mfa_policy",
-            "cli_mfa_policy",
+            "admin_account_mfa",
+            "interactive_access_mfa",
+            "programmatic_access_mfa",
         ]
         if not check_required_tests(self, required, "MFA enforcement tests failed"):
             return
