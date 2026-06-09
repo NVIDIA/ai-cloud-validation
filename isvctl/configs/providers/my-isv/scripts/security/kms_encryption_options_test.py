@@ -52,8 +52,10 @@ def main() -> int:
     }
 
     # TODO: Replace this block with your platform's KMS option checks. Prove
-    # that tenants can choose both provider-managed keys and customer-managed
-    # keys, and include non-empty identifiers for both options.
+    # that tenants can choose both provider-managed and customer-managed keys.
+    # customer_managed_key_id must be a non-empty enumerable key id; the
+    # provider-managed option is proven by the provider_managed_key_available
+    # subtest (set provider_managed_key_id only if your platform exposes one).
 
     if DEMO_MODE:
         result["provider_managed_key_id"] = "my-isv-provider-managed-key"

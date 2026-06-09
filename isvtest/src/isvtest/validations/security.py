@@ -504,18 +504,28 @@ class KmsEncryptionOptionCheck(BaseValidation):
         if not check_required_tests(self, required, "KMS encryption option tests failed"):
             return
 
-        provider_key_id = step_output.get("provider_managed_key_id")
-        if not isinstance(provider_key_id, str) or not provider_key_id.strip():
-            self.set_failed("KMS encryption options output missing non-empty provider-managed key evidence")
-            return
-
+        # Customer-managed (CMEK) is proven by an enumerable key id -- the
+        # portable evidence shape every CMEK-capable platform produces (AWS
+        # create_key; GCP KeyManagementServiceClient.list_crypto_keys).
         customer_key_id = step_output.get("customer_managed_key_id")
         if not isinstance(customer_key_id, str) or not customer_key_id.strip():
             self.set_failed("KMS encryption options output missing non-empty customer-managed key evidence")
             return
 
+        # Provider-managed (default at-rest) is proven by the
+        # provider_managed_key_available subtest, NOT a key id: the evidence is
+        # platform-shaped -- a listable managed-key alias where one exists, or a
+        # capability where the default key is not an enumerable resource. Record
+        # the id when the platform exposes one; do not require it.
+        provider_key_id = step_output.get("provider_managed_key_id")
+        provider_desc = (
+            provider_key_id.strip()
+            if isinstance(provider_key_id, str) and provider_key_id.strip()
+            else "available"
+        )
+
         self.set_passed(
-            f"KMS encryption options verified (provider={provider_key_id.strip()}, customer={customer_key_id.strip()})"
+            f"KMS encryption options verified (provider={provider_desc}, customer={customer_key_id.strip()})"
         )
 
 

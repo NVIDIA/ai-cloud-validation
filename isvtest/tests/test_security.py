@@ -593,14 +593,16 @@ def test_kms_encryption_option_check_fails_without_customer_evidence() -> None:
     assert "customer-managed key evidence" in result["error"]
 
 
-def test_kms_encryption_option_check_fails_without_provider_evidence() -> None:
-    """KmsEncryptionOptionCheck fails when provider-managed key evidence is absent."""
+def test_kms_encryption_option_check_passes_without_provider_key_id() -> None:
+    """Provider-managed proof rides the provider_managed_key_available subtest, so an
+    empty provider_managed_key_id is fine as long as the subtest passes (a platform
+    whose default-encryption key is not an enumerable resource)."""
     check = KmsEncryptionOptionCheck(config={"step_output": _kms_options_step_output(provider_managed_key_id="")})
 
     result = check.execute()
 
-    assert result["passed"] is False
-    assert "provider-managed key evidence" in result["error"]
+    assert result["passed"] is True
+    assert "provider=available" in result["output"]
 
 
 def test_kms_encryption_option_check_skips_when_step_marks_skipped() -> None:
