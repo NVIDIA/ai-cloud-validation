@@ -32,7 +32,7 @@
 #  10. power_cycle_instance - boto3: Hard power off + on, validates cold-start (test)
 #  11. describe_instance - boto3: Describes current state, passes SSH info (test)
 #                          (runs after power_cycle so IP is current)
-#  12. reinstall_instance - boto3: Reinstalls OS from stock AMI (test) [skip: true]
+#  12. reinstall_instance - boto3: Reinstalls OS from stock AMI (test)
 #  13. deploy_nim - paramiko: Deploys NIM container via SSH (test)
 #  14. teardown_nim - paramiko: Stops NIM container via SSH (teardown)
 #  15. teardown - boto3: Terminates bare-metal EC2 (teardown)
@@ -233,9 +233,8 @@ commands:
         timeout: 300
 
       # Reinstall instance from stock OS (stop + swap root volume + start)
-      # Skipped by default: ~30-45 min on AWS metal, and CreateReplaceRootVolumeTask
-      # is not supported. The script performs a manual root volume swap instead.
-      # Set skip: false to enable on platforms where reinstall is fast/supported.
+      # Expected duration: ~30-45 min on AWS metal. CreateReplaceRootVolumeTask
+      # is not supported, so the script performs a manual root volume swap.
       - name: reinstall_instance
         phase: test
         skip: true

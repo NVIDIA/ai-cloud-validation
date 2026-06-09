@@ -272,6 +272,8 @@ tests:
       checks:
         InstanceStateCheck:
           expected_state: "running"
+        StableIdentifierCheck:
+          reference_id: "{{steps.launch_instance.instance_id}}"
 
     reinstall_ssh:
       step: reinstall_instance
