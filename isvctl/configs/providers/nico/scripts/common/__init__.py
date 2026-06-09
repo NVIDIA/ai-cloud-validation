@@ -21,4 +21,6 @@ any namespace-package juggling. Modules:
 
 - ``nico_client``: authenticated NICo (Forge) REST API helpers with pagination,
   URL encoding, and machine health/capability parsing utilities.
+- ``ufm_client``: minimal NVIDIA Unified Fabric Manager (UFM) REST client for
+  reading InfiniBand subnet-manager key configuration (``/app/smconf``).
 """
