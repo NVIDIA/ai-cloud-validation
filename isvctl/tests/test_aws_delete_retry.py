@@ -65,6 +65,7 @@ class TestDeleteWithRetry:
             "InvalidSubnet.NotFound",
             "InvalidRouteTableID.NotFound",
             "InvalidInstanceID.NotFound",
+            "InvalidVolume.NotFound",
             "NoSuchEntity",
         }
         assert must_have <= ALREADY_GONE_CODES

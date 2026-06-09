@@ -47,6 +47,7 @@ ALREADY_GONE_CODES: frozenset[str] = frozenset(
         "InvalidRouteTableID.NotFound",
         "InvalidInternetGatewayID.NotFound",
         "InvalidInstanceID.NotFound",
+        "InvalidVolume.NotFound",
         "InvalidNetworkAclID.NotFound",
         "InvalidVpcPeeringConnectionID.NotFound",
         "InvalidAllocationID.NotFound",
