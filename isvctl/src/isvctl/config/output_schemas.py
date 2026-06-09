@@ -143,6 +143,9 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "update_node_pool": "node_pool",
     "destroy_test_node_pool": "teardown",
     "destroy_node_pool": "teardown",
+    # Multi-cluster operations
+    "create_test_shared_vpc_cluster": "multi_cluster",
+    "destroy_test_shared_vpc_cluster": "teardown",
 }
 
 # Common fields present in all outputs
@@ -920,6 +923,60 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": COMMON_PROPERTIES,
         "additionalProperties": True,
         "description": "Generic schema for unrecognized step names",
+    },
+    # =========================================================================
+    # Multi-cluster schemas
+    # =========================================================================
+    "multi_cluster": {
+        "type": "object",
+        "required": [
+            "success",
+            "platform",
+            "test_id",
+            "tenancy_id",
+            "network_id",
+            "clusters",
+        ],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_id": {"type": "string", "description": "Validation test identifier"},
+            "tenancy_id": {"type": "string", "minLength": 1, "description": "Cloud account or tenancy identifier"},
+            "network_id": {"type": "string", "minLength": 1, "description": "Shared network/VPC identifier"},
+            "clusters": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                    "type": "object",
+                    "required": ["name", "tenancy_id", "network_id", "status"],
+                    "properties": {
+                        "name": {"type": "string", "minLength": 1, "description": "Cluster name"},
+                        "role": {
+                            "type": "string",
+                            "description": "Optional provider role label for this cluster",
+                        },
+                        "tenancy_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Cloud account or tenancy identifier for this cluster",
+                        },
+                        "network_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Network/VPC identifier reported by this cluster",
+                        },
+                        "status": {"type": "string", "minLength": 1, "description": "Cluster lifecycle status"},
+                        "ready_node_count": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Ready node count for this cluster when available",
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "description": "Clusters participating in the shared-network proof",
+            },
+        },
+        "additionalProperties": True,
     },
     # =========================================================================
     # Node pool schemas (Terraform or Cluster API provisioned)

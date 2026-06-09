@@ -53,6 +53,24 @@ commands:
           TF_VAR_gpu_node_instance_types: '["g5.2xlarge"]'
           TF_VAR_gpu_node_desired_size: "1"
 
+      # K8S26-01: prove a second EKS cluster can coexist in the same AWS
+      # account and VPC as the primary cluster. The script reads the primary
+      # Terraform state, applies a secondary EKS module with isolated local
+      # state, waits for a Ready node in the secondary cluster, and emits the
+      # multi_cluster JSON contract consumed by K8sMultiClusterSameVpcCheck.
+      - name: create_test_shared_vpc_cluster
+        phase: setup
+        command: "../scripts/eks/create_shared_vpc_cluster.sh"
+        output_schema: multi_cluster
+        requires_available_validations:
+          - K8sMultiClusterSameVpcCheck
+        timeout: 1800
+        env:
+          TF_AUTO_APPROVE: "true"
+          SHARED_VPC_CLUSTER_STATE_FILE: "terraform.tfstate"
+          TF_VAR_node_desired_size: "1"
+          TF_VAR_node_instance_types: '["m6i.large"]'
+
       # Exercise the node-pool create path twice to prove separate CPU and GPU
       # pools can coexist in the same cluster with independent node counts
       # (K8S06). Each pool keeps its own Terraform state via
@@ -135,6 +153,16 @@ commands:
           TF_AUTO_APPROVE: "true"
           NODE_POOL_STATE_FILE: "terraform-gpu.tfstate"
 
+      # Destroy the secondary shared-VPC cluster before the primary cluster
+      # teardown removes the shared subnets and VPC.
+      - name: destroy_test_shared_vpc_cluster
+        phase: teardown
+        command: "../scripts/eks/destroy_shared_vpc_cluster.sh"
+        timeout: 1800
+        env:
+          TF_AUTO_APPROVE: "true"
+          SHARED_VPC_CLUSTER_STATE_FILE: "terraform.tfstate"
+
       - name: teardown
         phase: teardown
         command: "../scripts/eks/teardown.sh"
@@ -146,6 +174,11 @@ tests:
   description: "AWS EKS GPU cluster validation"
 
   validations:
+    k8s_multi_cluster:
+      checks:
+        K8sMultiClusterSameVpcCheck:
+          step: create_test_shared_vpc_cluster
+
     kubernetes:
       checks:
         K8sNodeCountCheck:

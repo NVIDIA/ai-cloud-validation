@@ -513,7 +513,25 @@ class TestImportEndToEnd:
 
         # Separate CPU and GPU node pools are created with independent state
         # files and instance types (K8S06), each validated by its own check.
-        steps_by_name = {s["name"]: s for s in result["commands"]["kubernetes"]["steps"]}
+        steps = result["commands"]["kubernetes"]["steps"]
+        steps_by_name = {s["name"]: s for s in steps}
+        step_names = [step["name"] for step in steps]
+        assert "create_test_shared_vpc_cluster" in steps_by_name
+        assert "destroy_test_shared_vpc_cluster" in steps_by_name
+        assert (
+            step_names.index("setup")
+            < step_names.index("create_test_shared_vpc_cluster")
+            < step_names.index("create_test_node_pool")
+        )
+        assert (
+            step_names.index("destroy_test_gpu_node_pool")
+            < step_names.index("destroy_test_shared_vpc_cluster")
+            < step_names.index("teardown")
+        )
+        assert steps_by_name["create_test_shared_vpc_cluster"]["output_schema"] == "multi_cluster"
+        assert steps_by_name["create_test_shared_vpc_cluster"]["requires_available_validations"] == [
+            "K8sMultiClusterSameVpcCheck"
+        ]
         cpu_create = steps_by_name["create_test_node_pool"]["env"]
         gpu_create = steps_by_name["create_test_gpu_node_pool"]["env"]
         assert cpu_create["NODE_POOL_STATE_FILE"] != gpu_create["NODE_POOL_STATE_FILE"]
@@ -527,6 +545,8 @@ class TestImportEndToEnd:
         node_pool_checks = validations["k8s_node_pools"]
         checked_steps = {next(iter(entry.values()))["step"] for entry in node_pool_checks}
         assert {"create_test_node_pool", "create_test_gpu_node_pool", "update_test_node_pool"} <= checked_steps
+        multi_cluster_check = validations["k8s_multi_cluster"]["checks"]["K8sMultiClusterSameVpcCheck"]
+        assert multi_cluster_check["step"] == "create_test_shared_vpc_cluster"
 
         config = RunConfig.model_validate(result)
         context = Context(config)

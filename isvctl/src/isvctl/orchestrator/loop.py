@@ -37,6 +37,7 @@ from isvtest.core.resolution import (
     ValidationEntry,
     get_entry_phase,
     parse_validations,
+    resolve_class_key,
     resolve_entries,
 )
 from isvtest.main import run_validations_via_pytest
@@ -300,6 +301,30 @@ def _has_explicit_pytest_selection(extra_pytest_args: list[str] | None) -> bool:
     )
 
 
+def _apply_step_validation_gates(steps: list[Any], released_tests: set[str] | None) -> list[Any]:
+    """Mark steps skipped when their required validations are unavailable."""
+    if released_tests is None:
+        return steps
+
+    gated_steps: list[Any] = []
+    for step in steps:
+        required_validations = getattr(step, "requires_available_validations", [])
+        unavailable = [
+            validation for validation in required_validations if resolve_class_key(validation, released_tests) is None
+        ]
+        if not unavailable:
+            gated_steps.append(step)
+            continue
+        skipped_step = step.model_copy(update={"skip": True})
+        logger.info(
+            "Skipping step '%s' because required validation(s) are unavailable: %s",
+            skipped_step.name,
+            ", ".join(unavailable),
+        )
+        gated_steps.append(skipped_step)
+    return gated_steps
+
+
 class Orchestrator:
     """Orchestrates the full test lifecycle using step-based execution.
 
@@ -417,6 +442,12 @@ class Orchestrator:
                 ],
             )
 
+        released_tests = load_released_test_filter()
+        if released_tests is None:
+            logger.info(f"Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled")
+
+        steps = _apply_step_validation_gates(steps, released_tests)
+
         config_phases = self.config.get_phases(platform)
         logger.info(f"Configured phases: {config_phases}")
 
@@ -453,9 +484,6 @@ class Orchestrator:
             all_validations = self.config.tests.validations
         validation_entries = parse_validations(all_validations)
         resolved_validations_by_index: dict[int, ResolvedEntry] = {}
-        released_tests = load_released_test_filter()
-        if released_tests is None:
-            logger.info(f"Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled")
 
         exclude_labels: list[str] = []
         exclude_tests: list[str] = []

@@ -15,6 +15,7 @@
 
 """Tests for Pydantic schema models and output schema registry."""
 
+import copy
 from typing import Any, ClassVar
 
 import pytest
@@ -305,6 +306,7 @@ class TestOutputSchemaMapping:
             ("provision_cluster", "cluster"),
             ("create_cluster", "cluster"),
             ("create_network", "network"),
+            ("create_test_shared_vpc_cluster", "multi_cluster"),
             ("launch_instance", "instance"),
             ("teardown", "teardown"),
             ("create_access_key", "access_key"),
@@ -380,6 +382,31 @@ class TestOutputSchemaValidation:
         },
     }
 
+    MULTI_CLUSTER_OUTPUT: ClassVar[dict[str, Any]] = {
+        "success": True,
+        "platform": "kubernetes",
+        "test_id": "K8S26-01",
+        "tenancy_id": "123456789012",
+        "network_id": "vpc-123",
+        "clusters": [
+            {
+                "name": "isvtest-eks-dev",
+                "role": "primary",
+                "tenancy_id": "123456789012",
+                "network_id": "vpc-123",
+                "status": "ACTIVE",
+            },
+            {
+                "name": "isvtest-eks-dev-shared-vpc",
+                "role": "secondary",
+                "tenancy_id": "123456789012",
+                "network_id": "vpc-123",
+                "status": "ACTIVE",
+                "ready_node_count": 1,
+            },
+        ],
+    }
+
     @staticmethod
     def _backend_switch_fabric_output() -> dict[str, Any]:
         """Return a backend switch fabric schema payload.
@@ -449,6 +476,21 @@ class TestOutputSchemaValidation:
         """EKS setup.sh output has top-level node_count and must pass cluster schema."""
         is_valid, errors = validate_output(self.EKS_SETUP_OUTPUT, "cluster")
         assert is_valid, f"EKS output failed 'cluster' schema: {errors}"
+
+    def test_multi_cluster_output_passes_schema(self) -> None:
+        """K8S26-01 shared-VPC cluster output must pass the multi_cluster schema."""
+        is_valid, errors = validate_output(self.MULTI_CLUSTER_OUTPUT, "multi_cluster")
+        assert is_valid, f"Multi-cluster output failed 'multi_cluster' schema: {errors}"
+
+    def test_multi_cluster_output_passes_without_cluster_roles(self) -> None:
+        """K8S26-01 proves cluster coexistence without requiring role labels."""
+        output = copy.deepcopy(self.MULTI_CLUSTER_OUTPUT)
+        for cluster in output["clusters"]:
+            cluster.pop("role")
+
+        is_valid, errors = validate_output(output, "multi_cluster")
+
+        assert is_valid, f"Multi-cluster output without roles failed 'multi_cluster' schema: {errors}"
 
     @pytest.mark.parametrize(
         "field_name",

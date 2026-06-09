@@ -177,6 +177,69 @@ EOF
         assert result.inventory is not None
         assert "setup_cluster" in result.inventory
 
+    def test_unavailable_validation_gate_skips_setup_step(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Steps gated on unreleased validations must not execute by default."""
+        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: {"ReleasedCheck"})
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(
+                            name="unreleased_setup",
+                            command="false",
+                            phase="setup",
+                            requires_available_validations=["NewCheck"],
+                        ),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.SETUP])
+
+        assert result.success
+        assert result.phases[0].details
+        step = result.phases[0].details["steps"][0]
+        assert step["name"] == "unreleased_setup"
+        assert step["error"] == "Step skipped"
+        assert result.inventory is not None
+        assert "unreleased_setup" not in result.inventory
+
+    def test_validation_gate_allows_step_when_unreleased_checks_are_included(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The same gate opens when the release filter is disabled."""
+        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
+        script_path = _write_script(
+            tmp_path,
+            "setup.sh",
+            '#!/bin/bash\necho \'{"success": true, "platform": "kubernetes"}\'\n',
+        )
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(
+                            name="unreleased_setup",
+                            command=script_path,
+                            phase="setup",
+                            requires_available_validations=["NewCheck"],
+                        ),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.SETUP])
+
+        assert result.success
+        assert result.inventory is not None
+        assert "unreleased_setup" in result.inventory
+
     def test_run_setup_phase_command_failure(self) -> None:
         """Test setup phase with command failure."""
         config = RunConfig(
