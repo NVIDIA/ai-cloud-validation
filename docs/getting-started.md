@@ -164,6 +164,7 @@ See [Remote Deployment Guide](guides/remote-deployment.md) for details.
 - [my-isv Scaffold](../isvctl/configs/providers/my-isv/scripts/README.md) - Adding your own platform? Start with `isvctl provider scaffold`
 - [Validation Test Suites](../isvctl/configs/suites/README.md) - The platform-agnostic validation contract
 - [AWS Reference Implementation](references/aws.md) - Working AWS examples to study
+- [GCP Target Implementation](references/gcp.md) - Operator setup for running tests on GCP
 - [Configuration Guide](guides/configuration.md) - Config file format and options
 - [External Validation Guide](guides/external-validation-guide.md) - Custom validations without modifying the repo
 - [Local Development](guides/local-development.md) - Running tests locally

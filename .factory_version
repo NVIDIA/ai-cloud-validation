@@ -1,0 +1,11 @@
+{
+  "ncps": {
+    "gcp": {
+      "vm": {
+        "factory_commit": "21869ef830d5a088250206c37c757c4ffc28eeeb",
+        "isv_commit": "9b79e34037435b8567e3cd79e18dae01ae1ea0e2"
+      }
+    }
+  },
+  "source_repo": "git@github.com:NVIDIA/ISV-NCP-Validation-Suite.git"
+}
