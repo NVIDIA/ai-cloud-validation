@@ -41,6 +41,10 @@ from isvtest.validations.generic import (
 from isvtest.validations.governance import (
     GovernanceMetricsCheck,
 )
+from isvtest.validations.health import (
+    HealthAggregationCheck,
+    HostHealthCheck,
+)
 from isvtest.validations.host import (
     CloudInitCheck,
     ContainerRuntimeCheck,
@@ -157,6 +161,8 @@ __all__ = [
     "FloatingIpCheck",
     "GovernanceMetricsCheck",
     "GpuOperatorInstalledCheck",
+    "HealthAggregationCheck",
+    "HostHealthCheck",
     "InsecureProtocolsCheck",
     "InstanceCreatedCheck",
     "InstanceListCheck",

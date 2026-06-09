@@ -23,12 +23,15 @@ import importlib.util
 import json
 import sys
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs
 
 import pytest
+from isvtest.validations.governance import GovernanceMetricsCheck
+from isvtest.validations.health import HealthAggregationCheck, HostHealthCheck
 
 from isvctl.config.merger import merge_yaml_files
 
@@ -109,6 +112,28 @@ def _load_governance_metrics_script() -> ModuleType:
     """Load the query_metrics (governance) script as a module for direct unit testing."""
     script_path = NICO_SCRIPTS / "governance" / "query_metrics.py"
     spec = importlib.util.spec_from_file_location("test_governance_query_metrics", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
+def _load_host_health_script() -> ModuleType:
+    """Load the query_host_health script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "health" / "query_host_health.py"
+    spec = importlib.util.spec_from_file_location("test_query_host_health", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
+def _load_health_aggregation_script() -> ModuleType:
+    """Load the query_health_aggregation script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "health" / "query_health_aggregation.py"
+    spec = importlib.util.spec_from_file_location("test_query_health_aggregation", script_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     with _isolated_common_imports():
@@ -219,7 +244,13 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
 
 @pytest.mark.parametrize(
     "step_name",
-    ["verify_ingestion", "check_dpu_health", "query_governance_metrics"],
+    [
+        "verify_ingestion",
+        "check_dpu_health",
+        "query_governance_metrics",
+        "query_host_health",
+        "query_health_aggregation",
+    ],
 )
 def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
     """The shipped NICo bare_metal config should pass a configurable API base to scripts."""
@@ -239,6 +270,8 @@ def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None
         ("verify_ingestion.py", _load_ingestion_script),
         ("check_dpu_health.py", _load_dpu_health_script),
         ("query_metrics.py", _load_governance_metrics_script),
+        ("query_host_health.py", _load_host_health_script),
+        ("query_health_aggregation.py", _load_health_aggregation_script),
     ],
 )
 def test_nico_scripts_require_api_base(
@@ -454,6 +487,36 @@ def _run_governance_script(
     return payload
 
 
+# ---------------------------------------------------------------------------
+# query_host_health (CAP05-01) script
+# ---------------------------------------------------------------------------
+
+
+def _run_script(
+    module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    script_name: str,
+    machines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Drive a NICo health script with mocked auth/API and return its JSON output."""
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", lambda *args, **kwargs: machines)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [script_name, "--org", "test-org", "--site-id", "site-1", "--api-base", "http://127.0.0.1:8080/v2/org"],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0, payload
+    return payload
+
+
 def test_governance_script_classifies_each_status_bucket(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -532,8 +595,6 @@ def test_governance_script_output_satisfies_validation_contract(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End-to-end: NICo governance JSON should pass GovernanceMetricsCheck."""
-    from isvtest.validations.governance import GovernanceMetricsCheck
-
     payload = _run_governance_script(
         monkeypatch,
         capsys,
@@ -546,6 +607,97 @@ def test_governance_script_output_satisfies_validation_contract(
     check = GovernanceMetricsCheck(config={"step_output": payload})
     check.run()
     assert check._passed is True, check._error
+
+
+def test_host_health_script_reports_probes_and_components(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The script reports probe IDs and an informational component breakdown."""
+    module = _load_host_health_script()
+    machines = [
+        {
+            "id": "m-1",
+            "status": "Ready",
+            "metadata": {"dmiData": {"chassisSerial": "SER-1"}},
+            "health": {
+                "observedAt": None,
+                "successes": [
+                    {"id": "BmcSensor", "target": "GPU0_Temp", "message": "temperature 'GPU0_Temp': OK"},
+                    {"id": "BmcSensor", "target": "DIMM_A1", "message": "temperature 'DIMM_A1': OK"},
+                    {"id": "BgpDaemonEnabled", "target": None},
+                ],
+                "alerts": [],
+            },
+        }
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
+
+    assert payload["success"] is True
+    assert payload["hosts_checked"] == 1
+    host = payload["hosts"][0]
+    assert host["host_id"] == "m-1"
+    assert host["chassis_serial"] == "SER-1"
+    assert host["health_present"] is True
+    assert host["healthy"] is True
+    assert host["probe_ids"] == ["BgpDaemonEnabled", "BmcSensor"]
+    assert host["alerts"] == []
+    # Informational component breakdown: the GPU/DIMM temp sensors map to those buckets.
+    comps = host["components"]
+    assert comps["gpu"]["present"] is True and comps["gpu"]["probes"] == ["BmcSensor"]
+    assert comps["thermal"]["present"] is True
+    assert comps["memory"]["present"] is True
+
+
+def test_host_health_script_surfaces_alert_classifications(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Alerts (incl. leak detection) are surfaced with their classifications."""
+    module = _load_host_health_script()
+    machines = [
+        {
+            "id": "m-2",
+            "status": "Error",
+            "health": {
+                "successes": None,
+                "alerts": [
+                    {
+                        "id": "BmcLeakDetection",
+                        "target": "RackLeakDetector_1",
+                        "message": "Leak detector reports leak",
+                        "classifications": ["Leak", "LeakDetector"],
+                    }
+                ],
+            },
+        }
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
+
+    host = payload["hosts"][0]
+    assert host["healthy"] is False
+    assert host["alerts"][0]["id"] == "BmcLeakDetection"
+    assert host["alerts"][0]["classifications"] == ["Leak", "LeakDetector"]
+    assert host["components"]["cooling"]["present"] is True
+    assert host["components"]["cooling"]["alerting"] is True
+
+
+def test_host_health_script_computes_observation_age(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A valid observedAt timestamp yields a non-negative age in seconds."""
+    module = _load_host_health_script()
+    observed = (datetime.now(UTC) - timedelta(seconds=42)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    machines = [{"id": "m-3", "status": "Ready", "health": {"observedAt": observed, "successes": [], "alerts": []}}]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
+
+    age = payload["hosts"][0]["observed_age_seconds"]
+    assert isinstance(age, int)
+    assert 40 <= age <= 120
 
 
 def test_governance_script_surfaces_api_errors(
@@ -581,3 +733,126 @@ def test_governance_script_surfaces_api_errors(
     assert exit_code == 1
     assert payload["success"] is False
     assert "simulated outage" in payload["error"]
+
+
+def test_host_health_real_world_bmc_sensors_pass_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A healthy NICo host (BmcSensor probes, no alerts) passes by default.
+
+    Mirrors a live NICo site where machine health surfaces BMC sensors and no
+    alerts. HostHealthCheck should pass: a report is returned and there are no
+    alerts -- no dedicated memory probe is required.
+    """
+    module = _load_host_health_script()
+    machines = [
+        {
+            "id": "m-1",
+            "status": "Ready",
+            "health": {
+                "observedAt": None,
+                "successes": [
+                    {"id": "BmcSensor", "target": "GPU0_Temp", "message": "temperature 'GPU0_Temp': OK"},
+                    {"id": "BmcSensor", "target": "FAN1", "message": "fan 'FAN1': OK"},
+                    {"id": "BgpDaemonEnabled", "target": None},
+                ],
+                "alerts": [],
+            },
+        }
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
+
+    host = payload["hosts"][0]
+    assert host["health_present"] is True
+    assert host["healthy"] is True
+    assert host["components"]["memory"]["present"] is False
+
+    check = HostHealthCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is True, check._error
+
+
+def test_host_health_leak_alert_fails_validation_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: a leak-detection alert flows through to a HostHealthCheck failure."""
+    module = _load_host_health_script()
+    machines = [
+        {
+            "id": "m-1",
+            "status": "Error",
+            "health": {
+                "successes": [{"id": "BmcSensor", "target": "GPU0_Temp", "message": "temperature 'GPU0_Temp': OK"}],
+                "alerts": [
+                    {
+                        "id": "BmcLeakDetection",
+                        "target": "TrayLeakDetector_3",
+                        "message": "2 leaking trays",
+                        "classifications": ["Leak"],
+                    }
+                ],
+            },
+        }
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_host_health.py", machines=machines)
+
+    check = HostHealthCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is False
+    assert "BmcLeakDetection" in check._error or "1 alert(s)" in check._error
+
+
+# ---------------------------------------------------------------------------
+# query_health_aggregation (CAP05-02) script
+# ---------------------------------------------------------------------------
+
+
+def test_health_aggregation_script_groups_by_instance_type(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Machines should aggregate per instanceTypeId with consistent counts."""
+    module = _load_health_aggregation_script()
+    machines = [
+        {"id": "m-1", "status": "Ready", "instanceTypeId": "it-a", "health": {"alerts": []}},
+        {"id": "m-2", "status": "InUse", "instanceTypeId": "it-a", "health": {"alerts": []}},
+        {"id": "m-3", "status": "Error", "instanceTypeId": "it-a", "health": {"alerts": []}},
+        {"id": "m-4", "status": "Ready", "instanceTypeId": "it-b", "health": {"alerts": [{"id": "FanSpeed"}]}},
+        {"id": "m-5", "status": "Ready", "instanceTypeId": None, "health": {"alerts": []}},
+        # Decommissioned machines are excluded from the live fleet entirely.
+        {"id": "m-6", "status": "Decommissioned", "instanceTypeId": "it-a", "health": {"alerts": []}},
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_health_aggregation.py", machines=machines)
+
+    assert payload["aggregation_level"] == "nodegroup"
+    groups = {g["group_id"]: g for g in payload["groups"]}
+    assert groups["it-a"]["total"] == 3
+    assert groups["it-a"]["healthy"] == 2
+    assert groups["it-a"]["unhealthy"] == 1
+    assert groups["it-a"]["status"] == "Degraded"
+    assert groups["it-a"]["unhealthy_hosts"] == ["m-3"]
+    assert groups["it-b"]["status"] == "Degraded"  # alert -> unhealthy
+    assert groups["unassigned"]["total"] == 1 and groups["unassigned"]["status"] == "Healthy"
+
+
+def test_health_aggregation_script_output_satisfies_validation_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: NICo aggregation JSON should pass HealthAggregationCheck."""
+    module = _load_health_aggregation_script()
+    machines = [
+        {"id": "m-1", "status": "Ready", "instanceTypeId": "it-a", "health": {"alerts": []}},
+        {"id": "m-2", "status": "Error", "instanceTypeId": "it-a", "health": {"alerts": []}},
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_health_aggregation.py", machines=machines)
+
+    check = HealthAggregationCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is True, check._error

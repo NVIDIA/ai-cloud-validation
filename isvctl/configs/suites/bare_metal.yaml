@@ -345,5 +345,26 @@ tests:
         GovernanceMetricsCheck:
           min_delivered_nodes: 1
 
+    # Per-host health API (CAP05-01). Asserts the API returns a report per host
+    # and the host is alert-free. Only runs for providers that implement the
+    # query_host_health step. fail_on_classifications is omitted so ANY alert
+    # (BMC sensor critical/failure, BmcLeakDetection/Leak, DPU heartbeat, ...)
+    # fails the host; set it to scope failures to specific severities, or set
+    # require_probes to enforce that specific signals are present.
+    host_health:
+      step: query_host_health
+      checks:
+        HostHealthCheck:
+          require_report: true
+
+    # Primitive-level health aggregation at the nodegroup/reservation level
+    # (CAP05-02). Only runs for providers that implement the
+    # query_health_aggregation step.
+    health_aggregation:
+      step: query_health_aggregation
+      checks:
+        HealthAggregationCheck:
+          min_groups: 1
+
   exclude:
     labels: []
