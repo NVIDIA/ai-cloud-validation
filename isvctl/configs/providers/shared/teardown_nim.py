@@ -38,49 +38,16 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
-import paramiko
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # providers/shared/ (for ssh_paramiko)
+from ssh_paramiko import run_cmd, ssh_connect
 
-SSH_CONNECT_TIMEOUT = 30
 CONTAINER_REMOVE_TIMEOUT = 240
 IMAGE_REMOVE_TIMEOUT = 240
 
 _CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-
-
-def ssh_connect(host: str, user: str, key_file: str) -> paramiko.SSHClient:
-    """Create SSH connection to remote host."""
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        client.connect(
-            hostname=host,
-            username=user,
-            key_filename=key_file,
-            timeout=SSH_CONNECT_TIMEOUT,
-            allow_agent=False,
-            look_for_keys=False,
-        )
-    except TimeoutError as e:
-        raise TimeoutError(f"SSH connection timed out after {SSH_CONNECT_TIMEOUT}s") from e
-    return client
-
-
-def run_cmd(
-    ssh: paramiko.SSHClient,
-    command: str,
-    timeout: int = 60,
-    operation: str | None = None,
-) -> tuple[int, str, str]:
-    """Execute command via SSH and return (exit_code, stdout, stderr)."""
-    try:
-        _, stdout, stderr = ssh.exec_command(command, timeout=timeout)
-        exit_code = stdout.channel.recv_exit_status()
-        return exit_code, stdout.read().decode(), stderr.read().decode()
-    except TimeoutError as e:
-        label = operation or command
-        raise TimeoutError(f"{label} timed out after {timeout}s") from e
 
 
 def main() -> int:

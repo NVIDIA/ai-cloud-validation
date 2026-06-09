@@ -48,31 +48,11 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
-import paramiko
-
-
-def ssh_connect(host: str, user: str, key_file: str) -> paramiko.SSHClient:
-    """Create SSH connection to remote host."""
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        hostname=host,
-        username=user,
-        key_filename=key_file,
-        timeout=30,
-        allow_agent=False,
-        look_for_keys=False,
-    )
-    return client
-
-
-def run_cmd(ssh: paramiko.SSHClient, command: str, timeout: int = 120) -> tuple[int, str, str]:
-    """Execute command via SSH and return (exit_code, stdout, stderr)."""
-    _, stdout, stderr = ssh.exec_command(command, timeout=timeout)
-    exit_code = stdout.channel.recv_exit_status()
-    return exit_code, stdout.read().decode(), stderr.read().decode()
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # providers/shared/ (for ssh_paramiko)
+from ssh_paramiko import run_cmd, ssh_connect
 
 
 def main() -> int:
