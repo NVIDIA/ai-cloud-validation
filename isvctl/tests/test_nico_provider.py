@@ -30,6 +30,8 @@ from typing import Any
 from urllib.parse import parse_qs
 
 import pytest
+from isvtest.validations.governance import GovernanceMetricsCheck
+from isvtest.validations.health import HealthAggregationCheck, HostHealthCheck
 
 from isvctl.config.merger import merge_yaml_files
 
@@ -593,8 +595,6 @@ def test_governance_script_output_satisfies_validation_contract(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End-to-end: NICo governance JSON should pass GovernanceMetricsCheck."""
-    from isvtest.validations.governance import GovernanceMetricsCheck
-
     payload = _run_governance_script(
         monkeypatch,
         capsys,
@@ -745,9 +745,6 @@ def test_host_health_real_world_bmc_sensors_pass_by_default(
     alerts. HostHealthCheck should pass: a report is returned and there are no
     alerts -- no dedicated memory probe is required.
     """
-    # Local import: isvtest validation framework only needed for this end-to-end test
-    from isvtest.validations.health import HostHealthCheck
-
     module = _load_host_health_script()
     machines = [
         {
@@ -782,9 +779,6 @@ def test_host_health_leak_alert_fails_validation_end_to_end(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End-to-end: a leak-detection alert flows through to a HostHealthCheck failure."""
-    # Local import: isvtest validation framework only needed for this end-to-end test
-    from isvtest.validations.health import HostHealthCheck
-
     module = _load_host_health_script()
     machines = [
         {
@@ -851,9 +845,6 @@ def test_health_aggregation_script_output_satisfies_validation_contract(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End-to-end: NICo aggregation JSON should pass HealthAggregationCheck."""
-    # Local import: isvtest validation framework only needed for this end-to-end test
-    from isvtest.validations.health import HealthAggregationCheck
-
     module = _load_health_aggregation_script()
     machines = [
         {"id": "m-1", "status": "Ready", "instanceTypeId": "it-a", "health": {"alerts": []}},
