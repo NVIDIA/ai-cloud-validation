@@ -16,16 +16,20 @@
 # NICo Bare Metal (BMaaS) Validation Configuration
 #
 # Imports the provider-agnostic bare_metal contract and wires the NICo
-# hardware-lifecycle steps. NICo currently implements the hardware ingestion
-# and DPU health steps; the remaining bare_metal validations are skipped
-# automatically because their steps are not defined here (a future PR will
-# wire the full lifecycle so NICo can pass the entire BM suite).
+# hardware-lifecycle steps. NICo currently implements the hardware ingestion,
+# DPU health, and governance-metrics steps; the remaining bare_metal
+# validations are skipped automatically because their steps are not defined
+# here (a future PR will wire the full lifecycle so NICo can pass the entire
+# BM suite).
 #
 # Architecture:
 #   - verify_ingestion.py compares expected-machine manifest vs discovered
 #     machines (joined by machineId); HardwareIngestionCheck validates it.
 #   - check_dpu_health.py queries machine health data; DpuHealthCheck
 #     validates DPU presence, heartbeat, and alerts.
+#   - query_metrics.py aggregates per-status node and GPU counts into the
+#     Delivered / Healthy / Reserved / Active governance buckets;
+#     GovernanceMetricsCheck verifies the API contract (CAP01-01).
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -68,6 +72,22 @@ commands:
       - name: check_dpu_health
         phase: test
         command: "python ../scripts/dpu/check_dpu_health.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Query Governance Metrics ──────────────────────────────────
+      # Aggregates every machine at the site into the Delivered / Healthy
+      # / Reserved / Active governance buckets (CAP01-01). Counts are
+      # produced for both nodes and GPUs.
+      - name: query_governance_metrics
+        phase: test
+        command: "python ../scripts/governance/query_metrics.py"
         args:
           - "--org"
           - "{{org}}"

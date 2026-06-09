@@ -38,6 +38,9 @@ from isvtest.validations.generic import (
     SchemaValidation,
     StepSuccessCheck,
 )
+from isvtest.validations.governance import (
+    GovernanceMetricsCheck,
+)
 from isvtest.validations.host import (
     CloudInitCheck,
     ContainerRuntimeCheck,
@@ -152,6 +155,7 @@ __all__ = [
     "FieldExistsCheck",
     "FieldValueCheck",
     "FloatingIpCheck",
+    "GovernanceMetricsCheck",
     "GpuOperatorInstalledCheck",
     "InsecureProtocolsCheck",
     "InstanceCreatedCheck",

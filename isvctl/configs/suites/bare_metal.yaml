@@ -335,5 +335,15 @@ tests:
         DpuHealthCheck:
           require_heartbeat: true
 
+    # Governance metrics (CAP01-01): the provider's governance API must
+    # surface Delivered, Healthy, Reserved, and Active counts for nodes and
+    # GPUs. Only runs for providers that implement the
+    # query_governance_metrics step.
+    governance_metrics:
+      step: query_governance_metrics
+      checks:
+        GovernanceMetricsCheck:
+          min_delivered_nodes: 1
+
   exclude:
     labels: []
