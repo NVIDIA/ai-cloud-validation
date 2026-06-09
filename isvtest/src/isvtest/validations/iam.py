@@ -147,23 +147,30 @@ class AccessKeyRejectedCheck(BaseValidation):
 
 
 class ServiceAccountCredentialCheck(BaseValidation):
-    """Validate out-of-cluster service accounts can authenticate with long-lived credentials.
+    """Validate out-of-cluster service accounts can obtain credentials and authenticate.
 
-    Verifies that service accounts intended for out-of-cluster use (CI/CD
-    pipelines, external tooling) can authenticate using long-lived credentials
-    and that the credentials grant the expected identity.
+    Verifies that a service account intended for out-of-cluster use (CI/CD
+    pipelines, external tooling) can obtain credentials and authenticate as the
+    expected identity. The credential may come from any source the platform
+    supports -- a downloaded long-lived key, a short-lived token, service-account
+    impersonation, or workload-identity federation. The property under test is
+    "the workload can authenticate as the service account," not the specific key
+    material, so a platform that disables long-lived key download (a recommended
+    hardening posture) proves this via a keyless source.
 
     Config:
         step_output: The step output to check
 
     Step output:
         authenticated: Boolean - True if SA authenticated successfully
-        credential_type: Type of credential (e.g. "api_key", "service_account_key")
+        credential_type: Type of credential (e.g. "access_key", "oauth2_token")
+        credential_source: Optional - how the credential was obtained
+            (long_lived_key | short_lived | impersonation | workload_identity)
         identity: The authenticated identity / principal
-        expires_at: Optional expiry (null/absent for truly long-lived)
+        expires_at: Optional expiry (null/absent for long-lived credentials)
     """
 
-    description: ClassVar[str] = "Check service account long-lived credential auth"
+    description: ClassVar[str] = "Check service account can obtain credentials and authenticate"
     labels: ClassVar[tuple[str, ...]] = ("iam", "security")
 
     def run(self) -> None:
@@ -188,7 +195,12 @@ class ServiceAccountCredentialCheck(BaseValidation):
         if not identity:
             self.set_failed("No 'identity' in step output")
             return
-        self.set_passed(f"Service account authenticated via {credential_type} as {identity}")
+        # credential_source is optional and informational: the property under test
+        # is that the SA can authenticate, not which credential mechanism produced
+        # the token (long_lived_key, short_lived, impersonation, workload_identity).
+        credential_source = step_output.get("credential_source")
+        via = f"{credential_type} ({credential_source})" if credential_source else credential_type
+        self.set_passed(f"Service account authenticated via {via} as {identity}")
 
 
 # =============================================================================

@@ -14,11 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Service account long-lived credential test - TEMPLATE.
+"""Service account credential test - TEMPLATE.
 
-Verifies that out-of-cluster service accounts can authenticate using
-long-lived credentials (API keys, service account keys, etc.).  This
-covers the SEC03-01 requirement.
+Verifies that out-of-cluster service accounts can obtain credentials and
+authenticate as the expected identity. The credential may come from any source
+your platform supports -- a downloaded long-lived key, a short-lived token,
+service-account impersonation, or workload-identity federation (reported in
+credential_source). Covers the SEC03-01 requirement.
 
 Required JSON output fields:
   {
@@ -27,6 +29,7 @@ Required JSON output fields:
     "test_name": "sa_credential_test",
     "authenticated": true,
     "credential_type": "api_key",
+    "credential_source": "long_lived_key",
     "identity": "sa-validation-test@project.iam",
     "expires_at": null
   }
@@ -56,26 +59,28 @@ def main() -> int:
         "test_name": "sa_credential_test",
         "authenticated": False,
         "credential_type": "",
+        "credential_source": "",
         "identity": "",
         "expires_at": None,
     }
 
-    # ╔══════════════════════════════════════════════════════════════════╗
-    # ║  TODO: Replace this block with your platform's SA credential     ║
-    # ║  test.                                                           ║
-    # ║                                                                  ║
-    # ║  Example (pseudocode):                                           ║
-    # ║    sa = create_service_account("validation-test")                ║
-    # ║    key = create_long_lived_key(sa)                               ║
-    # ║    identity = authenticate_with_key(key)                         ║
-    # ║    result["authenticated"] = identity is not None                ║
-    # ║    result["credential_type"] = "service_account_key"             ║
-    # ║    result["identity"] = identity.principal                       ║
-    # ╚══════════════════════════════════════════════════════════════════╝
+    # TODO: Replace this block with your platform's SA credential test.
+    #
+    # Prove a service account can authenticate as the expected identity via any
+    # credential source your platform supports. Example (pseudocode):
+    #   sa = create_service_account("validation-test")
+    #   # long-lived key, OR a keyless source where key download is disabled:
+    #   creds = obtain_credentials(sa)        # key | impersonation | WIF | token
+    #   identity = authenticate(creds)
+    #   result["authenticated"] = identity is not None
+    #   result["credential_type"] = "service_account_key"  # or "oauth2_token", ...
+    #   result["credential_source"] = "long_lived_key"     # or "impersonation", ...
+    #   result["identity"] = identity.principal
 
     if DEMO_MODE:
         result["authenticated"] = True
         result["credential_type"] = "api_key"
+        result["credential_source"] = "long_lived_key"
         result["identity"] = "sa-validation-test@my-isv.iam"
         result["expires_at"] = None
         result["success"] = True

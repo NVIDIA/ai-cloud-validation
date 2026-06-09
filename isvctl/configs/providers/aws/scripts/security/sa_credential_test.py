@@ -14,11 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify out-of-cluster service accounts can authenticate with long-lived credentials.
+"""Verify out-of-cluster service accounts can obtain credentials and authenticate.
 
-AWS reference implementation: creates a temporary IAM user with
-programmatic access (long-lived access key), authenticates with
-STS GetCallerIdentity, then cleans up.
+The property under test is that the service account can authenticate as the
+expected identity; the credential may come from any source the platform supports
+(long-lived key, short-lived token, impersonation, workload-identity federation),
+reported in credential_source. AWS reference implementation: creates a temporary
+IAM user with programmatic access (long-lived access key, credential_source
+"long_lived_key"), authenticates with STS GetCallerIdentity, then cleans up.
 
 Usage:
     python sa_credential_test.py --region us-west-2
@@ -30,6 +33,7 @@ Output JSON:
     "test_name": "sa_credential_test",
     "authenticated": true,
     "credential_type": "access_key",
+    "credential_source": "long_lived_key",
     "identity": "arn:aws:iam::123456789012:user/isv-sa-test-xxxx",
     "expires_at": null
   }
@@ -89,6 +93,7 @@ def main() -> int:
         "test_name": "sa_credential_test",
         "authenticated": False,
         "credential_type": "",
+        "credential_source": "long_lived_key",
         "identity": "",
         "expires_at": None,
     }
