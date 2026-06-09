@@ -934,6 +934,40 @@ class TestMissingStepRefDetection:
         # "--region" stripped (matching previous behavior for explicit defaults).
         assert results.steps[0].success
 
+    def test_deploy_nim_skip_condition_renders_teardown_skip_args(self) -> None:
+        """Conditional NIM teardown args render only when deploy_nim skipped."""
+        executor = StepExecutor()
+        context = Context(RunConfig())
+        context.set_step_output("deploy_nim", {"success": True, "skipped": True})
+
+        rendered = executor._render_args(
+            [
+                "{{ '--skip' if steps.deploy_nim.skipped | default(false) else '' }}",
+                "{{ '--skip-reason' if steps.deploy_nim.skipped | default(false) else '' }}",
+                "{{ 'NIM deployment skipped' if steps.deploy_nim.skipped | default(false) else '' }}",
+            ],
+            context,
+        )
+
+        assert rendered == ["--skip", "--skip-reason", "NIM deployment skipped"]
+
+    def test_deploy_nim_skip_condition_drops_args_when_not_skipped(self) -> None:
+        """Conditional NIM teardown args are dropped when deploy_nim ran."""
+        executor = StepExecutor()
+        context = Context(RunConfig())
+        context.set_step_output("deploy_nim", {"success": True, "skipped": False})
+
+        rendered = executor._render_args(
+            [
+                "{{ '--skip' if steps.deploy_nim.skipped | default(false) else '' }}",
+                "{{ '--skip-reason' if steps.deploy_nim.skipped | default(false) else '' }}",
+                "{{ 'NIM deployment skipped' if steps.deploy_nim.skipped | default(false) else '' }}",
+            ],
+            context,
+        )
+
+        assert rendered == []
+
     def test_inline_empty_template_value_keeps_flag_value_pair(self) -> None:
         """Empty optional values stay attached when YAML uses ``--flag={{value}}``."""
         executor = StepExecutor()

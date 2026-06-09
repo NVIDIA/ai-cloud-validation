@@ -42,6 +42,10 @@ from typing import Any
 
 import paramiko
 
+SSH_CONNECT_TIMEOUT = 30
+CONTAINER_REMOVE_TIMEOUT = 240
+IMAGE_REMOVE_TIMEOUT = 240
+
 _CONTAINER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
@@ -49,22 +53,34 @@ def ssh_connect(host: str, user: str, key_file: str) -> paramiko.SSHClient:
     """Create SSH connection to remote host."""
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        hostname=host,
-        username=user,
-        key_filename=key_file,
-        timeout=30,
-        allow_agent=False,
-        look_for_keys=False,
-    )
+    try:
+        client.connect(
+            hostname=host,
+            username=user,
+            key_filename=key_file,
+            timeout=SSH_CONNECT_TIMEOUT,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+    except TimeoutError as e:
+        raise TimeoutError(f"SSH connection timed out after {SSH_CONNECT_TIMEOUT}s") from e
     return client
 
 
-def run_cmd(ssh: paramiko.SSHClient, command: str, timeout: int = 60) -> tuple[int, str, str]:
+def run_cmd(
+    ssh: paramiko.SSHClient,
+    command: str,
+    timeout: int = 60,
+    operation: str | None = None,
+) -> tuple[int, str, str]:
     """Execute command via SSH and return (exit_code, stdout, stderr)."""
-    _, stdout, stderr = ssh.exec_command(command, timeout=timeout)
-    exit_code = stdout.channel.recv_exit_status()
-    return exit_code, stdout.read().decode(), stderr.read().decode()
+    try:
+        _, stdout, stderr = ssh.exec_command(command, timeout=timeout)
+        exit_code = stdout.channel.recv_exit_status()
+        return exit_code, stdout.read().decode(), stderr.read().decode()
+    except TimeoutError as e:
+        label = operation or command
+        raise TimeoutError(f"{label} timed out after {timeout}s") from e
 
 
 def main() -> int:
@@ -74,6 +90,8 @@ def main() -> int:
     parser.add_argument("--user", default="ubuntu", help="SSH username")
     parser.add_argument("--container-name", default="isv-nim", help="Docker container name")
     parser.add_argument("--remove-image", action="store_true", help="Also remove the container image")
+    parser.add_argument("--skip", action="store_true", help="Skip teardown because NIM deployment did not run")
+    parser.add_argument("--skip-reason", default="NIM deployment skipped", help="Reason to report when skipping")
     args = parser.parse_args()
 
     if not _CONTAINER_NAME_RE.match(args.container_name):
@@ -90,6 +108,14 @@ def main() -> int:
         "container_name": args.container_name,
     }
 
+    if args.skip:
+        result["success"] = True
+        result["skipped"] = True
+        result["skip_reason"] = args.skip_reason
+        result["message"] = args.skip_reason
+        print(json.dumps(result, indent=2))
+        return 0
+
     ssh = None
     try:
         ssh = ssh_connect(args.host, args.user, args.key_file)
@@ -99,21 +125,33 @@ def main() -> int:
             image_name = None
             if args.remove_image:
                 exit_code, stdout, _ = run_cmd(
-                    ssh, f"docker inspect -f '{{{{.Config.Image}}}}' {args.container_name} 2>/dev/null"
+                    ssh,
+                    f"docker inspect -f '{{{{.Config.Image}}}}' {args.container_name} 2>/dev/null",
+                    operation="docker inspect",
                 )
                 if exit_code == 0:
                     image_name = stdout.strip()
 
             # Stop and remove container
             print(f"Stopping container: {args.container_name}", file=sys.stderr)
-            exit_code, stdout_out, stderr_out = run_cmd(ssh, f"docker rm -f {args.container_name}")
+            exit_code, stdout_out, stderr_out = run_cmd(
+                ssh,
+                f"docker rm -f {args.container_name}",
+                timeout=CONTAINER_REMOVE_TIMEOUT,
+                operation="docker rm",
+            )
             already_gone = "No such container" in stderr_out or "No such container" in stdout_out
             result["container_removed"] = exit_code == 0 or already_gone
 
             # Optionally remove image
             if args.remove_image and image_name:
                 print(f"Removing image: {image_name}", file=sys.stderr)
-                exit_code, _, _ = run_cmd(ssh, f"docker rmi {image_name} 2>&1", timeout=120)
+                exit_code, _, _ = run_cmd(
+                    ssh,
+                    f"docker rmi {image_name} 2>&1",
+                    timeout=IMAGE_REMOVE_TIMEOUT,
+                    operation="docker rmi",
+                )
                 result["image_removed"] = exit_code == 0
 
             result["success"] = result["container_removed"]
@@ -121,6 +159,9 @@ def main() -> int:
             if ssh is not None and hasattr(ssh, "close"):
                 ssh.close()
 
+    except TimeoutError as e:
+        result["error_type"] = "timeout"
+        result["error"] = str(e)
     except Exception as e:
         result["error"] = str(e)
 

@@ -271,7 +271,9 @@ commands:
           - "{{steps.power_cycle_instance.public_ip}}"
           - "--key-file"
           - "{{steps.power_cycle_instance.key_file}}"
-        timeout: 120
+          # Skip teardown when deploy_nim was skipped; the script supplies the default skip reason.
+          - "{{ '--skip' if steps.deploy_nim.skipped | default(false) else '' }}"
+        timeout: 300
 
       # Teardown bare-metal instance (boto3)
       # Set AWS_BM_SKIP_TEARDOWN=true to keep the instance alive
