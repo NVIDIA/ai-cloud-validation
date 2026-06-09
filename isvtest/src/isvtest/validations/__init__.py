@@ -113,6 +113,11 @@ from isvtest.validations.nim import (
     NimInferenceCheck,
     NimModelCheck,
 )
+from isvtest.validations.sanitization import (
+    FirmwareResetCheck,
+    GpuMemorySanitizationCheck,
+    MemorySanitizationCheck,
+)
 from isvtest.validations.security import (
     ApiEndpointIsolationCheck,
     AuditLogEntryCheck,
@@ -162,8 +167,10 @@ __all__ = [
     "DriverCheck",
     "FieldExistsCheck",
     "FieldValueCheck",
+    "FirmwareResetCheck",
     "FloatingIpCheck",
     "GovernanceMetricsCheck",
+    "GpuMemorySanitizationCheck",
     "GpuOperatorInstalledCheck",
     "HealthAggregationCheck",
     "HostHealthCheck",
@@ -183,6 +190,7 @@ __all__ = [
     "KmsEncryptionOptionCheck",
     "LeastPrivilegePolicyCheck",
     "LocalizedDnsCheck",
+    "MemorySanitizationCheck",
     "MfaEnforcedCheck",
     "MinimalRoleEnforcementCheck",
     "NetworkConnectivityCheck",

@@ -114,6 +114,7 @@ For the domain / script-count / AWS-reference overview see the
 | `query_health_aggregation` | test | `providers/nico/scripts/health/query_health_aggregation.py` | `aggregation_level`, `groups[].{total,healthy,unhealthy,status,unhealthy_hosts}` |
 | `query_ib_tenant_isolation` | test | `providers/nico/scripts/infiniband/query_ib_tenant_isolation.py` | `partitions_checked`, `partitions[].{name,partition_key,tenant_id,status}` |
 | `query_ib_keys` | test | `providers/nico/scripts/infiniband/query_ib_keys.py` | `partitions_with_pkey`, `keys.<name>.{configured,source,detail}` |
+| `query_sanitization` | test | `providers/nico/scripts/sanitization/query_sanitization.py` | `machines_checked`, `machines[].{available,in_use,has_gpu,served_tenant,sanitized,stale_tenant_binding,vendor,product_name,bios_version,transitions}` |
 
 ### Kubernetes (`k8s.yaml`)
 

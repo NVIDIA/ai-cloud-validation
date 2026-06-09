@@ -33,6 +33,10 @@ import pytest
 from isvtest.validations.governance import GovernanceMetricsCheck
 from isvtest.validations.health import HealthAggregationCheck, HostHealthCheck
 from isvtest.validations.infiniband import IbKeysConfiguredCheck, IbTenantIsolationCheck
+from isvtest.validations.sanitization import (
+    GpuMemorySanitizationCheck,
+    MemorySanitizationCheck,
+)
 
 from isvctl.config.merger import merge_yaml_files
 
@@ -174,6 +178,17 @@ def _load_ib_keys_script() -> ModuleType:
     return module
 
 
+def _load_sanitization_script() -> ModuleType:
+    """Load the query_sanitization script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "sanitization" / "query_sanitization.py"
+    spec = importlib.util.spec_from_file_location("test_query_sanitization", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
 def test_nico_auth_prefers_explicit_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """A locally supplied NICo bearer token should be the simplest auth path."""
     module = _load_nico_client()
@@ -283,6 +298,7 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
         "query_governance_metrics",
         "query_host_health",
         "query_health_aggregation",
+        "query_sanitization",
     ],
 )
 def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
@@ -305,6 +321,7 @@ def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None
         ("query_metrics.py", _load_governance_metrics_script),
         ("query_host_health.py", _load_host_health_script),
         ("query_health_aggregation.py", _load_health_aggregation_script),
+        ("query_sanitization.py", _load_sanitization_script),
     ],
 )
 def test_nico_scripts_require_api_base(
@@ -1312,3 +1329,180 @@ def test_ib_keys_script_surfaces_api_errors(
     assert exit_code == 1
     assert payload["success"] is False
     assert "simulated outage" in payload["error"]
+
+
+# ---------------------------------------------------------------------------
+# query_sanitization (SEC21-04/05/06) script
+# ---------------------------------------------------------------------------
+
+
+def _sanitization_machine(
+    *,
+    machine_id: str = "m-1",
+    status: str = "Ready",
+    history_statuses: list[str] | None = None,
+    is_usable: bool = True,
+    instance_id: str | None = None,
+    tenant_id: str | None = None,
+    gpus: int = 8,
+    bios_version: str = "U8E122J-1.51",
+) -> dict[str, Any]:
+    """Build a NICo machine payload to drive the sanitization script.
+
+    ``history_statuses`` is given oldest-first; each is converted into a
+    statusHistory entry with an increasing ``created`` timestamp.
+    """
+    if history_statuses is None:
+        history_statuses = ["InUse", "Reset", "Ready"]
+    status_history = [
+        {"status": s, "message": "", "created": f"2026-01-01T00:0{i}:00Z"} for i, s in enumerate(history_statuses)
+    ]
+    capabilities = [{"type": "GPU", "name": "H100", "count": gpus}] if gpus else []
+    return {
+        "id": machine_id,
+        "status": status,
+        "isUsableByTenant": is_usable,
+        "instanceId": instance_id,
+        "tenantId": tenant_id,
+        "vendor": "Lenovo",
+        "productName": "ThinkSystem SR670 V2",
+        "machineCapabilities": capabilities,
+        "statusHistory": status_history,
+        "metadata": {"dmiData": {"biosVersion": bios_version}},
+    }
+
+
+def test_sanitization_status_token_mapping() -> None:
+    """NICo statuses map to the provider-neutral lifecycle tokens."""
+    module = _load_sanitization_script()
+    assert module.status_token("InUse") == "in_use"
+    assert module.status_token("Reset") == "sanitizing"
+    assert module.status_token("Ready") == "available"
+    assert module.status_token("Maintenance") == "maintenance"
+    assert module.status_token(None) == "unknown"
+
+
+def test_sanitization_ordered_history_appends_current() -> None:
+    """History is sorted by created time and the live status is appended once."""
+    module = _load_sanitization_script()
+    machine = {
+        "status": "Ready",
+        "statusHistory": [
+            {"status": "Reset", "created": "2026-01-01T00:01:00Z"},
+            {"status": "InUse", "created": "2026-01-01T00:00:00Z"},
+        ],
+    }
+    assert module.ordered_history_statuses(machine) == ["InUse", "Reset", "Ready"]
+
+
+def test_sanitization_evaluate_transitions_logic() -> None:
+    """The gate flags in_use -> available without an intervening sanitizing stage."""
+    module = _load_sanitization_script()
+    assert module.evaluate_transitions(["in_use", "sanitizing", "available"]) == (True, True)
+    assert module.evaluate_transitions(["in_use", "available"]) == (True, False)
+    # maintenance between in_use and available does not satisfy the gate.
+    assert module.evaluate_transitions(["in_use", "maintenance", "available"]) == (True, False)
+    # never served a tenant -> nothing to sanitize.
+    assert module.evaluate_transitions(["initializing", "available"]) == (False, True)
+
+
+def _run_sanitization(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    machines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Drive the sanitization script with mocked auth/API and return its JSON output."""
+    module = _load_sanitization_script()
+    return _run_script(module, monkeypatch, capsys, script_name="query_sanitization.py", machines=machines)
+
+
+def test_sanitization_script_builds_clean_record(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A host that went InUse -> Reset -> Ready is sanitized and available."""
+    payload = _run_sanitization(monkeypatch, capsys, [_sanitization_machine()])
+
+    assert payload["success"] is True
+    assert payload["machines_checked"] == 1
+    record = payload["machines"][0]
+    assert record["served_tenant"] is True
+    assert record["sanitized"] is True
+    assert record["available"] is True
+    assert record["in_use"] is False
+    assert record["has_gpu"] is True
+    assert record["stale_tenant_binding"] is False
+    assert record["bios_version"] == "U8E122J-1.51"
+    assert record["transitions"] == ["in_use", "sanitizing", "available"]
+
+
+def test_sanitization_script_flags_skipped_sanitization(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A host that went InUse -> Ready (no Reset) is flagged unsanitized."""
+    machine = _sanitization_machine(history_statuses=["InUse", "Ready"])
+    payload = _run_sanitization(monkeypatch, capsys, [machine])
+
+    record = payload["machines"][0]
+    assert record["served_tenant"] is True
+    assert record["sanitized"] is False
+
+
+def test_sanitization_script_flags_stale_tenant_binding(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A Ready+usable host still bound to an instance is a stale binding."""
+    machine = _sanitization_machine(
+        history_statuses=["InUse", "Reset", "Ready"],
+        instance_id="59bdaaff-3998-4fd9-a140-8749beeb605e",
+    )
+    payload = _run_sanitization(monkeypatch, capsys, [machine])
+
+    record = payload["machines"][0]
+    assert record["available"] is False
+    assert record["stale_tenant_binding"] is True
+
+
+def test_sanitization_script_marks_in_use_host(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A host currently InUse is not yet returned to the pool (still sanitized=true)."""
+    machine = _sanitization_machine(status="InUse", history_statuses=["Ready", "InUse"], is_usable=False)
+    payload = _run_sanitization(monkeypatch, capsys, [machine])
+
+    record = payload["machines"][0]
+    assert record["in_use"] is True
+    assert record["available"] is False
+    assert record["served_tenant"] is True
+    assert record["sanitized"] is True
+
+
+def test_sanitization_script_output_satisfies_memory_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: clean NICo JSON passes the memory check; a skipped reset fails."""
+    clean = _run_sanitization(monkeypatch, capsys, [_sanitization_machine()])
+    check = MemorySanitizationCheck(config={"step_output": clean})
+    check.run()
+    assert check._passed is True, check._error
+
+    dirty = _run_sanitization(monkeypatch, capsys, [_sanitization_machine(history_statuses=["InUse", "Ready"])])
+    bad = MemorySanitizationCheck(config={"step_output": dirty})
+    bad.run()
+    assert bad._passed is False
+    assert "without sanitization" in bad._error
+
+
+def test_sanitization_script_output_satisfies_gpu_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: a sanitized GPU host passes the GPU-memory check."""
+    payload = _run_sanitization(monkeypatch, capsys, [_sanitization_machine(gpus=8)])
+    check = GpuMemorySanitizationCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is True, check._error

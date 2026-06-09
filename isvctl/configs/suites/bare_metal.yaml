@@ -393,5 +393,27 @@ tests:
         IbKeysConfiguredCheck:
           required_keys: ["p_key", "management_key"]
 
+    # Tenant-transition data sanitization (SEC21 / SEC22). Each check asserts
+    # that a host which served a tenant is not returned to the allocatable pool
+    # until it passes through the platform's sanitizing lifecycle stage. Only
+    # runs for providers that implement the query_sanitization step.
+    #   - SEC21-04: host (RAM) memory sanitization between tenants.
+    #   - SEC21-05: SRAM/GPU memory sanitization between tenants (GPU hosts).
+    #   - SEC21-06 / SEC22: TPM clear and BIOS/UEFI recommit on transition.
+    memory_sanitization:
+      step: query_sanitization
+      checks:
+        MemorySanitizationCheck: {}
+
+    gpu_memory_sanitization:
+      step: query_sanitization
+      checks:
+        GpuMemorySanitizationCheck: {}
+
+    firmware_reset:
+      step: query_sanitization
+      checks:
+        FirmwareResetCheck: {}
+
   exclude:
     labels: []

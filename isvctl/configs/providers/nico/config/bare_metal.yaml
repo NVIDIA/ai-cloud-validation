@@ -42,6 +42,10 @@
 #   - query_ib_keys.py reports InfiniBand key configuration (P_Key from NICo,
 #     Management Key from UFM when configured); IbKeysConfiguredCheck
 #     validates the required keys (SDN04-05).
+#   - query_sanitization.py maps each machine's status + statusHistory into a
+#     neutral lifecycle token sequence; MemorySanitizationCheck (SEC21-04),
+#     GpuMemorySanitizationCheck (SEC21-05), and FirmwareResetCheck
+#     (SEC21-06/SEC22) assert hosts are sanitized between tenants.
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -166,6 +170,24 @@ commands:
       - name: query_ib_keys
         phase: test
         command: "python ../scripts/infiniband/query_ib_keys.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Audit Tenant-Transition Sanitization (SEC21-04/05/06) ─────
+      # Maps each machine's status + statusHistory into a neutral lifecycle
+      # token sequence (Reset -> sanitizing, InUse -> in_use, Ready ->
+      # available) so the sanitization checks can assert no host returned to
+      # the pool without an intervening sanitizing stage. Also surfaces GPU
+      # presence and firmware identity (vendor/product/BIOS).
+      - name: query_sanitization
+        phase: test
+        command: "python ../scripts/sanitization/query_sanitization.py"
         args:
           - "--org"
           - "{{org}}"
