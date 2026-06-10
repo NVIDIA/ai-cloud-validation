@@ -58,6 +58,13 @@ IB_KEY_NAMES: tuple[str, ...] = (
 # reused this P_Key would not be isolated, so it is never a valid tenant key.
 DEFAULT_PARTITION_PKEY = 0x7FFF
 
+# An InfiniBand P_Key is the partition number in the low 15 bits; the top bit
+# (0x8000) is the membership type (full vs limited member). Mask it off before
+# comparing partition identity so the all-ports default (0x7fff limited /
+# 0xffff full) is detected either way and a tenant partition seen as both
+# 0x0001 (limited) and 0x8001 (full) is recognised as the same partition.
+PKEY_BASE_MASK = 0x7FFF
+
 
 def _normalize_pkey(value: Any) -> int | None:
     """Return a P_Key as an int, accepting hex ("0x1") or decimal strings.
@@ -146,10 +153,12 @@ class IbTenantIsolationCheck(BaseValidation):
             return
 
         default_pkey = _normalize_pkey(self.config.get("default_partition_pkey", DEFAULT_PARTITION_PKEY))
+        default_base = default_pkey & PKEY_BASE_MASK if default_pkey is not None else None
 
-        # Maps a normalized P_Key to the set of distinct tenants that own a
-        # partition with that key. More than one tenant per key is an isolation
-        # breach (both tenants' ports could talk over the shared partition).
+        # Maps a partition number (membership bit masked off) to the set of
+        # distinct tenants that own a partition with that key. More than one
+        # tenant per key is an isolation breach (both tenants' ports could talk
+        # over the shared partition).
         pkey_tenants: dict[int, set[str]] = {}
         failed: list[str] = []
 
@@ -161,10 +170,13 @@ class IbTenantIsolationCheck(BaseValidation):
             tenant = tenant.strip() if isinstance(tenant, str) else ""
 
             problems: list[str] = []
+            partition_number: int | None = None
             if pkey is None:
                 problems.append("no P_Key allocated")
-            elif default_pkey is not None and pkey == default_pkey:
-                problems.append(f"reuses the default all-ports partition ({pkey_raw})")
+            else:
+                partition_number = pkey & PKEY_BASE_MASK
+                if default_base is not None and partition_number == default_base:
+                    problems.append(f"reuses the default all-ports partition ({pkey_raw})")
             if not tenant:
                 problems.append("not scoped to a tenant")
 
@@ -177,8 +189,11 @@ class IbTenantIsolationCheck(BaseValidation):
                 failed.append(f"{label} ({'; '.join(problems)})")
                 continue
 
-            # pkey/tenant are valid here -- record ownership for collision detection.
-            pkey_tenants.setdefault(pkey, set()).add(tenant)
+            # pkey/tenant are valid here -- record ownership for collision
+            # detection, keyed by partition number so membership variants of the
+            # same partition collapse together.
+            assert partition_number is not None
+            pkey_tenants.setdefault(partition_number, set()).add(tenant)
             self.report_subtest(
                 f"partition_{label}",
                 passed=True,

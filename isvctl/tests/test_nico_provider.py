@@ -1176,6 +1176,23 @@ def test_ib_keys_script_pkey_from_partitions(
     assert payload["keys"]["p_key"]["source"] == "nico"
 
 
+def test_ib_keys_script_full_member_default_excluded_from_pkey_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A full-member default P_Key (0xffff) does not count as a tenant P_Key."""
+    partitions = [
+        _ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a"),
+        # Full-member default partition: same partition number as 0x7fff.
+        _ib_partition(name="management", partition_key="0xffff", tenant_id=""),
+    ]
+
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=partitions)
+
+    assert payload["partitions_with_pkey"] == 1
+    assert payload["keys"]["p_key"]["configured"] is True
+
+
 def test_ib_keys_script_management_key_unverified_without_ufm(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

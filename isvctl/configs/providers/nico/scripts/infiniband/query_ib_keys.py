@@ -95,6 +95,11 @@ from common.ufm_client import (
 # UFM's default partition spans every port; its P_Key is not a tenant key.
 DEFAULT_PARTITION_PKEY = 0x7FFF
 
+# A P_Key's low 15 bits are the partition number; the top bit (0x8000) is the
+# membership type. Mask it off so the all-ports default is recognized whether it
+# appears as 0x7fff (limited) or 0xffff (full member).
+PKEY_BASE_MASK = 0x7FFF
+
 # Subnet-manager / SHARP keys that are configured on the UFM host (per the IB
 # runbook) but are not exposed by the UFM REST API, so the script cannot observe
 # them. Reported as unverified rather than guessed.
@@ -110,7 +115,11 @@ UFM_HOST_KEYS: dict[str, str] = {
 def _pkey_is_tenant_key(value: Any) -> bool:
     """Return whether a partition's P_Key is a real, non-default tenant key."""
     pkey = parse_key_value(value)
-    return pkey is not None and pkey != DEFAULT_PARTITION_PKEY
+    if pkey is None:
+        return False
+    # Compare partition numbers (membership bit masked) so a full-member default
+    # P_Key (0xffff) is excluded just like the limited-member default (0x7fff).
+    return (pkey & PKEY_BASE_MASK) != (DEFAULT_PARTITION_PKEY & PKEY_BASE_MASK)
 
 
 def _management_key_entry() -> dict[str, Any]:

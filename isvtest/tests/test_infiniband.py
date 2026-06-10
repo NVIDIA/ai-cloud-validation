@@ -170,6 +170,25 @@ class TestIbTenantIsolationCheck:
         assert check._passed is False
         assert "default all-ports partition" in check._error
 
+    def test_full_member_default_partition_pkey_fails(self) -> None:
+        """A full-member default P_Key (0xffff) is the all-ports partition too."""
+        partitions = [_partition(name="mgmt", partition_key="0xffff", tenant_id="tenant-a")]
+        check = IbTenantIsolationCheck(config={"step_output": _isolation_output(partitions=partitions)})
+        check.run()
+        assert check._passed is False
+        assert "default all-ports partition" in check._error
+
+    def test_membership_bit_variants_collide_across_tenants(self) -> None:
+        """Same partition number with different membership bits is one partition."""
+        partitions = [
+            _partition(name="a", partition_key="0x0001", tenant_id="tenant-a"),
+            _partition(name="b", partition_key="0x8001", tenant_id="tenant-b"),
+        ]
+        check = IbTenantIsolationCheck(config={"step_output": _isolation_output(partitions=partitions)})
+        check.run()
+        assert check._passed is False
+        assert "shared across tenants" in check._error
+
     def test_shared_pkey_across_tenants_fails(self) -> None:
         """The same P_Key owned by two tenants is an isolation breach."""
         partitions = [
