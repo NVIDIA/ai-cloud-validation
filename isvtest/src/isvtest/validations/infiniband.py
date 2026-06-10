@@ -56,14 +56,14 @@ IB_KEY_NAMES: tuple[str, ...] = (
 # UFM's default partition spans every port in the fabric (membership is
 # restricted to "limited" by the runbook hardening). A tenant partition that
 # reused this P_Key would not be isolated, so it is never a valid tenant key.
-DEFAULT_PARTITION_PKEY = 0x7FFF
+DEFAULT_PARTITION_PKEY: int = 0x7FFF
 
 # An InfiniBand P_Key is the partition number in the low 15 bits; the top bit
 # (0x8000) is the membership type (full vs limited member). Mask it off before
 # comparing partition identity so the all-ports default (0x7fff limited /
 # 0xffff full) is detected either way and a tenant partition seen as both
 # 0x0001 (limited) and 0x8001 (full) is recognised as the same partition.
-PKEY_BASE_MASK = 0x7FFF
+PKEY_BASE_MASK: int = 0x7FFF
 
 
 def _normalize_pkey(value: Any) -> int | None:

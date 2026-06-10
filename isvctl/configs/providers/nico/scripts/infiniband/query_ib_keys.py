@@ -93,12 +93,12 @@ from common.ufm_client import (
 )
 
 # UFM's default partition spans every port; its P_Key is not a tenant key.
-DEFAULT_PARTITION_PKEY = 0x7FFF
+DEFAULT_PARTITION_PKEY: int = 0x7FFF
 
 # A P_Key's low 15 bits are the partition number; the top bit (0x8000) is the
 # membership type. Mask it off so the all-ports default is recognized whether it
 # appears as 0x7fff (limited) or 0xffff (full member).
-PKEY_BASE_MASK = 0x7FFF
+PKEY_BASE_MASK: int = 0x7FFF
 
 # Subnet-manager / SHARP keys that are configured on the UFM host (per the IB
 # runbook) but are not exposed by the UFM REST API, so the script cannot observe

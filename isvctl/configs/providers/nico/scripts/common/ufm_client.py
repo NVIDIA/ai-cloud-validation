@@ -47,7 +47,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-UFM_TIMEOUT_SECONDS = 30
+UFM_TIMEOUT_SECONDS: int = 30
 
 
 class UfmAuthError(RuntimeError):
