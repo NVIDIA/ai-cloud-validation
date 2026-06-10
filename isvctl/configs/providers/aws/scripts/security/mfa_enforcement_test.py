@@ -25,8 +25,12 @@ Tests that the AWS account enforces Multi-Factor Authentication:
   3. programmatic_access_mfa:  At least one attached customer-managed IAM policy
      contains an explicit Deny-without-MFA enforcement pattern
      (``Effect: Deny`` + ``BoolIfExists aws:MultiFactorAuthPresent = false``).
-     On AWS this condition is principal-scoped and transport-agnostic, so one
-     policy evaluation attests MFA on both API- and CLI-initiated access.
+     The pattern is transport-agnostic, so a matching policy covers both API-
+     and CLI-initiated access in a single check. This asserts that an MFA-deny
+     control *exists*; because IAM evaluates policies per principal/request, it
+     does not by itself prove every programmatic principal is in scope of that
+     deny (verifying per-principal coverage would require simulating each
+     principal, which this lightweight check does not do).
 
 Usage:
     python mfa_enforcement_test.py --region us-west-2
@@ -140,9 +144,12 @@ def _has_mfa_deny_enforcement(policy_document: dict[str, Any]) -> bool:
 def _check_mfa_policy(iam: Any, label: str) -> dict[str, Any]:
     """Scan account/customer-managed policies for MFA-enforcement conditions.
 
-    Returns the result for the programmatic_access_mfa subtest. The AWS IAM
-    condition is principal-scoped and transport-agnostic, so one evaluation
-    covers both API- and CLI-initiated programmatic access.
+    Returns the result for the programmatic_access_mfa subtest. The MFA-deny
+    condition is transport-agnostic, so a matching policy covers both API- and
+    CLI-initiated programmatic access in one check. This passes when such a
+    policy *exists*; it does not verify per-principal coverage (IAM evaluates
+    policies per request, so an existence check cannot prove every programmatic
+    principal is denied without MFA).
     """
     try:
         import urllib.parse
@@ -198,9 +205,9 @@ def main() -> int:
     result["tests"]["admin_account_mfa"] = _check_root_mfa(iam)
     result["tests"]["interactive_access_mfa"] = _check_console_users_mfa(iam)
 
-    # The AWS IAM MFA-deny condition is principal-scoped and transport-agnostic
-    # (applies to both API- and CLI-initiated calls), so one policy evaluation
-    # attests programmatic-access MFA.
+    # The MFA-deny condition is transport-agnostic (applies to both API- and
+    # CLI-initiated calls), so one policy check covers programmatic access. This
+    # asserts an MFA-deny policy exists, not that every principal is in scope.
     result["tests"]["programmatic_access_mfa"] = _check_mfa_policy(iam, "programmatic")
 
     result["interfaces_checked"] = len(result["tests"])
