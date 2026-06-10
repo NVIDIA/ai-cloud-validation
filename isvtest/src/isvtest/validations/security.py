@@ -519,9 +519,7 @@ class KmsEncryptionOptionCheck(BaseValidation):
         # the id when the platform exposes one; do not require it.
         provider_key_id = step_output.get("provider_managed_key_id")
         provider_desc = (
-            provider_key_id.strip()
-            if isinstance(provider_key_id, str) and provider_key_id.strip()
-            else "available"
+            provider_key_id.strip() if isinstance(provider_key_id, str) and provider_key_id.strip() else "available"
         )
 
         self.set_passed(
