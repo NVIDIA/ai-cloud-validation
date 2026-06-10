@@ -479,7 +479,10 @@ class KmsEncryptionOptionCheck(BaseValidation):
         step_output: The kms_encryption_options_test step output to check
 
     Step output:
-        provider_managed_key_id: Non-empty provider-managed key evidence
+        provider_managed_key_id: Optional provider-managed key id (may be empty
+            or absent when the platform's default at-rest key is not an
+            enumerable resource); provider-managed support is proven by the
+            provider_managed_key_available subtest, not this id
         customer_managed_key_id: Non-empty CMK evidence
         skipped: True when scoped provider-managed evidence is unavailable
         skip_reason: Human-readable skip reason when skipped is True
