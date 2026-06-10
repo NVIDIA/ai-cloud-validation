@@ -131,8 +131,12 @@ class _TenantSanitizationCheck(BaseValidation):
 
         total = len(scoped)
         if failed:
-            detail = "; ".join(failed.values())
-            self.set_failed(f"{self.subject} failed for {len(failed)}/{total} machine(s): {detail}")
+            # Keep the summary concise: name a few offenders and a count. The
+            # full per-machine reason (incl. transitions) is in the subtests.
+            sample = ", ".join(list(failed)[:3])
+            more = len(failed) - min(len(failed), 3)
+            summary = f"{sample} (+{more} more)" if more else sample
+            self.set_failed(f"{self.subject} failed for {len(failed)}/{total} machine(s): {summary}")
             return
 
         self.set_passed(f"{self.subject} verified on {total} machine(s) ({served} with a prior tenancy audited)")

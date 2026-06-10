@@ -107,8 +107,12 @@ class TestMemorySanitizationCheck:
         check = MemorySanitizationCheck(config={"step_output": _output(machines=[machine])})
         check.run()
         assert check._passed is False
-        assert "without sanitization" in check._error
-        assert "in_use -> available" in check._error
+        # Summary stays concise (count + offending ids); the full per-machine
+        # reason (incl. transitions) is preserved in the subtest message.
+        assert "1/1 machine(s)" in check._error
+        sub = next(r for r in check._subtest_results if r["name"].startswith("memory_"))
+        assert "without sanitization" in sub["message"]
+        assert "in_use -> available" in sub["message"]
 
     def test_stale_tenant_binding_fails(self) -> None:
         """A host offered to new tenants while still bound to a prior tenant fails."""
@@ -116,7 +120,9 @@ class TestMemorySanitizationCheck:
         check = MemorySanitizationCheck(config={"step_output": _output(machines=[machine])})
         check.run()
         assert check._passed is False
-        assert "still bound to a prior tenant" in check._error
+        assert "1/1 machine(s)" in check._error
+        sub = next(r for r in check._subtest_results if r["name"].startswith("memory_"))
+        assert "still bound to a prior tenant" in sub["message"]
 
     def test_step_failure(self) -> None:
         """A failed step is reported with its error detail."""

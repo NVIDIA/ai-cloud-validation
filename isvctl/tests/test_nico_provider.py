@@ -1494,7 +1494,9 @@ def test_sanitization_script_output_satisfies_memory_check(
     bad = MemorySanitizationCheck(config={"step_output": dirty})
     bad.run()
     assert bad._passed is False
-    assert "without sanitization" in bad._error
+    assert "1/1 machine(s)" in bad._error
+    sub = next(r for r in bad._subtest_results if r["name"].startswith("memory_"))
+    assert "without sanitization" in sub["message"]
 
 
 def test_sanitization_script_output_satisfies_gpu_check(
