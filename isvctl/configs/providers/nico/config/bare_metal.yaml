@@ -48,6 +48,10 @@
 #     and DiskSanitizationCheck (SEC21-02) assert hosts are sanitized between
 #     tenants. The same Reset stage performs the NVMe/HDD secure erase, so the
 #     disk check gates on the same lifecycle signal as the memory check.
+#   - query_attestation.py maps control-plane SPDM and measured-boot status from
+#     nico-admin-cli into the provider-neutral attestation contract (SEC22-01 /
+#     CNP09-02). It requires operator/admin CLI credentials in addition to the
+#     tenant REST credentials used for machine enumeration.
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -192,6 +196,24 @@ commands:
       - name: query_sanitization
         phase: test
         command: "python ../scripts/sanitization/query_sanitization.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Query Attestation (SEC22-01 / CNP09-02) ────────────────────
+      # Enumerates site machines via tenant REST, then reads SPDM attestation
+      # and measured-boot status from the Forge control-plane API via
+      # nico-admin-cli. The admin CLI is configured through its normal
+      # environment (NICO_ADMIN_CLI, NICO_CARBIDE_URL,
+      # NICO_FORGE_ROOT_CA_PATH, NICO_CLIENT_KEY_PATH, NICO_CLIENT_CERT_PATH).
+      - name: query_attestation
+        phase: test
+        command: "python ../scripts/attestation/query_attestation.py"
         args:
           - "--org"
           - "{{org}}"

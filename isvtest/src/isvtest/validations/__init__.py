@@ -26,6 +26,10 @@ Validations are organized by category:
 All validations are also available via step_assertions for backward compatibility.
 """
 
+from isvtest.validations.attestation import (
+    FirmwareAttestationCheck,
+    NonceAttestationCheck,
+)
 from isvtest.validations.cluster import (
     ClusterHealthCheck,
     GpuOperatorInstalledCheck,
@@ -170,6 +174,7 @@ __all__ = [
     "DriverCheck",
     "FieldExistsCheck",
     "FieldValueCheck",
+    "FirmwareAttestationCheck",
     "FirmwareResetCheck",
     "FloatingIpCheck",
     "GovernanceMetricsCheck",
@@ -202,6 +207,7 @@ __all__ = [
     "NimInferenceCheck",
     "NimModelCheck",
     "NodeCountCheck",
+    "NonceAttestationCheck",
     "NvlinkDomainCheck",
     "OidcUserAuthCheck",
     "PerformanceCheck",
