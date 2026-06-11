@@ -372,8 +372,7 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--cidr"
-          - "10.86.0.0/16"
+          - "{{ '--cidr=' ~ storage_l3_routing_cidr if storage_l3_routing_cidr | default('', true) else '' }}"
           - "--hosts"
           - "3"
         timeout: 900
@@ -397,3 +396,4 @@ tests:
 
   settings:
     region: "us-west-2"
+    storage_l3_routing_cidr: "{{env.AWS_STORAGE_L3_ROUTING_CIDR | default('', true)}}"
