@@ -51,19 +51,15 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
 import boto3
 from botocore.exceptions import ClientError
+from common.ec2 import (
+    _parse_ping_latency,
+    create_ssm_instance_profile,
+    delete_ssm_instance_profile,
+    run_ssm_command,
+    wait_ssm_ready,
+)
 from common.errors import handle_aws_errors
 from common.vpc import create_test_vpc
-
-SSM_ROLE_TRUST_POLICY = """{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {"Service": "ec2.amazonaws.com"},
-            "Action": "sts:AssumeRole"
-        }
-    ]
-}"""
 
 
 def create_igw(ec2: Any, vpc_id: str) -> dict[str, Any]:
@@ -92,42 +88,18 @@ def create_igw(ec2: Any, vpc_id: str) -> dict[str, Any]:
     return result
 
 
-def create_iam_profile(iam) -> dict:
-    """Create IAM role and instance profile for SSM."""
-    result = {"passed": False}
-    suffix = str(uuid.uuid4())[:8]
-    role_name = f"isv-traffic-ssm-role-{suffix}"
-    profile_name = f"isv-traffic-ssm-profile-{suffix}"
-
+def ssm_instance_profile_result(iam: Any) -> dict[str, Any]:
+    """Create an SSM instance profile and return test-result JSON."""
     try:
-        iam.create_role(
-            RoleName=role_name,
-            AssumeRolePolicyDocument=SSM_ROLE_TRUST_POLICY,
-            Description="Temporary role for traffic testing",
-            Tags=[
-                {"Key": "Name", "Value": role_name},
-                {"Key": "CreatedBy", "Value": "isvtest"},
-            ],
-        )
-
-        iam.attach_role_policy(
-            RoleName=role_name,
-            PolicyArn="arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
-        )
-
-        iam.create_instance_profile(InstanceProfileName=profile_name)
-        iam.add_role_to_instance_profile(InstanceProfileName=profile_name, RoleName=role_name)
-
-        time.sleep(10)  # Wait for IAM propagation
-
-        result["passed"] = True
-        result["role_name"] = role_name
-        result["profile_name"] = profile_name
-        result["message"] = f"Created IAM profile {profile_name}"
+        role_name, profile_name = create_ssm_instance_profile(iam, "Temporary role for traffic testing")
+        return {
+            "passed": True,
+            "role_name": role_name,
+            "profile_name": profile_name,
+            "message": f"Created IAM profile {profile_name}",
+        }
     except ClientError as e:
-        result["error"] = str(e)
-
-    return result
+        return {"passed": False, "error": str(e)}
 
 
 def create_security_groups(ec2: Any, vpc_id: str) -> dict[str, Any]:
@@ -321,106 +293,43 @@ def wait_instances_running(ec2: Any, instance_ids: list[str]) -> dict[str, Any]:
     return result
 
 
-def wait_ssm_ready(ssm: Any, instance_id: str, timeout: int = 180) -> dict[str, Any]:
-    """Wait for SSM agent to be ready."""
-    result = {"passed": False}
-    start = time.time()
-
-    while time.time() - start < timeout:
-        try:
-            response = ssm.describe_instance_information(Filters=[{"Key": "InstanceIds", "Values": [instance_id]}])
-            if response["InstanceInformationList"]:
-                info = response["InstanceInformationList"][0]
-                if info["PingStatus"] == "Online":
-                    result["passed"] = True
-                    result["message"] = "SSM agent online"
-                    return result
-        except ClientError:
-            pass
-        time.sleep(10)
-
-    result["error"] = f"SSM not ready after {timeout}s"
-    return result
+def ssm_ready_result(ssm: Any, instance_id: str, timeout: int = 180) -> dict[str, Any]:
+    """Wait for SSM readiness and return test-result JSON."""
+    if wait_ssm_ready(ssm, instance_id, timeout):
+        return {"passed": True, "message": "SSM agent online"}
+    return {"passed": False, "error": f"SSM not ready after {timeout}s"}
 
 
-def test_ping(ssm: Any, source_id: str, target_ip: str, expect_success: bool) -> dict[str, Any]:
-    """Test ping from source to target."""
-    result = {"passed": False}
+def ping_result_via_ssm(ssm: Any, source_id: str, target_ip: str, expect_success: bool) -> dict[str, Any]:
+    """Run ping through the shared SSM command helper and return test-result JSON."""
+    ping_succeeded, output = run_ssm_command(ssm, source_id, f"ping -c 3 -W 2 {target_ip}")
 
-    try:
-        response = ssm.send_command(
-            InstanceIds=[source_id],
-            DocumentName="AWS-RunShellScript",
-            Parameters={"commands": [f"ping -c 3 -W 2 {target_ip}"]},
-        )
-        command_id = response["Command"]["CommandId"]
+    if expect_success:
+        if ping_succeeded:
+            latency = _parse_ping_latency(output)
+            return {
+                "passed": True,
+                "latency_ms": latency,
+                "message": f"Ping succeeded (latency: {latency}ms)",
+            }
+        return {"passed": False, "error": output or "Ping failed but expected to succeed"}
 
-        # Wait for result
-        for _ in range(30):
-            time.sleep(2)
-            invocation = ssm.get_command_invocation(CommandId=command_id, InstanceId=source_id)
-            if invocation["Status"] in ["Success", "Failed", "TimedOut"]:
-                break
-
-        ping_succeeded = invocation["Status"] == "Success"
-
-        if expect_success:
-            if ping_succeeded:
-                # Parse latency
-                output = invocation.get("StandardOutputContent", "")
-                latency = None
-                for line in output.split("\n"):
-                    if "avg" in line:
-                        parts = line.split("=")[-1].split("/")
-                        if len(parts) >= 2:
-                            latency = float(parts[1])
-                result["passed"] = True
-                result["latency_ms"] = latency
-                result["message"] = f"Ping succeeded (latency: {latency}ms)"
-            else:
-                result["error"] = "Ping failed but expected to succeed"
-        else:
-            if not ping_succeeded:
-                result["passed"] = True
-                result["message"] = "Ping blocked as expected"
-            else:
-                result["error"] = "Ping succeeded but expected to be blocked"
-
-    except ClientError as e:
-        result["error"] = str(e)
-
-    return result
+    if not ping_succeeded:
+        return {"passed": True, "message": "Ping blocked as expected"}
+    return {"passed": False, "error": "Ping succeeded but expected to be blocked"}
 
 
 def test_internet_http(ssm: Any, source_id: str) -> dict[str, Any]:
     """Test HTTP/HTTPS to internet."""
-    result = {"passed": False}
-
-    try:
-        response = ssm.send_command(
-            InstanceIds=[source_id],
-            DocumentName="AWS-RunShellScript",
-            Parameters={"commands": ["curl -s --connect-timeout 5 https://checkip.amazonaws.com"]},
-        )
-        command_id = response["Command"]["CommandId"]
-
-        for _ in range(15):
-            time.sleep(2)
-            invocation = ssm.get_command_invocation(CommandId=command_id, InstanceId=source_id)
-            if invocation["Status"] in ["Success", "Failed", "TimedOut"]:
-                break
-
-        if invocation["Status"] == "Success":
-            public_ip = invocation.get("StandardOutputContent", "").strip()
-            result["passed"] = True
-            result["public_ip"] = public_ip
-            result["message"] = f"HTTPS succeeded (public IP: {public_ip})"
-        else:
-            result["error"] = "HTTPS request failed"
-    except ClientError as e:
-        result["error"] = str(e)
-
-    return result
+    success, output = run_ssm_command(ssm, source_id, "curl -s --connect-timeout 5 https://checkip.amazonaws.com")
+    if success:
+        public_ip = output.strip()
+        return {
+            "passed": True,
+            "public_ip": public_ip,
+            "message": f"HTTPS succeeded (public IP: {public_ip})",
+        }
+    return {"passed": False, "error": output or "HTTPS request failed"}
 
 
 def cleanup(
@@ -484,22 +393,7 @@ def cleanup(
 
     # Clean up IAM
     if profile_name and role_name:
-        try:
-            iam.remove_role_from_instance_profile(InstanceProfileName=profile_name, RoleName=role_name)
-        except ClientError:
-            pass
-        try:
-            iam.delete_instance_profile(InstanceProfileName=profile_name)
-        except ClientError:
-            pass
-        try:
-            iam.detach_role_policy(RoleName=role_name, PolicyArn="arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore")
-        except ClientError:
-            pass
-        try:
-            iam.delete_role(RoleName=role_name)
-        except ClientError:
-            pass
+        delete_ssm_instance_profile(iam, role_name, profile_name)
 
 
 @handle_aws_errors
@@ -554,7 +448,7 @@ def main() -> int:
         rtb_id = subnet_result["route_table_id"]
 
         # Create IAM profile
-        iam_result = create_iam_profile(iam)
+        iam_result = ssm_instance_profile_result(iam)
         result["tests"]["create_iam"] = iam_result
         if not iam_result["passed"]:
             raise RuntimeError("Failed to create IAM")
@@ -588,21 +482,21 @@ def main() -> int:
         target_deny_ip = running_result["instances"][instance_ids[2]]["private_ip"]
 
         # Wait for SSM
-        ssm_result = wait_ssm_ready(ssm, source_id)
+        ssm_result = ssm_ready_result(ssm, source_id)
         result["tests"]["ssm_ready"] = ssm_result
         if not ssm_result["passed"]:
             raise RuntimeError("SSM not ready")
 
         # Test traffic allowed
-        allowed_result = test_ping(ssm, source_id, target_allow_ip, expect_success=True)
+        allowed_result = ping_result_via_ssm(ssm, source_id, target_allow_ip, expect_success=True)
         result["tests"]["traffic_allowed"] = allowed_result
 
         # Test traffic blocked
-        blocked_result = test_ping(ssm, source_id, target_deny_ip, expect_success=False)
+        blocked_result = ping_result_via_ssm(ssm, source_id, target_deny_ip, expect_success=False)
         result["tests"]["traffic_blocked"] = blocked_result
 
         # Test internet ICMP
-        internet_icmp = test_ping(ssm, source_id, "8.8.8.8", expect_success=True)
+        internet_icmp = ping_result_via_ssm(ssm, source_id, "8.8.8.8", expect_success=True)
         result["tests"]["internet_icmp"] = internet_icmp
 
         # Test internet HTTP

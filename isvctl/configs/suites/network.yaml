@@ -119,6 +119,8 @@ tests:
           step: dns_test
         VpcPeeringCheck:
           step: peering_test
+        StorageL3RoutingCheck:
+          step: storage_l3_routing
 
     # Read-only metadata/API checks for provider-reported backend fabric
     # topology. These do not test isolation, IB keying, or data-plane bandwidth.

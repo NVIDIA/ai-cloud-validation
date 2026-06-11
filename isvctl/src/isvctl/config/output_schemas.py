@@ -130,6 +130,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "dns_validation": "localized_dns",
     "peering_test": "vpc_peering",
     "peering_validation": "vpc_peering",
+    "storage_l3_routing": "storage_l3_routing",
+    "storage_l3_routing_test": "storage_l3_routing",
     "backend_switch_fabric": "backend_switch_fabric",
     "backend_switch_fabric_test": "backend_switch_fabric",
     "nvlink_domain": "nvlink_domain",
@@ -814,6 +816,24 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "vpc_b": {
                 "type": "object",
                 "properties": {"id": {"type": "string"}, "cidr": {"type": "string"}},
+            },
+        },
+        "additionalProperties": True,
+    },
+    "storage_l3_routing": {
+        "type": "object",
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "tests": {
+                "type": "object",
+                "properties": {
+                    "distinct_subnets": {"type": "object"},
+                    "all_to_all_reachable": {"type": "object"},
+                    "cross_subnet_routing": {"type": "object"},
+                    "no_gateway_hop": {"type": "object"},
+                },
+                "description": "All-to-all storage host L3 routing test results",
             },
         },
         "additionalProperties": True,

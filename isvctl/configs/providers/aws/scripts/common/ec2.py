@@ -29,6 +29,7 @@ from __future__ import annotations
 import re
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -501,6 +502,147 @@ def get_ubuntu_ami(ec2: Any, instance_type: str) -> str | None:
         return None
     images = sorted(response.get("Images", []), key=lambda image: image["CreationDate"], reverse=True)
     return images[0]["ImageId"] if images else None
+
+
+SSM_ROLE_TRUST_POLICY = """{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {"Service": "ec2.amazonaws.com"},
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}"""
+
+_SSM_CORE_POLICY_ARN = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+
+
+def create_ssm_instance_profile(iam: Any, description: str = "Temporary role for SSM access") -> tuple[str, str]:
+    """Create an IAM role and instance profile granting SSM core access.
+
+    Args:
+        iam: Boto3 IAM client.
+        description: Role description.
+
+    Returns:
+        Tuple of (role_name, profile_name).
+    """
+    suffix = str(uuid.uuid4())[:8]
+    role_name = f"isv-ssm-role-{suffix}"
+    profile_name = f"isv-ssm-profile-{suffix}"
+
+    iam.create_role(
+        RoleName=role_name,
+        AssumeRolePolicyDocument=SSM_ROLE_TRUST_POLICY,
+        Description=description,
+        Tags=[{"Key": "Name", "Value": role_name}, {"Key": "CreatedBy", "Value": "isvtest"}],
+    )
+    iam.attach_role_policy(RoleName=role_name, PolicyArn=_SSM_CORE_POLICY_ARN)
+    iam.create_instance_profile(InstanceProfileName=profile_name)
+    iam.add_role_to_instance_profile(InstanceProfileName=profile_name, RoleName=role_name)
+    time.sleep(10)  # Wait for IAM role propagation.
+    return role_name, profile_name
+
+
+def delete_ssm_instance_profile(iam: Any, role_name: str, profile_name: str) -> None:
+    """Best-effort teardown of an SSM IAM role and instance profile."""
+    for fn in (
+        lambda: iam.remove_role_from_instance_profile(InstanceProfileName=profile_name, RoleName=role_name),
+        lambda: iam.delete_instance_profile(InstanceProfileName=profile_name),
+        lambda: iam.detach_role_policy(RoleName=role_name, PolicyArn=_SSM_CORE_POLICY_ARN),
+        lambda: iam.delete_role(RoleName=role_name),
+    ):
+        try:
+            fn()
+        except ClientError:
+            pass
+
+
+def wait_ssm_ready(ssm: Any, instance_id: str, timeout: int = 180) -> bool:
+    """Poll until the SSM agent on an instance reports Online, or timeout."""
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            resp = ssm.describe_instance_information(Filters=[{"Key": "InstanceIds", "Values": [instance_id]}])
+            info = resp.get("InstanceInformationList", [])
+            if info and info[0].get("PingStatus") == "Online":
+                return True
+        except ClientError:
+            pass
+        time.sleep(10)
+    return False
+
+
+def wait_ssm_ready_all(ssm: Any, instance_ids: list[str], timeout: int = 180) -> list[str]:
+    """Poll until every instance's SSM agent reports Online, sharing one deadline.
+
+    Unlike calling :func:`wait_ssm_ready` per host (which costs up to ``timeout``
+    seconds *each*, serially), this shares a single deadline so total wait is
+    bounded by ``timeout`` regardless of host count, and queries all pending
+    instances in one ``describe_instance_information`` call per poll.
+
+    Returns the instance IDs still not Online when the deadline passes (empty
+    when all came online), preserving input order.
+    """
+    if not instance_ids:
+        return []
+    pending = set(instance_ids)
+    deadline = time.time() + timeout
+    while True:
+        try:
+            resp = ssm.describe_instance_information(Filters=[{"Key": "InstanceIds", "Values": list(pending)}])
+            pending -= {
+                info["InstanceId"]
+                for info in resp.get("InstanceInformationList", [])
+                if info.get("PingStatus") == "Online"
+            }
+        except ClientError:
+            pass
+        if not pending or time.time() >= deadline:
+            break
+        time.sleep(10)
+    return [instance_id for instance_id in instance_ids if instance_id in pending]
+
+
+def run_ssm_command(ssm: Any, instance_id: str, command: str) -> tuple[bool, str]:
+    """Run a shell command on an instance via SSM.
+
+    Returns ``(success, output)``. On success ``output`` is stdout, which callers
+    parse (ping latency, public IP, ...). On failure ``output`` carries the best
+    available diagnostic - stderr, else stdout, else a status/timeout message -
+    so callers that surface it as ``error`` keep a usable failure signal instead
+    of an empty string.
+    """
+    try:
+        resp = ssm.send_command(
+            InstanceIds=[instance_id],
+            DocumentName="AWS-RunShellScript",
+            Parameters={"commands": [command]},
+        )
+        command_id = resp["Command"]["CommandId"]
+        for _ in range(30):
+            time.sleep(2)
+            inv = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)
+            if inv["Status"] in ("Success", "Failed", "TimedOut"):
+                stdout = inv.get("StandardOutputContent", "")
+                if inv["Status"] == "Success":
+                    return True, stdout
+                stderr = inv.get("StandardErrorContent", "")
+                return False, stderr or stdout or inv["Status"]
+        return False, "SSM command did not reach a terminal status (timed out polling)"
+    except ClientError as e:
+        return False, str(e)
+
+
+def _parse_ping_latency(output: str) -> float | None:
+    """Extract average latency from ping output when present."""
+    for line in output.splitlines():
+        if "avg" in line:
+            parts = line.split("=")[-1].split("/")
+            if len(parts) >= 2:
+                return float(parts[1])
+    return None
 
 
 def get_architecture_for_instance_type(instance_type: str) -> str:

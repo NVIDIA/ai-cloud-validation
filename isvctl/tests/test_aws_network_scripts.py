@@ -514,6 +514,85 @@ def test_wait_for_endpoint_deletion_reraises_unexpected_client_error() -> None:
         module._wait_for_endpoint_deletion(ec2, "vpce-svc", attempts=1, delay=0)
 
 
+def test_connectivity_ping_result_uses_shared_ssm_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Connectivity ping results should be adapted from the shared SSM runner."""
+    module = _load_network_script("test_connectivity.py")
+    calls: list[tuple[Any, str, str]] = []
+
+    def fake_run_ssm_command(ssm: Any, instance_id: str, command: str) -> tuple[bool, str]:
+        calls.append((ssm, instance_id, command))
+        return True, "rtt min/avg/max/mdev = 0.100/0.250/0.300/0.010 ms"
+
+    monkeypatch.setattr(module, "run_ssm_command", fake_run_ssm_command)
+
+    result = module.ping_result_via_ssm("ssm-client", "i-source", "10.0.2.10")
+
+    assert calls == [("ssm-client", "i-source", "ping -c 3 -W 2 10.0.2.10")]
+    assert result == {"passed": True, "latency_ms": 0.25}
+
+
+def test_traffic_iam_profile_result_uses_shared_instance_profile_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Traffic IAM setup should adapt the shared SSM instance profile helper."""
+    module = _load_network_script("traffic_test.py")
+    calls: list[tuple[Any, str]] = []
+
+    def fake_create_ssm_instance_profile(iam: Any, description: str) -> tuple[str, str]:
+        calls.append((iam, description))
+        return "role-name", "profile-name"
+
+    monkeypatch.setattr(module, "create_ssm_instance_profile", fake_create_ssm_instance_profile)
+
+    result = module.ssm_instance_profile_result("iam-client")
+
+    assert calls == [("iam-client", "Temporary role for traffic testing")]
+    assert result == {
+        "passed": True,
+        "role_name": "role-name",
+        "profile_name": "profile-name",
+        "message": "Created IAM profile profile-name",
+    }
+
+
+def test_traffic_ping_result_uses_shared_ssm_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Traffic ping checks should be adapted from the shared SSM runner."""
+    module = _load_network_script("traffic_test.py")
+    calls: list[tuple[Any, str, str]] = []
+
+    def fake_run_ssm_command(ssm: Any, instance_id: str, command: str) -> tuple[bool, str]:
+        calls.append((ssm, instance_id, command))
+        return True, "rtt min/avg/max/mdev = 1.000/1.500/2.000/0.100 ms"
+
+    monkeypatch.setattr(module, "run_ssm_command", fake_run_ssm_command)
+
+    result = module.ping_result_via_ssm("ssm-client", "i-source", "10.0.1.20", expect_success=True)
+
+    assert calls == [("ssm-client", "i-source", "ping -c 3 -W 2 10.0.1.20")]
+    assert result == {
+        "passed": True,
+        "latency_ms": 1.5,
+        "message": "Ping succeeded (latency: 1.5ms)",
+    }
+
+
+def test_traffic_ssm_ready_result_uses_shared_wait_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Traffic SSM readiness should adapt the shared readiness helper."""
+    module = _load_network_script("traffic_test.py")
+    calls: list[tuple[Any, str, int]] = []
+
+    def fake_wait_ssm_ready(ssm: Any, instance_id: str, timeout: int = 180) -> bool:
+        calls.append((ssm, instance_id, timeout))
+        return True
+
+    monkeypatch.setattr(module, "wait_ssm_ready", fake_wait_ssm_ready)
+
+    result = module.ssm_ready_result("ssm-client", "i-source")
+
+    assert calls == [("ssm-client", "i-source", 180)]
+    assert result == {"passed": True, "message": "SSM agent online"}
+
+
 class FakeNeverDeletedEndpointEc2:
     """Fake EC2 client that keeps reporting the endpoint as present."""
 
@@ -1613,6 +1692,66 @@ def test_my_isv_policy_propagation_demo_test_name_matches_suite_step() -> None:
     assert result["success"] is True
 
 
+def test_my_isv_storage_l3_routing_demo_reports_directed_full_mesh() -> None:
+    """my-isv storage L3 demo output should report directed host pairs."""
+    script = MY_ISV_NETWORK_SCRIPTS / "storage_l3_routing_test.py"
+    env = os.environ | {"ISVCTL_DEMO_MODE": "1"}
+
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--region",
+                "demo-region",
+                "--hosts",
+                "3",
+            ],
+            capture_output=True,
+            env=env,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"{script} timed out after {exc.timeout} seconds\nstdout: {exc.stdout!r}\nstderr: {exc.stderr!r}")
+
+    assert completed.returncode == 0, completed.stderr
+    payload: dict[str, Any] = json.loads(completed.stdout)
+    assert payload["success"] is True
+    assert payload["test_name"] == "storage_l3_routing"
+    assert payload["tests"]["distinct_subnets"]["subnet_count"] == 3
+    assert payload["tests"]["all_to_all_reachable"]["pairs_tested"] == 6
+    assert payload["tests"]["all_to_all_reachable"]["pairs_reachable"] == 6
+    assert payload["tests"]["no_gateway_hop"]["pairs_tested"] == 6
+    assert payload["tests"]["no_gateway_hop"]["pairs_direct"] == 6
+
+
+def test_my_isv_storage_l3_routing_rejects_too_few_hosts() -> None:
+    """my-isv storage L3 demo should reject host counts below the contract minimum."""
+    script = MY_ISV_NETWORK_SCRIPTS / "storage_l3_routing_test.py"
+    env = os.environ | {"ISVCTL_DEMO_MODE": "1"}
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--region",
+            "demo-region",
+            "--hosts",
+            "2",
+        ],
+        capture_output=True,
+        env=env,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 2
+    assert "--hosts must be >= 3" in completed.stderr
+
+
 class FakeStableEgressEc2:
     """Fake EC2 client for stable egress IP main-path tests."""
 
@@ -1655,6 +1794,352 @@ class FakeStableEgressEc2:
     def get_waiter(self, _name: str) -> Any:
         """Return a waiter with a no-op wait method."""
         return type("FakeWaiter", (), {"wait": lambda self, **kwargs: None})()
+
+
+class FakeStorageL3Ec2:
+    """Fake EC2 client for storage L3 routing main-path tests."""
+
+    def __init__(self) -> None:
+        """Track endpoint operations and expose a local VPC route."""
+        self.endpoint_requests: list[dict[str, Any]] = []
+        self.deleted_endpoints: list[str] = []
+
+    def create_vpc_endpoint(
+        self,
+        VpcId: str,
+        ServiceName: str,
+        VpcEndpointType: str,
+        SubnetIds: list[str],
+        SecurityGroupIds: list[str],
+        PrivateDnsEnabled: bool,
+        TagSpecifications: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Record a VPC endpoint creation request."""
+        self.endpoint_requests.append(
+            {
+                "VpcId": VpcId,
+                "ServiceName": ServiceName,
+                "VpcEndpointType": VpcEndpointType,
+                "SubnetIds": SubnetIds,
+                "SecurityGroupIds": SecurityGroupIds,
+                "PrivateDnsEnabled": PrivateDnsEnabled,
+                "TagSpecifications": TagSpecifications,
+            }
+        )
+        service = ServiceName.rsplit(".", maxsplit=1)[-1]
+        return {"VpcEndpoint": {"VpcEndpointId": f"vpce-{service}"}}
+
+    def describe_route_tables(self, Filters: list[dict[str, Any]]) -> dict[str, Any]:
+        """Return the VPC main route table with the VPC-local route."""
+        assert Filters == [{"Name": "vpc-id", "Values": ["vpc-storage"]}]
+        return {
+            "RouteTables": [
+                {
+                    "RouteTableId": "rtb-main",
+                    "Associations": [{"Main": True}],
+                    "Routes": [
+                        {
+                            "DestinationCidrBlock": "10.86.0.0/16",
+                            "GatewayId": "local",
+                            "State": "active",
+                        }
+                    ],
+                }
+            ]
+        }
+
+    def terminate_instances(self, InstanceIds: list[str]) -> dict[str, Any]:
+        """No-op instance cleanup."""
+        assert InstanceIds == ["i-a", "i-b", "i-c"]
+        return {}
+
+    def delete_vpc_endpoints(self, VpcEndpointIds: list[str]) -> dict[str, Any]:
+        """Record endpoint cleanup."""
+        self.deleted_endpoints.extend(VpcEndpointIds)
+        return {"Unsuccessful": []}
+
+    def describe_vpc_endpoints(self, VpcEndpointIds: list[str]) -> dict[str, Any]:
+        """Report endpoints as available until deletion has been requested."""
+        return {
+            "VpcEndpoints": [
+                {"VpcEndpointId": endpoint_id, "State": "available"}
+                for endpoint_id in VpcEndpointIds
+                if endpoint_id not in self.deleted_endpoints
+            ]
+        }
+
+    def get_waiter(self, _name: str) -> Any:
+        """Return a waiter with a no-op wait method."""
+        return type("FakeWaiter", (), {"wait": lambda self, **kwargs: None})()
+
+
+class FakeStorageL3SubnetEc2:
+    """Fake EC2 client for storage L3 subnet creation tests."""
+
+    def __init__(self) -> None:
+        """Track subnet creation requests."""
+        self.create_subnet_calls: list[dict[str, str]] = []
+
+    def describe_availability_zones(self, Filters: list[dict[str, Any]]) -> dict[str, Any]:
+        """Return two available AZs."""
+        assert Filters == [{"Name": "state", "Values": ["available"]}]
+        return {"AvailabilityZones": [{"ZoneName": "us-west-2a"}, {"ZoneName": "us-west-2b"}]}
+
+    def create_subnet(self, VpcId: str, CidrBlock: str, AvailabilityZone: str) -> dict[str, Any]:
+        """Record subnet creation requests."""
+        self.create_subnet_calls.append(
+            {
+                "VpcId": VpcId,
+                "CidrBlock": CidrBlock,
+                "AvailabilityZone": AvailabilityZone,
+            }
+        )
+        return {"Subnet": {"SubnetId": f"subnet-storage-{len(self.create_subnet_calls)}"}}
+
+    def create_tags(self, Resources: list[str], Tags: list[dict[str, str]]) -> dict[str, Any]:
+        """No-op tag creation."""
+        return {}
+
+
+def test_storage_l3_create_subnets_rejects_invalid_cidr() -> None:
+    """Storage L3 subnet creation should report invalid CIDR input clearly."""
+    module = _load_network_script("storage_l3_routing_test.py")
+
+    with pytest.raises(RuntimeError, match="Invalid CIDR 'not-a-cidr'"):
+        module.create_subnets(object(), "vpc-storage", "not-a-cidr", "suffix", [])
+
+
+def test_storage_l3_create_subnets_rejects_cidr_without_two_24_subnets() -> None:
+    """Storage L3 subnet creation should validate CIDR capacity before AWS calls."""
+    module = _load_network_script("storage_l3_routing_test.py")
+    ec2 = FakeStorageL3SubnetEc2()
+
+    with pytest.raises(RuntimeError, match="CIDR 10\\.86\\.0\\.0/24 cannot provide two /24 subnets"):
+        module.create_subnets(ec2, "vpc-storage", "10.86.0.0/24", "suffix", [])
+
+    assert ec2.create_subnet_calls == []
+
+
+def test_storage_l3_main_rejects_too_few_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AWS storage L3 should reject host counts below the contract minimum before AWS calls."""
+    module = _load_network_script("storage_l3_routing_test.py")
+    monkeypatch.setattr(sys, "argv", ["storage_l3_routing_test.py", "--region", "us-west-2", "--hosts", "2"])
+    monkeypatch.setattr(module.boto3, "client", lambda service, region_name: pytest.fail("unexpected AWS client"))
+
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+
+    assert exc.value.code == 2
+
+
+def test_storage_l3_main_cleans_partial_vpc_when_creation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed VPC bootstrap that returns a VPC ID should still clean up that VPC."""
+    module = _load_network_script("storage_l3_routing_test.py")
+    fake_ec2 = object()
+    cleaned_vpcs: list[tuple[str, list[str] | None, list[str] | None]] = []
+
+    def fake_boto3_client(service: str, region_name: str) -> Any:
+        assert region_name == "us-west-2"
+        return fake_ec2 if service == "ec2" else object()
+
+    def fake_cleanup_vpc_resources(
+        ec2: Any,
+        vpc_id: str,
+        subnet_ids: list[str] | None = None,
+        sg_ids: list[str] | None = None,
+    ) -> None:
+        cleaned_vpcs.append((vpc_id, subnet_ids, sg_ids))
+
+    monkeypatch.setattr(module.boto3, "client", fake_boto3_client)
+    monkeypatch.setattr(module, "get_amazon_linux_ami", lambda ec2: "ami-storage")
+    monkeypatch.setattr(
+        module,
+        "create_test_vpc",
+        lambda ec2, cidr, name, *, enable_dns=False: {
+            "passed": False,
+            "vpc_id": "vpc-partial",
+            "error": "quota exceeded",
+        },
+    )
+    monkeypatch.setattr(module, "cleanup_vpc_resources", fake_cleanup_vpc_resources)
+    monkeypatch.setattr(sys, "argv", ["storage_l3_routing_test.py", "--region", "us-west-2"])
+
+    exit_code = module.main()
+
+    assert exit_code == 1
+    assert cleaned_vpcs == [("vpc-partial", [], None)]
+
+
+def _patch_storage_l3_main(
+    module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_ec2: FakeStorageL3Ec2,
+    run_ssm_command: Any,
+) -> list[bool]:
+    """Patch storage L3 main dependencies and return observed DNS flags."""
+    create_test_vpc_dns_flags: list[bool] = []
+
+    def fake_boto3_client(service: str, region_name: str) -> Any:
+        assert region_name == "us-west-2"
+        return fake_ec2 if service == "ec2" else object()
+
+    def fake_create_test_vpc(ec2: Any, cidr: str, name: str, *, enable_dns: bool = False) -> dict[str, Any]:
+        create_test_vpc_dns_flags.append(enable_dns)
+        return {"passed": True, "vpc_id": "vpc-storage"}
+
+    def fake_create_subnets(
+        ec2: Any, vpc_id: str, cidr: str, suffix: str, created_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        created_ids.extend(["subnet-a", "subnet-b"])
+        return [
+            {"subnet_id": "subnet-a", "cidr": "10.86.1.0/24", "az": "us-west-2a"},
+            {"subnet_id": "subnet-b", "cidr": "10.86.2.0/24", "az": "us-west-2b"},
+        ]
+
+    def fake_launch_hosts(
+        ec2: Any,
+        ami: str,
+        subnets: list[dict[str, Any]],
+        sg_id: str,
+        profile: str,
+        count: int,
+        created_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        created_ids.extend(["i-a", "i-b", "i-c"])
+        return [
+            {"instance_id": "i-a", "subnet_id": "subnet-a", "private_ip": "10.86.1.10"},
+            {"instance_id": "i-b", "subnet_id": "subnet-b", "private_ip": "10.86.2.10"},
+            {"instance_id": "i-c", "subnet_id": "subnet-a", "private_ip": "10.86.1.11"},
+        ]
+
+    monkeypatch.setattr(module.boto3, "client", fake_boto3_client)
+    monkeypatch.setattr(module, "get_amazon_linux_ami", lambda ec2: "ami-storage")
+    monkeypatch.setattr(module, "create_test_vpc", fake_create_test_vpc)
+    monkeypatch.setattr(module, "create_subnets", fake_create_subnets)
+    monkeypatch.setattr(module, "create_intra_vpc_sg", lambda ec2, vpc_id, vpc_cidr, suffix: "sg-storage")
+    monkeypatch.setattr(module, "create_ssm_instance_profile", lambda iam, description: ("role", "profile"))
+    monkeypatch.setattr(module, "launch_hosts", fake_launch_hosts)
+    monkeypatch.setattr(module, "wait_ssm_ready_all", lambda ssm, instance_ids: [])
+    monkeypatch.setattr(module, "run_ssm_command", run_ssm_command)
+    monkeypatch.setattr(module, "cleanup_vpc_resources", lambda ec2, vpc_id, subnet_ids, sg_ids: None)
+    monkeypatch.setattr(module, "delete_ssm_instance_profile", lambda iam, role_name, profile_name: None)
+    monkeypatch.setattr(sys, "argv", ["storage_l3_routing_test.py", "--region", "us-west-2"])
+    return create_test_vpc_dns_flags
+
+
+def test_storage_l3_main_creates_ssm_private_endpoints_before_waiting_for_ssm(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Storage L3 main must make isolated subnets able to reach SSM before SSM polling."""
+    module = _load_network_script("storage_l3_routing_test.py")
+    fake_ec2 = FakeStorageL3Ec2()
+    events: list[str] = []
+    original_create_ssm_vpc_endpoints = module.create_ssm_vpc_endpoints
+
+    def fake_create_ssm_vpc_endpoints(
+        ec2: Any, vpc_id: str, subnet_ids: list[str], sg_id: str, region: str, suffix: str
+    ) -> list[str]:
+        events.append("ssm_endpoints")
+        return original_create_ssm_vpc_endpoints(ec2, vpc_id, subnet_ids, sg_id, region, suffix)
+
+    def fake_wait_ssm_ready_all(ssm: Any, instance_ids: list[str]) -> list[str]:
+        events.append("ssm_ready")
+        return []
+
+    def fake_run_ssm_command(ssm: Any, instance_id: str, command: str) -> tuple[bool, str]:
+        if command.startswith("ip route get "):
+            return True, "10.86.2.10 dev eth0 src 10.86.1.10"
+        return True, ""
+
+    create_test_vpc_dns_flags = _patch_storage_l3_main(module, monkeypatch, fake_ec2, fake_run_ssm_command)
+    monkeypatch.setattr(module, "wait_ssm_ready_all", fake_wait_ssm_ready_all)
+    monkeypatch.setattr(module, "create_ssm_vpc_endpoints", fake_create_ssm_vpc_endpoints)
+
+    exit_code = module.main()
+
+    assert exit_code == 0
+    assert create_test_vpc_dns_flags == [True]
+    assert events[0] == "ssm_endpoints"
+    assert {request["ServiceName"] for request in fake_ec2.endpoint_requests} == {
+        "com.amazonaws.us-west-2.ssm",
+        "com.amazonaws.us-west-2.ssmmessages",
+        "com.amazonaws.us-west-2.ec2messages",
+    }
+    assert all(request["PrivateDnsEnabled"] is True for request in fake_ec2.endpoint_requests)
+    assert all(request["SubnetIds"] == ["subnet-a", "subnet-b"] for request in fake_ec2.endpoint_requests)
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert payload["success"] is True
+
+
+def test_storage_l3_main_accepts_ec2_cross_subnet_routes_via_subnet_router(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """EC2 guest routes may show a subnet router while the effective VPC route is still local."""
+    module = _load_network_script("storage_l3_routing_test.py")
+    fake_ec2 = FakeStorageL3Ec2()
+    ssm_commands: list[str] = []
+
+    def fake_run_ssm_command(ssm: Any, instance_id: str, command: str) -> tuple[bool, str]:
+        ssm_commands.append(command)
+        if command.startswith("ip route get "):
+            return True, "10.86.2.10 via 10.86.1.1 dev eth0 src 10.86.1.10"
+        return True, ""
+
+    _patch_storage_l3_main(module, monkeypatch, fake_ec2, fake_run_ssm_command)
+
+    exit_code = module.main()
+
+    assert exit_code == 0
+    assert all(command.startswith("ping ") for command in ssm_commands)
+    assert len(ssm_commands) == 6
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert payload["tests"]["all_to_all_reachable"] == {
+        "passed": True,
+        "pairs_tested": 6,
+        "pairs_reachable": 6,
+    }
+    assert payload["tests"]["cross_subnet_routing"] == {
+        "passed": True,
+        "pairs_tested": 4,
+        "pairs_reachable": 4,
+    }
+    assert payload["tests"]["no_gateway_hop"] == {
+        "passed": True,
+        "pairs_tested": 4,
+        "pairs_direct": 4,
+    }
+
+
+def test_storage_l3_main_records_cleanup_failure_without_losing_result(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """AWS storage L3 cleanup failures should not suppress the script JSON result."""
+    module = _load_network_script("storage_l3_routing_test.py")
+    fake_ec2 = FakeStorageL3Ec2()
+
+    def fake_run_ssm_command(ssm: Any, instance_id: str, command: str) -> tuple[bool, str]:
+        return True, ""
+
+    def fail_cleanup(ec2: Any, vpc_id: str, subnet_ids: list[str], sg_ids: list[str]) -> None:
+        raise RuntimeError("cleanup boom")
+
+    _patch_storage_l3_main(module, monkeypatch, fake_ec2, fake_run_ssm_command)
+    monkeypatch.setattr(module, "cleanup_vpc_resources", fail_cleanup)
+
+    exit_code = module.main()
+
+    assert exit_code == 1
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert payload["test_name"] == "storage_l3_routing"
+    assert payload["success"] is False
+    assert payload["cleanup"] is False
+    assert payload["cleanup_errors"] == ["vpc cleanup failed: cleanup boom"]
+    assert payload["error"] == "Cleanup failed: vpc cleanup failed: cleanup boom"
 
 
 def test_stable_egress_main_uses_cidr_parser_and_emits_minimal_contract(
