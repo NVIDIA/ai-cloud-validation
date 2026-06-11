@@ -179,7 +179,60 @@ Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job schedul
 | `oidc_user_auth_test` | test | `providers/my-isv/scripts/security/oidc_user_auth_test.py` | OIDC issuer metadata and protected endpoint token acceptance/rejection |
 | `short_lived_credentials_test` | test | `providers/my-isv/scripts/security/short_lived_credentials_test.py` | SEC02-01: workloads and nodes receive credentials with finite, bounded TTL |
 | `tenant_isolation_test` | test | `providers/my-isv/scripts/security/tenant_isolation_test.py` | SEC11-01: hard tenant isolation across network/data/compute/storage |
+| `capacity_reservation_grouping` | test | `providers/my-isv/scripts/capacity/reservation_grouping.py` | CAP04-01: capacity is logically grouped and pinned to one account/tenant |
+| `topology_block_atomic_allocation` | test | `providers/my-isv/scripts/capacity/topology_block_atomic_allocation.py` | CAP04-02: topology block allocation is atomic, homogeneous, and isolated |
 | `teardown` | teardown | `providers/my-isv/scripts/security/teardown.py` | Cleanup test resources |
+
+`capacity_reservation_grouping` verifies CAP04-01. Provider scripts must emit this minimal JSON contract:
+
+```json
+{
+  "success": true,
+  "platform": "provider",
+  "reservation_id": "reservation-or-allocation-id",
+  "account_id": "account-id",
+  "resources": [
+    {
+      "resource_id": "resource-id",
+      "resource_type": "compute|network|storage|ip_block|instance_type",
+      "account_id": "account-id",
+      "pinned": true
+    }
+  ],
+  "pinned": true,
+  "isolation_enforced": true
+}
+```
+
+`topology_block_atomic_allocation` verifies CAP04-02. Provider scripts must emit this minimal JSON contract:
+
+```json
+{
+  "success": true,
+  "platform": "provider",
+  "topology_block": {
+    "block_id": "block-id",
+    "reservation_id": "reservation-or-allocation-id",
+    "tenant_id": "tenant-id",
+    "allocated_as_unit": true,
+    "partial_allocation": false,
+    "homogeneous": true,
+    "isolation_enforced": true,
+    "requested": {"compute": 2, "network": 1, "storage": 0},
+    "allocated": {"compute": 2, "network": 1, "storage": 0},
+    "resources": [
+      {
+        "resource_id": "resource-id",
+        "resource_type": "compute|network|storage",
+        "tenant_id": "tenant-id",
+        "topology_block_id": "block-id",
+        "performance_domain": "performance-domain-id",
+        "isolation_boundary": "tenant-id"
+      }
+    ]
+  }
+}
+```
 
 ## Related Documentation
 

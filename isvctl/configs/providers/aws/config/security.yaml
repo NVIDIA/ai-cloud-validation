@@ -43,6 +43,8 @@
 #  15. OIDC User Auth          - Probe configured OIDC-protected platform endpoint (SEC01-01)
 #  16. Short-Lived Credentials - Verify STS issues node + workload creds with bounded TTL (SEC02-01)
 #  17. Tenant Isolation        - Verify hard tenant isolation across network, data, compute and storage (SEC11-01)
+#  18. Capacity Grouping       - Verify reservations are grouped and tenant-pinned (CAP04-01)
+#  19. Topology Block          - Verify topology block atomic allocation boundaries (CAP04-02)
 #
 # Note: SEC12-* (BMC) tests cannot be fully validated on AWS because the
 # Nitro/hypervisor BMC plane is provider-hidden. The references inspect the
@@ -262,6 +264,102 @@ commands:
         args: ["--region", "{{region}}"]
         timeout: 600
 
+      # CAP04-01: Capacity reservation grouping and tenant pinning.
+      - name: capacity_reservation_grouping
+        phase: test
+        command: "python3 ../scripts/capacity/reservation_grouping.py"
+        requires_available_validations:
+          - CapacityReservationGroupingCheck
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--instance-type"
+          - "{{capacity_instance_type}}"
+          - "--availability-zone={{capacity_availability_zone}}"
+          - "--resource-group-name"
+          - "{{capacity_resource_group_name}}"
+          - "--reservation-count"
+          - "{{capacity_reservation_count}}"
+        timeout: 300
+
+      # CAP04-02: Topology block atomic allocation.
+      - name: topology_block_atomic_allocation
+        phase: test
+        command: "python3 ../scripts/capacity/topology_block_atomic_allocation.py"
+        requires_available_validations:
+          - CapacityTopologyBlockAtomicAllocationCheck
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--tenant-id={{tenant_id}}"
+          - "--topology-block-id"
+          - "{{topology_block_id}}"
+          - "--instance-type"
+          - "{{capacity_instance_type}}"
+          - "--instance-platform"
+          - "{{instance_platform}}"
+          - "--availability-zone={{topology_availability_zone}}"
+          - "--placement-group"
+          - "{{placement_group}}"
+          - "--requested-nodes"
+          - "{{requested_compute}}"
+          - "--requested-network"
+          - "{{requested_network}}"
+          - "--requested-storage"
+          - "{{requested_storage}}"
+          - "{{topology_skip_destroy_flag}}"
+        timeout: 1800
+
+      # Sweep CAP04-02 topology block resources (instances, reservation,
+      # placement group) tagged for this block. The in-run step self-cleans in
+      # its finally block; this teardown step reclaims resources left behind
+      # when AWS_CAPACITY_SKIP_DESTROY=true (a no-op while that flag is set, so
+      # a later standalone `--phase teardown` without it does the cleanup).
+      - name: topology_block_teardown
+        phase: teardown
+        command: "python3 ../scripts/capacity/topology_block_atomic_allocation.py"
+        requires_available_validations:
+          - CapacityTopologyBlockAtomicAllocationCheck
+        args:
+          - "--teardown"
+          - "--region"
+          - "{{region}}"
+          - "--topology-block-id"
+          - "{{topology_block_id}}"
+          - "--instance-type"
+          - "{{capacity_instance_type}}"
+          - "--availability-zone={{topology_availability_zone}}"
+          - "--placement-group"
+          - "{{placement_group}}"
+          - "--requested-nodes"
+          - "{{requested_compute}}"
+          - "--requested-network"
+          - "{{requested_network}}"
+          - "--requested-storage"
+          - "{{requested_storage}}"
+          - "{{topology_skip_destroy_flag}}"
+        timeout: 600
+
+      # Cancel CAP04-01 reservations and delete the Resource Group only when
+      # this run created it. AWS_CAPACITY_SKIP_DESTROY=true makes this a no-op
+      # so resources can be inspected and torn down later.
+      - name: capacity_teardown
+        phase: teardown
+        command: "python3 ../scripts/capacity/reservation_grouping.py"
+        requires_available_validations:
+          - CapacityReservationGroupingCheck
+        args:
+          - "--teardown"
+          - "--region"
+          - "{{region}}"
+          - "--resource-group-name"
+          - "{{capacity_resource_group_name}}"
+          - "--created-reservation-id={{ steps.capacity_reservation_grouping.created_reservation_id | default('', true) }}"
+          - "{{ steps.capacity_reservation_grouping.reservation_created | default(false) | ternary('--reservation-created', '') }}"
+          - "{{ steps.capacity_reservation_grouping.resource_group_created | default(false) | ternary('--delete-group', '') }}"
+          - "{{capacity_skip_destroy_flag}}"
+        timeout: 300
+
       # Teardown: Safety-net sweep for leftover IAM users + SEC11 fixture.
       # 300s budget covers worst-case instance-terminated waiter
       # (5s delay * 60 attempts) plus VPC dependency unwinding when a
@@ -278,6 +376,20 @@ tests:
 
   settings:
     region: "us-west-2"
+    tenant_id: "{{env.AWS_ACCOUNT_ID | default('', true)}}"
+    topology_block_id: "aws-cap04-block"
+    capacity_instance_type: "m6i.large"
+    instance_platform: "Linux/UNIX"
+    capacity_availability_zone: ""
+    topology_availability_zone: "{{env.AWS_AVAILABILITY_ZONE | default('', true)}}"
+    placement_group: "aws-cap04-block-pg"
+    capacity_resource_group_name: "isv-capacity-cap04"
+    capacity_reservation_count: 1
+    requested_compute: 2
+    requested_network: 1
+    requested_storage: 0
+    capacity_skip_destroy_flag: "{{(env.AWS_CAPACITY_SKIP_DESTROY == 'true') | ternary('--skip-destroy', '')}}"
+    topology_skip_destroy_flag: "{{(env.AWS_CAPACITY_SKIP_DESTROY == 'true') | ternary('--skip-destroy', '')}}"
     oidc_issuer_url: "{{env.OIDC_ISSUER_URL | default('', true)}}"
     oidc_audience: "{{env.OIDC_AUDIENCE | default('', true)}}"
     oidc_target_url: "{{env.OIDC_TARGET_URL | default('', true)}}"

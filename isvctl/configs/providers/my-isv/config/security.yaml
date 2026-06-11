@@ -40,6 +40,8 @@
 #   SEC08-01: Management API audit-log entry metadata (AuditLogEntryCheck)
 #   SEC08-02: Audit-log retention >= 30 days (AuditLogRetentionCheck)
 #   SEC11-01: Hard tenant isolation across network/data/compute/storage (TenantIsolationCheck)
+#   CAP04-01: Capacity reservation grouping and tenant pinning (CapacityReservationGroupingCheck)
+#   CAP04-02: Topology block atomic allocation (CapacityTopologyBlockAtomicAllocationCheck)
 #
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/security.yaml
@@ -161,6 +163,38 @@ commands:
         args: ["--region", "{{region}}"]
         timeout: 60
 
+      - name: capacity_reservation_grouping
+        phase: test
+        command: "python ../scripts/capacity/reservation_grouping.py"
+        requires_available_validations:
+          - CapacityReservationGroupingCheck
+        args:
+          - "--account-id"
+          - "{{tenant_id}}"
+          - "--reservation-id"
+          - "{{reservation_id}}"
+          - "--resource-count"
+          - "{{reservation_count}}"
+        timeout: 60
+
+      - name: topology_block_atomic_allocation
+        phase: test
+        command: "python ../scripts/capacity/topology_block_atomic_allocation.py"
+        requires_available_validations:
+          - CapacityTopologyBlockAtomicAllocationCheck
+        args:
+          - "--tenant-id"
+          - "{{tenant_id}}"
+          - "--topology-block-id"
+          - "{{topology_block_id}}"
+          - "--requested-compute"
+          - "{{requested_compute}}"
+          - "--requested-network"
+          - "{{requested_network}}"
+          - "--requested-storage"
+          - "{{requested_storage}}"
+        timeout: 60
+
       - name: teardown
         phase: teardown
         command: "python ../scripts/security/teardown.py"
@@ -174,3 +208,10 @@ tests:
   settings:
     region: "my-isv-region-1"
     insecure_protocols_endpoints: "{{env.EDGE_ENDPOINTS | default('', true)}}"
+    tenant_id: "{{env.MY_ISV_TENANT_ID | default('demo-tenant', true)}}"
+    reservation_id: "demo-capacity-reservation"
+    reservation_count: 2
+    topology_block_id: "demo-topology-block"
+    requested_compute: 2
+    requested_network: 1
+    requested_storage: 0

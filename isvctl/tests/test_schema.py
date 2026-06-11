@@ -75,6 +75,7 @@ class TestStepConfig:
         assert step.timeout == 300
         assert step.phase == "setup"
         assert step.skip is False
+        assert step.requires_available_validations == []
 
     def test_full_step(self) -> None:
         """Test creating a fully specified step config."""
@@ -87,6 +88,7 @@ class TestStepConfig:
             working_dir="/tmp",
             phase="setup",
             skip=False,
+            requires_available_validations=["NewCheck"],
             continue_on_failure=True,
             output_schema="vpc",
         )
@@ -96,6 +98,7 @@ class TestStepConfig:
         assert step.timeout == 600
         assert step.env == {"AWS_REGION": "us-west-2"}
         assert step.phase == "setup"
+        assert step.requires_available_validations == ["NewCheck"]
         assert step.continue_on_failure is True
         assert step.output_schema == "vpc"
 

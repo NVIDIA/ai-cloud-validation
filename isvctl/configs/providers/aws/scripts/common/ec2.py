@@ -155,6 +155,33 @@ def get_supported_azs(ec2: Any, instance_type: str) -> set[str]:
         return set()
 
 
+def candidate_availability_zones(ec2: Any, availability_zone: str, instance_type: str) -> list[str]:
+    """Return the requested AZ, or all AZs offering the instance type when unpinned.
+
+    A non-empty ``availability_zone`` pins the result to that single zone. An
+    empty value falls back to every supported AZ (sorted) so callers can retry
+    across zones after a capacity shortage.
+
+    Args:
+        ec2: Boto3 EC2 client.
+        availability_zone: Requested AZ, or "" to auto-select supported zones.
+        instance_type: EC2 instance type the AZ must offer.
+
+    Returns:
+        Ordered list of candidate availability zones.
+
+    Raises:
+        RuntimeError: If no AZ offers the instance type when none was pinned.
+    """
+    if availability_zone.strip():
+        return [availability_zone.strip()]
+
+    supported = get_supported_azs(ec2, instance_type)
+    if not supported:
+        raise RuntimeError(f"No AWS availability zones offer {instance_type}")
+    return sorted(supported)
+
+
 def get_default_vpc_and_subnets(
     ec2: Any,
     instance_type: str,
@@ -440,6 +467,36 @@ def get_amazon_linux_ami(ec2: Any) -> str | None:
     except ClientError as e:
         print(f"Warning: Could not get Amazon Linux AMI: {e}", file=sys.stderr)
         return None
+
+
+def get_ubuntu_ami(ec2: Any, instance_type: str) -> str | None:
+    """Get the latest Canonical Ubuntu 22.04 (Jammy) AMI for an instance type.
+
+    Selects the AMI matching the instance type's architecture (x86_64 vs arm64).
+
+    Args:
+        ec2: Boto3 EC2 client.
+        instance_type: EC2 instance type (used to detect architecture).
+
+    Returns:
+        AMI ID or None if not found.
+    """
+    architecture = get_architecture_for_instance_type(instance_type)
+    name_pattern = (
+        "ubuntu/images/hvm-ssd-gp3/ubuntu-jammy-22.04-arm64-server-*"
+        if architecture == "arm64"
+        else "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
+    )
+    response = ec2.describe_images(
+        Owners=["099720109477"],  # Canonical
+        Filters=[
+            {"Name": "name", "Values": [name_pattern]},
+            {"Name": "state", "Values": ["available"]},
+            {"Name": "architecture", "Values": [architecture]},
+        ],
+    )
+    images = sorted(response.get("Images", []), key=lambda image: image["CreationDate"], reverse=True)
+    return images[0]["ImageId"] if images else None
 
 
 def get_architecture_for_instance_type(instance_type: str) -> str:

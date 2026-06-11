@@ -40,6 +40,12 @@ tests:
 
   settings:
     region: ""
+    min_resources: 1
+    tenant_id: "{{env.NCP_TENANT_ID | default('', true)}}"
+    topology_block_id: "isv-cap04-block"
+    requested_compute: 2
+    requested_network: 1
+    requested_storage: 0
 
   # ─── Validations ─────────────────────────────────────────────────
   # These are PROVIDER-AGNOSTIC. They only check JSON field names/values.
@@ -138,6 +144,22 @@ tests:
       checks:
         TenantIsolationCheck:
           step: tenant_isolation_test
+
+    # Verify capacity is logically grouped and pinned to one tenant/account
+    # boundary.
+    capacity_reservation_grouping:
+      checks:
+        CapacityReservationGroupingCheck:
+          step: capacity_reservation_grouping
+          min_resources: "{{min_resources}}"
+
+    # Verify a topology block is allocated as one atomic unit with homogeneous
+    # performance and one tenant isolation boundary.
+    topology_block_atomic_allocation:
+      step: topology_block_atomic_allocation
+      checks:
+        CapacityTopologyBlockAtomicAllocationCheck:
+          min_resources: 2
 
     teardown_checks:
       step: teardown
