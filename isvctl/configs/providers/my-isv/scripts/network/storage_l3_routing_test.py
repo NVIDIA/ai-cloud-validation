@@ -36,10 +36,10 @@ Required JSON output fields:
     "platform": "network",
     "test_name": "storage_l3_routing",
     "tests": {
-      "distinct_subnets":     {"passed": true, "subnet_count": 3},
+      "distinct_subnets":     {"passed": true, "subnet_count": 2},
       "all_to_all_reachable": {"passed": true, "pairs_tested": 6, "pairs_reachable": 6},
-      "cross_subnet_routing": {"passed": true},
-      "no_gateway_hop":       {"passed": true, "pairs_tested": 6, "pairs_direct": 6}
+      "cross_subnet_routing": {"passed": true, "pairs_tested": 4, "pairs_reachable": 4},
+      "no_gateway_hop":       {"passed": true, "pairs_tested": 4, "pairs_direct": 4}
     }
   }
 
@@ -85,15 +85,29 @@ def main() -> int:
 
     if DEMO_MODE:
         pairs = args.hosts * (args.hosts - 1)
+        subnet_count = 2
+        hosts_per_subnet = [args.hosts // subnet_count for _ in range(subnet_count)]
+        for i in range(args.hosts % subnet_count):
+            hosts_per_subnet[i] += 1
+        same_subnet_pairs = sum(count * (count - 1) for count in hosts_per_subnet)
+        cross_subnet_pairs = pairs - same_subnet_pairs
         result["tests"] = {
-            "distinct_subnets": {"passed": True, "subnet_count": max(2, min(args.hosts, 3))},
+            "distinct_subnets": {"passed": True, "subnet_count": subnet_count},
             "all_to_all_reachable": {
                 "passed": True,
                 "pairs_tested": pairs,
                 "pairs_reachable": pairs,
             },
-            "cross_subnet_routing": {"passed": True},
-            "no_gateway_hop": {"passed": True, "pairs_tested": pairs, "pairs_direct": pairs},
+            "cross_subnet_routing": {
+                "passed": True,
+                "pairs_tested": cross_subnet_pairs,
+                "pairs_reachable": cross_subnet_pairs,
+            },
+            "no_gateway_hop": {
+                "passed": True,
+                "pairs_tested": cross_subnet_pairs,
+                "pairs_direct": cross_subnet_pairs,
+            },
         }
         result["success"] = True
     else:

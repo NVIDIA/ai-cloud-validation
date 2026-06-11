@@ -1720,11 +1720,13 @@ def test_my_isv_storage_l3_routing_demo_reports_directed_full_mesh() -> None:
     payload: dict[str, Any] = json.loads(completed.stdout)
     assert payload["success"] is True
     assert payload["test_name"] == "storage_l3_routing"
-    assert payload["tests"]["distinct_subnets"]["subnet_count"] == 3
+    assert payload["tests"]["distinct_subnets"]["subnet_count"] == 2
     assert payload["tests"]["all_to_all_reachable"]["pairs_tested"] == 6
     assert payload["tests"]["all_to_all_reachable"]["pairs_reachable"] == 6
-    assert payload["tests"]["no_gateway_hop"]["pairs_tested"] == 6
-    assert payload["tests"]["no_gateway_hop"]["pairs_direct"] == 6
+    assert payload["tests"]["cross_subnet_routing"]["pairs_tested"] == 4
+    assert payload["tests"]["cross_subnet_routing"]["pairs_reachable"] == 4
+    assert payload["tests"]["no_gateway_hop"]["pairs_tested"] == 4
+    assert payload["tests"]["no_gateway_hop"]["pairs_direct"] == 4
 
 
 def test_my_isv_storage_l3_routing_rejects_too_few_hosts() -> None:
