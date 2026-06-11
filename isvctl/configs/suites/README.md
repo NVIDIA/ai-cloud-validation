@@ -14,6 +14,7 @@ Suites:
 [`network`](network.yaml),
 [`vm`](vm.yaml),
 [`bare_metal`](bare_metal.yaml),
+[`observability`](observability.yaml),
 [`k8s`](k8s.yaml),
 [`slurm`](slurm.yaml),
 [`control-plane`](control-plane.yaml),
@@ -62,6 +63,15 @@ For the domain / script-count / AWS-reference overview see the
 | `nvlink_domain` | test | `providers/my-isv/scripts/network/nvlink_domain_test.py` | NVLink domain ID when the node supports NVLink |
 | `teardown` | teardown | `providers/my-isv/scripts/network/teardown.py` | VPC cleanup |
 
+### Observability (`observability.yaml`)
+
+| Step | Phase | Script | Key JSON Fields |
+|------|-------|--------|-----------------|
+| `vpc_flow_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.network_id`, `log_destination`, `traffic_type` |
+| `host_syslogs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.hosts_checked`, `log_source`, `entry_count`, `latest_timestamp` |
+| `bmc_sel_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.bmc_endpoints_checked`, `log_source`, `entry_count` |
+| `bmc_gpu_telemetry` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.bmc_endpoints_checked`, `telemetry_endpoint`, `metric_names`, `host_os_unavailable_metrics`, `sample_count` |
+
 ### VM (`vm.yaml`)
 
 | Step | Phase | Script | Key JSON Fields |
@@ -97,6 +107,11 @@ For the domain / script-count / AWS-reference overview see the
 | `teardown_nim` | teardown | `providers/shared/teardown_nim.py` | Shared NIM cleanup |
 | `teardown` | teardown | `providers/my-isv/scripts/bare_metal/teardown.py` | `resources_deleted`, `message` |
 | `verify_teardown` | teardown | `providers/my-isv/scripts/bare_metal/verify_terminated.py` | `checks.instance_terminated`, `checks.sg_deleted` |
+| `verify_ingestion` | test | `providers/nico/scripts/hardware_ingestion/verify_ingestion.py` | `expected_count`, `ingested_count`, `matched_count`, `missing`, `extra`, `machines[].status`, `machines[].health` |
+| `check_dpu_health` | test | `providers/nico/scripts/dpu/check_dpu_health.py` | `machines_checked`, `machines[].dpu_count`, `machines[].dpu_agent_heartbeat`, `machines[].health_summary`, `machines[].health_alerts` |
+| `query_governance_metrics` | test | `providers/nico/scripts/governance/query_metrics.py` | `machine_count`, `metrics.delivered.{nodes,gpus}`, `metrics.healthy.{nodes,gpus}`, `metrics.reserved.{nodes,gpus}`, `metrics.active.{nodes,gpus}` |
+| `query_host_health` | test | `providers/nico/scripts/health/query_host_health.py` | `hosts_checked`, `hosts[].health_present`, `hosts[].healthy`, `hosts[].observed_age_seconds`, `hosts[].probe_ids`, `hosts[].alerts[].{id,target,message,classifications}`, `hosts[].components.{gpu,thermal,memory,cooling}` |
+| `query_health_aggregation` | test | `providers/nico/scripts/health/query_health_aggregation.py` | `aggregation_level`, `groups[].{total,healthy,unhealthy,status,unhealthy_hosts}` |
 
 ### Kubernetes (`k8s.yaml`)
 
@@ -128,6 +143,7 @@ Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job schedul
 | `verify_key_rejected` | test | `providers/my-isv/scripts/control-plane/verify_key_rejected.py` | `rejected`, `error_code` |
 | `list_tenants` | test | `providers/my-isv/scripts/control-plane/list_tenants.py` | `found_target`, `target_tenant`, `count` |
 | `get_tenant` | test | `providers/my-isv/scripts/control-plane/get_tenant.py` | `tenant_name`, `description` |
+| `s3_object_lifecycle` | test | `providers/my-isv/scripts/control-plane/s3_object_lifecycle.py` | `bucket_name`, `object_key`, `operations.{put,get,delete}` (get includes `content_matches`) |
 | `delete_access_key` | teardown | `providers/my-isv/scripts/control-plane/delete_access_key.py` | `resources_deleted` |
 | `delete_tenant` | teardown | `providers/my-isv/scripts/control-plane/delete_tenant.py` | `resources_deleted` |
 

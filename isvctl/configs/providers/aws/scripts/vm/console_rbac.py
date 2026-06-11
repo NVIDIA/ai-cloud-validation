@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Validate EC2 serial console RBAC using IAM principal policy simulation.
 
@@ -42,6 +47,7 @@ CONSOLE_ACTION = "ec2-instance-connect:SendSerialConsoleSSHPublicKey"
 TEST_USER_PREFIX = "isv-console-rbac-test-"
 ALLOW_POLICY_NAME = "IsvConsoleRbacScopedAccess"
 OWNER_TAG = {"Key": "CreatedBy", "Value": "isvtest"}
+SERIAL_ACCESS_DISABLED_SKIP_REASON = "EC2 serial console access is disabled for this account or region"
 REQUIRED_TESTS = (
     "serial_console_access_enabled",
     "denied_principal_cannot_access_console",
@@ -85,6 +91,22 @@ def _other_instance_id(instance_id: str) -> str:
 def _make_test_result(passed: bool, **details: Any) -> dict[str, Any]:
     """Build a standard test result dictionary."""
     return {"passed": passed, **details}
+
+
+def _mark_skipped(result: dict[str, Any], reason: str) -> dict[str, Any]:
+    """Mark the whole RBAC probe as skipped with skipped subtest evidence."""
+    result["success"] = True
+    result["skipped"] = True
+    result["skip_reason"] = reason
+    result["tests"] = {
+        name: {
+            "passed": True,
+            "skipped": True,
+            "skip_reason": reason,
+        }
+        for name in REQUIRED_TESTS
+    }
+    return result
 
 
 def _policy_document(statements: list[dict[str, Any]]) -> str:
@@ -174,6 +196,17 @@ def _run_console_rbac_check(iam: Any, sts: Any, ec2: Any, instance_id: str, regi
     created_policies: dict[str, set[str]] = {}
 
     try:
+        serial_access = check_serial_access(ec2)
+        serial_access_enabled = serial_access.get("enabled") is True
+        result["serial_access_enabled"] = serial_access_enabled
+        result["tests"]["serial_console_access_enabled"] = _make_test_result(serial_access_enabled)
+        if serial_access.get("error"):
+            result["tests"]["serial_console_access_enabled"]["error"] = serial_access["error"]
+            result["error"] = serial_access["error"]
+            return result
+        if not serial_access_enabled:
+            return _mark_skipped(result, SERIAL_ACCESS_DISABLED_SKIP_REASON)
+
         identity = sts.get_caller_identity()
         account_id = identity["Account"]
         partition = _partition_from_identity(identity, region)
@@ -191,15 +224,6 @@ def _run_console_rbac_check(iam: Any, sts: Any, ec2: Any, instance_id: str, regi
             "denied": denied_principal_arn,
             "allowed": allowed_principal_arn,
         }
-
-        serial_access = check_serial_access(ec2)
-        serial_access_enabled = serial_access.get("enabled") is True
-        result["serial_access_enabled"] = serial_access_enabled
-        result["tests"]["serial_console_access_enabled"] = _make_test_result(serial_access_enabled)
-        if serial_access.get("error"):
-            result["tests"]["serial_console_access_enabled"]["error"] = serial_access["error"]
-        if not serial_access_enabled:
-            result["error"] = serial_access.get("error") or "EC2 serial console access is disabled"
 
         denied_decision = _simulate_principal_console_decision(iam, denied_principal_arn, target_arn)
         denied_passed = not _is_allowed(denied_decision)

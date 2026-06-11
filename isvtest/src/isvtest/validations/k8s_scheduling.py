@@ -1,37 +1,40 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import shlex
 from typing import ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail
 from isvtest.core.validation import BaseValidation
 
 
 class K8sGpuLabelsCheck(BaseValidation):
     description = "Verify GPU nodes have proper NVIDIA labels."
-    markers: ClassVar[list[str]] = ["kubernetes", "gpu"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
 
     def run(self) -> None:
         label_selector = self.config.get("label_selector", "nvidia.com/gpu.present=true")
 
         kubectl_base = get_kubectl_base_shell()
 
-        cmd = f"{kubectl_base} get nodes -l {shlex.quote(label_selector)} --no-headers"
+        cmd = f"{kubectl_base} get nodes -l {shlex.quote(label_selector)} -o json"
         result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to query GPU nodes: {result.stderr}")
+        nodes = kubectl_items_or_fail(self, result, "GPU node list")
+        if nodes is None:
             return
 
-        nodes = [line for line in result.stdout.splitlines() if line.strip()]
         if not nodes:
             self.set_failed(f"No GPU nodes found with label '{label_selector}'")
             return
@@ -52,7 +55,7 @@ class K8sGpuCapacityCheck(BaseValidation):
     """
 
     description = "Verify node GPU capacity matches expected counts."
-    markers: ClassVar[list[str]] = ["kubernetes", "gpu"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
 
     def run(self) -> None:
         resource_name = self.config.get("resource_name", "nvidia.com/gpu")
@@ -72,42 +75,30 @@ class K8sGpuCapacityCheck(BaseValidation):
             )
             return
 
-        # Need to escape dot for jsonpath if it exists (e.g. nvidia.com/gpu -> nvidia\.com/gpu)
-        escaped_resource = resource_name.replace(".", "\\.")
-
         kubectl_base = get_kubectl_base_shell()
 
-        # Check for resource in node capacity
-        cmd = f'{kubectl_base} get nodes -o jsonpath=\'{{range .items[*]}}{{.metadata.name}}{{"\\t"}}{{.status.capacity.{escaped_resource}}}{{"\\n"}}{{end}}\''
-        result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get node capacity: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get nodes -o json")
+        nodes = kubectl_items_or_fail(self, result, "node list")
+        if nodes is None:
             return
 
         gpu_nodes_count = 0
         total_gpus = 0
         per_node_mismatches = []
 
-        for line in result.stdout.splitlines():
-            if not line.strip():
+        for node in nodes:
+            capacity = (node.get("status") or {}).get("capacity") or {}
+            val_str = str(capacity.get(resource_name) or "")
+            if not val_str:
                 continue
-            parts = line.split("\t")
-            if len(parts) >= 2 and parts[1].strip():
-                try:
-                    # Handle "1" or "1Gi" (though GPU resources usually purely numeric)
-                    val_str = parts[1]
-                    if val_str.isdigit():
-                        count = int(val_str)
-                        if count > 0:
-                            gpu_nodes_count += 1
-                            total_gpus += count
-                            # Check per-node count if configured
-                            if expected_per_node is not None and count != expected_per_node:
-                                node_name = parts[0]
-                                per_node_mismatches.append(f"{node_name} ({count} != {expected_per_node})")
-                except ValueError:
-                    pass
+            if val_str.isdigit():
+                count = int(val_str)
+                if count > 0:
+                    gpu_nodes_count += 1
+                    total_gpus += count
+                    if expected_per_node is not None and count != expected_per_node:
+                        node_name = (node.get("metadata") or {}).get("name", "unknown")
+                        per_node_mismatches.append(f"{node_name} ({count} != {expected_per_node})")
 
         if gpu_nodes_count == 0:
             self.set_failed(f"No '{resource_name}' resources found in node capacity")

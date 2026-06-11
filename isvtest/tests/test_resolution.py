@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for validation resolution."""
 
@@ -27,10 +32,20 @@ from isvtest.core.resolution import (
 from isvtest.core.validation import BaseValidation
 
 
-class MarkerCheck(BaseValidation):
-    """Validation with markers used by parser tests."""
+class KubernetesSlowCheck(BaseValidation):
+    """Validation with multiple labels used by parser tests."""
 
-    markers: ClassVar[list[str]] = ["slow", "kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("slow", "kubernetes")
+
+    def run(self) -> None:
+        """Mark the validation passed."""
+        self.set_passed()
+
+
+class AcceleratorCheck(BaseValidation):
+    """Validation with accelerator-themed labels used by parser tests."""
+
+    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long_running")
 
     def run(self) -> None:
         """Mark the validation passed."""
@@ -38,7 +53,7 @@ class MarkerCheck(BaseValidation):
 
 
 class PlainCheck(BaseValidation):
-    """Validation without markers used by parser tests."""
+    """Validation without labels used by parser tests."""
 
     def run(self) -> None:
         """Mark the validation passed."""
@@ -52,7 +67,7 @@ def _entry(
     params: dict[str, Any] | None = None,
     step: str | None = None,
     phase: str | None = None,
-    markers: tuple[str, ...] = (),
+    labels: tuple[str, ...] = (),
 ) -> ValidationEntry:
     """Build a minimal validation entry."""
     return ValidationEntry(
@@ -61,7 +76,7 @@ def _entry(
         params_template={} if params is None else params,
         step=step,
         phase=phase,
-        markers=markers,
+        labels=labels,
     )
 
 
@@ -71,7 +86,8 @@ def _resolve(
     step_outputs: dict[str, dict[str, Any]] | None = None,
     step_phases: dict[str, str] | None = None,
     requested_phases: set[str] | None = None,
-    exclude_markers: set[str] | None = None,
+    include_labels: set[str] | None = None,
+    exclude_labels: set[str] | None = None,
     exclude_tests: set[str] | None = None,
     released_tests: set[str] | None = None,
     render_context: dict[str, Any] | None = None,
@@ -82,7 +98,8 @@ def _resolve(
         step_outputs={} if step_outputs is None else step_outputs,
         step_phases={} if step_phases is None else step_phases,
         requested_phases={"test"} if requested_phases is None else requested_phases,
-        exclude_markers=set() if exclude_markers is None else exclude_markers,
+        include_labels=set() if include_labels is None else include_labels,
+        exclude_labels=set() if exclude_labels is None else exclude_labels,
         exclude_tests=set() if exclude_tests is None else exclude_tests,
         released_tests=released_tests,
         render_context={} if render_context is None else render_context,
@@ -96,7 +113,7 @@ def _resolve(
     [
         (_entry("NewCheck"), {"released_tests": {"PlainCheck"}}, SkipReason.UNRELEASED),
         (_entry("PlainCheck"), {"exclude_tests": {"PlainCheck"}}, SkipReason.EXCLUDED),
-        (_entry("MarkerCheck", markers=("slow",)), {"exclude_markers": {"slow"}}, SkipReason.EXCLUDED),
+        (_entry("LabelCheck", labels=("accelerator",)), {"exclude_labels": {"accelerator"}}, SkipReason.EXCLUDED),
         (_entry(step="create_cluster"), {"step_phases": {}}, SkipReason.STEP_NOT_CONFIGURED),
         (
             _entry(step="create_cluster"),
@@ -212,13 +229,14 @@ def test_resolve_entries_is_idempotent_from_original_entries() -> None:
     """Resolved entries can be reduced to entries and resolved again deterministically."""
     entries = [
         _entry("PlainCheck", params={"value": "static"}),
-        _entry("MarkerCheck", markers=("slow",)),
+        _entry("SlowCheck", labels=("slow",)),
     ]
     kwargs: dict[str, Any] = {
         "step_outputs": {},
         "step_phases": {},
         "requested_phases": {"test"},
-        "exclude_markers": {"slow"},
+        "include_labels": set(),
+        "exclude_labels": {"slow"},
         "exclude_tests": set(),
         "released_tests": None,
         "render_context": {},
@@ -230,20 +248,48 @@ def test_resolve_entries_is_idempotent_from_original_entries() -> None:
     assert second == first
 
 
-def test_parse_validations_supports_group_defaults_and_markers(
+def test_resolve_entries_requires_all_include_labels() -> None:
+    """Label selection is an AND filter across all requested labels."""
+    entries = [
+        _entry("GpuSlowCheck", labels=("gpu", "slow")),
+        _entry("GpuOnlyCheck", labels=("gpu",)),
+        _entry("SlowOnlyCheck", labels=("slow",)),
+    ]
+
+    results = resolve_entries(
+        entries,
+        step_outputs={},
+        step_phases={},
+        requested_phases={"test"},
+        include_labels={"gpu", "slow"},
+        exclude_labels=set(),
+        exclude_tests=set(),
+        released_tests=None,
+        render_context={},
+    )
+
+    by_name = {result.entry.name: result for result in results}
+    assert by_name["GpuSlowCheck"].is_ready
+    assert by_name["GpuOnlyCheck"].skip_reason == SkipReason.EXCLUDED
+    assert by_name["SlowOnlyCheck"].skip_reason == SkipReason.EXCLUDED
+    assert "labels" in by_name["GpuOnlyCheck"].message
+
+
+def test_parse_validations_supports_group_defaults_and_labels(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Parser expands config groups and populates markers from discovered classes."""
+    """Parser expands config groups and populates labels from discovered classes."""
     monkeypatch.setattr(
         "isvtest.core.resolution.discover_all_tests",
-        lambda: [MarkerCheck, PlainCheck],
+        lambda: [KubernetesSlowCheck, AcceleratorCheck, PlainCheck],
     )
     raw_config: dict[str, Any] = {
         "cluster": {
             "step": "create_cluster",
             "phase": "setup",
             "checks": {
-                "MarkerCheck": {"expected": 4},
+                "KubernetesSlowCheck": {"expected": 4},
+                "AcceleratorCheck": {"expected": 8},
                 "PlainCheck": {},
             },
         },
@@ -253,12 +299,20 @@ def test_parse_validations_supports_group_defaults_and_markers(
 
     assert entries == [
         ValidationEntry(
-            name="MarkerCheck",
+            name="KubernetesSlowCheck",
             category="cluster",
             params_template={"expected": 4},
             step="create_cluster",
             phase="setup",
-            markers=("slow", "kubernetes"),
+            labels=("slow", "kubernetes"),
+        ),
+        ValidationEntry(
+            name="AcceleratorCheck",
+            category="cluster",
+            params_template={"expected": 8},
+            step="create_cluster",
+            phase="setup",
+            labels=("accelerator", "long_running"),
         ),
         ValidationEntry(
             name="PlainCheck",
@@ -266,7 +320,7 @@ def test_parse_validations_supports_group_defaults_and_markers(
             params_template={},
             step="create_cluster",
             phase="setup",
-            markers=(),
+            labels=(),
         ),
     ]
 

@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Verify the Kubernetes API endpoint is protected by network access controls."""
 
@@ -18,7 +23,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, parse_kubectl_json
 from isvtest.core.validation import BaseValidation
 from isvtest.utils.checks import truncate
 
@@ -54,7 +59,7 @@ class K8sApiNetworkAclCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify the Kubernetes API endpoint is protected by network access controls."
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Execute the authorized baseline probe and unauthorized probe flow."""
@@ -276,17 +281,20 @@ class K8sApiNetworkAclCheck(BaseValidation):
         check on its own; the auth probe already established that kubectl
         works.
         """
-        cmd = get_kubectl_base_shell(
-            "config",
-            "view",
-            "--minify",
-            "-o",
-            "jsonpath={.clusters[0].cluster.server}",
-        )
+        cmd = get_kubectl_base_shell("config", "view", "--minify", "-o", "json")
         result = self.run_command(cmd, timeout=probe_timeout_s)
         if result.exit_code != 0:
             return None
-        return result.stdout.strip() or None
+        try:
+            payload = parse_kubectl_json(result, "kubectl config view")
+        except KubectlParseError as exc:
+            self.log.warning("Failed to parse kubectl config JSON: %s", exc)
+            return None
+        clusters = payload.get("clusters")
+        if not isinstance(clusters, list) or not clusters or not isinstance(clusters[0], dict):
+            return None
+        server = ((clusters[0].get("cluster") or {}).get("server")) or ""
+        return server.strip() or None
 
     def _run_authorized_probe(self, authorized_probe_cmd: str, probe_timeout_s: int) -> bool:
         """Run the authorized baseline probe and report failure on non-zero exit.

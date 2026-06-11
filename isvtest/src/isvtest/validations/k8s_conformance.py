@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """CNCF Kubernetes conformance validation via the upstream e2e Pod.
 
@@ -41,8 +46,8 @@ from isvtest.core.k8s import (
     TRANSIENT_WAITING_REASONS,
     get_kubectl_base_shell,
     is_k8s_available,
-    parse_pod_state,
     parse_server_version,
+    pod_state_from_result,
 )
 from isvtest.core.validation import BaseValidation
 
@@ -72,7 +77,7 @@ class K8sCncfConformanceCheck(BaseValidation):
     """Verify CNCF Kubernetes conformance by running the e2e Pod directly."""
 
     description = "Verify CNCF Kubernetes conformance by running the registry.k8s.io/conformance Pod."
-    markers: ClassVar[list[str]] = ["kubernetes", "l2", "slow"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "l2", "slow")
     timeout: ClassVar[int] = 120  # default for auxiliary commands
 
     _DEFAULT_TIMEOUT = 7200
@@ -395,10 +400,7 @@ class K8sCncfConformanceCheck(BaseValidation):
     def _get_pod_state(self, namespace: str, pod_name: str) -> tuple[str, str, str]:
         """Fetch ``(phase, waiting_reason, waiting_message)`` in one kubectl call."""
         cmd = get_kubectl_base_shell("get", "pod", pod_name, "-n", namespace, "-o", "json")
-        result = self.run_command(cmd, timeout=self._AUX_CMD_TIMEOUT)
-        if result.exit_code != 0:
-            return parse_pod_state("", result.stderr or "")
-        return parse_pod_state(result.stdout, "")
+        return pod_state_from_result(self.run_command(cmd, timeout=self._AUX_CMD_TIMEOUT))
 
     def _exec_cat(
         self,

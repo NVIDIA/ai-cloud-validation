@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Configuration loader for test configs.
 
@@ -29,6 +34,7 @@ from typing import Any
 import yaml
 from jinja2 import BaseLoader, ChainableUndefined, Environment
 
+from isvtest.config.constants import RESOLVED_ENTRIES_FLAG
 from isvtest.config.inventory import ClusterInventory, inventory_to_dict, parse_inventory
 
 
@@ -105,6 +111,10 @@ class ConfigLoader:
         with open(config_path) as f:
             config_content = f.read()
 
+        pre_rendered_config = self._load_pre_rendered_config(config_content)
+        if pre_rendered_config is not None:
+            return pre_rendered_config
+
         # Check for inventory path from argument or environment variable
         effective_inventory_path = inventory_path or os.environ.get("ISV_INVENTORY_PATH")
         inventory_dict: dict[str, Any] = {}
@@ -137,6 +147,18 @@ class ConfigLoader:
                     )
                 config["cluster_name"] = inventory_cluster_name
 
+        return config
+
+    def _load_pre_rendered_config(self, content: str) -> dict[str, Any] | None:
+        """Return an already-resolved JSON config without applying Jinja rendering."""
+        if not content.lstrip().startswith("{") or RESOLVED_ENTRIES_FLAG not in content:
+            return None
+        try:
+            config = json.loads(content)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(config, dict) or config.get(RESOLVED_ENTRIES_FLAG) is not True:
+            return None
         return config
 
     def _render_template(self, content: str, context: dict[str, Any]) -> str:

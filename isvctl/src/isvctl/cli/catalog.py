@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Catalog subcommand for isvctl.
 
@@ -24,7 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from isvctl.cli import setup_logging
-from isvctl.cli.common import get_output_dir
+from isvctl.cli.common import get_output_dir, print_error, print_progress
 
 logger = logging.getLogger(__name__)
 
@@ -80,14 +85,14 @@ def list_cmd(
     )
     table.add_column("Test", style="green", no_wrap=True)
     table.add_column("Platforms", style="cyan")
-    table.add_column("Markers", style="dim")
+    table.add_column("Labels", style="dim")
     table.add_column("Description")
 
     for entry in sorted(catalog_entries, key=lambda e: e["name"]):
         table.add_row(
             entry["name"],
             ", ".join(entry.get("platforms") or []) or "-",
-            ", ".join(entry.get("markers") or []) or "-",
+            ", ".join(entry.get("labels") or []) or "-",
             entry.get("description") or "-",
         )
 
@@ -118,36 +123,30 @@ def push(
     """
     setup_logging(verbose)
 
-    typer.echo("Building test catalog...")
+    print_progress("Building test catalog...")
     catalog_entries = build_catalog()
     catalog_version = get_catalog_version()
-    typer.echo(f"  {len(catalog_entries)} tests (version: {catalog_version})")
+    print_progress(f"  {len(catalog_entries)} tests (version: {catalog_version})")
 
     output_dir = get_output_dir()
     catalog_path = output_dir / "test_catalog.json"
     catalog_path.write_text(json.dumps({"isvTestVersion": catalog_version, "entries": catalog_entries}, indent=2))
-    typer.echo(f"  Saved to: {catalog_path}")
+    print_progress(f"  Saved to: {catalog_path}")
 
     if no_upload:
-        typer.echo("Skipping upload (--no-upload)")
+        print_progress("Skipping upload (--no-upload)")
         return
 
     from isvctl.reporting import check_upload_credentials, get_environment_config
 
     can_upload, client_id, client_secret = check_upload_credentials()
     if not can_upload or not client_id or not client_secret:
-        typer.echo(
-            typer.style("Error:", fg=typer.colors.RED) + " ISV_CLIENT_ID and/or ISV_CLIENT_SECRET not set",
-            err=True,
-        )
+        print_error("ISV_CLIENT_ID and/or ISV_CLIENT_SECRET not set")
         raise typer.Exit(1)
 
     endpoint, ssa_issuer = get_environment_config()
     if not endpoint or not ssa_issuer:
-        typer.echo(
-            typer.style("Error:", fg=typer.colors.RED) + " ISV_SERVICE_ENDPOINT and/or ISV_SSA_ISSUER not set",
-            err=True,
-        )
+        print_error("ISV_SERVICE_ENDPOINT and/or ISV_SSA_ISSUER not set")
         raise typer.Exit(1)
 
     from isvreporter.auth import get_jwt_token
@@ -160,7 +159,7 @@ def push(
         isv_test_version=catalog_version,
         entries=catalog_entries,
     ):
-        typer.echo(typer.style("[OK]", fg=typer.colors.GREEN) + " Catalog push complete")
+        print_progress(typer.style("[OK]", fg=typer.colors.GREEN) + " Catalog push complete")
     else:
-        typer.echo(typer.style("[FAIL]", fg=typer.colors.RED) + " Catalog upload failed")
+        print_error("Catalog upload failed")
         raise typer.Exit(1)

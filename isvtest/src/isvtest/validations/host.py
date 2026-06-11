@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """SSH-based validations (platform-agnostic).
 
@@ -40,10 +45,80 @@ from isvtest.core.ssh import (
     get_failed_subtests,
     get_ssh_client,
     get_ssh_config,
+    is_local_execution,
+    open_host_session,
     parse_cpu_range_count,
     run_ssh_command,
 )
 from isvtest.core.validation import BaseValidation
+
+
+def _extract_numeric_version_parts(version: object) -> list[int]:
+    """Extract comparable numeric components from vendor version strings."""
+    return [int(part) for part in re.findall(r"\d+", str(version).strip())]
+
+
+def _numeric_version_at_least(actual: object, minimum: object) -> bool | None:
+    """Return whether ``actual`` is >= ``minimum``, or None when either cannot be parsed."""
+    actual_parts = _extract_numeric_version_parts(actual)
+    minimum_parts = _extract_numeric_version_parts(minimum)
+    if not actual_parts or not minimum_parts:
+        return None
+
+    width = max(len(actual_parts), len(minimum_parts))
+    actual_parts.extend([0] * (width - len(actual_parts)))
+    minimum_parts.extend([0] * (width - len(minimum_parts)))
+    return actual_parts >= minimum_parts
+
+
+def _check_bios_baseline(bios_baselines: dict, system_vendor: str, product: str, bios_version: str) -> tuple[bool, str]:
+    """Evaluate a BIOS version against the configured baseline for the host's vendor/product."""
+    baseline_key = f"{system_vendor}|{product}"
+    baseline = bios_baselines.get(baseline_key)
+    if baseline is None:
+        available = ", ".join(sorted(str(key) for key in bios_baselines)) or "<none>"
+        return False, f"No BIOS baseline for {baseline_key}; available baselines: {available}"
+
+    min_version = baseline.get("min_version")
+    if not min_version:
+        return False, f"BIOS baseline for {baseline_key} missing min_version"
+
+    version_ok = _numeric_version_at_least(bios_version, min_version)
+    if version_ok is None:
+        return False, (
+            f"Could not parse BIOS version for {baseline_key}: actual={bios_version!r}, min_version={min_version!r}"
+        )
+    if not version_ok:
+        return False, f"BIOS version {bios_version} is below minimum required {min_version}"
+    return True, f"BIOS version {bios_version} >= minimum {min_version} for {baseline_key}"
+
+
+def _check_tpm_baseline(
+    tpm_baselines: dict, system_vendor: str, product: str, tpm_present: bool, tpm_version: str
+) -> tuple[bool, str]:
+    """Evaluate TPM presence and version against the configured baseline for the host's vendor/product."""
+    baseline_key = f"{system_vendor}|{product}"
+    baseline = tpm_baselines.get(baseline_key)
+    if baseline is None:
+        available = ", ".join(sorted(str(key) for key in tpm_baselines)) or "<none>"
+        return False, f"No TPM baseline for {baseline_key}; available baselines: {available}"
+
+    min_version = baseline.get("min_version")
+    if not min_version:
+        return False, f"TPM baseline for {baseline_key} missing min_version"
+
+    if not tpm_present:
+        return False, f"TPM device not present on host (required by baseline {baseline_key})"
+
+    version_ok = _numeric_version_at_least(tpm_version, min_version)
+    if version_ok is None:
+        return False, (
+            f"Could not parse TPM version for {baseline_key}: actual={tpm_version!r}, min_version={min_version!r}"
+        )
+    if not version_ok:
+        return False, f"TPM version {tpm_version} is below minimum required {min_version}"
+    return True, f"TPM version {tpm_version} >= minimum {min_version} for {baseline_key}"
+
 
 # =============================================================================
 # Connectivity Validations
@@ -63,7 +138,7 @@ class ConnectivityCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates SSH connectivity"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "bare_metal", "vm")
 
     def run(self) -> None:
         try:
@@ -145,7 +220,7 @@ class OsCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates OS via SSH"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "bare_metal", "vm")
 
     def run(self) -> None:
         try:
@@ -211,7 +286,7 @@ class CpuInfoCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates CPU, NUMA topology, and PCI configuration"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "bare_metal", "vm")
 
     def run(self) -> None:
         try:
@@ -281,37 +356,43 @@ class VcpuPinningCheck(BaseValidation):
     - All vCPUs are online
     - NUMA topology is consistent (vCPUs grouped by NUMA node)
     - CPU affinity mask covers all expected vCPUs
-    - CPU-to-NUMA mapping is balanced (no empty NUMA nodes)
+    - CPU-to-NUMA mapping accounts for every vCPU (CPU-less memory-only nodes
+      are valid: e.g. Grace-Hopper / Grace-Blackwell expose GPU memory as
+      additional NUMA nodes without CPUs)
     - GPU-to-NUMA locality: GPUs share NUMA node with assigned CPUs
 
     Config:
         host, key_file, user: SSH connection details
         expected_vcpus: Expected vCPU count (optional)
+        local: Run commands on the local host instead of via SSH (optional).
+            Use when the validation already executes on the target host, e.g.
+            via ``isvctl deploy run`` - avoids a redundant SSH hop and key.
     """
 
     description: ClassVar[str] = "Validates vCPU pinning and NUMA affinity"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "vm")
 
     def run(self) -> None:
-        try:
-            import paramiko  # noqa: F401
-        except ImportError:
-            self.set_failed("paramiko not installed")
-            return
-
         ssh_cfg = get_ssh_config(self.config, self.config.get("inventory", {}))
         host = ssh_cfg["ssh_host"]
-        user = ssh_cfg["ssh_user"]
         key_path = ssh_cfg["ssh_key_path"]
         expected_vcpus = self.config.get("expected_vcpus")
+        local = is_local_execution(self.config)
+        target = host or "localhost"
 
-        if not host or not key_path:
-            self.set_failed("Missing host or key_file")
-            return
+        if not local:
+            try:
+                import paramiko  # noqa: F401
+            except ImportError:
+                self.set_failed("paramiko not installed")
+                return
+            if not host or not key_path:
+                self.set_failed("Missing host or key_file")
+                return
 
         try:
-            ssh = get_ssh_client(host, user, key_path)
+            ssh = open_host_session(ssh_cfg, self.config)
 
             # --- Check 1: vCPU count ---
             exit_code, stdout, _ = run_ssh_command(ssh, "nproc")
@@ -352,29 +433,52 @@ class VcpuPinningCheck(BaseValidation):
                 self.report_subtest("cpu_affinity", True, affinity_info[:80])
 
             # --- Check 4: NUMA topology ---
+            # CPU-less NUMA nodes are valid and expected: memory-only nodes and,
+            # on Grace-Hopper / Grace-Blackwell systems, GPU memory
+            # is exposed as additional CPU-less NUMA nodes. So we do not require
+            # every node to have CPUs; we only require that at least one node has
+            # CPUs and that the topology accounts for all vCPUs.
             exit_code, stdout, _ = run_ssh_command(ssh, "lscpu | grep -E '^NUMA node[0-9]+ CPU' || echo 'no_numa'")
             if exit_code == 0 and "no_numa" not in stdout:
                 numa_lines = [line.strip() for line in stdout.strip().split("\n") if line.strip()]
                 numa_nodes = len(numa_lines)
-                # Check all NUMA nodes have CPUs assigned (balanced)
-                all_have_cpus = all(":" in line and line.split(":")[-1].strip() != "" for line in numa_lines)
-                self.report_subtest(
-                    "numa_topology",
-                    all_have_cpus,
-                    f"{numa_nodes} NUMA node(s), all populated: {all_have_cpus}",
-                )
 
-                # Report per-node detail
+                node_cpus: list[tuple[str, str, int]] = []
                 for line in numa_lines:
                     parts = line.split(":")
                     if len(parts) == 2:
                         node_name = parts[0].strip().replace("NUMA ", "").replace(" CPU(s)", "")
                         cpus = parts[1].strip()
                         cpu_cnt = parse_cpu_range_count(cpus) if cpus else 0
+                        node_cpus.append((node_name, cpus, cpu_cnt))
+
+                cpu_node_count = sum(1 for _, _, cnt in node_cpus if cnt > 0)
+                memory_only_count = sum(1 for _, _, cnt in node_cpus if cnt == 0)
+                total_vcpus_mapped = sum(cnt for _, _, cnt in node_cpus)
+                # Consistent when at least one node has CPUs and every vCPU is mapped.
+                topology_ok = cpu_node_count > 0 and total_vcpus_mapped == vcpu_count
+                self.report_subtest(
+                    "numa_topology",
+                    topology_ok,
+                    f"{numa_nodes} NUMA node(s): {cpu_node_count} with CPUs, "
+                    f"{memory_only_count} memory-only; {total_vcpus_mapped}/{vcpu_count} vCPUs mapped",
+                )
+
+                # Report per-node detail. CPU-less nodes are valid memory-only /
+                # GPU memory nodes, so they are reported as passing informational
+                # entries rather than failures.
+                for node_name, cpus, cpu_cnt in node_cpus:
+                    if cpu_cnt > 0:
                         self.report_subtest(
                             f"numa_{node_name}",
-                            cpu_cnt > 0,
+                            True,
                             f"{node_name}: CPUs {cpus} ({cpu_cnt} cores)",
+                        )
+                    else:
+                        self.report_subtest(
+                            f"numa_{node_name}",
+                            True,
+                            f"{node_name}: no CPUs (memory-only / GPU memory node)",
                         )
             else:
                 self.report_subtest("numa_topology", True, "Single NUMA node (no NUMA)")
@@ -415,7 +519,7 @@ class VcpuPinningCheck(BaseValidation):
             elif expected_vcpus and vcpu_count != expected_vcpus:
                 self.set_failed(f"vCPU count mismatch: got {vcpu_count}, expected {expected_vcpus}")
             else:
-                self.set_passed(f"vCPU pinning check on {host} OK ({vcpu_count} vCPUs)")
+                self.set_passed(f"vCPU pinning check on {target} OK ({vcpu_count} vCPUs)")
 
         except Exception as e:
             self.set_failed(f"vCPU pinning check failed: {e}")
@@ -439,7 +543,7 @@ class PciBusCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates PCI bus configuration for GPU devices"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "vm")
 
     def run(self) -> None:
         try:
@@ -613,11 +717,17 @@ class HostSoftwareCheck(BaseValidation):
         expected_driver_version: Expected NVIDIA driver version (optional, e.g. "550")
         expected_libvirt_version: Expected libvirt version substring (optional, e.g. "10.0")
         expected_bios_vendor: Expected BIOS vendor substring (optional, e.g. "Amazon")
+        bios_baselines: Optional mapping of "system_vendor|product_name" to
+            {"min_version": "<approved BIOS version>"}
+        tpm_baselines: Optional mapping of "system_vendor|product_name" to
+            {"min_version": "<minimum TPM major version, e.g. 2>"}.
+            When configured, the host must expose a TPM device whose major
+            version is >= the configured minimum (SEC22-02).
     """
 
     description: ClassVar[str] = "Validates kernel, libvirt, SBIOS, and NVIDIA drivers"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "bare_metal", "vm")
 
     def run(self) -> None:
         try:
@@ -635,6 +745,8 @@ class HostSoftwareCheck(BaseValidation):
         expected_driver = self.config.get("expected_driver_version")
         expected_libvirt = self.config.get("expected_libvirt_version")
         expected_bios_vendor = self.config.get("expected_bios_vendor")
+        bios_baselines = self.config.get("bios_baselines")
+        tpm_baselines = self.config.get("tpm_baselines")
 
         if not host or not key_path:
             self.set_failed("Missing host or key_file")
@@ -753,6 +865,25 @@ class HostSoftwareCheck(BaseValidation):
             else:
                 self.report_subtest("bios_vendor", True, f"BIOS vendor: {bios_vendor}")
 
+            # System vendor / product for model-aware BIOS baseline matching
+            exit_code, stdout, _ = run_ssh_command(
+                ssh,
+                "cat /sys/class/dmi/id/sys_vendor 2>/dev/null "
+                "|| dmidecode -s system-manufacturer 2>/dev/null "
+                "|| echo 'unknown'",
+            )
+            system_vendor = stdout.strip() if exit_code == 0 else "unknown"
+            self.report_subtest("system_vendor", True, f"System vendor: {system_vendor}")
+
+            exit_code, stdout, _ = run_ssh_command(
+                ssh,
+                "cat /sys/class/dmi/id/product_name 2>/dev/null "
+                "|| dmidecode -s system-product-name 2>/dev/null "
+                "|| echo 'unknown'",
+            )
+            product = stdout.strip() if exit_code == 0 else "unknown"
+            self.report_subtest("system_product", True, f"Platform: {product}")
+
             # BIOS version
             exit_code, stdout, _ = run_ssh_command(
                 ssh,
@@ -762,6 +893,12 @@ class HostSoftwareCheck(BaseValidation):
             )
             bios_version = stdout.strip() if exit_code == 0 else "unknown"
             self.report_subtest("bios_version", True, f"BIOS version: {bios_version}")
+
+            if bios_baselines is not None:
+                passed, message = _check_bios_baseline(bios_baselines, system_vendor, product, bios_version)
+                self.report_subtest("bios_baseline", passed, message)
+                if not passed:
+                    failures.append(message)
 
             # BIOS release date
             exit_code, stdout, _ = run_ssh_command(
@@ -773,22 +910,35 @@ class HostSoftwareCheck(BaseValidation):
             bios_date = stdout.strip() if exit_code == 0 else "unknown"
             self.report_subtest("bios_date", True, f"BIOS date: {bios_date}")
 
-            # System product / platform
-            exit_code, stdout, _ = run_ssh_command(
-                ssh,
-                "cat /sys/class/dmi/id/product_name 2>/dev/null "
-                "|| dmidecode -s system-product-name 2>/dev/null "
-                "|| echo 'unknown'",
-            )
-            product = stdout.strip() if exit_code == 0 else "unknown"
-            self.report_subtest("system_product", True, f"Platform: {product}")
-
             # UEFI vs legacy BIOS
             exit_code, stdout, _ = run_ssh_command(
                 ssh, "test -d /sys/firmware/efi && echo 'UEFI' || echo 'Legacy BIOS'"
             )
             boot_mode = stdout.strip() if exit_code == 0 else "unknown"
             self.report_subtest("boot_mode", True, f"Boot mode: {boot_mode}")
+
+            # TPM presence and version (SEC22-02). sysfs is unprivileged.
+            # tpm_version_major reports "1" or "2"; absence of the file
+            # (or the whole /sys/class/tpm/tpm0 directory) means no TPM.
+            exit_code, stdout, _ = run_ssh_command(
+                ssh,
+                "cat /sys/class/tpm/tpm0/tpm_version_major 2>/dev/null || echo 'absent'",
+            )
+            tpm_raw = stdout.strip() if exit_code == 0 else "absent"
+            tpm_present = tpm_raw != "absent" and tpm_raw != ""
+            tpm_version = tpm_raw if tpm_present else "absent"
+            self.report_subtest(
+                "tpm_present",
+                True,
+                f"TPM device: {'present' if tpm_present else 'absent'}",
+            )
+            self.report_subtest("tpm_version", True, f"TPM major version: {tpm_version}")
+
+            if tpm_baselines is not None:
+                passed, message = _check_tpm_baseline(tpm_baselines, system_vendor, product, tpm_present, tpm_version)
+                self.report_subtest("tpm_baseline", passed, message)
+                if not passed:
+                    failures.append(message)
 
             # ==============================================================
             # 4. NVIDIA Driver
@@ -869,7 +1019,7 @@ class GpuCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates GPU via SSH"
     timeout: ClassVar[int] = 300
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "bare_metal", "vm")
 
     def run(self) -> None:
         try:
@@ -956,7 +1106,7 @@ class DriverCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates kernel and NVIDIA drivers"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "bare_metal", "vm")
 
     def run(self) -> None:
         try:
@@ -1073,7 +1223,7 @@ class GpuStressCheck(BaseValidation):
 
     description: ClassVar[str] = "GPU stress test via SSH"
     timeout: ClassVar[int] = 900
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "workload", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "workload", "bare_metal")
 
     def run(self) -> None:
         try:
@@ -1193,7 +1343,7 @@ class NcclCheck(BaseValidation):
 
     description: ClassVar[str] = "NCCL AllReduce test via SSH"
     timeout: ClassVar[int] = 900
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "workload", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "workload", "bare_metal")
 
     _DEFAULT_IMAGE = "nvcr.io/nvidia/hpc-benchmarks:25.04"
 
@@ -1335,7 +1485,7 @@ class TrainingCheck(BaseValidation):
 
     description: ClassVar[str] = "DDP training workload via SSH"
     timeout: ClassVar[int] = 900
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "workload", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "workload", "bare_metal")
 
     def run(self) -> None:
         try:
@@ -1489,7 +1639,7 @@ class NvlinkCheck(BaseValidation):
 
     description: ClassVar[str] = "NVLink topology and status via SSH"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "network", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "network", "bare_metal")
 
     def run(self) -> None:
         try:
@@ -1585,7 +1735,7 @@ class InfiniBandCheck(BaseValidation):
 
     description: ClassVar[str] = "InfiniBand interface status via SSH"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "network", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "network", "bare_metal")
 
     def run(self) -> None:
         try:
@@ -1683,7 +1833,7 @@ class EthernetCheck(BaseValidation):
 
     description: ClassVar[str] = "Ethernet interfaces and connectivity via SSH"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "network", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "network", "bare_metal")
 
     def run(self) -> None:
         try:
@@ -1785,7 +1935,7 @@ class ContainerRuntimeCheck(BaseValidation):
 
     description: ClassVar[str] = "Tests container runtime and NVIDIA Docker support"
     timeout: ClassVar[int] = 300
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "workload", "slow", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "workload", "slow", "bare_metal", "vm")
 
     def run(self) -> None:
         try:
@@ -1870,7 +2020,7 @@ class CloudInitCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates cloud-init completed and metadata service is reachable"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "vm", "bare_metal")
 
     def run(self) -> None:
         try:

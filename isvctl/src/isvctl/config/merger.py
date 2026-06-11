@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """YAML configuration merging utilities.
 
@@ -15,9 +20,11 @@ configuration files, similar to Helm's --values flag behavior.
 
 Later files override earlier ones. The --set flag can override individual values.
 
-Files may declare an ``import:`` key with a list of paths (resolved relative
-to the importing file) that are loaded and merged as a base before the
-importing file's own content is applied on top.
+Files may declare an ``import:`` key with a list of paths. The
+``_resolve_import_path`` helper resolves imports relative to the importing file,
+then searches the current working directory and its parents before falling back
+to the current working directory. Imported files are loaded and merged as a base
+before the importing file's own content is applied on top.
 """
 
 import copy
@@ -116,8 +123,10 @@ def _load_yaml_with_imports(
     """Load a YAML file and recursively resolve its ``import:`` directives.
 
     Imported files are merged in order to form a base, then the importing
-    file's own content is deep-merged on top.  Paths in ``import:`` are
-    resolved relative to the importing file's directory.
+    file's own content is deep-merged on top. Paths in ``import:`` are resolved
+    by ``_resolve_import_path`` relative to the importing file's directory, then
+    by searching the current working directory and its parents before falling
+    back to the current working directory.
 
     Args:
         path: Path to the YAML file.
@@ -163,13 +172,44 @@ def _load_yaml_with_imports(
     # ancestors (the copy includes everything on the current call stack).
     base: dict[str, Any] = {}
     for imp in import_list:
-        imp_path = (path.parent / imp).resolve()
+        imp_path = _resolve_import_path(path, imp)
         logger.debug("Resolving import %s -> %s", imp, imp_path)
         imported = _load_yaml_with_imports(Path(imp_path), _visited.copy())
         base = deep_merge(base, imported)
 
     # The importing file's content wins over the base
     return deep_merge(base, content)
+
+
+def _resolve_import_path(path: Path, imp: Any) -> Path:
+    """Resolve an import path.
+
+    Prefer paths relative to the importing file. If that does not exist, fall
+    back to the current working directory or one of its parents so out-of-tree
+    provider configs can import validation-suite files using checkout-root-relative
+    paths even when commands run from a package subdirectory.
+    """
+    if not isinstance(imp, (str, Path)):
+        raise ValueError(
+            f"Import entries must be strings or paths in {path}, got {type(imp).__name__}",
+        )
+
+    expanded = Path(imp).expanduser()
+
+    file_relative = (path.parent / expanded).resolve()
+    if file_relative.exists():
+        return file_relative
+
+    if expanded.is_absolute():
+        return expanded.resolve()
+
+    cwd = Path.cwd().resolve()
+    for root in (cwd, *cwd.parents):
+        candidate = root / expanded
+        if candidate.exists():
+            return candidate.resolve()
+
+    return (cwd / expanded).resolve()
 
 
 def merge_yaml_files(
@@ -180,7 +220,9 @@ def merge_yaml_files(
 
     Files are merged in order - later files override earlier ones.
     Each file may contain an ``import:`` key listing other YAML files
-    to load as a base (paths resolved relative to the importing file).
+    to load as a base. Imports are resolved relative to the importing file,
+    then by searching the current working directory and its parents before
+    falling back to the current working directory.
     --set values are applied after all files are merged.
 
     Args:

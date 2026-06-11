@@ -1,14 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for isvtest.main module."""
+
+import pytest
 
 import isvtest.main
 from isvtest.core.resolution import ErrorReason, ResolvedEntry, SkipReason, State, ValidationEntry
@@ -95,6 +102,28 @@ def test_run_validations_via_pytest_updates_ready_entries() -> None:
     assert results[1].message == "NIM was not deployed"
 
 
+def test_run_validations_via_pytest_does_not_rerender_resolved_config_strings() -> None:
+    """Resolved temp configs may contain literal Jinja-looking strings from step output."""
+    jsonpath_probe = "kubectl get pods -o jsonpath='{{\"\\t\"}}'"
+    entries = [
+        _ready(
+            "StepSuccessCheck",
+            "setup_checks",
+            {"step_output": {"success": True, "message": jsonpath_probe, "probe": jsonpath_probe}},
+        ),
+    ]
+
+    exit_code, results = run_validations_via_pytest(
+        entries=entries,
+        inventory={"steps": {"setup": {"unauthorized_probe_cmd": jsonpath_probe}}},
+    )
+
+    assert exit_code == 0
+    assert len(results) == 1
+    assert results[0].state == State.PASSED
+    assert results[0].message == jsonpath_probe
+
+
 def test_run_validations_via_pytest_marks_runtime_exception() -> None:
     """A validation that raises during run() surfaces as ERROR(RUNTIME_EXCEPTION)."""
     # step_output=None makes StepSuccessCheck.run() crash on the first .get() call.
@@ -123,3 +152,52 @@ def test_run_validations_via_pytest_marks_unselected_entries_as_excluded() -> No
     assert nim.state == State.SKIPPED
     assert nim.skip_reason == SkipReason.EXCLUDED
     assert nim.message == "excluded by pytest -k/-m filter"
+
+
+def test_run_pytest_tests_uses_all_selected_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Label selection forwards one pytest marker expression with AND semantics."""
+    captured: dict[str, list[str]] = {}
+
+    def fake_pytest_main(args: list[str]) -> int:
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(isvtest.main.pytest, "main", fake_pytest_main)
+
+    exit_code = isvtest.main.run_pytest_tests(labels=["gpu", "slow"])
+
+    assert exit_code == 0
+    assert captured["args"][-2:] == ["-m", "gpu and slow"]
+
+
+def test_run_pytest_tests_combines_platform_and_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Platform and label filters use one pytest marker expression."""
+    captured: dict[str, list[str]] = {}
+
+    def fake_pytest_main(args: list[str]) -> int:
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(isvtest.main.pytest, "main", fake_pytest_main)
+
+    exit_code = isvtest.main.run_pytest_tests(platform="bare_metal", labels=["gpu"])
+
+    assert exit_code == 0
+    assert captured["args"].count("-m") == 1
+    assert captured["args"][-2:] == ["-m", "bare_metal and gpu"]
+
+
+def test_run_pytest_tests_omits_marker_arg_when_no_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without labels or a platform filter, no -m argument is forwarded to pytest."""
+    captured: dict[str, list[str]] = {}
+
+    def fake_pytest_main(args: list[str]) -> int:
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(isvtest.main.pytest, "main", fake_pytest_main)
+
+    exit_code = isvtest.main.run_pytest_tests()
+
+    assert exit_code == 0
+    assert "-m" not in captured["args"]

@@ -1,17 +1,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Unit tests for ``isvtest.validations.k8s_control_plane_logs``."""
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -34,9 +40,12 @@ def _fail(stdout: str = "", stderr: str = "", exit_code: int = 1) -> CommandResu
 
 
 def _pod_list(*pairs: tuple[str, str]) -> str:
-    """Simulate ``kubectl get pods -o jsonpath='...'`` output: one
-    ``<pod_name>\\t<component_label>`` line per pod."""
-    return "".join(f"{pod}\t{label}\n" for pod, label in pairs)
+    """Simulate ``kubectl get pods -o json`` output for pod/component pairs."""
+    items = []
+    for pod, label in pairs:
+        labels = {"component": label} if label else {}
+        items.append({"metadata": {"name": pod, "labels": labels}})
+    return json.dumps({"items": items})
 
 
 class TestCountNonemptyLines:
@@ -138,7 +147,7 @@ class TestAutoDispatch:
 
         def fake(cmd: str, *a: Any, **kw: Any) -> CommandResult:
             if "get pods" in cmd:
-                return _ok(stdout="")
+                return _ok(stdout=_pod_list())
             raise AssertionError(f"unexpected {cmd}")
 
         check.run_command = fake  # type: ignore[assignment]
@@ -163,6 +172,19 @@ class TestAutoDispatch:
         assert "Unable to list pods" in check.message
         assert "i/o timeout" in check.message
         assert "no `commands` entries configured" not in check.message
+
+    def test_auto_surfaces_invalid_pod_json(self) -> None:
+        check = K8sControlPlaneLogsCheck(config={"mode": "auto", "components": ["kube-apiserver"]})
+
+        def fake(cmd: str, *a: Any, **kw: Any) -> CommandResult:
+            if "get pods" in cmd:
+                return _ok(stdout="not-json")
+            raise AssertionError(f"unexpected {cmd}")
+
+        check.run_command = fake  # type: ignore[assignment]
+        check.run()
+        assert not check.passed
+        assert "Failed to parse pod list" in check.message
 
     def test_auto_surfaces_kubectl_error_even_when_commands_cover_all_components(self) -> None:
         """A probe failure (kubeconfig/RBAC/context broken) must not be
@@ -218,7 +240,7 @@ class TestAutoDispatch:
 
         def fake(cmd: str, *a: Any, **kw: Any) -> CommandResult:
             if "get pods" in cmd:
-                return _ok(stdout="")
+                return _ok(stdout=_pod_list())
             if cmd.startswith("echo"):
                 return _ok(stdout="line1\nline2\nline3\n")
             raise AssertionError(f"unexpected {cmd}")

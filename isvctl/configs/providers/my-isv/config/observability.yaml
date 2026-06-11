@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# my-isv Observability Validation Configuration - Living Example
+#
+# Imports validations from the provider-agnostic observability template and
+# wires them to generic template scripts. In demo mode the scripts emit
+# dummy-success evidence so the pipeline runs without real log collectors.
+
+import:
+  - ../../../suites/observability.yaml
+
+version: "1.0"
+
+commands:
+  observability:
+    phases: ["test"]
+    steps:
+      - name: vpc_flow_logs
+        phase: test
+        command: "python ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{network_id}}"
+          - "--aspect"
+          - "vpc_flow_logs"
+        timeout: 60
+
+      - name: host_syslogs
+        phase: test
+        command: "python ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "host_syslogs"
+        timeout: 60
+
+      - name: bmc_sel_logs
+        phase: test
+        command: "python ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "bmc_sel_logs"
+        timeout: 60
+
+      - name: bmc_gpu_telemetry
+        phase: test
+        command: "python ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "bmc_gpu_telemetry"
+        timeout: 60
+
+tests:
+  platform: observability
+  cluster_name: "my-isv-observability-validation"
+  description: "my-isv observability validation (generic stubs, dummy overrides)"
+
+  settings:
+    region: "my-isv-region-1"
+    network_id: "my-isv-vpc-1"

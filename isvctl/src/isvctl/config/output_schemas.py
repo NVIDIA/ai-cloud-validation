@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Output schema registry for step-based command execution.
 
@@ -117,6 +122,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "byoip_validation": "byoip",
     "stable_ip_test": "stable_ip",
     "stable_ip_validation": "stable_ip",
+    "stable_egress_ip_test": "stable_egress_ip",
+    "stable_egress_ip_validation": "stable_egress_ip",
     "floating_ip_test": "floating_ip",
     "floating_ip_validation": "floating_ip",
     "dns_test": "localized_dns",
@@ -136,6 +143,9 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "update_node_pool": "node_pool",
     "destroy_test_node_pool": "teardown",
     "destroy_node_pool": "teardown",
+    # Multi-cluster operations
+    "create_test_shared_vpc_cluster": "multi_cluster",
+    "destroy_test_shared_vpc_cluster": "teardown",
 }
 
 # Common fields present in all outputs
@@ -724,6 +734,23 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "additionalProperties": True,
     },
+    "stable_egress_ip": {
+        "type": "object",
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "tests": {
+                "type": "object",
+                "properties": {
+                    "create_instance": {"type": "object"},
+                    "probe_egress_ip": {"type": "object"},
+                    "egress_ip_stable": {"type": "object"},
+                },
+                "description": "Stable egress IP test results",
+            },
+        },
+        "additionalProperties": True,
+    },
     "floating_ip": {
         "type": "object",
         "required": ["success", "platform"],
@@ -896,6 +923,60 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": COMMON_PROPERTIES,
         "additionalProperties": True,
         "description": "Generic schema for unrecognized step names",
+    },
+    # =========================================================================
+    # Multi-cluster schemas
+    # =========================================================================
+    "multi_cluster": {
+        "type": "object",
+        "required": [
+            "success",
+            "platform",
+            "test_id",
+            "tenancy_id",
+            "network_id",
+            "clusters",
+        ],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_id": {"type": "string", "description": "Validation test identifier"},
+            "tenancy_id": {"type": "string", "minLength": 1, "description": "Cloud account or tenancy identifier"},
+            "network_id": {"type": "string", "minLength": 1, "description": "Shared network/VPC identifier"},
+            "clusters": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                    "type": "object",
+                    "required": ["name", "tenancy_id", "network_id", "status"],
+                    "properties": {
+                        "name": {"type": "string", "minLength": 1, "description": "Cluster name"},
+                        "role": {
+                            "type": "string",
+                            "description": "Optional provider role label for this cluster",
+                        },
+                        "tenancy_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Cloud account or tenancy identifier for this cluster",
+                        },
+                        "network_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Network/VPC identifier reported by this cluster",
+                        },
+                        "status": {"type": "string", "minLength": 1, "description": "Cluster lifecycle status"},
+                        "ready_node_count": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Ready node count for this cluster when available",
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "description": "Clusters participating in the shared-network proof",
+            },
+        },
+        "additionalProperties": True,
     },
     # =========================================================================
     # Node pool schemas (Terraform or Cluster API provisioned)

@@ -1,0 +1,149 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NICo Bare Metal (BMaaS) Validation Configuration
+#
+# Imports the provider-agnostic bare_metal contract and wires the NICo
+# hardware-lifecycle steps. NICo currently implements the hardware ingestion,
+# DPU health, governance-metrics, and unified host-health steps; the remaining
+# bare_metal
+# validations are skipped automatically because their steps are not defined
+# here (a future PR will wire the full lifecycle so NICo can pass the entire
+# BM suite).
+#
+# Architecture:
+#   - verify_ingestion.py compares expected-machine manifest vs discovered
+#     machines (joined by machineId); HardwareIngestionCheck validates it.
+#   - check_dpu_health.py queries machine health data; DpuHealthCheck
+#     validates DPU presence, heartbeat, and alerts.
+#   - query_metrics.py aggregates per-status node and GPU counts into the
+#     Delivered / Healthy / Reserved / Active governance buckets;
+#     GovernanceMetricsCheck verifies the API contract (CAP01-01).
+#   - query_host_health.py reports each machine's health probes, alerts, and
+#     classifications; HostHealthCheck validates the per-host report is
+#     alert-free (CAP05-01). Leak detection (BmcLeakDetection/Leak) is included.
+#   - query_health_aggregation.py rolls host health up to the nodegroup
+#     primitive; HealthAggregationCheck validates it (CAP05-02).
+#
+# Prerequisites:
+#   - NICO_API_BASE set to the NICo API base URL
+#   - NICO_BEARER_TOKEN set, or OIDC client credentials configured via
+#     NICO_SSA_ISSUER, NICO_CLIENT_ID, and NICO_CLIENT_SECRET
+#   - Expected machines pre-registered; machines ingested and DPUs initialized
+#   - NICO_ORGANIZATION and NICO_SITE_ID environment variables set
+#
+# Usage:
+#   NICO_BEARER_TOKEN=<token> NICO_ORGANIZATION=<org-name> NICO_SITE_ID=<uuid> \
+#     uv run isvctl test run -f isvctl/configs/providers/nico/config/bare_metal.yaml
+
+import:
+  - ../../../suites/bare_metal.yaml
+
+version: "1.0"
+
+commands:
+  bare_metal:
+    phases: ["test"]
+    steps:
+      # ─── Verify Hardware Ingestion ─────────────────────────────────
+      # Compares expected-machine manifest against discovered machines.
+      # Output includes per-machine status, health, GPU/DPU counts.
+      - name: verify_ingestion
+        phase: test
+        command: "python ../scripts/hardware_ingestion/verify_ingestion.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Check DPU Health ──────────────────────────────────────────
+      # Queries NICo API for machine health data including DPU-specific
+      # probes, agent heartbeat status, and capability inventory.
+      - name: check_dpu_health
+        phase: test
+        command: "python ../scripts/dpu/check_dpu_health.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Query Governance Metrics ──────────────────────────────────
+      # Aggregates every machine at the site into the Delivered / Healthy
+      # / Reserved / Active governance buckets (CAP01-01). Counts are
+      # produced for both nodes and GPUs.
+      - name: query_governance_metrics
+        phase: test
+        command: "python ../scripts/governance/query_metrics.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Query Per-Host Health (CAP05-01) ──────────────────────────
+      # Maps each machine's health probes into GPU state, thermal status,
+      # and memory health, plus the freshness of the observation.
+      - name: query_host_health
+        phase: test
+        command: "python ../scripts/health/query_host_health.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Aggregate Health by Nodegroup (CAP05-02) ──────────────────
+      # Rolls per-host health up to the InstanceType (nodegroup) primitive
+      # with per-group healthy/unhealthy counts and an aggregate status.
+      - name: query_health_aggregation
+        phase: test
+        command: "python ../scripts/health/query_health_aggregation.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+tests:
+  cluster_name: "nico-bare-metal-validation"
+  description: "Verify NICo bare-metal hardware ingestion and DPU health"
+
+  settings:
+    org: "{{env.NICO_ORGANIZATION}}"
+    site_id: "{{env.NICO_SITE_ID}}"
+    nico_api_base: "{{env.NICO_API_BASE}}"
+    # The imported bare_metal suite defines these for the full instance
+    # lifecycle, which NICo does not run yet. Blank them so the suite's
+    # {{instance_type}} self-reference does not emit missing-variable warnings.
+    region: ""
+    instance_type: ""
+    teardown_flag: ""

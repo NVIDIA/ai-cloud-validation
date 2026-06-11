@@ -1,18 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for orchestrator loop."""
 
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
 from isvtest.core.resolution import (
     ErrorReason,
     ResolvedEntry,
@@ -35,6 +41,7 @@ from isvctl.orchestrator.step_executor import (
     StepExecutor,
     _find_missing_step_path,
     _format_stderr_excerpt,
+    _resolve_python_script_path,
 )
 
 _INVENTORY_SCRIPT = (
@@ -53,6 +60,49 @@ done
 echo "AWS_SECRET_ACCESS_KEY=super-secret" >&2
 exit 7
 """
+
+
+def test_python_script_path_falls_back_to_current_working_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repo-root-relative Python commands still work with config-relative cwd."""
+    repo_root = tmp_path / "repo"
+    script = repo_root / "isvctl" / "configs" / "providers" / "shared" / "deploy_nim.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+    provider_config_dir = tmp_path / "provider" / "config"
+    provider_config_dir.mkdir(parents=True)
+
+    monkeypatch.chdir(repo_root)
+
+    resolved = _resolve_python_script_path(
+        ["python", "isvctl/configs/providers/shared/deploy_nim.py"],
+        provider_config_dir,
+    )
+    assert resolved[1] == str(script.resolve())
+
+
+def test_python_script_path_falls_back_after_interpreter_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repo-root-relative Python commands still work after interpreter flags."""
+    repo_root = tmp_path / "repo"
+    script = repo_root / "isvctl" / "configs" / "providers" / "shared" / "deploy_nim.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+    provider_config_dir = tmp_path / "provider" / "config"
+    provider_config_dir.mkdir(parents=True)
+
+    monkeypatch.chdir(repo_root)
+
+    resolved = _resolve_python_script_path(
+        ["python", "-u", "isvctl/configs/providers/shared/deploy_nim.py"],
+        provider_config_dir,
+    )
+    assert resolved[1] == "-u"
+    assert resolved[2] == str(script.resolve())
 
 
 def _write_script(tmp_path: Path, name: str, content: str) -> str:
@@ -126,6 +176,69 @@ EOF
         assert result.phases[0].success
         assert result.inventory is not None
         assert "setup_cluster" in result.inventory
+
+    def test_unavailable_validation_gate_skips_setup_step(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Steps gated on unreleased validations must not execute by default."""
+        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: {"ReleasedCheck"})
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(
+                            name="unreleased_setup",
+                            command="false",
+                            phase="setup",
+                            requires_available_validations=["NewCheck"],
+                        ),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.SETUP])
+
+        assert result.success
+        assert result.phases[0].details
+        step = result.phases[0].details["steps"][0]
+        assert step["name"] == "unreleased_setup"
+        assert step["error"] == "Step skipped"
+        assert result.inventory is not None
+        assert "unreleased_setup" not in result.inventory
+
+    def test_validation_gate_allows_step_when_unreleased_checks_are_included(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The same gate opens when the release filter is disabled."""
+        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
+        script_path = _write_script(
+            tmp_path,
+            "setup.sh",
+            '#!/bin/bash\necho \'{"success": true, "platform": "kubernetes"}\'\n',
+        )
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    steps=[
+                        StepConfig(
+                            name="unreleased_setup",
+                            command=script_path,
+                            phase="setup",
+                            requires_available_validations=["NewCheck"],
+                        ),
+                    ]
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.SETUP])
+
+        assert result.success
+        assert result.inventory is not None
+        assert "unreleased_setup" in result.inventory
 
     def test_run_setup_phase_command_failure(self) -> None:
         """Test setup phase with command failure."""
@@ -378,6 +491,7 @@ EOF
                 "skipped": True,
                 "message": "step 'probe' did not produce output",
                 "category": "probe_checks",
+                "labels": [],
                 "state": "skipped",
                 "skip_reason": "step_no_output",
                 "error_reason": None,
@@ -465,6 +579,102 @@ EOF
         assert "FieldExistsCheck" in cases
         assert cases["FieldExistsCheck"].find("error") is not None
         assert cases["FieldExistsCheck"].find("error").attrib["type"] == "template_render_failed"
+
+
+class TestLabelFiltering:
+    """Tests for ``--label`` selection and its precedence over config exclusions.
+
+    These pin two non-obvious composition rules from ``Orchestrator.run``:
+    1. CLI labels (or pytest ``-k``/``-m``) bypass YAML
+       ``exclude.labels`` for the same run.
+    2. CLI labels pre-filter entries by label first, then pytest's ``-k`` filter
+       applies on top - so a deselected entry shows the pytest-filter message,
+       not the label-mismatch message.
+
+    ``K8sNodeCountCheck`` is used as the test subject because it ships with
+    ``labels=("kubernetes",)`` and short-circuits to ``set_passed`` when
+    neither ``count`` nor ``min_count`` is configured - no kubectl invocation
+    needed.
+    """
+
+    @staticmethod
+    def _config(*, exclude_labels: list[str] | None = None) -> RunConfig:
+        """Build a minimal config with one labeled validation.
+
+        ``K8sNodeCountCheck`` is configured without ``count``/``min_count`` so
+        it returns ``set_passed`` without touching kubectl.
+        """
+        return RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[StepConfig(name="probe", command="true", phase="test")],
+                )
+            },
+            tests=ValidationConfig(
+                platform="kubernetes",
+                validations={"cluster": {"checks": {"K8sNodeCountCheck": {}}}},
+                exclude={"labels": exclude_labels} if exclude_labels else {},
+            ),
+        )
+
+    def test_include_labels_bypass_config_label_exclusions(self) -> None:
+        """``--label X`` drops a config ``exclude.labels: [X]`` for that run.
+
+        Regression for the precedence rule wired in
+        ``Orchestrator._resolve_validation_entries``: without ``--label``, the
+        check is skipped pre-resolution by the config; with ``--label
+        kubernetes``, the same exclusion is bypassed and the check runs.
+        """
+        config = self._config(exclude_labels=["kubernetes"])
+
+        without_label = Orchestrator(config).run(phases=[Phase.TEST])
+        check = without_label.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        assert "excluded by label" in check["message"]
+
+        with_label = Orchestrator(config).run(phases=[Phase.TEST], include_labels=["kubernetes"])
+        bypassed = with_label.phases[0].details["validations"][0]
+        assert bypassed["state"] == "passed", bypassed
+        assert "excluded by label" not in bypassed["message"]
+
+    def test_pytest_k_filter_also_bypasses_config_label_exclusions(self) -> None:
+        """An explicit ``-k`` selection bypasses ``exclude.labels`` too.
+
+        The bypass branch in ``Orchestrator.run`` is
+        ``bool(include_labels) or _has_explicit_pytest_selection(args)``;
+        this covers the second leg so a future refactor can't drop it.
+        """
+        config = self._config(exclude_labels=["kubernetes"])
+
+        result = Orchestrator(config).run(
+            phases=[Phase.TEST],
+            extra_pytest_args=["-k", "K8sNodeCountCheck"],
+        )
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "passed", check
+        assert "excluded by label" not in check["message"]
+
+    def test_include_labels_compose_with_pytest_k_deselection(self) -> None:
+        """``--label X -- -k "not Y"`` lets pytest deselect on top of label pre-filter.
+
+        Pins the layering: the orchestrator resolves labeled entries to
+        ``ready`` so pytest sees them, then pytest's ``-k`` deselects. The
+        terminal skip reason must be the pytest-filter message - not the
+        label-mismatch message - otherwise the layering is broken.
+        """
+        config = self._config()
+
+        result = Orchestrator(config).run(
+            phases=[Phase.TEST],
+            include_labels=["kubernetes"],
+            extra_pytest_args=["-k", "not K8sNodeCountCheck"],
+        )
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        assert check["message"] == "excluded by pytest -k/-m filter"
 
 
 class TestTeardownOnlyPhase:
@@ -786,6 +996,40 @@ class TestMissingStepRefDetection:
         # The empty arg is filtered out; the step runs successfully with just
         # "--region" stripped (matching previous behavior for explicit defaults).
         assert results.steps[0].success
+
+    def test_deploy_nim_skip_condition_renders_teardown_skip_args(self) -> None:
+        """Conditional NIM teardown args render only when deploy_nim skipped."""
+        executor = StepExecutor()
+        context = Context(RunConfig())
+        context.set_step_output("deploy_nim", {"success": True, "skipped": True})
+
+        rendered = executor._render_args(
+            [
+                "{{ '--skip' if steps.deploy_nim.skipped | default(false) else '' }}",
+                "{{ '--skip-reason' if steps.deploy_nim.skipped | default(false) else '' }}",
+                "{{ 'NIM deployment skipped' if steps.deploy_nim.skipped | default(false) else '' }}",
+            ],
+            context,
+        )
+
+        assert rendered == ["--skip", "--skip-reason", "NIM deployment skipped"]
+
+    def test_deploy_nim_skip_condition_drops_args_when_not_skipped(self) -> None:
+        """Conditional NIM teardown args are dropped when deploy_nim ran."""
+        executor = StepExecutor()
+        context = Context(RunConfig())
+        context.set_step_output("deploy_nim", {"success": True, "skipped": False})
+
+        rendered = executor._render_args(
+            [
+                "{{ '--skip' if steps.deploy_nim.skipped | default(false) else '' }}",
+                "{{ '--skip-reason' if steps.deploy_nim.skipped | default(false) else '' }}",
+                "{{ 'NIM deployment skipped' if steps.deploy_nim.skipped | default(false) else '' }}",
+            ],
+            context,
+        )
+
+        assert rendered == []
 
     def test_inline_empty_template_value_keeps_flag_value_pair(self) -> None:
         """Empty optional values stay attached when YAML uses ``--flag={{value}}``."""

@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
@@ -63,7 +68,7 @@ class BaseValidation(ABC):
     # Optional metadata
     description: ClassVar[str] = ""
     timeout: ClassVar[int] = 60
-    markers: ClassVar[list[str]] = []
+    labels: ClassVar[tuple[str, ...]] = ()
     catalog_exclude: ClassVar[bool] = False
 
     def __init__(self, runner: Runner | None = None, config: dict[str, Any] | None = None):
@@ -299,6 +304,23 @@ def get_validation_class(name: str) -> type[BaseValidation] | None:
     """
     cache = _discover_validation_classes()
     return cache.get(name)
+
+
+def _normalize_metadata_values(values: object) -> tuple[str, ...]:
+    """Return metadata values as a tuple of strings."""
+    if not values:
+        return ()
+    if isinstance(values, str):
+        return (values,)
+    try:
+        return tuple(str(value) for value in values)
+    except TypeError:
+        return (str(values),)
+
+
+def get_validation_labels(cls: type[BaseValidation]) -> tuple[str, ...]:
+    """Return public labels for a validation class."""
+    return _normalize_metadata_values(getattr(cls, "labels", ()))
 
 
 def register_validation_class(cls: type[BaseValidation]) -> None:

@@ -16,13 +16,12 @@ suites/*.yaml                    <- contract   (what to validate; platform-agnos
 providers/my-isv/config/*.yaml   <- wiring     (which scripts implement each step)
                   │
                   ▼ invokes
-providers/my-isv/scripts/<domain>/*.py  <- scaffold   (copy these; fill in TODO blocks)
+providers/my-isv/scripts/<domain>/*.py  <- scaffold   (generated for you; fill in TODO blocks)
 ```
 
 The `suites/` layer is the validation contract - you never modify it, you
-`import:` it from your provider config. You copy the `providers/my-isv/scripts/`
-and `providers/my-isv/config/` trees, rename them to your platform, and fill in
-the TODOs.
+`import:` it from your provider config. Generate a provider scaffold from this
+template, then fill in the TODOs.
 
 ## Domains
 
@@ -33,6 +32,7 @@ the TODOs.
 | `vm/` | 9 | [`suites/vm.yaml`](../../../suites/vm.yaml) | [`config/vm.yaml`](../config/vm.yaml) | [`providers/aws/scripts/vm/`](../../aws/scripts/vm/) |
 | `bare_metal/` | 12 | [`suites/bare_metal.yaml`](../../../suites/bare_metal.yaml) | [`config/bare_metal.yaml`](../config/bare_metal.yaml) | [`providers/aws/scripts/bare_metal/`](../../aws/scripts/bare_metal/) |
 | `network/` | 18 | [`suites/network.yaml`](../../../suites/network.yaml) | [`config/network.yaml`](../config/network.yaml) | [`providers/aws/scripts/network/`](../../aws/scripts/network/) |
+| `observability/` | 1 | [`suites/observability.yaml`](../../../suites/observability.yaml) | [`config/observability.yaml`](../config/observability.yaml) | [`providers/aws/scripts/observability/`](../../aws/scripts/observability/) |
 | `image-registry/` | 7 | [`suites/image-registry.yaml`](../../../suites/image-registry.yaml) | [`config/image-registry.yaml`](../config/image-registry.yaml) | [`providers/aws/scripts/image-registry/`](../../aws/scripts/image-registry/) |
 | `security/` | 17 | [`suites/security.yaml`](../../../suites/security.yaml) | [`config/security.yaml`](../config/security.yaml) | [`providers/aws/scripts/security/`](../../aws/scripts/security/) |
 | `k8s/` | 9 shell | [`suites/k8s.yaml`](../../../suites/k8s.yaml) | - | [`providers/aws/scripts/eks/`](../../aws/scripts/eks/) |
@@ -48,22 +48,63 @@ See [`suites/README.md`](../../../suites/README.md) for the per-step / per-field
 make demo-test
 ```
 
-**2. Copy the scaffold and the wiring to a new name:**
+**2. Generate the scaffold and wiring under your provider name:**
 
 ```bash
-cp -r isvctl/configs/providers/my-isv/scripts/ isvctl/configs/providers/acme/scripts/
-cp -r isvctl/configs/providers/my-isv/config/  isvctl/configs/providers/acme/config/
+uv run isvctl provider scaffold acme
 ```
 
-**3. Update `providers/acme/config/*.yaml` to point at `providers/acme/scripts/`** (search & replace `my-isv` -> `acme`).
+Use `--dry-run` to preview the destination and next commands, or `--output-dir`
+to generate outside `isvctl/configs/providers/`.
 
-**4. Implement each script** - each has a `TODO:` block with pseudocode and a link to the AWS reference implementation.
+**3. Implement each script** - each has a `TODO:` block with pseudocode and a link to the AWS reference implementation.
 
-**5. Run for real (no demo flag):**
+**4. Run for real (no demo flag):**
 
 ```bash
 uv run isvctl test run -f isvctl/configs/providers/acme/config/vm.yaml
 ```
+
+## Private provider repositories
+
+You do not need to contribute your provider scripts back to this repository,
+Today `isvctl` runs provider configs by path: this repository supplies the
+CLI, validation suites, and validation code; your private repository supplies
+the provider `config/` and `scripts/` files.
+
+Generate the scaffold directly into the private provider repository path you
+intend to keep:
+
+```bash
+git clone <ISV-NCP-Validation-Suite>
+cd ISV-NCP-Validation-Suite
+uv sync
+
+uv run isvctl provider scaffold acme --output-dir ../isvctl-provider-acme
+```
+
+Then initialize or connect that generated directory to your private Git repo
+and implement the scripts there:
+
+```bash
+cd ../isvctl-provider-acme
+git init
+git remote add origin git@github.com:acme/isvctl-provider-acme.git
+# implement scripts/*
+```
+
+Run the private provider from the validation suite checkout by passing its
+config path:
+
+```bash
+cd ../ISV-NCP-Validation-Suite
+uv run isvctl test run -f ../isvctl-provider-acme/config/vm.yaml
+```
+
+Current limitation: out-of-tree provider YAML assumes you run `isvctl` from
+the validation suite checkout root. Suite imports and shared scripts use paths
+relative to that checkout; provider-owned scripts stay relative to the generated
+provider `config/` directory.
 
 ## Anatomy of a script
 

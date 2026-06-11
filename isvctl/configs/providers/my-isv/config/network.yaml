@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # my-isv Network Validation Configuration - Living Example
 #
@@ -20,12 +25,13 @@
 #   (NetworkProvisionedCheck, VpcCrudCheck, SubnetConfigCheck,
 #    VpcIsolationCheck, SgCrudCheck, SecurityBlockingCheck,
 #    NetworkConnectivityCheck, TrafficFlowCheck, VpcIpConfigCheck,
-#    ByoipCheck, StablePrivateIpCheck, FloatingIpCheck, LocalizedDnsCheck,
-#    VpcPeeringCheck, BackendSwitchFabricCheck, NvlinkDomainCheck,
-#    StepSuccessCheck). The NET01-01 and NET02-02 checks validate
+#    ByoipCheck, StablePrivateIpCheck, StableEgressIpCheck, FloatingIpCheck, LocalizedDnsCheck,
+#    VpcPeeringCheck, SgPolicyPropagationTimingCheck,
+#    BackendSwitchFabricCheck, NvlinkDomainCheck, StepSuccessCheck).
+#    The NET01-01 and NET02-02 checks validate
 #    provider-reported fabric metadata only. The DhcpIpManagementCheck
 #    validation needs to SSH into a real instance, so it is excluded
-#    via `exclude.markers: [ssh]`; the dhcp_ip_test step is also
+#    via `exclude.labels: [ssh]`; the dhcp_ip_test step is also
 #    `skip: true` for the same reason.
 #
 # Usage:
@@ -175,6 +181,16 @@ commands:
         args: ["--region", "{{region}}", "--scope", "service"]
         timeout: 300
 
+      - name: sg_port_security_policy
+        phase: test
+        command: "python ../scripts/network/sg_port_security_policy.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--allowed-port"
+          - "8443"
+        timeout: 60
+
       - name: sdn_hardware_fault_logging
         phase: test
         command: "python ../scripts/network/sdn_logging_test.py"
@@ -211,6 +227,18 @@ commands:
           - "audit_trail"
         timeout: 60
 
+      - name: sg_policy_propagation
+        phase: test
+        command: "python ../scripts/network/sg_policy_propagation_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--max-propagation-seconds"
+          - "10"
+        timeout: 60
+
       - name: byoip_test
         phase: test
         command: "python ../scripts/network/byoip_test.py"
@@ -230,6 +258,23 @@ commands:
         args: ["--region", "{{region}}", "--cidr", "10.91.0.0/16"]
         timeout: 60
         output_schema: stable_ip
+
+      - name: stable_egress_ip_test
+        phase: test
+        command: "python ../scripts/network/stable_egress_ip_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.100.0.0/16"
+          - "--probes"
+          - "3"
+          - "--interval-seconds"
+          - "2"
+          - "--endpoint"
+          - "https://api.ipify.org"
+        timeout: 60
+        output_schema: stable_egress_ip
 
       - name: floating_ip_test
         phase: test
@@ -313,4 +358,4 @@ tests:
   # Skip SSH-based DhcpIpManagementCheck - it'd try to SSH into the dummy
   # instance. Real ISVs remove this exclusion as their stubs come online.
   exclude:
-    markers: ["ssh"]
+    labels: ["ssh"]

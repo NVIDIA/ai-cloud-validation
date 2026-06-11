@@ -1,24 +1,73 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Shared SSH utilities for stub scripts.
 
 Provides wait_for_ssh() used by bare-metal and VM stubs that need to
 poll for SSH readiness after instance state changes (start, reboot,
-power-cycle, reinstall).
+power-cycle, reinstall), and ssh_run() for one-shot commands.
 """
 
 import subprocess
 import sys
 import time
+
+
+def ssh_run(
+    host: str,
+    user: str,
+    key_file: str,
+    command: str,
+    *,
+    timeout: int = 30,
+    connect_timeout: int = 10,
+) -> tuple[int, str, str]:
+    """Run a single command over SSH. Returns (exit_code, stdout, stderr)."""
+    try:
+        proc = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+                "-o",
+                f"ConnectTimeout={connect_timeout}",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "IdentitiesOnly=yes",
+                "-o",
+                "IdentityAgent=none",
+                "-i",
+                key_file,
+                f"{user}@{host}",
+                "--",
+                command,
+            ],
+            capture_output=True,
+            timeout=timeout,
+            text=True,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as err:
+        return 124, "", f"TimeoutExpired: {err}"
+    except OSError as err:
+        return 255, "", f"OSError: {err}"
+    return proc.returncode, proc.stdout, proc.stderr
 
 
 def wait_for_ssh(
@@ -51,6 +100,10 @@ def wait_for_ssh(
                     "ConnectTimeout=5",
                     "-o",
                     "BatchMode=yes",
+                    "-o",
+                    "IdentitiesOnly=yes",
+                    "-o",
+                    "IdentityAgent=none",
                     "-i",
                     key_file,
                     f"{user}@{host}",

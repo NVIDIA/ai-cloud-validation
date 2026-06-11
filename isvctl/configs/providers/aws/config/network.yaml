@@ -1,24 +1,30 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # AWS Network Validation Configuration
 #
 # Imports validations from the provider-agnostic network canonical config.
 # This file only provides AWS-specific commands (boto3 stubs) and settings.
 #
-# Comprehensive network testing with 14 test suites:
+# Comprehensive network testing with 15 test suites:
 #   1. VPC CRUD - Create, Read, Update, Delete VPC lifecycle
 #   2. Subnet Configuration - Multi-AZ subnet distribution
 #   3. VPC Isolation - Security boundaries between VPCs
 #  4a. Security Group CRUD - Create, Read, Update, Delete SG lifecycle
 #  4b. Security Blocking - SG/NACL blocking rules (negative tests)
+#  4c. Policy Propagation Timing - SG rule add/remove visibility timing
 #   5. Connectivity - Instance network assignment
 #   6. Traffic Validation - Real ping tests via SSM
 #   7. VPC IP Config - DHCP options, subnet CIDRs, auto-assign IP (DDI)
@@ -126,35 +132,59 @@ commands:
         timeout: 120
         output_schema: security_blocking
 
-      # Test 4c: SG Scoping - Workload Level (~30s)
+      # Test 4c: Policy propagation timing (~10s)
+      - name: sg_policy_propagation
+        phase: test
+        command: "python3 ../scripts/network/sg_policy_propagation_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--max-propagation-seconds"
+          - "10"
+        timeout: 120
+
+      # Test 4d: SG Scoping - Workload Level (~30s)
       - name: sg_workload_scoping
         phase: test
         command: "python3 ../scripts/network/sg_scoping_test.py"
         args: ["--region", "{{region}}", "--scope", "workload"]
         timeout: 120
 
-      # Test 4d: SG Scoping - Node Level (~30s)
+      # Test 4e: SG Scoping - Node Level (~30s)
       - name: sg_node_scoping
         phase: test
         command: "python3 ../scripts/network/sg_scoping_test.py"
         args: ["--region", "{{region}}", "--scope", "node"]
         timeout: 120
 
-      # Test 4e: SG Scoping - Subnet Level (~30s)
+      # Test 4f: SG Scoping - Subnet Level (~30s)
       - name: sg_subnet_scoping
         phase: test
         command: "python3 ../scripts/network/sg_scoping_test.py"
         args: ["--region", "{{region}}", "--scope", "subnet"]
         timeout: 120
 
-      # Test 4f: SG Scoping - Service Level (~60s, VPC interface endpoint)
+      # Test 4g: SG Scoping - Service Level (~60s, VPC interface endpoint)
       - name: sg_service_scoping
         phase: test
         command: "python3 ../scripts/network/sg_scoping_test.py"
         args: ["--region", "{{region}}", "--scope", "service"]
         timeout: 300
 
-      # Test 4g: SDN hardware fault logging (AWS Health + VPC Flow Logs)
+      # Test 4g: Port security policy on virtual interfaces (~30s)
+      - name: sg_port_security_policy
+        phase: test
+        command: "python3 ../scripts/network/sg_port_security_policy.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--allowed-port"
+          - "8443"
+        timeout: 120
+
+      # Test 4h: SDN hardware fault logging (AWS Health + VPC Flow Logs)
       - name: sdn_hardware_fault_logging
         phase: test
         command: "python3 ../scripts/network/sdn_logging_test.py"
@@ -167,7 +197,7 @@ commands:
           - "hardware_faults"
         timeout: 120
 
-      # Test 4h: SDN latency/performance logging (CloudWatch + VPC Flow Logs)
+      # Test 4i: SDN latency/performance logging (CloudWatch + VPC Flow Logs)
       - name: sdn_latency_perf_logging
         phase: test
         command: "python3 ../scripts/network/sdn_logging_test.py"
@@ -180,7 +210,7 @@ commands:
           - "latency_perf"
         timeout: 180
 
-      # Test 4i: Filtering rule audit trail (CloudTrail propagation can lag)
+      # Test 4j: Filtering rule audit trail (CloudTrail propagation can lag)
       - name: sdn_filter_audit_trail
         phase: test
         command: "python3 ../scripts/network/sdn_logging_test.py"
@@ -274,6 +304,24 @@ commands:
           - "10.91.0.0/16"
         timeout: 600
         output_schema: stable_ip
+
+      # Test 10b: Stable Egress IP for NVIDIA service allowlists (DMS05-01, ~3 min)
+      - name: stable_egress_ip_test
+        phase: test
+        command: "python3 ../scripts/network/stable_egress_ip_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.100.0.0/16"
+          - "--probes"
+          - "3"
+          - "--interval-seconds"
+          - "2"
+          - "--endpoint"
+          - "https://api.ipify.org"
+        timeout: 600
+        output_schema: stable_egress_ip
 
       # Test 11: Floating IP Switch (~5 min)
       - name: floating_ip_test

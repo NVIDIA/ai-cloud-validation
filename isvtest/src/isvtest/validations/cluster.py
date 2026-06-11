@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Cluster-related validations for step outputs.
 
@@ -32,7 +37,7 @@ class NodeCountCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check cluster node count matches expected"
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -70,7 +75,7 @@ class ClusterHealthCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check cluster is healthy"
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -106,7 +111,7 @@ class GpuOperatorInstalledCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check GPU operator installation"
-    markers: ClassVar[list[str]] = ["kubernetes", "gpu"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes", "gpu")
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -139,7 +144,7 @@ class PerformanceCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check workload performance meets requirements"
-    markers: ClassVar[list[str]] = ["workload"]
+    labels: ClassVar[tuple[str, ...]] = ("workload",)
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:

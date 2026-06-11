@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Main CLI entry point for nv-isv-test.
 
@@ -27,10 +32,11 @@ import pytest
 import typer
 from isvreporter.version import get_version
 
+from isvtest.config.constants import RESOLVED_ENTRIES_FLAG
 from isvtest.config.loader import ConfigLoader
 from isvtest.core import runners as reframe_runner
 from isvtest.core.logger import setup_logger
-from isvtest.core.resolution import RESOLVED_ENTRIES_FLAG, ErrorReason, ResolvedEntry, SkipReason, State
+from isvtest.core.resolution import ErrorReason, ResolvedEntry, SkipReason, State
 from isvtest.tests.test_validations import (
     clear_validation_results,
     get_validation_results,
@@ -112,8 +118,8 @@ def run_validations_via_pytest(
         if suite_name:
             pytest_args.extend(["-o", f"junit_suite_name={suite_name}"])
 
-        # exclude_markers from YAML are read directly by conftest.py; passing them
-        # as -m args would flip conftest's "explicit marker selection" branch.
+        # exclude.labels from YAML are read directly by conftest.py; passing them
+        # as -m args would flip conftest's "explicit label selection" branch.
         if extra_pytest_args:
             pytest_args.extend(extra_pytest_args)
 
@@ -267,7 +273,7 @@ def run_pytest_tests(
     platform: str | None = None,
     config_file: str | None = None,
     inventory_path: str | None = None,
-    markers: list[str] | None = None,
+    labels: list[str] | None = None,
     verbose: bool = False,
     extra_pytest_args: list[str] | None = None,
 ) -> int:
@@ -277,7 +283,7 @@ def run_pytest_tests(
         platform: Platform to validate (bare_metal, kubernetes, slurm, common, or all)
         config_file: Direct path to cluster configuration file
         inventory_path: Path to cluster inventory file (JSON or YAML)
-        markers: Pytest markers to filter tests (e.g., ['gpu', 'network'])
+        labels: Public labels to filter tests (e.g., ['gpu', 'network']). All must match.
         verbose: Show verbose output
         extra_pytest_args: Additional arguments to pass to pytest
 
@@ -334,16 +340,19 @@ def run_pytest_tests(
     if inventory_path:
         pytest_args.extend(["--inventory", inventory_path])
 
-    # Add platform marker if specified
+    label_terms: list[str] = []
+
+    # Platform label is selected via pytest -m so the validation conftest treats
+    # it as explicit selection (same path used by --label).
     if platform and platform != "all":
         normalized_platform = "bare_metal" if platform == "common" else platform
         if normalized_platform in ["bare_metal", "kubernetes", "slurm"]:
-            pytest_args.extend(["-m", normalized_platform])
+            label_terms.append(normalized_platform)
 
-    # Add markers
-    if markers:
-        for marker in markers:
-            pytest_args.extend(["-m", marker])
+    if labels:
+        label_terms.extend(labels)
+    if label_terms:
+        pytest_args.extend(["-m", " and ".join(label_terms)])
 
     # Add any extra pytest arguments
     if extra_pytest_args:
@@ -384,12 +393,12 @@ def test_cmd(
             readable=True,
         ),
     ] = None,
-    markers: Annotated[
+    labels: Annotated[
         list[str] | None,
         typer.Option(
-            "--markers",
-            "-m",
-            help="Pytest markers to filter tests (can be repeated)",
+            "--label",
+            "-l",
+            help="Label to filter tests (can be repeated; all selected labels must match)",
         ),
     ] = None,
     verbose: Annotated[
@@ -408,7 +417,7 @@ def test_cmd(
 
         isvtest test --platform bare_metal --config tests.yaml
 
-        isvtest test --config tests.yaml --markers gpu --markers network
+        isvtest test --config tests.yaml --label gpu --label network
 
         isvtest test --config tests.yaml -k test_gpu --maxfail=1
     """
@@ -418,7 +427,7 @@ def test_cmd(
     exit_code = run_pytest_tests(
         platform=platform.value,
         config_file=str(config) if config else None,
-        markers=markers,
+        labels=labels,
         verbose=verbose,
         extra_pytest_args=extra_args,
     )

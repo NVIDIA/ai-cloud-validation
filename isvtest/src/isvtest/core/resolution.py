@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Validation entry parsing and resolution."""
 
@@ -24,12 +29,12 @@ from jinja2 import ChainableUndefined, Environment, Undefined
 
 from isvtest.config.loader import _ternary
 from isvtest.core.discovery import discover_all_tests
+from isvtest.core.validation import get_validation_labels
 
 logger = logging.getLogger(__name__)
 
 ADAPTER_HANDLED_CATEGORIES = {"reframe"}
 DEFAULT_VALIDATION_PHASE = "test"
-RESOLVED_ENTRIES_FLAG = "_isvtest_resolved_entries"
 
 
 class State(StrEnum):
@@ -44,7 +49,7 @@ class State(StrEnum):
 class SkipReason(StrEnum):
     """Why a skipped validation did not run."""
 
-    EXCLUDED = "test_excluded"  # explicitly excluded by user (YAML markers/tests OR CLI -k/-m)
+    EXCLUDED = "test_excluded"  # explicitly excluded by user (YAML labels/tests OR CLI -k/-m)
     PHASE_NOT_REQUESTED = "phase_not_requested"  # entry's phase wasn't in the requested phase set
     RUNTIME_SKIP = "runtime_skip"  # validation called pytest.skip(...) at runtime
     STEP_NO_OUTPUT = "step_no_output"  # step ran but produced no JSON output
@@ -69,7 +74,7 @@ class ValidationEntry:
     params_template: dict[str, Any]
     step: str | None = None
     phase: str | None = None
-    markers: tuple[str, ...] = ()
+    labels: tuple[str, ...] = ()
 
 
 @dataclass
@@ -100,7 +105,7 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
         Ordered validation entries. Adapter-handled categories are ignored
         because they are not BaseValidation pytest entries.
     """
-    markers_by_name = _validation_markers_by_name()
+    metadata_by_name = _validation_metadata_by_name()
     entries: list[ValidationEntry] = []
 
     for category, category_config in raw_config.items():
@@ -124,6 +129,8 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
             else:
                 params_template = copy.deepcopy(params_template)
 
+            base_name = _base_validation_name(name, metadata_by_name)
+            labels = metadata_by_name.get(base_name, ())
             entries.append(
                 ValidationEntry(
                     name=name,
@@ -131,7 +138,7 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
                     params_template=params_template,
                     step=entry_step if isinstance(entry_step, str) else None,
                     phase=entry_phase if isinstance(entry_phase, str) else None,
-                    markers=markers_by_name.get(_base_validation_name(name, markers_by_name), ()),
+                    labels=labels,
                 )
             )
 
@@ -144,7 +151,8 @@ def resolve_entries(
     step_outputs: Mapping[str, dict[str, Any]],
     step_phases: Mapping[str, str],
     requested_phases: AbstractSet[str],
-    exclude_markers: AbstractSet[str],
+    include_labels: AbstractSet[str],
+    exclude_labels: AbstractSet[str],
     exclude_tests: AbstractSet[str],
     released_tests: AbstractSet[str] | None,
     render_context: Mapping[str, Any],
@@ -156,7 +164,8 @@ def resolve_entries(
         step_outputs: Step outputs accumulated so far.
         step_phases: Mapping of configured, non-skipped step names to phases.
         requested_phases: Phase names requested by the invocation.
-        exclude_markers: Validation markers excluded by config.
+        include_labels: Validation labels required by CLI selection. All requested labels must be present.
+        exclude_labels: Validation labels excluded by config.
         exclude_tests: Validation names excluded by config.
         released_tests: Released test manifest, or None when unreleased checks are included.
         render_context: Jinja context for validation parameter rendering.
@@ -190,14 +199,26 @@ def resolve_entries(
             resolved.append(_skip(entry, SkipReason.EXCLUDED, f"validation '{entry.name}' is excluded by name"))
             continue
 
-        marker_matches = sorted(set(entry.markers).intersection(exclude_markers))
-        if marker_matches:
-            marker_list = ", ".join(marker_matches)
+        missing_include_labels = sorted(set(include_labels).difference(entry.labels))
+        if missing_include_labels:
+            label_list = ", ".join(sorted(include_labels))
             resolved.append(
                 _skip(
                     entry,
                     SkipReason.EXCLUDED,
-                    f"validation '{entry.name}' is excluded by marker: {marker_list}",
+                    f"validation '{entry.name}' does not match all selected labels: {label_list}",
+                )
+            )
+            continue
+
+        label_matches = sorted(set(entry.labels).intersection(exclude_labels))
+        if label_matches:
+            label_list = ", ".join(label_matches)
+            resolved.append(
+                _skip(
+                    entry,
+                    SkipReason.EXCLUDED,
+                    f"validation '{entry.name}' is excluded by label: {label_list}",
                 )
             )
             continue
@@ -287,13 +308,9 @@ def format_resolution_message(entry: ResolvedEntry) -> str:
 
 
 @cache
-def _validation_markers_by_name() -> dict[str, tuple[str, ...]]:
-    """Return discovered validation markers keyed by class name."""
-    markers: dict[str, tuple[str, ...]] = {}
-    for cls in discover_all_tests():
-        cls_markers = getattr(cls, "markers", None) or []
-        markers[cls.__name__] = tuple(str(marker) for marker in cls_markers)
-    return markers
+def _validation_metadata_by_name() -> dict[str, tuple[str, ...]]:
+    """Return discovered validation labels keyed by class name."""
+    return {cls.__name__: get_validation_labels(cls) for cls in discover_all_tests()}
 
 
 def resolve_class_key(name: str, keys: Iterable[str]) -> str | None:
@@ -312,9 +329,9 @@ def resolve_class_key(name: str, keys: Iterable[str]) -> str | None:
     return max(matches, key=len)
 
 
-def _base_validation_name(name: str, markers_by_name: Mapping[str, tuple[str, ...]]) -> str:
+def _base_validation_name(name: str, metadata_by_name: Mapping[str, object]) -> str:
     """Return the discovered base class name for a configured validation name."""
-    return resolve_class_key(name, markers_by_name) or name
+    return resolve_class_key(name, metadata_by_name) or name
 
 
 def _iter_validation_items(category: str, category_config: Any) -> list[tuple[str, Any, Any, Any]]:

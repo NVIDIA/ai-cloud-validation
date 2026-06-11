@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for instance/VM validations."""
 
@@ -17,6 +22,7 @@ from typing import Any
 from isvtest.validations.instance import (
     SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED,
     InstanceRebootCheck,
+    InstanceSpecifiedKeyCheck,
     SerialConsoleRetentionCheck,
 )
 
@@ -109,6 +115,92 @@ class TestInstanceRebootCheck:
         result = v.execute()
         assert result["passed"] is False
         assert "reboot may not have occurred" in result["error"]
+
+
+class TestInstanceSpecifiedKeyCheck:
+    """Tests for VM launch-with-specified-key validation."""
+
+    def test_passes_when_instance_key_matches_requested_key(self) -> None:
+        """Provider output proves the launched instance uses the requested key."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "requested_key_name": "isv-test-key",
+                    "key_name": "isv-test-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is True
+        assert "isv-test-key" in result["output"]
+
+    def test_passes_with_instance_key_name_alias(self) -> None:
+        """Providers may emit instance_key_name when key_name is reserved elsewhere."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "requested_key_name": "custom-key",
+                    "instance_key_name": "custom-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is True
+
+    def test_fails_when_requested_key_is_missing(self) -> None:
+        """The provider must state which key it requested."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "key_name": "isv-test-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "No 'requested_key_name'" in result["error"]
+
+    def test_fails_when_actual_key_is_missing(self) -> None:
+        """The provider must report the key observed on the launched instance."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "requested_key_name": "isv-test-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "No launched instance key name" in result["error"]
+
+    def test_fails_when_actual_key_differs_from_requested_key(self) -> None:
+        """A launched instance with the wrong key fails the validation."""
+        v = InstanceSpecifiedKeyCheck(
+            config={
+                "step_output": {
+                    "instance_id": "i-abc123",
+                    "requested_key_name": "isv-test-key",
+                    "key_name": "other-key",
+                }
+            }
+        )
+
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "expected key 'isv-test-key', got 'other-key'" in result["error"]
 
 
 class TestSerialConsoleRetentionCheck:

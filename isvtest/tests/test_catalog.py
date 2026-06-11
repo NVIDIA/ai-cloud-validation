@@ -1,18 +1,36 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for the catalog module."""
 
+from typing import ClassVar
 from unittest.mock import patch
 
 from isvtest.catalog import build_catalog, get_catalog_version
+from isvtest.core.validation import BaseValidation
+
+
+class ExplicitLabelCatalogCheck(BaseValidation):
+    """Catalog fixture with explicit labels."""
+
+    description = "Explicit labels"
+    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long_running")
+
+    def run(self) -> None:
+        """Mark the validation passed."""
+        self.set_passed()
 
 
 class TestBuildCatalog:
@@ -32,8 +50,9 @@ class TestBuildCatalog:
         for entry in catalog:
             assert "name" in entry
             assert "description" in entry
-            assert "markers" in entry
+            assert "labels" in entry
             assert "module" in entry
+            assert "markers" not in entry
 
     def test_entries_have_correct_types(self) -> None:
         """Test that entry values have the correct types."""
@@ -41,7 +60,7 @@ class TestBuildCatalog:
         for entry in catalog:
             assert isinstance(entry["name"], str)
             assert isinstance(entry["description"], str)
-            assert isinstance(entry["markers"], list)
+            assert isinstance(entry["labels"], list)
             assert isinstance(entry["module"], str)
 
     def test_no_duplicate_names(self) -> None:
@@ -73,12 +92,31 @@ class TestBuildCatalog:
         assert "StepSuccessCheck" in names
         assert "FieldExistsCheck" in names
 
-    def test_markers_are_lists_of_strings(self) -> None:
-        """Test that markers are lists of strings."""
+    def test_labels_are_lists_of_strings(self) -> None:
+        """Test that labels are lists of strings."""
         catalog = build_catalog()
         for entry in catalog:
-            for marker in entry["markers"]:
-                assert isinstance(marker, str)
+            for label in entry["labels"]:
+                assert isinstance(label, str)
+
+    def test_catalog_emits_explicit_labels(self) -> None:
+        """Explicit class labels are the only source of catalog tag metadata."""
+        with (
+            patch("isvtest.catalog.discover_all_tests", return_value=[ExplicitLabelCatalogCheck]),
+            patch("isvtest.catalog._build_platform_map", return_value={}),
+            patch("isvtest.catalog.load_released_test_filter", return_value=None),
+        ):
+            catalog = build_catalog()
+
+        assert catalog == [
+            {
+                "name": "ExplicitLabelCatalogCheck",
+                "description": "Explicit labels",
+                "labels": ["accelerator", "long_running"],
+                "module": __name__,
+                "platforms": [],
+            }
+        ]
 
     def test_modules_are_valid_python_paths(self) -> None:
         """Test that module paths look like valid Python module paths."""
@@ -87,13 +125,13 @@ class TestBuildCatalog:
             assert "." in entry["module"]
             assert entry["module"].startswith("isvtest.")
 
-    def test_suite_membership_overrides_marker_platforms(self) -> None:
-        """Regression: feature markers must not add extra platform ownership.
+    def test_suite_membership_overrides_label_platforms(self) -> None:
+        """Regression: trait labels must not add extra platform ownership.
 
-        A check can carry markers like ``["security", "network"]`` for pytest
+        A check can carry labels like ``("security", "network")`` for pytest
         filtering AND appear in a single suite YAML (e.g. ``security.yaml``).
         ``_build_platform_map`` must use the suite as the source of truth and
-        skip marker-derived platform inference in that case - otherwise the
+        skip label-derived platform inference in that case - otherwise the
         UI shows phantom platform badges.
 
         DO NOT add per-check asserts to this test. It is a property test
@@ -101,7 +139,7 @@ class TestBuildCatalog:
         breaks the invariant, the failure message names it.
         """
         from isvtest.catalog import (
-            MARKER_TO_PLATFORM,
+            LABEL_TO_PLATFORM,
             PLATFORM_CONFIGS,
             _extract_checks_from_config,
             _find_configs_dir,
@@ -116,22 +154,51 @@ class TestBuildCatalog:
                 for name in _extract_checks_from_config(configs_dir / relpath):
                     suite_platforms.setdefault(name, set()).add(platform)
 
-        for entry in build_catalog():
+        for entry in build_catalog(released_only=False):
             name = entry["name"]
             if name not in suite_platforms:
                 continue
-            marker_platforms = {MARKER_TO_PLATFORM[m] for m in entry["markers"] if m in MARKER_TO_PLATFORM}
+            label_platforms = {LABEL_TO_PLATFORM[label] for label in entry["labels"] if label in LABEL_TO_PLATFORM}
             expected = suite_platforms[name]
             actual = set(entry["platforms"])
-            phantom = (marker_platforms - expected) & actual
+            phantom = (label_platforms - expected) & actual
             assert not phantom, (
-                f"{name}: marker-derived platforms {sorted(phantom)} leaked "
+                f"{name}: label-derived platforms {sorted(phantom)} leaked "
                 f"into catalog; expected exactly {sorted(expected)}, "
                 f"got {sorted(actual)}"
             )
             assert actual == expected, (
                 f"{name}: platforms should equal suite assignment {sorted(expected)}, got {sorted(actual)}"
             )
+
+    def test_observability_label_infers_platform_for_unlisted_checks(self) -> None:
+        """Checks labelled with `observability` are tagged OBSERVABILITY when not in any suite."""
+
+        class ObservabilityLabelledCheck(BaseValidation):
+            description = "Observability check labelled but not in any suite"
+            labels: ClassVar[tuple[str, ...]] = ("observability",)
+
+            def run(self) -> None:
+                self.set_passed()
+
+        ObservabilityLabelledCheck.__module__ = "isvtest.validations.fake"
+
+        with (
+            patch("isvtest.catalog.discover_all_tests", return_value=[ObservabilityLabelledCheck]),
+            patch("isvtest.catalog._build_platform_map", return_value={}),
+            patch("isvtest.catalog.load_released_test_filter", return_value=None),
+        ):
+            catalog = build_catalog()
+
+        assert catalog == [
+            {
+                "name": "ObservabilityLabelledCheck",
+                "description": "Observability check labelled but not in any suite",
+                "labels": ["observability"],
+                "module": "isvtest.validations.fake",
+                "platforms": ["OBSERVABILITY"],
+            }
+        ]
 
 
 class TestGetCatalogVersion:

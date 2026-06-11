@@ -1,15 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for Pydantic schema models and output schema registry."""
 
+import copy
 from typing import Any, ClassVar
 
 import pytest
@@ -300,6 +306,7 @@ class TestOutputSchemaMapping:
             ("provision_cluster", "cluster"),
             ("create_cluster", "cluster"),
             ("create_network", "network"),
+            ("create_test_shared_vpc_cluster", "multi_cluster"),
             ("launch_instance", "instance"),
             ("teardown", "teardown"),
             ("create_access_key", "access_key"),
@@ -368,9 +375,36 @@ class TestOutputSchemaValidation:
             "gpu_per_node": 4,
             "total_gpus": 8,
             "gpu_operator_namespace": "nvidia-gpu-operator",
+            "cluster_autoscaler_namespace": "kube-system",
+            "cluster_autoscaler_deployment": "cluster-autoscaler",
             "runtime_class": "nvidia",
             "gpu_resource_name": "nvidia.com/gpu",
         },
+    }
+
+    MULTI_CLUSTER_OUTPUT: ClassVar[dict[str, Any]] = {
+        "success": True,
+        "platform": "kubernetes",
+        "test_id": "K8S26-01",
+        "tenancy_id": "123456789012",
+        "network_id": "vpc-123",
+        "clusters": [
+            {
+                "name": "isvtest-eks-dev",
+                "role": "primary",
+                "tenancy_id": "123456789012",
+                "network_id": "vpc-123",
+                "status": "ACTIVE",
+            },
+            {
+                "name": "isvtest-eks-dev-shared-vpc",
+                "role": "secondary",
+                "tenancy_id": "123456789012",
+                "network_id": "vpc-123",
+                "status": "ACTIVE",
+                "ready_node_count": 1,
+            },
+        ],
     }
 
     @staticmethod
@@ -442,6 +476,21 @@ class TestOutputSchemaValidation:
         """EKS setup.sh output has top-level node_count and must pass cluster schema."""
         is_valid, errors = validate_output(self.EKS_SETUP_OUTPUT, "cluster")
         assert is_valid, f"EKS output failed 'cluster' schema: {errors}"
+
+    def test_multi_cluster_output_passes_schema(self) -> None:
+        """K8S26-01 shared-VPC cluster output must pass the multi_cluster schema."""
+        is_valid, errors = validate_output(self.MULTI_CLUSTER_OUTPUT, "multi_cluster")
+        assert is_valid, f"Multi-cluster output failed 'multi_cluster' schema: {errors}"
+
+    def test_multi_cluster_output_passes_without_cluster_roles(self) -> None:
+        """K8S26-01 proves cluster coexistence without requiring role labels."""
+        output = copy.deepcopy(self.MULTI_CLUSTER_OUTPUT)
+        for cluster in output["clusters"]:
+            cluster.pop("role")
+
+        is_valid, errors = validate_output(output, "multi_cluster")
+
+        assert is_valid, f"Multi-cluster output without roles failed 'multi_cluster' schema: {errors}"
 
     @pytest.mark.parametrize(
         "field_name",

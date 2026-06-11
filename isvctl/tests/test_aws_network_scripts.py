@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for AWS network reference scripts."""
 
@@ -28,6 +33,9 @@ from botocore.exceptions import ClientError
 ISVCTL_ROOT = Path(__file__).resolve().parents[1]
 AWS_NETWORK_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "network"
 MY_ISV_NETWORK_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "my-isv" / "scripts" / "network"
+STABLE_EGRESS_TEST_NAMES = {"create_instance", "probe_egress_ip", "egress_ip_stable"}
+STABLE_EGRESS_TOP_LEVEL_KEYS = {"success", "platform", "test_name", "tests"}
+STABLE_EGRESS_TEST_RESULT_KEYS = {"passed", "message", "probes"}
 
 
 def _load_network_script(script_name: str) -> ModuleType:
@@ -43,6 +51,18 @@ def _load_network_script(script_name: str) -> ModuleType:
 def _client_error(operation_name: str, code: str = "AccessDenied", message: str = "denied") -> ClientError:
     """Create a botocore ClientError for fake AWS client failures."""
     return ClientError({"Error": {"Code": code, "Message": message}}, operation_name)
+
+
+def _assert_stable_egress_contract(result: dict[str, Any]) -> None:
+    """Assert stable egress scripts emit the minimal provider JSON contract."""
+    assert set(result) == STABLE_EGRESS_TOP_LEVEL_KEYS
+    assert result["success"] is True
+    assert result["platform"] == "network"
+    assert result["test_name"] == "stable_egress_ip"
+    assert set(result["tests"]) == STABLE_EGRESS_TEST_NAMES
+    for test_result in result["tests"].values():
+        assert set(test_result) <= STABLE_EGRESS_TEST_RESULT_KEYS
+        assert isinstance(test_result["passed"], bool)
 
 
 class FakeServiceScopingEc2:
@@ -256,6 +276,213 @@ def test_service_scoping_retries_dependency_cleanup(monkeypatch: pytest.MonkeyPa
     assert ec2.deleted_sgs == ["sg-svc"]
 
 
+class FakePortSecurityEc2:
+    """Fake EC2 client for port security policy tests."""
+
+    def __init__(
+        self,
+        *,
+        target_rules: list[dict[str, Any]] | None = None,
+        other_rules: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Configure observed rules for target and unrelated interfaces."""
+        self.target_rules = target_rules
+        self.other_rules = other_rules if other_rules is not None else []
+        self.created_ingress: list[dict[str, Any]] = []
+        self.deleted_enis: list[str] = []
+        self.deleted_subnets: list[str] = []
+        self.deleted_sgs: list[str] = []
+
+    def create_subnet(self, VpcId: str, CidrBlock: str, AvailabilityZone: str) -> dict[str, Any]:
+        """Return a fake subnet."""
+        return {"Subnet": {"SubnetId": "subnet-port", "VpcId": VpcId, "CidrBlock": CidrBlock}}
+
+    def create_security_group(
+        self,
+        GroupName: str,
+        Description: str,
+        VpcId: str,
+        TagSpecifications: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return a fake security group."""
+        assert "port security" in Description
+        return {"GroupId": "sg-port"}
+
+    def authorize_security_group_ingress(self, GroupId: str, IpPermissions: list[dict[str, Any]]) -> dict[str, Any]:
+        """Record the configured ingress policy."""
+        self.created_ingress.append({"GroupId": GroupId, "IpPermissions": IpPermissions})
+        return {}
+
+    def create_network_interface(self, SubnetId: str, **kwargs: Any) -> dict[str, Any]:
+        """Return fake ENIs, with the first one attached to the SG."""
+        if kwargs.get("Groups"):
+            return {"NetworkInterface": {"NetworkInterfaceId": "eni-target"}}
+        return {"NetworkInterface": {"NetworkInterfaceId": "eni-other"}}
+
+    def describe_security_groups(self, GroupIds: list[str]) -> dict[str, Any]:
+        """Return configured SG rules."""
+        assert GroupIds == ["sg-port"]
+        rules = self.target_rules
+        if rules is None:
+            rules = self.created_ingress[0]["IpPermissions"]
+        return {"SecurityGroups": [{"GroupId": "sg-port", "IpPermissions": rules}]}
+
+    def describe_network_interfaces(self, NetworkInterfaceIds: list[str]) -> dict[str, Any]:
+        """Return target and unrelated ENI SG attachments."""
+        interfaces = []
+        for eni_id in NetworkInterfaceIds:
+            if eni_id == "eni-target":
+                interfaces.append({"NetworkInterfaceId": eni_id, "Groups": [{"GroupId": "sg-port"}]})
+            else:
+                interfaces.append({"NetworkInterfaceId": eni_id, "Groups": []})
+        return {"NetworkInterfaces": interfaces}
+
+    def delete_network_interface(self, NetworkInterfaceId: str) -> None:
+        """Delete a fake ENI."""
+        self.deleted_enis.append(NetworkInterfaceId)
+
+    def delete_subnet(self, SubnetId: str) -> None:
+        """Delete a fake subnet."""
+        self.deleted_subnets.append(SubnetId)
+
+    def delete_security_group(self, GroupId: str) -> None:
+        """Delete a fake security group."""
+        self.deleted_sgs.append(GroupId)
+
+
+def test_port_security_policy_happy_path_applies_single_port_to_target_interface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The AWS port security probe should allow only the configured port on the target ENI."""
+    module = _load_network_script("sg_port_security_policy.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePortSecurityEc2()
+
+    result = module.test_port_security_policy(ec2, "vpc-test", "us-west-2a", allowed_port=8443)
+
+    assert result["create_virtual_interface"]["passed"] is True
+    assert result["apply_port_policy"]["passed"] is True
+    assert result["allowed_port_permitted"]["passed"] is True
+    assert result["unlisted_port_blocked"]["passed"] is True
+    assert result["other_interface_unaffected"]["passed"] is True
+    assert result["cleanup"]["passed"] is True
+    rule = ec2.created_ingress[0]["IpPermissions"][0]
+    assert rule["FromPort"] == 8443
+    assert rule["ToPort"] == 8443
+    assert ec2.deleted_enis == ["eni-target", "eni-other"]
+    assert ec2.deleted_subnets == ["subnet-port"]
+    assert ec2.deleted_sgs == ["sg-port"]
+
+
+def test_port_security_policy_fails_when_unlisted_port_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wider observed ingress range must fail the unlisted-port check."""
+    module = _load_network_script("sg_port_security_policy.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePortSecurityEc2(
+        target_rules=[
+            {
+                "IpProtocol": "tcp",
+                "FromPort": 8443,
+                "ToPort": 8444,
+                "IpRanges": [{"CidrIp": "10.0.0.0/8"}],
+            }
+        ]
+    )
+
+    result = module.test_port_security_policy(ec2, "vpc-test", "us-west-2a", allowed_port=8443)
+
+    assert result["allowed_port_permitted"]["passed"] is True
+    assert result["unlisted_port_blocked"]["passed"] is False
+    assert "8444" in result["unlisted_port_blocked"]["error"]
+    assert result["cleanup"]["passed"] is True
+
+
+def test_port_security_policy_fails_when_policy_leaks_to_other_interface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The custom SG must not attach to the unrelated virtual interface."""
+    module = _load_network_script("sg_port_security_policy.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePortSecurityEc2()
+
+    def leaked_describe_network_interfaces(NetworkInterfaceIds: list[str]) -> dict[str, Any]:
+        """Return AWS-shaped ENI descriptions with sg-port attached to every ENI."""
+        return {
+            "NetworkInterfaces": [
+                {"NetworkInterfaceId": eni_id, "Groups": [{"GroupId": "sg-port"}]} for eni_id in NetworkInterfaceIds
+            ]
+        }
+
+    ec2.describe_network_interfaces = leaked_describe_network_interfaces  # type: ignore[method-assign]
+
+    result = module.test_port_security_policy(ec2, "vpc-test", "us-west-2a", allowed_port=8443)
+
+    assert result["other_interface_unaffected"]["passed"] is False
+    assert "leaked" in result["other_interface_unaffected"]["error"]
+    assert result["cleanup"]["passed"] is True
+
+
+def test_port_security_policy_main_emits_full_contract_on_vpc_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """VPC bootstrap failure should still emit every port-security subtest key."""
+    module = _load_network_script("sg_port_security_policy.py")
+    fake_ec2 = object()
+    cleaned_vpcs: list[str] = []
+
+    monkeypatch.setattr(module.boto3, "client", lambda service, region_name: fake_ec2)
+    monkeypatch.setattr(
+        module,
+        "create_test_vpc",
+        lambda ec2, cidr, name: {"passed": False, "vpc_id": "vpc-partial", "error": "quota exceeded"},
+    )
+    monkeypatch.setattr(module, "cleanup_vpc_resources", lambda ec2, vpc_id: cleaned_vpcs.append(vpc_id))
+    monkeypatch.setattr(sys, "argv", ["sg_port_security_policy.py", "--region", "us-west-2"])
+
+    exit_code = module.main()
+
+    assert exit_code == 1
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert payload["error"] == "VPC creation failed: quota exceeded"
+    assert set(payload["tests"]) == set(module.PORT_SECURITY_TEST_NAMES)
+    assert all(test["passed"] is False for test in payload["tests"].values())
+    assert cleaned_vpcs == ["vpc-partial"]
+
+
+def test_port_security_policy_main_emits_full_contract_on_az_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Post-VPC failures (e.g. no available AZ) should still emit every subtest key."""
+    module = _load_network_script("sg_port_security_policy.py")
+    fake_ec2 = object()
+    cleaned_vpcs: list[str] = []
+
+    monkeypatch.setattr(module.boto3, "client", lambda service, region_name: fake_ec2)
+    monkeypatch.setattr(
+        module,
+        "create_test_vpc",
+        lambda ec2, cidr, name: {"passed": True, "vpc_id": "vpc-ok"},
+    )
+
+    def raise_no_az(ec2: Any, region: str) -> str:
+        raise ValueError(f"No available AZ found in region {region}")
+
+    monkeypatch.setattr(module, "_get_az", raise_no_az)
+    monkeypatch.setattr(module, "cleanup_vpc_resources", lambda ec2, vpc_id: cleaned_vpcs.append(vpc_id))
+    monkeypatch.setattr(sys, "argv", ["sg_port_security_policy.py", "--region", "us-west-2"])
+
+    exit_code = module.main()
+
+    assert exit_code == 1
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert "No available AZ" in payload["error"]
+    assert set(payload["tests"]) == set(module.PORT_SECURITY_TEST_NAMES)
+    assert all(test["passed"] is False for test in payload["tests"].values())
+    assert cleaned_vpcs == ["vpc-ok"]
+
+
 class FakeEndpointDeletionWaitEc2:
     """Fake EC2 client for endpoint deletion polling."""
 
@@ -382,6 +609,89 @@ class FakeSdnLoggingEc2:
             raise self.revoke_error
         self.revoked_rules.append({"GroupId": GroupId, "IpPermissions": IpPermissions})
         return {}
+
+    def delete_security_group(self, GroupId: str) -> dict[str, Any]:
+        """Delete a fake security group, optionally raising a configured error."""
+        if self.delete_sg_error:
+            raise self.delete_sg_error
+        self.deleted_sgs.append(GroupId)
+        return {}
+
+
+class FakePolicyPropagationEc2:
+    """Fake EC2 client for SDN02-08 policy propagation timing tests."""
+
+    def __init__(
+        self,
+        *,
+        rule_visible_after: int = 1,
+        rule_removed_after: int = 1,
+        delete_sg_error: ClientError | None = None,
+    ) -> None:
+        """Configure poll thresholds and optional delete-security-group failure."""
+        self.rule_visible_after = rule_visible_after
+        self.rule_removed_after = rule_removed_after
+        self.delete_sg_error = delete_sg_error
+        self.authorized = False
+        self.revoked = False
+        self.describe_calls = 0
+        self.revoked_describe_calls = 0
+        self.deleted_sgs: list[str] = []
+
+    def create_security_group(
+        self,
+        GroupName: str,
+        Description: str,
+        VpcId: str,
+        TagSpecifications: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return a fake policy probe security group."""
+        assert GroupName.startswith("isv-sdn-policy-propagation-")
+        assert Description == "ISV policy propagation probe"
+        assert VpcId == "vpc-test"
+        assert TagSpecifications
+        return {"GroupId": "sg-probe"}
+
+    def authorize_security_group_ingress(self, GroupId: str, IpPermissions: list[dict[str, Any]]) -> dict[str, Any]:
+        """Record that the probe rule was added."""
+        assert GroupId == "sg-probe"
+        self.authorized = True
+        return {}
+
+    def revoke_security_group_ingress(self, GroupId: str, IpPermissions: list[dict[str, Any]]) -> dict[str, Any]:
+        """Record that the probe rule was revoked."""
+        assert GroupId == "sg-probe"
+        self.revoked = True
+        return {}
+
+    def describe_security_groups(self, GroupIds: list[str]) -> dict[str, Any]:
+        """Return SG permissions according to configured propagation lag."""
+        assert GroupIds == ["sg-probe"]
+        self.describe_calls += 1
+        if self.revoked:
+            self.revoked_describe_calls += 1
+            visible = self.revoked_describe_calls < self.rule_removed_after
+        elif self.authorized:
+            visible = self.describe_calls >= self.rule_visible_after
+        else:
+            visible = False
+        return {
+            "SecurityGroups": [
+                {
+                    "GroupId": "sg-probe",
+                    "IpPermissions": [
+                        {
+                            "IpProtocol": "tcp",
+                            "FromPort": 443,
+                            "ToPort": 443,
+                            "IpRanges": [{"CidrIp": "10.0.0.0/8"}],
+                        }
+                    ]
+                    if visible
+                    else [],
+                }
+            ]
+        }
 
     def delete_security_group(self, GroupId: str) -> dict[str, Any]:
         """Delete a fake security group, optionally raising a configured error."""
@@ -597,6 +907,45 @@ def test_my_isv_sdn_logging_demo_test_names_match_suite_steps(aspect: str, step_
     assert completed.returncode == 0, completed.stderr
     result: dict[str, Any] = json.loads(completed.stdout)
     assert result["test_name"] == step_name
+
+
+def test_my_isv_port_security_policy_demo_output_contract() -> None:
+    """my-isv port security template demo output must satisfy the validation contract."""
+    script = MY_ISV_NETWORK_SCRIPTS / "sg_port_security_policy.py"
+    env = os.environ | {"ISVCTL_DEMO_MODE": "1"}
+
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--region",
+                "demo-region",
+                "--allowed-port",
+                "8443",
+            ],
+            capture_output=True,
+            env=env,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"{script} timed out after {exc.timeout} seconds\nstdout: {exc.stdout!r}\nstderr: {exc.stderr!r}")
+
+    assert completed.returncode == 0, completed.stderr
+    result: dict[str, Any] = json.loads(completed.stdout)
+    assert result["success"] is True
+    assert result["test_name"] == "sg_port_security_policy"
+    assert set(result["tests"]) == {
+        "create_virtual_interface",
+        "apply_port_policy",
+        "allowed_port_permitted",
+        "unlisted_port_blocked",
+        "other_interface_unaffected",
+        "cleanup",
+    }
+    assert all(test["passed"] for test in result["tests"].values())
 
 
 def test_sdn_hardware_fault_logging_happy_path() -> None:
@@ -1169,3 +1518,234 @@ def test_sdn_audit_trail_logging_records_cleanup_failure() -> None:
     assert result["success"] is False
     assert result["tests"]["cleanup"]["passed"] is False
     assert "Failed to delete audit probe security group sg-audit" in result["tests"]["cleanup"]["error"]
+
+
+def test_sdn_policy_propagation_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Policy propagation passes when add/remove observations stay within the limit."""
+    module = _load_network_script("sg_policy_propagation_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePolicyPropagationEc2(rule_visible_after=2, rule_removed_after=2)
+
+    result = module.check_policy_propagation(
+        ec2,
+        "vpc-test",
+        "us-west-2",
+        max_propagation_seconds=10,
+        poll_seconds=0,
+    )
+
+    assert result["success"] is True
+    assert result["test_name"] == "sg_policy_propagation"
+    assert result["tests"]["rule_observed"]["passed"] is True
+    assert result["tests"]["removal_observed"]["passed"] is True
+    assert result["target_rule_id"] == "sg-probe"
+    assert result["add_observed_seconds"] <= 10
+    assert result["remove_observed_seconds"] <= 10
+    assert ec2.deleted_sgs == ["sg-probe"]
+
+
+def test_sdn_policy_propagation_times_out_waiting_for_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rule that is never observed must fail with a propagation timeout."""
+    module = _load_network_script("sg_policy_propagation_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePolicyPropagationEc2(rule_visible_after=999)
+
+    result = module.check_policy_propagation(
+        ec2,
+        "vpc-test",
+        "us-west-2",
+        max_propagation_seconds=0,
+        poll_seconds=0,
+    )
+
+    assert result["success"] is False
+    assert result["tests"]["rule_observed"]["passed"] is False
+    assert result["tests"]["rule_observed"]["propagation_timeout"] is True
+    assert result["tests"]["cleanup"]["passed"] is True
+
+
+def test_sdn_policy_propagation_records_cleanup_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cleanup errors must be surfaced and make the overall result fail."""
+    module = _load_network_script("sg_policy_propagation_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    ec2 = FakePolicyPropagationEc2(delete_sg_error=_client_error("DeleteSecurityGroup", "DependencyViolation", "busy"))
+
+    result = module.check_policy_propagation(
+        ec2,
+        "vpc-test",
+        "us-west-2",
+        max_propagation_seconds=10,
+        poll_seconds=0,
+    )
+
+    assert result["success"] is False
+    assert result["tests"]["cleanup"]["passed"] is False
+    assert result["tests"]["cleanup"]["error"] == "Probe rule cleanup failed"
+
+
+def test_my_isv_policy_propagation_demo_test_name_matches_suite_step() -> None:
+    """my-isv SDN02-08 template output name must match the suite step ID."""
+    script = MY_ISV_NETWORK_SCRIPTS / "sg_policy_propagation_test.py"
+    env = os.environ | {"ISVCTL_DEMO_MODE": "1"}
+
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--region",
+                "demo-region",
+                "--vpc-id",
+                "vpc-demo",
+            ],
+            capture_output=True,
+            env=env,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"{script} timed out after {exc.timeout} seconds\nstdout: {exc.stdout!r}\nstderr: {exc.stderr!r}")
+
+    assert completed.returncode == 0, completed.stderr
+    result: dict[str, Any] = json.loads(completed.stdout)
+    assert result["test_name"] == "sg_policy_propagation"
+    assert result["success"] is True
+
+
+class FakeStableEgressEc2:
+    """Fake EC2 client for stable egress IP main-path tests."""
+
+    def __init__(self) -> None:
+        """Track subnet creation without reaching AWS."""
+        self.created_subnet_cidrs: list[str] = []
+
+    def describe_availability_zones(self, Filters: list[dict[str, Any]]) -> dict[str, Any]:
+        """Return one available AZ."""
+        assert Filters == [{"Name": "state", "Values": ["available"]}]
+        return {"AvailabilityZones": [{"ZoneName": "us-west-2a"}]}
+
+    def create_subnet(self, VpcId: str, CidrBlock: str, AvailabilityZone: str) -> dict[str, Any]:
+        """Record the subnet CIDR used by main."""
+        assert VpcId == "vpc-egress"
+        assert AvailabilityZone == "us-west-2a"
+        self.created_subnet_cidrs.append(CidrBlock)
+        return {"Subnet": {"SubnetId": "subnet-egress"}}
+
+    def terminate_instances(self, InstanceIds: list[str]) -> dict[str, Any]:
+        """No-op terminate for cleanup."""
+        assert InstanceIds == ["i-egress"]
+        return {}
+
+    def delete_key_pair(self, KeyName: str) -> dict[str, Any]:
+        """No-op key cleanup."""
+        assert KeyName.startswith("isv-stable-egress-ip-")
+        return {}
+
+    def delete_security_group(self, GroupId: str) -> dict[str, Any]:
+        """No-op security group cleanup."""
+        assert GroupId == "sg-egress"
+        return {}
+
+    def delete_subnet(self, SubnetId: str) -> dict[str, Any]:
+        """No-op subnet cleanup."""
+        assert SubnetId == "subnet-egress"
+        return {}
+
+    def get_waiter(self, _name: str) -> Any:
+        """Return a waiter with a no-op wait method."""
+        return type("FakeWaiter", (), {"wait": lambda self, **kwargs: None})()
+
+
+def test_stable_egress_main_uses_cidr_parser_and_emits_minimal_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """AWS stable egress output should stay minimal and subnet CIDR derivation should be CIDR-aware."""
+    module = _load_network_script("stable_egress_ip_test.py")
+    fake_ec2 = FakeStableEgressEc2()
+
+    monkeypatch.setattr(module.boto3, "client", lambda service, region_name: fake_ec2)
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        module,
+        "create_test_vpc",
+        lambda ec2, cidr, name: {"passed": True, "vpc_id": "vpc-egress"},
+    )
+    monkeypatch.setattr(module, "create_internet_routing", lambda ec2, vpc_id, subnet_id, name, routing: None)
+    monkeypatch.setattr(module, "create_security_group", lambda ec2, vpc_id, name, description: "sg-egress")
+    monkeypatch.setattr(module, "create_key_pair", lambda ec2, key_name: "/tmp/isv-missing-egress-key.pem")
+    monkeypatch.setattr(
+        module,
+        "launch_instance",
+        lambda ec2, subnet_id, sg_id, key_name, name: {
+            "passed": True,
+            "instance_id": "i-egress",
+            "public_ip": "198.51.100.10",
+            "message": "Launched instance i-egress with public IP 198.51.100.10",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_egress_ip",
+        lambda public_ip, key_file, endpoint, probes, interval_seconds, ssh_user: {
+            "passed": True,
+            "ips": ["203.0.113.20"] * probes,
+            "endpoint": endpoint,
+            "probes": probes,
+            "message": f"Collected {probes} egress IP probes from {endpoint}",
+        },
+    )
+    monkeypatch.setattr(module, "delete_with_retry", lambda func, **kwargs: True)
+    monkeypatch.setattr(module, "delete_vpc", lambda ec2, vpc_id: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "stable_egress_ip_test.py",
+            "--region",
+            "us-west-2",
+            "--cidr",
+            "10.88.16.0/20",
+            "--probes",
+            "2",
+        ],
+    )
+
+    exit_code = module.main()
+
+    assert exit_code == 0
+    assert fake_ec2.created_subnet_cidrs == ["10.88.16.0/24"]
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    _assert_stable_egress_contract(payload)
+    assert payload["tests"]["probe_egress_ip"]["probes"] == 2
+
+
+def test_my_isv_stable_egress_demo_emits_minimal_contract() -> None:
+    """my-isv stable egress demo output should model the provider-neutral contract."""
+    script = MY_ISV_NETWORK_SCRIPTS / "stable_egress_ip_test.py"
+    env = os.environ | {"ISVCTL_DEMO_MODE": "1"}
+
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--region",
+                "demo-region",
+                "--probes",
+                "2",
+            ],
+            capture_output=True,
+            env=env,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"{script} timed out after {exc.timeout} seconds\nstdout: {exc.stdout!r}\nstderr: {exc.stderr!r}")
+
+    assert completed.returncode == 0, completed.stderr
+    payload: dict[str, Any] = json.loads(completed.stdout)
+    _assert_stable_egress_contract(payload)
+    assert payload["tests"]["probe_egress_ip"]["probes"] == 2

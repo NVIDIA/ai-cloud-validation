@@ -95,7 +95,7 @@ Ensure the step that runs **after** the tests **always** calls update, even when
   Increase job/container timeout so that the full suite (including setup/teardown) can finish. Long-running workload tests (e.g. NIM) can take 15-30+ minutes.
 
 - **Hangs**
-  Check which phase hangs (setup, test, or teardown) from logs. Common causes: waiting on a cluster resource, Slurm job that never completes, or a validation that blocks. Fix the stub or validation, or exclude slow tests during initial runs:
+  Check which phase hangs (setup, test, or teardown) from logs. Common causes: waiting on a cluster resource, Slurm job that never completes, or a validation that blocks. Fix the stub or validation, or exclude slow tests during initial runs. For one-off negative selection, use the underlying pytest marker expression:
 
   ```bash
   isvctl test run -f configs/suites/k8s.yaml --lab-id ${ISV_LAB_ID} -- -m "not workload"

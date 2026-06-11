@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Bump or verify the version in all workspace pyproject.toml files.
 
@@ -38,6 +43,8 @@ PYPROJECT_FILES = [
     REPO_ROOT / "isvtest" / "pyproject.toml",
     REPO_ROOT / "isvreporter" / "pyproject.toml",
 ]
+
+CHANGELOG_FILL_SCRIPT = REPO_ROOT / "scripts" / "changelog-fill.sh"
 
 VERSION_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
 # Official semver.org regex (https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string)
@@ -221,6 +228,30 @@ def bump(new_version: str) -> None:
         print(f"  {path.relative_to(REPO_ROOT)}: {old_version} -> {new_version}")
 
 
+def run_changelog_fill() -> None:
+    """Invoke scripts/changelog-fill.sh to backfill the new version's CHANGELOG section.
+
+    Best-effort: warns instead of failing the bump if changelog-fill exits
+    non-zero (e.g. no LLM CLI installed). The maintainer can re-run
+    `make changelog-fill` manually later.
+    """
+    if not CHANGELOG_FILL_SCRIPT.exists():
+        print(
+            f"  warning: {CHANGELOG_FILL_SCRIPT.relative_to(REPO_ROOT)} not found; skipping changelog fill",
+            file=sys.stderr,
+        )
+        return
+
+    print("\nRunning changelog-fill (this can take a few minutes)...")
+    result = subprocess.run(["bash", str(CHANGELOG_FILL_SCRIPT)], cwd=REPO_ROOT, check=False)
+    if result.returncode != 0:
+        print(
+            f"  warning: changelog-fill exited {result.returncode}; "
+            "run `make changelog-fill` manually after fixing the issue",
+            file=sys.stderr,
+        )
+
+
 def refresh_released_tests(new_version: str) -> None:
     """Refresh the released-test manifest from the current catalog."""
     try:
@@ -305,6 +336,8 @@ def main() -> None:
 
     print("\nRunning uv lock...")
     subprocess.run(["uv", "lock"], cwd=REPO_ROOT, check=True)
+
+    run_changelog_fill()
 
     print("\nDone. Review with 'git diff', then commit and open a PR.")
 

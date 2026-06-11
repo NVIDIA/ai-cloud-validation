@@ -1,45 +1,29 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for the AWS VM console RBAC reference script."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 from botocore.exceptions import ClientError
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
-AWS_VM_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "vm"
-
-_LOADED_MODULES: dict[str, ModuleType] = {}
-
-
-def _load_vm_script(script_name: str) -> ModuleType:
-    """Load an AWS VM script as a module for direct helper testing.
-
-    Cached per script name so tests don't re-import boto3 on every call.
-    """
-    if script_name in _LOADED_MODULES:
-        return _LOADED_MODULES[script_name]
-    script_path = AWS_VM_SCRIPTS / script_name
-    spec = importlib.util.spec_from_file_location(f"test_{script_path.stem}", script_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    _LOADED_MODULES[script_name] = module
-    return module
+from .conftest import load_vm_script
 
 
 class FakeSts:
@@ -205,7 +189,7 @@ def _run_fake_console_rbac(
 
 def test_denied_principal_without_policy_is_denied() -> None:
     """A policy without console rights produces a passing denied subtest."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     result, _iam = _run_fake_console_rbac(module)
 
     subtest = result["tests"]["denied_principal_cannot_access_console"]
@@ -216,7 +200,7 @@ def test_denied_principal_without_policy_is_denied() -> None:
 
 def test_allowed_principal_with_scoped_policy_is_allowed() -> None:
     """Allowed principal with a target-instance policy is allowed."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     result, _iam = _run_fake_console_rbac(module)
 
     subtest = result["tests"]["allowed_principal_can_access_console"]
@@ -227,24 +211,32 @@ def test_allowed_principal_with_scoped_policy_is_allowed() -> None:
     assert subtest["resource"] == "arn:aws:ec2:us-west-2:123456789012:instance/i-0123456789abcdef0"
 
 
-def test_allowed_principal_fails_when_serial_console_access_is_disabled() -> None:
-    """Allowed IAM policy alone is not enough when EC2 serial console access is disabled."""
-    module = _load_vm_script("console_rbac.py")
+def test_console_rbac_skips_when_serial_console_access_is_disabled() -> None:
+    """Account-level serial console disablement makes console RBAC not applicable."""
+    module = load_vm_script("console_rbac.py")
     result, _iam = _run_fake_console_rbac(module, ec2=FakeEc2(serial_access_enabled=False))
 
-    serial_subtest = result["tests"]["serial_console_access_enabled"]
-    allowed_subtest = result["tests"]["allowed_principal_can_access_console"]
-    assert result["success"] is False
+    assert result["success"] is True
+    assert result["skipped"] is True
     assert result["serial_access_enabled"] is False
-    assert serial_subtest["passed"] is False
-    assert allowed_subtest["passed"] is False
-    assert allowed_subtest["decision"] == "allowed"
-    assert allowed_subtest["serial_access_enabled"] is False
+    assert result["skip_reason"] == "EC2 serial console access is disabled for this account or region"
+    assert all(test["passed"] and test["skipped"] for test in result["tests"].values())
+
+
+def test_serial_console_disabled_skip_avoids_temporary_iam_users() -> None:
+    """Serial-console-disabled environments skip before creating IAM users."""
+    module = load_vm_script("console_rbac.py")
+    result, iam = _run_fake_console_rbac(module, ec2=FakeEc2(serial_access_enabled=False))
+
+    assert result["skipped"] is True
+    assert iam.create_user_calls == []
+    assert iam.put_user_policy_calls == []
+    assert iam.simulation_calls == []
 
 
 def test_allowed_principal_is_denied_for_other_instance() -> None:
     """Allowed principal remains denied for an unscoped instance ARN."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     result, _iam = _run_fake_console_rbac(module)
 
     subtest = result["tests"]["allowed_principal_is_resource_scoped"]
@@ -257,7 +249,7 @@ def test_allowed_principal_is_denied_for_other_instance() -> None:
 
 def test_unscoped_attached_policy_fails_resource_scoping() -> None:
     """An actual unscoped inline policy on the allowed principal fails the check."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     iam = FakeConsoleRbacIam(force_allowed_policy_resource="*")
     result, _iam = _run_fake_console_rbac(module, iam=iam)
 
@@ -272,7 +264,7 @@ def test_unscoped_attached_policy_fails_resource_scoping() -> None:
 
 def test_instance_arn_uses_partition_from_sts_identity() -> None:
     """Simulated instance ARNs use the caller's AWS partition."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     result, _iam = _run_fake_console_rbac(
         module,
         sts=FakeSts(partition="aws-us-gov"),
@@ -286,7 +278,7 @@ def test_instance_arn_uses_partition_from_sts_identity() -> None:
 
 def test_instance_arn_partition_falls_back_to_region_metadata() -> None:
     """Simulated instance ARNs use region metadata when STS omits the caller ARN."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     result, _iam = _run_fake_console_rbac(
         module,
         sts=FakeSts(include_arn=False),
@@ -300,7 +292,7 @@ def test_instance_arn_partition_falls_back_to_region_metadata() -> None:
 
 def test_empty_iam_simulation_results_mark_result_failed() -> None:
     """Empty IAM simulation output is reported as a failed script result."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     iam = FakeConsoleRbacIam(empty_results=True)
     result, _iam = _run_fake_console_rbac(module, iam=iam)
 
@@ -311,7 +303,7 @@ def test_empty_iam_simulation_results_mark_result_failed() -> None:
 
 def test_temporary_users_are_tagged_and_cleaned_up() -> None:
     """Temporary IAM users are owned with tags and deleted after simulation."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     result, iam = _run_fake_console_rbac(module)
 
     assert result["success"] is True
@@ -323,7 +315,7 @@ def test_temporary_users_are_tagged_and_cleaned_up() -> None:
 
 def test_cleanup_failure_marks_result_failed() -> None:
     """Owned cleanup failures fail the script result."""
-    module = _load_vm_script("console_rbac.py")
+    module = load_vm_script("console_rbac.py")
     result, _iam = _run_fake_console_rbac(module, iam=FakeConsoleRbacIam(fail_delete_user=True))
 
     assert result["success"] is False

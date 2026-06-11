@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Reboot AWS EC2 instance and validate it comes back healthy.
 
@@ -39,7 +44,6 @@ Output JSON:
 import argparse
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -47,7 +51,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/aws/scripts/ (for common.*)
 from common.ec2 import wait_for_public_ip
-from common.ssh_utils import wait_for_ssh
+from common.ssh_utils import ssh_run, wait_for_ssh
 
 
 def get_uptime_via_ssh(
@@ -65,29 +69,19 @@ def get_uptime_via_ssh(
     Returns:
         Uptime in seconds, or None if command failed
     """
-    try:
-        result = subprocess.run(
-            [
-                "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "ConnectTimeout=10",
-                "-o",
-                "BatchMode=yes",
-                "-i",
-                key_file,
-                f"{user}@{host}",
-                "cat /proc/uptime | cut -d' ' -f1",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode == 0:
-            return float(result.stdout.strip())
-    except (subprocess.TimeoutExpired, ValueError, OSError):
-        pass
+    exit_code, stdout, _stderr = ssh_run(
+        host,
+        user,
+        key_file,
+        "cat /proc/uptime | cut -d' ' -f1",
+        timeout=30,
+        connect_timeout=10,
+    )
+    if exit_code == 0:
+        try:
+            return float(stdout.strip())
+        except ValueError:
+            pass
     return None
 
 

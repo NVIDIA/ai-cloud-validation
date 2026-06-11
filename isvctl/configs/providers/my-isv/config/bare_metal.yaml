@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # my-isv Bare-Metal Validation Configuration - Living Example
 #
@@ -23,12 +28,12 @@
 #    StableIdentifierCheck, StepSuccessCheck). SSH-based host checks
 #    (Connectivity, Os, Gpu, Driver, CpuInfo, HostSoftware, GpuStress,
 #    Nccl, Training, Nvlink, InfiniBand, Ethernet, ContainerRuntime,
-#    CloudInit, NIM*) are excluded via `exclude.markers: [ssh]` because
+#    CloudInit, NIM*) are excluded via `exclude.labels: [ssh]` because
 #    a dummy stub cannot spin up a real host to SSH into. The
 #    deploy_nim / teardown_nim / reinstall_instance steps are also
 #    skipped for the same reason.
 #
-# ACTION: Remove `exclude.markers: [ssh]` at the bottom once your
+# ACTION: Remove `exclude.labels: [ssh]` at the bottom once your
 #   stubs provision real instances with SSH access.
 #
 # Steps:
@@ -181,6 +186,22 @@ commands:
           - "{{steps.launch_instance.key_file}}"
         timeout: 60
 
+      - name: host_status_log
+        phase: test
+        command: "python ../scripts/bare_metal/host_status_log.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--public-ip"
+          - "{{steps.describe_instance.public_ip}}"
+          - "--max-age-minutes"
+          - "5"
+        timeout: 60
+
       - name: reinstall_instance
         phase: test
         skip: true
@@ -264,4 +285,4 @@ tests:
   # Ethernet, ContainerRuntime, CloudInit, NIM*). Real ISVs remove this
   # exclusion as their stubs come online.
   exclude:
-    markers: ["ssh"]
+    labels: ["ssh"]

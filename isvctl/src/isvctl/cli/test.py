@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Test subcommand for isvctl.
 
@@ -25,7 +30,13 @@ import yaml
 from isvtest.catalog import build_catalog, get_catalog_version
 
 from isvctl.cli import setup_logging
-from isvctl.cli.common import OUTPUT_DIR_NAME, get_output_dir
+from isvctl.cli.common import (
+    OUTPUT_DIR_NAME,
+    get_output_dir,
+    print_error,
+    print_progress,
+    print_warning,
+)
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.loop import Orchestrator, Phase
@@ -96,6 +107,14 @@ def run(
             help="Run only a specific phase of the test lifecycle",
         ),
     ] = Phase.ALL,
+    labels: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--label",
+            "-l",
+            help="Label to filter validations (can be repeated; all selected labels must match)",
+        ),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -145,7 +164,6 @@ def run(
         int | None,
         typer.Option(
             "--lab-id",
-            "-l",
             help="ISV Lab ID for result upload (required if uploading)",
         ),
     ] = None,
@@ -176,13 +194,14 @@ def run(
         isvctl test run -f lab.yaml -f commands.yaml -f suites/k8s.yaml
         isvctl test run -f config.yaml --set context.node_count=8
         isvctl test run -f config.yaml --phase setup
+        isvctl test run -f config.yaml --label gpu --label slow
         isvctl test run -f config.yaml -- -v -s -k "test_name"
     """
     setup_logging(verbose)
 
     # Validate at least one config file is provided
     if not config_files:
-        typer.echo("Error: At least one --config/-f config file is required.", err=True)
+        print_error("At least one --config/-f config file is required.")
         raise typer.Exit(code=1)
 
     # Collect extra pytest args from context (after --)
@@ -194,7 +213,7 @@ def run(
     try:
         merged_config = merge_yaml_files([str(p) for p in config_files], set_values or [])
     except Exception as e:
-        typer.echo(f"Failed to load configuration: {e}", err=True)
+        print_error(f"Failed to load configuration: {e}")
         raise typer.Exit(code=1)
 
     # Count imports by parsing each file's top-level keys
@@ -212,22 +231,24 @@ def run(
     if import_count:
         parts.append(f"{import_count} import{'s' if import_count > 1 else ''}")
     if parts:
-        typer.echo(f"Loaded configuration ({', '.join(parts)}).")
+        print_progress(f"Loaded configuration ({', '.join(parts)}).")
 
     # Validate against schema
-    typer.echo("Validating configuration...")
+    print_progress("Validating configuration...")
     try:
         config = RunConfig.model_validate(merged_config)
     except Exception as e:
-        typer.echo(f"Configuration validation failed: {e}", err=True)
+        print_error(f"Configuration validation failed: {e}")
         raise typer.Exit(code=1)
 
     if dry_run:
-        typer.echo("\n--- Dry Run: Configuration ---")
+        # Keep stdout as pure JSON so it can be consumed with `json.loads`;
+        # decorative headers and extra args go to stderr.
+        print_progress("\n--- Dry Run: Configuration ---")
         redacted_config = redact_dict(config.model_dump(mode="json"))
         typer.echo(json.dumps(redacted_config, indent=2))
         if extra_pytest_args:
-            typer.echo(f"\n--- Extra pytest args ---\n{extra_pytest_args}")
+            print_progress(f"\n--- Extra pytest args ---\n{extra_pytest_args}")
         return
 
     # Determine which phases to run
@@ -236,7 +257,7 @@ def run(
     else:
         phases = [phase]
 
-    typer.echo(f"\nRunning phases: {[p.value for p in phases]}")
+    print_progress(f"\nRunning phases: {[p.value for p in phases]}")
 
     # Default working directory to first config file's parent (for relative paths in config)
     effective_working_dir = working_dir or config_files[0].parent
@@ -250,18 +271,11 @@ def run(
     if upload_results:
         can_upload, _, _ = check_upload_credentials()
         if not can_upload:
-            typer.echo(
-                typer.style("Warning:", fg=typer.colors.YELLOW) + " ISV_CLIENT_ID and/or ISV_CLIENT_SECRET not set"
-            )
-            typer.echo(
-                typer.style("Warning:", fg=typer.colors.YELLOW)
-                + " Test results will not be uploaded to ISV Lab Service"
-            )
+            print_warning("ISV_CLIENT_ID and/or ISV_CLIENT_SECRET not set")
+            print_warning("Test results will not be uploaded to ISV Lab Service")
             upload_results = False
         elif not lab_id:
-            typer.echo(
-                typer.style("Warning:", fg=typer.colors.YELLOW) + " --lab-id not specified, skipping result upload"
-            )
+            print_warning("--lab-id not specified, skipping result upload")
             upload_results = False
         else:
             endpoint, ssa_issuer = get_environment_config()
@@ -271,15 +285,12 @@ def run(
                     missing.append("ISV_SERVICE_ENDPOINT")
                 if not ssa_issuer:
                     missing.append("ISV_SSA_ISSUER")
-                typer.echo(
-                    typer.style("Warning:", fg=typer.colors.YELLOW)
-                    + f" {', '.join(missing)} not set, skipping result upload"
-                )
+                print_warning(f"{', '.join(missing)} not set, skipping result upload")
                 upload_results = False
 
     # Create test run before running tests
     if upload_results and lab_id:
-        typer.echo("Creating test run in ISV Lab Service...")
+        print_progress("Creating test run in ISV Lab Service...")
         platform = config.tests.platform if config.tests and config.tests.platform else "kubernetes"
         test_run_id = create_test_run(
             lab_id=lab_id,
@@ -289,10 +300,7 @@ def run(
             isv_software_version=isv_software_version,
         )
         if not test_run_id:
-            typer.echo(
-                typer.style("Warning:", fg=typer.colors.YELLOW)
-                + " Failed to create test run, continuing without upload"
-            )
+            print_warning("Failed to create test run, continuing without upload")
             upload_results = False
 
     # Run orchestration with log file capture (tee to _output/pytest-output.log)
@@ -314,6 +322,7 @@ def run(
             result = orchestrator.run(
                 phases=phases,
                 extra_pytest_args=extra_pytest_args,
+                include_labels=labels,
                 verbose=verbose,
                 junitxml=str(junitxml),
             )
@@ -321,12 +330,12 @@ def run(
                 try:
                     catalog_entries = build_catalog()
                     catalog_version = get_catalog_version()
-                    typer.echo(f"Built test catalog: {len(catalog_entries)} tests (version: {catalog_version})")
+                    print_progress(f"Built test catalog: {len(catalog_entries)} tests (version: {catalog_version})")
                     catalog_path = output_dir / "test_catalog.json"
                     catalog_path.write_text(
                         json.dumps({"isvTestVersion": catalog_version, "entries": catalog_entries}, indent=2)
                     )
-                    typer.echo(f"  Saved test catalog to: {catalog_path}")
+                    print_progress(f"  Saved test catalog to: {catalog_path}")
                 except Exception as e:
                     logger.warning("Failed to build test catalog: %s", e)
         finally:
@@ -334,7 +343,7 @@ def run(
 
     # Update test run after tests complete
     if upload_results and test_run_id and lab_id:
-        typer.echo("Uploading test results to ISV Lab Service...")
+        print_progress("Uploading test results to ISV Lab Service...")
         # Look for junit XML in _output, working directory, or current directory
         junit_path = output_dir / "junit-validation.xml"
         if not junit_path.exists():
@@ -353,9 +362,9 @@ def run(
             catalog_entries=catalog_entries,
             catalog_version=catalog_version,
         ):
-            typer.echo(typer.style("[OK]", fg=typer.colors.GREEN) + " Test results uploaded successfully")
+            print_progress(typer.style("[OK]", fg=typer.colors.GREEN) + " Test results uploaded successfully")
         else:
-            typer.echo(typer.style("Warning:", fg=typer.colors.YELLOW) + " Failed to upload test results")
+            print_warning("Failed to upload test results")
 
     # Display results
     typer.echo("\n" + "=" * 60)
@@ -469,14 +478,14 @@ def validate(
     """
     # Validate at least one config file is provided
     if not config_files:
-        typer.echo("Error: At least one --config/-f config file is required.", err=True)
+        print_error("At least one --config/-f config file is required.")
         raise typer.Exit(code=1)
 
-    typer.echo(f"Validating {len(config_files)} configuration file(s)...")
+    print_progress(f"Validating {len(config_files)} configuration file(s)...")
     try:
         merged_config = merge_yaml_files([str(p) for p in config_files], set_values or [])
     except Exception as e:
-        typer.echo(f"Failed to merge configuration files: {e}", err=True)
+        print_error(f"Failed to merge configuration files: {e}")
         raise typer.Exit(code=1)
 
     try:
@@ -489,6 +498,5 @@ def validate(
         if run_config.context:
             typer.echo(f"Context variables: {list(run_config.context.keys())}")
     except Exception as e:
-        err_status = typer.style("[ERROR]", fg=typer.colors.RED)
-        typer.echo(f"{err_status} Validation failed: {e}", err=True)
+        print_error(f"Validation failed: {e}")
         raise typer.Exit(code=1)

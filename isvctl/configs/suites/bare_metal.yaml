@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # Bare Metal (BMaaS) Validation - Canonical Contract
 #
@@ -104,6 +109,15 @@ tests:
         PciBusCheck:
           expected_gpus: 8
         HostSoftwareCheck: {}
+
+    # Per-host status log sampling: verify journalctl/dmesg
+    # are emitting fresh entries within max_age_minutes. Pass if at least
+    # one source has recent entries (set required_sources to enforce all).
+    host_status_logs:
+      step: host_status_log
+      checks:
+        StepSuccessCheck: {}
+        BmHostStatusLog: {}
 
     # GPU stress test - PyTorch matrix multiplications on all GPUs
     gpu_stress:
@@ -258,6 +272,8 @@ tests:
       checks:
         InstanceStateCheck:
           expected_state: "running"
+        StableIdentifierCheck:
+          reference_id: "{{steps.launch_instance.instance_id}}"
 
     reinstall_ssh:
       step: reinstall_instance
@@ -303,5 +319,54 @@ tests:
       checks:
         StepSuccessCheck: {}
 
+    # Hardware ingestion: expected-machine manifest vs discovered machines.
+    # Only runs for providers that implement the verify_ingestion step.
+    ingestion_check:
+      step: verify_ingestion
+      checks:
+        HardwareIngestionCheck:
+          min_machines: 1
+          expected_status: ["Ready", "InUse"]
+          require_healthy: true
+
+    # DPU health: presence, agent heartbeat, and machine-level health alerts.
+    # Only runs for providers that implement the check_dpu_health step.
+    dpu_health:
+      step: check_dpu_health
+      checks:
+        DpuHealthCheck:
+          require_heartbeat: true
+
+    # Governance metrics (CAP01-01): the provider's governance API must
+    # surface Delivered, Healthy, Reserved, and Active counts for nodes and
+    # GPUs. Only runs for providers that implement the
+    # query_governance_metrics step.
+    governance_metrics:
+      step: query_governance_metrics
+      checks:
+        GovernanceMetricsCheck:
+          min_delivered_nodes: 1
+
+    # Per-host health API (CAP05-01). Asserts the API returns a report per host
+    # and the host is alert-free. Only runs for providers that implement the
+    # query_host_health step. fail_on_classifications is omitted so ANY alert
+    # (BMC sensor critical/failure, BmcLeakDetection/Leak, DPU heartbeat, ...)
+    # fails the host; set it to scope failures to specific severities, or set
+    # require_probes to enforce that specific signals are present.
+    host_health:
+      step: query_host_health
+      checks:
+        HostHealthCheck:
+          require_report: true
+
+    # Primitive-level health aggregation at the nodegroup/reservation level
+    # (CAP05-02). Only runs for providers that implement the
+    # query_health_aggregation step.
+    health_aggregation:
+      step: query_health_aggregation
+      checks:
+        HealthAggregationCheck:
+          min_groups: 1
+
   exclude:
-    markers: []
+    labels: []

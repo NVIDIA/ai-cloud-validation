@@ -1,19 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
 import shlex
 from typing import Any, ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, parse_kubectl_json_items
 from isvtest.core.validation import BaseValidation
 from isvtest.utils.checks import truncate
 
@@ -36,7 +41,7 @@ class K8sControlPlaneLogsCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify Kubernetes control-plane logs can be viewed or exported."
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Parse the check config, resolve each component, and retrieve its logs.
@@ -321,31 +326,34 @@ class K8sControlPlaneLogsCheck(BaseValidation):
     def _find_component_pods(self, namespace: str, components: list[str]) -> tuple[dict[str, str], str | None]:
         """Return ``({component: pod_name}, probe_error)`` for the namespace.
 
-        Resolution runs from a single ``kubectl get pods`` call that emits
-        ``<pod_name>\\t<component_label>`` per line - label matching and
-        the name-prefix fallback are both resolved client-side from that
-        one response, so the cost is one round-trip regardless of how
-        many components are requested.
+        Resolution runs from a single ``kubectl get pods -o json`` call.
+        Label matching and the name-prefix fallback are both resolved
+        client-side from that one response, so the cost is one round-trip
+        regardless of how many components are requested.
 
         ``probe_error`` carries the stderr when the call fails, so auto-
         mode can distinguish "cluster reachable but control plane is
         hidden" from "kubectl itself is broken".
         """
         kubectl_base = get_kubectl_base_shell()
-        jsonpath = r"""{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.component}{"\n"}{end}"""
-        cmd = f"{kubectl_base} get pods -n {shlex.quote(namespace)} -o jsonpath={shlex.quote(jsonpath)}"
+        cmd = f"{kubectl_base} get pods -n {shlex.quote(namespace)} -o json"
         result = self.run_command(cmd)
         if result.exit_code != 0:
             probe_error = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
             return {}, probe_error
 
+        try:
+            items = parse_kubectl_json_items(result, f"pod list in namespace {namespace!r}")
+        except KubectlParseError as exc:
+            return {}, str(exc)
+
         pods: list[tuple[str, str]] = []
-        for line in result.stdout.splitlines():
-            if not line.strip():
-                continue
-            pod_name, _, label = line.partition("\t")
-            pod_name = pod_name.strip()
+        for item in items:
+            metadata = item.get("metadata") or {}
+            pod_name = str(metadata.get("name") or "").strip()
             if pod_name:
+                labels = metadata.get("labels") or {}
+                label = str(labels.get("component") or "") if isinstance(labels, dict) else ""
                 pods.append((pod_name, label.strip()))
 
         found: dict[str, str] = {}

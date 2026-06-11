@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Global pytest fixtures and configuration for ISV tests."""
 
@@ -23,32 +28,32 @@ pytest_plugins = ["isvtest.testing.subtests"]
 
 logger = setup_logger()
 
-# Custom pytest markers (registered here since pyproject.toml isn't shipped with wheel)
+# Validation labels pre-registered as pytest markers (registered here because
+# pyproject.toml isn't shipped with the wheel). Validation classes also
+# register their declared labels dynamically via _pytest_marks_for_validation,
+# but pre-registering the known set keeps the PytestUnknownMarkWarning quiet
+# during collection.
 #
-# NOTE: Do NOT add new markers here unless absolutely necessary.
-# Instead, use existing markers from this list. If you see a PytestUnknownMarkWarning
-# for a marker not in this list, either:
-# 1. Use an existing marker from this list instead
-# 2. Remove the unknown marker from the validation class
-# The warning is harmless but indicates a marker that won't filter properly.
+# NOTE: Do NOT add new entries here unless absolutely necessary. Prefer
+# reusing an existing label on the validation class's `labels` attribute.
 #
 CUSTOM_MARKERS = [
-    # Platform markers
+    # Platform
     "bare_metal: Bare metal node validation tests",
     "kubernetes: Kubernetes cluster validation tests",
     "slurm: Slurm scheduler validation tests",
     "vm: Virtual machine validation tests",
-    # Feature markers
+    # Feature
     "gpu: GPU-related tests",
     "iam: IAM identity and access management tests",
     "network: Network and interconnect tests",
     "security: Security-related tests (SG, NACL, IAM)",
     "ssh: Tests requiring SSH access to instances",
-    # Test type markers
+    # Test type
     "unit: Unit tests for library code (run in development/CI)",
     "validation: Infrastructure validation tests (run on target systems)",
     "workload: Workload-based validation tests (longer running)",
-    # Speed/scope markers
+    # Speed/scope
     "l2: Level 2 extended platform validation tests (longer running, e2e)",
     "slow: Tests that take longer than 5 minutes to run",
 ]
@@ -95,8 +100,8 @@ def _add_automatic_markers(items: list[pytest.Item]) -> None:
     Auto-added markers:
     - validation: All tests in tests/
 
-    Note: Platform-specific markers (bare_metal, kubernetes, slurm, etc.) are now
-    set on the check classes themselves via the 'markers' class variable.
+    Note: Platform-specific labels (bare_metal, kubernetes, slurm, etc.) are now
+    set on the check classes themselves via the 'labels' class variable.
 
     Args:
         items: List of collected test items to mark
@@ -114,9 +119,14 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
 
     Deselects tests based on:
     - Excluded platforms
-    - Excluded markers (skipped if -k is used, allowing explicit test selection)
+    - Excluded labels (skipped if -k/-m is used, allowing explicit test selection)
     - Excluded test names
     - Excluded test file names
+
+    `item_markers` here is the set of pytest mark names applied to a collected
+    item. Validation labels are mirrored into pytest marks (see
+    ``_pytest_marks_for_validation``), so excluding by label and matching by
+    pytest mark name is the same thing.
 
     Args:
         config: Pytest config object
@@ -128,14 +138,14 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
     if not config_file_arg:
         return
 
-    # Check if -k or -m was used (explicit test selection bypasses marker exclusions)
+    # Check if -k or -m was used (explicit test selection bypasses label exclusions)
     keyword_expr = config.getoption("-k", default=None)
     marker_expr = config.getoption("-m", default=None)
-    skip_marker_exclusions = bool(keyword_expr) or bool(marker_expr)
+    skip_label_exclusions = bool(keyword_expr) or bool(marker_expr)
     if keyword_expr:
-        logger.info(f"Explicit test selection (-k '{keyword_expr}') - marker exclusions bypassed")
+        logger.info(f"Explicit test selection (-k '{keyword_expr}') - label exclusions bypassed")
     if marker_expr:
-        logger.info(f"Explicit marker selection (-m '{marker_expr}') - marker exclusions bypassed")
+        logger.info(f"Explicit label selection (-m '{marker_expr}') - label exclusions bypassed")
 
     try:
         loader = ConfigLoader()
@@ -161,10 +171,10 @@ def _handle_test_exclusions(config: pytest.Config, items: list[pytest.Item]) -> 
             if any(platform in item_markers for platform in excluded_platforms):
                 should_exclude = True
 
-            # Exclude by marker (skipped if -k is used for explicit selection)
-            if not skip_marker_exclusions:
-                excluded_markers = exclude_config.get("markers", [])
-                if any(marker in item_markers for marker in excluded_markers):
+            # Exclude by label (skipped if -k/-m is used for explicit selection).
+            if not skip_label_exclusions:
+                excluded_labels = exclude_config.get("labels", [])
+                if any(label in item_markers for label in excluded_labels):
                     should_exclude = True
 
             # Exclude by test name (supports exact match, prefix match, or parametrized ID match)

@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Step executor for sequential command execution.
 
@@ -110,6 +115,52 @@ def _write_full_stderr(step_name: str, stderr: str) -> None:
     """Write full redacted stderr for a failed step when verbose logging is enabled."""
     redacted = redact_text(stderr.rstrip())
     sys.stderr.write(f"\n--- stderr from step '{step_name}' ---\n{redacted}\n--- end stderr ---\n")
+
+
+def _resolve_python_script_path(cmd_parts: list[str], cwd: Path) -> list[str]:
+    """Resolve repo-root-relative Python script paths before changing cwd.
+
+    Python interpreter options may precede the script argument, so this scans
+    past supported flags and only rewrites a relative script path when it is
+    missing from the step cwd but exists from the current process cwd.
+
+    Args:
+        cmd_parts: Parsed command tokens beginning with the Python interpreter.
+        cwd: Working directory where the step command will run.
+
+    Returns:
+        Command tokens with the script path resolved to an absolute path, or the
+        original tokens when no rewrite is needed or possible.
+    """
+    if len(cmd_parts) < 2:
+        return cmd_parts
+    if not Path(cmd_parts[0]).name.startswith("python"):
+        return cmd_parts
+
+    script_idx = 1
+    while script_idx < len(cmd_parts) and cmd_parts[script_idx].startswith("-"):
+        opt = cmd_parts[script_idx]
+        if opt in {"-m", "-c"}:
+            return cmd_parts
+        if opt in {"-W", "-X"} and script_idx + 1 < len(cmd_parts):
+            script_idx += 2
+        else:
+            script_idx += 1
+    if script_idx >= len(cmd_parts):
+        return cmd_parts
+
+    script_arg = cmd_parts[script_idx]
+    script_path = Path(script_arg)
+    if script_path.is_absolute() or (cwd / script_path).exists():
+        return cmd_parts
+
+    cwd_relative = Path.cwd() / script_path
+    if not cwd_relative.exists():
+        return cmd_parts
+
+    updated = cmd_parts.copy()
+    updated[script_idx] = str(cwd_relative.resolve())
+    return updated
 
 
 def _find_missing_step_path(arg: str, steps_data: dict[str, Any]) -> str | None:
@@ -314,6 +365,7 @@ class StepExecutor:
 
         # Determine working directory
         cwd = Path(step.working_dir) if step.working_dir else self.working_dir
+        cmd_parts = _resolve_python_script_path(cmd_parts, cwd)
 
         # Build environment
         env = os.environ.copy()

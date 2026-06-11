@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Kubernetes utility functions for validation tests."""
 
@@ -20,13 +25,18 @@ import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from isvtest.core.logger import setup_logger
+from isvtest.core.runners import CommandResult
+
+if TYPE_CHECKING:
+    from isvtest.core.validation import BaseValidation
 
 logger = setup_logger(__name__)
+KubectlJsonResult = CommandResult | subprocess.CompletedProcess[Any]
 
 # Container waiting reasons that kubelet only reports after it has already
 # given up retrying - callers can fast-fail instead of waiting out a timeout.
@@ -198,6 +208,142 @@ def get_kubectl_base_shell(*args: str) -> str:
     return " ".join(shlex.quote(part) for part in (*get_kubectl_command(), *args))
 
 
+class KubectlParseError(Exception):
+    """Raised when ``kubectl ... -o json`` output cannot be parsed."""
+
+
+def parse_kubectl_json(
+    result: KubectlJsonResult,
+    resource: str = "kubectl JSON output",
+) -> dict[str, Any]:
+    """Parse ``kubectl ... -o json`` stdout into a JSON object.
+
+    Raises ``KubectlParseError`` on malformed output. Command exit-code
+    handling stays with callers so they can keep resource-specific
+    failure messages.
+    """
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise KubectlParseError(f"Failed to parse {resource}: empty stdout")
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise KubectlParseError(f"Failed to parse {resource}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise KubectlParseError(f"Failed to parse {resource}: expected JSON object, got {type(payload).__name__}")
+    return payload
+
+
+def parse_kubectl_json_items(
+    result: KubectlJsonResult,
+    resource: str = "kubectl JSON list output",
+) -> list[dict[str, Any]]:
+    """Extract the ``items`` list from a ``kubectl get ... -o json`` result.
+
+    Raises ``KubectlParseError`` if the payload is malformed or ``items`` is
+    missing/wrongly typed.
+    """
+    payload = parse_kubectl_json(result, resource)
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise KubectlParseError(f"Failed to parse {resource}: expected 'items' list")
+    if any(not isinstance(item, dict) for item in items):
+        raise KubectlParseError(f"Failed to parse {resource}: expected object entries in 'items'")
+    return items
+
+
+def kubectl_items_or_fail(
+    validation: "BaseValidation",
+    result: CommandResult,
+    resource: str,
+) -> list[dict[str, Any]] | None:
+    """Parse ``kubectl get ... -o json`` items, routing failures to ``validation.set_failed``.
+
+    Returns the items list on success, or ``None`` after marking the validation
+    failed when the command exited non-zero or returned unparseable JSON.
+    """
+    if result.exit_code != 0:
+        validation.set_failed(f"Failed to get {resource}: {result.stderr}")
+        return None
+    try:
+        return parse_kubectl_json_items(result, resource)
+    except KubectlParseError as exc:
+        validation.set_failed(str(exc))
+        return None
+
+
+def kubectl_payload_or_none(
+    result: KubectlJsonResult,
+) -> dict[str, Any] | None:
+    """Best-effort parse of ``kubectl ... -o json`` stdout into a JSON object.
+
+    Returns ``None`` on empty or malformed output - callers that fall back to
+    sentinels (empty lists, ``"Unknown"``, ``0``) keep their old behaviour
+    rather than raising, since they cannot surface a validation failure.
+    """
+    if not result.stdout:
+        return None
+    try:
+        return parse_kubectl_json(result)
+    except KubectlParseError:
+        return None
+
+
+def kubectl_items_or_empty(
+    result: KubectlJsonResult,
+) -> list[dict[str, Any]]:
+    """Best-effort items list; returns ``[]`` on empty or malformed output."""
+    if not result.stdout:
+        return []
+    try:
+        return parse_kubectl_json_items(result)
+    except KubectlParseError:
+        return []
+
+
+def names_from_items(items: list[dict[str, Any]]) -> list[str]:
+    """Extract ``.metadata.name`` values from a list of Kubernetes API objects."""
+    names: list[str] = []
+    for item in items:
+        metadata = item.get("metadata") or {}
+        name = metadata.get("name") if isinstance(metadata, dict) else None
+        if name:
+            names.append(str(name))
+    return names
+
+
+def pod_status_reason(pod: dict[str, Any]) -> str:
+    """Return a kubectl-like pod status reason from structured pod JSON."""
+    status = pod.get("status") or {}
+    phase = status.get("phase") or "Unknown"
+    for key in ("initContainerStatuses", "containerStatuses"):
+        for container_status in status.get(key) or []:
+            state = container_status.get("state") or {}
+            waiting_reason = (state.get("waiting") or {}).get("reason")
+            if waiting_reason:
+                return waiting_reason
+            terminated_reason = (state.get("terminated") or {}).get("reason")
+            if terminated_reason and terminated_reason != "Completed":
+                return terminated_reason
+    # Fall back to ``.status.reason`` (e.g. "Evicted", "NodeLost", "Shutdown")
+    # before the bare phase so the kubectl STATUS column wording is preserved
+    # for pods without informative container state.
+    return str(status.get("reason") or phase)
+
+
+def job_terminal_status(payload: dict[str, Any]) -> str | None:
+    """Return ``"Complete"`` or ``"Failed"`` if either appears in ``.status.conditions[].type``.
+
+    Returns ``None`` if the job has not yet reached a terminal condition.
+    """
+    types = {c.get("type") for c in (payload.get("status") or {}).get("conditions") or [] if isinstance(c, dict)}
+    if "Complete" in types:
+        return "Complete"
+    if "Failed" in types:
+        return "Failed"
+    return None
+
+
 def render_k8s_manifest(
     path: Path,
     mutate: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -255,6 +401,26 @@ def parse_pod_state(stdout: str, stderr: str) -> tuple[str, str, str]:
     statuses = status.get("containerStatuses") or []
     waiting = ((statuses[0].get("state") if statuses else {}) or {}).get("waiting") or {}
     return phase, waiting.get("reason") or "", waiting.get("message") or ""
+
+
+def pod_state_from_result(
+    result: KubectlJsonResult,
+) -> tuple[str, str, str]:
+    """Parse pod state from a ``kubectl get pod -o json`` result.
+
+    Accepts either a ``CommandResult`` (validations) or a
+    ``subprocess.CompletedProcess`` (core helpers). Returns the same
+    ``(phase, waiting_reason, waiting_message)`` tuple as
+    ``parse_pod_state``: on failure only stderr is inspected (for NotFound
+    detection); on success only stdout is parsed.
+    """
+    if isinstance(result, CommandResult):
+        exit_code = result.exit_code
+    else:
+        exit_code = result.returncode
+    if exit_code == 0:
+        return parse_pod_state(result.stdout, "")
+    return parse_pod_state("", result.stderr or "")
 
 
 def parse_server_version(stdout: str) -> str | None:
@@ -339,14 +505,10 @@ def get_gpu_nodes() -> list[str]:
     Returns:
         List of node names that have GPUs available.
     """
-    result = run_kubectl(
-        ["get", "nodes", "-l", "nvidia.com/gpu.present=true", "-o", "jsonpath={.items[*].metadata.name}"]
-    )
+    result = run_kubectl(["get", "nodes", "-l", "nvidia.com/gpu.present=true", "-o", "json"])
     if result.returncode != 0:
         return []
-
-    nodes = result.stdout.strip().split()
-    return [node for node in nodes if node]
+    return names_from_items(kubectl_items_or_empty(result))
 
 
 def get_node_gpu_count(node_name: str) -> int:
@@ -358,13 +520,16 @@ def get_node_gpu_count(node_name: str) -> int:
     Returns:
         Number of GPUs available on the node, or 0 if none or error.
     """
-    result = run_kubectl(["get", "node", node_name, "-o", "jsonpath={.status.capacity.nvidia\\.com/gpu}"])
-    if result.returncode != 0 or not result.stdout.strip():
+    result = run_kubectl(["get", "node", node_name, "-o", "json"])
+    if result.returncode != 0:
         return 0
-
+    payload = kubectl_payload_or_none(result)
+    if payload is None:
+        return 0
+    capacity = (payload.get("status") or {}).get("capacity") or {}
     try:
-        return int(result.stdout.strip())
-    except ValueError:
+        return int(capacity.get("nvidia.com/gpu") or 0)
+    except (TypeError, ValueError):
         return 0
 
 
@@ -395,12 +560,10 @@ def wait_for_pod_status(
     start_time = time.time()
 
     while time.time() - start_time < timeout:
-        result = run_kubectl(["get", "pod", pod_name, "-n", namespace, "-o", "jsonpath={.status.phase}"])
-
-        if result.returncode == 0:
-            current_phase = result.stdout.strip()
-            if current_phase == desired_phase:
-                return True
+        result = run_kubectl(["get", "pod", pod_name, "-n", namespace, "-o", "json"])
+        phase, _reason, _message = pod_state_from_result(result)
+        if phase == desired_phase:
+            return True
 
         time.sleep(0.5)
 
@@ -439,15 +602,12 @@ def wait_for_pod_completion(
     last_phase = "Unknown"
 
     while time.time() - start_time < timeout:
-        result = run_kubectl(["get", "pod", pod_name, "-n", namespace, "-o", "jsonpath={.status.phase}"])
-
-        if result.returncode == 0:
-            current_phase = result.stdout.strip()
-            last_phase = current_phase
-
-            # Check if pod reached a terminal state
-            if current_phase in ["Succeeded", "Failed"]:
-                return True, current_phase
+        result = run_kubectl(["get", "pod", pod_name, "-n", namespace, "-o", "json"])
+        phase, _reason, _message = pod_state_from_result(result)
+        if phase not in ("Unknown", "NotFound"):
+            last_phase = phase
+        if phase in ("Succeeded", "Failed"):
+            return True, phase
 
         time.sleep(0.5)
 
@@ -615,68 +775,20 @@ def wait_for_job_completion(
 
     while time.time() - start_time < timeout:
         # Check job conditions for Complete or Failed status
-        result = run_kubectl(
-            [
-                "get",
-                "job",
-                job_name,
-                "-n",
-                namespace,
-                "-o",
-                "jsonpath={.status.conditions[*].type}",
-            ]
-        )
-
-        if result.returncode == 0 and result.stdout.strip():
-            conditions = result.stdout.strip().split()
-
-            # Check if job has Complete or Failed condition
-            if "Complete" in conditions:
-                return True, "Complete"
-            if "Failed" in conditions:
-                return True, "Failed"
-
-            last_status = "Running" if conditions else "Pending"
+        result = run_kubectl(["get", "job", job_name, "-n", namespace, "-o", "json"])
+        job_payload = kubectl_payload_or_none(result) if result.returncode == 0 else None
+        if job_payload is not None:
+            terminal = job_terminal_status(job_payload)
+            if terminal is not None:
+                return True, terminal
+            has_conditions = bool((job_payload.get("status") or {}).get("conditions"))
+            last_status = "Running" if has_conditions else "Pending"
 
         # Get pod status for better visibility
-        pod_status_result = run_kubectl(
-            [
-                "get",
-                "pods",
-                "-l",
-                f"job-name={job_name}",
-                "-n",
-                namespace,
-                "-o",
-                "jsonpath={.items[0].status.phase} {.items[0].status.containerStatuses[*].state}",
-            ]
-        )
-
-        pod_info = "No pods"
-        if pod_status_result.returncode == 0 and pod_status_result.stdout.strip():
-            parts = pod_status_result.stdout.strip().split(maxsplit=1)
-            pod_phase = parts[0] if parts else "Unknown"
-
-            # Count running containers if we have container status
-            if len(parts) > 1:
-                container_states = parts[1]
-                running_count = container_states.count("map[running:")
-                waiting_count = container_states.count("map[waiting:")
-                terminated_count = container_states.count("map[terminated:")
-                total = running_count + waiting_count + terminated_count
-
-                if running_count > 0:
-                    pod_info = f"Pod: {pod_phase}, Containers: {running_count}/{total} running"
-                elif waiting_count > 0:
-                    pod_info = f"Pod: {pod_phase}, Containers: {waiting_count}/{total} waiting"
-                else:
-                    pod_info = f"Pod: {pod_phase}"
-            else:
-                pod_info = f"Pod: {pod_phase}"
-
-            # Update last_status based on pod phase if we don't have conditions
-            if not result.stdout.strip():
-                last_status = pod_phase
+        pod_status_result = run_kubectl(["get", "pods", "-l", f"job-name={job_name}", "-n", namespace, "-o", "json"])
+        pod_info, pod_phase = _format_job_pod_info(pod_status_result)
+        if job_payload is None and pod_phase:
+            last_status = pod_phase
 
         # Log status every 30 seconds
         current_time = time.time()
@@ -691,6 +803,36 @@ def wait_for_job_completion(
     return False, last_status
 
 
+def _format_job_pod_info(result: subprocess.CompletedProcess[Any]) -> tuple[str, str]:
+    """Render a "Pod: <phase>, Containers: <r>/<t> running" line plus the bare pod phase.
+
+    Returns ``(info_str, phase)`` - ``phase`` is empty when there is no first pod.
+    """
+    if result.returncode != 0:
+        return "No pods", ""
+    pods = kubectl_items_or_empty(result)
+    if not pods:
+        return "No pods", ""
+    first_status = pods[0].get("status") or {}
+    pod_phase = first_status.get("phase") or "Unknown"
+    container_statuses = first_status.get("containerStatuses") or []
+    if not container_statuses:
+        return f"Pod: {pod_phase}", pod_phase
+    counters = {"running": 0, "waiting": 0, "terminated": 0}
+    for status in container_statuses:
+        state = status.get("state") or {}
+        for key in counters:
+            if state.get(key):
+                counters[key] += 1
+                break
+    total = sum(counters.values())
+    if counters["running"]:
+        return f"Pod: {pod_phase}, Containers: {counters['running']}/{total} running", pod_phase
+    if counters["waiting"]:
+        return f"Pod: {pod_phase}, Containers: {counters['waiting']}/{total} waiting", pod_phase
+    return f"Pod: {pod_phase}", pod_phase
+
+
 def get_job_pods(job_name: str, namespace: str) -> list[str]:
     """Get list of pod names for a specific job.
 
@@ -701,24 +843,10 @@ def get_job_pods(job_name: str, namespace: str) -> list[str]:
     Returns:
         List of pod names belonging to the job.
     """
-    result = run_kubectl(
-        [
-            "get",
-            "pods",
-            "-n",
-            namespace,
-            "-l",
-            f"job-name={job_name}",
-            "-o",
-            "jsonpath={.items[*].metadata.name}",
-        ]
-    )
-
+    result = run_kubectl(["get", "pods", "-n", namespace, "-l", f"job-name={job_name}", "-o", "json"])
     if result.returncode != 0:
         return []
-
-    pods = result.stdout.strip().split()
-    return [pod for pod in pods if pod]
+    return names_from_items(kubectl_items_or_empty(result))
 
 
 def delete_job(job_name: str, namespace: str, wait: bool = True) -> bool:
@@ -771,42 +899,26 @@ def wait_for_multiple_pods_completion(
     """
     start_time = time.time()
     results = {pod_name: (False, "Unknown") for pod_name in pod_names}
-    completed_pods = set()
+    pending = set(pod_names)
 
     while time.time() - start_time < timeout:
-        # Check all pods at once using label selector or field selector
-        # Get status of all pods in one call
-        result = run_kubectl(
-            [
-                "get",
-                "pods",
-                "-n",
-                namespace,
-                "-o",
-                'jsonpath={range .items[*]}{.metadata.name}{"\\t"}{.status.phase}{"\\n"}{end}',
-            ]
-        )
+        result = run_kubectl(["get", "pods", "-n", namespace, "-o", "json"])
 
         if result.returncode == 0:
-            # Parse output: "pod-name\tPhase\n"
-            for line in result.stdout.strip().split("\n"):
-                if not line:
+            for pod in kubectl_items_or_empty(result):
+                name = (pod.get("metadata") or {}).get("name")
+                if name not in pending:
                     continue
-                parts = line.split("\t")
-                if len(parts) == 2:
-                    pod_name, phase = parts
-                    if pod_name in pod_names:
-                        if phase in ["Succeeded", "Failed"]:
-                            results[pod_name] = (True, phase)
-                            completed_pods.add(pod_name)
+                phase = str((pod.get("status") or {}).get("phase") or "")
+                if phase in ("Succeeded", "Failed"):
+                    results[name] = (True, phase)
+                    pending.discard(name)
 
-        # Check if all pods completed
-        if len(completed_pods) == len(pod_names):
+        if not pending:
             return results
 
         time.sleep(0.5)
 
-    # Timeout - return current status
     return results
 
 
@@ -816,12 +928,10 @@ def get_all_nodes() -> list[str]:
     Returns:
         List of all node names in the cluster.
     """
-    result = run_kubectl(["get", "nodes", "-o", "jsonpath={.items[*].metadata.name}"])
+    result = run_kubectl(["get", "nodes", "-o", "json"])
     if result.returncode != 0:
         return []
-
-    nodes = result.stdout.strip().split()
-    return [node for node in nodes if node]
+    return names_from_items(kubectl_items_or_empty(result))
 
 
 def get_node_status(node_name: str) -> str:
@@ -834,13 +944,16 @@ def get_node_status(node_name: str) -> str:
         Node status string (e.g., 'Ready', 'NotReady', 'Unknown').
         Returns 'Unknown' if unable to determine status.
     """
-    result = run_kubectl(["get", "node", node_name, "-o", "jsonpath={.status.conditions[?(@.type=='Ready')].status}"])
-    if result.returncode != 0 or not result.stdout.strip():
+    result = run_kubectl(["get", "node", node_name, "-o", "json"])
+    if result.returncode != 0:
         return "Unknown"
-
-    # Status will be "True" or "False" - convert to Ready/NotReady
-    status = result.stdout.strip()
-    return "Ready" if status == "True" else "NotReady"
+    payload = kubectl_payload_or_none(result)
+    if payload is None:
+        return "Unknown"
+    for condition in (payload.get("status") or {}).get("conditions") or []:
+        if isinstance(condition, dict) and condition.get("type") == "Ready":
+            return "Ready" if condition.get("status") == "True" else "NotReady"
+    return "Unknown"
 
 
 def get_nodes_with_status() -> dict[str, str]:

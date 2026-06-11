@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """IAM and tenant validations for step outputs.
 
@@ -35,7 +40,7 @@ class AccessKeyCreatedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check access key was created"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -66,7 +71,7 @@ class AccessKeyAuthenticatedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check access key can authenticate"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -95,7 +100,7 @@ class AccessKeyDisabledCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check access key was disabled"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -119,7 +124,7 @@ class AccessKeyRejectedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check disabled key is rejected"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -142,24 +147,31 @@ class AccessKeyRejectedCheck(BaseValidation):
 
 
 class ServiceAccountCredentialCheck(BaseValidation):
-    """Validate out-of-cluster service accounts can authenticate with long-lived credentials.
+    """Validate out-of-cluster service accounts can obtain credentials and authenticate.
 
-    Verifies that service accounts intended for out-of-cluster use (CI/CD
-    pipelines, external tooling) can authenticate using long-lived credentials
-    and that the credentials grant the expected identity.
+    Verifies that a service account intended for out-of-cluster use (CI/CD
+    pipelines, external tooling) can obtain credentials and authenticate as the
+    expected identity. The credential may come from any source the platform
+    supports -- a downloaded long-lived key, a short-lived token, service-account
+    impersonation, or workload-identity federation. The property under test is
+    "the workload can authenticate as the service account," not the specific key
+    material, so a platform that disables long-lived key download (a recommended
+    hardening posture) proves this via a keyless source.
 
     Config:
         step_output: The step output to check
 
     Step output:
         authenticated: Boolean - True if SA authenticated successfully
-        credential_type: Type of credential (e.g. "api_key", "service_account_key")
+        credential_type: Type of credential (e.g. "access_key", "oauth2_token")
+        credential_source: Optional - how the credential was obtained
+            (long_lived_key | short_lived | impersonation | workload_identity)
         identity: The authenticated identity / principal
-        expires_at: Optional expiry (null/absent for truly long-lived)
+        expires_at: Optional expiry (null/absent for long-lived credentials)
     """
 
-    description: ClassVar[str] = "Check service account long-lived credential auth"
-    markers: ClassVar[list[str]] = ["iam", "security"]
+    description: ClassVar[str] = "Check service account can obtain credentials and authenticate"
+    labels: ClassVar[tuple[str, ...]] = ("iam", "security")
 
     def run(self) -> None:
         """Validate SA credential authentication from step output."""
@@ -183,7 +195,12 @@ class ServiceAccountCredentialCheck(BaseValidation):
         if not identity:
             self.set_failed("No 'identity' in step output")
             return
-        self.set_passed(f"Service account authenticated via {credential_type} as {identity}")
+        # credential_source is optional and informational: the property under test
+        # is that the SA can authenticate, not which credential mechanism produced
+        # the token (long_lived_key, short_lived, impersonation, workload_identity).
+        credential_source = step_output.get("credential_source")
+        via = f"{credential_type} ({credential_source})" if credential_source else credential_type
+        self.set_passed(f"Service account authenticated via {via} as {identity}")
 
 
 # =============================================================================
@@ -203,7 +220,7 @@ class TenantCreatedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check tenant was created"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -235,7 +252,7 @@ class TenantListedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check tenant appears in list"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -268,7 +285,7 @@ class TenantInfoCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check tenant info retrieved"
-    markers: ClassVar[list[str]] = ["iam"]
+    labels: ClassVar[tuple[str, ...]] = ("iam",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

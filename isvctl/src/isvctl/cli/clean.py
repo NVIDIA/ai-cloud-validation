@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Clean subcommand for isvctl.
 
@@ -22,6 +27,7 @@ import typer
 from isvctl.cleaner.operations import OPERATIONS
 from isvctl.cleaner.runner import OperationRunner
 from isvctl.cli import setup_logging
+from isvctl.cli.common import print_error, print_progress
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +113,7 @@ def run(
     try:
         operations_to_run = _validate_operations(operations)
     except typer.BadParameter as e:
-        typer.echo(f"Error: {e}", err=True)
+        print_error(str(e))
         raise typer.Exit(code=1)
 
     # Create runner instance
@@ -118,7 +124,7 @@ def run(
     )
 
     # Execute operations
-    typer.echo("Starting NVIDIA ISV Lab clean-up operations...")
+    print_progress("Starting NVIDIA ISV Lab clean-up operations...")
     results = runner.run_operations(operations_to_run)
 
     # Report results

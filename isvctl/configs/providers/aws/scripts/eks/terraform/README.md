@@ -7,11 +7,12 @@ This Terraform module deploys an AWS EKS cluster configured for GPU workloads an
 - **EKS Cluster** with configurable Kubernetes version
 - **GPU Node Group** with NVIDIA GPU instances (g4dn, g5, p4d, p5)
 - **System Node Group** for non-GPU workloads
+- **Upstream Kubernetes Cluster Autoscaler** installed via Helm with IRSA
 - **NVIDIA GPU Operator** installed via Helm
 - **EFS Storage** for ReadWriteMany PVCs (NIM model cache)
 - **gp3 StorageClass** as default for EBS volumes
 - **VPC** with public/private subnets and NAT Gateway
-- **IRSA** for EBS and EFS CSI drivers
+- **IRSA** for EBS CSI, EFS CSI, and Cluster Autoscaler
 
 ## Prerequisites
 
@@ -127,6 +128,18 @@ mig_strategy = "none"
 
 # For A100/H100 clusters with MIG enabled
 mig_strategy = "single"
+```
+
+### Cluster Autoscaler
+
+The module installs the upstream Kubernetes Cluster Autoscaler chart by default so the EKS provider satisfies the
+`K8sClusterAutoscalerCheck` integration validation. It is configured for AWS auto-discovery, uses IRSA for AWS API
+permissions, and disables scale-down by default to keep validation runs low-risk.
+
+```hcl
+install_cluster_autoscaler       = true
+cluster_autoscaler_chart_version = ""  # Empty uses the upstream chart repository default
+cluster_autoscaler_image_tag     = ""  # Empty derives v<kubernetes_version>.0
 ```
 
 ## Outputs

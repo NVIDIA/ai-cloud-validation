@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Instance/VM validations for step outputs.
 
@@ -34,7 +39,7 @@ class InstanceStateCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance is in expected state"
-    markers: ClassVar[list[str]] = ["vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -55,6 +60,46 @@ class InstanceStateCheck(BaseValidation):
             self.set_passed(f"Instance {instance_id} is {actual_state}")
         else:
             self.set_failed(f"Instance {instance_id} state: expected {expected_state}, got {actual_state}")
+
+
+class InstanceSpecifiedKeyCheck(BaseValidation):
+    """Validate that an instance was launched with a requested SSH key.
+
+    Config:
+        step_output: The launch step output to check
+
+    Step output:
+        instance_id: Instance identifier
+        requested_key_name: Key name requested during launch
+        key_name or instance_key_name: Key name observed on the launched instance
+    """
+
+    description: ClassVar[str] = "Check instance launched with specified key"
+    labels: ClassVar[tuple[str, ...]] = ("vm",)
+
+    def run(self) -> None:
+        step_output = self.config.get("step_output", {})
+
+        instance_id = step_output.get("instance_id")
+        if not instance_id:
+            self.set_failed("No 'instance_id' in step output")
+            return
+
+        requested_key_name = step_output.get("requested_key_name")
+        if not requested_key_name:
+            self.set_failed("No 'requested_key_name' in step output")
+            return
+
+        actual_key_name = step_output.get("instance_key_name") or step_output.get("key_name")
+        if not actual_key_name:
+            self.set_failed(f"No launched instance key name for {instance_id}")
+            return
+
+        if actual_key_name != requested_key_name:
+            self.set_failed(f"Instance {instance_id} expected key '{requested_key_name}', got '{actual_key_name}'")
+            return
+
+        self.set_passed(f"Instance {instance_id} launched with specified key '{requested_key_name}'")
 
 
 class InstanceRebootCheck(BaseValidation):
@@ -86,7 +131,7 @@ class InstanceRebootCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance rebooted successfully"
-    markers: ClassVar[list[str]] = ["vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -166,7 +211,7 @@ class InstancePowerCycleCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance recovered from power-cycle"
-    markers: ClassVar[list[str]] = ["bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -222,7 +267,7 @@ class StableIdentifierCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance ID is stable across lifecycle events"
-    markers: ClassVar[list[str]] = ["vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -256,7 +301,7 @@ class InstanceCreatedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance was created"
-    markers: ClassVar[list[str]] = ["vm"]
+    labels: ClassVar[tuple[str, ...]] = ("vm",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -292,7 +337,7 @@ class InstanceStopCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance stopped successfully without being destroyed"
-    markers: ClassVar[list[str]] = ["vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -334,7 +379,7 @@ class InstanceStartCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check stopped instance started successfully"
-    markers: ClassVar[list[str]] = ["vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -376,7 +421,7 @@ class InstanceTagCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance tags are present"
-    markers: ClassVar[list[str]] = ["vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -424,7 +469,7 @@ class SerialConsoleCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check serial console access"
-    markers: ClassVar[list[str]] = ["vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -476,7 +521,7 @@ class SerialConsoleRetentionCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check serial console log retention and queryability"
-    markers: ClassVar[list[str]] = ["bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         """Validate serial-console retention evidence from step output."""
@@ -551,7 +596,7 @@ class TopologyPlacementCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check topology-based placement support"
-    markers: ClassVar[list[str]] = ["bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("bare_metal",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -599,7 +644,7 @@ class InstanceListCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check instance list from VPC"
-    markers: ClassVar[list[str]] = ["vm", "bare_metal"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "bare_metal")
 
     REQUIRED_FIELDS = ("instance_id", "state", "vpc_id")
 

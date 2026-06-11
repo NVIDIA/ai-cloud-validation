@@ -1,4 +1,4 @@
-MY_ISV_DOMAINS := bare_metal control-plane iam image-registry network security vm
+MY_ISV_DOMAINS := bare_metal control-plane iam image-registry network observability security vm
 DEMO_TARGETS := $(addprefix demo-,$(MY_ISV_DOMAINS))
 
 .PHONY: help pre-commit build test coverage clean lint format install bump-patch bump-fix bump-minor bump-feat bump-major bump bump-check \
@@ -184,3 +184,7 @@ plan: ## Render docs/test-plan.yaml to AsciiDoc
 	@echo "Rendering test plan..."
 	@uv run python scripts/test_plan_yaml_to_adoc.py
 	@echo "✅ Test plan rendered!"
+
+.PHONY: changelog-fill
+changelog-fill: ## Fill CHANGELOG.md gaps via an LLM CLI (CLI=auto|cursor|codex|claude)
+	@scripts/changelog-fill.sh $(CLI)

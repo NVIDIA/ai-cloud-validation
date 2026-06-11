@@ -1,23 +1,28 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for validation module."""
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from isvtest.core.runners import CommandResult
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, _normalize_metadata_values, get_validation_labels
 from isvtest.tests.test_validations import (
     _validation_results,
     clear_validation_results,
@@ -25,6 +30,8 @@ from isvtest.tests.test_validations import (
 from isvtest.tests.test_validations import (
     test_validation as run_validation_entry_point,
 )
+from isvtest.validations.bm_host_status import BmHostStatusLog
+from isvtest.validations.generic import FieldValueCheck
 from isvtest.validations.instance import (
     InstanceListCheck,
     InstancePowerCycleCheck,
@@ -39,11 +46,14 @@ from isvtest.validations.network import (
     FloatingIpCheck,
     LocalizedDnsCheck,
     NvlinkDomainCheck,
+    SgPolicyPropagationTimingCheck,
+    SgPortSecurityPolicyCheck,
+    StableEgressIpCheck,
     StablePrivateIpCheck,
     VpcPeeringCheck,
 )
 from isvtest.validations.nim import NimHealthCheck, NimInferenceCheck, NimModelCheck
-from isvtest.validations.security import ConsoleRbacCheck
+from isvtest.validations.security import ConsoleRbacCheck, VirtualDeviceHardeningCheck
 
 
 class ConcreteValidation(BaseValidation):
@@ -51,6 +61,24 @@ class ConcreteValidation(BaseValidation):
 
     description = "Test validation"
     timeout = 30
+
+    def run(self) -> None:
+        """Simple run implementation."""
+        self.set_passed("Test passed")
+
+
+class LabelledValidation(BaseValidation):
+    """Validation that publishes public labels."""
+
+    labels: ClassVar[tuple[str, ...]] = ("accelerator", "long_running")
+
+    def run(self) -> None:
+        """Simple run implementation."""
+        self.set_passed("Test passed")
+
+
+class UnlabelledValidation(BaseValidation):
+    """Validation that does not declare any labels."""
 
     def run(self) -> None:
         """Simple run implementation."""
@@ -211,6 +239,23 @@ class TestBaseValidation:
         validation = ConcreteValidation()
         assert validation.log is not None
         assert validation.log.name == "ConcreteValidation"
+
+    def test_get_validation_labels_returns_declared_labels(self) -> None:
+        """Validation labels come from the class's `labels` attribute."""
+        assert get_validation_labels(LabelledValidation) == ("accelerator", "long_running")
+
+    def test_get_validation_labels_empty_when_unset(self) -> None:
+        """Classes without labels surface an empty tuple, not the missing markers default."""
+        assert get_validation_labels(UnlabelledValidation) == ()
+        assert not hasattr(UnlabelledValidation, "markers")
+
+    def test_normalize_metadata_values_accepts_string_iterables(self) -> None:
+        """Mixed input types (str, tuple, list) all normalize to tuples of strings."""
+        assert _normalize_metadata_values(()) == ()
+        assert _normalize_metadata_values(None) == ()
+        assert _normalize_metadata_values("gpu") == ("gpu",)
+        assert _normalize_metadata_values(["gpu", "slow"]) == ("gpu", "slow")
+        assert _normalize_metadata_values(("gpu", 1)) == ("gpu", "1")
 
 
 class TestInstanceListCheck:
@@ -710,6 +755,31 @@ class TestConsoleRbacCheck:
         assert "i-abc123" in result["output"]
         assert "aws-iam" in result["output"]
 
+    def test_skips_when_step_marks_skipped(self) -> None:
+        """Console RBAC pytest.skips when account-level serial console access is disabled."""
+        v = ConsoleRbacCheck(
+            config=_console_rbac_config(
+                {
+                    "skipped": True,
+                    "skip_reason": "EC2 serial console access is disabled for this account or region",
+                }
+            )
+        )
+
+        with pytest.raises(pytest.skip.Exception, match="serial console access is disabled"):
+            v.run()
+
+        v = ConsoleRbacCheck(
+            config=_console_rbac_config(
+                {
+                    "skipped": True,
+                    "skip_reason": "EC2 serial console access is disabled for this account or region",
+                }
+            )
+        )
+        with pytest.raises(pytest.skip.Exception, match="serial console access is disabled"):
+            v.execute()
+
     @pytest.mark.parametrize("access_restricted", [None, False])
     def test_access_restricted_must_be_true(self, access_restricted: bool | None) -> None:
         """Console RBAC fails when access_restricted is missing or false."""
@@ -754,6 +824,72 @@ class TestConsoleRbacCheck:
 
         assert result["passed"] is False
         assert expected_error in result["error"]
+
+
+def _virtual_device_hardening_config(step_output: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    """Build a minimal VirtualDeviceHardeningCheck config."""
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "vm",
+        "test_name": "virtual_device_hardening",
+        "tests": {
+            "usb_devices_disabled": {"passed": True},
+            "clipboard_disabled": {"passed": True},
+            "unnecessary_virtual_devices_absent": {"passed": True},
+        },
+    }
+    if step_output:
+        output.update(step_output)
+    return {"step_output": output}
+
+
+class TestVirtualDeviceHardeningCheck:
+    """Tests for VirtualDeviceHardeningCheck validation."""
+
+    def test_all_required_subtests_pass(self) -> None:
+        """Virtual device hardening passes when all required subtests pass."""
+        v = VirtualDeviceHardeningCheck(config=_virtual_device_hardening_config())
+        result = v.execute()
+
+        assert result["passed"] is True
+        assert "Virtual device hardening verified" in result["output"]
+
+    @pytest.mark.parametrize(
+        ("override", "expected_error_contains"),
+        [
+            (
+                {
+                    "tests": {
+                        "clipboard_disabled": {"passed": True},
+                        "unnecessary_virtual_devices_absent": {"passed": True},
+                    }
+                },
+                "usb_devices_disabled",
+            ),
+            (
+                {
+                    "success": False,
+                    "tests": {
+                        "usb_devices_disabled": {"passed": True},
+                        "clipboard_disabled": {"passed": False, "error": "clipboard agent detected"},
+                        "unnecessary_virtual_devices_absent": {"passed": True},
+                    },
+                },
+                "clipboard agent detected",
+            ),
+            (
+                {"success": False, "error": "guest probe parser blew up"},
+                "guest probe parser blew up",
+            ),
+        ],
+    )
+    def test_failure_modes(self, override: dict[str, Any], expected_error_contains: str) -> None:
+        """Virtual device hardening fails on missing/failed subtests or success=False."""
+        v = VirtualDeviceHardeningCheck(config=_virtual_device_hardening_config(override))
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert expected_error_contains in result["error"]
 
 
 def _mock_ssh_run(responses: dict[str, tuple[int, str, str]]):
@@ -1093,6 +1229,64 @@ class TestStablePrivateIpCheck:
         assert result["passed"] is False
 
 
+class TestStableEgressIpCheck:
+    """Tests for StableEgressIpCheck validation."""
+
+    def test_egress_ip_stable(self) -> None:
+        """Verify egress IP remains stable across probes."""
+        tests = {
+            "create_instance": {"passed": True},
+            "probe_egress_ip": {
+                "passed": True,
+                "probes": 3,
+            },
+            "egress_ip_stable": {"passed": True},
+        }
+        v = StableEgressIpCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is True
+        assert result["output"] == "Egress IP stable across 3 probes"
+
+    def test_egress_ip_unstable(self) -> None:
+        """Verify detection of unstable egress IP across probes."""
+        tests = {
+            "create_instance": {"passed": True, "instance_id": "i-xxx"},
+            "probe_egress_ip": {
+                "passed": True,
+                "ips": ["3.5.1.2", "3.5.1.2", "3.5.9.99"],
+                "endpoint": "https://api.ipify.org",
+                "probes": 3,
+            },
+            "egress_ip_stable": {
+                "passed": False,
+                "distinct": 2,
+                "error": "Egress IP changed across probes: 3.5.1.2, 3.5.9.99",
+            },
+        }
+        v = StableEgressIpCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "egress_ip_stable" in result["error"]
+
+    def test_missing_probe_count_fails(self) -> None:
+        """Verify malformed successful output without probe count fails."""
+        tests = {
+            "create_instance": {"passed": True},
+            "probe_egress_ip": {"passed": True},
+            "egress_ip_stable": {"passed": True},
+        }
+        v = StableEgressIpCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "probe_egress_ip.probes" in result["error"]
+
+    def test_empty_tests(self) -> None:
+        """Verify behavior when step_output is empty."""
+        v = StableEgressIpCheck(config={"step_output": {}})
+        result = v.execute()
+        assert result["passed"] is False
+
+
 class TestFloatingIpCheck:
     """Tests for FloatingIpCheck validation."""
 
@@ -1219,6 +1413,153 @@ class TestVpcPeeringCheck:
         v = VpcPeeringCheck(config={"step_output": {}})
         result = v.execute()
         assert result["passed"] is False
+
+
+class TestSgPortSecurityPolicyCheck:
+    """Tests for SgPortSecurityPolicyCheck validation."""
+
+    def test_all_passed(self) -> None:
+        tests = {
+            "create_virtual_interface": {"passed": True},
+            "apply_port_policy": {"passed": True},
+            "allowed_port_permitted": {"passed": True},
+            "unlisted_port_blocked": {"passed": True},
+            "other_interface_unaffected": {"passed": True},
+            "cleanup": {"passed": True},
+        }
+        v = SgPortSecurityPolicyCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "virtual interface" in result["output"]
+
+    def test_unlisted_port_allowed_fails(self) -> None:
+        tests = {
+            "create_virtual_interface": {"passed": True},
+            "apply_port_policy": {"passed": True},
+            "allowed_port_permitted": {"passed": True},
+            "unlisted_port_blocked": {"passed": False, "error": "TCP/8444 is allowed"},
+            "other_interface_unaffected": {"passed": True},
+            "cleanup": {"passed": True},
+        }
+        v = SgPortSecurityPolicyCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "unlisted_port_blocked" in result["error"]
+        assert "TCP/8444 is allowed" in result["error"]
+
+    def test_empty_tests(self) -> None:
+        v = SgPortSecurityPolicyCheck(config={"step_output": {}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "tests" in result["error"]
+
+
+class TestSgPolicyPropagationTimingCheck:
+    """Tests for SDN02-08 security policy propagation timing validation."""
+
+    def test_policy_propagation_within_limit(self) -> None:
+        """Pass when add/remove propagation timings are within the configured limit."""
+        tests = {
+            "create_probe_rule": {"passed": True},
+            "rule_observed": {"passed": True, "seconds": 1.25},
+            "revoke_probe_rule": {"passed": True},
+            "removal_observed": {"passed": True, "seconds": 2.5},
+            "cleanup": {"passed": True},
+        }
+        config = _sdn_step_output(tests)
+        config["step_output"].update(
+            {
+                "target_rule_id": "sg-probe",
+                "add_observed_seconds": 1.25,
+                "remove_observed_seconds": 2.5,
+                "max_propagation_seconds": 10,
+            }
+        )
+
+        v = SgPolicyPropagationTimingCheck(config=config)
+        result = v.execute()
+
+        assert result["passed"] is True
+        assert "add=1.25s" in result["output"]
+        assert "remove=2.50s" in result["output"]
+
+    def test_policy_propagation_fails_when_timing_exceeds_limit(self) -> None:
+        """Fail when observed propagation timing exceeds max_propagation_seconds."""
+        tests = {
+            "create_probe_rule": {"passed": True},
+            "rule_observed": {"passed": True, "seconds": 12.0},
+            "revoke_probe_rule": {"passed": True},
+            "removal_observed": {"passed": True, "seconds": 2.0},
+            "cleanup": {"passed": True},
+        }
+        config = _sdn_step_output(tests)
+        config["step_output"].update(
+            {
+                "target_rule_id": "sg-probe",
+                "add_observed_seconds": 12.0,
+                "remove_observed_seconds": 2.0,
+                "max_propagation_seconds": 10,
+            }
+        )
+
+        v = SgPolicyPropagationTimingCheck(config=config)
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "12.00s exceeds 10.00s" in result["error"]
+
+    def test_policy_propagation_fails_without_timing_evidence(self) -> None:
+        """Fail when required timing evidence is missing from step output."""
+        tests = {
+            "create_probe_rule": {"passed": True},
+            "rule_observed": {"passed": True},
+            "revoke_probe_rule": {"passed": True},
+            "removal_observed": {"passed": True},
+            "cleanup": {"passed": True},
+        }
+
+        v = SgPolicyPropagationTimingCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "Missing SDN policy propagation evidence" in result["error"]
+
+    @pytest.mark.parametrize(
+        ("field", "bad_value"),
+        [
+            ("add_observed_seconds", float("nan")),
+            ("add_observed_seconds", float("inf")),
+            ("remove_observed_seconds", float("nan")),
+            ("remove_observed_seconds", float("inf")),
+            ("max_propagation_seconds", float("nan")),
+            ("max_propagation_seconds", float("inf")),
+        ],
+    )
+    def test_policy_propagation_rejects_non_finite_timing(self, field: str, bad_value: float) -> None:
+        """Fail when timing fields contain non-finite values (NaN/Inf)."""
+        tests = {
+            "create_probe_rule": {"passed": True},
+            "rule_observed": {"passed": True, "seconds": 1.0},
+            "revoke_probe_rule": {"passed": True},
+            "removal_observed": {"passed": True, "seconds": 1.0},
+            "cleanup": {"passed": True},
+        }
+        config = _sdn_step_output(tests)
+        config["step_output"].update(
+            {
+                "target_rule_id": "sg-probe",
+                "add_observed_seconds": 1.0,
+                "remove_observed_seconds": 1.0,
+                "max_propagation_seconds": 10,
+            }
+        )
+        config["step_output"][field] = bad_value
+
+        v = SgPolicyPropagationTimingCheck(config=config)
+        result = v.execute()
+
+        assert result["passed"] is False
+        assert "finite" in result["error"]
 
 
 def _backend_switch_fabric_output(
@@ -1423,6 +1764,349 @@ class TestValidationResultCapture:
         assert r["name"] == "FailingValidation"
         assert r["skipped"] is False
         assert r["passed"] is False
+
+
+class TestHostSoftwareCheckBiosBaselines:
+    """Tests for HostSoftwareCheck BIOS baseline enforcement."""
+
+    @staticmethod
+    def _run_response(
+        *,
+        bios_version: str,
+        system_vendor: str = "Dell Inc.",
+        product_name: str = "PowerEdge R760xa",
+    ):
+        def _response(ssh: MagicMock, cmd: str) -> tuple[int, str, str]:
+            if cmd == "uname -r":
+                return (0, "6.8.0-nvidia\n", "")
+            if cmd == "uname -v":
+                return (0, "#1 SMP PREEMPT_DYNAMIC\n", "")
+            if "lsmod" in cmd:
+                return (0, "nvidia\nkvm\n", "")
+            if "libvirtd --version" in cmd:
+                return (0, "not_installed\n", "")
+            if "qemu-system-x86_64" in cmd:
+                return (0, "not_installed\n", "")
+            if "test -c /dev/kvm" in cmd:
+                return (0, "kvm_available\n", "")
+            if "virsh version" in cmd:
+                return (0, "not_available\n", "")
+            if "bios_vendor" in cmd:
+                return (0, "Dell Inc.\n", "")
+            if "sys_vendor" in cmd or "system-manufacturer" in cmd:
+                return (0, f"{system_vendor}\n", "")
+            if "product_name" in cmd or "system-product-name" in cmd:
+                return (0, f"{product_name}\n", "")
+            if "bios_version" in cmd:
+                return (0, f"{bios_version}\n", "")
+            if "bios_date" in cmd or "bios-release-date" in cmd:
+                return (0, "03/12/2026\n", "")
+            if "test -d /sys/firmware/efi" in cmd:
+                return (0, "UEFI\n", "")
+            if "tpm_version_major" in cmd:
+                return (0, "2\n", "")
+            if "--query-gpu=driver_version" in cmd:
+                return (0, "550.54.15\n", "")
+            if "grep 'CUDA Version'" in cmd:
+                return (0, "12.4\n", "")
+            if "/sys/module/nvidia/version" in cmd:
+                return (0, "550.54.15\n", "")
+            if "--query-gpu=persistence_mode" in cmd:
+                return (0, "Enabled\n", "")
+            raise AssertionError(f"Unexpected SSH command: {cmd}")
+
+        return _response
+
+    @staticmethod
+    def _execute(
+        mock_ssh_cfg: MagicMock,
+        mock_run: MagicMock,
+        mock_ssh: MagicMock,
+        *,
+        bios_version: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from isvtest.validations.host import HostSoftwareCheck
+
+        mock_ssh_cfg.return_value = {
+            "ssh_host": "10.0.0.1",
+            "ssh_user": "ubuntu",
+            "ssh_key_path": "/tmp/k.pem",
+        }
+        mock_ssh.return_value = MagicMock()
+        mock_run.side_effect = TestHostSoftwareCheckBiosBaselines._run_response(bios_version=bios_version)
+
+        return HostSoftwareCheck(config=config or {}).execute()
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_matching_bios_baseline_equal_version_passes(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"bios_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2.4.8"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="2.4.8", config=config)
+
+        assert result["passed"] is True
+        assert any(subtest["name"] == "bios_baseline" and subtest["passed"] for subtest in result["subtests"])
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_matching_bios_baseline_greater_version_passes(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"bios_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2.4.8"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="BIOS-2.4.10", config=config)
+        baseline = next(subtest for subtest in result["subtests"] if subtest["name"] == "bios_baseline")
+
+        assert result["passed"] is True
+        assert "BIOS version BIOS-2.4.10 >= minimum 2.4.8" in baseline["message"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_matching_bios_baseline_lower_version_fails(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"bios_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2.4.8"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="2.4.7", config=config)
+
+        assert result["passed"] is False
+        assert "BIOS version 2.4.7 is below minimum required 2.4.8" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_configured_bios_baselines_require_matching_dmi_key(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"bios_baselines": {"Other Vendor|Other Model": {"min_version": "2.4.8"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="2.4.8", config=config)
+
+        assert result["passed"] is False
+        assert "No BIOS baseline for Dell Inc.|PowerEdge R760xa" in result["error"]
+
+    @pytest.mark.parametrize(
+        ("bios_version", "min_version"),
+        [("unknown", "2.4.8"), ("2.4.8", "latest")],
+    )
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_unparseable_bios_baseline_versions_fail(
+        self,
+        mock_ssh_cfg: MagicMock,
+        mock_run: MagicMock,
+        mock_ssh: MagicMock,
+        bios_version: str,
+        min_version: str,
+    ) -> None:
+        config = {"bios_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": min_version}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version=bios_version, config=config)
+
+        assert result["passed"] is False
+        assert "Could not parse BIOS version for Dell Inc.|PowerEdge R760xa" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_bios_version_remains_report_only_without_baselines(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, bios_version="vendor-build-current")
+
+        assert result["passed"] is True
+        assert not any(subtest["name"] == "bios_baseline" for subtest in result["subtests"])
+
+
+class TestHostSoftwareCheckTpmBaselines:
+    """Tests for HostSoftwareCheck TPM baseline enforcement (SEC22-02)."""
+
+    @staticmethod
+    def _run_response(
+        *,
+        tpm_output: str,
+        system_vendor: str = "Dell Inc.",
+        product_name: str = "PowerEdge R760xa",
+    ):
+        def _response(ssh: MagicMock, cmd: str) -> tuple[int, str, str]:
+            if cmd == "uname -r":
+                return (0, "6.8.0-nvidia\n", "")
+            if cmd == "uname -v":
+                return (0, "#1 SMP PREEMPT_DYNAMIC\n", "")
+            if "lsmod" in cmd:
+                return (0, "nvidia\nkvm\n", "")
+            if "libvirtd --version" in cmd:
+                return (0, "not_installed\n", "")
+            if "qemu-system-x86_64" in cmd:
+                return (0, "not_installed\n", "")
+            if "test -c /dev/kvm" in cmd:
+                return (0, "kvm_available\n", "")
+            if "virsh version" in cmd:
+                return (0, "not_available\n", "")
+            if "bios_vendor" in cmd:
+                return (0, "Dell Inc.\n", "")
+            if "sys_vendor" in cmd or "system-manufacturer" in cmd:
+                return (0, f"{system_vendor}\n", "")
+            if "product_name" in cmd or "system-product-name" in cmd:
+                return (0, f"{product_name}\n", "")
+            if "bios_version" in cmd:
+                return (0, "2.4.8\n", "")
+            if "bios_date" in cmd or "bios-release-date" in cmd:
+                return (0, "03/12/2026\n", "")
+            if "test -d /sys/firmware/efi" in cmd:
+                return (0, "UEFI\n", "")
+            if "tpm_version_major" in cmd:
+                return (0, f"{tpm_output}\n", "")
+            if "--query-gpu=driver_version" in cmd:
+                return (0, "550.54.15\n", "")
+            if "grep 'CUDA Version'" in cmd:
+                return (0, "12.4\n", "")
+            if "/sys/module/nvidia/version" in cmd:
+                return (0, "550.54.15\n", "")
+            if "--query-gpu=persistence_mode" in cmd:
+                return (0, "Enabled\n", "")
+            raise AssertionError(f"Unexpected SSH command: {cmd}")
+
+        return _response
+
+    @staticmethod
+    def _execute(
+        mock_ssh_cfg: MagicMock,
+        mock_run: MagicMock,
+        mock_ssh: MagicMock,
+        *,
+        tpm_output: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from isvtest.validations.host import HostSoftwareCheck
+
+        mock_ssh_cfg.return_value = {
+            "ssh_host": "10.0.0.1",
+            "ssh_user": "ubuntu",
+            "ssh_key_path": "/tmp/k.pem",
+        }
+        mock_ssh.return_value = MagicMock()
+        mock_run.side_effect = TestHostSoftwareCheckTpmBaselines._run_response(tpm_output=tpm_output)
+
+        return HostSoftwareCheck(config=config or {}).execute()
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_matching_tpm_baseline_equal_version_passes(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="2", config=config)
+
+        assert result["passed"] is True
+        assert any(subtest["name"] == "tpm_baseline" and subtest["passed"] for subtest in result["subtests"])
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_absent_fails_when_baseline_configured(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="absent", config=config)
+
+        assert result["passed"] is False
+        assert "TPM device not present" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_lower_version_fails(self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": "2"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="1", config=config)
+
+        assert result["passed"] is False
+        assert "TPM version 1 is below minimum required 2" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_configured_tpm_baselines_require_matching_dmi_key(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"tpm_baselines": {"Other Vendor|Other Model": {"min_version": "2"}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="2", config=config)
+
+        assert result["passed"] is False
+        assert "No TPM baseline for Dell Inc.|PowerEdge R760xa" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_baseline_missing_min_version_fails(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="2", config=config)
+
+        assert result["passed"] is False
+        assert "missing min_version" in result["error"]
+
+    @pytest.mark.parametrize(
+        ("tpm_output", "min_version"),
+        [("unknown", "2"), ("2", "latest")],
+    )
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_unparseable_tpm_baseline_versions_fail(
+        self,
+        mock_ssh_cfg: MagicMock,
+        mock_run: MagicMock,
+        mock_ssh: MagicMock,
+        tpm_output: str,
+        min_version: str,
+    ) -> None:
+        config = {"tpm_baselines": {"Dell Inc.|PowerEdge R760xa": {"min_version": min_version}}}
+
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output=tpm_output, config=config)
+
+        assert result["passed"] is False
+        assert "Could not parse TPM version for Dell Inc.|PowerEdge R760xa" in result["error"]
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_remains_report_only_without_baselines(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="2")
+
+        assert result["passed"] is True
+        subtest_names = {subtest["name"] for subtest in result["subtests"]}
+        assert "tpm_present" in subtest_names
+        assert "tpm_version" in subtest_names
+        assert "tpm_baseline" not in subtest_names
+
+    @patch("isvtest.validations.host.get_ssh_client")
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_tpm_absent_is_report_only_without_baselines(
+        self, mock_ssh_cfg: MagicMock, mock_run: MagicMock, mock_ssh: MagicMock
+    ) -> None:
+        result = self._execute(mock_ssh_cfg, mock_run, mock_ssh, tpm_output="absent")
+
+        assert result["passed"] is True
+        present_subtest = next(s for s in result["subtests"] if s["name"] == "tpm_present")
+        assert "absent" in present_subtest["message"]
 
 
 class TestCloudInitCheckMetadataHeaders:
@@ -1665,3 +2349,240 @@ class TestK8sApiServerMetricsCheck:
         assert result["passed"] is False
         assert "expected_metrics" in result["error"]
         mock_runner.run.assert_not_called()
+
+
+def _host_status_log_output(tests: dict[str, Any] | None = None) -> dict:
+    """Build a minimal BmHostStatusLog config (mirrors the script's JSON contract)."""
+    step_output: dict[str, Any] = {
+        "success": True,
+        "platform": "bm",
+        "test_name": "host_status_log",
+        "tests": tests
+        if tests is not None
+        else {
+            "journalctl_recent": {
+                "passed": True,
+                "message": "42 entries in last 5min, latest 2026-05-12T09:14:03",
+                "entry_count": 42,
+                "latest_timestamp": "2026-05-12T09:14:03",
+            },
+            "dmesg_recent": {
+                "passed": True,
+                "message": "7 entries in last 5min",
+                "entry_count": 7,
+                "latest_timestamp": "2026-05-12T09:13:58",
+            },
+        },
+    }
+    return {"step_output": step_output}
+
+
+class TestBmHostStatusLog:
+    """Tests for BmHostStatusLog validation."""
+
+    def test_both_sources_pass(self) -> None:
+        v = BmHostStatusLog(config=_host_status_log_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "journalctl_recent" in result["output"]
+        assert "dmesg_recent" in result["output"]
+
+    def test_any_source_passing_is_sufficient(self) -> None:
+        """Default 'any' semantic: pass if at least one source has fresh entries."""
+        tests = {
+            "journalctl_recent": {"passed": True, "message": "10 entries"},
+            "dmesg_recent": {"passed": False, "message": "no entries in last 5min"},
+        }
+        v = BmHostStatusLog(config=_host_status_log_output(tests=tests))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "journalctl_recent" in result["output"]
+
+    def test_no_source_passing_fails(self) -> None:
+        tests = {
+            "journalctl_recent": {"passed": False, "message": "no entries in last 5min"},
+            "dmesg_recent": {"passed": False, "message": "no entries in last 5min"},
+        }
+        v = BmHostStatusLog(config=_host_status_log_output(tests=tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "No status log source" in result["error"]
+
+    def test_empty_tests_block_fails(self) -> None:
+        v = BmHostStatusLog(config={"step_output": {"success": True}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "tests" in result["error"]
+
+    def test_strict_mode_passes_when_all_required_pass(self) -> None:
+        v = BmHostStatusLog(
+            config={
+                **_host_status_log_output(),
+                "required_sources": ["journalctl_recent", "dmesg_recent"],
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is True
+        assert "All required sources" in result["output"]
+
+    def test_strict_mode_fails_when_any_required_fails(self) -> None:
+        tests = {
+            "journalctl_recent": {"passed": True, "message": "ok"},
+            "dmesg_recent": {"passed": False, "message": "no entries"},
+        }
+        v = BmHostStatusLog(
+            config={
+                **_host_status_log_output(tests=tests),
+                "required_sources": ["journalctl_recent", "dmesg_recent"],
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "dmesg_recent" in result["error"]
+        assert "Strict mode" in result["error"]
+
+    def test_strict_mode_fails_when_required_source_missing(self) -> None:
+        tests = {"journalctl_recent": {"passed": True, "message": "ok"}}
+        v = BmHostStatusLog(
+            config={
+                **_host_status_log_output(tests=tests),
+                "required_sources": ["journalctl_recent", "dmesg_recent"],
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "dmesg_recent" in result["error"]
+        assert "missing" in result["error"]
+
+    def test_invalid_required_sources_rejected(self) -> None:
+        v = BmHostStatusLog(config={**_host_status_log_output(), "required_sources": "journalctl_recent"})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "required_sources" in result["error"]
+
+
+def test_field_value_check_supports_nested_dot_paths() -> None:
+    """FieldValueCheck can assert nested step-output contract fields."""
+    validation = FieldValueCheck(
+        config={
+            "step_output": {"operations": {"get": {"passed": True, "content_matches": True}}},
+            "field": "operations.get.content_matches",
+            "expected": True,
+        }
+    )
+
+    result = validation.execute()
+
+    assert result["passed"] is True
+    assert "operations.get.content_matches=True" in result["output"]
+
+
+def test_field_value_check_requires_nested_dot_path_to_exist() -> None:
+    """Missing nested fields fail instead of silently passing."""
+    validation = FieldValueCheck(
+        config={
+            "step_output": {"operations": {"get": {"passed": True}}},
+            "field": "operations.get.content_matches",
+            "expected": True,
+        }
+    )
+
+    result = validation.execute()
+
+    assert result["passed"] is False
+    assert "Field 'operations.get.content_matches' not found" in result["error"]
+
+
+def _gb200_numa_lscpu() -> str:
+    """lscpu NUMA lines for a GB200 node: 2 CPU nodes + 32 CPU-less nodes."""
+    lines = ["NUMA node0 CPU(s):0-71", "NUMA node1 CPU(s):72-143"]
+    lines += [f"NUMA node{n} CPU(s):" for n in range(2, 34)]
+    return "\n".join(lines)
+
+
+def _vcpu_responder(numa_lscpu: str, vcpus: int, *, online: str | None = None):
+    """Build a run_ssh_command side_effect keyed on command substrings."""
+    online_range = online if online is not None else f"0-{vcpus - 1}"
+
+    def _run(_ssh: Any, command: str, *_args: Any, **_kwargs: Any) -> tuple[int, str, str]:
+        if command == "nproc":
+            return (0, f"{vcpus}\n", "")
+        if "cpu/online" in command:
+            return (0, f"{online_range}\n", "")
+        if "taskset" in command:
+            return (0, "pid 1's current affinity mask: " + "f" * 16, "")
+        if "NUMA node" in command:
+            return (0, numa_lscpu, "")
+        if "nvidia-smi" in command:
+            return (0, "0, 00000008:01:00.0\n", "")
+        if "numa_node" in command:
+            return (0, "2\n", "")
+        return (0, "", "")
+
+    return _run
+
+
+class TestVcpuPinningCheckLocalMode:
+    """VcpuPinningCheck in local mode (runs commands on the host, no SSH key)."""
+
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_gb200_topology_passes(self, mock_ssh_cfg: MagicMock, mock_run: MagicMock) -> None:
+        """CPU-less GPU-memory NUMA nodes (GB200) must not fail numa_topology."""
+        from isvtest.validations.host import VcpuPinningCheck
+
+        mock_ssh_cfg.return_value = {"ssh_host": "", "ssh_user": "ubuntu", "ssh_key_path": ""}
+        mock_run.side_effect = _vcpu_responder(_gb200_numa_lscpu(), 144)
+
+        result = VcpuPinningCheck(config={"local": True}).execute()
+
+        assert result["passed"] is True
+        assert "144 vCPUs" in result["output"]
+        subtests = {s["name"]: s for s in result["subtests"]}
+        assert subtests["numa_topology"]["passed"] is True
+        assert "2 with CPUs, 32 memory-only" in subtests["numa_topology"]["message"]
+        # Every CPU-less node is reported as a passing (informational) subtest.
+        assert subtests["numa_node2"]["passed"] is True
+        assert subtests["numa_node33"]["passed"] is True
+
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_local_mode_does_not_require_key(self, mock_ssh_cfg: MagicMock, mock_run: MagicMock) -> None:
+        """Local mode skips the host/key_file requirement."""
+        from isvtest.validations.host import VcpuPinningCheck
+
+        mock_ssh_cfg.return_value = {"ssh_host": "", "ssh_user": "ubuntu", "ssh_key_path": ""}
+        mock_run.side_effect = _vcpu_responder("NUMA node0 CPU(s):0-3", 4)
+
+        result = VcpuPinningCheck(config={"local": True}).execute()
+
+        assert result["passed"] is True
+        assert "Missing host or key_file" not in (result["error"] or "")
+
+    @patch("isvtest.validations.host.run_ssh_command")
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_unmapped_vcpus_fail_topology(self, mock_ssh_cfg: MagicMock, mock_run: MagicMock) -> None:
+        """numa_topology fails when the NUMA CPU listing doesn't account for all vCPUs."""
+        from isvtest.validations.host import VcpuPinningCheck
+
+        mock_ssh_cfg.return_value = {"ssh_host": "", "ssh_user": "ubuntu", "ssh_key_path": ""}
+        # 8 vCPUs reported by nproc, but NUMA lists only 4 -> inconsistent.
+        mock_run.side_effect = _vcpu_responder("NUMA node0 CPU(s):0-3", 8)
+
+        result = VcpuPinningCheck(config={"local": True}).execute()
+
+        assert result["passed"] is False
+        subtests = {s["name"]: s for s in result["subtests"]}
+        assert subtests["numa_topology"]["passed"] is False
+
+    @patch("isvtest.validations.host.get_ssh_config")
+    def test_non_local_missing_key_fails(self, mock_ssh_cfg: MagicMock) -> None:
+        """Without local mode, a missing key_file is still a failure."""
+        from isvtest.validations.host import VcpuPinningCheck
+
+        mock_ssh_cfg.return_value = {"ssh_host": "10.0.0.1", "ssh_user": "ubuntu", "ssh_key_path": ""}
+
+        result = VcpuPinningCheck(config={}).execute()
+
+        assert result["passed"] is False
+        assert "Missing host or key_file" in result["error"]

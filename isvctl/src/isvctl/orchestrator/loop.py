@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Main orchestration loop for isvctl.
 
@@ -32,6 +37,7 @@ from isvtest.core.resolution import (
     ValidationEntry,
     get_entry_phase,
     parse_validations,
+    resolve_class_key,
     resolve_entries,
 )
 from isvtest.main import run_validations_via_pytest
@@ -265,6 +271,7 @@ def _resolved_entry_to_result_dict(entry: ResolvedEntry) -> dict[str, Any]:
         "skipped": skipped,
         "message": entry.message,
         "category": entry.entry.category,
+        "labels": list(entry.entry.labels),
         "state": entry.state.value if entry.state else None,
         "skip_reason": entry.skip_reason.value if entry.skip_reason else None,
         "error_reason": entry.error_reason.value if entry.error_reason else None,
@@ -294,6 +301,30 @@ def _has_explicit_pytest_selection(extra_pytest_args: list[str] | None) -> bool:
     )
 
 
+def _apply_step_validation_gates(steps: list[Any], released_tests: set[str] | None) -> list[Any]:
+    """Mark steps skipped when their required validations are unavailable."""
+    if released_tests is None:
+        return steps
+
+    gated_steps: list[Any] = []
+    for step in steps:
+        required_validations = getattr(step, "requires_available_validations", [])
+        unavailable = [
+            validation for validation in required_validations if resolve_class_key(validation, released_tests) is None
+        ]
+        if not unavailable:
+            gated_steps.append(step)
+            continue
+        skipped_step = step.model_copy(update={"skip": True})
+        logger.info(
+            "Skipping step '%s' because required validation(s) are unavailable: %s",
+            skipped_step.name,
+            ", ".join(unavailable),
+        )
+        gated_steps.append(skipped_step)
+    return gated_steps
+
+
 class Orchestrator:
     """Orchestrates the full test lifecycle using step-based execution.
 
@@ -320,6 +351,7 @@ class Orchestrator:
         self.step_executor = StepExecutor(working_dir=working_dir)
         self._results: list[PhaseResult] = []
         self._extra_pytest_args: list[str] | None = None
+        self._include_labels: list[str] = []
         self._verbose: bool = False
         self._junitxml: str | None = None
 
@@ -328,6 +360,7 @@ class Orchestrator:
         phases: list[Phase] | None = None,
         teardown_on_failure: bool = True,
         extra_pytest_args: list[str] | None = None,
+        include_labels: list[str] | None = None,
         verbose: bool = False,
         junitxml: str | None = None,
     ) -> OrchestratorResult:
@@ -338,7 +371,9 @@ class Orchestrator:
             teardown_on_failure: Run teardown even if earlier phases fail
             extra_pytest_args: Pytest arguments for validations (-k, -m, -v, etc.)
                 - `-k AccessKey`: Run only validations matching "AccessKey"
-                - `-m kubernetes`: Run only validations with kubernetes marker
+                - `-m kubernetes`: Run only validations whose labels include "kubernetes"
+                  (labels are mirrored as pytest marks)
+            include_labels: Labels that selected validations must all contain.
             verbose: Enable verbose output for validations
             junitxml: Path to write JUnit XML report for validations
 
@@ -350,6 +385,7 @@ class Orchestrator:
 
         self._results = []
         self._extra_pytest_args = extra_pytest_args
+        self._include_labels = include_labels or []
         self._verbose = verbose
         self._junitxml = junitxml
 
@@ -406,6 +442,12 @@ class Orchestrator:
                 ],
             )
 
+        released_tests = load_released_test_filter()
+        if released_tests is None:
+            logger.info(f"Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled")
+
+        steps = _apply_step_validation_gates(steps, released_tests)
+
         config_phases = self.config.get_phases(platform)
         logger.info(f"Configured phases: {config_phases}")
 
@@ -442,16 +484,16 @@ class Orchestrator:
             all_validations = self.config.tests.validations
         validation_entries = parse_validations(all_validations)
         resolved_validations_by_index: dict[int, ResolvedEntry] = {}
-        released_tests = load_released_test_filter()
-        if released_tests is None:
-            logger.info(f"Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled")
 
-        exclude_markers: list[str] = []
+        exclude_labels: list[str] = []
         exclude_tests: list[str] = []
         if self.config.tests and self.config.tests.exclude:
-            exclude_markers = self.config.tests.exclude.get("markers", [])
+            exclude_labels = self.config.tests.exclude.get("labels", [])
             exclude_tests = self.config.tests.exclude.get("tests", [])
-        resolution_exclude_markers = [] if _has_explicit_pytest_selection(self._extra_pytest_args) else exclude_markers
+        skip_config_label_exclusions = bool(self._include_labels) or _has_explicit_pytest_selection(
+            self._extra_pytest_args
+        )
+        resolution_exclude_labels = [] if skip_config_label_exclusions else exclude_labels
 
         phase_results: list[PhaseResult] = []
         overall_success = True
@@ -531,7 +573,8 @@ class Orchestrator:
                 resolved_phase_entries = self._resolve_validation_entries(
                     phase_entries,
                     requested_phase_names if Phase.ALL not in requested_phases else set(config_phases),
-                    set(resolution_exclude_markers),
+                    set(self._include_labels),
+                    set(resolution_exclude_labels),
                     set(exclude_tests),
                     released_tests,
                 )
@@ -599,7 +642,8 @@ class Orchestrator:
                 terminal_remaining = self._resolve_remaining_validation_entries(
                     remaining_entries,
                     requested_phase_names if Phase.ALL not in requested_phases else set(config_phases),
-                    set(resolution_exclude_markers),
+                    set(self._include_labels),
+                    set(resolution_exclude_labels),
                     set(exclude_tests),
                     released_tests,
                     config_phases,
@@ -699,7 +743,8 @@ class Orchestrator:
         self,
         entries: list[ValidationEntry],
         requested_phase_names: set[str],
-        exclude_markers: set[str],
+        include_labels: set[str],
+        exclude_labels: set[str],
         exclude_tests: set[str],
         released_tests: set[str] | None,
     ) -> list[ResolvedEntry]:
@@ -710,7 +755,8 @@ class Orchestrator:
             step_outputs=step_outputs,
             step_phases=self.context.get_all_step_phases(),
             requested_phases=requested_phase_names,
-            exclude_markers=exclude_markers,
+            include_labels=include_labels,
+            exclude_labels=exclude_labels,
             exclude_tests=exclude_tests,
             released_tests=released_tests,
             render_context=self.context.get_accumulated_context(),
@@ -720,7 +766,8 @@ class Orchestrator:
         self,
         entries: list[tuple[int, ValidationEntry]],
         requested_phase_names: set[str],
-        exclude_markers: set[str],
+        include_labels: set[str],
+        exclude_labels: set[str],
         exclude_tests: set[str],
         released_tests: set[str] | None,
         config_phases: list[str],
@@ -729,7 +776,8 @@ class Orchestrator:
         resolved_entries = self._resolve_validation_entries(
             [entry for _, entry in entries],
             requested_phase_names,
-            exclude_markers,
+            include_labels,
+            exclude_labels,
             exclude_tests,
             released_tests,
         )

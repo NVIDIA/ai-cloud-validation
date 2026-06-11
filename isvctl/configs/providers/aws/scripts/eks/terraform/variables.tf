@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # AWS EKS GPU Cluster - Variables
 # Customize these values in terraform.tfvars or via CLI
@@ -62,7 +67,29 @@ variable "kubernetes_version" {
 variable "cluster_endpoint_public_access_cidrs" {
   description = "List of CIDR blocks to allow access to the EKS API server endpoint. MUST be set to your IP address(es). Example: [\"YOUR.IP.ADDRESS/32\"]"
   type        = list(string)
-  default     = ["203.0.113.0/24"]  # RFC 5737 TEST-NET-3 - non-routable, must override with your IP
+  default     = ["203.0.113.0/24"] # RFC 5737 TEST-NET-3 - non-routable, must override with your IP
+}
+
+# -----------------------------------------------------------------------------
+# Cluster Autoscaler Configuration
+# -----------------------------------------------------------------------------
+
+variable "install_cluster_autoscaler" {
+  description = "Install upstream Kubernetes Cluster Autoscaler via Helm for integration validation"
+  type        = bool
+  default     = true
+}
+
+variable "cluster_autoscaler_chart_version" {
+  description = "Optional upstream Cluster Autoscaler Helm chart version. Leave empty to use the chart repository default."
+  type        = string
+  default     = ""
+}
+
+variable "cluster_autoscaler_image_tag" {
+  description = "Optional Cluster Autoscaler image tag. Leave empty to derive v<kubernetes_version>.0."
+  type        = string
+  default     = ""
 }
 
 # -----------------------------------------------------------------------------

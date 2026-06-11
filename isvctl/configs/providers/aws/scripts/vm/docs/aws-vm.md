@@ -154,7 +154,7 @@ Validates vCPU provisioning, online status, and NUMA topology.
 | `vcpu_count` | vCPU count matches `expected_vcpus` (if set) |
 | `vcpu_online` | All vCPUs are online |
 | `cpu_affinity` | CPU affinity mask of PID 1 spans all vCPUs |
-| `numa_topology` | All NUMA nodes have CPUs assigned |
+| `numa_topology` | Every vCPU is mapped to a NUMA node (CPU-less memory-only / GPU memory nodes are allowed) |
 | `gpu{N}_numa` | GPU PCI device NUMA node (GPU-CPU locality) |
 
 | Parameter | Type | Default | Description |
@@ -188,6 +188,7 @@ Validates the full software stack: kernel, libvirt/QEMU, SBIOS, NVIDIA drivers.
 | `kernel_modules` | GPU/virt modules: `nvidia`, `kvm`, `vfio`, `vhost` |
 | `libvirt`, `qemu`, `kvm` | Virtualization stack |
 | `bios_vendor`, `bios_version`, `bios_date` | System BIOS via `dmidecode` |
+| `tpm_present`, `tpm_version` | TPM device and major version via `/sys/class/tpm/tpm0` |
 | `nvidia_driver`, `cuda_version` | NVIDIA driver and CUDA versions |
 
 | Parameter | Type | Default | Description |
@@ -196,8 +197,23 @@ Validates the full software stack: kernel, libvirt/QEMU, SBIOS, NVIDIA drivers.
 | `expected_driver_version` | string | *(none)* | NVIDIA driver version substring |
 | `expected_libvirt_version` | string | *(none)* | libvirt version substring |
 | `expected_bios_vendor` | string | *(none)* | BIOS vendor name |
+| `bios_baselines` | mapping | *(none)* | Approved BIOS minimums keyed by `system_vendor|product_name` |
+| `tpm_baselines` | mapping | *(none)* | Approved minimum TPM major version keyed by `system_vendor\|product_name` (SEC22-02) |
 
-When no `expected_*` parameter is set, the check **reports** the value without failing.
+When no `expected_*` parameter or `*_baselines` policy is set, the check **reports**
+the value without failing. To build a BIOS or TPM policy, run once in report-only
+mode to capture `system_vendor`, `system_product`, `bios_version`, and
+`tpm_version`, then configure the approved baseline:
+
+```yaml
+HostSoftwareCheck:
+  bios_baselines:
+    "Dell Inc.|PowerEdge R760xa":
+      min_version: "2.4.8"
+  tpm_baselines:
+    "Dell Inc.|PowerEdge R760xa":
+      min_version: "2"
+```
 
 ### InstanceRebootCheck
 

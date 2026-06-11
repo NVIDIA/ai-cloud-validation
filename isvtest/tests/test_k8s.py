@@ -1,17 +1,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for Kubernetes utility functions (KUBECTL override)."""
 
 import json
 import os
+import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -19,12 +25,35 @@ import pytest
 from isvtest.core.k8s import (
     TERMINAL_WAITING_REASONS,
     TRANSIENT_WAITING_REASONS,
+    KubectlParseError,
     get_k8s_provider,
     get_kubectl_base_shell,
     get_kubectl_command,
+    kubectl_items_or_fail,
+    parse_kubectl_json,
+    parse_kubectl_json_items,
     parse_pod_state,
     parse_server_version,
+    pod_state_from_result,
+    pod_status_reason,
+    wait_for_multiple_pods_completion,
 )
+from isvtest.core.runners import CommandResult
+
+
+def _command_result(stdout: str, *, exit_code: int = 0, stderr: str = "") -> CommandResult:
+    """Return a command result for parser tests."""
+    return CommandResult(exit_code=exit_code, stdout=stdout, stderr=stderr, duration=0.0)
+
+
+class _StubValidation:
+    """Minimal stand-in exposing ``set_failed`` for parser-helper tests."""
+
+    def __init__(self) -> None:
+        self.error: str | None = None
+
+    def set_failed(self, error: str, output: str = "") -> None:
+        self.error = error
 
 
 class TestGetKubectlCommandOverride:
@@ -147,6 +176,125 @@ class TestGetKubectlBaseShellArgs:
             result = get_kubectl_base_shell("label", "node", "n1", "app=foo bar")
         # The value with a space must be quoted so the shell sees it as one token.
         assert "'app=foo bar'" in result
+
+
+class TestKubectlJsonParsers:
+    """Tests for structured kubectl JSON parser helpers."""
+
+    def test_parse_kubectl_json_object(self) -> None:
+        payload = parse_kubectl_json(_command_result(json.dumps({"kind": "Pod"})), "pod")
+        assert payload == {"kind": "Pod"}
+
+    def test_parse_kubectl_json_reports_invalid_json(self) -> None:
+        with pytest.raises(KubectlParseError, match="Failed to parse pod"):
+            parse_kubectl_json(_command_result("not-json"), "pod")
+
+    def test_parse_kubectl_json_items_extracts_items(self) -> None:
+        payload = json.dumps({"items": [{"metadata": {"name": "n1"}}]})
+        items = parse_kubectl_json_items(_command_result(payload), "node list")
+        assert items == [{"metadata": {"name": "n1"}}]
+
+    def test_parse_kubectl_json_items_requires_items_list(self) -> None:
+        with pytest.raises(KubectlParseError, match="expected 'items' list"):
+            parse_kubectl_json_items(_command_result(json.dumps({"items": {}})), "node list")
+
+
+class TestKubectlItemsOrFail:
+    """Tests for the validation-aware ``kubectl_items_or_fail`` helper."""
+
+    def test_returns_items_on_success(self) -> None:
+        validation = _StubValidation()
+        payload = json.dumps({"items": [{"metadata": {"name": "n1"}}]})
+        items = kubectl_items_or_fail(validation, _command_result(payload), "node list")
+        assert items == [{"metadata": {"name": "n1"}}]
+        assert validation.error is None
+
+    def test_routes_exec_failure_to_set_failed(self) -> None:
+        validation = _StubValidation()
+        result = _command_result("", exit_code=1, stderr="cluster unavailable")
+        items = kubectl_items_or_fail(validation, result, "node list")
+        assert items is None
+        assert validation.error == "Failed to get node list: cluster unavailable"
+
+    def test_routes_parse_failure_to_set_failed(self) -> None:
+        validation = _StubValidation()
+        items = kubectl_items_or_fail(validation, _command_result("not-json"), "node list")
+        assert items is None
+        assert validation.error is not None
+        assert "Failed to parse node list" in validation.error
+
+
+class TestPodStatusReason:
+    """Tests for ``pod_status_reason`` kubectl STATUS-column emulation."""
+
+    def test_container_waiting_reason_wins_over_phase(self) -> None:
+        pod = {
+            "status": {
+                "phase": "Pending",
+                "containerStatuses": [{"state": {"waiting": {"reason": "ImagePullBackOff"}}}],
+            }
+        }
+        assert pod_status_reason(pod) == "ImagePullBackOff"
+
+    def test_pod_level_reason_overrides_phase_when_no_container_state(self) -> None:
+        # Regression: evicted pods carry ``status.reason: Evicted`` but no
+        # informative container state; kubectl shows "Evicted" in STATUS so
+        # ``error_states: [Evicted]`` configs must still match.
+        pod = {"status": {"phase": "Failed", "reason": "Evicted"}}
+        assert pod_status_reason(pod) == "Evicted"
+
+    def test_falls_back_to_phase_when_reason_absent(self) -> None:
+        pod = {"status": {"phase": "Running"}}
+        assert pod_status_reason(pod) == "Running"
+
+    def test_returns_unknown_when_phase_missing(self) -> None:
+        assert pod_status_reason({}) == "Unknown"
+
+
+class TestPodStateFromResult:
+    """Tests for the result-aware ``pod_state_from_result`` wrapper."""
+
+    def test_parses_command_result_stdout_on_success(self) -> None:
+        payload = json.dumps({"status": {"phase": "Running"}})
+        assert pod_state_from_result(_command_result(payload)) == ("Running", "", "")
+
+    def test_inspects_stderr_on_command_result_failure(self) -> None:
+        result = _command_result("", exit_code=1, stderr='Error from server (NotFound): pods "x" not found')
+        assert pod_state_from_result(result) == ("NotFound", "", "")
+
+    def test_accepts_completed_process(self) -> None:
+        payload = json.dumps({"status": {"phase": "Succeeded"}})
+        completed = subprocess.CompletedProcess(args=["kubectl"], returncode=0, stdout=payload, stderr="")
+        assert pod_state_from_result(completed) == ("Succeeded", "", "")
+
+    def test_completed_process_failure_uses_stderr(self) -> None:
+        completed = subprocess.CompletedProcess(args=["kubectl"], returncode=1, stdout="", stderr="boom")
+        assert pod_state_from_result(completed) == ("Unknown", "", "")
+
+
+class TestWaitForMultiplePodsCompletion:
+    def test_duplicate_targets_complete_after_unique_pods_finish(self) -> None:
+        payload = json.dumps(
+            {
+                "items": [
+                    {
+                        "metadata": {"name": "worker-0"},
+                        "status": {"phase": "Succeeded"},
+                    }
+                ]
+            }
+        )
+        completed = subprocess.CompletedProcess(args=["kubectl"], returncode=0, stdout=payload, stderr="")
+
+        with (
+            patch("isvtest.core.k8s.run_kubectl", return_value=completed),
+            patch("isvtest.core.k8s.time.time", side_effect=[0.0, 0.1]),
+            patch("isvtest.core.k8s.time.sleep") as sleep,
+        ):
+            result = wait_for_multiple_pods_completion(["worker-0", "worker-0"], "default", timeout=10)
+
+        assert result == {"worker-0": (True, "Succeeded")}
+        sleep.assert_not_called()
 
 
 class TestParsePodState:

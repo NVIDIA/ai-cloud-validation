@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Pydantic schema models for isvctl configuration.
 
@@ -81,6 +86,13 @@ class StepConfig(BaseModel):
     env: dict[str, str] = Field(default_factory=dict, description="Additional environment variables")
     working_dir: str | None = Field(default=None, description="Working directory for command execution")
     skip: bool = Field(default=False, description="Skip this step")
+    requires_available_validations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Validation names that must be available after release filtering for this step to run. "
+            "Unreleased validations are available only when ISVTEST_INCLUDE_UNRELEASED=1."
+        ),
+    )
     continue_on_failure: bool = Field(default=False, description="Continue to next step even if this step fails")
     phase: str = Field(
         default="setup",
@@ -99,7 +111,7 @@ class StepConfig(BaseModel):
 class PlatformCommands(BaseModel):
     """Lifecycle commands for a specific platform.
 
-    Groups commands for a platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security).
+    Groups commands for a platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security, observability).
     Supports skip at both platform level (skips all phases) and phase level.
 
     The `phases` field defines the execution order. Steps are grouped by their `phase`
@@ -348,14 +360,17 @@ class ValidationConfig(BaseModel):
     description: str | None = Field(default=None, description="Test run description")
     platform: str | None = Field(
         default=None,
-        description="Platform type: KUBERNETES, SLURM, BARE_METAL, CONTROL_PLANE, IAM, NETWORK, SECURITY, VM, IMAGE_REGISTRY",
+        description="Platform type: KUBERNETES, SLURM, BARE_METAL, CONTROL_PLANE, IAM, NETWORK, SECURITY, VM, IMAGE_REGISTRY, OBSERVABILITY",
     )
     settings: dict[str, Any] = Field(default_factory=dict, description="Test settings")
     validations: dict[str, list[dict[str, Any]] | dict[str, Any]] = Field(
         default_factory=dict,
         description="Validation checks by category. Supports list format or group defaults with 'checks' key.",
     )
-    exclude: dict[str, Any] = Field(default_factory=dict, description="Exclusion rules")
+    exclude: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Exclusion rules (keys: labels, platforms, tests, files)",
+    )
 
 
 class RunConfig(BaseModel):
@@ -375,7 +390,7 @@ class RunConfig(BaseModel):
     lab: LabConfig | None = Field(default=None, description="Lab configuration")
     commands: dict[str, PlatformCommands] = Field(
         default_factory=dict,
-        description="Lifecycle commands by platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security)",
+        description="Lifecycle commands by platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security, observability)",
     )
     context: dict[str, Any] = Field(default_factory=dict, description="Context variables for templating")
     tests: ValidationConfig | None = Field(default=None, description="Test configuration")

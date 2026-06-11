@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Unit tests for ``isvtest.validations.k8s_network_policy``."""
 
@@ -327,9 +332,23 @@ class TestNetworkPolicyCheckBehavior:
 
     def test_get_pod_ips_parses_multiple_families(self) -> None:
         check = _primed_check()
-        with patch.object(check, "run_command", return_value=_ok(stdout="10.0.0.1 fd00::1")):
+        payload = json.dumps({"status": {"podIPs": [{"ip": "10.0.0.1"}, {"ip": "fd00::1"}]}})
+        with patch.object(check, "run_command", return_value=_ok(stdout=payload)):
             ips = check._get_pod_ips("server")
         assert ips == ["10.0.0.1", "fd00::1"]
+
+    def test_get_pod_ips_ignores_malformed_entries(self) -> None:
+        check = _primed_check()
+        payload = json.dumps({"status": {"podIPs": [{"ip": "10.0.0.1"}, "bad", None, {"name": "missing-ip"}]}})
+        with patch.object(check, "run_command", return_value=_ok(stdout=payload)):
+            ips = check._get_pod_ips("server")
+        assert ips == ["10.0.0.1"]
+
+    def test_get_pod_ips_returns_empty_on_invalid_json(self) -> None:
+        check = _primed_check()
+        with patch.object(check, "run_command", return_value=_ok(stdout="not-json")):
+            ips = check._get_pod_ips("server")
+        assert ips == []
 
     def test_get_pod_ips_returns_empty_on_error(self) -> None:
         check = _primed_check()
@@ -431,10 +450,9 @@ class _NetPolStub:
             return _ok()
         if "wait --for=condition=Ready" in cmd:
             return _ok()
-        if "jsonpath" in cmd:
-            if "other-server" in cmd:
-                return _ok(stdout=" ".join(self.other_ips))
-            return _ok(stdout=" ".join(self.server_ips))
+        if "get pod" in cmd and "-o json" in cmd:
+            ips = self.other_ips if "other-server" in cmd else self.server_ips
+            return _ok(stdout=json.dumps({"status": {"podIPs": [{"ip": ip} for ip in ips]}}))
         if "/agnhost connect" in cmd:
             return self._probe(cmd)
         raise AssertionError(f"No scripted response for command: {cmd}")

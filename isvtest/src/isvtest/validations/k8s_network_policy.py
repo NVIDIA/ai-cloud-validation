@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """NetworkPolicy enforcement and dual-stack node validations (K8S22).
 
@@ -38,7 +43,7 @@ from isvtest.config.settings import (
     get_k8s_network_policy_image,
     get_k8s_require_dual_stack,
 )
-from isvtest.core.k8s import get_kubectl_base_shell, get_kubectl_command
+from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, get_kubectl_command, parse_kubectl_json
 from isvtest.core.validation import BaseValidation
 
 _MANIFEST_DIR = Path(__file__).parent / "manifests" / "k8s"
@@ -73,7 +78,7 @@ class K8sNetworkPolicyCheck(BaseValidation):
         "Apply a NetworkPolicy and verify pod connectivity is restricted (ingress + egress) on IPv4 and IPv6."
     )
     timeout: ClassVar[int] = 300
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Apply NetworkPolicy manifests and probe allowed/denied paths, recording subtests and a pass/fail outcome."""
@@ -271,15 +276,18 @@ class K8sNetworkPolicyCheck(BaseValidation):
 
     def _get_pod_ips(self, pod: str) -> list[str]:
         """Return every IP assigned to ``pod`` via ``status.podIPs``."""
-        cmd = (
-            f"{self._kubectl_base} get pod {shlex.quote(pod)} -n {shlex.quote(self._namespace)} "
-            f"-o jsonpath='{{.status.podIPs[*].ip}}'"
-        )
+        cmd = f"{self._kubectl_base} get pod {shlex.quote(pod)} -n {shlex.quote(self._namespace)} -o json"
         result = self.run_command(cmd)
         if result.exit_code != 0:
             self.log.error("Failed to read pod IPs for %s: %s", pod, result.stderr)
             return []
-        return [ip for ip in result.stdout.strip().split() if ip]
+        try:
+            payload = parse_kubectl_json(result, f"pod {pod!r}")
+        except KubectlParseError as exc:
+            self.log.error("Failed to read pod IPs for %s: %s", pod, exc)
+            return []
+        pod_ips = (payload.get("status") or {}).get("podIPs") or []
+        return [str(entry["ip"]) for entry in pod_ips if isinstance(entry, dict) and entry.get("ip")]
 
     def _probe(self, client: str, host: str) -> bool:
         """Run an ``agnhost connect`` probe from ``client`` to ``host:port``.
@@ -348,7 +356,7 @@ class K8sDualStackNodeCheck(BaseValidation):
 
     description: ClassVar[str] = "Verify IPv4 and IPv6 addresses on dual-stack nodes."
     timeout: ClassVar[int] = 60
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """List cluster nodes and apply the ``require_dual_stack`` decision matrix, setting the validation pass/fail state."""

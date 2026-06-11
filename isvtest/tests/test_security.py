@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for security validations."""
 
@@ -24,6 +29,7 @@ from isvtest.validations.security import (
     CentralizedKmsCheck,
     CertRotationCycleCheck,
     CustomerManagedKeyCheck,
+    InsecureProtocolsCheck,
     KmsEncryptionOptionCheck,
     MfaEnforcedCheck,
     OidcUserAuthCheck,
@@ -96,12 +102,11 @@ def _mfa_output(**overrides: Any) -> dict[str, Any]:
         "success": True,
         "platform": "security",
         "test_name": "mfa_enforcement",
-        "interfaces_checked": 4,
+        "interfaces_checked": 3,
         "tests": {
-            "root_mfa_enabled": {"passed": True, "message": "Root MFA enabled"},
-            "console_users_mfa": {"passed": True, "message": "3/3 users have MFA"},
-            "api_mfa_policy": {"passed": True, "message": "MFA condition found"},
-            "cli_mfa_policy": {"passed": True, "message": "MFA condition found"},
+            "admin_account_mfa": {"passed": True, "message": "Admin account MFA enabled"},
+            "interactive_access_mfa": {"passed": True, "message": "3/3 users have MFA"},
+            "programmatic_access_mfa": {"passed": True, "message": "MFA condition found"},
         },
     }
     base.update(overrides)
@@ -284,47 +289,38 @@ class TestMfaEnforcedCheck:
     """Tests for MfaEnforcedCheck validation."""
 
     def test_passes_all_mfa_checks(self) -> None:
-        """Happy path: all four MFA checks pass."""
+        """Happy path: all three MFA checks pass."""
         v = MfaEnforcedCheck(config={"step_output": _mfa_output()})
         result = v.execute()
         assert result["passed"] is True
-        assert "4 interfaces checked" in result["output"]
+        assert "3 interfaces checked" in result["output"]
 
-    def test_fails_when_root_mfa_disabled(self) -> None:
-        """Fail when root MFA is not enabled."""
+    def test_fails_when_admin_account_mfa_disabled(self) -> None:
+        """Fail when the admin/root account MFA is not enabled."""
         out = _mfa_output()
-        out["tests"]["root_mfa_enabled"] = {"passed": False, "error": "Root MFA off"}
+        out["tests"]["admin_account_mfa"] = {"passed": False, "error": "Admin MFA off"}
         v = MfaEnforcedCheck(config={"step_output": out})
         result = v.execute()
         assert result["passed"] is False
-        assert "root_mfa_enabled" in result["error"]
+        assert "admin_account_mfa" in result["error"]
 
-    def test_fails_when_console_users_lack_mfa(self) -> None:
-        """Fail when console users don't have MFA."""
+    def test_fails_when_interactive_access_lacks_mfa(self) -> None:
+        """Fail when interactive (console) users don't have MFA."""
         out = _mfa_output()
-        out["tests"]["console_users_mfa"] = {"passed": False, "error": "1/3 lack MFA"}
+        out["tests"]["interactive_access_mfa"] = {"passed": False, "error": "1/3 lack MFA"}
         v = MfaEnforcedCheck(config={"step_output": out})
         result = v.execute()
         assert result["passed"] is False
-        assert "console_users_mfa" in result["error"]
+        assert "interactive_access_mfa" in result["error"]
 
-    def test_fails_when_api_mfa_policy_missing(self) -> None:
-        """Fail when no API MFA policy exists."""
+    def test_fails_when_programmatic_access_mfa_missing(self) -> None:
+        """Fail when programmatic (API+CLI) access is not MFA-gated."""
         out = _mfa_output()
-        out["tests"]["api_mfa_policy"] = {"passed": False, "error": "No MFA policy"}
+        out["tests"]["programmatic_access_mfa"] = {"passed": False, "error": "No MFA policy"}
         v = MfaEnforcedCheck(config={"step_output": out})
         result = v.execute()
         assert result["passed"] is False
-        assert "api_mfa_policy" in result["error"]
-
-    def test_fails_when_cli_mfa_policy_missing(self) -> None:
-        """Fail when no CLI MFA policy exists."""
-        out = _mfa_output()
-        out["tests"]["cli_mfa_policy"] = {"passed": False, "error": "No MFA policy"}
-        v = MfaEnforcedCheck(config={"step_output": out})
-        result = v.execute()
-        assert result["passed"] is False
-        assert "cli_mfa_policy" in result["error"]
+        assert "programmatic_access_mfa" in result["error"]
 
     def test_fails_when_tests_dict_empty(self) -> None:
         """Fail when tests dict is missing."""
@@ -336,11 +332,11 @@ class TestMfaEnforcedCheck:
     def test_fails_when_tests_key_missing(self) -> None:
         """Fail when a required test key is absent."""
         out = _mfa_output()
-        del out["tests"]["cli_mfa_policy"]
+        del out["tests"]["programmatic_access_mfa"]
         v = MfaEnforcedCheck(config={"step_output": out})
         result = v.execute()
         assert result["passed"] is False
-        assert "cli_mfa_policy" in result["error"]
+        assert "programmatic_access_mfa" in result["error"]
 
     def test_uses_interfaces_checked_in_message(self) -> None:
         """Pass output should include the interfaces_checked count."""
@@ -587,14 +583,16 @@ def test_kms_encryption_option_check_fails_without_customer_evidence() -> None:
     assert "customer-managed key evidence" in result["error"]
 
 
-def test_kms_encryption_option_check_fails_without_provider_evidence() -> None:
-    """KmsEncryptionOptionCheck fails when provider-managed key evidence is absent."""
+def test_kms_encryption_option_check_passes_without_provider_key_id() -> None:
+    """Provider-managed proof rides the provider_managed_key_available subtest, so an
+    empty provider_managed_key_id is fine as long as the subtest passes (a platform
+    whose default-encryption key is not an enumerable resource)."""
     check = KmsEncryptionOptionCheck(config={"step_output": _kms_options_step_output(provider_managed_key_id="")})
 
     result = check.execute()
 
-    assert result["passed"] is False
-    assert "provider-managed key evidence" in result["error"]
+    assert result["passed"] is True
+    assert "provider=available" in result["output"]
 
 
 def test_kms_encryption_option_check_skips_when_step_marks_skipped() -> None:
@@ -948,3 +946,103 @@ class TestTenantIsolationCheck:
 
         with pytest.raises(pytest.skip.Exception, match="tenant isolation fixture not provisionable"):
             TenantIsolationCheck(config={"step_output": step_output}).execute()
+
+
+REQUIRED_INSECURE_PROTOCOL_TESTS = [
+    "sslv3_disabled",
+    "tlsv1_0_disabled",
+    "tlsv1_1_disabled",
+    "plain_http_disabled",
+]
+
+
+def _insecure_protocols_config(
+    tests: dict[str, dict[str, Any]] | None = None,
+    *,
+    endpoints_tested: int = 2,
+) -> dict[str, Any]:
+    """Build an InsecureProtocolsCheck validation config."""
+    default_tests = {
+        name: {"passed": True, "message": f"{name} confirmed"} for name in REQUIRED_INSECURE_PROTOCOL_TESTS
+    }
+    return {
+        "step_output": {
+            "success": True,
+            "platform": "security",
+            "test_name": "insecure_protocols",
+            "endpoints_tested": endpoints_tested,
+            "tests": tests if tests is not None else default_tests,
+        },
+    }
+
+
+class TestInsecureProtocolsCheck:
+    """Tests for SEC13-02 insecure-protocols validation."""
+
+    def test_all_required_tests_pass(self) -> None:
+        """Pass when every legacy protocol probe reports disabled."""
+        result = InsecureProtocolsCheck(config=_insecure_protocols_config()).execute()
+
+        assert result["passed"] is True
+        assert "Insecure protocols disabled (2 endpoints tested)" in result["output"]
+
+    def test_failed_step_without_error_fails_with_default_message(self) -> None:
+        """Fail when the step reports success=False without an error message."""
+        config = _insecure_protocols_config()
+        config["step_output"]["success"] = False
+        result = InsecureProtocolsCheck(config=config).execute()
+
+        assert result["passed"] is False
+        assert "Insecure protocol step failed: no error message provided" in result["error"]
+
+    def test_failed_probe_reports_contract_key(self) -> None:
+        """Fail when one of the four contract keys reports passed=False."""
+        tests = {name: {"passed": True} for name in REQUIRED_INSECURE_PROTOCOL_TESTS}
+        tests["tlsv1_0_disabled"] = {"passed": False, "error": "accepted on api.example.com:443"}
+        result = InsecureProtocolsCheck(config=_insecure_protocols_config(tests)).execute()
+
+        assert result["passed"] is False
+        assert "tlsv1_0_disabled" in result["error"]
+        assert "api.example.com:443" in result["error"]
+
+    def test_missing_required_key_fails(self) -> None:
+        """Fail when one of the four contract keys is absent."""
+        tests = {name: {"passed": True} for name in REQUIRED_INSECURE_PROTOCOL_TESTS if name != "plain_http_disabled"}
+        result = InsecureProtocolsCheck(config=_insecure_protocols_config(tests)).execute()
+
+        assert result["passed"] is False
+        assert "plain_http_disabled" in result["error"]
+
+    def test_missing_endpoints_tested_fails(self) -> None:
+        """Fail when endpoints_tested is absent even if all checks pass."""
+        config = _insecure_protocols_config()
+        del config["step_output"]["endpoints_tested"]
+        result = InsecureProtocolsCheck(config=config).execute()
+
+        assert result["passed"] is False
+        assert "endpoints_tested" in result["error"]
+
+    def test_zero_endpoints_tested_fails(self) -> None:
+        """Fail when endpoints_tested is non-positive (claims pass on nothing)."""
+        config = _insecure_protocols_config(endpoints_tested=0)
+        result = InsecureProtocolsCheck(config=config).execute()
+
+        assert result["passed"] is False
+        assert "endpoints_tested" in result["error"]
+
+    def test_skips_when_step_marks_skipped(self) -> None:
+        """pytest.skip when the step emits a structured skip."""
+        step_output = {
+            "success": True,
+            "skipped": True,
+            "skip_reason": "No SEC13-02 endpoints configured",
+        }
+        with pytest.raises(pytest.skip.Exception, match="No SEC13-02 endpoints configured"):
+            InsecureProtocolsCheck(config={"step_output": step_output}).execute()
+
+    def test_missing_tests_fails(self) -> None:
+        """Fail when the step output does not include contract tests."""
+        result = InsecureProtocolsCheck(config={"step_output": {}}).execute()
+
+        assert result["passed"] is False
+        assert "tests" in result["error"].lower()

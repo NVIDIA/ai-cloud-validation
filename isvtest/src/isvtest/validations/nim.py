@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """NIM inference validations (platform-agnostic).
 
@@ -67,7 +72,7 @@ class NimHealthCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates NIM health endpoint"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "bare_metal", "vm")
 
     def run(self) -> None:
         skip_reason = _is_nim_skipped(self.config)
@@ -127,7 +132,7 @@ class NimInferenceCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates NIM inference via chat completions"
     timeout: ClassVar[int] = 300
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "workload", "slow", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "workload", "slow", "bare_metal", "vm")
 
     def run(self) -> None:
         skip_reason = _is_nim_skipped(self.config)
@@ -252,7 +257,7 @@ class NimModelCheck(BaseValidation):
 
     description: ClassVar[str] = "Validates NIM model listing"
     timeout: ClassVar[int] = 120
-    markers: ClassVar[list[str]] = ["ssh", "gpu", "bare_metal", "vm"]
+    labels: ClassVar[tuple[str, ...]] = ("ssh", "gpu", "bare_metal", "vm")
 
     def run(self) -> None:
         skip_reason = _is_nim_skipped(self.config)

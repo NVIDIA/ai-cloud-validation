@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for the test catalog upload functionality in the API client."""
 
@@ -38,8 +43,13 @@ class TestUploadTestCatalog:
         mock_urlopen.side_effect = [get_response, post_response]
 
         entries = [
-            {"name": "TestA", "description": "Test A", "markers": ["k8s"], "module": "mod.a"},
-            {"name": "TestB", "description": "Test B", "markers": [], "module": "mod.b"},
+            {
+                "name": "TestA",
+                "description": "Test A",
+                "labels": ["k8s"],
+                "module": "mod.a",
+            },
+            {"name": "TestB", "description": "Test B", "labels": [], "module": "mod.b"},
         ]
 
         result = upload_test_catalog(
@@ -61,6 +71,9 @@ class TestUploadTestCatalog:
         assert payload["isvTestVersion"] == "1.2.3"
         assert len(payload["entries"]) == 2
         assert payload["entries"][0]["name"] == "TestA"
+        assert payload["entries"][0]["labels"] == ["k8s"]
+        assert "markers" not in payload["entries"][0]
+        assert payload["entries"][1]["labels"] == []
 
     @patch("isvreporter.client.urlopen")
     def test_skips_upload_when_version_exists(self, mock_urlopen: MagicMock) -> None:
@@ -160,5 +173,29 @@ class TestUploadTestCatalog:
 
         assert entry["name"] == "TestA"
         assert entry["description"] == ""
-        assert entry["markers"] == []
+        assert entry["labels"] == []
+        assert "markers" not in entry
         assert entry["module"] == ""
+
+    @patch("isvreporter.client.urlopen")
+    def test_markers_field_is_not_forwarded(self, mock_urlopen: MagicMock) -> None:
+        """The upload payload no longer carries the legacy ``markers`` field."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"status": "created"}).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_response
+
+        upload_test_catalog(
+            endpoint="https://api.example.com",
+            jwt_token="test-token",
+            isv_test_version="1.0.0",
+            entries=[{"name": "TestA", "labels": ["gpu"], "markers": ["gpu"]}],
+        )
+
+        request = mock_urlopen.call_args[0][0]
+        payload = json.loads(request.data.decode())
+        entry = payload["entries"][0]
+
+        assert entry["labels"] == ["gpu"]
+        assert "markers" not in entry

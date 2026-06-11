@@ -261,6 +261,27 @@ By making a contribution to this project, I certify that:
 
 ## Releasing
 
+### Versioning Policy
+
+The project follows [semver](https://semver.org/) but is still pre-1.0
+(experimental), and that frames how we bump:
+
+- **Major** (`X.Y.Z` -> `(X+1).0.0`) - reserved for graduation out of the
+  experimental `0.x` line. Do not bump until the project is no longer
+  declared experimental.
+- **Minor** (`X.Y.Z` -> `X.(Y+1).0`) - milestone releases: a coherent set of
+  new features, a new domain coming online, or a behavior change worth
+  flagging to downstream consumers.
+- **Patch** (`X.Y.Z` -> `X.Y.(Z+1)`) - a decent batch of fixes/features/chores
+  that has accumulated on `main` and is worth cutting, or an urgent fix that
+  needs to ship on its own.
+
+External operators only run the **released** tests - the set pinned by
+`isvtest/src/isvtest/released_tests.json` at each tag - so every tag has a
+fixed, reproducible test set. `make bump-*` regenerates that manifest from
+the current validation catalog as part of the bump (see the next section),
+which is how unreleased validations on `main` become released at a tag.
+
 ### Version Bumping
 
 All packages share a single version. To bump:
@@ -273,10 +294,36 @@ make bump VERSION=1.2.3     # Explicit version
 ```
 
 The script updates all `pyproject.toml` files, refreshes
-`isvtest/src/isvtest/released_tests.json` from the current validation catalog,
-and runs `uv lock`. Newly added validations are not run by client configs until
-they appear in that `released_tests.json` manifest, so adding tests to `main` and
-releasing them are separate steps.
+`isvtest/src/isvtest/released_tests.json` from the current validation
+catalog, and runs `uv lock`. [`CHANGELOG.md`](CHANGELOG.md) is populated
+separately by `make changelog-fill` after the release tag exists (see the
+next section). Newly added validations are not run by client configs
+until they appear in that `released_tests.json` manifest, so adding tests
+to `main` and releasing them are separate steps.
+
+### Changelog
+
+[`CHANGELOG.md`](CHANGELOG.md) is the canonical, per-tag changelog (Keep a
+Changelog format), populated by `make changelog-fill` rather than by PR
+authors. After cutting a release tag (typically via `make bump-*`), run:
+
+```bash
+make changelog-fill                # auto-detect (codex -> claude -> cursor-agent)
+make changelog-fill CLI=codex      # explicit codex
+make changelog-fill CLI=claude     # explicit claude
+make changelog-fill CLI=cursor     # explicit cursor-agent
+```
+
+The chosen LLM CLI inspects `git log` and fetches PR details to generate
+the new section, then edits `CHANGELOG.md` in place. Review the diff and
+tidy any awkward wording before committing. The prompt lives in
+[`scripts/changelog-prompt.md`](scripts/changelog-prompt.md) and the
+dispatch logic in [`scripts/changelog-fill.sh`](scripts/changelog-fill.sh);
+either can be tweaked without changing the Makefile.
+
+For per-milestone stakeholder overviews (e.g. quarterly summaries),
+`scripts/generate_release_notes.py` fetches issues and PRs attached to a
+GitHub milestone — that is a separate tool with a different purpose.
 
 When validating unreleased tests locally from `main`, disable that release
 filter explicitly:

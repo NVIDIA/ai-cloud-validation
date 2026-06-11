@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Network validations for step outputs.
 
@@ -17,6 +22,7 @@ and DDI (DNS/DHCP/IP management).
 from __future__ import annotations
 
 import ipaddress
+import math
 import re
 from typing import TYPE_CHECKING, ClassVar
 
@@ -45,7 +51,7 @@ class NetworkProvisionedCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check network was provisioned"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -74,7 +80,7 @@ class VpcCrudCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check VPC CRUD operations"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -116,7 +122,7 @@ class SubnetConfigCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check subnet configuration"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -168,7 +174,7 @@ class VpcIsolationCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check VPC isolation"
-    markers: ClassVar[list[str]] = ["network", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -213,7 +219,7 @@ class SgCrudCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check security group CRUD operations"
-    markers: ClassVar[list[str]] = ["network", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -262,7 +268,7 @@ class SecurityBlockingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check security blocking rules"
-    markers: ClassVar[list[str]] = ["network", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -308,7 +314,7 @@ class NetworkConnectivityCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check network connectivity"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -351,7 +357,7 @@ class TrafficFlowCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check traffic flow"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -401,7 +407,7 @@ class DhcpIpManagementCheck(BaseValidation):
 
     description: ClassVar[str] = "Check DHCP/IP management via SSH"
     timeout: ClassVar[int] = 60
-    markers: ClassVar[list[str]] = ["network", "ssh"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "ssh")
 
     def run(self) -> None:
         try:
@@ -564,7 +570,7 @@ class VpcIpConfigCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check VPC IP configuration"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -807,7 +813,7 @@ class SdnHardwareFaultLoggingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check SDN hardware fault logging"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         """Check hardware-fault logging from step output."""
@@ -839,7 +845,7 @@ class SdnLatencyPerfLoggingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check SDN latency/performance logging"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         """Check latency/performance logging from step output."""
@@ -872,7 +878,7 @@ class SdnFilterAuditTrailCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check SDN filtering rule audit trail"
-    markers: ClassVar[list[str]] = ["network", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
 
     def run(self) -> None:
         """Check filtering-rule audit logging from step output."""
@@ -891,6 +897,104 @@ class SdnFilterAuditTrailCheck(BaseValidation):
         )
 
 
+def _coerce_nonnegative_float(value: object, field_name: str) -> tuple[float | None, str | None]:
+    """Return a non-negative float value or an error string."""
+    if isinstance(value, bool):
+        return None, f"`{field_name}` must be a number, got bool: {value!r}"
+    try:
+        numeric = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None, f"`{field_name}` must be a number, got {type(value).__name__}: {value!r}"
+    if not math.isfinite(numeric):
+        return None, f"`{field_name}` must be finite, got {numeric!r}"
+    if numeric < 0:
+        return None, f"`{field_name}` must be >= 0, got {numeric}"
+    return numeric, None
+
+
+class SgPolicyPropagationTimingCheck(BaseValidation):
+    """Validate security policy rule propagation timing.
+
+    Config:
+        step_output: The step output to check
+        max_propagation_seconds: Optional timing threshold override
+
+    Step output:
+        tests: dict with create_probe_rule, rule_observed,
+               revoke_probe_rule, removal_observed, cleanup
+        target_rule_id: Rule/security-group identifier modified by the probe
+        add_observed_seconds: Time until the added policy was observable
+        remove_observed_seconds: Time until the removed policy disappeared
+        max_propagation_seconds: Provider threshold used by the probe
+    """
+
+    description: ClassVar[str] = "Check security policy propagation timing"
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
+
+    def run(self) -> None:
+        """Check policy propagation timing evidence from step output."""
+        required_tests = [
+            "create_probe_rule",
+            "rule_observed",
+            "revoke_probe_rule",
+            "removal_observed",
+            "cleanup",
+        ]
+        if not check_required_tests(self, required_tests, "Security policy propagation tests failed"):
+            return
+
+        step_output = self.config.get("step_output", {})
+        missing_evidence = [
+            key
+            for key in ("target_rule_id", "add_observed_seconds", "remove_observed_seconds")
+            if step_output.get(key) in (None, "")
+        ]
+        if missing_evidence:
+            self.set_failed(f"Missing SDN policy propagation evidence: {', '.join(missing_evidence)}")
+            return
+
+        threshold_source = self.config.get(
+            "max_propagation_seconds",
+            step_output.get("max_propagation_seconds", 10),
+        )
+        max_seconds, threshold_error = _coerce_nonnegative_float(threshold_source, "max_propagation_seconds")
+        if threshold_error:
+            self.set_failed(threshold_error)
+            return
+
+        add_seconds, add_error = _coerce_nonnegative_float(
+            step_output.get("add_observed_seconds"),
+            "add_observed_seconds",
+        )
+        remove_seconds, remove_error = _coerce_nonnegative_float(
+            step_output.get("remove_observed_seconds"),
+            "remove_observed_seconds",
+        )
+        errors = [error for error in (add_error, remove_error) if error]
+        if errors:
+            self.set_failed("; ".join(errors))
+            return
+
+        assert add_seconds is not None
+        assert remove_seconds is not None
+        assert max_seconds is not None
+
+        slow = []
+        if add_seconds > max_seconds:
+            slow.append(f"add {add_seconds:.2f}s exceeds {max_seconds:.2f}s")
+        if remove_seconds > max_seconds:
+            slow.append(f"remove {remove_seconds:.2f}s exceeds {max_seconds:.2f}s")
+        if slow:
+            self.set_failed(f"Security policy propagation timing exceeded: {', '.join(slow)}")
+            return
+
+        self.set_passed(
+            "Security policy propagation within threshold "
+            f"(target={step_output['target_rule_id']}, add={add_seconds:.2f}s, "
+            f"remove={remove_seconds:.2f}s, max={max_seconds:.2f}s)"
+        )
+
+
 class SgWorkloadScopingCheck(BaseValidation):
     """Validate security group rules can be scoped at workload level.
 
@@ -906,7 +1010,7 @@ class SgWorkloadScopingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check SG rules scoped at workload level"
-    markers: ClassVar[list[str]] = ["network", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
 
     def run(self) -> None:
         """Check workload-level SG scoping from step output."""
@@ -933,7 +1037,7 @@ class SgNodeScopingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check SG rules scoped at node level"
-    markers: ClassVar[list[str]] = ["network", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
 
     def run(self) -> None:
         """Check node-level SG scoping from step output."""
@@ -961,7 +1065,7 @@ class SgSubnetScopingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check SG rules scoped at subnet/tenant level"
-    markers: ClassVar[list[str]] = ["network", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
 
     def run(self) -> None:
         """Check subnet-level SG scoping from step output."""
@@ -989,7 +1093,7 @@ class SgServiceScopingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check SG rules scoped at service level"
-    markers: ClassVar[list[str]] = ["network", "security"]
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
 
     def run(self) -> None:
         """Check service-level SG scoping from step output."""
@@ -999,6 +1103,40 @@ class SgServiceScopingCheck(BaseValidation):
             "service",
             "Service",
         )
+
+
+class SgPortSecurityPolicyCheck(BaseValidation):
+    """Validate custom port security policies on virtual interfaces.
+
+    Verifies the platform can apply a custom ingress port policy to a
+    target virtual interface without permitting adjacent/unlisted ports
+    or leaking the policy onto an unrelated virtual interface.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        tests: dict with create_virtual_interface, apply_port_policy,
+               allowed_port_permitted, unlisted_port_blocked,
+               other_interface_unaffected, cleanup
+    """
+
+    description: ClassVar[str] = "Check custom port security policies on virtual interfaces"
+    labels: ClassVar[tuple[str, ...]] = ("network", "security")
+
+    def run(self) -> None:
+        """Check virtual-interface port policy behavior from step output."""
+        required = [
+            "create_virtual_interface",
+            "apply_port_policy",
+            "allowed_port_permitted",
+            "unlisted_port_blocked",
+            "other_interface_unaffected",
+            "cleanup",
+        ]
+        if not check_required_tests(self, required, "Port security policy tests failed"):
+            return
+        self.set_passed("Custom port security policy scoped to virtual interface")
 
 
 def _is_non_empty_string(value: object) -> bool:
@@ -1032,7 +1170,7 @@ class BackendSwitchFabricCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check backend switch fabric IDs"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         """Check backend switch fabric metadata from step output."""
@@ -1096,7 +1234,7 @@ class NvlinkDomainCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check NVLink domain ID"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         """Check NVLink domain metadata from step output."""
@@ -1144,7 +1282,7 @@ class ByoipCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BYOIP support"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1188,7 +1326,7 @@ class StablePrivateIpCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check private IP stability"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1221,6 +1359,58 @@ class StablePrivateIpCheck(BaseValidation):
             self.set_passed(f"Private IP {ip} stable across stop/start")
 
 
+class StableEgressIpCheck(BaseValidation):
+    """Validate egress IP stability across repeated probes (DMS05-01).
+
+    NVIDIA cloud services use IP allowlists, so workloads that call out to
+    them must present a stable egress IP. A provider script launches a
+    test instance, probes its egress IP N times against an external
+    IP-discovery endpoint (e.g., https://api.ipify.org), and reports
+    whether every probe returned the same address.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        tests: dict with create_instance, probe_egress_ip, egress_ip_stable
+    """
+
+    description: ClassVar[str] = "Check egress IP stability across probes"
+    labels: ClassVar[tuple[str, ...]] = ("network",)
+
+    def run(self) -> None:
+        """Validate stable egress IP subtest results and record the outcome."""
+        step_output = self.config.get("step_output", {})
+        tests = step_output.get("tests", {})
+
+        if not tests:
+            self.set_failed("No 'tests' in step output")
+            return
+
+        required = [
+            "create_instance",
+            "probe_egress_ip",
+            "egress_ip_stable",
+        ]
+        failed = []
+
+        for test_name in required:
+            test_result = tests.get(test_name, {})
+            if not test_result.get("passed"):
+                error = test_result.get("error", "test not found")
+                failed.append(f"{test_name}: {error}")
+
+        if failed:
+            self.set_failed(f"Stable egress IP tests failed: {'; '.join(failed)}")
+        else:
+            probe_result = tests.get("probe_egress_ip", {})
+            probes = probe_result.get("probes")
+            if probes is None:
+                self.set_failed("Malformed stable egress IP step output: missing probe_egress_ip.probes")
+            else:
+                self.set_passed(f"Egress IP stable across {probes} probes")
+
+
 class FloatingIpCheck(BaseValidation):
     """Validate floating IP can be atomically switched between instances.
 
@@ -1234,7 +1424,7 @@ class FloatingIpCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check floating IP switch"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1285,7 +1475,7 @@ class LocalizedDnsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check localized DNS"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -1331,7 +1521,7 @@ class VpcPeeringCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check VPC peering"
-    markers: ClassVar[list[str]] = ["network"]
+    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

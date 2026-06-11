@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Generic validations for step outputs.
 
@@ -29,7 +34,6 @@ class FieldExistsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check required fields exist in output"
-    markers: ClassVar[list[str]] = []
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -52,6 +56,19 @@ class FieldExistsCheck(BaseValidation):
             self.set_passed(f"All required fields present: {', '.join(fields)}")
 
 
+def _get_field_value(step_output: dict[str, Any], field: str) -> tuple[bool, Any]:
+    """Return a top-level or dotted-path field from step output."""
+    if field in step_output:
+        return True, step_output[field]
+
+    current: Any = step_output
+    for part in field.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return False, None
+        current = current[part]
+    return True, current
+
+
 class FieldValueCheck(BaseValidation):
     """Check that a field has an expected value.
 
@@ -66,7 +83,6 @@ class FieldValueCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check field has expected value"
-    markers: ClassVar[list[str]] = []
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -76,11 +92,10 @@ class FieldValueCheck(BaseValidation):
             self.set_failed("No 'field' specified")
             return
 
-        if field not in step_output:
+        found, actual = _get_field_value(step_output, field)
+        if not found:
             self.set_failed(f"Field '{field}' not found in output")
             return
-
-        actual = step_output[field]
 
         # Check exact match
         expected = self.config.get("expected")
@@ -154,7 +169,6 @@ class SchemaValidation(BaseValidation):
     """
 
     description: ClassVar[str] = "Validate output matches JSON schema"
-    markers: ClassVar[list[str]] = []
     catalog_exclude: ClassVar[bool] = True
 
     def run(self) -> None:
@@ -264,7 +278,6 @@ class CrudOperationsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check all CRUD operations passed"
-    markers: ClassVar[list[str]] = []
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

@@ -1,18 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-
-import json
 import shlex
 from typing import ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import get_kubectl_base_shell, kubectl_items_or_fail, names_from_items
 from isvtest.core.validation import BaseValidation
 
 
@@ -29,7 +33,7 @@ class K8sNodeCountCheck(BaseValidation):
     """
 
     description = "Verify the cluster has the expected number of nodes."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         expected_count = self.config.get("count")
@@ -86,6 +90,9 @@ class K8sNodeCountCheck(BaseValidation):
         if isinstance(value, bool):
             self.set_failed(f"Invalid {field}: {value!r}")
             return 0
+        if not isinstance(value, int | str):
+            self.set_failed(f"Invalid {field}: {value}")
+            return 0
         try:
             parsed = int(value)
         except (ValueError, TypeError):
@@ -99,14 +106,13 @@ class K8sNodeCountCheck(BaseValidation):
     def _get_node_names(self, label_selector: str | None) -> list[str] | None:
         """Return node names matching ``label_selector`` or set failure."""
         selector_args = f" -l {shlex.quote(label_selector)}" if label_selector else ""
-        cmd = f"{get_kubectl_base_shell()} get nodes{selector_args} -o name"
+        cmd = f"{get_kubectl_base_shell()} get nodes{selector_args} -o json"
 
         result = self.run_command(cmd)
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get node count: {result.stderr}")
+        items = kubectl_items_or_fail(self, result, "node list")
+        if items is None:
             return None
-
-        return _parse_kubectl_name_output(result.stdout)
+        return names_from_items(items)
 
 
 def _optional_selector(value: object, field: str) -> str | None:
@@ -125,17 +131,6 @@ def _combine_label_selectors(*selectors: str | None) -> str | None:
     return ",".join(parts) if parts else None
 
 
-def _parse_kubectl_name_output(stdout: str) -> list[str]:
-    """Parse ``kubectl get nodes -o name`` output into bare node names."""
-    names: list[str] = []
-    for line in stdout.splitlines():
-        item = line.strip()
-        if not item:
-            continue
-        names.append(item.split("/", 1)[1] if "/" in item else item)
-    return names
-
-
 def _scope_description(label_selector: str | None, exclude_selector: str | None) -> str:
     """Format selector scope for pass/fail messages."""
     parts: list[str] = []
@@ -148,26 +143,16 @@ def _scope_description(label_selector: str | None, exclude_selector: str | None)
 
 class K8sNodeReadyCheck(BaseValidation):
     description = "Verify all nodes in the cluster are in Ready state."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         kubectl_base = get_kubectl_base_shell()
 
-        # Use JSON output for safer parsing
-        cmd = f"{kubectl_base} get nodes -o json"
-        result = self.run_command(cmd)
-
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get nodes: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get nodes -o json")
+        items = kubectl_items_or_fail(self, result, "node list")
+        if items is None:
             return
 
-        try:
-            nodes_data = json.loads(result.stdout)
-        except json.JSONDecodeError as e:
-            self.set_failed(f"Failed to parse kubectl JSON output: {e}")
-            return
-
-        items = nodes_data.get("items", [])
         if not items:
             self.set_passed("No nodes found in cluster")
             return
@@ -181,7 +166,6 @@ class K8sNodeReadyCheck(BaseValidation):
 
             # Find the Ready condition
             ready_condition = next((c for c in conditions if c.get("type") == "Ready"), None)
-
             if not ready_condition:
                 not_ready_nodes.append(f"{name} (No Ready condition found)")
                 continue
@@ -207,7 +191,7 @@ class K8sNodeReadyCheck(BaseValidation):
 
 class K8sExpectedNodesCheck(BaseValidation):
     description = "Verify all expected nodes from BoM are present in the cluster."
-    markers: ClassVar[list[str]] = ["kubernetes"]
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         expected_names = self.config.get("names", [])
@@ -215,16 +199,13 @@ class K8sExpectedNodesCheck(BaseValidation):
             self.set_passed("Skipped: expected_nodes.names not configured")
             return
 
-        # Get actual nodes
         kubectl_base = get_kubectl_base_shell()
-        cmd = f"{kubectl_base} get nodes -o jsonpath='{{.items[*].metadata.name}}'"
-
-        result = self.run_command(cmd)
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to get nodes: {result.stderr}")
+        result = self.run_command(f"{kubectl_base} get nodes -o json")
+        items = kubectl_items_or_fail(self, result, "node list")
+        if items is None:
             return
 
-        actual_nodes = result.stdout.strip().split()
+        actual_nodes = names_from_items(items)
         actual_nodes_set = set(actual_nodes)
         expected_names_set = set(expected_names)
 

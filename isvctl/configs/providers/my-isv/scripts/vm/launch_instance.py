@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Launch a GPU virtual machine instance.
 
@@ -30,6 +35,7 @@ Required JSON output fields:
   vpc_id            (str)    - network/VPC identifier
   state             (str)    - must be "running" on success (read by InstanceStateCheck)
   security_group_id (str)    - security group/firewall rule identifier
+  requested_key_name (str)   - key pair name requested for launch
   key_name          (str)    - name of the SSH key pair
   error             (str, optional) - error message provided when success is false
 
@@ -66,6 +72,7 @@ def main() -> int:
         "vpc_id": "",
         "state": "",
         "security_group_id": "",
+        "requested_key_name": "",
         "key_name": "",
     }
 
@@ -101,20 +108,35 @@ def main() -> int:
         # ║     result["vpc_id"] = vpc_id                                ║
         # ║     result["state"] = "running"                              ║
         # ║     result["security_group_id"] = sg_id                      ║
+        # ║     result["requested_key_name"] = key_name                  ║
         # ║     result["key_name"] = key_name                            ║
+        # ║     result["tests"]["specified_key"] = {                     ║
+        # ║         "passed": key_name == observed_instance_key_name,    ║
+        # ║         "message": "...",                                    ║
+        # ║         "probes": ["<your-evidence-source>"],                ║
+        # ║     }                                                        ║
         # ║     result["success"] = True                                 ║
         # ╚══════════════════════════════════════════════════════════════╝
 
         if DEMO_MODE:
+            key_name = args.name
             result["instance_id"] = "dummy-vm-0001"
             result["public_ip"] = "203.0.113.10"
             result["private_ip"] = "10.0.0.10"
             result["key_file"] = "/tmp/dummy-key.pem"
             result["vpc_id"] = "dummy-vpc-0001"
             result["security_group_id"] = "dummy-sg-0001"
-            result["key_name"] = args.name
+            result["requested_key_name"] = key_name
+            result["key_name"] = key_name
             result["instance_type"] = args.instance_type
             result["state"] = "running"
+            result["tests"] = {
+                "specified_key": {
+                    "passed": True,
+                    "message": f"Instance uses requested key '{key_name}'",
+                    "probes": ["instance_key_name"],
+                }
+            }
             result["success"] = True
         else:
             result["error"] = "Not implemented - replace with your platform's VM launch logic"

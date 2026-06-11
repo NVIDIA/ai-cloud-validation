@@ -95,12 +95,13 @@ configs to pytest format, runs native pytest, and returns rich in-memory results
 Validation classes live in `isvtest/src/isvtest/validations/` grouped by domain
 (`generic.py`, `cluster.py`, `instance.py`, `network.py`, `iam.py`, `security.py`,
 `host.py`, `k8s_*.py`, `slurm_*.py`, `bm_*.py`). Each subclass declares
-`markers: ClassVar[list[str]]` for filtering and is auto-discovered.
+`labels: ClassVar[tuple[str, ...]]` for filtering and is auto-discovered.
 `network.py` includes security group scoping checks for workloads, nodes, subnets,
 and services.
 
 Workloads (`isvtest/src/isvtest/workloads/`) are long-running tests (NIM, NCCL,
-stress) marked `["workload", "slow"]` with manifests and helper scripts colocated.
+stress) labelled `("workload", "slow", ...)` with manifests and helper scripts
+colocated.
 
 Test config loaded from YAML/JSON via `config/loader.py`. Global fixtures in
 `tests/conftest.py`. `tests/test_validations.py` dynamically generates pytest tests
@@ -167,3 +168,15 @@ forwarded env vars → optional isvreporter upload.
 | `KUBECTL` | Optional kubectl-compatible CLI prefix (POSIX `shlex` in Python, word-split in shell; overrides `K8S_PROVIDER` detection) | isvtest `get_kubectl_command`, isvctl k8s scripts |
 | `ISVCTL_DEMO_MODE` | `"1"` makes `my-isv` scripts return dummy success | scripts |
 | `AWS_SKIP_TEARDOWN` | Skip teardown phase (run later with `--phase teardown`) | AWS configs |
+
+## Cursor Cloud specific instructions
+
+- **uv** is installed via `pip install uv` (the `~/.local/bin` path must be on `PATH`).
+- `uv sync` from the workspace root is the only install step; it creates `.venv/` with all three packages in editable mode.
+- The `uv-build` version warning during `uv sync`/`make build` is cosmetic and does not affect functionality.
+- `make demo-test` is the best quick E2E smoke test — it runs all `my-isv` provider configs in demo mode (~8 s, no cloud credentials needed).
+- For unit tests, `make test` runs all three packages plus `scripts/tests/`.
+- For linting, `make lint` uses `uvx` to run a pinned ruff version (no global install required).
+- **DCO sign-off required:** All commits must include a `Signed-off-by` line (enforced by the DCO Probot check on PRs). Use `git commit --signoff` or `git commit -s` for every commit.
+- **Pre-commit checks:** Run `uvx pre-commit run -a` before committing to catch formatting, linting, SPDX header, and link issues early.
+- No external services (databases, containers, clusters) are needed for local development or testing. All cloud-dependent tests require explicit credentials (`AWS_*`, `NGC_API_KEY`, etc.) and are skipped in demo mode.

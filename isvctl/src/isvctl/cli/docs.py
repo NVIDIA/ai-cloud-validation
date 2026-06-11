@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """CLI command for accessing documentation."""
 
@@ -19,10 +24,13 @@ from typing import Any
 import typer
 import yaml
 from isvtest.core.discovery import discover_all_tests
+from isvtest.core.validation import get_validation_labels
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
+
+from isvctl.cli.common import err_console, print_error, print_progress
 
 app = typer.Typer(help="Access ISV NCP Validation Suite documentation")
 
@@ -102,18 +110,18 @@ def docs(
     local_docs = _find_local_docs()
 
     if not local_docs:
-        typer.echo("Documentation not found.")
-        typer.echo("Run from the install directory or clone the repository.")
+        print_error("Documentation not found.")
+        print_progress("Run from the install directory or clone the repository.")
         raise typer.Exit(1)
 
     if topic:
         if topic not in TOPICS:
-            typer.echo(f"Unknown topic: {topic}")
-            typer.echo(f"Available: {', '.join(TOPICS)}")
+            print_error(f"Unknown topic: {topic}")
+            print_progress(f"Available: {', '.join(TOPICS)}")
             raise typer.Exit(1)
         doc_file = local_docs / TOPICS[topic]
         if not doc_file.exists():
-            typer.echo(f"Topic file not found: {doc_file}")
+            print_error(f"Topic file not found: {doc_file}")
             raise typer.Exit(1)
     else:
         doc_file = local_docs / "README.md"
@@ -129,11 +137,13 @@ def docs(
 
 @app.command()
 def tests(
-    marker: list[str] = typer.Option(
+    label: list[str] = typer.Option(
         None,
+        "--label",
+        "-l",
         "--marker",
         "-m",
-        help="Filter by marker (repeatable, e.g. -m kubernetes -m gpu)",
+        help="Filter by label (repeatable, e.g. -l kubernetes -l gpu; --marker is legacy)",
     ),
     config_file: Path | None = typer.Option(
         None,
@@ -145,7 +155,7 @@ def tests(
         dir_okay=False,
         readable=True,
     ),
-    flat: bool = typer.Option(False, "--flat", help="Flat list without grouping by marker"),
+    flat: bool = typer.Option(False, "--flat", help="Flat list without grouping by label"),
     info: str | None = typer.Option(
         None,
         "--info",
@@ -157,7 +167,7 @@ def tests(
 
     Examples:
         isvctl docs tests                          # All tests by category
-        isvctl docs tests -m kubernetes            # Only kubernetes tests
+        isvctl docs tests -l kubernetes            # Only kubernetes tests
         isvctl docs tests -f isvctl/configs/suites/k8s.yaml  # Tests from config file
         isvctl docs tests --flat                   # Flat alphabetical list
         isvctl docs tests -i GpuStressCheck     # Detailed info for a test
@@ -165,7 +175,7 @@ def tests(
     all_classes = list(discover_all_tests())
 
     if not all_classes:
-        console.print("[yellow]No validation tests discovered.[/yellow]")
+        err_console.print("[yellow]No validation tests discovered.[/yellow]")
         raise typer.Exit(1)
 
     _warn_duplicates(all_classes)
@@ -175,11 +185,11 @@ def tests(
         return
 
     if config_file:
-        _print_config_instances(all_classes, config_file, marker)
+        _print_config_instances(all_classes, config_file, label)
     elif flat:
-        _print_flat(all_classes, marker)
+        _print_flat(all_classes, label)
     else:
-        _print_grouped(all_classes, marker)
+        _print_grouped(all_classes, label)
 
 
 def _warn_duplicates(classes: list[type]) -> None:
@@ -189,7 +199,7 @@ def _warn_duplicates(classes: list[type]) -> None:
         seen[cls.__name__] = seen.get(cls.__name__, 0) + 1
     dupes = [name for name, count in seen.items() if count > 1]
     if dupes:
-        console.print(f"[yellow]Warning: Duplicate test class names found: {', '.join(dupes)}[/yellow]")
+        err_console.print(f"[yellow]Warning: Duplicate test class names found: {', '.join(dupes)}[/yellow]")
 
 
 def _print_test_info(classes: list[type], name: str) -> None:
@@ -198,10 +208,10 @@ def _print_test_info(classes: list[type], name: str) -> None:
     cls = by_name.get(name)
 
     if cls is None:
-        console.print(f"[red]Test not found:[/red] {name}")
+        err_console.print(f"[red]Test not found:[/red] {name}")
         close = [c.__name__ for c in classes if name in c.__name__]
         if close:
-            console.print(f"[dim]Did you mean: {', '.join(close)}?[/dim]")
+            err_console.print(f"[dim]Did you mean: {', '.join(close)}?[/dim]")
         raise typer.Exit(1)
 
     source_file = Path(inspect.getfile(cls))
@@ -222,7 +232,8 @@ def _print_test_info(classes: list[type], name: str) -> None:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="bold cyan")
     table.add_column()
-    table.add_row("Markers", ", ".join(cls.markers) if cls.markers else "(none)")
+    labels = get_validation_labels(cls)
+    table.add_row("Labels", ", ".join(labels) if labels else "(none)")
     table.add_row("Timeout", f"{cls.timeout}s")
     table.add_row("Source", source_display)
     console.print(table)
@@ -237,28 +248,28 @@ def _print_test_info(classes: list[type], name: str) -> None:
     console.print()
 
 
-def _print_grouped(classes: list[type], marker_filter: list[str] | None) -> None:
-    """Print tests grouped by marker category."""
-    by_marker: dict[str, list[type]] = defaultdict(list)
+def _print_grouped(classes: list[type], label_filter: list[str] | None) -> None:
+    """Print tests grouped by label category."""
+    by_label: dict[str, list[type]] = defaultdict(list)
 
     for cls in classes:
-        markers = cls.markers if cls.markers else ["uncategorized"]
-        for m in markers:
-            by_marker[m].append(cls)
+        labels = get_validation_labels(cls) or ("uncategorized",)
+        for item in labels:
+            by_label[item].append(cls)
 
-    if marker_filter:
-        by_marker = {k: v for k, v in by_marker.items() if k in marker_filter}
+    if label_filter:
+        by_label = {k: v for k, v in by_label.items() if k in label_filter}
 
-    if not by_marker:
-        console.print("[yellow]No tests found for the given markers.[/yellow]")
+    if not by_label:
+        err_console.print("[yellow]No tests found for the given labels.[/yellow]")
         raise typer.Exit(1)
 
-    total = len({cls.__name__ for group in by_marker.values() for cls in group})
-    console.print(f"\n[bold]Validation Tests[/bold] ({total} unique across {len(by_marker)} categories)\n")
+    total = len({cls.__name__ for group in by_label.values() for cls in group})
+    console.print(f"\n[bold]Validation Tests[/bold] ({total} unique across {len(by_label)} categories)\n")
 
-    for marker in sorted(by_marker):
+    for label_name in sorted(by_label):
         table = Table(
-            title=f"[bold cyan]{marker}[/bold cyan] ({len(by_marker[marker])})",
+            title=f"[bold cyan]{label_name}[/bold cyan] ({len(by_label[label_name])})",
             title_justify="left",
             show_header=True,
             header_style="bold",
@@ -267,13 +278,14 @@ def _print_grouped(classes: list[type], marker_filter: list[str] | None) -> None
         )
         table.add_column("Test", style="green", no_wrap=True)
         table.add_column("Description")
-        table.add_column("Markers", style="dim")
+        table.add_column("Labels", style="dim")
 
-        for cls in sorted(by_marker[marker], key=lambda c: c.__name__):
+        for cls in sorted(by_label[label_name], key=lambda c: c.__name__):
+            labels = get_validation_labels(cls)
             table.add_row(
                 cls.__name__,
                 cls.description or "-",
-                ", ".join(cls.markers) if cls.markers else "-",
+                ", ".join(labels) if labels else "-",
             )
 
         console.print(table)
@@ -337,29 +349,30 @@ def _resolve_class(instance_name: str, class_map: dict[str, type]) -> type | Non
     return None
 
 
-def _print_config_instances(classes: list[type], config_path: Path, marker_filter: list[str] | None) -> None:
+def _print_config_instances(classes: list[type], config_path: Path, label_filter: list[str] | None) -> None:
     """Print test instances as defined in a config file, grouped by config category."""
     class_map = {cls.__name__: cls for cls in classes}
     categories = _extract_config_instances(config_path)
 
     if not categories:
-        console.print("[yellow]No validations found in config file.[/yellow]")
+        err_console.print("[yellow]No validations found in config file.[/yellow]")
         raise typer.Exit(1)
 
-    if marker_filter:
+    if label_filter:
         filtered: dict[str, list[str]] = {}
         for cat, names in categories.items():
             matched = [
                 n
                 for n in names
-                if (cls := _resolve_class(n, class_map)) and any(m in (cls.markers or []) for m in marker_filter)
+                if (cls := _resolve_class(n, class_map))
+                and any(label in get_validation_labels(cls) for label in label_filter)
             ]
             if matched:
                 filtered[cat] = matched
         categories = filtered
 
     if not categories:
-        console.print("[yellow]No test instances match the given markers.[/yellow]")
+        err_console.print("[yellow]No test instances match the given labels.[/yellow]")
         raise typer.Exit(1)
 
     total = sum(len(names) for names in categories.values())
@@ -379,18 +392,19 @@ def _print_config_instances(classes: list[type], config_path: Path, marker_filte
         )
         table.add_column("Test", no_wrap=True)
         table.add_column("Description")
-        table.add_column("Markers", style="dim")
+        table.add_column("Labels", style="dim")
 
         for name in names:
             cls = _resolve_class(name, class_map)
             if cls:
+                labels = get_validation_labels(cls)
                 label = f"[green]{name}[/green]"
                 if cls.__name__ != name:
                     label += f" [dim]({cls.__name__})[/dim]"
                 table.add_row(
                     label,
                     cls.description or "-",
-                    ", ".join(cls.markers) if cls.markers else "-",
+                    ", ".join(labels) if labels else "-",
                 )
             else:
                 table.add_row(f"[green]{name}[/green]", "[red]not found[/red]", "-")
@@ -399,13 +413,13 @@ def _print_config_instances(classes: list[type], config_path: Path, marker_filte
         console.print()
 
 
-def _print_flat(classes: list[type], marker_filter: list[str] | None) -> None:
+def _print_flat(classes: list[type], label_filter: list[str] | None) -> None:
     """Print a flat alphabetical list of tests."""
-    if marker_filter:
-        classes = [cls for cls in classes if any(m in (cls.markers or []) for m in marker_filter)]
+    if label_filter:
+        classes = [cls for cls in classes if any(label in get_validation_labels(cls) for label in label_filter)]
 
     if not classes:
-        console.print("[yellow]No tests found for the given markers.[/yellow]")
+        err_console.print("[yellow]No tests found for the given labels.[/yellow]")
         raise typer.Exit(1)
 
     table = Table(
@@ -417,13 +431,14 @@ def _print_flat(classes: list[type], marker_filter: list[str] | None) -> None:
     )
     table.add_column("Test", style="green", no_wrap=True)
     table.add_column("Description")
-    table.add_column("Markers", style="dim")
+    table.add_column("Labels", style="dim")
 
     for cls in sorted(classes, key=lambda c: c.__name__):
+        labels = get_validation_labels(cls)
         table.add_row(
             cls.__name__,
             cls.description or "-",
-            ", ".join(cls.markers) if cls.markers else "-",
+            ", ".join(labels) if labels else "-",
         )
 
     console.print()

@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for YAML merging functionality."""
 
@@ -14,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from isvctl.config.merger import (
     apply_set_value,
@@ -229,6 +235,33 @@ class TestImportDirective:
         result = merge_yaml_files([str(child)])
         assert result == {"val": "overridden"}
 
+    def test_import_falls_back_to_current_working_directory(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Checkout-root-relative imports work for out-of-tree provider configs."""
+        repo_root = tmp_path / "repo"
+        template = repo_root / "isvctl" / "configs" / "suites" / "vm.yaml"
+        template.parent.mkdir(parents=True)
+        template.write_text(
+            "tests:\n  cluster_name: template\n  suite_only: inherited\n",
+            encoding="utf-8",
+        )
+
+        provider_dir = tmp_path / "provider" / "config"
+        provider_dir.mkdir(parents=True)
+        provider = provider_dir / "vm.yaml"
+        provider.write_text(
+            "import:\n  - isvctl/configs/suites/vm.yaml\ntests:\n  cluster_name: provider\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(repo_root / "isvctl")
+
+        result = merge_yaml_files([str(provider)])
+        assert result == {"tests": {"cluster_name": "provider", "suite_only": "inherited"}}
+
     def test_multiple_imports(self, tmp_path: Path) -> None:
         """Multiple imports are merged in order, child wins."""
         (tmp_path / "a.yaml").write_text("x: 1\ny: from_a")
@@ -284,6 +317,14 @@ class TestImportDirective:
         child.write_text("import:\n  - missing.yaml\nx: 1")
 
         with pytest.raises(FileNotFoundError):
+            merge_yaml_files([str(child)])
+
+    def test_import_entry_must_be_string_or_path(self, tmp_path: Path) -> None:
+        """Invalid import entry types raise a config-specific ValueError."""
+        child = tmp_path / "child.yaml"
+        child.write_text("import:\n  - 123\nx: 1")
+
+        with pytest.raises(ValueError, match=r"Import entries must be strings or paths.*child\.yaml"):
             merge_yaml_files([str(child)])
 
     def test_import_with_f_flag_merge(self, tmp_path: Path) -> None:
@@ -398,6 +439,52 @@ class TestImportEndToEnd:
         assert result["tests"]["cluster_name"] == "aws-iam-validation"
         assert result["tests"]["platform"] == "iam"
 
+    def test_my_isv_observability_declares_raw_platform_for_report_upload(self) -> None:
+        """Raw observability config exposes platform for upload paths that skip imports."""
+        config_path = self.CONFIGS_DIR / "providers" / "my-isv" / "config" / "observability.yaml"
+
+        raw_config = yaml.safe_load(config_path.read_text()) or {}
+        assert raw_config.get("tests", {}).get("platform") == "observability"
+
+        result = merge_yaml_files([config_path])
+        assert result["tests"]["platform"] == "observability"
+
+    def test_aws_observability_inherits_supported_validations(self) -> None:
+        """AWS observability imports the canonical suite and wires supported steps."""
+        result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "observability.yaml"])
+
+        assert result["tests"]["platform"] == "observability"
+        assert result["tests"]["cluster_name"] == "aws-observability-validation"
+
+        steps = result["commands"]["observability"]["steps"]
+        step_names = {step["name"] for step in steps}
+        assert {
+            "create_network",
+            "enable_vpc_flow_logs",
+            "launch_host",
+            "vpc_flow_logs",
+            "host_syslogs",
+            "bmc_sel_logs",
+            "bmc_gpu_telemetry",
+        } <= step_names
+
+        steps_by_name = {step["name"]: step for step in steps}
+        assert steps_by_name["host_syslogs"]["timeout"] >= 600
+        assert "{{steps.enable_vpc_flow_logs.flow_log_id}}" in steps_by_name["vpc_flow_logs"]["args"]
+        launch_host_args = steps_by_name["launch_host"]["args"]
+        key_name_arg = launch_host_args[launch_host_args.index("--key-name") + 1]
+        assert key_name_arg == "isv-observability-host-key-{{steps.create_network.network_id}}"
+
+        validations = result["tests"]["validations"]
+        assert validations["network_logs"]["checks"]["VpcFlowLogsCheck"]["step"] == "vpc_flow_logs"
+        assert validations["host_logs"]["checks"]["HostSyslogCheck"]["step"] == "host_syslogs"
+        assert validations["bmc_logs"]["checks"]["BmcSelLogsCheck"]["step"] == "bmc_sel_logs"
+        assert validations["bmc_telemetry"]["checks"]["BmcGpuTelemetryCheck"]["step"] == "bmc_gpu_telemetry"
+
+        excluded = set(result["tests"].get("exclude", {}).get("tests", []))
+        assert "BmcSelLogsCheck" not in excluded
+        assert "BmcGpuTelemetryCheck" not in excluded
+
     def test_aws_iam_commands_override_test_stubs(self) -> None:
         """AWS commands replace the test definition's placeholder stubs."""
         result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "iam.yaml"])
@@ -414,20 +501,66 @@ class TestImportEndToEnd:
         assert "kubernetes" in validations
         assert "k8s_workloads" in validations
         node_count_check = validations["kubernetes"]["checks"]["K8sNodeCountCheck"]
+        gpu_pod_access_check = validations["kubernetes"]["checks"]["K8sGpuPodAccessCheck"]
+        gpu_capacity_check = validations["kubernetes"]["checks"]["K8sGpuCapacityCheck"]
         node_count = node_count_check["count"]
         exclude_selector = node_count_check["exclude_label_selector"]
-        assert "steps.update_test_node_pool.label_selector" in exclude_selector
+        total_gpu_count = gpu_pod_access_check["total_gpu_count"]
+        expected_total = gpu_capacity_check["expected_total"]
+        # Separate CPU and GPU test pools both carry the stable pool marker, so
+        # the baseline node count excludes them with one static selector.
+        assert exclude_selector == "isv.ncp.validation/pool=test"
+
+        # Separate CPU and GPU node pools are created with independent state
+        # files and instance types (K8S06), each validated by its own check.
+        steps = result["commands"]["kubernetes"]["steps"]
+        steps_by_name = {s["name"]: s for s in steps}
+        step_names = [step["name"] for step in steps]
+        assert "create_test_shared_vpc_cluster" in steps_by_name
+        assert "destroy_test_shared_vpc_cluster" in steps_by_name
+        assert (
+            step_names.index("setup")
+            < step_names.index("create_test_shared_vpc_cluster")
+            < step_names.index("create_test_node_pool")
+        )
+        assert (
+            step_names.index("destroy_test_gpu_node_pool")
+            < step_names.index("destroy_test_shared_vpc_cluster")
+            < step_names.index("teardown")
+        )
+        assert steps_by_name["create_test_shared_vpc_cluster"]["output_schema"] == "multi_cluster"
+        assert steps_by_name["create_test_shared_vpc_cluster"]["requires_available_validations"] == [
+            "K8sMultiClusterSameVpcCheck"
+        ]
+        cpu_create = steps_by_name["create_test_node_pool"]["env"]
+        gpu_create = steps_by_name["create_test_gpu_node_pool"]["env"]
+        assert cpu_create["NODE_POOL_STATE_FILE"] != gpu_create["NODE_POOL_STATE_FILE"]
+        assert cpu_create["TF_VAR_test_pool_node_type"] == "cpu"
+        assert gpu_create["TF_VAR_test_pool_node_type"] == "gpu"
+        # The GPU destroy step must target the GPU pool's state file.
+        assert (
+            steps_by_name["destroy_test_gpu_node_pool"]["env"]["NODE_POOL_STATE_FILE"]
+            == gpu_create["NODE_POOL_STATE_FILE"]
+        )
+        node_pool_checks = validations["k8s_node_pools"]
+        checked_steps = {next(iter(entry.values()))["step"] for entry in node_pool_checks}
+        assert {"create_test_node_pool", "create_test_gpu_node_pool", "update_test_node_pool"} <= checked_steps
+        multi_cluster_check = validations["k8s_multi_cluster"]["checks"]["K8sMultiClusterSameVpcCheck"]
+        assert multi_cluster_check["step"] == "create_test_shared_vpc_cluster"
+
         config = RunConfig.model_validate(result)
         context = Context(config)
         for step in config.get_steps("kubernetes"):
             context.set_step_phase(step.name, step.phase or "setup")
-        context.set_step_output("setup", {"kubernetes": {"node_count": 3}})
         context.set_step_output(
-            "update_test_node_pool",
-            {"label_selector": "eks.amazonaws.com/nodegroup=isv-test-pool"},
+            "setup",
+            {"kubernetes": {"node_count": 3, "gpu_node_count": 1, "gpu_per_node": 1, "total_gpus": 1}},
         )
+        context.set_step_output("create_test_gpu_node_pool", {"expected_replicas": 1})
         assert context.render_string(node_count) == "3"
-        assert context.render_string(exclude_selector) == "eks.amazonaws.com/nodegroup=isv-test-pool"
+        assert context.render_string(exclude_selector) == "isv.ncp.validation/pool=test"
+        assert context.render_string(total_gpu_count) == "2"
+        assert context.render_string(expected_total) == "2"
         assert result["tests"]["platform"] == "kubernetes"
 
     def test_aws_eks_does_not_hardcode_world_open_endpoint_allowlist(self) -> None:

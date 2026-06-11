@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """SSH connection and utility helpers.
 
@@ -25,6 +30,7 @@ Requires paramiko: pip install paramiko
 from __future__ import annotations
 
 import logging
+import subprocess
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -68,12 +74,80 @@ def get_ssh_client(
     return ssh_client
 
 
+class LocalExecutor:
+    """Session sentinel that runs commands on the local host.
+
+    Used by host validations that already execute on the target machine
+    (e.g. via ``isvctl deploy run``), so they run shell commands directly
+    instead of opening a second SSH connection back into the host (which
+    would otherwise need its own private key).
+
+    It duck-types the subset of ``paramiko.SSHClient`` that host validations
+    rely on: it is accepted by :func:`run_ssh_command` and supports ``close()``.
+    """
+
+    def close(self) -> None:
+        """No-op for interface parity with ``paramiko.SSHClient``."""
+        return None
+
+
+def is_local_execution(config: dict[str, Any]) -> bool:
+    """Whether to run commands locally (``local: true``) instead of over SSH.
+
+    Use when the validation already runs on the target host.
+    """
+    return bool(config.get("local"))
+
+
+def open_host_session(
+    ssh_cfg: dict[str, Any],
+    config: dict[str, Any],
+    timeout: int = 30,
+) -> paramiko.SSHClient | LocalExecutor:
+    """Open a command session to the host under test.
+
+    Returns a connected paramiko SSH client, or a :class:`LocalExecutor` when
+    local execution is enabled (config ``local: true``). Both are accepted by
+    :func:`run_ssh_command`.
+    """
+    if is_local_execution(config):
+        return LocalExecutor()
+    return get_ssh_client(
+        ssh_cfg["ssh_host"],
+        ssh_cfg["ssh_user"],
+        ssh_cfg["ssh_key_path"],
+        timeout=timeout,
+    )
+
+
+def _run_local_command(command: str, timeout: int) -> tuple[int, str, str]:
+    """Run a shell command on the local host, mirroring run_ssh_command's contract.
+
+    Raises:
+        TimeoutError: If the command does not complete within timeout.
+    """
+    try:
+        proc = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("timed out") from exc
+    return proc.returncode, proc.stdout, proc.stderr
+
+
 def run_ssh_command(
-    ssh: paramiko.SSHClient,
+    ssh: paramiko.SSHClient | LocalExecutor,
     command: str,
     timeout: int = 120,
 ) -> tuple[int, str, str]:
-    """Run command via SSH and return exit_code, stdout, stderr.
+    """Run command via SSH (or locally) and return exit_code, stdout, stderr.
+
+    When ``ssh`` is a :class:`LocalExecutor`, the command runs on the local
+    host via a subprocess. Otherwise it runs over the paramiko SSH channel.
 
     Uses a threading event to enforce a wall-clock timeout, since
     paramiko's channel timeout only applies to socket operations and
@@ -82,7 +156,7 @@ def run_ssh_command(
     the channel window size.
 
     Args:
-        ssh: Connected SSH client
+        ssh: Connected SSH client or LocalExecutor
         command: Command to execute
         timeout: Wall-clock timeout in seconds (default: 120)
 
@@ -92,6 +166,9 @@ def run_ssh_command(
     Raises:
         TimeoutError: If the command does not complete within timeout
     """
+    if isinstance(ssh, LocalExecutor):
+        return _run_local_command(command, timeout)
+
     _, stdout, _stderr = ssh.exec_command(command)
     channel = stdout.channel
 

@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import sys
 from difflib import get_close_matches
@@ -14,11 +19,12 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from isvtest.config.constants import RESOLVED_ENTRIES_FLAG
 from isvtest.config.loader import ConfigLoader
 from isvtest.core.discovery import discover_all_tests
-from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, RESOLVED_ENTRIES_FLAG, resolve_class_key
+from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, resolve_class_key
 from isvtest.core.runners import LocalRunner
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, get_validation_labels
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 if TYPE_CHECKING:
@@ -37,6 +43,17 @@ def get_validation_results() -> list[dict[str, Any]]:
 def clear_validation_results() -> None:
     """Clear captured validation results before a new pytest run."""
     _validation_results.clear()
+
+
+def _pytest_marks_for_validation(
+    config: pytest.Config,
+    validation_class: type[BaseValidation],
+) -> list[Any]:
+    """Return pytest marks mirroring a validation class's labels."""
+    labels = get_validation_labels(validation_class)
+    for label in labels:
+        config.addinivalue_line("markers", f"{label}: Validation label")
+    return [getattr(pytest.mark, label) for label in labels]
 
 
 def _resolve_validation_class(
@@ -158,9 +175,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                         continue
 
                 if target_class:
-                    # Get markers from class, ensuring we handle inheritance correctly
-                    markers = getattr(target_class, "markers", [])
-                    pytest_marks = [getattr(pytest.mark, m) for m in markers]
+                    pytest_marks = _pytest_marks_for_validation(metafunc.config, target_class)
 
                     # Merge inventory into validation config for validations that need it.
                     # Most validations (k8s, slurm, bare_metal) run commands locally and don't need inventory.
@@ -192,8 +207,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
                     # If class was not configured by exact or variant match, treat it as skipped.
                     if cls_name not in configured_classes:
-                        markers = getattr(cls, "markers", [])
-                        pytest_marks = [getattr(pytest.mark, m) for m in markers]
+                        pytest_marks = _pytest_marks_for_validation(metafunc.config, cls)
                         pytest_marks.append(pytest.mark.skip(reason="Not configured in config YAML"))
 
                         # Include inventory even for skipped tests (for consistency)
@@ -206,8 +220,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 if released_tests is not None and cls.__name__ not in released_tests:
                     continue
 
-                markers = getattr(cls, "markers", [])
-                pytest_marks = [getattr(pytest.mark, m) for m in markers]
+                pytest_marks = _pytest_marks_for_validation(metafunc.config, cls)
                 params.append(pytest.param(cls, {"inventory": cluster_inventory}, cls.__name__, marks=pytest_marks))
                 ids.append(cls.__name__)
 

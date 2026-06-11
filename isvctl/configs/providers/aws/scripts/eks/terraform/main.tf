@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # AWS EKS GPU Cluster Terraform Configuration
 # This module deploys an EKS cluster with GPU nodes for ISV Lab validation testing.
@@ -122,6 +127,11 @@ data "aws_ec2_instance_type_offerings" "gpu" {
 
 locals {
   cluster_name = "${var.cluster_name_prefix}-${var.environment}"
+  cluster_autoscaler_image_tag = (
+    var.cluster_autoscaler_image_tag != ""
+    ? var.cluster_autoscaler_image_tag
+    : "v${var.kubernetes_version}.0"
+  )
 
   # Filter AZs to only those that support the GPU instance type
   # This prevents NodeCreationFailure when EKS tries to launch GPU nodes in unsupported AZs
@@ -444,6 +454,29 @@ module "ebs_csi_irsa" {
 }
 
 # -----------------------------------------------------------------------------
+# Cluster Autoscaler IRSA
+# -----------------------------------------------------------------------------
+
+module "cluster_autoscaler_irsa" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "~> 5.0"
+  count   = var.install_cluster_autoscaler ? 1 : 0
+
+  role_name                        = "${local.cluster_name}-cluster-autoscaler"
+  attach_cluster_autoscaler_policy = true
+  cluster_autoscaler_cluster_names = [local.cluster_name]
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:cluster-autoscaler"]
+    }
+  }
+
+  tags = local.tags
+}
+
+# -----------------------------------------------------------------------------
 # EFS for ReadWriteMany Storage (NIM model cache)
 # -----------------------------------------------------------------------------
 
@@ -556,6 +589,55 @@ resource "helm_release" "gpu_operator" {
   })]
 
   timeout = 900 # 15 minutes - GPU operator can take a while
+}
+
+# -----------------------------------------------------------------------------
+# Cluster Autoscaler (Helm)
+# -----------------------------------------------------------------------------
+
+resource "helm_release" "cluster_autoscaler" {
+  count = var.install_cluster_autoscaler ? 1 : 0
+
+  name       = "cluster-autoscaler"
+  repository = "https://kubernetes.github.io/autoscaler"
+  chart      = "cluster-autoscaler"
+  version    = var.cluster_autoscaler_chart_version != "" ? var.cluster_autoscaler_chart_version : null
+  namespace  = "kube-system"
+
+  depends_on = [
+    module.eks,
+    module.cluster_autoscaler_irsa,
+  ]
+
+  values = [yamlencode({
+    fullnameOverride = "cluster-autoscaler"
+    nameOverride     = "cluster-autoscaler"
+    cloudProvider    = "aws"
+    awsRegion        = var.region
+    autoDiscovery = {
+      clusterName = local.cluster_name
+    }
+    image = {
+      tag = local.cluster_autoscaler_image_tag
+    }
+    replicaCount = 1
+    rbac = {
+      serviceAccount = {
+        create = true
+        name   = "cluster-autoscaler"
+        annotations = {
+          "eks.amazonaws.com/role-arn" = module.cluster_autoscaler_irsa[0].iam_role_arn
+        }
+      }
+    }
+    extraArgs = {
+      "balance-similar-node-groups" = "true"
+      "scale-down-enabled"          = "false"
+      "skip-nodes-with-system-pods" = "true"
+    }
+  })]
+
+  timeout = 300
 }
 
 # -----------------------------------------------------------------------------

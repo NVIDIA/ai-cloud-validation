@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # AWS EKS Cluster Validation Configuration
 # Provisions an EKS GPU cluster using Terraform, then runs the canonical
@@ -48,9 +53,31 @@ commands:
           TF_VAR_gpu_node_instance_types: '["g5.2xlarge"]'
           TF_VAR_gpu_node_desired_size: "1"
 
-      # Test the Terraform node-pool create path. Runs after the
-      # cluster is up; reads cluster state via terraform_remote_state in the
-      # node-pool module. See ../scripts/eks/terraform-node-pool/README.md.
+      # K8S26-01: prove a second EKS cluster can coexist in the same AWS
+      # account and VPC as the primary cluster. The script reads the primary
+      # Terraform state, applies a secondary EKS module with isolated local
+      # state, waits for a Ready node in the secondary cluster, and emits the
+      # multi_cluster JSON contract consumed by K8sMultiClusterSameVpcCheck.
+      - name: create_test_shared_vpc_cluster
+        phase: setup
+        command: "../scripts/eks/create_shared_vpc_cluster.sh"
+        output_schema: multi_cluster
+        requires_available_validations:
+          - K8sMultiClusterSameVpcCheck
+        timeout: 1800
+        env:
+          TF_AUTO_APPROVE: "true"
+          SHARED_VPC_CLUSTER_STATE_FILE: "terraform.tfstate"
+          TF_VAR_node_desired_size: "1"
+          TF_VAR_node_instance_types: '["m6i.large"]'
+
+      # Exercise the node-pool create path twice to prove separate CPU and GPU
+      # pools can coexist in the same cluster with independent node counts
+      # (K8S06). Each pool keeps its own Terraform state via
+      # NODE_POOL_STATE_FILE so the two node groups don't clobber one another.
+      # Runs after the cluster is up; reads cluster state via
+      # terraform_remote_state in the node-pool module. See
+      # ../scripts/eks/terraform-node-pool/README.md.
       - name: create_test_node_pool
         phase: setup
         command: "../scripts/eks/create_node_pool.sh"
@@ -58,6 +85,7 @@ commands:
         timeout: 900 # 15 min - EKS node group join can take 5-8 min
         env:
           TF_AUTO_APPROVE: "true"
+          NODE_POOL_STATE_FILE: "terraform.tfstate"
           TF_VAR_test_pool_name: "isv-test-pool"
           TF_VAR_test_pool_instance_types: '["m6i.large"]'
           TF_VAR_test_pool_desired_size: "1"
@@ -65,7 +93,26 @@ commands:
           TF_VAR_test_pool_taints_json: '[{"key":"isv.ncp.validation/dedicated","value":"test","effect":"NoSchedule"}]'
           TF_VAR_test_pool_node_type: "cpu"
 
-      # Scale the same pool to a new target count. Re-applies the
+      # The GPU pool: a separate node group with a GPU instance type, its own
+      # state file, and its own node count, created alongside the CPU pool
+      # above. This is the second half of "separate CPU and GPU pools in the
+      # same cluster" - the GPU AMI mirrors the cluster's GPU node group.
+      - name: create_test_gpu_node_pool
+        phase: setup
+        command: "../scripts/eks/create_node_pool.sh"
+        output_schema: node_pool
+        timeout: 900 # 15 min - EKS node group join can take 5-8 min
+        env:
+          TF_AUTO_APPROVE: "true"
+          NODE_POOL_STATE_FILE: "terraform-gpu.tfstate"
+          TF_VAR_test_pool_name: "isv-test-gpu-pool"
+          TF_VAR_test_pool_instance_types: '["g5.2xlarge"]'
+          TF_VAR_test_pool_ami_type: "AL2_x86_64_GPU"
+          TF_VAR_test_pool_desired_size: "1"
+          TF_VAR_test_pool_labels_json: '{"isv.ncp.validation/workload":"gpu-compute"}'
+          TF_VAR_test_pool_node_type: "gpu"
+
+      # Scale the CPU pool to a new target count. Re-applies the
       # terraform-node-pool module with a bumped desired_size; create_node_pool.sh
       # is reused because `terraform apply` is idempotent. The emitted
       # node_pool payload carries the new replica count. This runs in the test
@@ -79,6 +126,7 @@ commands:
         env:
           NODE_POOL_ACTION: "Updating"
           TF_AUTO_APPROVE: "true"
+          NODE_POOL_STATE_FILE: "terraform.tfstate"
           TF_VAR_test_pool_name: "isv-test-pool"
           TF_VAR_test_pool_instance_types: '["m6i.large"]'
           TF_VAR_test_pool_desired_size: "2"
@@ -86,14 +134,34 @@ commands:
           TF_VAR_test_pool_taints_json: '[{"key":"isv.ncp.validation/dedicated","value":"test","effect":"NoSchedule"}]'
           TF_VAR_test_pool_node_type: "cpu"
 
-      # Teardown order: destroy the test node pool before tearing down the
-      # cluster so its ENIs/instances are freed before the VPC comes down.
+      # Teardown order: destroy both test node pools before tearing down the
+      # cluster so their ENIs/instances are freed before the VPC comes down.
+      # Each destroy targets its pool's state file (matching create).
       - name: destroy_test_node_pool
         phase: teardown
         command: "../scripts/eks/destroy_node_pool.sh"
         timeout: 900
         env:
           TF_AUTO_APPROVE: "true"
+          NODE_POOL_STATE_FILE: "terraform.tfstate"
+
+      - name: destroy_test_gpu_node_pool
+        phase: teardown
+        command: "../scripts/eks/destroy_node_pool.sh"
+        timeout: 900
+        env:
+          TF_AUTO_APPROVE: "true"
+          NODE_POOL_STATE_FILE: "terraform-gpu.tfstate"
+
+      # Destroy the secondary shared-VPC cluster before the primary cluster
+      # teardown removes the shared subnets and VPC.
+      - name: destroy_test_shared_vpc_cluster
+        phase: teardown
+        command: "../scripts/eks/destroy_shared_vpc_cluster.sh"
+        timeout: 1800
+        env:
+          TF_AUTO_APPROVE: "true"
+          SHARED_VPC_CLUSTER_STATE_FILE: "terraform.tfstate"
 
       - name: teardown
         phase: teardown
@@ -106,14 +174,30 @@ tests:
   description: "AWS EKS GPU cluster validation"
 
   validations:
+    k8s_multi_cluster:
+      checks:
+        K8sMultiClusterSameVpcCheck:
+          step: create_test_shared_vpc_cluster
+
     kubernetes:
       checks:
         K8sNodeCountCheck:
-          # Keep the generic node count scoped to the baseline cluster. The
-          # test phase intentionally scales a temporary CPU node pool before
-          # this check runs; K8sNodePoolCheck validates that pool separately.
+          # Keep the generic node count scoped to the baseline cluster. Setup
+          # adds temporary CPU and GPU test pools (and the test phase scales
+          # the CPU one) before this check runs; K8sNodePoolCheck validates
+          # those pools separately. Every test-pool node carries the stable
+          # `isv.ncp.validation/pool=test` marker, so one selector excludes
+          # both pools at once.
           count: "{{ steps.setup.kubernetes.node_count | default(4, true) }}"
-          exclude_label_selector: "{{ steps.update_test_node_pool.label_selector | default('', true) }}"
+          exclude_label_selector: "isv.ncp.validation/pool=test"
+        K8sGpuPodAccessCheck:
+          # This check probes every current GPU node. The setup phase creates
+          # a temporary g5.2xlarge GPU test pool after baseline inventory is
+          # captured, so include its 1-GPU pod target per replica.
+          total_gpu_count: "{{ (steps.setup.kubernetes.gpu_node_count | default(4, true) | int) + (steps.create_test_gpu_node_pool.expected_replicas | default(0, true) | int) }}"
+        K8sGpuCapacityCheck:
+          # The g5.2xlarge test pool contributes one advertised GPU per node.
+          expected_total: "{{ (steps.setup.kubernetes.total_gpus | default(16, true) | int) + (steps.create_test_gpu_node_pool.expected_replicas | default(0, true) | int) }}"
 
   exclude:
     tests:

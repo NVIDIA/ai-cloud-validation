@@ -1,12 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Security validations for infrastructure hardening.
 
@@ -39,7 +44,7 @@ class BmcManagementNetworkCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BMC management network is dedicated and restricted"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required BMC management-network results from step output."""
@@ -71,7 +76,7 @@ class BmcTenantIsolationCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BMC not reachable from tenant network"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required BMC isolation probe results from step output."""
@@ -118,7 +123,7 @@ class TenantIsolationCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check hard tenant isolation across network, data, compute, and storage"
-    markers: ClassVar[list[str]] = ["security", "network", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network", "iam")
 
     def run(self) -> None:
         """Validate the four tenant-isolation sub-claims from step output."""
@@ -164,7 +169,7 @@ class BmcProtocolSecurityCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BMC protocol security posture"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required BMC protocol security probe results."""
@@ -180,6 +185,54 @@ class BmcProtocolSecurityCheck(BaseValidation):
             return
         bmc_count = self.config.get("step_output", {}).get("bmc_endpoints_tested", "N/A")
         self.set_passed(f"BMC protocol security posture verified ({bmc_count} endpoints tested)")
+
+
+class InsecureProtocolsCheck(BaseValidation):
+    """Validate insecure transport protocols are disabled (SEC13-02).
+
+    Verifies edge endpoints reject SSLv3, TLSv1.0, and TLSv1.1 and do not
+    serve plain HTTP on port 80. The probe issues a raw-socket ClientHello
+    per legacy version and classifies the response (Alert/RST/timeout =
+    refused; ServerHello with matching version = accepted).
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        endpoints_tested: Positive integer
+        tests: dict with sslv3_disabled, tlsv1_0_disabled,
+               tlsv1_1_disabled, plain_http_disabled
+    """
+
+    description: ClassVar[str] = "Check insecure protocols (HTTP, SSLv3, TLSv1.0, TLSv1.1) are disabled"
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
+
+    def run(self) -> None:
+        """Validate required insecure-protocol probe results from step output."""
+        step_output = self.config.get("step_output", {})
+        if step_output.get("skipped") is True:
+            pytest.skip(step_output.get("skip_reason") or "Insecure protocols validation skipped (not configured)")
+
+        if step_output.get("success") is False:
+            step_error = step_output.get("error") or step_output.get("message")
+            self.set_failed(step_error or "Insecure protocol step failed: no error message provided")
+            return
+
+        required = [
+            "sslv3_disabled",
+            "tlsv1_0_disabled",
+            "tlsv1_1_disabled",
+            "plain_http_disabled",
+        ]
+        if not check_required_tests(self, required, "Insecure protocols tests failed"):
+            return
+
+        endpoints_tested = step_output.get("endpoints_tested")
+        if type(endpoints_tested) is not int or endpoints_tested < 1:
+            self.set_failed("Insecure protocols output missing positive int 'endpoints_tested'")
+            return
+
+        self.set_passed(f"Insecure protocols disabled ({endpoints_tested} endpoints tested)")
 
 
 class BmcBastionAccessCheck(BaseValidation):
@@ -205,7 +258,7 @@ class BmcBastionAccessCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BMC reachable only via hardened bastion"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required BMC bastion-access results from step output."""
@@ -232,20 +285,30 @@ class MfaEnforcedCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
-        tests: dict with root_mfa_enabled, console_users_mfa,
-               api_mfa_policy, cli_mfa_policy
+        tests: dict with admin_account_mfa, interactive_access_mfa,
+               programmatic_access_mfa
+
+    Subtest semantics (platform-neutral outcomes; each platform attests them
+    via its own native control):
+        admin_account_mfa:       the root / super-admin account requires MFA.
+        interactive_access_mfa:  interactive (console / UI) sign-in requires MFA.
+        programmatic_access_mfa: programmatic (API + CLI) access by principals
+            is MFA-gated -- attested via the platform's native control (e.g. an
+            AWS IAM MFA-deny policy, or an org-level enforced-login-MFA signal
+            where human API/CLI access rides the gated session). Scoped to
+            principal (human/identity) access; it does not assert MFA on pure
+            machine/token credentials, which not all platforms gate.
     """
 
     description: ClassVar[str] = "Check admin interfaces protected by MFA"
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required MFA enforcement results from step output."""
         required = [
-            "root_mfa_enabled",
-            "console_users_mfa",
-            "api_mfa_policy",
-            "cli_mfa_policy",
+            "admin_account_mfa",
+            "interactive_access_mfa",
+            "programmatic_access_mfa",
         ]
         if not check_required_tests(self, required, "MFA enforcement tests failed"):
             return
@@ -268,7 +331,7 @@ class CentralizedKmsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check encrypted resources use centralized KMS"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required centralized-KMS results from step output."""
@@ -317,7 +380,7 @@ class CertRotationCycleCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check TLS certificates rotate within 60 days or auto-renew"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required certificate-rotation results from step output."""
@@ -377,7 +440,7 @@ class CustomerManagedKeyCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check BYOK/customer-managed key encryption support"
-    markers: ClassVar[list[str]] = ["security", "workload", "slow"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "workload", "slow")
 
     def run(self) -> None:
         """Validate required BYOK/customer-managed key results from step output."""
@@ -426,7 +489,10 @@ class KmsEncryptionOptionCheck(BaseValidation):
         step_output: The kms_encryption_options_test step output to check
 
     Step output:
-        provider_managed_key_id: Non-empty provider-managed key evidence
+        provider_managed_key_id: Optional provider-managed key id (may be empty
+            or absent when the platform's default at-rest key is not an
+            enumerable resource); provider-managed support is proven by the
+            provider_managed_key_available subtest, not this id
         customer_managed_key_id: Non-empty CMK evidence
         skipped: True when scoped provider-managed evidence is unavailable
         skip_reason: Human-readable skip reason when skipped is True
@@ -435,7 +501,7 @@ class KmsEncryptionOptionCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check provider-managed and customer-managed KMS options exist"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required KMS encryption-option results from step output."""
@@ -451,18 +517,26 @@ class KmsEncryptionOptionCheck(BaseValidation):
         if not check_required_tests(self, required, "KMS encryption option tests failed"):
             return
 
-        provider_key_id = step_output.get("provider_managed_key_id")
-        if not isinstance(provider_key_id, str) or not provider_key_id.strip():
-            self.set_failed("KMS encryption options output missing non-empty provider-managed key evidence")
-            return
-
+        # Customer-managed (CMEK) is proven by an enumerable key id -- the
+        # portable evidence shape every CMEK-capable platform produces (AWS
+        # create_key; GCP KeyManagementServiceClient.list_crypto_keys).
         customer_key_id = step_output.get("customer_managed_key_id")
         if not isinstance(customer_key_id, str) or not customer_key_id.strip():
             self.set_failed("KMS encryption options output missing non-empty customer-managed key evidence")
             return
 
+        # Provider-managed (default at-rest) is proven by the
+        # provider_managed_key_available subtest, NOT a key id: the evidence is
+        # platform-shaped -- a listable managed-key alias where one exists, or a
+        # capability where the default key is not an enumerable resource. Record
+        # the id when the platform exposes one; do not require it.
+        provider_key_id = step_output.get("provider_managed_key_id")
+        provider_desc = (
+            provider_key_id.strip() if isinstance(provider_key_id, str) and provider_key_id.strip() else "available"
+        )
+
         self.set_passed(
-            f"KMS encryption options verified (provider={provider_key_id.strip()}, customer={customer_key_id.strip()})"
+            f"KMS encryption options verified (provider={provider_desc}, customer={customer_key_id.strip()})"
         )
 
 
@@ -482,7 +556,7 @@ class ApiEndpointIsolationCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check API endpoints not publicly accessible"
-    markers: ClassVar[list[str]] = ["security", "network"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "network")
 
     def run(self) -> None:
         """Validate required API endpoint isolation probe results from step output."""
@@ -514,11 +588,13 @@ class ConsoleRbacCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check console access is restricted by RBAC"
-    markers: ClassVar[list[str]] = ["vm", "security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("vm", "security", "iam")
 
     def run(self) -> None:
         """Validate console RBAC provider proof from step output."""
         step_output = self.config.get("step_output", {})
+        if step_output.get("skipped") is True:
+            pytest.skip(step_output.get("skip_reason") or "Console RBAC validation skipped")
 
         instance_id = step_output.get("instance_id")
         if not instance_id:
@@ -553,6 +629,45 @@ class ConsoleRbacCheck(BaseValidation):
         )
 
 
+class VirtualDeviceHardeningCheck(BaseValidation):
+    """Validate unnecessary VM virtual-device surfaces are disabled.
+
+    Config:
+        step_output: The virtual_device_hardening step output to check
+
+    Step output:
+        tests: dict with usb_devices_disabled, clipboard_disabled,
+               unnecessary_virtual_devices_absent
+    """
+
+    description: ClassVar[str] = "Check USB, clipboard, and unnecessary virtual devices are disabled"
+    labels: ClassVar[tuple[str, ...]] = ("vm", "security")
+
+    def run(self) -> None:
+        """Validate virtual-device hardening evidence from step output."""
+        step_output = self.config.get("step_output", {})
+        step_failed = step_output.get("success") is False
+        step_failed_msg = f"Virtual device hardening step failed: {step_output.get('error', 'step reported failure')}"
+
+        if step_failed and not step_output.get("tests"):
+            self.set_failed(step_failed_msg)
+            return
+
+        required = [
+            "usb_devices_disabled",
+            "clipboard_disabled",
+            "unnecessary_virtual_devices_absent",
+        ]
+        if not check_required_tests(self, required, "Virtual device hardening tests failed"):
+            return
+
+        if step_failed:
+            self.set_failed(step_failed_msg)
+            return
+
+        self.set_passed("Virtual device hardening verified")
+
+
 class OidcUserAuthCheck(BaseValidation):
     """Validate user authentication via OIDC for platform services.
 
@@ -578,7 +693,7 @@ class OidcUserAuthCheck(BaseValidation):
     description: ClassVar[str] = (
         "Check user auth via OIDC validates signature, issuer, audience, expiration, and required claims"
     )
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required OIDC token verification probe results from step output."""
@@ -652,7 +767,7 @@ class ShortLivedCredentialsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check workloads and nodes receive credentials with finite, bounded TTL"
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required short-lived credentials results from step output."""
@@ -712,7 +827,7 @@ class LeastPrivilegePolicyCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check least-privilege access policies are user, resource, and network scoped"
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required least-privilege policy-dimension results from step output."""
@@ -757,7 +872,7 @@ class MinimalRoleEnforcementCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check minimal role denies out-of-scope compute, storage, and network APIs"
-    markers: ClassVar[list[str]] = ["security", "iam"]
+    labels: ClassVar[tuple[str, ...]] = ("security", "iam")
 
     def run(self) -> None:
         """Validate required out-of-scope denial results from step output."""
@@ -803,7 +918,7 @@ class AuditLogEntryCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check management API calls are recorded in audit logs with required metadata"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required audit-log entry and metadata results from step output."""
@@ -845,7 +960,7 @@ class AuditLogRetentionCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check audit logs are retained for at least 30 days"
-    markers: ClassVar[list[str]] = ["security"]
+    labels: ClassVar[tuple[str, ...]] = ("security",)
 
     def run(self) -> None:
         """Validate required audit-log retention results from step output."""
