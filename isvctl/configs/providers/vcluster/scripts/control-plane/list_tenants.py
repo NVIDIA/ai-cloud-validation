@@ -99,8 +99,7 @@ def main() -> int:
 
         result["count"] = len(vclusters)
         result["found_target"] = any(
-            vc.get("Name") == args.group_name or vc.get("name") == args.group_name
-            for vc in vclusters
+            vc.get("Name") == args.group_name or vc.get("name") == args.group_name for vc in vclusters
         )
         result["success"] = True
 

@@ -253,7 +253,9 @@ class K8sNcclMultiNodeWorkload(BaseWorkloadCheck):
             if runtime_class_name == "":
                 yaml_content = _re.sub(r"\n          runtimeClassName: \S+", "", yaml_content)
             else:
-                yaml_content = yaml_content.replace("runtimeClassName: nvidia", f"runtimeClassName: {runtime_class_name}")
+                yaml_content = yaml_content.replace(
+                    "runtimeClassName: nvidia", f"runtimeClassName: {runtime_class_name}"
+                )
 
         # Optional: remove the Launcher's control-plane nodeAffinity.
         # The default manifest requires a node with node-role.kubernetes.io/control-plane,

@@ -483,8 +483,9 @@ class K8sNimHelmWorkload(BaseWorkloadCheck):
         # KV-cache (~54848 tokens), causing the engine to abort at startup.
         nim_max_model_len = self.config.get("nim_max_model_len", "")
         if nim_max_model_len:
-            helm_cmd.extend(["--set", f"env[0].name=NIM_MAX_MODEL_LEN",
-                             "--set-string", f"env[0].value={nim_max_model_len}"])
+            helm_cmd.extend(
+                ["--set", "env[0].name=NIM_MAX_MODEL_LEN", "--set-string", f"env[0].value={nim_max_model_len}"]
+            )
 
         try:
             result = subprocess.run(

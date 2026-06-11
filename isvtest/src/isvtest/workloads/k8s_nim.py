@@ -103,10 +103,7 @@ class K8sNimInferenceWorkload(BaseWorkloadCheck):
 
         # Inject NIM_MAX_MODEL_LEN when set (inserted before NIM_CACHE_PATH).
         if nim_max_model_len:
-            inject = (
-                f"            - name: NIM_MAX_MODEL_LEN\n"
-                f"              value: \"{nim_max_model_len}\"\n"
-            )
+            inject = f'            - name: NIM_MAX_MODEL_LEN\n              value: "{nim_max_model_len}"\n'
             yaml_content = yaml_content.replace(
                 "            - name: NIM_CACHE_PATH\n",
                 inject + "            - name: NIM_CACHE_PATH\n",

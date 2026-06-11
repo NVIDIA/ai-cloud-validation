@@ -74,8 +74,7 @@ def main() -> int:
         # treats as "rejected". The SA itself is deleted in delete_access_key.py.
         crb_name = f"{args.username}-view"
         rc_crb, _, stderr_crb = _run(
-            ["kubectl", "delete", "clusterrolebinding", crb_name,
-             "--ignore-not-found=true"],
+            ["kubectl", "delete", "clusterrolebinding", crb_name, "--ignore-not-found=true"],
             env,
         )
         if rc_crb != 0:

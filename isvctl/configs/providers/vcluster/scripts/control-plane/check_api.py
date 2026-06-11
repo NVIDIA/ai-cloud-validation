@@ -91,6 +91,7 @@ def main() -> int:
             if "control plane" in line.lower() or "master" in line.lower():
                 # Strip ANSI escape codes and extract the URL
                 import re
+
                 clean = re.sub(r"\x1b\[[0-9;]*m", "", line)
                 parts = clean.split()
                 for part in parts:
@@ -102,8 +103,7 @@ def main() -> int:
         if not server_url:
             # Fallback: read from kubeconfig
             rc2, out2, _ = _run(
-                ["kubectl", "config", "view", "--minify", "-o",
-                 "jsonpath={.clusters[0].cluster.server}"],
+                ["kubectl", "config", "view", "--minify", "-o", "jsonpath={.clusters[0].cluster.server}"],
                 env,
             )
             server_url = out2 if rc2 == 0 else "unknown"

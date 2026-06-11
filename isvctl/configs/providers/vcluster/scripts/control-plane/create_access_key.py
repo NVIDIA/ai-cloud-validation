@@ -81,18 +81,14 @@ def main() -> int:
         # Ensure namespace exists (the vCluster namespace typically already exists)
         rc_ns, _, _ = _run(["kubectl", "get", "namespace", ns], env)
         if rc_ns != 0:
-            rc_create, _, stderr_create = _run(
-                ["kubectl", "create", "namespace", ns], env
-            )
+            rc_create, _, stderr_create = _run(["kubectl", "create", "namespace", ns], env)
             if rc_create != 0:
                 result["error"] = f"Failed to create namespace '{ns}': {stderr_create}"
                 print(json.dumps(result, indent=2))
                 return 1
 
         # Create ServiceAccount
-        rc, _, stderr = _run(
-            ["kubectl", "create", "serviceaccount", sa_name, "-n", ns], env
-        )
+        rc, _, stderr = _run(["kubectl", "create", "serviceaccount", sa_name, "-n", ns], env)
         if rc != 0:
             result["error"] = f"Failed to create ServiceAccount: {stderr}"
             print(json.dumps(result, indent=2))
@@ -103,9 +99,14 @@ def main() -> int:
         # This simulates the minimum credential a tenant needs to verify API access.
         crb_name = f"{sa_name}-view"
         rc3, _, stderr3 = _run(
-            ["kubectl", "create", "clusterrolebinding", crb_name,
-             "--clusterrole=view",
-             f"--serviceaccount={ns}:{sa_name}"],
+            [
+                "kubectl",
+                "create",
+                "clusterrolebinding",
+                crb_name,
+                "--clusterrole=view",
+                f"--serviceaccount={ns}:{sa_name}",
+            ],
             env,
         )
         if rc3 != 0:
@@ -115,8 +116,7 @@ def main() -> int:
 
         # Generate a bound token
         rc2, token, stderr2 = _run(
-            ["kubectl", "create", "token", sa_name, "-n", ns,
-             "--duration", TOKEN_DURATION],
+            ["kubectl", "create", "token", sa_name, "-n", ns, "--duration", TOKEN_DURATION],
             env,
         )
         if rc2 != 0:

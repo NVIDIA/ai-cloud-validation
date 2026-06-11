@@ -47,9 +47,7 @@ def _run(cmd: list[str], env: dict[str, str]) -> tuple[int, str, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Verify revoked vCluster ServiceAccount token is rejected"
-    )
+    parser = argparse.ArgumentParser(description="Verify revoked vCluster ServiceAccount token is rejected")
     parser.add_argument("--access-key-id", required=True, help="ServiceAccount name")
     parser.add_argument("--secret-access-key", required=True, help="Original bound token")
     parser.add_argument("--region", required=True, help="Region label (use 'vcluster')")
@@ -74,18 +72,14 @@ def main() -> int:
 
         # Attempt to use the disabled token - we WANT this to fail
         rc, out, stderr = _run(
-            ["kubectl", "--token", args.secret_access_key,
-             "get", "--raw", "/api/v1/namespaces"],
+            ["kubectl", "--token", args.secret_access_key, "get", "--raw", "/api/v1/namespaces"],
             env,
         )
 
         combined = (out + stderr).lower()
 
         if rc != 0 and (
-            "unauthorized" in combined
-            or "401" in combined
-            or "forbidden" in combined
-            or "403" in combined
+            "unauthorized" in combined or "401" in combined or "forbidden" in combined or "403" in combined
         ):
             # Token was correctly rejected with an auth error (401/403)
             error_code = "403" if "403" in combined or "forbidden" in combined else "401"
@@ -96,9 +90,7 @@ def main() -> int:
             # Non-auth error (TLS failure, API unavailable, etc.) - do not treat
             # as a successful rejection; surface it as an actual failure so
             # outages are not silently masked.
-            result["error"] = (
-                f"Token verification failed with a non-auth error (exit {rc}): {stderr[:200]}"
-            )
+            result["error"] = f"Token verification failed with a non-auth error (exit {rc}): {stderr[:200]}"
         else:
             # Token still works - this is a failure
             result["error"] = (

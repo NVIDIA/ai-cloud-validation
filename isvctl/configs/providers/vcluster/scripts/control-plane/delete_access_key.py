@@ -72,8 +72,7 @@ def main() -> int:
         env = _kubeconfig_env()
 
         rc, _, stderr = _run(
-            ["kubectl", "delete", "serviceaccount", args.username, "-n", ns,
-             "--ignore-not-found=true"],
+            ["kubectl", "delete", "serviceaccount", args.username, "-n", ns, "--ignore-not-found=true"],
             env,
         )
 

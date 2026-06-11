@@ -442,9 +442,7 @@ class K8sCncfConformanceCheck(BaseValidation):
             return False, ""
         if not content:
             return False, ""
-        self.log.info(
-            f"Loaded pre-staged conformance JUnit from {local_path} ({len(content)} bytes)"
-        )
+        self.log.info(f"Loaded pre-staged conformance JUnit from {local_path} ({len(content)} bytes)")
         return True, content
 
     def _kubectl_cp(self, namespace: str, pod_name: str, path: str) -> tuple[bool, str]:

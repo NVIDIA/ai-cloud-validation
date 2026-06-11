@@ -87,15 +87,12 @@ def main() -> int:
             vclusters = []
 
         target = next(
-            (vc for vc in vclusters
-             if vc.get("Name") == args.group_name or vc.get("name") == args.group_name),
+            (vc for vc in vclusters if vc.get("Name") == args.group_name or vc.get("name") == args.group_name),
             None,
         )
 
         if target is None:
-            result["error"] = (
-                f"vCluster '{args.group_name}' not found in namespace '{ns}'"
-            )
+            result["error"] = f"vCluster '{args.group_name}' not found in namespace '{ns}'"
             print(json.dumps(result, indent=2))
             return 1
 

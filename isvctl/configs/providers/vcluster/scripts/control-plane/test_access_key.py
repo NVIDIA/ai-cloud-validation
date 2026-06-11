@@ -70,16 +70,14 @@ def main() -> int:
 
         # Retrieve server URL for reporting
         rc0, server_url, _ = _run(
-            ["kubectl", "config", "view", "--minify", "-o",
-             "jsonpath={.clusters[0].cluster.server}"],
+            ["kubectl", "config", "view", "--minify", "-o", "jsonpath={.clusters[0].cluster.server}"],
             env,
         )
         result["account_id"] = server_url if rc0 == 0 else "unknown"
 
         # Attempt authentication with the bearer token
         rc, _, stderr = _run(
-            ["kubectl", "--token", args.secret_access_key,
-             "get", "--raw", "/api/v1/namespaces"],
+            ["kubectl", "--token", args.secret_access_key, "get", "--raw", "/api/v1/namespaces"],
             env,
         )
         if rc == 0:
