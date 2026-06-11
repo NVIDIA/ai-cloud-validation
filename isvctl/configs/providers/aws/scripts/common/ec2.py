@@ -568,8 +568,11 @@ def wait_ssm_ready(ssm: Any, instance_id: str, timeout: int = 180) -> bool:
             info = resp.get("InstanceInformationList", [])
             if info and info[0].get("PingStatus") == "Online":
                 return True
-        except ClientError:
-            pass
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code not in TRANSIENT_AWS_CODES:
+                raise
+            print(f"Warning: describe_instance_information transient error ({code}): {e}", file=sys.stderr)
         time.sleep(10)
     return False
 
@@ -597,8 +600,11 @@ def wait_ssm_ready_all(ssm: Any, instance_ids: list[str], timeout: int = 180) ->
                 for info in resp.get("InstanceInformationList", [])
                 if info.get("PingStatus") == "Online"
             }
-        except ClientError:
-            pass
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code not in TRANSIENT_AWS_CODES:
+                raise
+            print(f"Warning: describe_instance_information transient error ({code}): {e}", file=sys.stderr)
         if not pending or time.time() >= deadline:
             break
         time.sleep(10)
