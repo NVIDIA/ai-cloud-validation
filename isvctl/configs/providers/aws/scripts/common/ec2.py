@@ -487,14 +487,18 @@ def get_ubuntu_ami(ec2: Any, instance_type: str) -> str | None:
         if architecture == "arm64"
         else "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
     )
-    response = ec2.describe_images(
-        Owners=["099720109477"],  # Canonical
-        Filters=[
-            {"Name": "name", "Values": [name_pattern]},
-            {"Name": "state", "Values": ["available"]},
-            {"Name": "architecture", "Values": [architecture]},
-        ],
-    )
+    try:
+        response = ec2.describe_images(
+            Owners=["099720109477"],  # Canonical
+            Filters=[
+                {"Name": "name", "Values": [name_pattern]},
+                {"Name": "state", "Values": ["available"]},
+                {"Name": "architecture", "Values": [architecture]},
+            ],
+        )
+    except ClientError as e:
+        print(f"Warning: Could not get Ubuntu AMI: {e}", file=sys.stderr)
+        return None
     images = sorted(response.get("Images", []), key=lambda image: image["CreationDate"], reverse=True)
     return images[0]["ImageId"] if images else None
 
