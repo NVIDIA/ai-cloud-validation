@@ -115,6 +115,7 @@ from isvtest.validations.nim import (
     NimModelCheck,
 )
 from isvtest.validations.sanitization import (
+    DiskSanitizationCheck,
     FirmwareResetCheck,
     GpuMemorySanitizationCheck,
     MemorySanitizationCheck,
@@ -165,6 +166,7 @@ __all__ = [
     "CpuInfoCheck",
     "CustomerManagedKeyCheck",
     "DhcpIpManagementCheck",
+    "DiskSanitizationCheck",
     "DriverCheck",
     "FieldExistsCheck",
     "FieldValueCheck",

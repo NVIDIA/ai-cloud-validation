@@ -45,7 +45,9 @@
 #   - query_sanitization.py maps each machine's status + statusHistory into a
 #     neutral lifecycle token sequence; MemorySanitizationCheck (SEC21-04),
 #     GpuMemorySanitizationCheck (SEC21-05), and FirmwareResetCheck
-#     (SEC21-06/SEC22) assert hosts are sanitized between tenants.
+#     (SEC21-06/SEC22) assert hosts are sanitized between tenants. It also
+#     scans the sanitizing-stage StatusDetail for a storage secure-erase so
+#     DiskSanitizationCheck (SEC21-02) can confirm disk wipe on delete.
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -179,12 +181,13 @@ commands:
           - "{{nico_api_base}}"
         timeout: 120
 
-      # ─── Audit Tenant-Transition Sanitization (SEC21-04/05/06) ─────
+      # ─── Audit Tenant-Transition Sanitization (SEC21-02/04/05/06) ──
       # Maps each machine's status + statusHistory into a neutral lifecycle
       # token sequence (Reset -> sanitizing, InUse -> in_use, Ready ->
       # available) so the sanitization checks can assert no host returned to
       # the pool without an intervening sanitizing stage. Also surfaces GPU
-      # presence and firmware identity (vendor/product/BIOS).
+      # presence, firmware identity (vendor/product/BIOS), and the disk
+      # secure-erase recorded during the sanitizing stage (SEC21-02).
       - name: query_sanitization
         phase: test
         command: "python ../scripts/sanitization/query_sanitization.py"

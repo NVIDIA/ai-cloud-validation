@@ -397,6 +397,7 @@ tests:
     # that a host which served a tenant is not returned to the allocatable pool
     # until it passes through the platform's sanitizing lifecycle stage. Only
     # runs for providers that implement the query_sanitization step.
+    #   - SEC21-02: storage/disk securely erased on delete (low level).
     #   - SEC21-04: host (RAM) memory sanitization between tenants.
     #   - SEC21-05: SRAM/GPU memory sanitization between tenants (GPU hosts).
     #   - SEC21-06 / SEC22: TPM clear and BIOS/UEFI recommit on transition.
@@ -414,6 +415,15 @@ tests:
       step: query_sanitization
       checks:
         FirmwareResetCheck: {}
+
+    # SEC21-02: confirm storage is sanitized on delete. Beyond the sanitizing
+    # lifecycle gate, this requires the stage to have recorded a disk
+    # secure-erase (disk_sanitized) so a prior tenant's on-disk data cannot
+    # leak to the next tenant.
+    disk_sanitization:
+      step: query_sanitization
+      checks:
+        DiskSanitizationCheck: {}
 
   exclude:
     labels: []

@@ -34,6 +34,7 @@ from isvtest.validations.governance import GovernanceMetricsCheck
 from isvtest.validations.health import HealthAggregationCheck, HostHealthCheck
 from isvtest.validations.infiniband import IbKeysConfiguredCheck, IbTenantIsolationCheck
 from isvtest.validations.sanitization import (
+    DiskSanitizationCheck,
     GpuMemorySanitizationCheck,
     MemorySanitizationCheck,
 )
@@ -1336,7 +1337,7 @@ def test_ib_keys_script_surfaces_api_errors(
 
 
 # ---------------------------------------------------------------------------
-# query_sanitization (SEC21-04/05/06) script
+# query_sanitization (SEC21-02/04/05/06) script
 # ---------------------------------------------------------------------------
 
 
@@ -1350,16 +1351,24 @@ def _sanitization_machine(
     tenant_id: str | None = None,
     gpus: int = 8,
     bios_version: str = "U8E122J-1.51",
+    reset_message: str = "NVMe secure erase completed",
 ) -> dict[str, Any]:
     """Build a NICo machine payload to drive the sanitization script.
 
     ``history_statuses`` is given oldest-first; each is converted into a
-    statusHistory entry with an increasing ``created`` timestamp.
+    statusHistory entry with an increasing ``created`` timestamp. ``Reset``
+    entries carry ``reset_message`` as their StatusDetail so the disk-erase
+    evidence scan has something to match.
     """
     if history_statuses is None:
         history_statuses = ["InUse", "Reset", "Ready"]
     status_history = [
-        {"status": s, "message": "", "created": f"2026-01-01T00:0{i}:00Z"} for i, s in enumerate(history_statuses)
+        {
+            "status": s,
+            "message": reset_message if s == "Reset" else "",
+            "created": f"2026-01-01T00:0{i}:00Z",
+        }
+        for i, s in enumerate(history_statuses)
     ]
     capabilities = [{"type": "GPU", "name": "H100", "count": gpus}] if gpus else []
     return {
@@ -1512,3 +1521,50 @@ def test_sanitization_script_output_satisfies_gpu_check(
     check = GpuMemorySanitizationCheck(config={"step_output": payload})
     check.run()
     assert check._passed is True, check._error
+
+
+def test_sanitization_script_records_disk_erase(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A sanitizing stage that logged a secure erase yields disk_sanitized."""
+    payload = _run_sanitization(monkeypatch, capsys, [_sanitization_machine()])
+
+    record = payload["machines"][0]
+    assert record["disk_sanitized"] is True
+    assert "secure erase" in record["disk_erase_method"].lower()
+
+
+def test_sanitization_script_flags_missing_disk_erase(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A Reset stage with no secure-erase detail leaves disk_sanitized false."""
+    machine = _sanitization_machine(reset_message="host cleanup complete")
+    payload = _run_sanitization(monkeypatch, capsys, [machine])
+
+    record = payload["machines"][0]
+    # The lifecycle gate still passes (it went through Reset) but the low-level
+    # disk check fails because no storage erase was recorded.
+    assert record["sanitized"] is True
+    assert record["disk_sanitized"] is False
+    assert record["disk_erase_method"] == ""
+
+
+def test_sanitization_script_output_satisfies_disk_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: a confirmed disk erase passes; a missing one fails."""
+    clean = _run_sanitization(monkeypatch, capsys, [_sanitization_machine()])
+    check = DiskSanitizationCheck(config={"step_output": clean})
+    check.run()
+    assert check._passed is True, check._error
+
+    dirty = _run_sanitization(monkeypatch, capsys, [_sanitization_machine(reset_message="host cleanup complete")])
+    bad = DiskSanitizationCheck(config={"step_output": dirty})
+    bad.run()
+    assert bad._passed is False
+    assert "1/1 machine(s)" in bad._error
+    sub = next(r for r in bad._subtest_results if r["name"] == "disk_m-1")
+    assert "without disk sanitization" in sub["message"]
