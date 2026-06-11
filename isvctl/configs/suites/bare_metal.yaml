@@ -416,10 +416,10 @@ tests:
       checks:
         FirmwareResetCheck: {}
 
-    # SEC21-02: confirm storage is sanitized on delete. Beyond the sanitizing
-    # lifecycle gate, this requires the stage to have recorded a disk
-    # secure-erase (disk_sanitized) so a prior tenant's on-disk data cannot
-    # leak to the next tenant.
+    # SEC21-02: confirm storage is sanitized on delete. Gates on the same
+    # sanitizing lifecycle stage as the memory check, because that stage also
+    # performs the NVMe/HDD secure erase and a host only returns to the pool
+    # once it completes, so a prior tenant's on-disk data cannot leak forward.
     disk_sanitization:
       step: query_sanitization
       checks:

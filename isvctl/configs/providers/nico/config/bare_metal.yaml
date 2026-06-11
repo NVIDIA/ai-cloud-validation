@@ -44,10 +44,10 @@
 #     validates the required keys (SDN04-05).
 #   - query_sanitization.py maps each machine's status + statusHistory into a
 #     neutral lifecycle token sequence; MemorySanitizationCheck (SEC21-04),
-#     GpuMemorySanitizationCheck (SEC21-05), and FirmwareResetCheck
-#     (SEC21-06/SEC22) assert hosts are sanitized between tenants. It also
-#     scans the sanitizing-stage StatusDetail for a storage secure-erase so
-#     DiskSanitizationCheck (SEC21-02) can confirm disk wipe on delete.
+#     GpuMemorySanitizationCheck (SEC21-05), FirmwareResetCheck (SEC21-06/SEC22),
+#     and DiskSanitizationCheck (SEC21-02) assert hosts are sanitized between
+#     tenants. The same Reset stage performs the NVMe/HDD secure erase, so the
+#     disk check gates on the same lifecycle signal as the memory check.
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -186,8 +186,9 @@ commands:
       # token sequence (Reset -> sanitizing, InUse -> in_use, Ready ->
       # available) so the sanitization checks can assert no host returned to
       # the pool without an intervening sanitizing stage. Also surfaces GPU
-      # presence, firmware identity (vendor/product/BIOS), and the disk
-      # secure-erase recorded during the sanitizing stage (SEC21-02).
+      # presence and firmware identity (vendor/product/BIOS). The disk check
+      # (SEC21-02) reuses this gate since the Reset stage performs NVMe/HDD
+      # secure erase.
       - name: query_sanitization
         phase: test
         command: "python ../scripts/sanitization/query_sanitization.py"

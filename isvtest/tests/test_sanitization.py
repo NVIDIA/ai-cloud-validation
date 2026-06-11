@@ -36,8 +36,6 @@ def _machine(
     has_gpu: bool = True,
     served_tenant: bool = True,
     sanitized: bool = True,
-    disk_sanitized: bool = True,
-    disk_erase_method: str = "NVMe secure erase",
     stale_tenant_binding: bool = False,
     vendor: str = "Lenovo",
     product_name: str = "ThinkSystem SR670 V2",
@@ -53,8 +51,6 @@ def _machine(
         "has_gpu": has_gpu,
         "served_tenant": served_tenant,
         "sanitized": sanitized,
-        "disk_sanitized": disk_sanitized,
-        "disk_erase_method": disk_erase_method,
         "stale_tenant_binding": stale_tenant_binding,
         "vendor": vendor,
         "product_name": product_name,
@@ -250,52 +246,46 @@ class TestFirmwareResetCheck:
 
 
 class TestDiskSanitizationCheck:
-    """Tests for DiskSanitizationCheck validation."""
+    """Tests for DiskSanitizationCheck validation (SEC21-02)."""
 
-    def test_disk_erased_fleet_passes_and_reports_method(self) -> None:
-        """A fleet with confirmed disk erase passes and reports the erase method."""
+    def test_sanitized_fleet_passes(self) -> None:
+        """A fleet whose released hosts all passed the sanitizing stage passes."""
         check = DiskSanitizationCheck(config={"step_output": _output()})
         check.run()
         assert check._passed is True, check._error
-        gate = next(r for r in check._subtest_results if r["name"] == "disk_m-001")
-        assert gate["passed"] is True
-        method = next(r for r in check._subtest_results if r["name"] == "disk_m-001_method")
-        assert method["passed"] is True
-        assert "NVMe secure erase" in method["message"]
+        sub = next(r for r in check._subtest_results if r["name"] == "disk_m-001")
+        assert sub["passed"] is True
 
     def test_never_served_tenant_passes(self) -> None:
-        """A host with no prior tenancy needs no disk wipe and passes vacuously."""
-        machine = _machine(served_tenant=False, disk_sanitized=True, transitions=["initializing", "available"])
+        """A host with no prior tenancy needs no storage wipe and passes vacuously."""
+        machine = _machine(served_tenant=False, transitions=["initializing", "available"])
         check = DiskSanitizationCheck(config={"step_output": _output(machines=[machine])})
         check.run()
         assert check._passed is True, check._error
-        gate = next(r for r in check._subtest_results if r["name"] == "disk_m-001")
-        assert "no prior tenancy" in gate["message"]
+        assert "no prior tenancy" in check._subtest_results[0]["message"]
 
-    def test_missing_disk_erase_fails(self) -> None:
-        """A released host whose disk was not securely erased fails."""
-        machine = _machine(sanitized=True, disk_sanitized=False, disk_erase_method="")
+    def test_unsanitized_release_fails(self) -> None:
+        """A host returned to the pool without the sanitizing stage fails."""
+        machine = _machine(sanitized=False, transitions=["in_use", "available"])
         check = DiskSanitizationCheck(config={"step_output": _output(machines=[machine])})
         check.run()
         assert check._passed is False
         assert "1/1 machine(s)" in check._error
-        gate = next(r for r in check._subtest_results if r["name"] == "disk_m-001")
-        assert "without disk sanitization" in gate["message"]
-        method = next(r for r in check._subtest_results if r["name"] == "disk_m-001_method")
-        assert "not recorded" in method["message"]
+        sub = next(r for r in check._subtest_results if r["name"] == "disk_m-001")
+        assert "without sanitization" in sub["message"]
 
     def test_stale_tenant_binding_fails(self) -> None:
-        """A host still bound to a prior tenant fails the disk gate too."""
+        """A host still bound to a prior tenant fails the storage gate too."""
         machine = _machine(stale_tenant_binding=True)
         check = DiskSanitizationCheck(config={"step_output": _output(machines=[machine])})
         check.run()
         assert check._passed is False
-        gate = next(r for r in check._subtest_results if r["name"] == "disk_m-001")
-        assert "still bound to a prior tenant" in gate["message"]
+        sub = next(r for r in check._subtest_results if r["name"] == "disk_m-001")
+        assert "still bound to a prior tenant" in sub["message"]
 
-    def test_step_failure_skips_method_subtests(self) -> None:
-        """A failed step fails the check and emits no erase-method subtests."""
-        check = DiskSanitizationCheck(config={"step_output": _output(success=False, error="API down")})
+    def test_step_failure(self) -> None:
+        """A failed step is reported with its error detail."""
+        check = DiskSanitizationCheck(config={"step_output": _output(success=False, error="API timeout")})
         check.run()
         assert check._passed is False
-        assert not any(r["name"].endswith("_method") for r in check._subtest_results)
+        assert "API timeout" in check._error

@@ -31,12 +31,12 @@ intervening ``sanitizing`` stage, and that no available host is still bound to
 a prior tenant. GPU presence and firmware identity (vendor / product / BIOS)
 are surfaced so the GPU-memory and firmware-reset checks can scope and report.
 
-For the low-level disk check (SEC21-02), the script additionally scans the
-StatusDetail ``message`` recorded during each sanitizing (Reset) stage for
-evidence that the host's storage was securely erased (NVMe/HDD secure erase,
-crypto erase, blkdiscard, ...). ``disk_sanitized`` is the combined gate (the
-host passed the lifecycle sanitization *and* a disk erase was recorded) and
-``disk_erase_method`` carries the matched evidence for reporting.
+The same ``sanitizing`` (Reset) stage performs the NVMe/HDD secure erase, and
+NICo only returns a host to ``Ready`` once that whole stage succeeds (a failed
+storage clean -> ``NVMECleanFailed`` -> the host stays out of the pool), so the
+disk check (SEC21-02) gates on the same lifecycle signal. The per-disk Scout
+cleanup results are not exposed on the REST machine, so no separate disk field
+is emitted.
 
 NICo MachineStatus enum (per the upstream OpenAPI spec):
   Initializing | Ready | Reset | Maintenance | InUse | Error | Decommissioned | Unknown
@@ -70,8 +70,6 @@ Required JSON output fields:
         "has_gpu": true,
         "served_tenant": true,
         "sanitized": true,
-        "disk_sanitized": true,
-        "disk_erase_method": "NVMe secure erase",
         "stale_tenant_binding": false,
         "vendor": "Lenovo",
         "product_name": "ThinkSystem SR670 V2",
@@ -118,22 +116,6 @@ STATUS_TOKENS: dict[str, str] = {
 
 # Cap the diagnostic transitions list so a long-lived host does not bloat output.
 MAX_TRANSITIONS = 20
-
-# Substring keywords that mark a sanitizing-stage StatusDetail message as
-# evidence the host's storage was securely erased on release. Matching mirrors
-# query_host_health.py's probe-message keyword approach.
-DISK_ERASE_KEYWORDS = (
-    "secure erase",
-    "secure-erase",
-    "crypto erase",
-    "cryptographic erase",
-    "nvme format",
-    "nvme sanitize",
-    "blkdiscard",
-    "disk wipe",
-    "disk erase",
-    "storage erase",
-)
 
 
 def status_token(status: str | None) -> str:
@@ -188,40 +170,11 @@ def has_gpu(machine: dict[str, Any]) -> bool:
     return any(isinstance(c, dict) and c.get("type") == "GPU" for c in capabilities)
 
 
-def disk_erase_evidence(machine: dict[str, Any]) -> tuple[bool, str]:
-    """Return ``(erased, method)`` from the machine's sanitizing-stage detail.
-
-    Scans the StatusDetail ``message`` of each ``statusHistory`` entry recorded
-    during a sanitizing (Reset) stage for a storage secure-erase keyword. The
-    most recent matching message wins; ``method`` is that message (report-only
-    evidence), or ``""`` when no disk erase was recorded.
-    """
-    history = machine.get("statusHistory") or []
-    entries = [e for e in history if isinstance(e, dict)]
-    entries.sort(key=lambda e: e.get("created") or e.get("updated") or "")
-
-    method = ""
-    for entry in entries:
-        if status_token(entry.get("status")) != SANITIZING:
-            continue
-        message = str(entry.get("message") or "").strip()
-        lowered = message.lower()
-        if any(keyword in lowered for keyword in DISK_ERASE_KEYWORDS):
-            method = message
-    return bool(method), method
-
-
 def machine_record(machine: dict[str, Any]) -> dict[str, Any]:
     """Build the provider-neutral sanitization record for one NICo machine."""
     statuses = ordered_history_statuses(machine)
     tokens = [status_token(s) for s in statuses]
     served, sanitized = evaluate_transitions(tokens)
-
-    erase_found, erase_method = disk_erase_evidence(machine)
-    # Disk is sanitized when the lifecycle gate passed AND the sanitizing stage
-    # recorded a storage secure-erase. A host that never served a tenant has no
-    # disk to wipe, so it is trivially disk-sanitized (mirrors ``sanitized``).
-    disk_sanitized = (not served) or (sanitized and erase_found)
 
     current = machine.get("status")
     usable = bool(machine.get("isUsableByTenant"))
@@ -238,8 +191,6 @@ def machine_record(machine: dict[str, Any]) -> dict[str, Any]:
         "has_gpu": has_gpu(machine),
         "served_tenant": served,
         "sanitized": sanitized,
-        "disk_sanitized": disk_sanitized,
-        "disk_erase_method": erase_method,
         # Offered to new tenants (Ready + usable) while still bound to a prior
         # tenant's instance -- a hard sanitization failure if it ever occurs.
         "stale_tenant_binding": is_ready and usable and assigned,

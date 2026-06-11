@@ -24,20 +24,28 @@ new tenant until it has been sanitized since the previous tenancy:
   between tenants (scoped to GPU-equipped hosts).
 - ``FirmwareResetCheck`` (SEC21-06 / SEC22): TPM is cleared and BIOS/UEFI is
   recommitted during tenant transitions or hardware replacement.
-- ``DiskSanitizationCheck`` (SEC21-02): storage/disk is securely erased on
-  delete, so a prior tenant's on-disk data cannot leak to the next tenant.
+- ``DiskSanitizationCheck`` (SEC21-02): storage/disk is sanitized on delete, so
+  a prior tenant's on-disk data cannot leak to the next tenant.
 
 All four share one provider-neutral signal: a host that has served a tenant
 must pass through a dedicated *sanitizing* lifecycle stage before it becomes
 allocatable to a new tenant again. The check inspects the host's recorded
 state ``transitions`` and fails a host that went from ``in_use`` back to
 ``available`` without an intervening ``sanitizing`` stage, or that is offered
-to new tenants while still bound to a prior tenant. ``DiskSanitizationCheck``
-additionally requires that the sanitizing stage recorded a storage
-secure-erase for the host (the ``disk_sanitized`` signal) -- the low-level
-confirmation that the on-delete data wipe actually ran. They only inspect the
+to new tenants while still bound to a prior tenant. They only inspect the
 provider-neutral JSON a step script emits, so any provider that maps its
 host lifecycle into the documented fields can reuse them.
+
+The disk and memory checks gate on the same lifecycle signal: on platforms
+like NICo a single between-tenant sanitizing stage performs RAM cleanup,
+NVMe/HDD secure erase, the UEFI memory-overwrite check, InfiniBand cleanup,
+and TPM/BIOS reset together, and a host is only returned to the allocatable
+pool once that whole stage (including storage secure-erase) succeeds -- a
+failed storage clean keeps the host out of the pool. So at the host-lifecycle
+granularity these checks observe, storage sanitization on delete is confirmed
+by the same gate; they remain separate test IDs per the requirements they map
+to. A full low-level disk-remnant probe (write a marker, release, reallocate,
+re-read the raw device) is out of scope for this lifecycle audit.
 """
 
 from __future__ import annotations
@@ -57,28 +65,19 @@ def _machine_label(machine: dict[str, Any]) -> str:
     return machine.get("machine_id") or "unknown"
 
 
-def evaluate_sanitization(
-    machine: dict[str, Any],
-    *,
-    sanitized_field: str = "sanitized",
-    noun: str = "sanitization",
-) -> tuple[bool, str]:
+def evaluate_sanitization(machine: dict[str, Any]) -> tuple[bool, str]:
     """Evaluate the tenant-transition sanitization gate for one machine.
 
     Returns ``(passed, message)``. A machine passes when:
 
     * it has never served a tenant (nothing to sanitize), or
-    * it is currently available and not bound to a prior tenant, and the
-      ``sanitized_field`` signal is set (the script derives it from the host's
-      state ``transitions`` / sanitizing-stage evidence).
+    * it is currently available and not bound to a prior tenant, and every
+      recorded release passed through a ``sanitizing`` stage (the script sets
+      ``sanitized`` from the host's state ``transitions``).
 
     A machine fails when it is offered to new tenants while still bound to a
     prior tenant, or when it returned to ``available`` after a tenancy without
-    the required sanitization (``sanitized_field`` unset).
-
-    ``sanitized_field`` selects which per-machine signal gates the check
-    (``sanitized`` for memory/firmware; ``disk_sanitized`` for the low-level
-    disk check) and ``noun`` is the wording used in the failure message.
+    an intervening ``sanitizing`` stage.
     """
     label = _machine_label(machine)
 
@@ -88,9 +87,9 @@ def evaluate_sanitization(
     if machine.get("stale_tenant_binding"):
         return False, f"{label}: available to new tenants while still bound to a prior tenant"
 
-    if not machine.get(sanitized_field):
+    if not machine.get("sanitized"):
         transitions = " -> ".join(str(t) for t in machine.get("transitions") or []) or "<none recorded>"
-        return False, f"{label}: returned to the pool without {noun} (transitions: {transitions})"
+        return False, f"{label}: returned to the pool without sanitization (transitions: {transitions})"
 
     return True, f"{label}: sanitized between tenancies"
 
@@ -107,10 +106,6 @@ class _TenantSanitizationCheck(BaseValidation):
     gpu_only: ClassVar[bool] = False
     subtest_prefix: ClassVar[str] = "machine"
     subject: ClassVar[str] = "Memory"
-    # Per-machine signal that gates the check, and the noun used in failure
-    # messages. Disk subclass overrides these to gate on the disk secure-erase.
-    sanitized_field: ClassVar[str] = "sanitized"
-    noun: ClassVar[str] = "sanitization"
 
     def _select_machines(self, machines: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Return the machines this check applies to (all, or GPU-equipped)."""
@@ -142,7 +137,7 @@ class _TenantSanitizationCheck(BaseValidation):
         for machine in scoped:
             if machine.get("served_tenant"):
                 served += 1
-            passed, message = evaluate_sanitization(machine, sanitized_field=self.sanitized_field, noun=self.noun)
+            passed, message = evaluate_sanitization(machine)
             self.report_subtest(f"{self.subtest_prefix}_{_machine_label(machine)}", passed=passed, message=message)
             if not passed:
                 failed[_machine_label(machine)] = message
@@ -263,46 +258,29 @@ class FirmwareResetCheck(_TenantSanitizationCheck):
 
 
 class DiskSanitizationCheck(_TenantSanitizationCheck):
-    """Confirm storage is sanitized on delete between tenants (SEC21-02).
+    """Validate storage is sanitized on delete between tenants (SEC21-02).
 
-    The low-level counterpart to ``MemorySanitizationCheck``: it reuses the same
-    tenant-transition gate (a released host must pass through the sanitizing
-    lifecycle stage) but gates on the ``disk_sanitized`` signal, which the step
-    script sets only when that stage recorded a storage secure-erase for the
-    host's disks. A host returned to the allocatable pool without a confirmed
-    disk wipe fails, so a prior tenant's on-disk data cannot leak to the next
-    tenant. The matched erase method is surfaced per machine as report-only
-    evidence.
+    Uses the same tenant-transition gate as ``MemorySanitizationCheck`` but is
+    storage-framed. On platforms like NICo the between-tenant sanitizing stage
+    (the machine ``Reset`` status) performs the NVMe/HDD secure erase, and a
+    host is only returned to the allocatable pool (``Ready`` + usable) once that
+    stage -- including the storage secure-erase -- has completed; a failed disk
+    clean drives the host to a failure state (e.g. ``NVMECleanFailed``) and
+    keeps it out of the pool. So asserting the host passed through the
+    sanitizing stage before becoming allocatable is the host-lifecycle
+    confirmation that its storage was sanitized on delete.
+
+    The per-disk secure-erase result (Scout's ``nvme``/``hdd`` cleanup steps)
+    is not exposed in the host-lifecycle JSON this check consumes, and a full
+    low-level disk-remnant probe (write a marker, release, reallocate, re-read
+    the raw device) is out of scope for this audit.
 
     Config:
         step_output: Step output containing per-machine sanitization records
-            (see ``MemorySanitizationCheck``); also reads ``disk_sanitized``
-            (the gate) and ``disk_erase_method`` (report-only evidence).
+            (see ``MemorySanitizationCheck``).
     """
 
     description: ClassVar[str] = "Check storage is sanitized on delete between tenants"
     labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "sanitization", "disk")
-    subject: ClassVar[str] = "Disk sanitization"
+    subject: ClassVar[str] = "Storage sanitization"
     subtest_prefix: ClassVar[str] = "disk"
-    sanitized_field: ClassVar[str] = "disk_sanitized"
-    noun: ClassVar[str] = "disk sanitization"
-
-    def run(self) -> None:
-        """Validate the disk-erase gate, then report the per-machine erase method."""
-        super().run()
-
-        # Only emit the report-only erase-method subtests when the gate itself
-        # was evaluable (step succeeded and machines were present).
-        step_output = self.config.get("step_output", {})
-        machines = step_output.get("machines")
-        if not step_output.get("success") or not isinstance(machines, list):
-            return
-
-        for machine in machines:
-            label = _machine_label(machine)
-            method = machine.get("disk_erase_method") or "not recorded"
-            self.report_subtest(
-                f"{self.subtest_prefix}_{label}_method",
-                passed=True,
-                message=f"{label}: storage erase via {method}",
-            )
