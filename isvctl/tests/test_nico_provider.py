@@ -298,6 +298,8 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
         "query_governance_metrics",
         "query_host_health",
         "query_health_aggregation",
+        "query_ib_tenant_isolation",
+        "query_ib_keys",
         "query_sanitization",
     ],
 )
@@ -321,6 +323,8 @@ def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None
         ("query_metrics.py", _load_governance_metrics_script),
         ("query_host_health.py", _load_host_health_script),
         ("query_health_aggregation.py", _load_health_aggregation_script),
+        ("query_ib_tenant_isolation.py", _load_ib_tenant_isolation_script),
+        ("query_ib_keys.py", _load_ib_keys_script),
         ("query_sanitization.py", _load_sanitization_script),
     ],
 )
