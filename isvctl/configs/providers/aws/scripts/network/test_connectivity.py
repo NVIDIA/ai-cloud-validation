@@ -40,81 +40,14 @@ import json
 import os
 import sys
 import time
-import uuid
 from typing import Any
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
 import boto3
 from botocore.exceptions import ClientError
+from common.ec2 import _parse_ping_latency, create_ssm_instance_profile, delete_ssm_instance_profile, run_ssm_command
 from common.errors import handle_aws_errors
-
-SSM_ROLE_TRUST_POLICY = """{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {"Service": "ec2.amazonaws.com"},
-            "Action": "sts:AssumeRole"
-        }
-    ]
-}"""
-
-
-def create_ssm_instance_profile(iam: Any) -> tuple[str, str]:
-    """Create IAM role and instance profile for SSM."""
-    suffix = str(uuid.uuid4())[:8]
-    role_name = f"isv-ssm-role-{suffix}"
-    profile_name = f"isv-ssm-profile-{suffix}"
-
-    # Create role
-    iam.create_role(
-        RoleName=role_name,
-        AssumeRolePolicyDocument=SSM_ROLE_TRUST_POLICY,
-        Description="Temporary role for SSM connectivity testing",
-        Tags=[
-            {"Key": "Name", "Value": role_name},
-            {"Key": "CreatedBy", "Value": "isvtest"},
-        ],
-    )
-
-    # Attach SSM managed policy
-    iam.attach_role_policy(
-        RoleName=role_name,
-        PolicyArn="arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
-    )
-
-    # Create instance profile
-    iam.create_instance_profile(InstanceProfileName=profile_name)
-    iam.add_role_to_instance_profile(InstanceProfileName=profile_name, RoleName=role_name)
-
-    # Wait for profile to be ready
-    time.sleep(10)
-
-    return role_name, profile_name
-
-
-def delete_ssm_instance_profile(iam: Any, role_name: str, profile_name: str) -> None:
-    """Delete IAM role and instance profile."""
-    try:
-        iam.remove_role_from_instance_profile(InstanceProfileName=profile_name, RoleName=role_name)
-    except ClientError:
-        pass
-    try:
-        iam.delete_instance_profile(InstanceProfileName=profile_name)
-    except ClientError:
-        pass
-    try:
-        iam.detach_role_policy(
-            RoleName=role_name,
-            PolicyArn="arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
-        )
-    except ClientError:
-        pass
-    try:
-        iam.delete_role(RoleName=role_name)
-    except ClientError:
-        pass
 
 
 def get_amazon_linux_ami(ec2: Any) -> str | None:
@@ -186,35 +119,12 @@ def launch_instances(
     return instances
 
 
-def test_ping_ssm(ssm: Any, instance_id: str, target: str) -> dict[str, Any]:
-    """Test ping using SSM."""
-    try:
-        response = ssm.send_command(
-            InstanceIds=[instance_id],
-            DocumentName="AWS-RunShellScript",
-            Parameters={"commands": [f"ping -c 3 -W 2 {target}"]},
-        )
-        command_id = response["Command"]["CommandId"]
-
-        for _ in range(30):
-            time.sleep(2)
-            result = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)
-            if result["Status"] in ["Success", "Failed", "TimedOut"]:
-                if result["Status"] == "Success":
-                    # Parse latency from ping output
-                    output = result.get("StandardOutputContent", "")
-                    latency = None
-                    for line in output.split("\n"):
-                        if "avg" in line:
-                            parts = line.split("=")[-1].split("/")
-                            if len(parts) >= 2:
-                                latency = float(parts[1])
-                    return {"passed": True, "latency_ms": latency}
-                return {"passed": False, "error": result.get("StandardErrorContent", "Failed")}
-
-        return {"passed": False, "error": "Timeout"}
-    except ClientError as e:
-        return {"passed": False, "error": str(e)}
+def ping_result_via_ssm(ssm: Any, instance_id: str, target: str) -> dict[str, Any]:
+    """Run ping via the shared SSM command helper and return validation JSON."""
+    success, output = run_ssm_command(ssm, instance_id, f"ping -c 3 -W 2 {target}")
+    if success:
+        return {"passed": True, "latency_ms": _parse_ping_latency(output)}
+    return {"passed": False, "error": output or "Failed"}
 
 
 def terminate_instances(ec2: Any, instance_ids: list[str]) -> None:
@@ -310,7 +220,7 @@ def main() -> int:
             return 1
 
         # Create IAM role and instance profile for SSM
-        role_name, profile_name = create_ssm_instance_profile(iam)
+        role_name, profile_name = create_ssm_instance_profile(iam, "Temporary role for SSM connectivity testing")
         result["iam_profile"] = profile_name
 
         instances = launch_instances(ec2, subnet_ids, args.sg_id, profile_name)
@@ -332,11 +242,11 @@ def main() -> int:
 
         # Test instance-to-instance
         if len(instances) >= 2:
-            test_result = test_ping_ssm(ssm, instances[0]["instance_id"], instances[1]["private_ip"])
+            test_result = ping_result_via_ssm(ssm, instances[0]["instance_id"], instances[1]["private_ip"])
             result["tests"]["instance_to_instance"] = test_result
 
         # Test internet
-        test_result = test_ping_ssm(ssm, instances[0]["instance_id"], "8.8.8.8")
+        test_result = ping_result_via_ssm(ssm, instances[0]["instance_id"], "8.8.8.8")
         result["tests"]["instance_to_internet"] = test_result
 
         all_passed = all(t.get("passed", False) for t in result["tests"].values())

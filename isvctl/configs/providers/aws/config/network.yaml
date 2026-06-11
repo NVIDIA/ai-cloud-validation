@@ -365,6 +365,19 @@ commands:
         timeout: 120
         output_schema: vpc_peering
 
+      # Test 14: All-to-all storage L3 routing (SDN08-01, ~300s)
+      - name: storage_l3_routing
+        phase: test
+        command: "python3 ../scripts/network/storage_l3_routing_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "{{ '--cidr=' ~ storage_l3_routing_cidr if storage_l3_routing_cidr | default('', true) else '' }}"
+          - "--hosts"
+          - "3"
+        timeout: 900
+        output_schema: storage_l3_routing
+
       # Teardown: Clean up shared VPC from create_network
       - name: teardown
         phase: teardown
@@ -383,3 +396,4 @@ tests:
 
   settings:
     region: "us-west-2"
+    storage_l3_routing_cidr: "{{env.AWS_STORAGE_L3_ROUTING_CIDR | default('', true)}}"

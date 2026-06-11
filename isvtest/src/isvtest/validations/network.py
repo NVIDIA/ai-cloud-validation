@@ -1359,6 +1359,46 @@ class StablePrivateIpCheck(BaseValidation):
             self.set_passed(f"Private IP {ip} stable across stop/start")
 
 
+class StorageL3RoutingCheck(BaseValidation):
+    """Validate all-to-all L3 routing between storage hosts (SDN08-01).
+
+    Storage hosts spread across multiple subnets of one software-defined private
+    network must reach every other host over L3 (full mesh), with traffic routed
+    on the VPC's local route rather than through a gateway. This is the inverse of
+    the SDN04 isolation checks: it asserts reachability, not blocking.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        tests: dict with distinct_subnets, all_to_all_reachable,
+               cross_subnet_routing, no_gateway_hop
+    """
+
+    description: ClassVar[str] = "Check all-to-all L3 routing between storage hosts"
+    labels: ClassVar[tuple[str, ...]] = ("network",)
+
+    def run(self) -> None:
+        """Validate required L3 routing subtests and report full-mesh reachability."""
+        required = [
+            "distinct_subnets",
+            "all_to_all_reachable",
+            "cross_subnet_routing",
+            "no_gateway_hop",
+        ]
+        if not check_required_tests(self, required, "Storage L3 routing tests failed"):
+            return
+
+        tests = self.config.get("step_output", {}).get("tests", {})
+        mesh = tests.get("all_to_all_reachable", {})
+        subnet_count = tests.get("distinct_subnets", {}).get("subnet_count", "N/A")
+        pairs = mesh.get("pairs_reachable", "N/A")
+        total = mesh.get("pairs_tested", "N/A")
+        self.set_passed(
+            f"Full-mesh L3 routing across {subnet_count} subnets ({pairs}/{total} host pairs reachable, no gateway hop)"
+        )
+
+
 class StableEgressIpCheck(BaseValidation):
     """Validate egress IP stability across repeated probes (DMS05-01).
 

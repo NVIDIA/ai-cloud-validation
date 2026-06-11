@@ -315,6 +315,18 @@ commands:
         timeout: 60
         output_schema: vpc_peering
 
+      - name: storage_l3_routing
+        phase: test
+        command: "python ../scripts/network/storage_l3_routing_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "{{ '--cidr=' ~ storage_l3_routing_cidr if storage_l3_routing_cidr | default('', true) else '' }}"
+          - "--hosts"
+          - "3"
+        timeout: 60
+        output_schema: storage_l3_routing
+
       - name: backend_switch_fabric
         phase: test
         command: "python ../scripts/network/backend_switch_fabric_test.py"
@@ -354,6 +366,7 @@ tests:
 
   settings:
     region: "my-isv-region-1"
+    storage_l3_routing_cidr: "{{env.MY_ISV_STORAGE_L3_ROUTING_CIDR | default('', true)}}"
 
   # Skip SSH-based DhcpIpManagementCheck - it'd try to SSH into the dummy
   # instance. Real ISVs remove this exclusion as their stubs come online.

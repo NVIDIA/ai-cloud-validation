@@ -50,6 +50,7 @@ from isvtest.validations.network import (
     SgPortSecurityPolicyCheck,
     StableEgressIpCheck,
     StablePrivateIpCheck,
+    StorageL3RoutingCheck,
     VpcPeeringCheck,
 )
 from isvtest.validations.nim import NimHealthCheck, NimInferenceCheck, NimModelCheck
@@ -1413,6 +1414,67 @@ class TestVpcPeeringCheck:
         v = VpcPeeringCheck(config={"step_output": {}})
         result = v.execute()
         assert result["passed"] is False
+
+
+class TestStorageL3RoutingCheck:
+    """Tests for StorageL3RoutingCheck validation (SDN08-01)."""
+
+    def test_full_mesh_passed(self) -> None:
+        """Pass when all required SDN08-01 subtests report success."""
+        tests = {
+            "distinct_subnets": {"passed": True, "subnet_count": 2},
+            "all_to_all_reachable": {"passed": True, "pairs_tested": 3, "pairs_reachable": 3},
+            "cross_subnet_routing": {"passed": True, "pairs_tested": 2, "pairs_reachable": 2},
+            "no_gateway_hop": {"passed": True, "pairs_tested": 2, "pairs_direct": 2},
+        }
+        v = StorageL3RoutingCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "2 subnets" in result["output"]
+        assert "3/3" in result["output"]
+
+    def test_unreachable_pair_fails(self) -> None:
+        """Fail when full-mesh reachability reports an unreachable pair."""
+        tests = {
+            "distinct_subnets": {"passed": True, "subnet_count": 2},
+            "all_to_all_reachable": {
+                "passed": False,
+                "pairs_tested": 3,
+                "pairs_reachable": 2,
+                "error": "1 host pair unreachable",
+            },
+            "cross_subnet_routing": {"passed": True},
+            "no_gateway_hop": {"passed": True, "pairs_tested": 2, "pairs_direct": 2},
+        }
+        v = StorageL3RoutingCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "all_to_all_reachable" in result["error"]
+
+    def test_gateway_hop_fails(self) -> None:
+        """Fail when cross-subnet routing traverses a gateway hop."""
+        tests = {
+            "distinct_subnets": {"passed": True, "subnet_count": 2},
+            "all_to_all_reachable": {"passed": True, "pairs_tested": 3, "pairs_reachable": 3},
+            "cross_subnet_routing": {"passed": True},
+            "no_gateway_hop": {
+                "passed": False,
+                "pairs_tested": 2,
+                "pairs_direct": 1,
+                "error": "route traverses a gateway",
+            },
+        }
+        v = StorageL3RoutingCheck(config=_sdn_step_output(tests))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "no_gateway_hop" in result["error"]
+
+    def test_empty_tests(self) -> None:
+        """Fail when step output omits the tests block."""
+        v = StorageL3RoutingCheck(config={"step_output": {}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "tests" in result["error"]
 
 
 class TestSgPortSecurityPolicyCheck:
