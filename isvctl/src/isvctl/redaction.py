@@ -179,6 +179,8 @@ SENSITIVE_ENV_VARS: frozenset[str] = frozenset(
         # NICo
         "NICO_BEARER_TOKEN",
         "NICO_CLIENT_SECRET",
+        # UFM (InfiniBand fabric manager)
+        "UFM_TOKEN",
         # ISV
         "ISV_CLIENT_SECRET",
     }

@@ -61,6 +61,10 @@ from isvtest.validations.iam import (
     TenantInfoCheck,
     TenantListedCheck,
 )
+from isvtest.validations.infiniband import (
+    IbKeysConfiguredCheck,
+    IbTenantIsolationCheck,
+)
 from isvtest.validations.instance import (
     InstanceCreatedCheck,
     InstanceListCheck,
@@ -163,6 +167,8 @@ __all__ = [
     "GpuOperatorInstalledCheck",
     "HealthAggregationCheck",
     "HostHealthCheck",
+    "IbKeysConfiguredCheck",
+    "IbTenantIsolationCheck",
     "InsecureProtocolsCheck",
     "InstanceCreatedCheck",
     "InstanceListCheck",

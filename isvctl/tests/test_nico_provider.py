@@ -32,6 +32,7 @@ from urllib.parse import parse_qs
 import pytest
 from isvtest.validations.governance import GovernanceMetricsCheck
 from isvtest.validations.health import HealthAggregationCheck, HostHealthCheck
+from isvtest.validations.infiniband import IbKeysConfiguredCheck, IbTenantIsolationCheck
 
 from isvctl.config.merger import merge_yaml_files
 
@@ -134,6 +135,38 @@ def _load_health_aggregation_script() -> ModuleType:
     """Load the query_health_aggregation script as a module for direct unit testing."""
     script_path = NICO_SCRIPTS / "health" / "query_health_aggregation.py"
     spec = importlib.util.spec_from_file_location("test_query_health_aggregation", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
+def _load_ufm_client() -> ModuleType:
+    """Load the shared UFM client module directly from the provider scripts."""
+    script_path = NICO_COMMON / "ufm_client.py"
+    spec = importlib.util.spec_from_file_location("test_ufm_client", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_ib_tenant_isolation_script() -> ModuleType:
+    """Load the query_ib_tenant_isolation script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "infiniband" / "query_ib_tenant_isolation.py"
+    spec = importlib.util.spec_from_file_location("test_query_ib_tenant_isolation", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
+def _load_ib_keys_script() -> ModuleType:
+    """Load the query_ib_keys script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "infiniband" / "query_ib_keys.py"
+    spec = importlib.util.spec_from_file_location("test_query_ib_keys", script_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     with _isolated_common_imports():
@@ -856,3 +889,426 @@ def test_health_aggregation_script_output_satisfies_validation_contract(
     check = HealthAggregationCheck(config={"step_output": payload})
     check.run()
     assert check._passed is True, check._error
+
+
+# ---------------------------------------------------------------------------
+# ufm_client (UFM REST helper)
+# ---------------------------------------------------------------------------
+
+
+def test_ufm_resolve_auth_prefers_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A UFM token uses the /ufmRestV3 base path with a Basic auth header."""
+    module = _load_ufm_client()
+    monkeypatch.setenv("UFM_ADDRESS", "https://ufm.example:443")
+    monkeypatch.setenv("UFM_TOKEN", "ufm-token")
+    monkeypatch.delenv("UFM_USERNAME", raising=False)
+    monkeypatch.delenv("UFM_PASSWORD", raising=False)
+
+    auth = module.resolve_ufm_auth()
+
+    assert auth.base_url == "https://ufm.example:443/ufmRestV3"
+    assert auth.auth_header == "Basic ufm-token"
+    assert auth.source == "UFM_TOKEN"
+    assert auth.insecure is False
+
+
+def test_ufm_resolve_auth_basic_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Username/password uses the /ufmRest base path with a base64 Basic header."""
+    module = _load_ufm_client()
+    monkeypatch.setenv("UFM_ADDRESS", "ufm.example")
+    monkeypatch.delenv("UFM_TOKEN", raising=False)
+    monkeypatch.setenv("UFM_USERNAME", "admin")
+    monkeypatch.setenv("UFM_PASSWORD", "secret")
+    monkeypatch.setenv("UFM_ALLOW_INSECURE", "1")
+    expected_header = "Basic " + base64.b64encode(b"admin:secret").decode()
+
+    auth = module.resolve_ufm_auth()
+
+    assert auth.base_url == "https://ufm.example/ufmRest"
+    assert auth.auth_header == expected_header
+    assert auth.source == "UFM_USERNAME"
+    assert auth.insecure is True
+
+
+def test_ufm_resolve_auth_missing_address_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without UFM_ADDRESS, auth resolution raises."""
+    module = _load_ufm_client()
+    monkeypatch.delenv("UFM_ADDRESS", raising=False)
+    monkeypatch.setenv("UFM_TOKEN", "ufm-token")
+
+    with pytest.raises(module.UfmAuthError, match="UFM_ADDRESS"):
+        module.resolve_ufm_auth()
+
+
+def test_ufm_configured_requires_address_and_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ufm_configured is True only with an address and a credential."""
+    module = _load_ufm_client()
+    monkeypatch.delenv("UFM_TOKEN", raising=False)
+    monkeypatch.delenv("UFM_USERNAME", raising=False)
+    monkeypatch.delenv("UFM_PASSWORD", raising=False)
+
+    monkeypatch.delenv("UFM_ADDRESS", raising=False)
+    assert module.ufm_configured() is False
+
+    monkeypatch.setenv("UFM_ADDRESS", "https://ufm.example")
+    assert module.ufm_configured() is False
+
+    monkeypatch.setenv("UFM_TOKEN", "tok")
+    assert module.ufm_configured() is True
+
+
+def test_ufm_parse_key_value() -> None:
+    """Key values parse from hex/decimal; junk and bools yield None."""
+    module = _load_ufm_client()
+    assert module.parse_key_value("0x10") == 16
+    assert module.parse_key_value("16") == 16
+    assert module.parse_key_value("0x0") == 0
+    assert module.parse_key_value(8) == 8
+    assert module.parse_key_value("") is None
+    assert module.parse_key_value(None) is None
+    assert module.parse_key_value(True) is None
+    assert module.parse_key_value("nothex") is None
+
+
+def test_ufm_get_sm_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_sm_config fetches /app/smconf and returns the parsed object."""
+    module = _load_ufm_client()
+    smconf = {"subnet_prefix": "0xfe80", "m_key": "0x10", "sm_key": "0x20", "sa_key": "0x30", "m_key_per_port": True}
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(request, timeout: int = 30, context: Any = None):
+        seen["url"] = request.full_url
+        seen["authorization"] = request.get_header("Authorization")
+        return _Response(smconf)
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    config = module.get_sm_config(auth)
+
+    assert config == smconf
+    assert seen["url"] == "https://ufm.example:443/ufmRestV3/app/smconf"
+    assert seen["authorization"] == "Basic ufm-token"
+
+
+# ---------------------------------------------------------------------------
+# query_ib_tenant_isolation (SDN04-04) script
+# ---------------------------------------------------------------------------
+
+
+def _ib_partition(
+    *,
+    name: str,
+    partition_key: str | None,
+    tenant_id: str,
+    status: str = "Ready",
+) -> dict[str, Any]:
+    """Build a minimal NICo InfiniBand partition payload."""
+    return {"name": name, "partitionKey": partition_key, "tenantId": tenant_id, "status": status}
+
+
+def test_ib_isolation_script_maps_partition_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The script reduces NICo partitions to the neutral isolation fields."""
+    module = _load_ib_tenant_isolation_script()
+    partitions = [
+        _ib_partition(name="turbo-net", partition_key="0x1", tenant_id="tenant-a"),
+        _ib_partition(name="storage-net", partition_key="0x2", tenant_id="tenant-b"),
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_ib_tenant_isolation.py", machines=partitions)
+
+    assert payload["success"] is True
+    assert payload["platform"] == "nico"
+    assert payload["partitions_checked"] == 2
+    assert payload["partitions"][0] == {
+        "name": "turbo-net",
+        "partition_key": "0x1",
+        "tenant_id": "tenant-a",
+        "status": "Ready",
+    }
+
+
+def test_ib_isolation_script_skips_when_no_partitions(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty partition list yields a structured skip, not a failure."""
+    module = _load_ib_tenant_isolation_script()
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_ib_tenant_isolation.py", machines=[])
+
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert "No InfiniBand partitions" in payload["skip_reason"]
+
+
+def test_ib_isolation_script_surfaces_api_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Exceptions from the NICo client are reported, not raised."""
+    module = _load_ib_tenant_isolation_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+
+    def _boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("simulated outage")
+
+    monkeypatch.setattr(module, "forge_get_all", _boom)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["query_ib_tenant_isolation.py", "--org", "o", "--site-id", "s", "--api-base", "http://127.0.0.1/v2/org"],
+    )
+
+    exit_code = module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["success"] is False
+    assert "simulated outage" in payload["error"]
+
+
+def test_ib_isolation_script_output_satisfies_validation_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: NICo isolation JSON passes IbTenantIsolationCheck."""
+    module = _load_ib_tenant_isolation_script()
+    partitions = [
+        _ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a"),
+        _ib_partition(name="b", partition_key="0x2", tenant_id="tenant-b"),
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_ib_tenant_isolation.py", machines=partitions)
+
+    check = IbTenantIsolationCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is True, check._error
+
+
+def test_ib_isolation_shared_pkey_fails_validation_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: a P_Key shared by two tenants flows through to a failure."""
+    module = _load_ib_tenant_isolation_script()
+    partitions = [
+        _ib_partition(name="a", partition_key="0x5", tenant_id="tenant-a"),
+        _ib_partition(name="b", partition_key="0x5", tenant_id="tenant-b"),
+    ]
+
+    payload = _run_script(module, monkeypatch, capsys, script_name="query_ib_tenant_isolation.py", machines=partitions)
+
+    check = IbTenantIsolationCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is False
+    assert "shared across tenants" in check._error
+
+
+# ---------------------------------------------------------------------------
+# query_ib_keys (SDN04-05) script
+# ---------------------------------------------------------------------------
+
+
+def _run_ib_keys_script(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    partitions: list[dict[str, Any]],
+    smconf: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Drive the IB-keys script with mocked NICo partitions and optional UFM smconf.
+
+    When ``smconf`` is None, UFM is treated as not configured.
+    """
+    module = _load_ib_keys_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", lambda *args, **kwargs: partitions)
+
+    if smconf is None:
+        monkeypatch.setattr(module, "ufm_configured", lambda: False)
+    else:
+        monkeypatch.setattr(module, "ufm_configured", lambda: True)
+        monkeypatch.setattr(
+            module,
+            "resolve_ufm_auth",
+            lambda: SimpleNamespace(base_url="https://ufm/ufmRestV3", auth_header="Basic x", insecure=False),
+        )
+        monkeypatch.setattr(module, "get_sm_config", lambda auth: smconf)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["query_ib_keys.py", "--org", "o", "--site-id", "s", "--api-base", "http://127.0.0.1/v2/org"],
+    )
+
+    exit_code = module.main()
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0, payload
+    return payload
+
+
+def test_ib_keys_script_pkey_from_partitions(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """P_Key evidence is derived from non-default partition keys."""
+    partitions = [
+        _ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a"),
+        _ib_partition(name="b", partition_key="0x2", tenant_id="tenant-b"),
+        # The default all-ports partition does not count as a tenant P_Key.
+        _ib_partition(name="management", partition_key="0x7fff", tenant_id=""),
+    ]
+
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=partitions)
+
+    assert payload["success"] is True
+    assert payload["partitions_with_pkey"] == 2
+    assert payload["keys"]["p_key"]["configured"] is True
+    assert payload["keys"]["p_key"]["source"] == "nico"
+
+
+def test_ib_keys_script_full_member_default_excluded_from_pkey_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A full-member default P_Key (0xffff) does not count as a tenant P_Key."""
+    partitions = [
+        _ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a"),
+        # Full-member default partition: same partition number as 0x7fff.
+        _ib_partition(name="management", partition_key="0xffff", tenant_id=""),
+    ]
+
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=partitions)
+
+    assert payload["partitions_with_pkey"] == 1
+    assert payload["keys"]["p_key"]["configured"] is True
+
+
+def test_ib_keys_script_management_key_unverified_without_ufm(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Without UFM access the Management Key is reported as unverified (null)."""
+    partitions = [_ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a")]
+
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=partitions)
+
+    mgmt = payload["keys"]["management_key"]
+    assert mgmt["configured"] is None
+    assert "UFM access not configured" in mgmt["detail"]
+    # The OpenSM/SHARP host keys are always reported as unverified.
+    assert payload["keys"]["congestion_control_key"]["configured"] is None
+    assert set(payload["keys"]) >= {
+        "p_key",
+        "management_key",
+        "aggregation_management_key",
+        "vendor_specific_key",
+        "congestion_control_key",
+        "node2node_key",
+        "manager2node_key",
+    }
+
+
+def test_ib_keys_script_management_key_configured_from_ufm(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A non-zero m_key with per-port protection marks the Management Key configured."""
+    partitions = [_ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a")]
+    smconf = {"m_key": "0x771d2fe77f553d47", "sm_key": "0x20", "sa_key": "0x30", "m_key_per_port": True}
+
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=partitions, smconf=smconf)
+
+    mgmt = payload["keys"]["management_key"]
+    assert mgmt["configured"] is True
+    assert mgmt["source"] == "ufm"
+    # The raw key value must never be emitted.
+    assert "0x771d2fe77f553d47" not in json.dumps(payload)
+
+
+def test_ib_keys_script_management_key_insecure_when_mkey_zero(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An m_key of 0 marks the Management Key explicitly NOT configured."""
+    partitions = [_ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a")]
+    smconf = {"m_key": "0x0", "sm_key": "0x20", "sa_key": "0x30", "m_key_per_port": True}
+
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=partitions, smconf=smconf)
+
+    assert payload["keys"]["management_key"]["configured"] is False
+
+
+def test_ib_keys_script_management_key_insecure_without_per_port(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A set m_key without per-port protection is not a configured Management Key."""
+    partitions = [_ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a")]
+    smconf = {"m_key": "0x10", "sm_key": "0x20", "sa_key": "0x30", "m_key_per_port": False}
+
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=partitions, smconf=smconf)
+
+    assert payload["keys"]["management_key"]["configured"] is False
+    assert "m_key_per_port" in payload["keys"]["management_key"]["detail"]
+
+
+def test_ib_keys_script_skips_when_no_partitions(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty partition list yields a structured skip."""
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=[])
+
+    assert payload["skipped"] is True
+    assert "cannot evidence the P_Key" in payload["skip_reason"]
+
+
+def test_ib_keys_script_output_satisfies_validation_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: NICo IB-keys JSON (with UFM) passes IbKeysConfiguredCheck."""
+    partitions = [_ib_partition(name="a", partition_key="0x1", tenant_id="tenant-a")]
+    smconf = {"m_key": "0x10", "sm_key": "0x20", "sa_key": "0x30", "m_key_per_port": True}
+
+    payload = _run_ib_keys_script(monkeypatch, capsys, partitions=partitions, smconf=smconf)
+
+    check = IbKeysConfiguredCheck(config={"step_output": payload, "required_keys": ["p_key", "management_key"]})
+    check.run()
+    assert check._passed is True, check._error
+
+
+def test_ib_keys_script_surfaces_api_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Exceptions from the NICo client are reported, not raised."""
+    module = _load_ib_keys_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+
+    def _boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("simulated outage")
+
+    monkeypatch.setattr(module, "forge_get_all", _boom)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["query_ib_keys.py", "--org", "o", "--site-id", "s", "--api-base", "http://127.0.0.1/v2/org"],
+    )
+
+    exit_code = module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["success"] is False
+    assert "simulated outage" in payload["error"]

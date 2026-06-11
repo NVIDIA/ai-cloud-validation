@@ -17,8 +17,8 @@
 #
 # Imports the provider-agnostic bare_metal contract and wires the NICo
 # hardware-lifecycle steps. NICo currently implements the hardware ingestion,
-# DPU health, governance-metrics, and unified host-health steps; the remaining
-# bare_metal
+# DPU health, governance-metrics, unified host-health, and InfiniBand
+# fabric-security steps; the remaining bare_metal
 # validations are skipped automatically because their steps are not defined
 # here (a future PR will wire the full lifecycle so NICo can pass the entire
 # BM suite).
@@ -36,6 +36,12 @@
 #     alert-free (CAP05-01). Leak detection (BmcLeakDetection/Leak) is included.
 #   - query_health_aggregation.py rolls host health up to the nodegroup
 #     primitive; HealthAggregationCheck validates it (CAP05-02).
+#   - query_ib_tenant_isolation.py lists InfiniBand partitions with their
+#     P_Key + owning tenant; IbTenantIsolationCheck verifies per-tenant
+#     P_Key isolation (SDN04-04).
+#   - query_ib_keys.py reports InfiniBand key configuration (P_Key from NICo,
+#     Management Key from UFM when configured); IbKeysConfiguredCheck
+#     validates the required keys (SDN04-05).
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -124,6 +130,42 @@ commands:
       - name: query_health_aggregation
         phase: test
         command: "python ../scripts/health/query_health_aggregation.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── InfiniBand Tenant Isolation (SDN04-04) ────────────────────
+      # Lists the site's InfiniBand partitions and reports each partition's
+      # P_Key, owning tenant, and status. IbTenantIsolationCheck verifies
+      # that each tenant's compute is scoped to its own P_Key (the subnet
+      # manager enforces P_Key membership) and that no P_Key is shared
+      # across tenants.
+      - name: query_ib_tenant_isolation
+        phase: test
+        command: "python ../scripts/infiniband/query_ib_tenant_isolation.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── InfiniBand Security Keys (SDN04-05) ───────────────────────
+      # Reports InfiniBand key configuration: the P_Key from NICo's
+      # partition API and the Management Key (M_Key) from UFM's /app/smconf
+      # when UFM access is configured (UFM_ADDRESS + UFM_TOKEN). The
+      # remaining OpenSM/SHARP keys live on the UFM host and are reported as
+      # unverified. IbKeysConfiguredCheck validates the required subset.
+      - name: query_ib_keys
+        phase: test
+        command: "python ../scripts/infiniband/query_ib_keys.py"
         args:
           - "--org"
           - "{{org}}"

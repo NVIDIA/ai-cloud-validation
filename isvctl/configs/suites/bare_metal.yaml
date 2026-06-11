@@ -368,5 +368,30 @@ tests:
         HealthAggregationCheck:
           min_groups: 1
 
+    # InfiniBand tenant isolation (SDN04-04). Verifies each tenant's IB
+    # compute is scoped to its own P_Key partition (the subnet manager only
+    # passes traffic between ports sharing a P_Key), so compute dedicated to
+    # one tenant is isolated from other customers. Only runs for providers
+    # that implement the query_ib_tenant_isolation step.
+    ib_tenant_isolation:
+      step: query_ib_tenant_isolation
+      checks:
+        IbTenantIsolationCheck:
+          min_partitions: 1
+
+    # InfiniBand security keys (SDN04-05). The full requirement covers the
+    # P_Key plus the OpenSM/SHARP subnet-manager keys (Management,
+    # Aggregation Management, VendorSpecific, CongestionControl, Node2Node,
+    # Manager2Node). required_keys is scoped to the keys NICo can observe:
+    # the P_Key (NICo partition API) and the Management Key (UFM /app/smconf,
+    # when UFM access is configured). The remaining subnet-manager keys live
+    # on the UFM host and are reported as unverified. Only runs for providers
+    # that implement the query_ib_keys step.
+    ib_keys_configured:
+      step: query_ib_keys
+      checks:
+        IbKeysConfiguredCheck:
+          required_keys: ["p_key", "management_key"]
+
   exclude:
     labels: []
