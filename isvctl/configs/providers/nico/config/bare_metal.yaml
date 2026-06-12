@@ -57,6 +57,11 @@
 #     nico-admin-cli into the provider-neutral attestation contract (SEC22-01 /
 #     CNP09-02). It requires operator/admin CLI credentials in addition to the
 #     tenant REST credentials used for machine enumeration.
+#   - query_key_access.py reads the site's SSH Key Groups and serial-console
+#     configuration and reports whether a tenant-specified key can access
+#     out-of-band components; SpecifiedKeyAccessCheck validates it (AUTH-XX-03).
+#     setup_key_access.py / teardown_key_access.py optionally provision and
+#     remove a throwaway key so the check can pass without manual key setup.
 #   - list_instances.py / describe_instance.py query existing instances;
 #     InstanceListCheck and InstanceStateCheck validate the JSON contract.
 #
@@ -79,8 +84,26 @@ version: "1.0"
 
 commands:
   bare_metal:
-    phases: ["test"]
+    phases: ["setup", "test", "teardown"]
     steps:
+      # ─── Provision a Throwaway Specified Key (AUTH-XX-03 setup) ──────
+      # Creates an ephemeral SSH key and a key group that syncs it to the
+      # site. Emits sshkey_id / sshkeygroup_id / restore_ssh_keys_enabled for
+      # teardown to consume.
+      - name: setup_key_access
+        phase: setup
+        command: "python ../scripts/auth/setup_key_access.py"
+        requires_available_validations:
+          - SpecifiedKeyAccessCheck
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 240
+
       # ─── Verify Hardware Ingestion ─────────────────────────────────
       # Compares expected-machine manifest against discovered machines.
       # Output includes per-machine status, health, GPU/DPU counts.
@@ -312,6 +335,27 @@ commands:
           - "{{nico_api_base}}"
         timeout: 120
 
+      # ─── Specified-Key Access (AUTH-XX-03) ──────────────────────────
+      # Reads the site's SSH Key Groups and serial-console configuration from
+      # the NICo API (/carbide/ segment, like the other NICo steps) and reports
+      # whether a tenant-specified key can access out-of-band components. The serial
+      # console (SOL) is verifiable from the tenant API (provider-enabled +
+      # SSH-key auth + key synced); network-device access is provider-managed
+      # and reported as unverified. SpecifiedKeyAccessCheck validates it.
+      - name: query_key_access
+        phase: test
+        command: "python ../scripts/auth/query_key_access.py"
+        requires_available_validations:
+          - SpecifiedKeyAccessCheck
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
       # ─── List Existing Instances ───────────────────────────────────
       # Lists instances visible to NICo at the configured site.
       - name: list_instances
@@ -342,6 +386,29 @@ commands:
           - "--api-base"
           - "{{nico_api_base}}"
           - "--instance-id={{instance_id}}"
+        timeout: 120
+
+      # ─── Remove the Throwaway Specified Key (AUTH-XX-03 teardown) ────
+      # Best-effort cleanup of the key group + key created in setup, and
+      # restores the site's SSH-key SOL flag when setup flipped it.
+      - name: teardown_key_access
+        phase: teardown
+        command: "python ../scripts/auth/teardown_key_access.py"
+        requires_available_validations:
+          - SpecifiedKeyAccessCheck
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--sshkeygroup-id"
+          - "{{steps.setup_key_access.sshkeygroup_id}}"
+          - "--sshkey-id"
+          - "{{steps.setup_key_access.sshkey_id}}"
+          - "--restore-ssh-keys-enabled"
+          - "{{steps.setup_key_access.restore_ssh_keys_enabled}}"
         timeout: 120
 
 tests:

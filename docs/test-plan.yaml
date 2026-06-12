@@ -180,6 +180,9 @@ domains:
                 github_issues:
                   - "#248"
                 labels:
+                  - bare_metal
+                  - iam
+                  - security
                   - vm
       - name: Identity and Asset Mgmt (IAM)
         capabilities:

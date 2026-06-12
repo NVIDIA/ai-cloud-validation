@@ -212,6 +212,71 @@ def forge_get(
         raise type(e)(e.url, e.code, f"{e.reason}: {body}", e.headers, None) from e
 
 
+def forge_request(
+    org: str,
+    path: str,
+    token: str,
+    *,
+    base_url: str,
+    method: str,
+    body: dict[str, Any] | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """Make an authenticated write request (POST/PATCH/DELETE) to the NICo API.
+
+    Args:
+        org: NGC org name.
+        path: API path relative to the API name segment (e.g., "sshkey", "sshkeygroup/{id}").
+        token: Bearer token.
+        base_url: NICo API base URL.
+        method: HTTP method ("POST", "PATCH", "DELETE").
+        body: Optional JSON request body.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Parsed JSON response, or ``{}`` when the response body is empty (e.g. a
+        202/204 from DELETE).
+
+    Raises:
+        HTTPError: On non-2xx response.
+    """
+    url = f"{base_url}/{org}/{nico_api_name()}/{path}"
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Authorization": f"Bearer {token}"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+
+    req = Request(url, data=data, headers=headers, method=method)
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode()
+            return json.loads(raw) if raw.strip() else {}
+    except HTTPError as e:
+        err_body = ""
+        if e.fp:
+            err_body = e.fp.read().decode(errors="replace")[:500]
+        raise type(e)(e.url, e.code, f"{e.reason}: {err_body}", e.headers, None) from e
+
+
+def forge_post(
+    org: str, path: str, token: str, *, base_url: str, body: dict[str, Any], timeout: int = 30
+) -> dict[str, Any]:
+    """POST a JSON body to a NICo API path."""
+    return forge_request(org, path, token, base_url=base_url, method="POST", body=body, timeout=timeout)
+
+
+def forge_patch(
+    org: str, path: str, token: str, *, base_url: str, body: dict[str, Any], timeout: int = 30
+) -> dict[str, Any]:
+    """PATCH a JSON body to a NICo API path."""
+    return forge_request(org, path, token, base_url=base_url, method="PATCH", body=body, timeout=timeout)
+
+
+def forge_delete(org: str, path: str, token: str, *, base_url: str, timeout: int = 30) -> dict[str, Any]:
+    """DELETE a NICo API resource."""
+    return forge_request(org, path, token, base_url=base_url, method="DELETE", timeout=timeout)
+
+
 def forge_get_all(
     org: str,
     path: str,

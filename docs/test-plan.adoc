@@ -190,7 +190,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/247[#247]
 | [[AUTH03-01]]AUTH03-01
 | AUTH03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/248[#248]
-|
+| bare_metal, iam, security, vm
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/248[#248]

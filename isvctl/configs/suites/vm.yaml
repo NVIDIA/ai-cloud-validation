@@ -75,7 +75,7 @@ tests:
       checks:
         ComponentKeyAccessCheck:
           test_id: "AUTH03-01"
-          labels: ["vm"]
+          labels: ["bare_metal", "iam", "security", "vm"]
 
     instance_created:
       step: launch_instance
