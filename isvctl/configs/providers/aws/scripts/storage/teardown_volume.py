@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Detach and delete the block-storage fixture volume (teardown).
+"""Detach and delete the storage fixture volume (teardown).
 
 Best-effort cleanup of the volume created by ``create_volume.py``. Runs
 before the instance teardown so the volume is removed explicitly rather
@@ -24,7 +24,7 @@ test clean themselves up in their own step.
 Output JSON:
 {
     "success": true,
-    "platform": "block_storage",
+    "platform": "storage",
     "test_name": "teardown_volume",
     "resources_deleted": ["vol-xxx"]
 }
@@ -45,7 +45,7 @@ from common import ebs
 
 def main() -> int:
     """Detach and delete the fixture volume; print JSON result."""
-    parser = argparse.ArgumentParser(description="Teardown block-storage fixture volume")
+    parser = argparse.ArgumentParser(description="Teardown storage fixture volume")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     parser.add_argument("--volume-id", required=True, help="Fixture volume to delete")
     parser.add_argument("--skip-destroy", action="store_true", help="Skip actual destroy")
@@ -53,7 +53,7 @@ def main() -> int:
 
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "teardown_volume",
         "resources_deleted": [],
     }

@@ -25,7 +25,7 @@ usable. The restored volume and snapshot are cleaned up in a finally block.
 Output JSON:
 {
     "success": true,
-    "platform": "block_storage",
+    "platform": "storage",
     "test_name": "snapshot_lifecycle",
     "volume_id": "vol-source",
     "snapshot_id": "snap-xxx",
@@ -79,7 +79,7 @@ def main() -> int:
     }
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "snapshot_lifecycle",
         "volume_id": args.volume_id,
         "snapshot_id": None,

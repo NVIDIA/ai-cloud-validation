@@ -40,13 +40,13 @@
 #     instance and confirm the volume stays attached with its data intact.
 #
 # Quick start:
-#   1. Copy providers/my-isv/config/block-storage.yaml to providers/<your-platform>/config/block-storage.yaml
+#   1. Copy providers/my-isv/config/storage.yaml to providers/<your-platform>/config/storage.yaml
 #   2. Replace stub paths with your platform scripts
-#   3. Run: uv run isvctl test run -f isvctl/configs/providers/<your-platform>/config/block-storage.yaml
+#   3. Run: uv run isvctl test run -f isvctl/configs/providers/<your-platform>/config/storage.yaml
 #
 # See also:
-#   - my-isv living example: providers/my-isv/config/block-storage.yaml
-#   - AWS reference: providers/aws/config/block-storage.yaml + providers/aws/scripts/block-storage/
+#   - my-isv living example: providers/my-isv/config/storage.yaml
+#   - AWS reference: providers/aws/config/storage.yaml + providers/aws/scripts/storage/
 #   - Per-step field breakdown: ../suites/README.md
 
 version: "1.0"

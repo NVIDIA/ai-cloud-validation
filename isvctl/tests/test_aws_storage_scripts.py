@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for AWS block-storage reference scripts (DATASVC-XX-02/03/04)."""
+"""Tests for AWS storage reference scripts (DATASVC-XX-02/03/04)."""
 
 from __future__ import annotations
 
@@ -28,15 +28,15 @@ import pytest
 from botocore.exceptions import ClientError
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[1]
-AWS_BLOCK_STORAGE_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "block-storage"
+AWS_STORAGE_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "storage"
 
-EXPECTED_CONTENT = "isv-ncp-validate-block-storage-deadbeef"
+EXPECTED_CONTENT = "isv-ncp-validate-storage-deadbeef"
 
 
 def _load_script(script_name: str) -> ModuleType:
-    """Load an AWS block-storage script as a module for direct testing."""
-    script_path = AWS_BLOCK_STORAGE_SCRIPTS / script_name
-    spec = importlib.util.spec_from_file_location(f"test_bs_{script_path.stem}", script_path)
+    """Load an AWS storage script as a module for direct testing."""
+    script_path = AWS_STORAGE_SCRIPTS / script_name
+    spec = importlib.util.spec_from_file_location(f"test_storage_{script_path.stem}", script_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -224,9 +224,7 @@ def test_create_volume_guest_setup_failure_fails_step(
 # ---------------------------------------------------------------------------
 
 
-def test_snapshot_lifecycle_happy_path(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_snapshot_lifecycle_happy_path(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """A matching restored sentinel passes the snapshot round-trip."""
     module = _load_script("snapshot_lifecycle.py")
     monkeypatch.setattr(module.boto3, "client", lambda *a, **k: FakeEc2())
@@ -359,7 +357,11 @@ def test_volume_resize_happy_path(monkeypatch: pytest.MonkeyPatch, capsys: pytes
         return (0, "", "")
 
     monkeypatch.setattr(module, "ssh_run", fake_ssh)
-    monkeypatch.setattr(sys, "argv", ["volume_resize.py", "--instance-id", "i-fixture", "--volume-id", "vol-fixture", "--key-file", "/tmp/k.pem"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["volume_resize.py", "--instance-id", "i-fixture", "--volume-id", "vol-fixture", "--key-file", "/tmp/k.pem"],
+    )
 
     exit_code = module.main()
     payload = json.loads(capsys.readouterr().out)
@@ -387,7 +389,11 @@ def test_volume_resize_growpart_failure_fails_step(
         return (0, "", "")
 
     monkeypatch.setattr(module, "ssh_run", fake_ssh)
-    monkeypatch.setattr(sys, "argv", ["volume_resize.py", "--instance-id", "i-fixture", "--volume-id", "vol-fixture", "--key-file", "/tmp/k.pem"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["volume_resize.py", "--instance-id", "i-fixture", "--volume-id", "vol-fixture", "--key-file", "/tmp/k.pem"],
+    )
 
     exit_code = module.main()
     payload = json.loads(capsys.readouterr().out)

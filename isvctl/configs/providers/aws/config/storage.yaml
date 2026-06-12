@@ -13,31 +13,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# my-isv Block Storage Validation Configuration - Living Example
+# AWS Storage (EBS Block Volume) Validation Configuration
 #
-# Block storage is the block-volume implementation of the storage suite, so
-# this config imports the provider-agnostic suites/storage.yaml and wires the
-# commands to the generic template scripts. Those scripts ship with
-# dummy-success values so this example runs end-to-end without any real cloud
-# infrastructure (ISVCTL_DEMO_MODE=1, used by `make demo-test`).
-#
-# The launch_instance / teardown steps reuse the VM scaffold scripts; the
-# volume steps live in scripts/block-storage/.
+# Storage is the block-volume implementation of the storage suite, so
+# this config imports the provider-agnostic suites/storage.yaml and supplies
+# AWS-specific commands (boto3 + SSH) and settings. The launch_instance /
+# teardown steps reuse the VM reference scripts; the volume steps live in
+# scripts/storage/.
 #
 # Steps:
 #   SETUP
-#     1. launch_instance    - Provision the fixture instance
-#     2. create_volume      - Create + attach + format + mount + seed a volume
+#     1. launch_instance    - boto3: provision an instance for the fixture
+#     2. create_volume      - boto3 + SSH: create/attach/format/mount/seed an EBS volume
 #   TEST
 #     3. snapshot_lifecycle - DATASVC-XX-02 (#321): snapshot -> restore -> verify data
-#     4. volume_resize      - DATASVC-XX-03 (#322): grow volume + growpart/resize2fs
+#     4. volume_resize      - DATASVC-XX-03 (#322): ModifyVolume + growpart/resize2fs
 #     5. volume_persistence - DATASVC-XX-04 (#323): stop/start -> verify reattach + data
 #   TEARDOWN
-#     6. teardown_volume    - Detach + delete the fixture volume
-#     7. teardown           - Terminate the instance
+#     6. teardown_volume    - boto3: detach + delete the fixture volume
+#     7. teardown           - boto3: terminate the instance + SG + key pair
 #
 # Usage:
-#   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/block-storage.yaml
+#   uv run isvctl test run -f isvctl/configs/providers/aws/config/storage.yaml
+#
+# Required IAM Permissions:
+#   ec2:DescribeInstances, ec2:RunInstances, ec2:TerminateInstances,
+#   ec2:StopInstances, ec2:StartInstances, ec2:DescribeImages, ec2:DescribeSubnets,
+#   ec2:DescribeVpcs, ec2:CreateKeyPair, ec2:DeleteKeyPair, ec2:CreateSecurityGroup,
+#   ec2:DeleteSecurityGroup, ec2:AuthorizeSecurityGroupIngress, ec2:CreateTags,
+#   ec2:CreateVolume, ec2:DeleteVolume, ec2:DescribeVolumes, ec2:AttachVolume,
+#   ec2:DetachVolume, ec2:ModifyVolume, ec2:DescribeVolumesModifications,
+#   ec2:CreateSnapshot, ec2:DeleteSnapshot, ec2:DescribeSnapshots
 
 import:
   - ../../../suites/storage.yaml
@@ -48,9 +54,10 @@ commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
+      # AWS-specific: launch the fixture instance (reuses the VM script)
       - name: launch_instance
         phase: setup
-        command: "python ../scripts/vm/launch_instance.py"
+        command: "python3 ../scripts/vm/launch_instance.py"
         args:
           - "--name"
           - "isv-test-block"
@@ -58,11 +65,12 @@ commands:
           - "{{instance_type}}"
           - "--region"
           - "{{region}}"
-        timeout: 60
+        timeout: 600
 
+      # AWS-specific: create + attach + format + mount + seed an EBS volume
       - name: create_volume
         phase: setup
-        command: "python ../scripts/block-storage/create_volume.py"
+        command: "python3 ../scripts/storage/create_volume.py"
         args:
           - "--instance-id"
           - "{{steps.launch_instance.instance_id}}"
@@ -72,11 +80,12 @@ commands:
           - "{{steps.launch_instance.key_file}}"
           - "--size-gib"
           - "{{volume_size_gib}}"
-        timeout: 60
+        timeout: 600
 
+      # DATASVC-XX-02: snapshot -> restore -> verify data
       - name: snapshot_lifecycle
         phase: test
-        command: "python ../scripts/block-storage/snapshot_lifecycle.py"
+        command: "python3 ../scripts/storage/snapshot_lifecycle.py"
         args:
           - "--instance-id"
           - "{{steps.launch_instance.instance_id}}"
@@ -88,11 +97,12 @@ commands:
           - "{{steps.launch_instance.key_file}}"
           - "--expected-content"
           - "{{steps.create_volume.sentinel_content}}"
-        timeout: 60
+        timeout: 900
 
+      # DATASVC-XX-03: ModifyVolume + in-guest growpart/resize2fs
       - name: volume_resize
         phase: test
-        command: "python ../scripts/block-storage/volume_resize.py"
+        command: "python3 ../scripts/storage/volume_resize.py"
         args:
           - "--instance-id"
           - "{{steps.launch_instance.instance_id}}"
@@ -104,11 +114,13 @@ commands:
           - "{{steps.launch_instance.key_file}}"
           - "--mount-point"
           - "{{steps.create_volume.mount_point}}"
-        timeout: 60
+        timeout: 900
 
+      # DATASVC-XX-04: stop/start -> verify reattach + data
+      # Runs last so the stop/start IP churn does not affect the other tests.
       - name: volume_persistence
         phase: test
-        command: "python ../scripts/block-storage/volume_persistence.py"
+        command: "python3 ../scripts/storage/volume_persistence.py"
         args:
           - "--instance-id"
           - "{{steps.launch_instance.instance_id}}"
@@ -122,22 +134,24 @@ commands:
           - "{{steps.create_volume.mount_point}}"
           - "--expected-content"
           - "{{steps.create_volume.sentinel_content}}"
-        timeout: 60
+        timeout: 900
 
+      # AWS-specific: detach + delete the fixture volume
       - name: teardown_volume
         phase: teardown
-        command: "python ../scripts/block-storage/teardown_volume.py"
+        command: "python3 ../scripts/storage/teardown_volume.py"
         args:
           - "--region"
           - "{{region}}"
           - "--volume-id"
           - "{{steps.create_volume.volume_id}}"
           - "{{teardown_flag}}"
-        timeout: 60
+        timeout: 300
 
+      # AWS-specific: terminate the instance (reuses the VM script)
       - name: teardown
         phase: teardown
-        command: "python ../scripts/vm/teardown.py"
+        command: "python3 ../scripts/vm/teardown.py"
         args:
           - "--instance-id"
           - "{{steps.launch_instance.instance_id}}"
@@ -145,14 +159,15 @@ commands:
           - "{{region}}"
           - "--delete-key-pair"
           - "--delete-security-group"
-        timeout: 60
+          - "{{teardown_flag}}"
+        timeout: 600
 
 tests:
-  cluster_name: "my-isv-block-storage-validation"
-  description: "my-isv block storage validation (generic stubs, dummy overrides)"
+  cluster_name: "aws-storage-validation"
+  description: "AWS block storage (EBS) validation tests"
 
   settings:
-    region: "my-isv-region-1"
-    instance_type: "my-isv.standard.1x"
+    region: "us-west-2"
+    instance_type: "m6i.large"
     volume_size_gib: "10"
     teardown_flag: "{{(env.BLOCK_STORAGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"

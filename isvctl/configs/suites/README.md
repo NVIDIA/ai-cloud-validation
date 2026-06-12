@@ -133,11 +133,11 @@ volume. The three test-phase steps all reuse that fixture.
 | Step | Phase | Script | Key JSON Fields |
 |------|-------|--------|-----------------|
 | `launch_instance` | setup | `providers/my-isv/scripts/vm/launch_instance.py` | `instance_id`, `state`, `public_ip`, `key_file` (reuses VM script) |
-| `create_volume` | setup | `providers/my-isv/scripts/block-storage/create_volume.py` | `volume_id`, `mount_point`, `sentinel_content`, `operations.{create,attach,format,mount,write_sentinel}` |
-| `snapshot_lifecycle` | test | `providers/my-isv/scripts/block-storage/snapshot_lifecycle.py` | `volume_id`, `snapshot_id`, `operations.{create_snapshot,restore_volume,verify_data}` (verify_data includes `content_matches`) |
-| `volume_resize` | test | `providers/my-isv/scripts/block-storage/volume_resize.py` | `volume_id`, `operations.{modify_volume,grow_partition,resize_filesystem,verify_size}` |
-| `volume_persistence` | test | `providers/my-isv/scripts/block-storage/volume_persistence.py` | `volume_id`, `operations.{stop,start,verify_attached,verify_data}` (verify_data includes `content_matches`) |
-| `teardown_volume` | teardown | `providers/my-isv/scripts/block-storage/teardown_volume.py` | `resources_deleted`, `message` |
+| `create_volume` | setup | `providers/my-isv/scripts/storage/create_volume.py` | `volume_id`, `mount_point`, `sentinel_content`, `operations.{create,attach,format,mount,write_sentinel}` |
+| `snapshot_lifecycle` | test | `providers/my-isv/scripts/storage/snapshot_lifecycle.py` | `volume_id`, `snapshot_id`, `operations.{create_snapshot,restore_volume,verify_data}` (verify_data includes `content_matches`) |
+| `volume_resize` | test | `providers/my-isv/scripts/storage/volume_resize.py` | `volume_id`, `operations.{modify_volume,grow_partition,resize_filesystem,verify_size}` |
+| `volume_persistence` | test | `providers/my-isv/scripts/storage/volume_persistence.py` | `volume_id`, `operations.{stop,start,verify_attached,verify_data}` (verify_data includes `content_matches`) |
+| `teardown_volume` | teardown | `providers/my-isv/scripts/storage/teardown_volume.py` | `resources_deleted`, `message` |
 | `teardown` | teardown | `providers/my-isv/scripts/vm/teardown.py` | `resources_deleted`, `message` (reuses VM script) |
 
 ### Kubernetes (`k8s.yaml`)

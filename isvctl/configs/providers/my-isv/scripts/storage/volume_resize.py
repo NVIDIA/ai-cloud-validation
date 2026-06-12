@@ -22,7 +22,7 @@ the larger capacity is visible to the guest after the resize.
 
 Required JSON output fields:
   success    (bool) - true iff every operation passed
-  platform   (str)  - "block_storage"
+  platform   (str)  - "storage"
   test_name  (str)  - "volume_resize"
   volume_id  (str)  - volume that was resized
   operations: {
@@ -36,7 +36,7 @@ Usage:
     python volume_resize.py --volume-id <id> --mount-point /mnt/isv-block
 
 Reference implementation (AWS):
-    ../aws/block-storage/volume_resize.py
+    ../aws/storage/volume_resize.py
 """
 
 import argparse
@@ -68,7 +68,7 @@ def main() -> int:
     }
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "volume_resize",
         "volume_id": args.volume_id,
         "operations": operations,

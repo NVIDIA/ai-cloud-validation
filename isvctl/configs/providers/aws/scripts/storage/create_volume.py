@@ -16,7 +16,7 @@
 
 """Block-storage fixture: create, attach, format, mount, and seed a volume.
 
-Shared setup step for the block-storage suite (DATASVC-XX-02/03/04). It
+Shared setup step for the storage suite (DATASVC-XX-02/03/04). It
 creates an EBS volume in the instance's AZ, attaches it, partitions +
 formats it (ext4), mounts it, and writes a sentinel file. The volume ID,
 mount point, and sentinel content are passed to the snapshot / resize /
@@ -25,14 +25,14 @@ persistence test steps, which all reuse this single fixture.
 Output JSON:
 {
     "success": true,
-    "platform": "block_storage",
+    "platform": "storage",
     "test_name": "create_volume",
     "volume_id": "vol-xxx",
     "device": "/dev/sdf",
     "mount_point": "/mnt/isv-block",
     "size_gib": 10,
     "sentinel_path": "/mnt/isv-block/isv-sentinel.txt",
-    "sentinel_content": "isv-ncp-validate-block-storage-...",
+    "sentinel_content": "isv-ncp-validate-storage-...",
     "operations": {
         "create":         {"passed": true},
         "attach":         {"passed": true},
@@ -109,7 +109,7 @@ def main() -> int:
     parser.add_argument("--mount-point", default="/mnt/isv-block", help="In-guest mount point")
     args = parser.parse_args()
 
-    sentinel_content = f"isv-ncp-validate-block-storage-{uuid.uuid4().hex}"
+    sentinel_content = f"isv-ncp-validate-storage-{uuid.uuid4().hex}"
     operations: dict[str, dict[str, Any]] = {
         "create": {"passed": False},
         "attach": {"passed": False},
@@ -119,7 +119,7 @@ def main() -> int:
     }
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "create_volume",
         "instance_id": args.instance_id,
         "volume_id": None,
