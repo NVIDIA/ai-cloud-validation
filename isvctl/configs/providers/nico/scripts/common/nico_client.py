@@ -22,6 +22,7 @@ URL encoding.
 import base64
 import json
 import os
+from collections.abc import Callable
 from typing import Any, NamedTuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -166,12 +167,13 @@ def _discover_oidc_token_endpoint(*, issuer_url: str, timeout: int = OIDC_TOKEN_
     return token_endpoint.strip()
 
 
-def forge_get(
+def _api_get(
     org: str,
     path: str,
     token: str,
     *,
     base_url: str,
+    api: str,
     params: dict[str, str] | None = None,
     timeout: int = 30,
 ) -> dict[str, Any]:
@@ -179,9 +181,11 @@ def forge_get(
 
     Args:
         org: NGC org name.
-        path: API path relative to /carbide/ (e.g., "machine", "expected-machine").
+        path: API path relative to the API segment (e.g., "machine", "site/{id}").
         token: Bearer token.
-        base_url: NICo API base URL.
+        base_url: NICo API base URL (the ``.../v2/org`` root).
+        api: API segment between the org and the path. ``"carbide"`` targets the
+            Forge control-plane API; ``"nico"`` targets the tenant REST API.
         params: Query parameters (will be URL-encoded).
         timeout: Request timeout in seconds.
 
@@ -191,7 +195,7 @@ def forge_get(
     Raises:
         HTTPError: On non-2xx response.
     """
-    url = f"{base_url}/{org}/carbide/{path}"
+    url = f"{base_url}/{org}/{api}/{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
 
@@ -206,7 +210,39 @@ def forge_get(
         raise type(e)(e.url, e.code, f"{e.reason}: {body}", e.headers, None) from e
 
 
-def forge_get_all(
+def forge_get(
+    org: str,
+    path: str,
+    token: str,
+    *,
+    base_url: str,
+    params: dict[str, str] | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """GET a single page from the Forge control-plane API (``/carbide/`` segment)."""
+    return _api_get(org, path, token, base_url=base_url, api="carbide", params=params, timeout=timeout)
+
+
+def nico_get(
+    org: str,
+    path: str,
+    token: str,
+    *,
+    base_url: str,
+    params: dict[str, str] | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """GET a single page from the NICo tenant REST API (``/nico/`` segment).
+
+    Resources such as SSH key groups and the per-site serial-console
+    configuration live only on the tenant REST API, not the Forge
+    control-plane API used by ``forge_get``.
+    """
+    return _api_get(org, path, token, base_url=base_url, api="nico", params=params, timeout=timeout)
+
+
+def _api_get_all(
+    get_page: Callable[..., dict[str, Any]],
     org: str,
     path: str,
     token: str,
@@ -220,10 +256,12 @@ def forge_get_all(
     """Fetch all pages from a paginated NICo API endpoint.
 
     Args:
+        get_page: Single-page getter (``forge_get`` or ``nico_get``) used to
+            fetch each page; selects the API segment.
         org: NGC org name.
-        path: API path relative to /carbide/ (e.g., "machine", "expected-machine").
+        path: API path relative to the API segment (e.g., "machine", "sshkeygroup").
         token: Bearer token.
-        base_url: NICo API base URL.
+        base_url: NICo API base URL (the ``.../v2/org`` root).
         params: Additional query parameters.
         result_key: JSON key containing the results array. If None, the response
             itself is expected to be a list, or auto-detected from common keys.
@@ -244,7 +282,7 @@ def forge_get_all(
         page_params["pageSize"] = str(effective_page_size)
         page_params["pageNumber"] = str(page_number)
 
-        resp = forge_get(org, path, token, base_url=base_url, params=page_params, timeout=timeout)
+        resp = get_page(org, path, token, base_url=base_url, params=page_params, timeout=timeout)
 
         # The NICo API is not uniform: some endpoints return a bare JSON list,
         # others wrap the array under result_key (or another well-known key).
@@ -271,6 +309,56 @@ def forge_get_all(
         page_number += 1
 
     return all_items
+
+
+def forge_get_all(
+    org: str,
+    path: str,
+    token: str,
+    *,
+    base_url: str,
+    params: dict[str, str] | None = None,
+    result_key: str | None = None,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    timeout: int = 30,
+) -> list[dict[str, Any]]:
+    """Fetch all pages from a paginated Forge control-plane endpoint (``/carbide/``)."""
+    return _api_get_all(
+        forge_get,
+        org,
+        path,
+        token,
+        base_url=base_url,
+        params=params,
+        result_key=result_key,
+        page_size=page_size,
+        timeout=timeout,
+    )
+
+
+def nico_get_all(
+    org: str,
+    path: str,
+    token: str,
+    *,
+    base_url: str,
+    params: dict[str, str] | None = None,
+    result_key: str | None = None,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    timeout: int = 30,
+) -> list[dict[str, Any]]:
+    """Fetch all pages from a paginated NICo tenant REST endpoint (``/nico/``)."""
+    return _api_get_all(
+        nico_get,
+        org,
+        path,
+        token,
+        base_url=base_url,
+        params=params,
+        result_key=result_key,
+        page_size=page_size,
+        timeout=timeout,
+    )
 
 
 def classify_health(health: dict[str, Any]) -> str:
