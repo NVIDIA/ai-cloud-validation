@@ -14,7 +14,6 @@ Suites:
 [`network`](network.yaml),
 [`vm`](vm.yaml),
 [`bare_metal`](bare_metal.yaml),
-[`block-storage`](block-storage.yaml),
 [`observability`](observability.yaml),
 [`k8s`](k8s.yaml),
 [`slurm`](slurm.yaml),
@@ -122,7 +121,14 @@ For the domain / script-count / AWS-reference overview see the
 | `query_sanitization` | test | `providers/nico/scripts/sanitization/query_sanitization.py` | `machines_checked`, `machines[].{available,in_use,has_gpu,served_tenant,sanitized,stale_tenant_binding,vendor,product_name,bios_version,transitions}` |
 | `query_attestation` | test | `providers/nico/scripts/attestation/query_attestation.py` | `machines_checked`, `machines[].{attestation_supported,nonce_verified,attestation_signature_valid,secure_boot_enabled,boot_measurements_attested,measured_boot_state}` |
 
-### Block Storage (`block-storage.yaml`)
+### Block Storage (part of `vm.yaml`)
+
+Block storage (DATASVC-XX-02/03/04) is validated as part of the [VM](vm.yaml) contract
+rather than a standalone suite. The block-storage validations
+(`fixture_volume` / `snapshot_lifecycle` / `volume_resize` / `volume_persistence` /
+`volume_teardown_checks`) live in `vm.yaml` and activate only when a provider config
+supplies the matching volume steps - see `providers/<p>/config/block-storage.yaml`. A
+standard VM run that omits those steps skips these checks automatically.
 
 A shared fixture (`launch_instance` + `create_volume`) provisions one instance with a
 single attached, formatted, mounted, and seeded block volume. The three test-phase

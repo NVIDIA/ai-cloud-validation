@@ -15,10 +15,14 @@
 
 # AWS Block Storage (EBS) Validation Configuration
 #
-# Imports validations from the provider-agnostic block-storage canonical
-# config. This file only provides AWS-specific commands (boto3 + SSH) and
-# settings. The launch_instance / teardown steps reuse the VM reference
-# scripts; the volume steps live in scripts/block-storage/.
+# Block storage is validated as part of the VM contract, so this config
+# imports suites/vm.yaml and supplies only the volume steps. The VM
+# validations whose steps are omitted here are skipped automatically; the
+# block-storage validations (fixture_volume / snapshot_lifecycle /
+# volume_resize / volume_persistence) activate because the matching steps
+# below are present. This file only provides AWS-specific commands
+# (boto3 + SSH) and settings. The launch_instance / teardown steps reuse
+# the VM reference scripts; the volume steps live in scripts/block-storage/.
 #
 # Steps:
 #   SETUP
@@ -45,12 +49,12 @@
 #   ec2:CreateSnapshot, ec2:DeleteSnapshot, ec2:DescribeSnapshots
 
 import:
-  - ../../../suites/block-storage.yaml
+  - ../../../suites/vm.yaml
 
 version: "1.0"
 
 commands:
-  block_storage:
+  vm:
     phases: ["setup", "test", "teardown"]
     steps:
       # AWS-specific: launch the fixture instance (reuses the VM script)
@@ -170,3 +174,10 @@ tests:
     instance_type: "m6i.large"
     volume_size_gib: "10"
     teardown_flag: "{{(env.BLOCK_STORAGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+
+  # Block storage reuses the VM contract (suites/vm.yaml) for its fixture but
+  # does not validate the VM host itself. The ssh-labelled VM host checks
+  # (cloud-init / GPU / OS / driver / NIM, etc.) are excluded; the VM checks
+  # whose steps this config omits are skipped automatically.
+  exclude:
+    labels: ["ssh"]
