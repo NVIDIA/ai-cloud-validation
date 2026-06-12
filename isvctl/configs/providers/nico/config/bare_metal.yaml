@@ -53,7 +53,7 @@
 #     CNP09-02). It requires operator/admin CLI credentials in addition to the
 #     tenant REST credentials used for machine enumeration.
 #   - query_key_access.py reads the site's SSH Key Groups and serial-console
-#     configuration from the NICo tenant REST API and reports whether a
+#     configuration from the NICo API and reports whether a
 #     tenant-specified key can access out-of-band components (serial console /
 #     SOL is verifiable; network devices are provider-managed). It feeds
 #     SpecifiedKeyAccessCheck (AUTH-XX-03).
@@ -230,8 +230,8 @@ commands:
 
       # ─── Specified-Key Access (AUTH-XX-03) ──────────────────────────
       # Reads the site's SSH Key Groups and serial-console configuration from
-      # the NICo tenant REST API (/nico/ segment) and reports whether a
-      # tenant-specified key can access out-of-band components. The serial
+      # the NICo API (/carbide/ segment, like the other NICo steps) and reports
+      # whether a tenant-specified key can access out-of-band components. The serial
       # console (SOL) is verifiable from the tenant API (provider-enabled +
       # SSH-key auth + key synced); network-device access is provider-managed
       # and reported as unverified. SpecifiedKeyAccessCheck validates it.
