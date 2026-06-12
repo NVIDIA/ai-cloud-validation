@@ -30,6 +30,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 import pytest
+from isvtest.validations.attestation import FirmwareAttestationCheck, NonceAttestationCheck
 from isvtest.validations.governance import GovernanceMetricsCheck
 from isvtest.validations.health import HealthAggregationCheck, HostHealthCheck
 from isvtest.validations.infiniband import IbKeysConfiguredCheck, IbTenantIsolationCheck
@@ -140,6 +141,17 @@ def _load_health_aggregation_script() -> ModuleType:
     """Load the query_health_aggregation script as a module for direct unit testing."""
     script_path = NICO_SCRIPTS / "health" / "query_health_aggregation.py"
     spec = importlib.util.spec_from_file_location("test_query_health_aggregation", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
+def _load_attestation_script() -> ModuleType:
+    """Load the query_attestation script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "attestation" / "query_attestation.py"
+    spec = importlib.util.spec_from_file_location("test_query_attestation", script_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     with _isolated_common_imports():
@@ -299,6 +311,7 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
         "query_governance_metrics",
         "query_host_health",
         "query_health_aggregation",
+        "query_attestation",
         "query_ib_tenant_isolation",
         "query_ib_keys",
         "query_sanitization",
@@ -324,6 +337,7 @@ def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None
         ("query_metrics.py", _load_governance_metrics_script),
         ("query_host_health.py", _load_host_health_script),
         ("query_health_aggregation.py", _load_health_aggregation_script),
+        ("query_attestation.py", _load_attestation_script),
         ("query_ib_tenant_isolation.py", _load_ib_tenant_isolation_script),
         ("query_ib_keys.py", _load_ib_keys_script),
         ("query_sanitization.py", _load_sanitization_script),
@@ -489,6 +503,255 @@ def test_dpu_health_script_treats_nullable_alert_fields_as_empty(
     assert payload["machines"][0]["health_successes"] == ["DpuDiskUtilizationCheck"]
     assert payload["machines"][0]["health_alerts"] == []
     assert payload["machines"][0]["dpu_agent_heartbeat"] is True
+
+
+# ---------------------------------------------------------------------------
+# query_attestation (SEC22-01 SPDM) script
+# ---------------------------------------------------------------------------
+
+
+def _run_attestation_script(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    machines: list[dict[str, Any]],
+    spdm_statuses: list[list[str]],
+    measured_boot_machines: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Drive query_attestation with mocked tenant REST + admin-cli output."""
+    module = _load_attestation_script()
+    monkeypatch.setattr(module, "admin_cli_available", lambda command: True)
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", lambda *args, **kwargs: machines)
+
+    if measured_boot_machines is None:
+        measured_boot_machines = [
+            {"machine_id": machine["id"], "state": "Measured", "journal": {"bundle_id": "bundle-1"}}
+            for machine in machines
+        ]
+
+    def _fake_admin_cli(command: list[str], **kwargs: Any) -> list[Any]:
+        if command[-3:] == ["attestation", "spdm", "list"]:
+            return spdm_statuses
+        if command[-4:] == ["attestation", "measured-boot", "machine", "show"]:
+            return measured_boot_machines
+        raise AssertionError(f"unexpected admin CLI command: {command}")
+
+    monkeypatch.setattr(module, "run_admin_cli_json", _fake_admin_cli)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_attestation.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://127.0.0.1:8080/v2/org",
+            "--admin-cli",
+            "nico-admin-cli",
+            "--carbide-url",
+            "https://127.0.0.1:1079",
+        ],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0, payload
+    return payload
+
+
+def test_attestation_script_maps_spdm_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """SPDM_ATT_PASSED maps to nonce/signature pass; other statuses fail."""
+    payload = _run_attestation_script(
+        monkeypatch,
+        capsys,
+        machines=[{"id": "m-pass", "status": "Ready"}, {"id": "m-fail", "status": "Ready"}],
+        spdm_statuses=[["m-pass", "SPDM_ATT_PASSED"], ["m-fail", "SPDM_ATT_FAILED"]],
+    )
+
+    assert payload["success"] is True
+    assert payload["machines_checked"] == 2
+    machines = {machine["machine_id"]: machine for machine in payload["machines"]}
+    assert machines["m-pass"]["attestation_supported"] is True
+    assert machines["m-pass"]["nonce_verified"] is True
+    assert machines["m-pass"]["attestation_signature_valid"] is True
+    assert machines["m-fail"]["attestation_supported"] is True
+    assert machines["m-fail"]["nonce_verified"] is False
+    assert machines["m-fail"]["spdm_attestation_status"] == "SPDM_ATT_FAILED"
+    assert machines["m-pass"]["secure_boot_enabled"] is True
+    assert machines["m-pass"]["boot_measurements_attested"] is True
+
+
+def test_attestation_script_reports_missing_spdm_record_as_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A tenant machine missing from SPDM status output fails as not supported/exposed."""
+    payload = _run_attestation_script(
+        monkeypatch,
+        capsys,
+        machines=[{"id": "m-missing", "status": "Ready"}],
+        spdm_statuses=[],
+        measured_boot_machines=[],
+    )
+
+    machine = payload["machines"][0]
+    assert machine["machine_id"] == "m-missing"
+    assert machine["attestation_supported"] is False
+    assert machine["nonce_verified"] is False
+    assert machine["attestation_signature_valid"] is False
+    assert machine["spdm_attestation_status"] == "not_found"
+    assert machine["measured_boot_state"] == "not_found"
+
+
+def test_attestation_script_output_satisfies_nonce_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: NICo SPDM JSON should pass NonceAttestationCheck."""
+    payload = _run_attestation_script(
+        monkeypatch,
+        capsys,
+        machines=[{"id": "m-pass", "status": "Ready"}],
+        spdm_statuses=[["m-pass", "SPDM_ATT_PASSED"]],
+    )
+
+    check = NonceAttestationCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is True, check._error
+
+
+def test_attestation_script_maps_measured_boot_state(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Measured boot state drives firmware attestation fields."""
+    payload = _run_attestation_script(
+        monkeypatch,
+        capsys,
+        machines=[{"id": "m-measured", "status": "Ready"}, {"id": "m-pending", "status": "Ready"}],
+        spdm_statuses=[["m-measured", "SPDM_ATT_PASSED"], ["m-pending", "SPDM_ATT_PASSED"]],
+        measured_boot_machines=[
+            {"machine_id": "m-measured", "state": "Measured", "journal": {"bundle_id": "bundle-1"}},
+            {"machine_id": "m-pending", "state": "PendingBundle", "journal": None},
+        ],
+    )
+
+    machines = {machine["machine_id"]: machine for machine in payload["machines"]}
+    assert machines["m-measured"]["secure_boot_enabled"] is True
+    assert machines["m-measured"]["boot_measurements_attested"] is True
+    assert machines["m-measured"]["measured_boot_state"] == "Measured"
+    assert machines["m-pending"]["secure_boot_enabled"] is False
+    assert machines["m-pending"]["boot_measurements_attested"] is False
+    assert machines["m-pending"]["measured_boot_state"] == "PendingBundle"
+
+
+def test_attestation_script_output_satisfies_firmware_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: NICo measured-boot JSON should pass FirmwareAttestationCheck."""
+    payload = _run_attestation_script(
+        monkeypatch,
+        capsys,
+        machines=[{"id": "m-measured", "status": "Ready"}],
+        spdm_statuses=[["m-measured", "SPDM_ATT_PASSED"]],
+        measured_boot_machines=[
+            {"machine_id": "m-measured", "state": "Measured", "journal": {"bundle_id": "bundle-1"}}
+        ],
+    )
+
+    check = FirmwareAttestationCheck(config={"step_output": payload})
+    check.run()
+    assert check._passed is True, check._error
+
+
+def test_attestation_script_parses_admin_cli_warning_lines() -> None:
+    """DISABLE_TLS_ENFORCEMENT warnings can precede the admin-cli JSON output."""
+    module = _load_attestation_script()
+
+    payload = module.parse_json_output(
+        "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS.\n"
+        "[WARN] TLS disabled for local testing\n"
+        '[["m-1", "SPDM_ATT_PASSED"]]\n'
+    )
+
+    assert payload == [["m-1", "SPDM_ATT_PASSED"]]
+
+
+def test_attestation_script_surfaces_admin_cli_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Admin CLI failures should produce a failed step output, not an exception."""
+    module = _load_attestation_script()
+    monkeypatch.setattr(module, "admin_cli_available", lambda command: True)
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", lambda *args, **kwargs: [{"id": "m-1", "status": "Ready"}])
+
+    def _admin_cli_403(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("admin CLI failed with exit code 1: grpc status 403")
+
+    monkeypatch.setattr(module, "run_admin_cli_json", _admin_cli_403)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_attestation.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://127.0.0.1:8080/v2/org",
+        ],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["success"] is False
+    assert "grpc status 403" in payload["error"]
+
+
+def test_attestation_script_skips_when_admin_cli_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing nico-admin-cli should skip the step instead of failing both checks."""
+    module = _load_attestation_script()
+    monkeypatch.setattr(module, "admin_cli_available", lambda command: False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_attestation.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://127.0.0.1:8080/v2/org",
+        ],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert "nico-admin-cli" in payload["skip_reason"]
 
 
 # ---------------------------------------------------------------------------

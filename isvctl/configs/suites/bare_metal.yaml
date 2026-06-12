@@ -425,5 +425,22 @@ tests:
       checks:
         DiskSanitizationCheck: {}
 
+    # Hardware/firmware attestation (SEC22 / CNP09). Each check asserts a host
+    # establishes a hardware root of trust. Only runs for providers that
+    # implement the query_attestation step.
+    #   - SEC22-01: each host passes a fresh nonce-based attestation (the
+    #     verifier nonce is echoed in a validly signed quote).
+    #   - CNP09-02: all firmware is cryptographically signed and its boot
+    #     measurements are attested (secure boot on, golden PCR values matched).
+    nonce_attestation:
+      step: query_attestation
+      checks:
+        NonceAttestationCheck: {}
+
+    firmware_attestation:
+      step: query_attestation
+      checks:
+        FirmwareAttestationCheck: {}
+
   exclude:
     labels: []
