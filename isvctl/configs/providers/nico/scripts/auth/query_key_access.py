@@ -47,6 +47,11 @@ Auth:
   - NICO_BEARER_TOKEN, or OIDC client_credentials
     (NICO_SSA_ISSUER / NICO_CLIENT_ID / NICO_CLIENT_SECRET).
 
+When no SSH key group with a key is synced to the site there is nothing to
+evidence access with, so the script emits a structured skip (``skipped: true``
++ ``skip_reason``) carrying an ``org_key_groups`` count, distinguishing "no key
+groups exist at all" from "key groups exist but none are synced to this site".
+
 Required JSON output fields:
   {
     "success": true,
@@ -228,6 +233,35 @@ def main() -> int:
         result["specified_keys"] = _count_specified_keys(groups)
         result["key_groups"] = len(groups)
         result["keys_synced_to_site"] = keys_synced
+
+        if not keys_synced:
+            # Nothing to evidence access with on this site. Query the org-wide
+            # key groups (no siteId filter) so the skip reason can distinguish
+            # "no key groups exist at all" from "key groups exist but none are
+            # synced to this site" -- the operator needs to know which.
+            org_groups = forge_get_all(
+                args.org,
+                "sshkeygroup",
+                auth.token,
+                base_url=args.api_base,
+                result_key="sshKeyGroups",
+            )
+            result["org_key_groups"] = len(org_groups)
+            result["skipped"] = True
+            if org_groups:
+                result["skip_reason"] = (
+                    f"{len(org_groups)} SSH key group(s) exist for the org but none are synced to this site; "
+                    "sync a key group containing an SSH key to the site to enable key-based SOL access"
+                )
+            else:
+                result["skip_reason"] = (
+                    "No SSH key groups exist for the org; create one with an SSH key and sync it to the site "
+                    "to enable key-based SOL access"
+                )
+            result["success"] = True
+            print(json.dumps(result, indent=2))
+            return 0
+
         result["access_targets"] = [
             _serial_console_target(site, keys_synced),
             _network_device_target(),
