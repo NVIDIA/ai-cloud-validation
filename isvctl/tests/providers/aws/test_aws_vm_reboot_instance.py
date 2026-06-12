@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from .conftest import load_vm_script
+from ...conftest import load_vm_script
 
 
 def test_get_uptime_via_ssh_uses_shared_ssh_helper(monkeypatch: pytest.MonkeyPatch) -> None:

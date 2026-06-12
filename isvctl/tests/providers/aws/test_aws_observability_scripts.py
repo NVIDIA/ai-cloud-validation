@@ -26,7 +26,7 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
+ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 AWS_OBSERVABILITY_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "observability"
 
 

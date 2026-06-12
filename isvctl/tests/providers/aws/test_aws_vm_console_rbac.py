@@ -23,7 +23,7 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-from .conftest import load_vm_script
+from ...conftest import load_vm_script
 
 
 class FakeSts:

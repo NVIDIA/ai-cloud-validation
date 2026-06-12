@@ -30,7 +30,7 @@ from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.context import Context
 from isvctl.orchestrator.step_executor import StepExecutor
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
+ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 AWS_SECURITY_CONFIG = ISVCTL_ROOT / "configs" / "providers" / "aws" / "config" / "security.yaml"
 AWS_CAPACITY_SCRIPT = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "capacity" / "reservation_grouping.py"
 

@@ -40,7 +40,7 @@ from isvtest.validations.sanitization import (
 
 from isvctl.config.merger import merge_yaml_files
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
+ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 NICO_COMMON = ISVCTL_ROOT / "configs" / "providers" / "nico" / "scripts" / "common"
 NICO_CONFIG = ISVCTL_ROOT / "configs" / "providers" / "nico" / "config"
 NICO_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "nico" / "scripts"

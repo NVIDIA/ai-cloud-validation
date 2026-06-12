@@ -23,7 +23,7 @@ from types import ModuleType
 
 import pytest
 
-from .conftest import load_vm_script
+from ...conftest import load_vm_script
 
 
 def _guest_probe_with_services(module: ModuleType, monkeypatch: pytest.MonkeyPatch, services: str) -> dict:
