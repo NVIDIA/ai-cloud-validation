@@ -14,6 +14,7 @@ Suites:
 [`network`](network.yaml),
 [`vm`](vm.yaml),
 [`bare_metal`](bare_metal.yaml),
+[`storage`](storage.yaml),
 [`observability`](observability.yaml),
 [`k8s`](k8s.yaml),
 [`slurm`](slurm.yaml),
@@ -108,18 +109,13 @@ For the domain / script-count / AWS-reference overview see the
 | `teardown` | teardown | `providers/my-isv/scripts/bare_metal/teardown.py` | `resources_deleted`, `message` |
 | `verify_teardown` | teardown | `providers/my-isv/scripts/bare_metal/verify_terminated.py` | `checks.instance_terminated`, `checks.sg_deleted` |
 
-### Block Storage (part of `vm.yaml`)
+### Storage (`storage.yaml`)
 
-Block storage (DATASVC-XX-02/03/04) is validated as part of the [VM](vm.yaml) contract
-rather than a standalone suite. The block-storage validations
-(`fixture_volume` / `snapshot_lifecycle` / `volume_resize` / `volume_persistence` /
-`volume_teardown_checks`) live in `vm.yaml` and activate only when a provider config
-supplies the matching volume steps - see `providers/<p>/config/block-storage.yaml`. A
-standard VM run that omits those steps skips these checks automatically.
-
-A shared fixture (`launch_instance` + `create_volume`) provisions one instance with a
-single attached, formatted, mounted, and seeded block volume. The three test-phase
-steps (DATASVC-XX-02/03/04) all reuse that fixture.
+Umbrella suite for the storage capability area. Today it covers persistent block
+storage (DATASVC-XX-02/03/04); future object/file storage checks land here too rather
+than spawning new suites. A shared fixture (`launch_instance` + `create_volume`)
+provisions one instance with a single attached, formatted, mounted, and seeded block
+volume. The three test-phase steps all reuse that fixture.
 
 | Step | Phase | Script | Key JSON Fields |
 |------|-------|--------|-----------------|
