@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
+ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 AWS_BM_LAUNCH_SCRIPT = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "bare_metal" / "launch_instance.py"
 
 

@@ -26,7 +26,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
+ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 AWS_COMMON_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "common"
 MY_ISV_BM_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "my-isv" / "scripts" / "bare_metal"
 

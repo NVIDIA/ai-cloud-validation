@@ -30,7 +30,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
 
-_COMMON_DIR = Path(__file__).resolve().parents[1] / "configs" / "providers" / "aws" / "scripts"
+_COMMON_DIR = Path(__file__).resolve().parents[3] / "configs" / "providers" / "aws" / "scripts"
 if str(_COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(_COMMON_DIR))
 

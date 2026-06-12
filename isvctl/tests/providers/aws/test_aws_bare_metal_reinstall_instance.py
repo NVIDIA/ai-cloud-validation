@@ -27,7 +27,7 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError, WaiterError
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
+ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 AWS_BM_REINSTALL_SCRIPT = (
     ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "bare_metal" / "reinstall_instance.py"
 )

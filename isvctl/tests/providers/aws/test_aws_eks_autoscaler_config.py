@@ -17,7 +17,7 @@
 
 from pathlib import Path
 
-AWS_EKS_DIR = Path(__file__).resolve().parents[1] / "configs" / "providers" / "aws" / "scripts" / "eks"
+AWS_EKS_DIR = Path(__file__).resolve().parents[3] / "configs" / "providers" / "aws" / "scripts" / "eks"
 
 
 def test_eks_terraform_installs_upstream_cluster_autoscaler_with_irsa() -> None:

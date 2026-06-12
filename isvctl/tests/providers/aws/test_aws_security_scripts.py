@@ -31,7 +31,7 @@ from urllib.error import HTTPError
 import pytest
 from botocore.exceptions import ClientError, WaiterError
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
+ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 AWS_SECURITY_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "security"
 
 

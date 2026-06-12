@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 SCRIPT = (
     ROOT / "isvctl" / "configs" / "providers" / "aws" / "scripts" / "capacity" / "topology_block_atomic_allocation.py"
 )
