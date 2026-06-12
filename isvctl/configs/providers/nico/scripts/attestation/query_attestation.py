@@ -69,18 +69,20 @@ SUPPORTED_MEASURED_BOOT_STATES = {
 }
 
 
-def _first_json_offset(text: str) -> int:
-    """Return the first likely JSON object/array offset in CLI output."""
-    candidates = [idx for idx in (text.find("["), text.find("{")) if idx >= 0]
-    return min(candidates) if candidates else -1
-
-
 def parse_json_output(text: str) -> Any:
     """Parse JSON from admin-cli output, tolerating warning lines before it."""
-    offset = _first_json_offset(text)
-    if offset < 0:
-        raise ValueError("admin CLI output did not contain JSON")
-    return json.loads(text[offset:])
+    decoder = json.JSONDecoder()
+    for offset, char in enumerate(text):
+        if char not in "[{":
+            continue
+        try:
+            payload, end = decoder.raw_decode(text[offset:])
+        except json.JSONDecodeError:
+            continue
+        if text[offset + end :].strip():
+            continue
+        return payload
+    raise ValueError("admin CLI output did not contain JSON")
 
 
 def build_admin_cli_command(args: argparse.Namespace) -> list[str]:

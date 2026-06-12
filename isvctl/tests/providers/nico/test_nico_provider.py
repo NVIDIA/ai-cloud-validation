@@ -679,6 +679,7 @@ def test_attestation_script_parses_admin_cli_warning_lines() -> None:
 
     payload = module.parse_json_output(
         "IGNORING SERVER CERT, Please ensure that I am removed to actually validate TLS.\n"
+        "[WARN] TLS disabled for local testing\n"
         '[["m-1", "SPDM_ATT_PASSED"]]\n'
     )
 
