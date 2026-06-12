@@ -38,9 +38,10 @@ This script gathers the provider-neutral evidence for that access path:
   tenant key access to switches is provider-managed and not exposed by the NICo
   tenant REST API, so it is neither asserted nor falsely passed.
 
-NICo tenant REST endpoints used:
-  GET /v2/org/{org}/nico/site/{site_id}
-  GET /v2/org/{org}/nico/sshkeygroup?siteId={site_id}
+NICo API endpoints used (the ``/carbide/`` segment is the current deployed name
+for what newer docs call ``/nico/``; the other NICo scripts use it too):
+  GET /{org}/carbide/site/{site_id}
+  GET /{org}/carbide/sshkeygroup?siteId={site_id}
 
 Auth:
   - NICO_BEARER_TOKEN, or OIDC client_credentials
@@ -92,7 +93,7 @@ from typing import Any
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.nico_client import NicoAuthError, nico_get, nico_get_all, resolve_auth
+from common.nico_client import NicoAuthError, forge_get, forge_get_all, resolve_auth
 
 # SSH Key Group / site-association status that means the key has fully
 # propagated to the site and is therefore usable for access.
@@ -211,14 +212,15 @@ def main() -> int:
     try:
         auth = resolve_auth()
 
-        site = nico_get(args.org, f"site/{args.site_id}", auth.token, base_url=args.api_base)
+        site = forge_get(args.org, f"site/{args.site_id}", auth.token, base_url=args.api_base)
 
-        groups = nico_get_all(
+        groups = forge_get_all(
             args.org,
             "sshkeygroup",
             auth.token,
             base_url=args.api_base,
             params={"siteId": args.site_id},
+            result_key="sshKeyGroups",
         )
 
         keys_synced = _keys_synced_to_site(groups, args.site_id)
