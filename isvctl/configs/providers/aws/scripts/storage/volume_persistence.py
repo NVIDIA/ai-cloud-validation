@@ -24,7 +24,7 @@ and the sentinel file is byte-compared against the fixture content.
 Output JSON:
 {
     "success": true,
-    "platform": "block_storage",
+    "platform": "storage",
     "test_name": "volume_persistence",
     "volume_id": "vol-xxx",
     "operations": {
@@ -78,7 +78,7 @@ def main() -> int:
     }
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "volume_persistence",
         "volume_id": args.volume_id,
         "instance_id": args.instance_id,

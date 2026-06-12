@@ -23,7 +23,7 @@ be left attached, formatted, mounted, and seeded with the sentinel file.
 
 Required JSON output fields:
   success           (bool) - true iff every operation passed
-  platform          (str)  - "block_storage"
+  platform          (str)  - "storage"
   test_name         (str)  - "create_volume"
   volume_id         (str)  - identifier of the created volume (consumed by later steps)
   mount_point       (str)  - where the volume is mounted in the guest
@@ -40,7 +40,7 @@ Usage:
     python create_volume.py --instance-id <id> --region <region> --key-file <key> --size-gib 10
 
 Reference implementation (AWS):
-    ../aws/block-storage/create_volume.py
+    ../aws/storage/create_volume.py
 """
 
 import argparse
@@ -64,7 +64,7 @@ def main() -> int:
     parser.add_argument("--mount-point", default="/mnt/isv-block", help="In-guest mount point")
     args = parser.parse_args()
 
-    sentinel_content = f"isv-ncp-validate-block-storage-{uuid.uuid4().hex}"
+    sentinel_content = f"isv-ncp-validate-storage-{uuid.uuid4().hex}"
     operations: dict[str, dict[str, Any]] = {
         "create": {"passed": False},
         "attach": {"passed": False},
@@ -74,7 +74,7 @@ def main() -> int:
     }
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "create_volume",
         "volume_id": "",
         "mount_point": args.mount_point,

@@ -16,7 +16,7 @@
 """Shared EBS (block volume) helper utilities.
 
 Centralizes the boto3 volume / snapshot lifecycle used by the
-block-storage validation scripts (create / attach / snapshot / restore /
+storage validation scripts (create / attach / snapshot / restore /
 resize / detach / delete) plus the Nitro NVMe device-path mapping needed
 to find an attached volume from inside the guest.
 
@@ -121,7 +121,7 @@ def create_snapshot(
     ec2: Any,
     volume_id: str,
     *,
-    description: str = "ISV block-storage validation snapshot",
+    description: str = "ISV storage validation snapshot",
     name: str = "isv-validate-snap",
 ) -> str:
     """Create a point-in-time snapshot of ``volume_id`` and return its ID."""

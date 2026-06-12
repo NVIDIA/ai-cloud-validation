@@ -24,7 +24,7 @@ snapshot afterward.
 
 Required JSON output fields:
   success      (bool) - true iff every operation passed
-  platform     (str)  - "block_storage"
+  platform     (str)  - "storage"
   test_name    (str)  - "snapshot_lifecycle"
   volume_id    (str)  - source (fixture) volume that was snapshotted
   snapshot_id  (str)  - identifier of the created snapshot
@@ -38,7 +38,7 @@ Usage:
     python snapshot_lifecycle.py --volume-id <id> --expected-content <content>
 
 Reference implementation (AWS):
-    ../aws/block-storage/snapshot_lifecycle.py
+    ../aws/storage/snapshot_lifecycle.py
 """
 
 import argparse
@@ -69,7 +69,7 @@ def main() -> int:
     }
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "snapshot_lifecycle",
         "volume_id": args.volume_id,
         "snapshot_id": "",

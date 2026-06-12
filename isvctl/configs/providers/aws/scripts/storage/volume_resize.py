@@ -24,7 +24,7 @@ throughout, so no data is lost.
 Output JSON:
 {
     "success": true,
-    "platform": "block_storage",
+    "platform": "storage",
     "test_name": "volume_resize",
     "volume_id": "vol-xxx",
     "old_size_gib": 10,
@@ -101,7 +101,7 @@ def main() -> int:
     }
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "volume_resize",
         "volume_id": args.volume_id,
         "operations": operations,
@@ -139,7 +139,9 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         return 1
 
-    rc, before_out, _ = ssh_run(public_ip, args.ssh_user, args.key_file, _READ_FS_BYTES.replace("__MOUNT__", args.mount_point))
+    rc, before_out, _ = ssh_run(
+        public_ip, args.ssh_user, args.key_file, _READ_FS_BYTES.replace("__MOUNT__", args.mount_point)
+    )
     fs_before = int(before_out.strip()) if rc == 0 and before_out.strip().isdigit() else None
     result["fs_bytes_before"] = fs_before
 
@@ -156,7 +158,9 @@ def main() -> int:
         else:
             _fail(operations["resize_filesystem"], f"resize2fs failed (rc={rc}): {err.strip()[:300]}")
 
-    rc, after_out, _ = ssh_run(public_ip, args.ssh_user, args.key_file, _READ_FS_BYTES.replace("__MOUNT__", args.mount_point))
+    rc, after_out, _ = ssh_run(
+        public_ip, args.ssh_user, args.key_file, _READ_FS_BYTES.replace("__MOUNT__", args.mount_point)
+    )
     fs_after = int(after_out.strip()) if rc == 0 and after_out.strip().isdigit() else None
     result["fs_bytes_after"] = fs_after
 

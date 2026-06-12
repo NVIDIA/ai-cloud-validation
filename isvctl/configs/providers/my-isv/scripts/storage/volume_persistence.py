@@ -23,7 +23,7 @@ re-mounted after the restart).
 
 Required JSON output fields:
   success    (bool) - true iff every operation passed
-  platform   (str)  - "block_storage"
+  platform   (str)  - "storage"
   test_name  (str)  - "volume_persistence"
   volume_id  (str)  - volume expected to persist
   operations: {
@@ -37,7 +37,7 @@ Usage:
     python volume_persistence.py --instance-id <id> --volume-id <id> --expected-content <content>
 
 Reference implementation (AWS):
-    ../aws/block-storage/volume_persistence.py
+    ../aws/storage/volume_persistence.py
 """
 
 import argparse
@@ -69,7 +69,7 @@ def main() -> int:
     }
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "volume_persistence",
         "volume_id": args.volume_id,
         "instance_id": args.instance_id,

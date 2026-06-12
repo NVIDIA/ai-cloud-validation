@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Detach and delete the block-storage fixture volume (teardown).
+"""Detach and delete the storage fixture volume (teardown).
 
 Provider-agnostic template - replace the TODO block with your platform's
 detach + delete API calls for the fixture volume created by
@@ -22,7 +22,7 @@ detach + delete API calls for the fixture volume created by
 
 Required JSON output fields:
   success            (bool) - whether cleanup succeeded
-  platform           (str)  - "block_storage"
+  platform           (str)  - "storage"
   test_name          (str)  - "teardown_volume"
   resources_deleted  (list) - identifiers of volumes that were deleted
   message            (str)  - human-readable summary
@@ -31,7 +31,7 @@ Usage:
     python teardown_volume.py --volume-id <id> --region <region>
 
 Reference implementation (AWS):
-    ../aws/block-storage/teardown_volume.py
+    ../aws/storage/teardown_volume.py
 """
 
 import argparse
@@ -46,7 +46,7 @@ DEMO_MODE = os.environ.get("ISVCTL_DEMO_MODE") == "1"
 
 def main() -> int:
     """Detach and delete the fixture volume; print JSON result."""
-    parser = argparse.ArgumentParser(description="Teardown block-storage fixture volume")
+    parser = argparse.ArgumentParser(description="Teardown storage fixture volume")
     parser.add_argument("--region", default="", help="Cloud region")
     parser.add_argument("--volume-id", default="", help="Fixture volume to delete")
     parser.add_argument("--skip-destroy", action="store_true", help="Skip actual destroy")
@@ -54,7 +54,7 @@ def main() -> int:
 
     result: dict[str, Any] = {
         "success": False,
-        "platform": "block_storage",
+        "platform": "storage",
         "test_name": "teardown_volume",
         "resources_deleted": [],
         "message": "",
