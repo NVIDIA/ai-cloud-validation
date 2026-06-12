@@ -15,13 +15,11 @@
 
 # my-isv Block Storage Validation Configuration - Living Example
 #
-# Block storage is validated as part of the VM contract, so this config
-# imports suites/vm.yaml and supplies only the volume steps. VM validations
-# whose steps are omitted here are skipped automatically; the block-storage
-# validations activate because the matching steps below are present. The
-# commands wire to the generic template scripts, which ship with dummy-success
-# values so this example runs end-to-end without any real cloud infrastructure
-# (ISVCTL_DEMO_MODE=1, used by `make demo-test`).
+# Block storage is the block-volume implementation of the storage suite, so
+# this config imports the provider-agnostic suites/storage.yaml and wires the
+# commands to the generic template scripts. Those scripts ship with
+# dummy-success values so this example runs end-to-end without any real cloud
+# infrastructure (ISVCTL_DEMO_MODE=1, used by `make demo-test`).
 #
 # The launch_instance / teardown steps reuse the VM scaffold scripts; the
 # volume steps live in scripts/block-storage/.
@@ -42,12 +40,12 @@
 #   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/block-storage.yaml
 
 import:
-  - ../../../suites/vm.yaml
+  - ../../../suites/storage.yaml
 
 version: "1.0"
 
 commands:
-  vm:
+  storage:
     phases: ["setup", "test", "teardown"]
     steps:
       - name: launch_instance
@@ -158,10 +156,3 @@ tests:
     instance_type: "my-isv.standard.1x"
     volume_size_gib: "10"
     teardown_flag: "{{(env.BLOCK_STORAGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
-
-  # Block storage reuses the VM contract (suites/vm.yaml) for its fixture but
-  # does not validate the VM host itself. The ssh-labelled VM host checks
-  # (cloud-init / GPU / OS / driver / NIM, etc.) are excluded; the VM checks
-  # whose steps this config omits are skipped automatically.
-  exclude:
-    labels: ["ssh"]
