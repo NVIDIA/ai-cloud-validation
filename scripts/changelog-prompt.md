@@ -13,7 +13,7 @@ up changes automatically.
 ---
 
 You are filling in missing per-tag sections in `CHANGELOG.md` for the
-NVIDIA ISV NCP Validation Suite repository.
+NVIDIA AI Cloud Validation Suite repository.
 
 ## Goal
 

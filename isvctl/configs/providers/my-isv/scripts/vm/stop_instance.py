@@ -16,7 +16,7 @@
 
 """Stop a VM instance and verify it reaches the stopped state.
 
-Template stub for ISV NCP Validation. Replace the TODO section with your
+Template stub for AI Cloud Validation. Replace the TODO section with your
 platform's API calls to stop an instance without destroying it.
 
 This script must:

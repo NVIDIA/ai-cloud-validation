@@ -16,7 +16,7 @@
 
 """Stop a bare-metal node and verify it reaches the powered-off state.
 
-Template stub for ISV NCP Validation. Replace the TODO section with your
+Template stub for AI Cloud Validation. Replace the TODO section with your
 platform's API calls to power off a node without destroying it.
 
 This script must:

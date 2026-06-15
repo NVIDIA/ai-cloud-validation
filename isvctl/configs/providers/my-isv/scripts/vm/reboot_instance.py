@@ -16,7 +16,7 @@
 
 """Reboot a VM instance and validate it comes back healthy.
 
-Template stub for ISV NCP Validation. Replace the TODO section with your
+Template stub for AI Cloud Validation. Replace the TODO section with your
 platform's API calls to reboot an instance and verify recovery.
 
 This script must:

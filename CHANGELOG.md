@@ -481,5 +481,5 @@ Workflow:
 
 ### Added
 
-- **Initial release of the ISV NCP Validation Suite**
+- **Initial release of the AI Cloud Validation Suite**
   First public version of the monorepo containing `isvctl` (cluster lifecycle CLI), `isvtest` (pytest-based validation framework), and `isvreporter` (results uploader for the ISV Lab Service API).

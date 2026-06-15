@@ -6,7 +6,7 @@ This file documents project-specific context an agent can't grep for.
 
 ## Project Overview
 
-NVIDIA ISV NCP Validation Suite - validation and management tools for NVIDIA ISV Lab GPU
+NVIDIA AI Cloud Validation Suite - validation and management tools for NVIDIA ISV Lab GPU
 cluster environments. Monorepo with three Python packages managed as a uv workspace:
 
 - **isvctl** - CLI controller for cluster lifecycle (setup → test → teardown)
