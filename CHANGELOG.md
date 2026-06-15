@@ -30,6 +30,46 @@ Workflow:
 > attached to a milestone. The file you are reading now is the canonical
 > per-tag changelog.
 
+## [0.8.0] - 2026-06-15
+
+### Added
+
+- **NICo bare-metal hardware validation foundation** ([#450](https://github.com/NVIDIA/ai-cloud-validation/pull/450))
+  Adds the NICo provider with hardware ingestion and DPU health validations, plus provider-aware `isvctl doctor` checks so NICo sites can run the bare-metal suite through the standard workflow.
+- **NICo governance metrics validation (CAP01-01)** ([#451](https://github.com/NVIDIA/ai-cloud-validation/pull/451))
+  Adds a governance check that verifies delivered, healthy, reserved, and active node/GPU counts from NICo's Cloud Governance API, including optional minimum delivered-capacity thresholds.
+- **NICo host health aggregation validations (CAP05-01/02)** ([#453](https://github.com/NVIDIA/ai-cloud-validation/pull/453))
+  Adds per-host health and instance-type aggregation checks so providers can prove host health reports are available, fresh, and consistently rolled up across a fleet.
+- **Shared-VPC Kubernetes cluster validation** ([#455](https://github.com/NVIDIA/ai-cloud-validation/pull/455))
+  Adds `K8sMultiClusterSameVpcCheck` and AWS EKS reference wiring to verify that multiple Kubernetes clusters can operate in the same account and VPC with Ready-node evidence.
+- **Bare-metal reinstall identity validation** ([#454](https://github.com/NVIDIA/ai-cloud-validation/pull/454))
+  Adds stable node-identity verification to the AWS bare-metal reinstall flow and hardens root-volume replacement so reinstall validation can complete without losing the target instance identity.
+- **InfiniBand fabric security validations (SDN04-04/05)** ([#457](https://github.com/NVIDIA/ai-cloud-validation/pull/457))
+  Adds tenant-isolation and key-configuration checks for InfiniBand fabrics, including NICo and UFM-backed evidence for P_Key and management-key security.
+- **Tenant-transition sanitization validations (SEC21/SEC22)** ([#458](https://github.com/NVIDIA/ai-cloud-validation/pull/458), [#466](https://github.com/NVIDIA/ai-cloud-validation/pull/466))
+  Adds memory, GPU memory, firmware reset, and disk sanitization checks that verify hosts pass through a dedicated sanitizing lifecycle stage before they are reallocated to another tenant.
+- **Capacity allocation validations (CAP04-01/02)** ([#456](https://github.com/NVIDIA/ai-cloud-validation/pull/456))
+  Adds provider-neutral capacity checks for reservation grouping and topology-block atomic allocation, with AWS and `my-isv` reference wiring in the security suite.
+- **Storage L3 routing validation (SDN08-01)** ([#465](https://github.com/NVIDIA/ai-cloud-validation/pull/465))
+  Adds `StorageL3RoutingCheck` to verify full-mesh L3 reachability between storage hosts across subnets, including AWS reference provisioning and route validation.
+- **Bare-metal attestation validations (SEC22-01/CNP09-02)** ([#464](https://github.com/NVIDIA/ai-cloud-validation/pull/464))
+  Adds nonce-backed SPDM and firmware measured-boot attestation checks for bare-metal hosts, wired through the NICo provider's operator-mode attestation query step.
+
+### Changed
+
+- **AI Cloud Validation Suite branding** ([#470](https://github.com/NVIDIA/ai-cloud-validation/pull/470))
+  Renames the project from its legacy ISV NCP Validation naming to AI Cloud Validation across documentation, package metadata, deploy archive paths, generated test-plan output, issue templates, and runtime helper text.
+
+### Fixed
+
+- **Provider-neutral security validation contracts** ([#462](https://github.com/NVIDIA/ai-cloud-validation/pull/462), [#460](https://github.com/NVIDIA/ai-cloud-validation/pull/460), [#461](https://github.com/NVIDIA/ai-cloud-validation/pull/461))
+  Generalizes service-account credential, MFA, and KMS encryption checks so non-AWS providers can prove the same security outcomes without fabricating AWS-shaped key, policy, or key-id fields.
+
+### Internal
+
+- Group provider-specific `isvctl` tests by provider directory ([#467](https://github.com/NVIDIA/ai-cloud-validation/pull/467)).
+- Correct top-level Apache 2.0 license copyright notices and boilerplate ([#468](https://github.com/NVIDIA/ai-cloud-validation/pull/468)).
+
 ## [0.7.2] - 2026-06-03
 
 ### Added
