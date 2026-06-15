@@ -4,7 +4,7 @@ requires-python = ">=3.12"
 
 [manifest]
 members = [
-    "isv-ncp-validation-suite",
+    "ai-cloud-validation",
     "isvctl",
     "isvreporter",
     "isvtest",
@@ -13,6 +13,53 @@ overrides = [
     { name = "cryptography", specifier = ">=46.0.5" },
     { name = "pyasn1", specifier = ">=0.6.3" },
     { name = "requests", specifier = ">=2.32.5" },
+]
+
+[[package]]
+name = "ai-cloud-validation"
+version = "0.7.2"
+source = { virtual = "." }
+dependencies = [
+    { name = "isvctl" },
+    { name = "isvreporter" },
+    { name = "isvtest" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "coverage" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+lint = [
+    { name = "pre-commit" },
+]
+test = [
+    { name = "coverage" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "isvctl", editable = "isvctl" },
+    { name = "isvreporter", editable = "isvreporter" },
+    { name = "isvtest", editable = "isvtest" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "coverage", specifier = ">=7.0.0" },
+    { name = "pre-commit", specifier = ">=4.0.0" },
+    { name = "pytest", specifier = ">=8.3.4,<9.0.0" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+]
+lint = [{ name = "pre-commit", specifier = ">=4.0.0" }]
+test = [
+    { name = "coverage", specifier = ">=7.0.0" },
+    { name = "pytest", specifier = ">=8.3.4,<9.0.0" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
 ]
 
 [[package]]
@@ -549,53 +596,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/de/bd/b461d3424a24c80490313fd77feeb666ca4f6a28c7e72713e3d9095719b4/invoke-2.2.1.tar.gz", hash = "sha256:515bf49b4a48932b79b024590348da22f39c4942dff991ad1fb8b8baea1be707", size = 304762, upload-time = "2025-10-11T00:36:35.172Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/4b/b99e37f88336009971405cbb7630610322ed6fbfa31e1d7ab3fbf3049a2d/invoke-2.2.1-py3-none-any.whl", hash = "sha256:2413bc441b376e5cd3f55bb5d364f973ad8bdd7bf87e53c79de3c11bf3feecc8", size = 160287, upload-time = "2025-10-11T00:36:33.703Z" },
-]
-
-[[package]]
-name = "isv-ncp-validation-suite"
-version = "0.7.2"
-source = { virtual = "." }
-dependencies = [
-    { name = "isvctl" },
-    { name = "isvreporter" },
-    { name = "isvtest" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "coverage" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-lint = [
-    { name = "pre-commit" },
-]
-test = [
-    { name = "coverage" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "isvctl", editable = "isvctl" },
-    { name = "isvreporter", editable = "isvreporter" },
-    { name = "isvtest", editable = "isvtest" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "coverage", specifier = ">=7.0.0" },
-    { name = "pre-commit", specifier = ">=4.0.0" },
-    { name = "pytest", specifier = ">=8.3.4,<9.0.0" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-]
-lint = [{ name = "pre-commit", specifier = ">=4.0.0" }]
-test = [
-    { name = "coverage", specifier = ">=7.0.0" },
-    { name = "pytest", specifier = ">=8.3.4,<9.0.0" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
 ]
 
 [[package]]

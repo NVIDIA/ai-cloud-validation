@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide covers installation and basic usage of NVIDIA ISV NCP Validation Suite.
+This guide covers installation and basic usage of NVIDIA AI Cloud Validation suite.
 
 ## Prerequisites
 
@@ -13,8 +13,8 @@ This guide covers installation and basic usage of NVIDIA ISV NCP Validation Suit
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/NVIDIA/ISV-NCP-Validation-Suite.git
-cd ISV-NCP-Validation-Suite
+git clone https://github.com/NVIDIA/ai-cloud-validation.git
+cd ai-cloud-validation
 uv sync
 ```
 

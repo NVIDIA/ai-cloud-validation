@@ -32,7 +32,7 @@ from rich.table import Table
 
 from isvctl.cli.common import err_console, print_error, print_progress
 
-app = typer.Typer(help="Access ISV NCP Validation Suite documentation")
+app = typer.Typer(help="Access AI Cloud Validation Suite documentation")
 
 console = Console()
 

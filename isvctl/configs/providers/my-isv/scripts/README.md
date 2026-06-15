@@ -76,8 +76,8 @@ Generate the scaffold directly into the private provider repository path you
 intend to keep:
 
 ```bash
-git clone <ISV-NCP-Validation-Suite>
-cd ISV-NCP-Validation-Suite
+git clone <ai-cloud-validation>
+cd ai-cloud-validation
 uv sync
 
 uv run isvctl provider scaffold acme --output-dir ../isvctl-provider-acme
@@ -97,7 +97,7 @@ Run the private provider from the validation suite checkout by passing its
 config path:
 
 ```bash
-cd ../ISV-NCP-Validation-Suite
+cd ../ai-cloud-validation
 uv run isvctl test run -f ../isvctl-provider-acme/config/vm.yaml
 ```
 

@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Overview
 
-Define the code of conduct followed and enforced for ISV NCP Validation Suite.
+Define the code of conduct followed and enforced for AI Cloud Validation Suite.
 
 ### Intended audience
 

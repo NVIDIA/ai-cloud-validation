@@ -1,6 +1,6 @@
 # Network Validation Guide (AWS)
 
-This guide provides a complete walkthrough for validating AWS VPC networking capabilities using the ISV validation framework. These tests verify software-defined networking overlays and fabric behavior for compute-on-demand requirements.
+This guide provides a complete walkthrough for validating AWS VPC networking capabilities using the AI Cloud Validation framework. These tests verify software-defined networking overlays and fabric behavior for compute-on-demand requirements.
 
 ## Overview
 

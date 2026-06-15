@@ -1,12 +1,12 @@
 # External Validation Guide
 
-This guide explains how to create custom validation tests using the ISV validation framework **without modifying the repository**. You can use `isvctl` as a standalone tool with your own scripts and configuration files.
+This guide explains how to create custom validation tests using the AI Cloud Validation framework **without modifying the repository**. You can use `isvctl` as a standalone tool with your own scripts and configuration files.
 
 For the full configuration reference, see the [Configuration Guide](configuration.md).
 
 ## Overview
 
-The ISV validation framework uses a **step-based architecture**:
+The AI Cloud Validation framework uses a **step-based architecture**:
 
 ```text
 Config (YAML) --> Script (any language) --> JSON output --> Validations (assertions)
@@ -24,8 +24,8 @@ Config (YAML) --> Script (any language) --> JSON output --> Validations (asserti
 
 ```bash
 # From source
-git clone git@github.com:NVIDIA/ISV-NCP-Validation-Suite.git
-cd ISV-NCP-Validation-Suite
+git clone git@github.com:NVIDIA/ai-cloud-validation.git
+cd ai-cloud-validation
 uv sync
 ```
 

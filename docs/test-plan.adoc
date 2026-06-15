@@ -3,7 +3,7 @@ GENERATED FILE - DO NOT EDIT BY HAND.
 Produced by scripts/test_plan_yaml_to_adoc.py from docs/test-plan.yaml.
 Run `make plan` to regenerate.
 ////
-= NCP Validation Test Suite
+= AI Cloud Validation Test Suite
 :toc:
 :icons: font
 :max-width: none
@@ -18,12 +18,12 @@ Run `make plan` to regenerate.
 .10+| GCP Artifact Registry + Images
 | [[BOOT01-01]]BOOT01-01
 | BOOT01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/37[#37]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/37[#37]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/37[#37] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/38[#38]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/37[#37] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/38[#38]
 | LimitedEnv
 | M0
 |
@@ -33,11 +33,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[BOOT01-02]]BOOT01-02
 | BOOT01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/39[#39]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/39[#39]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/39[#39]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/39[#39]
 | LimitedEnv
 | M1
 |
@@ -47,11 +47,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BOOT03-01]]BOOT03-01
 | BOOT03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/40[#40]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/40[#40]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/40[#40]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/40[#40]
 | LimitedEnv
 | M0
 |
@@ -61,11 +61,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BOOT03-02]]BOOT03-02
 | BOOT03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/104[#104]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/104[#104]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/104[#104]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/104[#104]
 |
 | M3
 |
@@ -75,11 +75,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BOOT01-03]]BOOT01-03
 | BOOT01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/41[#41]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/41[#41]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/41[#41]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/41[#41]
 | LimitedEnv
 | M1
 |
@@ -89,11 +89,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BOOT01-04]]BOOT01-04
 | BOOT01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/43[#43]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/43[#43]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/43[#43]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/43[#43]
 | LimitedEnv
 | M1
 |
@@ -103,11 +103,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BOOT01-05]]BOOT01-05
 | BOOT01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/44[#44]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/44[#44]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/44[#44]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/44[#44]
 | LimitedEnv
 | M0
 |
@@ -176,11 +176,11 @@ a|
 
 | [[AUTH-XX-02]]AUTH-XX-02
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/247[#247]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/247[#247]
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/247[#247]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/247[#247]
 |
 | M5
 |
@@ -190,11 +190,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[AUTH-XX-03]]AUTH-XX-03
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/248[#248]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/248[#248]
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/248[#248]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/248[#248]
 |
 | M5
 |
@@ -207,11 +207,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .3+| AWS: IAM
 | [[IAM-XX-01]]IAM-XX-01
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/21[#21]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/21[#21]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/21[#21]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/21[#21]
 | LimitedEnv
 | M0
 |
@@ -221,11 +221,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[IAM-XX-02]]IAM-XX-02
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/23[#23]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/23[#23]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/23[#23]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/23[#23]
 | LimitedEnv
 | M0
 |
@@ -235,11 +235,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[IAM-XX-03]]IAM-XX-03
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/341[#341]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/341[#341]
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/341[#341]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/341[#341]
 | LimitedEnv
 | M5
 |
@@ -252,11 +252,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+| GCP Cloud DNS + IPAM
 | [[CP-XX-01]]CP-XX-01
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/131[#131]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/131[#131]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/131[#131]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/131[#131]
 | MiniCloud
 | M4
 |
@@ -266,11 +266,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CP-XX-02]]CP-XX-02
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/132[#132]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/132[#132]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/132[#132]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/132[#132]
 | MiniCloud
 | M4
 |
@@ -318,12 +318,12 @@ a|
 .9+|
 | [[CP-XX-03]]CP-XX-03
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/26[#26]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/26[#26]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/26[#26] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/27[#27]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/26[#26] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/27[#27]
 | LimitedEnv
 | M0
 |
@@ -333,11 +333,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[CP-XX-04]]CP-XX-04
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/261[#261]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/261[#261]
 |
 |
 | P2
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/261[#261]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/261[#261]
 | LimitedEnv
 | M5
 |
@@ -347,11 +347,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CP-XX-05]]CP-XX-05
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/28[#28]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/28[#28]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/28[#28]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/28[#28]
 | LimitedEnv
 | M0
 |
@@ -361,11 +361,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CP-XX-06]]CP-XX-06
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/29[#29]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/29[#29]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/29[#29]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/29[#29]
 | LimitedEnv
 | M0
 |
@@ -375,11 +375,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CP-XX-07]]CP-XX-07
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/30[#30]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/30[#30]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/30[#30]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/30[#30]
 | LimitedEnv
 | M0
 |
@@ -389,11 +389,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CP-XX-08]]CP-XX-08
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/31[#31]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/31[#31]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/31[#31]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/31[#31]
 | LimitedEnv
 | M0
 |
@@ -403,12 +403,12 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CP-XX-09]]CP-XX-09
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/32[#32]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/32[#32]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/32[#32] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/33[#33]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/32[#32] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/33[#33]
 | LimitedEnv
 | M0
 |
@@ -418,11 +418,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[CP-XX-10]]CP-XX-10
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/34[#34]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/34[#34]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/34[#34]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/34[#34]
 | LimitedEnv
 | M0
 |
@@ -432,11 +432,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CP-XX-11]]CP-XX-11
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/35[#35]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/35[#35]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/35[#35]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/35[#35]
 | LimitedEnv
 | M0
 |
@@ -449,11 +449,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 .2+|
 | [[HWING-XX-01]]HWING-XX-01
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/133[#133]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/133[#133]
 |
 |
 | P1 (check w/ ISVs)
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/133[#133]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/133[#133]
 | MiniCloud
 | M4
 |
@@ -480,11 +480,11 @@ a|
 .7+|
 | [[SEC22-01]]SEC22-01
 | SEC22
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/315[#315]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/315[#315]
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/315[#315]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/315[#315]
 | MiniCloud
 | M5
 |
@@ -494,11 +494,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[ATTEST-XX-01]]ATTEST-XX-01
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/243[#243]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/243[#243]
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/243[#243]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/243[#243]
 | MiniCloud
 | M5
 |
@@ -508,11 +508,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC22-02]]SEC22-02
 | SEC22
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/316[#316]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/316[#316]
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/316[#316]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/316[#316]
 | MiniCloud
 | M5
 |
@@ -522,12 +522,12 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[ATTEST-XX-02]]ATTEST-XX-02
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/319[#319]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/319[#319]
 |
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/319[#319] +
-icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/246[#246]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/319[#319] +
+icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/246[#246]
 | MiniCloud
 | M5
 |
@@ -551,11 +551,11 @@ a|
 
 | [[CNP09-02]]CNP09-02
 | CNP09
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/259[#259]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/259[#259]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/259[#259]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/259[#259]
 |
 | M5
 |
@@ -582,11 +582,11 @@ a|
 .8+| AWS EC2/Forge
 | [[CNP01-01]]CNP01-01
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/49[#49]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/49[#49]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/49[#49]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/49[#49]
 | LimitedEnv
 | M1
 |
@@ -596,12 +596,12 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CNP01-02]]CNP01-02
 | CNP01, CNP04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/51[#51]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/51[#51]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/51[#51] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/52[#52]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/51[#51] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/52[#52]
 |
 | M5
 |
@@ -611,11 +611,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[CNP01-03]]CNP01-03
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/53[#53]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/53[#53]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/53[#53]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/53[#53]
 | LimitedEnv
 | M1
 |
@@ -625,12 +625,12 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SEC21-01]]SEC21-01
 | SEC21
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/54[#54]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/54[#54]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/54[#54] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/47[#47]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/54[#54] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/47[#47]
 | LimitedEnv
 | M1
 |
@@ -640,11 +640,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[SEC21-02]]SEC21-02
 | SEC21
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/134[#134]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/134[#134]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/134[#134]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/134[#134]
 | MiniCloud
 | M4
 |
@@ -654,11 +654,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CNP01-04]]CNP01-04
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/105[#105]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/105[#105]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/105[#105]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/105[#105]
 | MiniCloud
 | M3
 |
@@ -698,12 +698,12 @@ a|
 .8+| AWS EC2/Forge
 | [[BMAAS-XX-03]]BMAAS-XX-03
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/48[#48]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/48[#48]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/48[#48] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/56[#56]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/48[#48] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/56[#56]
 | LimitedEnv
 | M1
 |
@@ -713,12 +713,12 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[CNP01-05]]CNP01-05
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/50[#50]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/50[#50]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/50[#50] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/57[#57]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/50[#50] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/57[#57]
 |
 | M1
 |
@@ -728,11 +728,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[CNP01-06]]CNP01-06
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/135[#135]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/135[#135]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/135[#135]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/135[#135]
 | MiniCloud
 | M4
 |
@@ -742,12 +742,12 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BMAAS-XX-04]]BMAAS-XX-04
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/58[#58]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/58[#58]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/58[#58] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/69[#69]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/58[#58] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/69[#69]
 | LimitedEnv
 | M1
 |
@@ -757,11 +757,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[CNP01-07]]CNP01-07
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/106[#106]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/106[#106]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/106[#106]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/106[#106]
 | MiniCloud
 | M3
 |
@@ -771,12 +771,12 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BOOT02-01]]BOOT02-01
 | BOOT02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/107[#107]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/107[#107]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/107[#107] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/113[#113]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/107[#107] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/113[#113]
 |
 | M3
 |
@@ -786,11 +786,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[CNP01-08]]CNP01-08
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/108[#108]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/108[#108]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/108[#108]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/108[#108]
 | MiniCloud
 | M3
 |
@@ -800,12 +800,12 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CNP05-01]]CNP05-01
 | CNP05
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/112[#112]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/112[#112]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/112[#112] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/181[#181]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/112[#112] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/181[#181]
 | LimitedEnv
 | M3 .5
 |
@@ -817,11 +817,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 .2+| AWS EC2/Forge
 | [[BMAAS-XX-05]]BMAAS-XX-05
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/136[#136]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/136[#136]
 |
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/136[#136]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/136[#136]
 | MiniCloud
 | M4
 |
@@ -831,11 +831,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BMAAS-XX-06]]BMAAS-XX-06
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/60[#60]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/60[#60]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/60[#60]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/60[#60]
 | LimitedEnv
 | M1
 |
@@ -847,11 +847,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 .8+| AWS EC2/Forge
 | [[BMAAS-XX-07]]BMAAS-XX-07
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/250[#250]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/250[#250]
 |
 | REVIEW
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/250[#250]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/250[#250]
 |
 | M5
 |
@@ -861,12 +861,12 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CNP06-01]]CNP06-01
 | CNP06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/109[#109]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/109[#109]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/109[#109] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/114[#114]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/109[#109] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/114[#114]
 | LimitedEnv
 | M3
 |
@@ -876,11 +876,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[BMAAS-XX-08]]BMAAS-XX-08
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/61[#61]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/61[#61]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/61[#61]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/61[#61]
 | LimitedEnv
 | M1
 |
@@ -890,12 +890,12 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BMAAS-XX-09]]BMAAS-XX-09
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/63[#63]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/63[#63]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/63[#63] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/68[#68]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/63[#63] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/68[#68]
 | LimitedEnv
 | M1
 |
@@ -905,12 +905,12 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[BMAAS-XX-10]]BMAAS-XX-10
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/64[#64]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/64[#64]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/64[#64] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/82[#82]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/64[#64] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/82[#82]
 | LimitedEnv
 | M1
 |
@@ -920,11 +920,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[BMAAS-XX-11]]BMAAS-XX-11
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/65[#65]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/65[#65]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/65[#65]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/65[#65]
 | LimitedEnv
 | M1
 |
@@ -934,11 +934,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BMAAS-XX-12]]BMAAS-XX-12
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/66[#66]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/66[#66]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/66[#66]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/66[#66]
 | LimitedEnv
 | M1
 |
@@ -948,11 +948,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CNP06-02]]CNP06-02
 | CNP06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/258[#258]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/258[#258]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/258[#258]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/258[#258]
 |
 | M5
 |
@@ -964,13 +964,13 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+|
 | [[CNP08-01]]CNP08-01
 | CNP08
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/197[#197]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/197[#197]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/197[#197] +
-icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/196[#196] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/185[#185]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/197[#197] +
+icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/196[#196] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/185[#185]
 |
 | M5
 |
@@ -997,11 +997,11 @@ a|
 .5+|
 | [[CNP01-09]]CNP01-09
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/42[#42]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/42[#42]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/42[#42]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/42[#42]
 | LimitedEnv
 | M0
 |
@@ -1011,11 +1011,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CNP01-10]]CNP01-10
 | CNP01, CNP04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/51[#51]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/51[#51]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/51[#51]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/51[#51]
 | LimitedEnv
 | M2
 |
@@ -1025,11 +1025,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CNP01-11]]CNP01-11
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/45[#45]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/45[#45]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/45[#45]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/45[#45]
 | LimitedEnv
 | M1
 |
@@ -1039,11 +1039,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CNP01-12]]CNP01-12
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/46[#46]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/46[#46]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/46[#46]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/46[#46]
 | LimitedEnv
 | M0
 |
@@ -1053,11 +1053,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SEC21-03]]SEC21-03
 | SEC21
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/47[#47]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/47[#47]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/47[#47]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/47[#47]
 | LimitedEnv
 | M0
 |
@@ -1111,11 +1111,11 @@ a|
 
 | [[CNP01-14]]CNP01-14
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/110[#110]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/110[#110]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/110[#110]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/110[#110]
 | LimitedEnv
 | M3
 |
@@ -1125,11 +1125,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CNP01-15]]CNP01-15
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/111[#111]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/111[#111]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/111[#111]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/111[#111]
 | LimitedEnv
 | M3
 |
@@ -1139,11 +1139,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[CNP05-02]]CNP05-02
 | CNP05
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/112[#112]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/112[#112]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/112[#112]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/112[#112]
 | LimitedEnv
 | M3
 |
@@ -1153,11 +1153,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[BOOT02-02]]BOOT02-02
 | BOOT02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/113[#113]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/113[#113]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/113[#113]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/113[#113]
 |
 | M3
 |
@@ -1199,11 +1199,11 @@ a|
 .6+|
 | [[VMAAS-XX-05]]VMAAS-XX-05
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/55[#55]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/55[#55]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/55[#55]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/55[#55]
 | LimitedEnv
 | M0
 |
@@ -1213,11 +1213,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[VMAAS-XX-06]]VMAAS-XX-06
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/59[#59]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/59[#59]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/59[#59]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/59[#59]
 | LimitedEnv
 | M0
 |
@@ -1227,11 +1227,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[VMAAS-XX-07]]VMAAS-XX-07
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/62[#62]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/62[#62]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/62[#62]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/62[#62]
 | LimitedEnv
 | M0
 |
@@ -1255,11 +1255,11 @@ a|
 
 | [[VMAAS-XX-09]]VMAAS-XX-09
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/67[#67]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/67[#67]
 |
 | Does this include GPU Passthrough
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/67[#67]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/67[#67]
 | LimitedEnv
 | M0
 |
@@ -1345,11 +1345,11 @@ a|
 |
 | [[CNP06-03]]CNP06-03
 | CNP06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/114[#114]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/114[#114]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/114[#114]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/114[#114]
 |
 | M3
 |
@@ -1361,11 +1361,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 .2+|
 | [[CNP08-03]]CNP08-03
 | CNP08
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/198[#198]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/198[#198]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/198[#198]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/198[#198]
 |
 | M5
 |
@@ -1391,11 +1391,11 @@ a|
 .2+|
 | [[CNP01-16]]CNP01-16
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/256[#256]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/256[#256]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/256[#256]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/256[#256]
 |
 | M5
 |
@@ -1405,11 +1405,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CNP01-17]]CNP01-17
 | CNP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/257[#257]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/257[#257]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/257[#257]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/257[#257]
 |
 | M5
 |
@@ -1422,11 +1422,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .34+|
 | [[SDN01-01]]SDN01-01
 | SDN01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/11[#11]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/11[#11]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/11[#11]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/11[#11]
 | LimitedEnv
 | M0
 |
@@ -1436,11 +1436,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN01-02]]SDN01-02
 | SDN01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/12[#12]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/12[#12]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/12[#12]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/12[#12]
 | LimitedEnv
 | M0
 |
@@ -1450,11 +1450,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN01-03]]SDN01-03
 | SDN01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/13[#13]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/13[#13]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/13[#13]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/13[#13]
 | LimitedEnv
 | M0
 |
@@ -1464,11 +1464,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN01-04]]SDN01-04
 | SDN01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/14[#14]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/14[#14]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/14[#14]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/14[#14]
 | LimitedEnv
 | M0
 |
@@ -1478,11 +1478,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN04-01]]SDN04-01
 | SDN04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/16[#16]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/16[#16]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/16[#16]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/16[#16]
 | LimitedEnv
 | M0
 |
@@ -1492,12 +1492,12 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN04-02]]SDN04-02
 | SDN04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/17[#17]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/17[#17]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/17[#17] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/18[#18]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/17[#17] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/18[#18]
 | LimitedEnv
 | M0
 |
@@ -1507,11 +1507,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[SDN04-03]]SDN04-03
 | SDN04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/18[#18]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/18[#18]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/18[#18]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/18[#18]
 | LimitedEnv
 | M0
 |
@@ -1521,11 +1521,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[NET03-01]]NET03-01
 | NET03, SDN01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/115[#115]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/115[#115]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/115[#115]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/115[#115]
 |
 | M3
 |
@@ -1535,11 +1535,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN-XX-01]]SDN-XX-01
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/116[#116]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/116[#116]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/116[#116]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/116[#116]
 |
 | M3
 |
@@ -1549,11 +1549,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN05-01]]SDN05-01
 | SDN05
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/117[#117]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/117[#117]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/117[#117]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/117[#117]
 |
 | M3
 |
@@ -1563,11 +1563,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN06-01]]SDN06-01
 | SDN06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/118[#118]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/118[#118]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/118[#118]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/118[#118]
 |
 | M3
 |
@@ -1577,11 +1577,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN07-01]]SDN07-01
 | SDN07
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/119[#119]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/119[#119]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/119[#119]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/119[#119]
 |
 | M3
 |
@@ -1591,13 +1591,13 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[SDN02-01]]SDN02-01
 | SDN02, SDN03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/199[#199]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/199[#199]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/199[#199] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/171[#171] +
-icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/178[#178]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/199[#199] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/171[#171] +
+icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/178[#178]
 |
 |
 |
@@ -1607,11 +1607,11 @@ icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite
 
 | [[SDN02-02]]SDN02-02
 | SDN02, SDN03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/200[#200]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/200[#200]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/200[#200]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/200[#200]
 |
 |
 |
@@ -1621,11 +1621,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN02-03]]SDN02-03
 | SDN02, SDN03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/201[#201]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/201[#201]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/201[#201]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/201[#201]
 |
 |
 |
@@ -1635,11 +1635,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN02-04]]SDN02-04
 | SDN02, SDN03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/202[#202]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/202[#202]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/202[#202]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/202[#202]
 |
 |
 |
@@ -1649,11 +1649,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CNP03-01]]CNP03-01
 | CNP03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/19[#19]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/19[#19]
 |
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/19[#19]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/19[#19]
 | LimitedEnv
 | M0
 |
@@ -1903,11 +1903,11 @@ a|
 .5+|
 | [[SDN02-05]]SDN02-05
 | SDN02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/281[#281]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/281[#281]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/281[#281]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/281[#281]
 |
 | M5
 |
@@ -1917,11 +1917,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN02-06]]SDN02-06
 | SDN02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/282[#282]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/282[#282]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/282[#282]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/282[#282]
 |
 | M5
 |
@@ -1931,11 +1931,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN02-07]]SDN02-07
 | SDN02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/283[#283]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/283[#283]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/283[#283]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/283[#283]
 |
 | M5
 |
@@ -1945,11 +1945,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN02-08]]SDN02-08
 | SDN02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/284[#284]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/284[#284]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/284[#284]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/284[#284]
 |
 | M5
 |
@@ -1959,11 +1959,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN02-09]]SDN02-09
 | SDN02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/285[#285]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/285[#285]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/285[#285]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/285[#285]
 |
 | M5
 |
@@ -1975,11 +1975,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SDN08-01]]SDN08-01
 | SDN08
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/289[#289]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/289[#289]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/289[#289]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/289[#289]
 |
 | M5
 |
@@ -1991,11 +1991,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SDN02-10]]SDN02-10
 | SDN02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/286[#286]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/286[#286]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/286[#286]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/286[#286]
 |
 | M5
 |
@@ -2007,11 +2007,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .3+|
 | [[SDN09-01]]SDN09-01
 | SDN09
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/290[#290]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/290[#290]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/290[#290]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/290[#290]
 |
 | M5
 |
@@ -2021,11 +2021,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN09-02]]SDN09-02
 | SDN09
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/291[#291]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/291[#291]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/291[#291]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/291[#291]
 |
 | M5
 |
@@ -2035,11 +2035,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN09-03]]SDN09-03
 | SDN09
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/292[#292]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/292[#292]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/292[#292]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/292[#292]
 |
 | M5
 |
@@ -2083,11 +2083,11 @@ a|
 
 | [[CAP02-01]]CAP02-01
 | CAP02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/203[#203]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/203[#203]
 |
 |
 |
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/203[#203]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/203[#203]
 |
 |
 |
@@ -2097,11 +2097,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CAP03-01]]CAP03-01
 | CAP03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/204[#204]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/204[#204]
 |
 |
 |
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/204[#204]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/204[#204]
 |
 |
 |
@@ -2113,11 +2113,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[CNP08-05]]CNP08-05
 | CNP08
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/205[#205]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/205[#205]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/205[#205]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/205[#205]
 |
 | M5
 |
@@ -2233,11 +2233,11 @@ a|
 .5+|
 | [[BFX01-01]]BFX01-01
 | BFX01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/206[#206]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/206[#206]
 | min_req
 |
 | P2
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/206[#206]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/206[#206]
 |
 | M5
 |
@@ -2247,11 +2247,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BFX01-02]]BFX01-02
 | BFX01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/207[#207]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/207[#207]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/207[#207]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/207[#207]
 |
 | M5
 |
@@ -2261,11 +2261,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BFX01-03]]BFX01-03
 | BFX01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/208[#208]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/208[#208]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/208[#208]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/208[#208]
 |
 | M5
 |
@@ -2275,11 +2275,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BFX01-04]]BFX01-04
 | BFX01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/209[#209]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/209[#209]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/209[#209]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/209[#209]
 |
 | M5
 |
@@ -2289,11 +2289,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BFX01-05]]BFX01-05
 | BFX01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/210[#210]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/210[#210]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/210[#210]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/210[#210]
 |
 | M5
 |
@@ -2305,11 +2305,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .3+|
 | [[BFX02-01]]BFX02-01
 | BFX02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/211[#211]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/211[#211]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/211[#211]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/211[#211]
 |
 | M5
 |
@@ -2319,11 +2319,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BFX02-02]]BFX02-02
 | BFX02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/212[#212]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/212[#212]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/212[#212]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/212[#212]
 |
 | M5
 |
@@ -2333,11 +2333,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BFX02-03]]BFX02-03
 | BFX02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/213[#213]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/213[#213]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/213[#213]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/213[#213]
 |
 | M5
 |
@@ -2349,11 +2349,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .3+|
 | [[BFX03-01]]BFX03-01
 | BFX03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/320[#320]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/320[#320]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/320[#320]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/320[#320]
 |
 | M5
 |
@@ -2363,11 +2363,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BFX03-02]]BFX03-02
 | BFX03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/214[#214]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/214[#214]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/214[#214]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/214[#214]
 |
 | M5
 |
@@ -2377,11 +2377,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[BFX03-03]]BFX03-03
 | BFX03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/215[#215]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/215[#215]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/215[#215]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/215[#215]
 |
 | M5
 |
@@ -2395,11 +2395,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .6+| AWS: EBS + FSx backend control planes
 | [[HSS01-01]]HSS01-01
 | HSS01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/327[#327]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/327[#327]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
 |
 | M5
 |
@@ -2409,11 +2409,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS02-01]]HSS02-01
 | HSS02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/328[#328]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/328[#328]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/328[#328]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/328[#328]
 |
 | M5
 |
@@ -2423,11 +2423,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS03-01]]HSS03-01
 | HSS03, K8S23
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/329[#329]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/329[#329]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/329[#329]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/329[#329]
 |
 | M5
 |
@@ -2437,11 +2437,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS04-01]]HSS04-01
 | HSS04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/330[#330]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/330[#330]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/330[#330]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/330[#330]
 |
 | M5
 |
@@ -2451,11 +2451,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS05-01]]HSS05-01
 | HSS05
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/331[#331]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/331[#331]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/331[#331]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/331[#331]
 |
 | M5
 |
@@ -2481,11 +2481,11 @@ a|
 .3+|
 | [[DIR02-01]]DIR02-01
 | DIR02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/326[#326]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/326[#326]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
 |
 | M5
 |
@@ -2495,11 +2495,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[DIR01-01]]DIR01-01
 | DIR01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/324[#324]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/324[#324]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/324[#324]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/324[#324]
 |
 | M5
 |
@@ -2509,11 +2509,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[DIR01-02]]DIR01-02
 | DIR01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/325[#325]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/325[#325]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/325[#325]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/325[#325]
 |
 | M5
 |
@@ -2525,11 +2525,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .4+|
 | [[DMS01-01]]DMS01-01
 | DMS01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/263[#263]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/263[#263]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/263[#263]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/263[#263]
 |
 | M5
 |
@@ -2539,11 +2539,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[DMS02-01]]DMS02-01
 | DMS02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/264[#264]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/264[#264]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/264[#264]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/264[#264]
 |
 | M5
 |
@@ -2553,11 +2553,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[DMS03-01]]DMS03-01
 | DMS03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/265[#265]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/265[#265]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/265[#265]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/265[#265]
 |
 | M5
 |
@@ -2567,11 +2567,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[DMS05-01]]DMS05-01
 | DMS05
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/266[#266]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/266[#266]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/266[#266]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/266[#266]
 |
 | M5
 |
@@ -2583,11 +2583,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .4+|
 | [[STG02-01]]STG02-01
 | STG02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/358[#358]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/358[#358]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
 |
 | M5
 |
@@ -2597,11 +2597,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[STG03-01]]STG03-01
 | STG03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/359[#359]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/359[#359]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
 |
 | M5
 |
@@ -2611,11 +2611,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[STG04-01]]STG04-01
 | STG04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/360[#360]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/360[#360]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
 |
 | M5
 |
@@ -2625,11 +2625,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[STG05-01]]STG05-01
 | STG05
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/361[#361]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/361[#361]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/361[#361]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/361[#361]
 |
 | M5
 |
@@ -2641,11 +2641,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SEC04-01]]SEC04-01
 | SEC04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/296[#296]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/296[#296]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
 |
 | M5
 |
@@ -2657,11 +2657,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[HSS06-01]]HSS06-01
 | HSS06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/332[#332]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/332[#332]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/332[#332]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/332[#332]
 |
 | M5
 |
@@ -2674,11 +2674,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .8+|
 | [[HSS07-01]]HSS07-01
 | HSS07
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/333[#333]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/333[#333]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
 |
 | M5
 |
@@ -2688,11 +2688,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS09-01]]HSS09-01
 | HSS09
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/334[#334]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/334[#334]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/334[#334]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/334[#334]
 |
 | M5
 |
@@ -2702,11 +2702,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS10-01]]HSS10-01
 | HSS10
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/335[#335]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/335[#335]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/335[#335]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/335[#335]
 |
 | M5
 |
@@ -2716,11 +2716,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS12-01]]HSS12-01
 | HSS12
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/336[#336]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/336[#336]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/336[#336]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/336[#336]
 |
 | M5
 |
@@ -2730,11 +2730,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS13-01]]HSS13-01
 | HSS13
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/337[#337]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/337[#337]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/337[#337]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/337[#337]
 |
 | M5
 |
@@ -2744,11 +2744,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS14-01]]HSS14-01
 | HSS14
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/338[#338]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/338[#338]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/338[#338]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/338[#338]
 |
 | M5
 |
@@ -2758,11 +2758,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS15-01]]HSS15-01
 | HSS15
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/339[#339]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/339[#339]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/339[#339]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/339[#339]
 |
 | M5
 |
@@ -2772,11 +2772,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[HSS18-01]]HSS18-01
 | HSS18
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/340[#340]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/340[#340]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/340[#340]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/340[#340]
 |
 | M5
 |
@@ -2789,11 +2789,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 | S3
 | [[DATASVC-XX-01]]DATASVC-XX-01
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/262[#262]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/262[#262]
 | min_req
 |
 | P2
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/262[#262]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/262[#262]
 |
 | M5
 |
@@ -2806,11 +2806,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .4+| AWS EBS, GCP Persistent Disk
 | [[K8S23-01]]K8S23-01
 | K8S23
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/272[#272]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/272[#272]
 | min_req
 |
 | P2
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/272[#272]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/272[#272]
 |
 | M5
 |
@@ -2820,11 +2820,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[DATASVC-XX-02]]DATASVC-XX-02
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/321[#321]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/321[#321]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/321[#321]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/321[#321]
 |
 | M5
 |
@@ -2834,11 +2834,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[DATASVC-XX-03]]DATASVC-XX-03
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/322[#322]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/322[#322]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/322[#322]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/322[#322]
 |
 | M5
 |
@@ -2848,11 +2848,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[DATASVC-XX-04]]DATASVC-XX-04
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/323[#323]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/323[#323]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/323[#323]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/323[#323]
 |
 | M5
 |
@@ -3138,11 +3138,11 @@ a|
 
 | [[K8S27-01]]K8S27-01
 | K8S27
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/217[#217]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/217[#217]
 | min_req
 |
 |
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/217[#217]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/217[#217]
 |
 |
 |
@@ -3260,11 +3260,11 @@ a|
 |
 | [[K8S01-01]]K8S01-01
 | K8S01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/233[#233]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/233[#233]
 | min_req
 | k8s01
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/233[#233]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/233[#233]
 |
 |
 |
@@ -3292,11 +3292,11 @@ a|
 |
 | [[K8S21-01]]K8S21-01
 | K8S21
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/218[#218]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/218[#218]
 | min_req
 | k8s19
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/218[#218]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/218[#218]
 |
 |
 |
@@ -3324,11 +3324,11 @@ a|
 |
 | [[K8S22-01]]K8S22-01
 | K8S22
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/219[#219]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/219[#219]
 | min_req
 | K8s20
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/219[#219]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/219[#219]
 |
 |
 |
@@ -3368,11 +3368,11 @@ a|
 
 | [[K8S23-04]]K8S23-04
 | K8S23
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/273[#273]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/273[#273]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/273[#273]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/273[#273]
 |
 | M5
 |
@@ -3382,11 +3382,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[K8S23-05]]K8S23-05
 | K8S23
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/274[#274]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/274[#274]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/274[#274]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/274[#274]
 |
 | M5
 |
@@ -3396,11 +3396,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[K8S23-06]]K8S23-06
 | K8S23
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/275[#275]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/275[#275]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/275[#275]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/275[#275]
 |
 | M5
 |
@@ -3410,11 +3410,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[K8S23-07]]K8S23-07
 | K8S23
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/276[#276]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/276[#276]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/276[#276]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/276[#276]
 |
 | M5
 |
@@ -3440,11 +3440,11 @@ a|
 
 | [[K8S25-02]]K8S25-02
 | K8S25
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/220[#220]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/220[#220]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/220[#220]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/220[#220]
 |
 | M5
 |
@@ -3548,11 +3548,11 @@ a|
 |
 | [[K8S15-01]]K8S15-01
 | K8S15
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/271[#271]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/271[#271]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/271[#271]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/271[#271]
 |
 | M5
 |
@@ -3580,11 +3580,11 @@ a|
 .2+|
 | [[SEC09-01]]SEC09-01
 | SEC09
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/301[#301]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/301[#301]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/301[#301]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/301[#301]
 |
 | M5
 |
@@ -3594,11 +3594,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC09-02]]SEC09-02
 | SEC09
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/302[#302]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/302[#302]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/302[#302]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/302[#302]
 |
 | M5
 |
@@ -3610,11 +3610,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[K8S-XX-08]]K8S-XX-08
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/267[#267]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/267[#267]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/267[#267]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/267[#267]
 |
 | M5
 |
@@ -3642,12 +3642,12 @@ a|
 .4+|
 | [[K8S06-01]]K8S06-01
 | K8S06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/269[#269]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/269[#269]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/269[#269] +
-icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/221[#221]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/269[#269] +
+icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/221[#221]
 |
 | M5
 |
@@ -3657,12 +3657,12 @@ icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-S
 
 | [[K8S06-02]]K8S06-02
 | K8S06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/270[#270]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/270[#270]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/270[#270] +
-icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/222[#222]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/270[#270] +
+icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/222[#222]
 |
 | M5
 |
@@ -3672,11 +3672,11 @@ icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-S
 
 | [[K8S06-03]]K8S06-03
 | K8S06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/223[#223]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/223[#223]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/223[#223]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/223[#223]
 |
 | M5
 |
@@ -3686,11 +3686,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[K8S06-04]]K8S06-04
 | K8S06
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/224[#224]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/224[#224]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/224[#224]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/224[#224]
 |
 | M5
 |
@@ -3702,11 +3702,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[K8S07-01]]K8S07-01
 | K8S07
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/225[#225]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/225[#225]
 | min_req
 |
 | P1
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/225[#225]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/225[#225]
 |
 | M5
 |
@@ -3718,11 +3718,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 |
 | [[K8S18-01]]K8S18-01
 | K8S18
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/226[#226]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/226[#226]
 | min_req
 |
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/226[#226]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/226[#226]
 |
 | M5
 |
@@ -3734,11 +3734,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 |
 | [[K8S20-01]]K8S20-01
 | K8S20
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/227[#227]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/227[#227]
 | min_req
 |
 | P1
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/227[#227]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/227[#227]
 |
 | M5
 |
@@ -3750,11 +3750,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 |
 | [[K8S-XX-09]]K8S-XX-09
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/268[#268]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/268[#268]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/268[#268]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/268[#268]
 |
 | M5
 |
@@ -3766,11 +3766,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[K8S26-01]]K8S26-01
 | K8S26
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/277[#277]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/277[#277]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/277[#277]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/277[#277]
 |
 | M5
 |
@@ -3911,11 +3911,11 @@ a|
 |
 | [[OBS-XX-05]]OBS-XX-05
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/342[#342]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/342[#342]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/342[#342]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/342[#342]
 |
 | M5
 |
@@ -3927,11 +3927,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .5+|
 | [[OBS-XX-06]]OBS-XX-06
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/343[#343]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/343[#343]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/343[#343]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/343[#343]
 |
 | M5
 |
@@ -3941,11 +3941,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-07]]OBS-XX-07
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/344[#344]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/344[#344]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/344[#344]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/344[#344]
 |
 | M5
 |
@@ -3955,11 +3955,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-08]]OBS-XX-08
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/345[#345]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/345[#345]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/345[#345]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/345[#345]
 |
 | M5
 |
@@ -3969,11 +3969,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-09]]OBS-XX-09
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/346[#346]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/346[#346]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/346[#346]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/346[#346]
 |
 | M5
 |
@@ -3983,11 +3983,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-10]]OBS-XX-10
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/347[#347]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/347[#347]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/347[#347]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/347[#347]
 |
 | M5
 |
@@ -3999,11 +3999,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .9+|
 | [[OBS-XX-11]]OBS-XX-11
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/348[#348]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/348[#348]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/348[#348]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/348[#348]
 |
 | M5
 |
@@ -4013,11 +4013,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-12]]OBS-XX-12
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/349[#349]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/349[#349]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/349[#349]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/349[#349]
 |
 | M5
 |
@@ -4027,11 +4027,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-13]]OBS-XX-13
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/350[#350]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/350[#350]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/350[#350]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/350[#350]
 |
 | M5
 |
@@ -4041,11 +4041,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-14]]OBS-XX-14
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/351[#351]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/351[#351]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/351[#351]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/351[#351]
 |
 | M5
 |
@@ -4055,11 +4055,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-15]]OBS-XX-15
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/352[#352]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/352[#352]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/352[#352]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/352[#352]
 |
 | M5
 |
@@ -4069,11 +4069,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-16]]OBS-XX-16
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/353[#353]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/353[#353]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/353[#353]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/353[#353]
 |
 | M5
 |
@@ -4083,11 +4083,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-17]]OBS-XX-17
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/354[#354]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/354[#354]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/354[#354]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/354[#354]
 |
 | M5
 |
@@ -4097,11 +4097,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-18]]OBS-XX-18
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/355[#355]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/355[#355]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/355[#355]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/355[#355]
 |
 | M5
 |
@@ -4111,11 +4111,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[OBS-XX-19]]OBS-XX-19
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/356[#356]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/356[#356]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/356[#356]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/356[#356]
 |
 | M5
 |
@@ -4142,11 +4142,11 @@ a|
 
 | [[TELEM-XX-02]]TELEM-XX-02
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/120[#120]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/120[#120]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/120[#120]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/120[#120]
 | MiniCloud
 | M3
 |
@@ -4156,11 +4156,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 
 | [[TELEM-XX-03]]TELEM-XX-03
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/121[#121]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/121[#121]
 | min_req
 | MinAPI
 | P0
-a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/121[#121]
+a| icon:check-circle[role=green] https://github.com/NVIDIA/ai-cloud-validation/issues/121[#121]
 | LimitedEnv
 | M3
 |
@@ -4172,11 +4172,11 @@ a| icon:check-circle[role=green] https://github.com/NVIDIA/ISV-NCP-Validation-Su
 |
 | [[TELEM-XX-04]]TELEM-XX-04
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/362[#362]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/362[#362]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/362[#362]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/362[#362]
 |
 | M5
 |
@@ -4188,11 +4188,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+|
 | [[TELEM-XX-05]]TELEM-XX-05
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/363[#363]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/363[#363]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/363[#363]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/363[#363]
 |
 | M5
 |
@@ -4202,11 +4202,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[TELEM-XX-06]]TELEM-XX-06
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/364[#364]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/364[#364]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/364[#364]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/364[#364]
 |
 | M5
 |
@@ -4218,11 +4218,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+|
 | [[TELEM-XX-07]]TELEM-XX-07
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/365[#365]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/365[#365]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/365[#365]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/365[#365]
 |
 | M5
 |
@@ -4232,11 +4232,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[TELEM-XX-08]]TELEM-XX-08
 |
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/366[#366]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/366[#366]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 |
 | M5
 |
@@ -4250,11 +4250,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .4+|
 | [[SEC12-01]]SEC12-01
 | SEC12
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/306[#306]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/306[#306]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/306[#306]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/306[#306]
 |
 | M5
 |
@@ -4264,11 +4264,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC12-02]]SEC12-02
 | SEC12
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/307[#307]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/307[#307]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/307[#307]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/307[#307]
 |
 | M5
 |
@@ -4278,11 +4278,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CNP10-01]]CNP10-01
 | CNP10
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/260[#260]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/260[#260]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/260[#260]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/260[#260]
 |
 | M5
 |
@@ -4292,11 +4292,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC12-03]]SEC12-03
 | SEC12
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/308[#308]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/308[#308]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/308[#308]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/308[#308]
 |
 | M5
 |
@@ -4308,11 +4308,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SEC13-01]]SEC13-01
 | SEC13
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/309[#309]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/309[#309]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/309[#309]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/309[#309]
 |
 | M5
 |
@@ -4324,11 +4324,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+|
 | [[SEC14-01]]SEC14-01
 | SEC14
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/311[#311]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/311[#311]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/311[#311]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/311[#311]
 |
 | M5
 |
@@ -4338,11 +4338,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC13-02]]SEC13-02
 | SEC13
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/310[#310]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/310[#310]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/310[#310]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/310[#310]
 |
 | M5
 |
@@ -4354,11 +4354,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+|
 | [[SDN04-04]]SDN04-04
 | SDN04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/287[#287]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/287[#287]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/287[#287]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/287[#287]
 |
 | M5
 |
@@ -4368,11 +4368,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SDN04-05]]SDN04-05
 | SDN04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/288[#288]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/288[#288]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
 |
 | M5
 |
@@ -4384,11 +4384,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SEC11-01]]SEC11-01
 | SEC11
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/305[#305]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/305[#305]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
 |
 | M5
 |
@@ -4401,11 +4401,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SEC01-01]]SEC01-01
 | SEC01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/293[#293]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/293[#293]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/293[#293]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/293[#293]
 |
 | M5
 |
@@ -4417,11 +4417,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SEC02-01]]SEC02-01
 | SEC02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/294[#294]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/294[#294]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/294[#294]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/294[#294]
 |
 | M5
 |
@@ -4433,11 +4433,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SEC03-01]]SEC03-01
 | SEC03
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/295[#295]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/295[#295]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/295[#295]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/295[#295]
 |
 | M5
 |
@@ -4449,11 +4449,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SEC07-01]]SEC07-01
 | SEC07
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/298[#298]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/298[#298]
 | min_req
 | INFO
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/298[#298]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/298[#298]
 |
 | M5
 |
@@ -4466,11 +4466,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[SEC04-02]]SEC04-02
 | SEC04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/297[#297]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/297[#297]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/297[#297]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/297[#297]
 |
 | M5
 |
@@ -4483,11 +4483,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+|
 | [[SEC08-01]]SEC08-01
 | SEC08
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/299[#299]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/299[#299]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/299[#299]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/299[#299]
 |
 | M5
 |
@@ -4497,11 +4497,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC08-02]]SEC08-02
 | SEC08
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/300[#300]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/300[#300]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/300[#300]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/300[#300]
 |
 | M5
 |
@@ -4514,11 +4514,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .3+|
 | [[SEC21-04]]SEC21-04
 | SEC21
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/312[#312]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/312[#312]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/312[#312]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/312[#312]
 |
 | M5
 |
@@ -4528,11 +4528,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC21-05]]SEC21-05
 | SEC21
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/313[#313]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/313[#313]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/313[#313]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/313[#313]
 |
 | M5
 |
@@ -4542,11 +4542,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC21-06]]SEC21-06
 | SEC21, SEC22
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/314[#314]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/314[#314]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/314[#314]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/314[#314]
 |
 | M5
 |
@@ -4574,11 +4574,11 @@ a|
 .2+|
 | [[SEC09-03]]SEC09-03
 | SEC09, SEC10
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/303[#303]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/303[#303]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/303[#303]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/303[#303]
 |
 | M5
 |
@@ -4588,11 +4588,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[SEC09-04]]SEC09-04
 | SEC09
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/304[#304]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/304[#304]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/304[#304]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/304[#304]
 |
 | M5
 |
@@ -4606,11 +4606,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[NET01-01]]NET01-01
 | NET01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/278[#278]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/278[#278]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/278[#278]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/278[#278]
 |
 | M5
 |
@@ -4623,11 +4623,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[NET02-02]]NET02-02
 | NET02
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/279[#279]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/279[#279]
 | min_req
 |
 | P0
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/279[#279]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/279[#279]
 |
 | M5
 |
@@ -4640,11 +4640,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 |
 | [[NET04-01]]NET04-01
 | NET04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/280[#280]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/280[#280]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/280[#280]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/280[#280]
 |
 | M5
 |
@@ -4718,11 +4718,11 @@ a|
 |
 | [[CAP01-01]]CAP01-01
 | CAP01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/251[#251]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/251[#251]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/251[#251]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/251[#251]
 |
 | M5
 |
@@ -4735,11 +4735,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+|
 | [[CAP04-01]]CAP04-01
 | CAP04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/252[#252]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/252[#252]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
 |
 | M5
 |
@@ -4749,11 +4749,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CAP04-02]]CAP04-02
 | CAP04
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/253[#253]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/253[#253]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/253[#253]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/253[#253]
 |
 | M5
 |
@@ -4766,11 +4766,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 .2+|
 | [[CAP05-01]]CAP05-01
 | CAP05
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/254[#254]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/254[#254]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/254[#254]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/254[#254]
 |
 | M5
 |
@@ -4780,11 +4780,11 @@ a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validatio
 
 | [[CAP05-02]]CAP05-02
 | CAP05
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/255[#255]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/255[#255]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/255[#255]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/255[#255]
 |
 | M5
 |
@@ -4840,11 +4840,11 @@ a|
 
 | [[BM01-02]]BM01-02
 | BM01
-| https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/249[#249]
+| https://github.com/NVIDIA/ai-cloud-validation/issues/249[#249]
 | min_req
 |
 | P1
-a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues/249[#249]
+a| icon:exclamation-circle[role=red] https://github.com/NVIDIA/ai-cloud-validation/issues/249[#249]
 |
 | M5
 |

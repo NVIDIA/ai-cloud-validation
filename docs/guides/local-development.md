@@ -1,6 +1,6 @@
 # Local Development Guide
 
-This guide covers running ISV NCP Validation Suite locally for development and testing.
+This guide covers running AI Cloud Validation suite locally for development and testing.
 
 ## Prerequisites
 
@@ -9,8 +9,8 @@ This guide covers running ISV NCP Validation Suite locally for development and t
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and setup
-git clone https://github.com/NVIDIA/ISV-NCP-Validation-Suite.git
-cd ISV-NCP-Validation-Suite
+git clone https://github.com/NVIDIA/ai-cloud-validation.git
+cd ai-cloud-validation
 uv sync
 ```
 

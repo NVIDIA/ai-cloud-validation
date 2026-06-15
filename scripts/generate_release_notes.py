@@ -43,7 +43,7 @@ Authentication:
         export GITHUB_TOKEN=$(gh auth token)
 
 Example:
-    uv run scripts/generate_release_notes.py https://github.com/NVIDIA/ISV-NCP-Validation-Suite/milestone/1
+    uv run scripts/generate_release_notes.py https://github.com/NVIDIA/ai-cloud-validation/milestone/1
     uv run scripts/generate_release_notes.py https://github.com/org/repo/milestone/1 --output release-notes.md
     uv run scripts/generate_release_notes.py https://github.com/org/repo/milestone/1 --group-by type
 """

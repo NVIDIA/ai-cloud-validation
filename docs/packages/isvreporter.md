@@ -8,7 +8,7 @@ Report validation test results to the ISV Lab Service API.
 
 ## Installation
 
-As part of the ISV-NCP-Validation-Suite workspace:
+As part of the ai-cloud-validation workspace:
 
 ```bash
 uv sync

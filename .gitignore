@@ -24,7 +24,7 @@ perflogs/
 */_version.py
 
 # Portable archive
-isv-ncp-validation-suite*.tar.gz
+ai-cloud-validation*.tar.gz
 
 # Terraform local artifacts
 **/.terraform/

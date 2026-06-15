@@ -435,7 +435,7 @@ if [ -n "$BLOCK_SC" ]; then
                 --availability-zone "$NODE_AZ" \
                 --volume-type gp3 \
                 --size 1 \
-                --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${STATIC_VOL_TAG}},{Key=isv-ncp-validation-suite,Value=static-csi},{Key=cluster,Value=${EKS_CLUSTER_NAME}}]" \
+                --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${STATIC_VOL_TAG}},{Key=ai-cloud-validation,Value=static-csi},{Key=cluster,Value=${EKS_CLUSTER_NAME}}]" \
                 --region "$AWS_REGION" \
                 --query 'VolumeId' --output text 2>/dev/null || echo "")
             if [ -n "$STATIC_VOLUME_HANDLE" ] && [ "$STATIC_VOLUME_HANDLE" != "None" ]; then

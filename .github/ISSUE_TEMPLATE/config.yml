@@ -7,5 +7,5 @@ blank_issues_enabled: true
 # link that below to have it show up in the 'Submit Issue' page
 contact_links:
   - name: Ask a Question
-    url: https://github.com/NVIDIA/ISV-NCP-Validation-Suite/discussions
+    url: https://github.com/NVIDIA/ai-cloud-validation/discussions
     about: Please ask any questions here.

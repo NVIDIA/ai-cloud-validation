@@ -96,7 +96,7 @@ if command -v aws &> /dev/null && command -v jq &> /dev/null; then
     else
         STATIC_VOLS=$(aws ec2 describe-volumes \
             --filters \
-                "Name=tag:isv-ncp-validation-suite,Values=static-csi" \
+                "Name=tag:ai-cloud-validation,Values=static-csi" \
                 "Name=tag:cluster,Values=${CLUSTER_NAME}" \
             --region "$AWS_REGION" --output json 2>/dev/null \
             | jq -r '.Volumes[].VolumeId' 2>/dev/null || echo "")

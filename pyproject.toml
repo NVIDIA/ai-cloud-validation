@@ -1,7 +1,7 @@
 [project]
-name = "isv-ncp-validation-suite"
+name = "ai-cloud-validation"
 version = "0.7.2"
-description = "NVIDIA ISV NCP Validation Suite"
+description = "NVIDIA AI Cloud Validation Suite"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [

@@ -16,7 +16,7 @@
 
 """Retrieve user-defined tags on a bare-metal instance.
 
-Template stub for ISV NCP Validation. Replace the TODO section with your
+Template stub for AI Cloud Validation. Replace the TODO section with your
 platform's API calls to fetch instance tags/labels.
 
 This script must:

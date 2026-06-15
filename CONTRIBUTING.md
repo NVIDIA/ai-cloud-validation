@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Contributing to ISV NCP Validation Suite
+# Contributing to AI Cloud Validation Suite
 
 Thank you for your interest in contributing! This project is a **Python monorepo** with three interdependent packages (`isvctl`, `isvtest`, `isvreporter`) managed as a [uv](https://docs.astral.sh/uv/) workspace. It orchestrates GPU cluster validation across Kubernetes, Slurm, and bare-metal environments, so even small changes can have cross-package effects. Please read through this guide before opening a pull request.
 
@@ -46,7 +46,7 @@ Search existing issues first to avoid duplicates
 
 ## About This Codebase
 
-ISV NCP Validation Suite is a monorepo with three packages:
+AI Cloud Validation suite is a monorepo with three packages:
 
 | Package | Purpose |
 |---------|---------|
@@ -71,8 +71,8 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 ### Clone and Setup
 
 ```bash
-git clone https://github.com/NVIDIA/ISV-NCP-Validation-Suite.git
-cd ISV-NCP-Validation-Suite
+git clone https://github.com/NVIDIA/ai-cloud-validation.git
+cd ai-cloud-validation
 uv sync
 uvx pre-commit install
 ```
@@ -165,7 +165,7 @@ workflow). Without it the orchestrator logs `Skipping unreleased validation
 
 ## Pull Request Process
 
-1. **Fork** the [upstream repository](https://github.com/NVIDIA/ISV-NCP-Validation-Suite) and create a branch from `main`.
+1. **Fork** the [upstream repository](https://github.com/NVIDIA/ai-cloud-validation) and create a branch from `main`.
 2. **Make your changes** following the coding guidelines above.
 3. **Run the full check suite** before opening the PR:
 
@@ -344,7 +344,7 @@ After bumping, open a PR, review, and merge. Then the repo maintainers will crea
 ## Project Structure
 
 ```text
-ISV-NCP-Validation-Suite/
+ai-cloud-validation/
 ├── isvctl/           # Controller package
 │   ├── configs/      # Config files and stub scripts
 │   ├── src/isvctl/   # Source code

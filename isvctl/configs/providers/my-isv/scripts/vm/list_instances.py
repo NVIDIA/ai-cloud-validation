@@ -16,7 +16,7 @@
 
 """List VM instances in a network/VPC.
 
-Template stub for ISV NCP Validation. Replace the TODO section with your
+Template stub for AI Cloud Validation. Replace the TODO section with your
 platform's API calls to enumerate instances and optionally filter by ID.
 
 This script must:

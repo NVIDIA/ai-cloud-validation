@@ -16,7 +16,7 @@
 
 """Power on a stopped bare-metal node and verify it returns to running state.
 
-Template stub for ISV NCP Validation. Replace the TODO section with your
+Template stub for AI Cloud Validation. Replace the TODO section with your
 platform's API calls to power on a stopped node and verify recovery.
 
 This script must:

@@ -16,7 +16,7 @@
 
 """Launch a GPU virtual machine instance.
 
-Template stub for ISV NCP Validation. Replace the TODO section with your
+Template stub for AI Cloud Validation. Replace the TODO section with your
 platform's API calls to provision a GPU-enabled VM instance.
 
 This script must:

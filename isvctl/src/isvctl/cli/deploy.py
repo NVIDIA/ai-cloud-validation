@@ -15,7 +15,7 @@
 
 """Deploy subcommand for isvctl.
 
-Deploys ISV-NCP-Validation-Suite to a remote machine and runs validation tests.
+Deploys ai-cloud-validation to a remote machine and runs validation tests.
 """
 
 import logging
@@ -162,7 +162,7 @@ def run(
         typer.Option(
             "--remote-dir",
             "-d",
-            help="Remote directory (default: /home/<user>/isv-ncp-validation-suite)",
+            help="Remote directory (default: /home/<user>/ai-cloud-validation)",
         ),
     ] = None,
     config: Annotated[
@@ -258,7 +258,7 @@ def run(
     working_dir = Path.cwd()
 
     # Set default remote directory
-    effective_remote_dir = remote_dir or f"/home/{user}/isv-ncp-validation-suite"
+    effective_remote_dir = remote_dir or f"/home/{user}/ai-cloud-validation"
 
     # Resolve config paths
     config_files = config or []
@@ -316,7 +316,7 @@ def run(
     scp = SCPTransfer(host=remote_ip, user=user, port=port, jumphost=jumphost)
 
     # Create temporary archive
-    archive_name = "isv-ncp-validation-suite.tar.gz"
+    archive_name = "ai-cloud-validation.tar.gz"
     archive_path = Path(tempfile.gettempdir()) / archive_name
 
     try:

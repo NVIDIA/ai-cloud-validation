@@ -16,7 +16,7 @@
 
 """Tear down a VM instance and associated resources.
 
-Template stub for ISV NCP Validation. Replace the TODO section with your
+Template stub for AI Cloud Validation. Replace the TODO section with your
 platform's API calls to terminate an instance and clean up resources.
 
 This script must:

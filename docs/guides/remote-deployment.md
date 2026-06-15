@@ -1,6 +1,6 @@
 # Remote Deployment
 
-Deploy ISV NCP Validation Suite to a remote machine and run validation tests.
+Deploy AI Cloud Validation suite to a remote machine and run validation tests.
 
 ## Overview
 

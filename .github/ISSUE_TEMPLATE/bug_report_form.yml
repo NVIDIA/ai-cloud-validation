@@ -29,7 +29,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: What version of ISV NCP Validation Suite are you running?
+      description: What version of AI Cloud Validation Suite are you running?
       placeholder: "output of `isvctl --version` (e.g. isvctl 0.1.0)"
     validations:
       required: true
@@ -86,9 +86,9 @@ body:
     id: terms
     attributes:
       label: Code of Conduct
-      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/blob/main/CODE_OF_CONDUCT.md)
+      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/NVIDIA/ai-cloud-validation/blob/main/CODE_OF_CONDUCT.md)
       options:
-        - label: I agree to follow ISV NCP Validation Suite's Code of Conduct
+        - label: I agree to follow AI Cloud Validation Suite's Code of Conduct
           required: true
-        - label: I have searched the [open bugs](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues?q=is%3Aopen+is%3Aissue+type:Bug) and have found no duplicates for this bug report
+        - label: I have searched the [open bugs](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aopen+is%3Aissue+type:Bug) and have found no duplicates for this bug report
           required: true

@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This guide covers the configuration file format and options for ISV NCP Validation Suite.
+This guide covers the configuration file format and options for AI Cloud Validation suite.
 
 ## Overview
 

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 name: Documentation - New Documentation Request
-description: Request additions to ISV NCP Validation Suite documentation
+description: Request additions to AI Cloud Validation Suite documentation
 title: "docs: "
 labels: ["doc"]
 type: Documentation
@@ -49,9 +49,9 @@ body:
     id: terms
     attributes:
       label: Code of Conduct
-      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/blob/main/CODE_OF_CONDUCT.md)
+      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/NVIDIA/ai-cloud-validation/blob/main/CODE_OF_CONDUCT.md)
       options:
-        - label: I agree to follow ISV NCP Validation Suite's Code of Conduct
+        - label: I agree to follow AI Cloud Validation Suite's Code of Conduct
           required: true
-        - label: I have searched the [open documentation issues](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/issues?q=is%3Aopen+is%3Aissue+type:Documentation) and have found no duplicates for this documentation issue
+        - label: I have searched the [open documentation issues](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aopen+is%3Aissue+type:Documentation) and have found no duplicates for this documentation issue
           required: true

@@ -34,452 +34,452 @@ Workflow:
 
 ### Added
 
-- **Local host execution for host validations** ([#445](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/445))
+- **Local host execution for host validations** ([#445](https://github.com/NVIDIA/ai-cloud-validation/pull/445))
   Adds `local: true` so host validations such as `VcpuPinningCheck` can run probes directly on the target node during deployed runs, avoiding a second SSH hop and private key requirement.
 
 ### Fixed
 
-- **GB200 NUMA topology support for `VcpuPinningCheck`** ([#445](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/445))
+- **GB200 NUMA topology support for `VcpuPinningCheck`** ([#445](https://github.com/NVIDIA/ai-cloud-validation/pull/445))
   Allows CPU-less memory or GPU-memory NUMA nodes and validates that every vCPU is mapped to a NUMA node, so Grace-Hopper and Grace-Blackwell systems no longer fail the topology subtest incorrectly.
 
 ## [0.7.1] - 2026-05-29
 
 ### Added
 
-- **Pre-flight diagnostics with `isvctl doctor`** ([#440](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/440))
+- **Pre-flight diagnostics with `isvctl doctor`** ([#440](https://github.com/NVIDIA/ai-cloud-validation/pull/440))
   Adds a provider-aware diagnostics command that checks local tools, required environment, and merged run configs before operators start a real validation run.
-- **Provider scaffold command** ([#409](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/409))
+- **Provider scaffold command** ([#409](https://github.com/NVIDIA/ai-cloud-validation/pull/409))
   Adds `isvctl provider scaffold <name>` so ISVs can generate in-tree or external provider templates from `my-isv` without manually copying and rewriting config and script paths.
-- **Observability validation suite** ([#431](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/431))
+- **Observability validation suite** ([#431](https://github.com/NVIDIA/ai-cloud-validation/pull/431))
   Adds an observability domain covering VPC flow logs, host syslogs, BMC SEL logs, and BMC GPU telemetry, with `my-isv` demo wiring and AWS reference coverage where available.
-- **S3 object lifecycle validation (DATASVC-XX-01)** ([#438](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/438))
+- **S3 object lifecycle validation (DATASVC-XX-01)** ([#438](https://github.com/NVIDIA/ai-cloud-validation/pull/438))
   Adds a control-plane check that verifies authenticated S3-compatible object storage can complete a put/get/delete round trip without corrupting the object payload.
-- **Insecure protocol validation (SEC13-02)** ([#433](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/433))
+- **Insecure protocol validation (SEC13-02)** ([#433](https://github.com/NVIDIA/ai-cloud-validation/pull/433))
   Adds a security check that verifies configured edge endpoints refuse SSLv3, TLS 1.0, TLS 1.1, and plain HTTP, using either operator-provided endpoints or an AWS reference fixture.
-- **Stable egress IP validation (DMS05-01)** ([#436](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/436))
+- **Stable egress IP validation (DMS05-01)** ([#436](https://github.com/NVIDIA/ai-cloud-validation/pull/436))
   Adds a network check that confirms workloads leaving a provider VPC present a stable outbound IP across repeated probes, supporting allowlist-based integrations.
-- **Kubernetes Cluster Autoscaler validation** ([#435](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/435))
+- **Kubernetes Cluster Autoscaler validation** ([#435](https://github.com/NVIDIA/ai-cloud-validation/pull/435))
   Adds `K8sClusterAutoscalerCheck` to discover Cluster Autoscaler deployments and verify deployment availability, pod readiness, and provider wiring for EKS.
-- **Separate CPU and GPU node-pool coverage (K8S06-01)** ([#442](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/442))
+- **Separate CPU and GPU node-pool coverage (K8S06-01)** ([#442](https://github.com/NVIDIA/ai-cloud-validation/pull/442))
   Extends the AWS K8S06 flow to provision and validate separate CPU and GPU EKS node pools while keeping their Terraform state isolated.
-- **Security-group behavior validations** ([#419](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/419), [#421](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/421))
+- **Security-group behavior validations** ([#419](https://github.com/NVIDIA/ai-cloud-validation/pull/419), [#421](https://github.com/NVIDIA/ai-cloud-validation/pull/421))
   Adds network checks for security-group policy propagation timing and port-security scoping so providers can prove rule changes become visible quickly and only the intended interface and port are allowed.
-- **VM specified-key validation** ([#420](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/420))
+- **VM specified-key validation** ([#420](https://github.com/NVIDIA/ai-cloud-validation/pull/420))
   Adds `InstanceSpecifiedKeyCheck` to confirm launched or reused VM instances use the requested SSH key pair.
-- **TPM baseline policy for host software checks** ([#429](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/429))
+- **TPM baseline policy for host software checks** ([#429](https://github.com/NVIDIA/ai-cloud-validation/pull/429))
   Adds an opt-in TPM baseline policy to `HostSoftwareCheck` so operators can require a minimum TPM version per platform while leaving existing configs report-only by default.
 
 ### Changed
 
-- **CLI diagnostics now go to stderr** ([#441](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/441))
+- **CLI diagnostics now go to stderr** ([#441](https://github.com/NVIDIA/ai-cloud-validation/pull/441))
   Routes progress, warnings, errors, and logger output to stderr so stdout remains parseable for JSON, table, documentation, and result output.
-- **Validation labels replace marker terminology** ([#434](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/434), [#437](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/437))
+- **Validation labels replace marker terminology** ([#434](https://github.com/NVIDIA/ai-cloud-validation/pull/434), [#437](https://github.com/NVIDIA/ai-cloud-validation/pull/437))
   Introduces `--label/-l` selection and `tests.exclude.labels`, then removes the legacy marker API, config alias, CLI option, and catalog/result/upload `markers` fields.
-- **K8s CSI quota validation checks actual usage** ([#430](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/430))
+- **K8s CSI quota validation checks actual usage** ([#430](https://github.com/NVIDIA/ai-cloud-validation/pull/430))
   Tightens `K8sCsiStorageQuotaApiCheck` so namespace-wide and per-StorageClass quota usage must match the bound PVC capacity instead of only checking that quota objects exist.
 
 ### Fixed
 
-- **GPU Operator CrashLoopBackOff pods fail health checks** ([#417](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/417))
+- **GPU Operator CrashLoopBackOff pods fail health checks** ([#417](https://github.com/NVIDIA/ai-cloud-validation/pull/417))
   Updates Kubernetes pod health helpers so GPU Operator pods in `CrashLoopBackOff` are no longer counted as healthy merely because their phase is still `Running`.
 
 ### Internal
 
-- Add automated changelog backfill workflow and root `CHANGELOG.md` history ([#432](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/432)).
-- Add milestone release-notes generator script ([#426](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/426)).
-- Document the repository versioning policy in `CONTRIBUTING.md` ([#423](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/423)).
+- Add automated changelog backfill workflow and root `CHANGELOG.md` history ([#432](https://github.com/NVIDIA/ai-cloud-validation/pull/432)).
+- Add milestone release-notes generator script ([#426](https://github.com/NVIDIA/ai-cloud-validation/pull/426)).
+- Document the repository versioning policy in `CONTRIBUTING.md` ([#423](https://github.com/NVIDIA/ai-cloud-validation/pull/423)).
 
 ## [0.7.0] - 2026-05-15
 
 ### Added
 
-- **Virtual device hardening validation (CNP01-17)** ([#413](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/413))
+- **Virtual device hardening validation (CNP01-17)** ([#413](https://github.com/NVIDIA/ai-cloud-validation/pull/413))
   Adds a new check that verifies virtual devices exposed to tenant workloads follow NVIDIA cloud-native hardening guidance, expanding M1-P1 coverage of the platform security baseline.
-- **Per-host status log validation (BMAAS-XX-07)** ([#407](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/407))
+- **Per-host status log validation (BMAAS-XX-07)** ([#407](https://github.com/NVIDIA/ai-cloud-validation/pull/407))
   Confirms that bare-metal-as-a-service deployments expose per-host status logs to operators, closing an M1-P1 observability requirement for BMaaS platforms.
-- **BIOS baseline attestation validation (ATTEST-XX-02)** ([#410](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/410))
+- **BIOS baseline attestation validation (ATTEST-XX-02)** ([#410](https://github.com/NVIDIA/ai-cloud-validation/pull/410))
   Verifies that hosts attest their BIOS against an approved baseline so operators can detect drift or tampering on physical nodes.
-- **SEC04 and SEC08 security checks** ([#398](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/398))
+- **SEC04 and SEC08 security checks** ([#398](https://github.com/NVIDIA/ai-cloud-validation/pull/398))
   Adds new validations for the SEC04 and SEC08 control families, extending the security domain coverage with checks consumers can wire into existing suites.
-- **SDN09 logging validations (SDN09-01/02/03)** ([#395](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/395))
+- **SDN09 logging validations (SDN09-01/02/03)** ([#395](https://github.com/NVIDIA/ai-cloud-validation/pull/395))
   Introduces three M5-P1 software-defined-networking logging checks that confirm flow, audit, and control-plane logs are captured and retained as required.
-- **SEC09 key management validations (SEC09-01/02/03)** ([#394](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/394))
+- **SEC09 key management validations (SEC09-01/02/03)** ([#394](https://github.com/NVIDIA/ai-cloud-validation/pull/394))
   Adds M5-P1 checks that validate key creation, rotation, and access controls for cryptographic material managed by the ISV platform.
-- **Tenant isolation validation (SEC11-01)** ([#392](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/392))
+- **Tenant isolation validation (SEC11-01)** ([#392](https://github.com/NVIDIA/ai-cloud-validation/pull/392))
   Confirms that tenant resources remain isolated from one another at the network and IAM layers, providing direct evidence for the SEC11 control.
-- **Short-lived credentials validation (SEC02-01)** ([#390](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/390))
+- **Short-lived credentials validation (SEC02-01)** ([#390](https://github.com/NVIDIA/ai-cloud-validation/pull/390))
   New M5-P0 check verifying that platform credentials are short-lived and rotated rather than long-lived static secrets.
-- **Catalog list command** ([#397](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/397))
+- **Catalog list command** ([#397](https://github.com/NVIDIA/ai-cloud-validation/pull/397))
   Adds an `isvctl` subcommand for listing the available validation catalog so operators can discover checks without grepping source.
-- **Test plan generation tooling** ([#402](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/402))
+- **Test plan generation tooling** ([#402](https://github.com/NVIDIA/ai-cloud-validation/pull/402))
   Adds a script and `make plan` target that render `docs/test-plan.yaml` into AsciiDoc and an interactive HTML view, giving contributors a browsable map of validations and milestones.
 
 ### Changed
 
-- **Unified validation resolution pipeline** ([#405](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/405))
+- **Unified validation resolution pipeline** ([#405](https://github.com/NVIDIA/ai-cloud-validation/pull/405))
   Consolidates how validations are discovered, filtered, and dispatched into a single pipeline, producing more consistent skip/run decisions across providers and suites.
-- **K8s validations parse JSON output directly** ([#415](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/415))
+- **K8s validations parse JSON output directly** ([#415](https://github.com/NVIDIA/ai-cloud-validation/pull/415))
   Kubernetes validations and shared helpers now consume `kubectl` JSON output instead of ad-hoc text parsing, improving robustness against version drift and locale differences.
-- **K8sApiNetworkAclCheck no longer depends on CAPI** ([#406](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/406))
+- **K8sApiNetworkAclCheck no longer depends on CAPI** ([#406](https://github.com/NVIDIA/ai-cloud-validation/pull/406))
   The API endpoint network ACL check now runs against any conformant Kubernetes cluster, removing the Cluster API dependency that previously limited where it could execute.
 
 ### Fixed
 
-- **AWS VM validation regressions** ([#424](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/424))
+- **AWS VM validation regressions** ([#424](https://github.com/NVIDIA/ai-cloud-validation/pull/424))
   Restores expected behavior for several AWS VM checks that regressed during the validation pipeline refactor.
-- **Pre-resolved configs no longer re-rendered through Jinja** ([#408](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/408))
+- **Pre-resolved configs no longer re-rendered through Jinja** ([#408](https://github.com/NVIDIA/ai-cloud-validation/pull/408))
   Skips a redundant Jinja pass on configs that have already been resolved, preventing spurious template errors when values legitimately contain `{{`/`}}`.
-- **Verbose deploy surfaces SSH diagnostics** ([#403](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/403))
+- **Verbose deploy surfaces SSH diagnostics** ([#403](https://github.com/NVIDIA/ai-cloud-validation/pull/403))
   `isvctl deploy run -v` now prints underlying SSH errors so connection failures against remote targets are debuggable without reproducing manually.
-- **EKS API endpoint allowlist tightened** ([#400](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/400))
+- **EKS API endpoint allowlist tightened** ([#400](https://github.com/NVIDIA/ai-cloud-validation/pull/400))
   Narrows the allowlist used when validating EKS API endpoint exposure to reject CIDRs that should not have been accepted.
-- **K8s node counts scoped to test pools** ([#396](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/396))
+- **K8s node counts scoped to test pools** ([#396](https://github.com/NVIDIA/ai-cloud-validation/pull/396))
   Node-count assertions now consider only the node pools relevant to the running test, eliminating false failures on clusters with unrelated pools.
 
 ### Internal
 
-- Show useful stderr for failed steps ([#399](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/399)).
-- Use `tmp_path` fixture for script-writing tests ([#401](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/401)).
-- Gate validations by released manifest ([#391](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/391)).
-- Colocate bump-version tests with the script ([#393](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/393)).
-- Migrate issue templates to YAML forms ([#416](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/416)).
-- Document Cursor Cloud specific instructions in AGENTS.md ([#422](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/422)).
+- Show useful stderr for failed steps ([#399](https://github.com/NVIDIA/ai-cloud-validation/pull/399)).
+- Use `tmp_path` fixture for script-writing tests ([#401](https://github.com/NVIDIA/ai-cloud-validation/pull/401)).
+- Gate validations by released manifest ([#391](https://github.com/NVIDIA/ai-cloud-validation/pull/391)).
+- Colocate bump-version tests with the script ([#393](https://github.com/NVIDIA/ai-cloud-validation/pull/393)).
+- Migrate issue templates to YAML forms ([#416](https://github.com/NVIDIA/ai-cloud-validation/pull/416)).
+- Document Cursor Cloud specific instructions in AGENTS.md ([#422](https://github.com/NVIDIA/ai-cloud-validation/pull/422)).
 
 ## [0.6.8] - 2026-04-30
 
 ### Added
 
-- **OIDC user authentication validation (SEC01-01)** ([#379](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/379))
+- **OIDC user authentication validation (SEC01-01)** ([#379](https://github.com/NVIDIA/ai-cloud-validation/pull/379))
   Adds an M5-P0 check that confirms operator and user authentication is brokered through an OIDC identity provider rather than local accounts.
-- **MFA enforcement validation (SEC07-01)** ([#378](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/378))
+- **MFA enforcement validation (SEC07-01)** ([#378](https://github.com/NVIDIA/ai-cloud-validation/pull/378))
   New M5-P0 check verifying that multi-factor authentication is required for privileged platform access.
-- **Customer-managed key security validation (SEC09-04)** ([#387](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/387))
+- **Customer-managed key security validation (SEC09-04)** ([#387](https://github.com/NVIDIA/ai-cloud-validation/pull/387))
   Confirms that customer-managed keys are correctly scoped and used to protect tenant data at rest.
-- **Service-level security-group scoping validation (SDN02-09)** ([#380](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/380))
+- **Service-level security-group scoping validation (SDN02-09)** ([#380](https://github.com/NVIDIA/ai-cloud-validation/pull/380))
   M5-P0 check ensuring that platform services expose only the ports required by their consumers, validated through the network security-group rules.
-- **Network fabric topology metadata validations (NET01-01, NET02-02)** ([#386](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/386))
+- **Network fabric topology metadata validations (NET01-01, NET02-02)** ([#386](https://github.com/NVIDIA/ai-cloud-validation/pull/386))
   Adds two M5-P0 checks that confirm fabric topology metadata is published and consistent with the deployed cluster layout.
-- **Serial console retention validation** ([#384](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/384))
+- **Serial console retention validation** ([#384](https://github.com/NVIDIA/ai-cloud-validation/pull/384))
   Verifies that serial console output is captured and retained for post-incident debugging on bare-metal hosts.
-- **VM console RBAC validation** ([#381](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/381))
+- **VM console RBAC validation** ([#381](https://github.com/NVIDIA/ai-cloud-validation/pull/381))
   Confirms that access to VM consoles is gated by role-based access control rather than broadly available to all platform users.
-- **BMC bastion access validation (SEC12-03)** ([#385](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/385))
+- **BMC bastion access validation (SEC12-03)** ([#385](https://github.com/NVIDIA/ai-cloud-validation/pull/385))
   Adds an M5-P0 check ensuring that BMC access is reachable only through a bastion host, not exposed directly to tenant or operator networks.
-- **BMC management network validation (SEC12-01)** ([#377](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/377))
+- **BMC management network validation (SEC12-01)** ([#377](https://github.com/NVIDIA/ai-cloud-validation/pull/377))
   Confirms that BMC interfaces live on a dedicated management network isolated from tenant traffic.
-- **BMC protocol security validation (CNP10-01)** ([#383](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/383))
+- **BMC protocol security validation (CNP10-01)** ([#383](https://github.com/NVIDIA/ai-cloud-validation/pull/383))
   Adds a check that BMC management protocols use secure transports and disable legacy or unauthenticated variants.
 
 ### Fixed
 
-- **OIDC validation skipped when not configured** ([#389](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/389))
+- **OIDC validation skipped when not configured** ([#389](https://github.com/NVIDIA/ai-cloud-validation/pull/389))
   The OIDC security check now skips cleanly on platforms that have not declared OIDC settings instead of failing with a configuration error.
 
 ### Internal
 
-- Refresh agent docs and extract generic guidelines to a cursor rule ([#376](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/376)).
+- Refresh agent docs and extract generic guidelines to a cursor rule ([#376](https://github.com/NVIDIA/ai-cloud-validation/pull/376)).
 
 ## [0.6.7] - 2026-04-24
 
 ### Added
 
-- **CSI storage validation suite (K8S23)** ([#372](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/372))
+- **CSI storage validation suite (K8S23)** ([#372](https://github.com/NVIDIA/ai-cloud-validation/pull/372))
   Introduces an M5-P0 suite that exercises CSI driver behavior, including dynamic provisioning and basic volume lifecycle, to verify the platform's storage integration.
-- **K8s API endpoint network ACL check (K8S15-01)** ([#373](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/373))
+- **K8s API endpoint network ACL check (K8S15-01)** ([#373](https://github.com/NVIDIA/ai-cloud-validation/pull/373))
   Adds `K8sApiNetworkAclCheck`, an M5-P0 validation that confirms the Kubernetes API endpoint is reachable only from approved network ranges.
-- **Node-pool CRUD lifecycle check (K8S06)** ([#371](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/371))
+- **Node-pool CRUD lifecycle check (K8S06)** ([#371](https://github.com/NVIDIA/ai-cloud-validation/pull/371))
   Validates that node pools can be created, scaled, and deleted as part of the M5-P0 cluster lifecycle coverage.
-- **Security domain and SG scoping validations** ([#370](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/370))
+- **Security domain and SG scoping validations** ([#370](https://github.com/NVIDIA/ai-cloud-validation/pull/370))
   Adds new security-domain checks together with security-group scoping for workloads, nodes, subnets, and services to verify least-privilege network access.
 
 ### Fixed
 
-- **Eliminated false-positive template warnings** ([#374](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/374))
+- **Eliminated false-positive template warnings** ([#374](https://github.com/NVIDIA/ai-cloud-validation/pull/374))
   The orchestrator no longer logs spurious missing-reference warnings for templates that resolve correctly, alongside small cosmetic cleanups in the output.
-- **Closed gaps in the AWS reference implementation** ([#369](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/369))
+- **Closed gaps in the AWS reference implementation** ([#369](https://github.com/NVIDIA/ai-cloud-validation/pull/369))
   Tightens the AWS provider scripts to handle previously unhandled edge cases observed in end-to-end runs.
-- **Skip teardown steps with undefined step references** ([#235](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/235))
+- **Skip teardown steps with undefined step references** ([#235](https://github.com/NVIDIA/ai-cloud-validation/pull/235))
   Teardown steps whose `{{steps.X.Y}}` inputs were never produced are now skipped with a clear message instead of failing the teardown phase.
 
 ## [0.6.6] - 2026-04-22
 
 ### Added
 
-- **CNCF Kubernetes conformance via in-cluster e2e Pod (K8S01)** ([#234](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/234))
+- **CNCF Kubernetes conformance via in-cluster e2e Pod (K8S01)** ([#234](https://github.com/NVIDIA/ai-cloud-validation/pull/234))
   Runs the CNCF Kubernetes conformance suite directly through an in-cluster e2e Pod, giving ISVs a turnkey way to demonstrate conformance against their platform.
-- **Dual-stack node and NetworkPolicy enforcement checks (K8S22)** ([#318](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/318))
+- **Dual-stack node and NetworkPolicy enforcement checks (K8S22)** ([#318](https://github.com/NVIDIA/ai-cloud-validation/pull/318))
   Adds validations that confirm nodes advertise dual-stack addressing and that NetworkPolicy is enforced for both IPv4 and IPv6 traffic.
-- **`my-isv` living example and validation-only contracts** ([#245](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/245))
+- **`my-isv` living example and validation-only contracts** ([#245](https://github.com/NVIDIA/ai-cloud-validation/pull/245))
   Ships a copyable `my-isv` provider scaffold, splits suite definitions into validation-only contracts, and adds a drift guard so providers stay aligned with the canonical suites.
-- **K8sControlPlaneLogsCheck (K8S20)** ([#317](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/317))
+- **K8sControlPlaneLogsCheck (K8S20)** ([#317](https://github.com/NVIDIA/ai-cloud-validation/pull/317))
   New check that verifies control-plane component logs can be retrieved from the managed Kubernetes service.
-- **OIDC issuer endpoint validation (K8S18)** ([#240](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/240))
+- **OIDC issuer endpoint validation (K8S18)** ([#240](https://github.com/NVIDIA/ai-cloud-validation/pull/240))
   Confirms that the Kubernetes API exposes a reachable OIDC issuer endpoint suitable for projected service-account token verification.
-- **API server metrics availability check (K8S07)** ([#239](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/239))
+- **API server metrics availability check (K8S07)** ([#239](https://github.com/NVIDIA/ai-cloud-validation/pull/239))
   Validates that API server metrics are exposed and scrapeable, a prerequisite for observability tooling.
-- **`auto_assign_ip_mode` option on VpcIpConfigCheck** ([#236](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/236))
+- **`auto_assign_ip_mode` option on VpcIpConfigCheck** ([#236](https://github.com/NVIDIA/ai-cloud-validation/pull/236))
   Adds a configuration knob so non-AWS NCPs can describe how public/private IPs are assigned, allowing the VPC IP check to run on those providers.
-- **`metadata_headers` option on CloudInitCheck** ([#194](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/194))
+- **`metadata_headers` option on CloudInitCheck** ([#194](https://github.com/NVIDIA/ai-cloud-validation/pull/194))
   Lets non-AWS providers supply the metadata-service headers their cloud-init implementation requires, broadening the check's portability.
-- **`KUBECTL` environment variable support** ([#229](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/229))
+- **`KUBECTL` environment variable support** ([#229](https://github.com/NVIDIA/ai-cloud-validation/pull/229))
   Allows operators to override the kubectl-compatible CLI used by isvtest and isvctl scripts, overriding `K8S_PROVIDER` detection when needed.
 
 ### Changed
 
-- **Provider config layout reorganized into `suites/` and `providers/<name>/{config,scripts}/`** ([#367](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/367))
+- **Provider config layout reorganized into `suites/` and `providers/<name>/{config,scripts}/`** ([#367](https://github.com/NVIDIA/ai-cloud-validation/pull/367))
   Restructures `isvctl/configs` so suites and provider wiring live in dedicated directories; downstream config paths must be updated accordingly.
-- **`vm.yaml` aligned with `bare_metal.yaml`** ([#238](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/238))
+- **`vm.yaml` aligned with `bare_metal.yaml`** ([#238](https://github.com/NVIDIA/ai-cloud-validation/pull/238))
   Brings the VM suite into structural parity with the bare-metal suite and fixes lifecycle-check ordering so setup, test, and teardown run in the correct sequence.
 
 ### Fixed
 
-- **Orchestration cleanup: dedup, output paths, inventory field** ([#357](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/357))
+- **Orchestration cleanup: dedup, output paths, inventory field** ([#357](https://github.com/NVIDIA/ai-cloud-validation/pull/357))
   Removes duplicate cleanup work, normalizes per-run output paths, and corrects the inventory field used during teardown.
-- **DriverCheck falls back to `/usr/local/cuda/bin/nvcc`** ([#237](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/237))
+- **DriverCheck falls back to `/usr/local/cuda/bin/nvcc`** ([#237](https://github.com/NVIDIA/ai-cloud-validation/pull/237))
   Locates `nvcc` at the standard CUDA install path when it is not on `PATH`, preventing false negatives on otherwise correctly configured hosts.
-- **Slurm validations skip absent partitions** ([#232](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/232))
+- **Slurm validations skip absent partitions** ([#232](https://github.com/NVIDIA/ai-cloud-validation/pull/232))
   Slurm checks now skip cleanly when a referenced partition is not present on the cluster instead of failing the run.
-- **Schema mapping no longer collapses `setup` to `cluster`** ([#231](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/231))
+- **Schema mapping no longer collapses `setup` to `cluster`** ([#231](https://github.com/NVIDIA/ai-cloud-validation/pull/231))
   Reverts an overly broad mapping introduced in #191 that caused setup-phase steps to be miscategorized.
-- **Silent template fallbacks detected; EKS step name mismatch fixed** ([#191](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/191))
+- **Silent template fallbacks detected; EKS step name mismatch fixed** ([#191](https://github.com/NVIDIA/ai-cloud-validation/pull/191))
   The Jinja context now warns instead of silently returning empty strings when a step or field is missing, and the EKS configs are updated to use the correct step names.
-- **Teardown decoupled from validation results to prevent leaks** ([#193](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/193))
+- **Teardown decoupled from validation results to prevent leaks** ([#193](https://github.com/NVIDIA/ai-cloud-validation/pull/193))
   Teardown now runs based on whether setup happened, not on whether validations passed, ensuring cloud resources are cleaned up after failed runs.
 
 ### Internal
 
-- Add `get_kubectl_base_shell()` helper and dedup call sites ([#241](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/241)).
-- Fix documentation drift from PRs #179–#229 ([#230](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/230)).
-- Use `git ls-files` in SPDX header script to respect `.gitignore` ([#195](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/195)).
+- Add `get_kubectl_base_shell()` helper and dedup call sites ([#241](https://github.com/NVIDIA/ai-cloud-validation/pull/241)).
+- Fix documentation drift from PRs #179–#229 ([#230](https://github.com/NVIDIA/ai-cloud-validation/pull/230)).
+- Use `git ls-files` in SPDX header script to respect `.gitignore` ([#195](https://github.com/NVIDIA/ai-cloud-validation/pull/195)).
 
 ## [0.6.5] - 2026-04-13
 
 ### Fixed
 
-- **Superseded cluster checks excluded from test catalog** ([#189](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/189))
+- **Superseded cluster checks excluded from test catalog** ([#189](https://github.com/NVIDIA/ai-cloud-validation/pull/189))
   Removes legacy cluster checks that had been replaced by newer validations from the discoverable catalog, so operators no longer see duplicate or stale entries.
-- **K8sNimHelmWorkload-3b uses `gpu_per_node` for `gpu_count`** ([#188](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/188))
+- **K8sNimHelmWorkload-3b uses `gpu_per_node` for `gpu_count`** ([#188](https://github.com/NVIDIA/ai-cloud-validation/pull/188))
   Corrects the GPU count passed to the NIM Helm workload so it requests per-node GPUs instead of the cluster-wide total, fixing scheduling on multi-node clusters.
 
 ### Internal
 
-- Document `tests.exclude` configuration options ([#190](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/190)).
-- Update stale validation references in docs ([#186](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/186)).
+- Document `tests.exclude` configuration options ([#190](https://github.com/NVIDIA/ai-cloud-validation/pull/190)).
+- Update stale validation references in docs ([#186](https://github.com/NVIDIA/ai-cloud-validation/pull/186)).
 
 ## [0.6.4] - 2026-04-10
 
 ### Added
 
-- **Stable identifier validation across lifecycle events (CNP08)** ([#183](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/183))
+- **Stable identifier validation across lifecycle events (CNP08)** ([#183](https://github.com/NVIDIA/ai-cloud-validation/pull/183))
   Adds a new validation that confirms instance identifiers remain stable across stop/start and other lifecycle events, covering the CNP08 platform contract.
-- **Tag validation for the bare-metal test suite (CNP05)** ([#180](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/180))
+- **Tag validation for the bare-metal test suite (CNP05)** ([#180](https://github.com/NVIDIA/ai-cloud-validation/pull/180))
   Extends tagging coverage to bare-metal instances so platforms can verify CNP05 compliance on dedicated hardware in addition to virtualized hosts.
-- **Security group CRUD lifecycle validation (SDN03)** ([#179](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/179))
+- **Security group CRUD lifecycle validation (SDN03)** ([#179](https://github.com/NVIDIA/ai-cloud-validation/pull/179))
   Introduces a security group create/read/update/delete validation that exercises the full lifecycle to satisfy the SDN03 networking contract.
 
 ## [0.6.3] - 2026-04-07
 
 ### Added
 
-- **Bare-metal power-cycle validation** ([#174](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/174))
+- **Bare-metal power-cycle validation** ([#174](https://github.com/NVIDIA/ai-cloud-validation/pull/174))
   Adds a power-cycle check for bare-metal hosts and resolves intermittent failures in SSH-based tests so reboot behavior can be validated reliably.
-- **Minikube and k3s support with shared Kubernetes stubs** ([#173](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/173))
+- **Minikube and k3s support with shared Kubernetes stubs** ([#173](https://github.com/NVIDIA/ai-cloud-validation/pull/173))
   Extends Kubernetes validation to Minikube and k3s and factors out shared K8s stubs so providers can opt into either runtime without bespoke wiring.
 
 ### Fixed
 
-- **Exclude example and utility checks from the test catalog** ([#176](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/176))
+- **Exclude example and utility checks from the test catalog** ([#176](https://github.com/NVIDIA/ai-cloud-validation/pull/176))
   Filters demonstration and helper checks out of the uploaded test catalog so consumers only see validations that represent real platform requirements.
-- **Remove AWS-specific defaults from canonical stubs and deduplicate SSH utilities** ([#175](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/175), [#172](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/172))
+- **Remove AWS-specific defaults from canonical stubs and deduplicate SSH utilities** ([#175](https://github.com/NVIDIA/ai-cloud-validation/pull/175), [#172](https://github.com/NVIDIA/ai-cloud-validation/pull/172))
   Strips AWS-specific defaults from the canonical test configs and stubs and consolidates duplicated SSH helpers so other providers can adopt them without inheriting AWS assumptions.
 
 ## [0.6.2] - 2026-04-01
 
 ### Changed
 
-- **Rename Ssh* checks, fix platform tagging, and align markers** ([#169](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/169))
+- **Rename Ssh* checks, fix platform tagging, and align markers** ([#169](https://github.com/NVIDIA/ai-cloud-validation/pull/169))
   Renames SSH-related validations to a consistent casing, corrects platform tag application, and aligns validation markers so filtering by marker behaves predictably.
 
 ### Internal
 
-- Improve README landing page with purpose description and AWS quick start ([#167](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/167)).
-- Update CONTRIBUTING.md ([#165](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/165)).
-- Expand AWS domain guides with new test steps and add index READMEs ([#166](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/166)).
-- Add community health files and fix open source readiness gaps ([#161](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/161)).
-- Remove unused GitHub issue templates ([#164](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/164), [#163](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/163), [#162](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/162)).
-- Disable Trivy scan due to active supply chain compromise and add SPDX header pre-commit hook ([#159](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/159), [#157](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/157)).
+- Improve README landing page with purpose description and AWS quick start ([#167](https://github.com/NVIDIA/ai-cloud-validation/pull/167)).
+- Update CONTRIBUTING.md ([#165](https://github.com/NVIDIA/ai-cloud-validation/pull/165)).
+- Expand AWS domain guides with new test steps and add index READMEs ([#166](https://github.com/NVIDIA/ai-cloud-validation/pull/166)).
+- Add community health files and fix open source readiness gaps ([#161](https://github.com/NVIDIA/ai-cloud-validation/pull/161)).
+- Remove unused GitHub issue templates ([#164](https://github.com/NVIDIA/ai-cloud-validation/pull/164), [#163](https://github.com/NVIDIA/ai-cloud-validation/pull/163), [#162](https://github.com/NVIDIA/ai-cloud-validation/pull/162)).
+- Disable Trivy scan due to active supply chain compromise and add SPDX header pre-commit hook ([#159](https://github.com/NVIDIA/ai-cloud-validation/pull/159), [#157](https://github.com/NVIDIA/ai-cloud-validation/pull/157)).
 
 ## [0.6.1] - 2026-03-24
 
 ### Internal
 
-- Fix broken links, add test suites README, and link-check hook ([#155](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/155)).
+- Fix broken links, add test suites README, and link-check hook ([#155](https://github.com/NVIDIA/ai-cloud-validation/pull/155)).
 
 ## [0.6.0] - 2026-03-24
 
 ### Added
 
-- **BMaaS topology, serial console, and cloud-init validation** ([#151](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/151))
+- **BMaaS topology, serial console, and cloud-init validation** ([#151](https://github.com/NVIDIA/ai-cloud-validation/pull/151))
   Introduces bare-metal-as-a-service checks that validate cluster topology, serial console access, and cloud-init bootstrapping on dedicated hardware.
-- **CRUD custom OS image validation** ([#150](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/150))
+- **CRUD custom OS image validation** ([#150](https://github.com/NVIDIA/ai-cloud-validation/pull/150))
   Adds a validation that exercises the full create/read/update/delete lifecycle for custom OS images so platforms can prove image management works end to end.
-- **VM serial console access validation** ([#147](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/147))
+- **VM serial console access validation** ([#147](https://github.com/NVIDIA/ai-cloud-validation/pull/147))
   Adds a check that verifies serial console access to virtual machines, giving operators a path to recover instances that lose network connectivity.
-- **SDN controller validation tests** ([#144](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/144))
+- **SDN controller validation tests** ([#144](https://github.com/NVIDIA/ai-cloud-validation/pull/144))
   Adds SDN controller coverage spanning BYOIP, stable IP, floating IP, DNS, and VPC peering so software-defined networking features can be exercised in a single suite.
-- **Platform IP management validation** ([#143](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/143))
+- **Platform IP management validation** ([#143](https://github.com/NVIDIA/ai-cloud-validation/pull/143))
   Adds validations for platform-managed IP allocation behaviors, covering the requirements tracked in the IP management initiative.
-- **VM tags/cloud-init validation and dev workflow support** ([#142](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/142))
+- **VM tags/cloud-init validation and dev workflow support** ([#142](https://github.com/NVIDIA/ai-cloud-validation/pull/142))
   Adds VM tag and cloud-init checks alongside developer-workflow conveniences that make iterating on these validations locally easier.
-- **BMaaS stop/start validation and bm to bare_metal rename** ([#141](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/141))
+- **BMaaS stop/start validation and bm to bare_metal rename** ([#141](https://github.com/NVIDIA/ai-cloud-validation/pull/141))
   Adds stop/start lifecycle coverage for bare-metal hosts and renames the `bm` namespace to `bare_metal` so configuration and markers read clearly.
-- **VM stop/start validation tests** ([#138](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/138))
+- **VM stop/start validation tests** ([#138](https://github.com/NVIDIA/ai-cloud-validation/pull/138))
   Adds checks that confirm virtual machines can be stopped and restarted cleanly without losing identity or attached resources.
-- **Catalog subcommand for managing the test catalog** ([#130](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/130))
+- **Catalog subcommand for managing the test catalog** ([#130](https://github.com/NVIDIA/ai-cloud-validation/pull/130))
   Adds a new `catalog` subcommand to `isvctl` for listing and managing entries in the published test catalog.
 
 ### Changed
 
-- **Composable config architecture with import directive** ([#137](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/137))
+- **Composable config architecture with import directive** ([#137](https://github.com/NVIDIA/ai-cloud-validation/pull/137))
   Reworks configuration loading around a composable import directive so suites and providers can be assembled from shared fragments instead of duplicated YAML.
-- **Update validation markers for consistency** ([#153](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/153))
+- **Update validation markers for consistency** ([#153](https://github.com/NVIDIA/ai-cloud-validation/pull/153))
   Aligns validation markers across domains so filtering, reporting, and catalog grouping behave consistently across the suite.
 
 ### Fixed
 
-- **Bump transitive deps to resolve CVEs** ([#152](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/152))
+- **Bump transitive deps to resolve CVEs** ([#152](https://github.com/NVIDIA/ai-cloud-validation/pull/152))
   Pins newer cryptography, pyasn1, and requests releases to clear known CVEs flagged against the prior dependency set.
 
 ### Internal
 
-- Add TruffleHog, CodeQL, and Trivy security scans ([#146](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/146)).
-- Reduce CodeQL timeout ([#148](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/148)).
-- Update actions/checkout version and improve Makefile command formatting ([#145](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/145)).
+- Add TruffleHog, CodeQL, and Trivy security scans ([#146](https://github.com/NVIDIA/ai-cloud-validation/pull/146)).
+- Reduce CodeQL timeout ([#148](https://github.com/NVIDIA/ai-cloud-validation/pull/148)).
+- Update actions/checkout version and improve Makefile command formatting ([#145](https://github.com/NVIDIA/ai-cloud-validation/pull/145)).
 
 ## [0.5.1] - 2026-03-09
 
 ### Fixed
 
-- **Lock urllib3 to 2.6.3 to resolve vulnerabilities** ([#125](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/125))
+- **Lock urllib3 to 2.6.3 to resolve vulnerabilities** ([#125](https://github.com/NVIDIA/ai-cloud-validation/pull/125))
   Pins urllib3 to a patched release so dependency scanners no longer flag the suite for the associated CVEs.
-- **Commit missing isvtest version change** ([#126](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/126))
+- **Commit missing isvtest version change** ([#126](https://github.com/NVIDIA/ai-cloud-validation/pull/126))
   Lands an isvtest version bump that was omitted from the previous release so the published package version matches the workspace.
 
 ### Internal
 
-- Add DCO info in contributing docs ([#124](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/124)).
+- Add DCO info in contributing docs ([#124](https://github.com/NVIDIA/ai-cloud-validation/pull/124)).
 
 ## [0.5.0] - 2026-03-06
 
 ### Added
 
-- **Test catalog upload and enhanced test discovery** ([#103](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/103))
+- **Test catalog upload and enhanced test discovery** ([#103](https://github.com/NVIDIA/ai-cloud-validation/pull/103))
   Adds functionality to publish the test catalog to the ISV Lab Service and improves discovery so newly authored validations show up automatically.
 
 ### Internal
 
-- Update license headers across source files ([#122](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/122)).
+- Update license headers across source files ([#122](https://github.com/NVIDIA/ai-cloud-validation/pull/122)).
 
 ## [0.4.4] - 2026-03-05
 
 ### Added
 
-- **Multi-node NCCL workload for Kubernetes** ([#97](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/97))
+- **Multi-node NCCL workload for Kubernetes** ([#97](https://github.com/NVIDIA/ai-cloud-validation/pull/97))
   Adds `K8sNcclMultiNodeWorkload` that runs NCCL AllReduce across multiple Kubernetes nodes via the Kubeflow MPI Operator, including optional ComputeDomain support for Multi-Node NVLink and shared NCCL output parsing for clearer bandwidth reporting across K8s and Slurm workloads.
-- **Centralized redaction utilities for sensitive data** ([#100](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/100))
+- **Centralized redaction utilities for sensitive data** ([#100](https://github.com/NVIDIA/ai-cloud-validation/pull/100))
   Introduces a shared `redaction` module that masks sensitive CLI arguments, dictionary keys, environment variables, free text, and JUnit XML so credentials and API keys no longer leak into logs or reported outputs.
 
 ### Changed
 
-- **Unified test discovery and config-aware listing** ([#98](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/98))
+- **Unified test discovery and config-aware listing** ([#98](https://github.com/NVIDIA/ai-cloud-validation/pull/98))
   `isvctl docs tests` now accepts a `--config` flag to list the validations and workloads selected by a specific configuration, and test discovery includes workloads alongside validations so both are surfaced consistently.
 
 ### Internal
 
-- Reorganize dependency groups and update package requirements ([#101](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/101)).
-- Enhance documentation commands in isvctl ([#96](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/96)).
-- Add environment specification to tag workflow ([#95](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/95)).
+- Reorganize dependency groups and update package requirements ([#101](https://github.com/NVIDIA/ai-cloud-validation/pull/101)).
+- Enhance documentation commands in isvctl ([#96](https://github.com/NVIDIA/ai-cloud-validation/pull/96)).
+- Add environment specification to tag workflow ([#95](https://github.com/NVIDIA/ai-cloud-validation/pull/95)).
 
 ## [0.4.3] - 2026-02-26
 
 ### Fixed
 
-- **Kubernetes NCCL workload timeouts and privileges** ([#93](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/93))
+- **Kubernetes NCCL workload timeouts and privileges** ([#93](https://github.com/NVIDIA/ai-cloud-validation/pull/93))
   Adds `runtimeClassName` and tolerations to K8s test pods, introduces configurable workload timeouts, and improves error logging so NCCL runs no longer fail spuriously on GPU-tainted nodes.
 
 ### Changed
 
-- **Standardized NGC API key handling** ([#89](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/89))
+- **Standardized NGC API key handling** ([#89](https://github.com/NVIDIA/ai-cloud-validation/pull/89))
   Consolidates NGC credential references to a single `NGC_API_KEY` across code, configs, and documentation, and warns when a pytest `-k` filter matches no validations so silent no-op runs are easier to catch.
 
 ### Internal
 
-- Simplify versioning with pyproject.toml as source of truth ([#92](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/92)).
-- Update CODEOWNERS to remove admin role for NCP ISV Lab ([#91](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/91)).
+- Simplify versioning with pyproject.toml as source of truth ([#92](https://github.com/NVIDIA/ai-cloud-validation/pull/92)).
+- Update CODEOWNERS to remove admin role for NCP ISV Lab ([#91](https://github.com/NVIDIA/ai-cloud-validation/pull/91)).
 
 ## [0.4.2] - 2026-02-24
 
 ### Fixed
 
-- **Correct NCCL benchmark image reference** ([#90](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/90))
+- **Correct NCCL benchmark image reference** ([#90](https://github.com/NVIDIA/ai-cloud-validation/pull/90))
   Replaces the default NCCL image with `nvcr.io/nvidia/hpc-benchmarks:25.04` across settings and the K8s job manifest, and adds a minimum bandwidth threshold to the K8s NCCL workload for clearer pass/fail criteria.
 
 ## [0.4.1] - 2026-02-24
 
 ### Fixed
 
-- **NIM inference picks up NGC credentials** ([#88](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/88))
+- **NIM inference picks up NGC credentials** ([#88](https://github.com/NVIDIA/ai-cloud-validation/pull/88))
   Renames the NIM job manifest env var to `NGC_API_KEY` so the NIM container can read the mounted secret; previously the server failed to start with a missing-API-key error despite the secret being present.
 
 ## [0.4.0] - 2026-02-24
 
 ### Added
 
-- **BMaaS workload and network validation tests** ([#87](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/87))
+- **BMaaS workload and network validation tests** ([#87](https://github.com/NVIDIA/ai-cloud-validation/pull/87))
   Adds SSH-driven validations for bare-metal hosts including PyTorch GPU stress, NCCL AllReduce via MPI, DDP training with `torchrun`, and NVLink/InfiniBand/Ethernet interconnect checks, plus a wired-in (skipped by default) reinstall step. Also fixes step-level `skip: true` to correctly skip the step's validations.
 
 ### Internal
 
-- Update AWS EKS teardown behavior so `AWS_SKIP_TEARDOWN` controls skipping and teardown runs automatically by default ([#86](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/86)).
+- Update AWS EKS teardown behavior so `AWS_SKIP_TEARDOWN` controls skipping and teardown runs automatically by default ([#86](https://github.com/NVIDIA/ai-cloud-validation/pull/86)).
 
 ## [0.3.0] - 2026-02-22
 
 ### Added
 
-- **AWS Image Registry suite with install-config CRUD and BMaaS verification** ([#85](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/85))
+- **AWS Image Registry suite with install-config CRUD and BMaaS verification** ([#85](https://github.com/NVIDIA/ai-cloud-validation/pull/85))
   Introduces an AWS Image Registry validation suite (formerly ISO) that uploads VMDK images, imports them as AMIs, and launches GPU instances, with verification that the expected OS image is installed and that an install config can provision a bare-metal instance end-to-end.
-- **Provider-agnostic validation templates** ([#84](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/84))
+- **Provider-agnostic validation templates** ([#84](https://github.com/NVIDIA/ai-cloud-validation/pull/84))
   Adds reusable templates for Bare Metal, Control Plane, KaaS (formerly EKS), Image Registry, Network, and VM validations, each defining setup/test/teardown steps and the required JSON output contracts so new providers can adopt the framework faster.
-- **AWS Bare Metal (BMaaS) validation suite** ([#83](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/83))
+- **AWS Bare Metal (BMaaS) validation suite** ([#83](https://github.com/NVIDIA/ai-cloud-validation/pull/83))
   Adds an AWS bare-metal configuration with scripts to launch, describe, reboot, list, reinstall, and tear down EC2 metal instances, plus validations for instance state, SSH, GPU availability, and host OS, with an instance-reuse workflow for faster iteration.
-- **VM instance listing and NIM inference validations** ([#81](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/81))
+- **VM instance listing and NIM inference validations** ([#81](https://github.com/NVIDIA/ai-cloud-validation/pull/81))
   Adds a `list_instances` setup step with an `InstanceListCheck` validation for AWS VM, and composable NIM deploy/teardown blocks with health, inference, and model-list checks that gracefully skip when no NGC key is provided. Also moves test steps into the `test` phase across configs so launch failures still trigger teardown and skipped validations now show up in the results summary.
 
 ### Internal
 
-- Add unit testing job to the CI workflow with a gating "Pipeline Status" aggregate job ([#80](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/80)).
+- Add unit testing job to the CI workflow with a gating "Pipeline Status" aggregate job ([#80](https://github.com/NVIDIA/ai-cloud-validation/pull/80)).
 
 ## [0.2.1] - 2026-02-17
 
 ### Fixed
 
-- **MPI, container-runtime auto-detection, and env config for Slurm NCCL** ([#79](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/79))
+- **MPI, container-runtime auto-detection, and env config for Slurm NCCL** ([#79](https://github.com/NVIDIA/ai-cloud-validation/pull/79))
   Updates the Slurm NCCL workload to launch correctly under MPI, auto-detects the available container runtime, and adds an extra-env-vars knob for the multi-node workload. Also raises the GPU stress workload timeout and renames Slurm job scripts to `.sbatch` for consistency.
 
 ### Internal
 
-- CI/CD updates: custom container, default image, and git safe-directory configuration ([#76](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/76), [#73](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/73), [#72](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/72)).
+- CI/CD updates: custom container, default image, and git safe-directory configuration ([#76](https://github.com/NVIDIA/ai-cloud-validation/pull/76), [#73](https://github.com/NVIDIA/ai-cloud-validation/pull/73), [#72](https://github.com/NVIDIA/ai-cloud-validation/pull/72)).
 
 ## [0.2.0] - 2026-02-11
 
 ### Internal
 
-- Make the troubleshooting guide generic for all ISVs and add guidance for runs stuck in STARTED ([#4](https://github.com/NVIDIA/ISV-NCP-Validation-Suite/pull/4)).
+- Make the troubleshooting guide generic for all ISVs and add guidance for runs stuck in STARTED ([#4](https://github.com/NVIDIA/ai-cloud-validation/pull/4)).
 - Document process exit codes and return values in IAM scripts, and update the command for regenerating JSON schemas.
 
 ## [0.1.0] - 2025-10-28
 
 ### Added
 
-- **Initial release of the ISV NCP Validation Suite**
+- **Initial release of the AI Cloud Validation Suite**
   First public version of the monorepo containing `isvctl` (cluster lifecycle CLI), `isvtest` (pytest-based validation framework), and `isvreporter` (results uploader for the ISV Lab Service API).
