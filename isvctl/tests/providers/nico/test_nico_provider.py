@@ -388,6 +388,7 @@ def test_forge_get_uses_configured_api_name(
 @pytest.mark.parametrize(
     "step_name",
     [
+        "setup_key_access",
         "verify_ingestion",
         "check_dpu_health",
         "query_governance_metrics",
@@ -400,6 +401,7 @@ def test_forge_get_uses_configured_api_name(
         "query_stable_ips",
         "query_oob_health",
         "query_key_access",
+        "teardown_key_access",
     ],
 )
 def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
@@ -1035,6 +1037,13 @@ def test_nico_network_inventory_scripts_skip_when_site_has_no_network_inventory(
     assert traffic_payload["success"] is True
     assert traffic_payload["skipped"] is True
     assert "No VPCs found" in traffic_payload["skip_reason"]
+def test_nico_bare_metal_key_access_steps_are_gated() -> None:
+    """AUTH-XX-03's key-mutating steps should only run when its check is available."""
+    merged = merge_yaml_files([NICO_CONFIG / "bare_metal.yaml"])
+    steps = {s["name"]: s for s in merged["commands"]["bare_metal"]["steps"]}
+
+    for step_name in ("setup_key_access", "query_key_access", "teardown_key_access"):
+        assert steps[step_name]["requires_available_validations"] == ["SpecifiedKeyAccessCheck"]
 
 
 @pytest.mark.parametrize(
