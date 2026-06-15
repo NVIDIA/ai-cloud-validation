@@ -33,7 +33,7 @@ from typing import Any
 
 import yaml
 
-GH_REPO = "NVIDIA/ISV-NCP-Validation-Suite"
+GH_REPO = "NVIDIA/ai-cloud-validation"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Constraint shared by `labels` and `dependencies` entries: identifier-like only.
@@ -153,7 +153,7 @@ def generate_adoc(data: dict[str, Any], outfile: str) -> None:
         "Produced by scripts/test_plan_yaml_to_adoc.py from docs/test-plan.yaml.",
         "Run `make plan` to regenerate.",
         "////",
-        "= NCP Validation Test Suite",
+        "= AI Cloud Validation Test Suite",
         ":toc:",
         ":icons: font",
         ":max-width: none",

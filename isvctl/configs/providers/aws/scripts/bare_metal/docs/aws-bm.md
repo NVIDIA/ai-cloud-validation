@@ -1,6 +1,6 @@
 # AWS Bare Metal (BMaaS) Validation Guide
 
-Validates AWS EC2 bare-metal GPU instances using the ISV validation framework.
+Validates AWS EC2 bare-metal GPU instances using the AI Cloud Validation framework.
 
 ## Overview
 

@@ -1,6 +1,6 @@
-# NVIDIA ISV NCP Validation Suite Documentation
+# NVIDIA AI Cloud Validation Suite Documentation
 
-Welcome to the documentation for NVIDIA ISV NCP Validation Suite - a collection of validation and management tools for NVIDIA ISV Lab environments.
+Welcome to the documentation for NVIDIA AI Cloud Validation suite - a collection of validation and management tools for NVIDIA ISV Lab environments.
 
 ## Quick Navigation
 

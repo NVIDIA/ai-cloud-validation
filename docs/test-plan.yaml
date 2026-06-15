@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# NCP Validation Test Suite - Hierarchical Test Data
+# AI Cloud Validation Test Suite - Hierarchical Test Data
 # Structure: Domain > Component > Capability > Tests
 domains:
   - name: Foundational Services

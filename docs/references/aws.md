@@ -1,6 +1,6 @@
 # AWS Reference Implementation
 
-The AWS implementation is a complete, working example of the ISV validation framework. Use it as a reference when implementing the [provider-agnostic templates](../../isvctl/configs/suites/README.md) for your own platform.
+The AWS implementation is a complete, working example of the AI Cloud Validation framework. Use it as a reference when implementing the [provider-agnostic templates](../../isvctl/configs/suites/README.md) for your own platform.
 
 ## How Templates and AWS Relate
 

@@ -1,6 +1,6 @@
 # AWS ISO/VMDK Import Validation Guide
 
-This guide provides a complete walkthrough for validating AWS VM Import capabilities using the ISV validation framework. These tests verify the ability to import external disk images (VMDK) as AMIs and validate GPU functionality on the resulting instances.
+This guide provides a complete walkthrough for validating AWS VM Import capabilities using the AI Cloud Validation framework. These tests verify the ability to import external disk images (VMDK) as AMIs and validate GPU functionality on the resulting instances.
 
 ## Overview
 
@@ -205,7 +205,7 @@ The AWS credentials must have these permissions:
 ```bash
 # Clone and install
 git clone <repository-url>
-cd ISV-NCP-Validation-Suite
+cd ai-cloud-validation
 uv sync
 
 # Run AWS ISO import validation

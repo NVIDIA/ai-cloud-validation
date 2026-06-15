@@ -1,6 +1,6 @@
 # AWS VM (VM-as-a-Service) Validation Guide
 
-Validates AWS EC2 VM-as-a-Service capabilities using the ISV validation framework.
+Validates AWS EC2 VM-as-a-Service capabilities using the AI Cloud Validation framework.
 
 ## Overview
 
@@ -81,7 +81,7 @@ uv run python -c "import boto3, paramiko; print('OK')"
 
 ```bash
 # 1. Install
-cd ISV-NCP-Validation-Suite && uv sync
+cd ai-cloud-validation && uv sync
 
 # 2. Configure credentials
 export AWS_ACCESS_KEY_ID=...

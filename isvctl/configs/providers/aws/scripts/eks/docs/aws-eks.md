@@ -1,4 +1,4 @@
-# AWS EKS GPU Cluster - ISV Validation Guide
+# AWS EKS GPU Cluster - AI Cloud Validation Guide
 
 This guide provides a complete walkthrough for ISV partners to provision AWS infrastructure, run NVIDIA ISV validation tests, and clean up resources.
 
@@ -79,7 +79,7 @@ The fastest way to run the complete validation:
 ```bash
 # Clone and install
 git clone <repository-url>
-cd ISV-NCP-Validation-Suite
+cd ai-cloud-validation
 uv sync
 
 # Run full validation (setup -> test -> teardown)

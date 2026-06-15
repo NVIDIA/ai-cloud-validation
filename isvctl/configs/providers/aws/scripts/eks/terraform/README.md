@@ -247,5 +247,5 @@ Approximate monthly costs (us-west-2, as of 2024):
 ## Related Documentation
 
 - [AWS EKS Validation Guide](../docs/aws-eks.md)
-- [ISV NCP Validation Suite Getting Started](../../../../../../../docs/getting-started.md)
+- [AI Cloud Validation Suite Getting Started](../../../../../../../docs/getting-started.md)
 - [NVIDIA GPU Operator Documentation](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/)

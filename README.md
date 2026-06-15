@@ -1,4 +1,4 @@
-# NVIDIA ISV NCP Validation Suite
+# NVIDIA AI Cloud Validation Suite
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
@@ -6,11 +6,11 @@ Validation and management tools for NVIDIA ISV Lab environments.
 
 > [!WARNING]
 > **Experimental Preview Release**
-> This is an experimental/preview release of ISV-NCP-Validation-Suite. Use at your own risk in production environments. The software is provided "as is" without warranties of any kind. Features, APIs, and configurations may change without notice in future releases. For production deployments, thoroughly test in non-critical environments first.
+> This is an experimental/preview release of ai-cloud-validation. Use at your own risk in production environments. The software is provided "as is" without warranties of any kind. Features, APIs, and configurations may change without notice in future releases. For production deployments, thoroughly test in non-critical environments first.
 
 ## What Is This?
 
-The ISV NCP Validation Suite is a test framework for validating that developers and compute providers get the most from their NVIDIA hardware across a range of common compute offerings.
+The AI Cloud Validation suite is a test framework for validating that developers and compute providers get the most from their NVIDIA hardware across a range of common compute offerings.
 
 It consists of a very flexible set of tests, which ensure that a system is able to support AI training, inferencing, and running AI-enabled applications, along with more traditional cloud services.
 
@@ -27,8 +27,8 @@ The fastest way to try running parts of the validation suite is against an exist
 Install:
 
 ```bash
-git clone https://github.com/NVIDIA/ISV-NCP-Validation-Suite.git
-cd ISV-NCP-Validation-Suite
+git clone https://github.com/NVIDIA/ai-cloud-validation.git
+cd ai-cloud-validation
 uv sync
 ```
 
