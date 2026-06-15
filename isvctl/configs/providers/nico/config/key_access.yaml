@@ -1,0 +1,125 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NICo Specified-Key Access Validation Configuration (AUTH-XX-03)
+#
+# Self-contained, auto-provisioning variant of the AUTH-XX-03 check. Unlike the
+# read-only query_key_access step in bare_metal.yaml (which skips when no SSH
+# key group is synced to the site), this config provisions a throwaway specified
+# key, runs the check, then tears the key down -- so it can go green in CI
+# without any manual key setup on the cluster.
+#
+# Architecture (imports the bare_metal suite for the SpecifiedKeyAccessCheck):
+#   setup    setup_key_access.py    - create an ephemeral SSH key + SSH Key
+#                                      Group synced to the site (private key is
+#                                      generated and discarded immediately).
+#   test     query_key_access.py    - report whether the specified key can
+#                                      access the serial console (SOL);
+#                                      SpecifiedKeyAccessCheck validates it.
+#   teardown teardown_key_access.py - delete the key group + key created in
+#                                      setup (IDs come from the setup output).
+#
+# Only the specified_key_access validation has its step wired here; the rest of
+# the imported bare_metal suite skips (steps not configured), exactly like the
+# other single-purpose NICo runs.
+#
+# Prerequisites:
+#   - NICO_API_BASE set to the NICo API base URL
+#   - NICO_BEARER_TOKEN set, or OIDC client credentials configured via
+#     NICO_SSA_ISSUER, NICO_CLIENT_ID, and NICO_CLIENT_SECRET
+#   - NICO_ORGANIZATION and NICO_SITE_ID environment variables set
+#   - ssh-keygen available on the host (used to mint the throwaway key)
+#   - The site's serial console must be provider-enabled for a full pass;
+#     otherwise the check reports the serial console as unverified.
+#
+# Usage:
+#   NICO_BEARER_TOKEN=<token> NICO_ORGANIZATION=<org-name> NICO_SITE_ID=<uuid> \
+#     ISVTEST_INCLUDE_UNRELEASED=1 \
+#     uv run isvctl test run -f isvctl/configs/providers/nico/config/key_access.yaml
+
+import:
+  - ../../../suites/bare_metal.yaml
+
+version: "1.0"
+
+commands:
+  bare_metal:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # ─── Provision a Throwaway Specified Key (setup) ────────────────
+      # Creates an ephemeral SSH key and a key group that syncs it to the
+      # site. Emits sshkey_id / sshkeygroup_id / restore_ssh_keys_enabled for
+      # teardown to consume.
+      - name: setup_key_access
+        phase: setup
+        command: "python ../scripts/auth/setup_key_access.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 240
+
+      # ─── Specified-Key Access (AUTH-XX-03, test) ────────────────────
+      # Same step the bare_metal suite validates with SpecifiedKeyAccessCheck.
+      - name: query_key_access
+        phase: test
+        command: "python ../scripts/auth/query_key_access.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Remove the Throwaway Specified Key (teardown) ──────────────
+      # Best-effort cleanup of the key group + key created in setup, and
+      # restores the site's SSH-key SOL flag when setup flipped it.
+      - name: teardown_key_access
+        phase: teardown
+        command: "python ../scripts/auth/teardown_key_access.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--sshkeygroup-id"
+          - "{{steps.setup_key_access.sshkeygroup_id}}"
+          - "--sshkey-id"
+          - "{{steps.setup_key_access.sshkey_id}}"
+          - "--restore-ssh-keys-enabled"
+          - "{{steps.setup_key_access.restore_ssh_keys_enabled}}"
+        timeout: 120
+
+tests:
+  cluster_name: "nico-key-access-validation"
+  description: "Verify a specified key can access out-of-band components (AUTH-XX-03)"
+
+  settings:
+    org: "{{env.NICO_ORGANIZATION}}"
+    site_id: "{{env.NICO_SITE_ID}}"
+    nico_api_base: "{{env.NICO_API_BASE}}"
+    # The imported bare_metal suite defines these for the full instance
+    # lifecycle, which this config does not run. Blank them so the suite's
+    # {{instance_type}} self-reference does not emit missing-variable warnings.
+    region: ""
+    instance_type: ""
+    teardown_flag: ""

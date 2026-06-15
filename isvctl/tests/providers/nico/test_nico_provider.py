@@ -228,6 +228,37 @@ def _load_stable_ips_script() -> ModuleType:
 def _load_oob_health_script() -> ModuleType:
     """Load the query_oob_health script as a module for direct unit testing."""
     return _load_nico_script("health/query_oob_health.py", "test_query_oob_health")
+def _load_query_key_access_script() -> ModuleType:
+    """Load the query_key_access script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "auth" / "query_key_access.py"
+    spec = importlib.util.spec_from_file_location("test_query_key_access", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
+def _load_setup_key_access_script() -> ModuleType:
+    """Load the setup_key_access script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "auth" / "setup_key_access.py"
+    spec = importlib.util.spec_from_file_location("test_setup_key_access", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
+def _load_teardown_key_access_script() -> ModuleType:
+    """Load the teardown_key_access script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / "auth" / "teardown_key_access.py"
+    spec = importlib.util.spec_from_file_location("test_teardown_key_access", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
 
 
 def test_nico_auth_prefers_explicit_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -368,6 +399,7 @@ def test_forge_get_uses_configured_api_name(
         "query_sanitization",
         "query_stable_ips",
         "query_oob_health",
+        "query_key_access",
     ],
 )
 def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
@@ -1019,6 +1051,7 @@ def test_nico_network_inventory_scripts_skip_when_site_has_no_network_inventory(
         ("query_sanitization.py", _load_sanitization_script),
         ("query_stable_ips.py", _load_stable_ips_script),
         ("query_oob_health.py", _load_oob_health_script),
+        ("query_key_access.py", _load_query_key_access_script),
     ],
 )
 def test_nico_scripts_require_api_base(
@@ -3047,3 +3080,260 @@ def test_topology_script_output_satisfies_check(
     bad.run()
     assert bad._passed is False
     assert "m-1" in bad._error
+# ===========================================================================
+# Specified-key access scripts (AUTH-XX-03): query / setup / teardown
+# ===========================================================================
+
+
+def _run_script_main(
+    module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+) -> tuple[int, dict[str, Any]]:
+    """Run a NICo script's main() with argv and return (exit_code, parsed JSON)."""
+    monkeypatch.setattr(sys, "argv", argv)
+    code = module.main()
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_query_key_access_reports_serial_console_accessible(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A key synced to a SOL-enabled, SSH-key-auth site yields a reachable target."""
+    module = _load_query_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(
+        module,
+        "forge_get",
+        lambda org, path, token, **kw: {
+            "name": "sjc-1",
+            "isSerialConsoleEnabled": True,
+            "isSerialConsoleSSHKeysEnabled": True,
+            "serialConsoleHostname": "sol.example.com",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "forge_get_all",
+        lambda org, path, token, **kw: [
+            {
+                "status": "Synced",
+                "sshKeys": [{"id": "k1"}],
+                "siteAssociations": [{"site": {"id": "site-1"}, "status": "Synced"}],
+            }
+        ],
+    )
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        ["query_key_access.py", "--org", "o", "--site-id", "site-1", "--api-base", "http://x"],
+    )
+
+    assert code == 0
+    assert out["success"] is True
+    assert out["keys_synced_to_site"] is True
+    sol = next(t for t in out["access_targets"] if t["type"] == "serial_console")
+    assert sol["key_access_enabled"] is True
+    assert sol["reachable"] is True
+
+
+def test_query_key_access_skips_when_no_key_groups(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No key groups anywhere yields a structured skip with org_key_groups == 0."""
+    module = _load_query_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "forge_get", lambda *a, **k: {"isSerialConsoleEnabled": True})
+    monkeypatch.setattr(module, "forge_get_all", lambda *a, **k: [])
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        ["query_key_access.py", "--org", "o", "--site-id", "site-1", "--api-base", "http://x"],
+    )
+
+    assert code == 0
+    assert out["success"] is True
+    assert out["skipped"] is True
+    assert out["org_key_groups"] == 0
+    assert "No SSH key groups exist" in out["skip_reason"]
+
+
+def test_query_key_access_skip_distinguishes_unsynced_groups(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Groups that exist but are not synced to the site yield a distinct skip reason."""
+    module = _load_query_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "forge_get", lambda *a, **k: {"isSerialConsoleEnabled": True})
+
+    def fake_all(org: str, path: str, token: str, *, base_url: str, params: dict | None = None, **kw: Any) -> list:
+        # Site-filtered query finds nothing; the org-wide query finds one group.
+        if params and "siteId" in params:
+            return []
+        return [{"status": "Syncing", "sshKeys": [{"id": "k"}], "siteAssociations": []}]
+
+    monkeypatch.setattr(module, "forge_get_all", fake_all)
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        ["query_key_access.py", "--org", "o", "--site-id", "site-1", "--api-base", "http://x"],
+    )
+
+    assert code == 0
+    assert out["skipped"] is True
+    assert out["org_key_groups"] == 1
+    assert "none are synced to this site" in out["skip_reason"]
+
+
+def test_setup_key_access_provisions_and_records_restore(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Setup creates the key + synced group and records the site flag to restore."""
+    module = _load_setup_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "_generate_public_key", lambda comment: "ssh-ed25519 AAAAtest")
+
+    def fake_post(org: str, path: str, token: str, *, base_url: str, body: dict, **kw: Any) -> dict:
+        return {"id": "key-1"} if path == "sshkey" else {"id": "kg-1"}
+
+    def fake_get(org: str, path: str, token: str, **kw: Any) -> dict:
+        if path.startswith("sshkeygroup/"):
+            return {"status": "Synced", "siteAssociations": [{"site": {"id": "site-1"}, "status": "Synced"}]}
+        return {"isSerialConsoleSSHKeysEnabled": False}
+
+    patched: dict[str, Any] = {}
+
+    def fake_patch(org: str, path: str, token: str, *, base_url: str, body: dict, **kw: Any) -> dict:
+        patched.update(body)
+        return {}
+
+    monkeypatch.setattr(module, "forge_post", fake_post)
+    monkeypatch.setattr(module, "forge_get", fake_get)
+    monkeypatch.setattr(module, "forge_patch", fake_patch)
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        ["setup_key_access.py", "--org", "o", "--site-id", "site-1", "--api-base", "http://x"],
+    )
+
+    assert code == 0
+    assert out["success"] is True
+    assert out["sshkey_id"] == "key-1"
+    assert out["sshkeygroup_id"] == "kg-1"
+    assert out["synced"] is True
+    assert out["restore_ssh_keys_enabled"] is False
+    assert patched == {"isSerialConsoleSSHKeysEnabled": True}
+
+
+def test_setup_key_access_emits_key_id_on_group_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A created key id is emitted even when the group create fails, so teardown can clean up."""
+    module = _load_setup_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "_generate_public_key", lambda comment: "ssh-ed25519 AAAAtest")
+
+    def fake_post(org: str, path: str, token: str, *, base_url: str, body: dict, **kw: Any) -> dict:
+        if path == "sshkey":
+            return {"id": "key-1"}
+        raise RuntimeError("group create failed")
+
+    monkeypatch.setattr(module, "forge_post", fake_post)
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        ["setup_key_access.py", "--org", "o", "--site-id", "site-1", "--api-base", "http://x"],
+    )
+
+    assert code == 1
+    assert out["success"] is False
+    assert out["sshkey_id"] == "key-1"
+    assert out["sshkeygroup_id"] == ""
+
+
+def test_teardown_key_access_deletes_resources_and_restores_flag(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Teardown deletes the group then the key and restores the site flag."""
+    module = _load_teardown_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    deletes: list[str] = []
+    patched: dict[str, Any] = {}
+    monkeypatch.setattr(module, "forge_delete", lambda org, path, token, **kw: deletes.append(path) or {})
+    monkeypatch.setattr(
+        module, "forge_patch", lambda org, path, token, *, base_url, body, **kw: patched.update(body) or {}
+    )
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        [
+            "teardown_key_access.py",
+            "--org",
+            "o",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://x",
+            "--sshkeygroup-id",
+            "kg-1",
+            "--sshkey-id",
+            "key-1",
+            "--restore-ssh-keys-enabled",
+            "false",
+        ],
+    )
+
+    assert code == 0
+    assert out["success"] is True
+    assert deletes == ["sshkeygroup/kg-1", "sshkey/key-1"]
+    assert patched == {"isSerialConsoleSSHKeysEnabled": False}
+    assert out["cleanup_errors"] == []
+
+
+def test_teardown_key_access_is_noop_without_ids(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Empty IDs (setup created nothing) make teardown a no-op."""
+    module = _load_teardown_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    calls: list[str] = []
+    monkeypatch.setattr(module, "forge_delete", lambda *a, **k: calls.append("delete") or {})
+    monkeypatch.setattr(module, "forge_patch", lambda *a, **k: calls.append("patch") or {})
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        [
+            "teardown_key_access.py",
+            "--org",
+            "o",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://x",
+            "--sshkeygroup-id",
+            "",
+            "--sshkey-id",
+            "",
+            "--restore-ssh-keys-enabled",
+            "",
+        ],
+    )
+
+    assert code == 0
+    assert out["success"] is True
+    assert calls == []
