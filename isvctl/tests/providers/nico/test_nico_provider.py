@@ -339,6 +339,7 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
 @pytest.mark.parametrize(
     "step_name",
     [
+        "setup_key_access",
         "verify_ingestion",
         "check_dpu_health",
         "query_governance_metrics",
@@ -349,6 +350,7 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
         "query_ib_keys",
         "query_sanitization",
         "query_key_access",
+        "teardown_key_access",
     ],
 )
 def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
@@ -361,6 +363,15 @@ def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None
     assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
     assert "--api-base" in step["args"]
     assert "{{nico_api_base}}" in step["args"]
+
+
+def test_nico_bare_metal_key_access_steps_are_gated() -> None:
+    """AUTH-XX-03's key-mutating steps should only run when its check is available."""
+    merged = merge_yaml_files([NICO_CONFIG / "bare_metal.yaml"])
+    steps = {s["name"]: s for s in merged["commands"]["bare_metal"]["steps"]}
+
+    for step_name in ("setup_key_access", "query_key_access", "teardown_key_access"):
+        assert steps[step_name]["requires_available_validations"] == ["SpecifiedKeyAccessCheck"]
 
 
 @pytest.mark.parametrize(
