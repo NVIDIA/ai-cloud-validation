@@ -207,6 +207,7 @@ tests:
       step: teardown
       checks:
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["security"]
 
   exclude:

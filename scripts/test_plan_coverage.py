@@ -452,4 +452,4 @@ def _print_uncovered(uncovered: list[dict[str, str]]) -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

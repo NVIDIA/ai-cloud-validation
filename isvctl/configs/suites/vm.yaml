@@ -209,8 +209,10 @@ tests:
       checks:
         # ConnectivityCheck -> VMAAS-XX-01, OsCheck -> VMAAS-XX-05 (declared in the "ssh" section)
         ConnectivityCheck:
+          test_id: "VMAAS-XX-01"
           labels: ["vm", "ssh"]
         OsCheck:
+          test_id: "VMAAS-XX-05"
           labels: ["vm", "ssh"]
           expected_os: "ubuntu"
 
@@ -219,6 +221,7 @@ tests:
       checks:
         # GpuCheck -> VMAAS-XX-06 (declared in the "gpu" section)
         GpuCheck:
+          test_id: "VMAAS-XX-06"
           labels: ["vm", "ssh", "gpu"]
           expected_gpus: 1
 
@@ -231,6 +234,7 @@ tests:
           max_uptime: 600
         # StableIdentifierCheck -> CNP08-03 (declared in the "start_checks" section)
         StableIdentifierCheck:
+          test_id: "CNP08-03"
           labels: ["vm"]
           reference_id: "{{steps.launch_instance.instance_id}}"
 
@@ -247,8 +251,10 @@ tests:
       checks:
         # ConnectivityCheck -> VMAAS-XX-01, OsCheck -> VMAAS-XX-05 (declared in the "ssh" section)
         ConnectivityCheck:
+          test_id: "VMAAS-XX-01"
           labels: ["vm", "ssh"]
         OsCheck:
+          test_id: "VMAAS-XX-05"
           labels: ["vm", "ssh"]
           expected_os: "ubuntu"
 
@@ -257,6 +263,7 @@ tests:
       checks:
         # GpuCheck -> VMAAS-XX-06 (declared in the "gpu" section)
         GpuCheck:
+          test_id: "VMAAS-XX-06"
           labels: ["vm", "ssh", "gpu"]
           expected_gpus: 1
 
@@ -289,12 +296,14 @@ tests:
       step: teardown_nim
       checks:
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["vm"]
 
     teardown_checks:
       step: teardown
       checks:
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["vm"]
 
   exclude:

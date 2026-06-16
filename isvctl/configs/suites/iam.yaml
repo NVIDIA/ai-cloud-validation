@@ -56,6 +56,7 @@ tests:
           labels: ["iam"]
           fields: ["username", "access_key_id"]
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["iam"]
 
     credentials:
@@ -66,12 +67,14 @@ tests:
           labels: ["iam"]
           field: "account_id"
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["iam"]
 
     teardown_checks:
       step: teardown
       checks:
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["iam"]
 
   exclude:

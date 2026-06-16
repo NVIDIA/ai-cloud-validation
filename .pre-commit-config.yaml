@@ -40,3 +40,10 @@ repos:
         language: system
         pass_filenames: false
         types_or: [python, shell, yaml]
+
+      - id: validate-suites
+        name: Validate suite check wiring (test_id + labels)
+        entry: python3 scripts/validate_suite_wiring.py --check
+        language: system
+        pass_filenames: false
+        files: ^isvctl/configs/suites/.*\.yaml$

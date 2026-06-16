@@ -77,6 +77,7 @@ tests:
       step: topology_placement
       checks:
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
         TopologyPlacementCheck:
           test_id: "CNP01-04"
@@ -150,6 +151,7 @@ tests:
       step: host_status_log
       checks:
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
         BmHostStatusLog:
           test_id: "BMAAS-XX-07"
@@ -254,10 +256,12 @@ tests:
       checks:
         # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
         ConnectivityCheck:
+          test_id: "BMAAS-XX-03"
           labels: ["bare_metal", "ssh"]
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
         OsCheck:
+          test_id: "N/A"
           labels: ["bare_metal", "ssh"]
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
@@ -268,6 +272,7 @@ tests:
       checks:
         # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
         GpuCheck:
+          test_id: "BMAAS-XX-08"
           labels: ["bare_metal", "ssh", "gpu"]
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
@@ -281,6 +286,7 @@ tests:
           max_uptime: 600
         # StableIdentifierCheck -> CNP08-01 (declared in the "start_checks" section)
         StableIdentifierCheck:
+          test_id: "CNP08-01"
           labels: ["bare_metal"]
           reference_id: "{{steps.launch_instance.instance_id}}"
 
@@ -297,10 +303,12 @@ tests:
       checks:
         # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
         ConnectivityCheck:
+          test_id: "BMAAS-XX-03"
           labels: ["bare_metal", "ssh"]
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
         OsCheck:
+          test_id: "N/A"
           labels: ["bare_metal", "ssh"]
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
@@ -311,6 +319,7 @@ tests:
       checks:
         # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
         GpuCheck:
+          test_id: "BMAAS-XX-08"
           labels: ["bare_metal", "ssh", "gpu"]
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
@@ -325,6 +334,7 @@ tests:
           max_recovery_time: 900
         # StableIdentifierCheck -> CNP08-01 (declared in the "start_checks" section)
         StableIdentifierCheck:
+          test_id: "CNP08-01"
           labels: ["bare_metal"]
           reference_id: "{{steps.launch_instance.instance_id}}"
 
@@ -341,8 +351,10 @@ tests:
       checks:
         # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
         ConnectivityCheck:
+          test_id: "BMAAS-XX-03"
           labels: ["bare_metal", "ssh"]
         OsCheck:
+          test_id: "N/A"
           labels: ["bare_metal", "ssh"]
           expected_os: "ubuntu"
 
@@ -351,6 +363,7 @@ tests:
       checks:
         # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
         GpuCheck:
+          test_id: "BMAAS-XX-08"
           labels: ["bare_metal", "ssh", "gpu"]
           expected_gpus: 8
 
@@ -363,6 +376,8 @@ tests:
           labels: ["bare_metal"]
           expected_state: "running"
         StableIdentifierCheck:
+          test_id: "CNP08-01"
+          labels: ["bare_metal"]
           reference_id: "{{steps.launch_instance.instance_id}}"
 
     reinstall_ssh:
@@ -370,8 +385,10 @@ tests:
       checks:
         # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
         ConnectivityCheck:
+          test_id: "BMAAS-XX-03"
           labels: ["bare_metal", "ssh"]
         OsCheck:
+          test_id: "N/A"
           labels: ["bare_metal", "ssh"]
           expected_os: "ubuntu"
 
@@ -380,6 +397,7 @@ tests:
       checks:
         # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
         GpuCheck:
+          test_id: "BMAAS-XX-08"
           labels: ["bare_metal", "ssh", "gpu"]
 
     nim_health:
@@ -409,12 +427,14 @@ tests:
       step: teardown_nim
       checks:
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
 
     teardown_checks:
       step: teardown
       checks:
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["bare_metal"]
 
     sanitization:

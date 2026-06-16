@@ -58,6 +58,7 @@ tests:
       step: check_api
       checks:
         FieldExistsCheck:
+          test_id: "N/A"
           labels: ["control_plane"]
           fields: ["account_id", "tests"]
         # DATASVC-XX-01 (S3-compatible API w/ authenticated endpoints):
@@ -113,8 +114,10 @@ tests:
         # Data-path half of DATASVC-XX-01 (object put/get/delete); the
         # authenticated-endpoint half is the FieldValueCheck in "api_health".
         StepSuccessCheck:
+          test_id: "N/A"
           labels: ["control_plane"]
         FieldExistsCheck:
+          test_id: "N/A"
           labels: ["control_plane"]
           fields: ["bucket_name", "object_key", "operations"]
         CrudOperationsCheck:
