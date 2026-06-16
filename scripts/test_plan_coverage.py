@@ -111,6 +111,7 @@ def load_plan(path: Path = PLAN_PATH) -> dict[str, dict[str, Any]]:
 
 def catalog_entries() -> list[dict[str, Any]]:
     """Return all catalog entries (released + unreleased) with name/labels/test_ids."""
+    # Deferred: importing build_catalog pulls in validation discovery (~1s).
     from isvtest.catalog import build_catalog
 
     return build_catalog(released_only=False)
@@ -233,6 +234,7 @@ def class_test_id_map(entries: list[dict[str, Any]] | None = None) -> dict[str, 
 
 def released_names() -> set[str]:
     """Return the set of released validation class names."""
+    # Deferred: only needed for coverage reports, not for --check guardrails.
     from isvtest.release_manifest import load_released_tests
 
     return load_released_tests()

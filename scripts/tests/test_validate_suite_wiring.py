@@ -40,6 +40,34 @@ tests:
     assert not any("GoodCheck" in err for err in errors)
 
 
+def test_wiring_errors_rejects_scalar_labels(tmp_path: Path) -> None:
+    """Scalar ``labels`` values must fail validation; only lists are accepted."""
+    suite = tmp_path / "demo.yaml"
+    suite.write_text(
+        """\
+tests:
+  validations:
+    example:
+      checks:
+        BadCheck:
+          test_id: "N/A"
+          labels: kubernetes
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("BadCheck" in err and "missing labels" in err for err in errors)
+
+
+def test_wiring_errors_reports_yaml_parse_failures(tmp_path: Path) -> None:
+    """Malformed suite YAML surfaces as a validation error instead of being skipped."""
+    suite = tmp_path / "broken.yaml"
+    suite.write_text("tests:\n  validations:\n    bad: [:\n")
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert len(errors) == 1
+    assert "broken.yaml" in errors[0]
+    assert "failed to read/parse" in errors[0]
+
+
 def test_find_check_line_numbers_supports_list_form() -> None:
     """List-form wiring reports each repeated check at its own line."""
     lines = """

@@ -32,6 +32,7 @@ _spec.loader.exec_module(adoc)
 
 
 def _plan(github_issues: list[str]) -> dict[str, Any]:
+    """Build a minimal test-plan dict containing one test's ``github_issues`` wiring."""
     return {
         "domains": [
             {"components": [{"capabilities": [{"tests": [{"test_id": "X-1", "github_issues": github_issues}]}]}]}

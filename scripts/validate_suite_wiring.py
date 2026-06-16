@@ -76,8 +76,6 @@ def find_check_line_numbers(lines: list[str], category: str, check_name: str) ->
 
 def _normalize_labels(value: Any) -> list[str]:
     """Return a list of non-empty label strings from YAML wiring."""
-    if isinstance(value, str):
-        value = [value]
     if not isinstance(value, list):
         return []
     return [label for label in value if isinstance(label, str) and label.strip()]
@@ -94,14 +92,15 @@ def iter_suite_checks(config_path: Path) -> Iterator[tuple[str, str, dict[str, A
     """Yield ``(category, check_name, params)`` for checks in a suite file."""
     try:
         data = yaml.safe_load(config_path.read_text())
-    except Exception:
-        return
+    except (OSError, yaml.YAMLError) as exc:
+        raise ValueError(f"failed to read/parse {config_path}: {exc}") from exc
 
     validations = (data or {}).get("tests", {}).get("validations", {})
     if not isinstance(validations, dict):
         return
 
     def _from_mapping(category: str, mapping: Any) -> Iterator[tuple[str, str, dict[str, Any]]]:
+        """Yield wired checks from a dict- or list-form ``checks`` mapping."""
         if isinstance(mapping, dict):
             for name, params in mapping.items():
                 yield category, name, params if isinstance(params, dict) else {}
@@ -136,8 +135,13 @@ def wiring_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
     occurrence: dict[tuple[Path, str, str], int] = defaultdict(int)
 
     for path in sorted(suites_dir.glob("*.yaml")):
-        lines = path.read_text().splitlines()
-        for category, name, params in iter_suite_checks(path):
+        try:
+            lines = path.read_text().splitlines()
+            checks = list(iter_suite_checks(path))
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        for category, name, params in checks:
             key = (path, category, name)
             line_numbers = find_check_line_numbers(lines, category, name)
             line_number = line_numbers[occurrence[key]] if occurrence[key] < len(line_numbers) else None
