@@ -34,7 +34,6 @@ class K8sMultiClusterSameVpcCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Verify multiple Kubernetes clusters share the same tenancy and VPC."
-    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
 
     def run(self) -> None:
         """Validate the multi-cluster proof emitted by the bound setup step."""

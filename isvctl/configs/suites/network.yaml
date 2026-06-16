@@ -209,6 +209,8 @@ tests:
           labels: ["network"]
           step: peering_test
         StorageL3RoutingCheck:
+          test_id: "SDN08-01"
+          labels: ["network"]
           step: storage_l3_routing
 
     # Read-only metadata/API checks for provider-reported backend fabric

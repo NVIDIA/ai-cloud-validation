@@ -22,6 +22,8 @@ def test_security_suite_defines_capacity_validations() -> None:
     grouping = validations["capacity_reservation_grouping"]
     assert grouping["checks"] == {
         "CapacityReservationGroupingCheck": {
+            "test_id": "CAP04-01",
+            "labels": ["capacity", "bare_metal"],
             "step": "capacity_reservation_grouping",
             "min_resources": "{{min_resources}}",
         }
@@ -32,6 +34,8 @@ def test_security_suite_defines_capacity_validations() -> None:
     assert topology["step"] == "topology_block_atomic_allocation"
     assert topology["checks"] == {
         "CapacityTopologyBlockAtomicAllocationCheck": {
+            "test_id": "CAP04-02",
+            "labels": ["capacity", "bare_metal"],
             "min_resources": 2,
         }
     }

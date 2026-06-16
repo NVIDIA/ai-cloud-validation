@@ -72,7 +72,6 @@ class HardwareIngestionCheck(BaseValidation):
 
     description: ClassVar[str] = "Check all expected hardware is ingested and matches manifest"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "ingestion")
 
     def run(self) -> None:
         """Validate ingestion: every expected machine is linked, healthy, and in an acceptable state."""
@@ -210,7 +209,6 @@ class DpuHealthCheck(BaseValidation):
 
     description: ClassVar[str] = "Check DPU health and agent heartbeat status"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "dpu")
 
     def run(self) -> None:
         """Validate DPU presence, agent heartbeat, and machine-level health for each machine."""
@@ -349,7 +347,6 @@ class DpuNetworkCheck(BaseValidation):
 
     description: ClassVar[str] = "Check DPU network interfaces and overlay connectivity"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "dpu", "network")
 
     # Valid running states for DPU extension deployments
     _DEPLOYMENT_OK_STATUSES: ClassVar[set[str]] = {"Running", "Pending"}

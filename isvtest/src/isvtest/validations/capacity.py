@@ -65,7 +65,6 @@ class CapacityReservationGroupingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check capacity reservation grouping and tenant pinning"
-    labels: ClassVar[tuple[str, ...]] = ("capacity", "bare_metal")
 
     def run(self) -> None:
         """Validate capacity reservation grouping evidence."""
@@ -179,7 +178,6 @@ class CapacityTopologyBlockAtomicAllocationCheck(BaseValidation):
 
     description: ClassVar[str] = "Check topology block capacity is allocated as one atomic unit"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("capacity", "bare_metal")
 
     def run(self) -> None:
         """Validate atomicity, resource counts, homogeneity, and isolation."""

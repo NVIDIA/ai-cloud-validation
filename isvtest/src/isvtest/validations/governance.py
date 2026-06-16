@@ -64,7 +64,6 @@ class GovernanceMetricsCheck(BaseValidation):
 
     description: ClassVar[str] = "Check governance API exposes Delivered/Healthy/Reserved/Active node and GPU metrics"
     timeout: ClassVar[int] = 60
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "governance")
 
     def run(self) -> None:
         """Validate metric presence, value sanity, and inter-metric relationships."""

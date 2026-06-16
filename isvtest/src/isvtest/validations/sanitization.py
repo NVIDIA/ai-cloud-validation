@@ -185,7 +185,6 @@ class MemorySanitizationCheck(_TenantSanitizationCheck):
     """
 
     description: ClassVar[str] = "Check host memory is sanitized between tenants"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "sanitization")
     subject: ClassVar[str] = "Host memory sanitization"
     subtest_prefix: ClassVar[str] = "memory"
 
@@ -206,7 +205,6 @@ class GpuMemorySanitizationCheck(_TenantSanitizationCheck):
     """
 
     description: ClassVar[str] = "Check SRAM/GPU memory is sanitized between tenants"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "sanitization", "gpu")
     subject: ClassVar[str] = "GPU memory sanitization"
     subtest_prefix: ClassVar[str] = "gpu_memory"
     gpu_only: ClassVar[bool] = True
@@ -230,7 +228,6 @@ class FirmwareResetCheck(_TenantSanitizationCheck):
     """
 
     description: ClassVar[str] = "Check TPM/BIOS are reset during tenant transitions"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "sanitization", "firmware")
     subject: ClassVar[str] = "Firmware reset"
     subtest_prefix: ClassVar[str] = "firmware"
 
@@ -281,6 +278,5 @@ class DiskSanitizationCheck(_TenantSanitizationCheck):
     """
 
     description: ClassVar[str] = "Check storage is sanitized on delete between tenants"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "sanitization", "disk")
     subject: ClassVar[str] = "Storage sanitization"
     subtest_prefix: ClassVar[str] = "disk"

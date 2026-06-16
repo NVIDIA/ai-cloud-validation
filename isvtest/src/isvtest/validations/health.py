@@ -86,7 +86,6 @@ class HostHealthCheck(BaseValidation):
 
     description: ClassVar[str] = "Check per-host health API returns a fresh, alert-free report"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "health")
 
     def _blocking_alerts(self, host: dict[str, Any], fail_on: list[str] | None) -> list[dict[str, Any]]:
         """Return the host alerts that count as blocking under the config."""
@@ -242,7 +241,6 @@ class HealthAggregationCheck(BaseValidation):
 
     description: ClassVar[str] = "Check primitive-level health aggregation is exposed and consistent"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "health")
 
     def run(self) -> None:
         """Validate aggregation presence, per-group count consistency, and status."""

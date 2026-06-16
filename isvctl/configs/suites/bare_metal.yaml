@@ -430,6 +430,8 @@ tests:
       step: verify_ingestion
       checks:
         HardwareIngestionCheck:
+          test_id: "HWING-XX-01"
+          labels: ["bare_metal", "ingestion"]
           min_machines: 1
           expected_status: ["Ready", "InUse"]
           require_healthy: true
@@ -440,6 +442,8 @@ tests:
       step: check_dpu_health
       checks:
         DpuHealthCheck:
+          test_id: "BMAAS-XX-05"
+          labels: ["bare_metal", "dpu"]
           require_heartbeat: true
 
     # Governance metrics (CAP01-01): the provider's governance API must
@@ -450,6 +454,8 @@ tests:
       step: query_governance_metrics
       checks:
         GovernanceMetricsCheck:
+          test_id: "CAP01-01"
+          labels: ["bare_metal", "governance"]
           min_delivered_nodes: 1
 
     # Per-host health API (CAP05-01). Asserts the API returns a report per host
@@ -462,6 +468,8 @@ tests:
       step: query_host_health
       checks:
         HostHealthCheck:
+          test_id: "CAP05-01"
+          labels: ["bare_metal", "health"]
           require_report: true
 
     # Primitive-level health aggregation at the nodegroup/reservation level
@@ -471,6 +479,8 @@ tests:
       step: query_health_aggregation
       checks:
         HealthAggregationCheck:
+          test_id: "CAP05-02"
+          labels: ["bare_metal", "health"]
           min_groups: 1
 
     # InfiniBand tenant isolation (SDN04-04). Verifies each tenant's IB
@@ -482,6 +492,8 @@ tests:
       step: query_ib_tenant_isolation
       checks:
         IbTenantIsolationCheck:
+          test_id: "SDN04-04"
+          labels: ["bare_metal", "security", "network", "infiniband"]
           min_partitions: 1
 
     # InfiniBand security keys (SDN04-05). The full requirement covers the
@@ -496,6 +508,8 @@ tests:
       step: query_ib_keys
       checks:
         IbKeysConfiguredCheck:
+          test_id: "SDN04-05"
+          labels: ["bare_metal", "security", "network", "infiniband"]
           required_keys: ["p_key", "management_key"]
 
     # Tenant-transition data sanitization (SEC21 / SEC22). Each check asserts
@@ -509,17 +523,23 @@ tests:
     memory_sanitization:
       step: query_sanitization
       checks:
-        MemorySanitizationCheck: {}
+        MemorySanitizationCheck:
+          test_id: "SEC21-04"
+          labels: ["bare_metal", "security", "sanitization"]
 
     gpu_memory_sanitization:
       step: query_sanitization
       checks:
-        GpuMemorySanitizationCheck: {}
+        GpuMemorySanitizationCheck:
+          test_id: "SEC21-05"
+          labels: ["bare_metal", "security", "sanitization", "gpu"]
 
     firmware_reset:
       step: query_sanitization
       checks:
-        FirmwareResetCheck: {}
+        FirmwareResetCheck:
+          test_id: "SEC21-06"
+          labels: ["bare_metal", "security", "sanitization", "firmware"]
 
     # SEC21-02: confirm storage is sanitized on delete. Gates on the same
     # sanitizing lifecycle stage as the memory check, because that stage also
@@ -528,7 +548,9 @@ tests:
     disk_sanitization:
       step: query_sanitization
       checks:
-        DiskSanitizationCheck: {}
+        DiskSanitizationCheck:
+          test_id: "SEC21-02"
+          labels: ["bare_metal", "security", "sanitization", "disk"]
 
     # Hardware/firmware attestation (SEC22 / CNP09). Each check asserts a host
     # establishes a hardware root of trust. Only runs for providers that
@@ -540,12 +562,16 @@ tests:
     nonce_attestation:
       step: query_attestation
       checks:
-        NonceAttestationCheck: {}
+        NonceAttestationCheck:
+          test_id: "SEC22-01"
+          labels: ["bare_metal", "security", "attestation"]
 
     firmware_attestation:
       step: query_attestation
       checks:
-        FirmwareAttestationCheck: {}
+        FirmwareAttestationCheck:
+          test_id: "CNP09-02"
+          labels: ["bare_metal", "security", "attestation", "firmware"]
 
   exclude:
     labels: []

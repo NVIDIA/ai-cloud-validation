@@ -150,7 +150,6 @@ class NonceAttestationCheck(_AttestationCheck):
     """
 
     description: ClassVar[str] = "Check hardware passes a fresh nonce-based attestation"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "attestation")
     subject: ClassVar[str] = "Nonce attestation"
     subtest_prefix: ClassVar[str] = "nonce"
 
@@ -184,7 +183,6 @@ class FirmwareAttestationCheck(_AttestationCheck):
     """
 
     description: ClassVar[str] = "Check all firmware is signed and attested during boot"
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "attestation", "firmware")
     subject: ClassVar[str] = "Firmware attestation"
     subtest_prefix: ClassVar[str] = "firmware"
 

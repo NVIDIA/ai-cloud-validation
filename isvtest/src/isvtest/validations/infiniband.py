@@ -126,7 +126,6 @@ class IbTenantIsolationCheck(BaseValidation):
 
     description: ClassVar[str] = "Check InfiniBand tenant isolation via per-tenant P_Key partitioning"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "network", "infiniband")
 
     def run(self) -> None:
         """Validate per-tenant P_Key scoping and the absence of cross-tenant key sharing."""
@@ -267,7 +266,6 @@ class IbKeysConfiguredCheck(BaseValidation):
 
     description: ClassVar[str] = "Check InfiniBand security keys (P_Key, Management Key, ...) are configured"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "network", "infiniband")
 
     def run(self) -> None:
         """Validate the required InfiniBand keys are verified configured."""

@@ -1363,7 +1363,6 @@ class StorageL3RoutingCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check all-to-all L3 routing between storage hosts"
-    labels: ClassVar[tuple[str, ...]] = ("network",)
 
     def run(self) -> None:
         """Validate required L3 routing subtests and report full-mesh reachability."""

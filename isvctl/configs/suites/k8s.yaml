@@ -129,6 +129,15 @@ tests:
           wait_timeout: 900
           poll_interval: 10
 
+    # Multi-cluster tenancy/VPC proof (K8S26-01). Only runs for providers that
+    # implement create_test_shared_vpc_cluster and bind this check to that step.
+    k8s_multi_cluster:
+      checks:
+        K8sMultiClusterSameVpcCheck:
+          test_id: "K8S26-01"
+          labels: ["kubernetes"]
+          step: create_test_shared_vpc_cluster
+
     kubernetes:
       checks:
         K8sNodeCountCheck:
