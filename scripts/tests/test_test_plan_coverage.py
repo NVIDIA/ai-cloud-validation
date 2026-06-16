@@ -20,6 +20,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _spec = importlib.util.spec_from_file_location(
     "test_plan_coverage", Path(__file__).resolve().parent.parent / "test_plan_coverage.py"
 )
@@ -102,6 +104,21 @@ def test_consistency_passes_when_yaml_label_supplies_domain() -> None:
     assert test_plan_coverage.consistency_errors(entries)  # missing label -> error
     merged = test_plan_coverage.apply_config_labels(entries, {"StepSuccessCheck": ["security"]})
     assert test_plan_coverage.consistency_errors(merged) == []
+
+
+def test_load_plan_rejects_duplicate_test_ids(tmp_path: Path) -> None:
+    """A test_id repeated in the plan is fatal, not a silent last-write-wins."""
+    plan = tmp_path / "plan.yaml"
+    plan.write_text(
+        "domains:\n"
+        "  - components:\n"
+        "      - capabilities:\n"
+        "          - tests:\n"
+        '              - {test_id: "SEC01-01", summary: first}\n'
+        '              - {test_id: "SEC01-01", summary: second}\n'
+    )
+    with pytest.raises(SystemExit, match="SEC01-01"):
+        test_plan_coverage.load_plan(plan)
 
 
 def test_repo_metadata_passes_all_guardrails() -> None:

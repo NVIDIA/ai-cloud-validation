@@ -83,16 +83,29 @@ PREFIX_REQUIRED_LABELS: dict[str, str] = {
 
 
 def load_plan(path: Path = PLAN_PATH) -> dict[str, dict[str, Any]]:
-    """Return a mapping of ``test_id`` to its test-plan entry."""
+    """Return a mapping of ``test_id`` to its test-plan entry.
+
+    A ``test_id`` is a unique identifier, so a repeated one in the plan is an
+    authoring error that would silently shadow an earlier entry and corrupt every
+    derived report. Fail loudly rather than letting the last write win.
+    """
     data = yaml.safe_load(path.read_text())
     entries: dict[str, dict[str, Any]] = {}
+    duplicates: list[str] = []
     for domain in data.get("domains", []):
         for comp in domain.get("components", []):
             for cap in comp.get("capabilities", []):
                 for test in cap.get("tests", []):
                     tid = test.get("test_id")
-                    if tid:
+                    if not tid:
+                        continue
+                    if tid in entries:
+                        duplicates.append(tid)
+                    else:
                         entries[tid] = test
+    if duplicates:
+        joined = ", ".join(sorted(set(duplicates)))
+        raise SystemExit(f"duplicate test_id(s) in {path.name}: {joined}")
     return entries
 
 
@@ -376,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="CI guardrails: fail on integrity, completeness, or consistency errors.",
+        help="CI guardrails: fail on integrity or consistency errors.",
     )
     parser.add_argument("--json", metavar="PATH", help="Write the coverage report as JSON to PATH.")
     parser.add_argument("--markdown", metavar="PATH", help="Write the coverage report as Markdown to PATH.")
