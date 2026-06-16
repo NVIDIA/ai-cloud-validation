@@ -1869,8 +1869,12 @@ class TestHostSoftwareCheckBiosBaselines:
                 return (0, "2\n", "")
             if "--query-gpu=driver_version" in cmd:
                 return (0, "550.54.15\n", "")
-            if "grep 'CUDA Version'" in cmd:
-                return (0, "12.4\n", "")
+            if cmd.strip() == "nvidia-smi":
+                return (
+                    0,
+                    "| NVIDIA-SMI 550.54.15    Driver Version: 550.54.15    CUDA Version: 12.4     |\n",
+                    "",
+                )
             if "/sys/module/nvidia/version" in cmd:
                 return (0, "550.54.15\n", "")
             if "--query-gpu=persistence_mode" in cmd:
@@ -2028,8 +2032,12 @@ class TestHostSoftwareCheckTpmBaselines:
                 return (0, f"{tpm_output}\n", "")
             if "--query-gpu=driver_version" in cmd:
                 return (0, "550.54.15\n", "")
-            if "grep 'CUDA Version'" in cmd:
-                return (0, "12.4\n", "")
+            if cmd.strip() == "nvidia-smi":
+                return (
+                    0,
+                    "| NVIDIA-SMI 550.54.15    Driver Version: 550.54.15    CUDA Version: 12.4     |\n",
+                    "",
+                )
             if "/sys/module/nvidia/version" in cmd:
                 return (0, "550.54.15\n", "")
             if "--query-gpu=persistence_mode" in cmd:
