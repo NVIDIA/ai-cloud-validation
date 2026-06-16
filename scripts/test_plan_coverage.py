@@ -144,68 +144,52 @@ def config_label_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     return {name: sorted(labels) for name, labels in out.items()}
 
 
-def apply_config_labels(
-    entries: list[dict[str, Any]], label_map: dict[str, list[str]] | None = None
-) -> list[dict[str, Any]]:
-    """Return entries whose ``labels`` are unioned with config-declared labels.
-
-    Mirrors :func:`apply_config_test_ids`: merges the YAML wiring labels onto
-    each catalog entry. A variant's labels propagate up to its base class so the
-    base entry carries the same domain labels.
-    """
-    label_map = config_label_map() if label_map is None else label_map
-    base_union: dict[str, set[str]] = defaultdict(set)
-    for name, labels in label_map.items():
-        base_union[_variant_base(name)].update(labels)
-
-    merged: list[dict[str, Any]] = []
-    for entry in entries:
-        name = entry["name"]
-        cfg_labels = set(label_map.get(name, []))
-        if name == _variant_base(name):
-            cfg_labels |= base_union.get(name, set())
-        if cfg_labels:
-            union = sorted(set(entry.get("labels") or []) | cfg_labels)
-            entry = {**entry, "labels": union}
-        merged.append(entry)
-    return merged
-
-
 def _variant_base(name: str) -> str:
     """Return the base class name for a variant entry ("SlurmPartition-cpu" -> "SlurmPartition")."""
     return name.split("-")[0]
 
 
-def apply_config_test_ids(
-    entries: list[dict[str, Any]], config_map: dict[str, list[str]] | None = None
+def _apply_variant_union(
+    entries: list[dict[str, Any]], value_map: dict[str, list[str]], attr: str
 ) -> list[dict[str, Any]]:
-    """Return entries whose ``test_ids`` are unioned with config-declared ids.
-
-    Test IDs live on the YAML wiring, so this attaches each check's wired
-    ``test_id``(s) to its catalog entry.
+    """Union ``value_map`` onto each entry's ``attr`` list, propagating variants.
 
     Some checks are wired only as variants (e.g. ``SlurmPartition-cpu``,
     ``SlurmPartition-gpu``) while the catalog also carries the bare base class
-    (``SlurmPartition``). A variant's test_id is propagated up to its base so
-    the base entry is not orphaned once its class-level id is removed; variant
-    entries keep only their own id to preserve per-wiring precision.
+    (``SlurmPartition``). A variant's values are propagated up to its base so the
+    base entry is not orphaned once its class-level metadata is removed; variant
+    entries keep only their own values to preserve per-wiring precision.
     """
-    config_map = config_test_id_map() if config_map is None else config_map
     base_union: dict[str, set[str]] = defaultdict(set)
-    for name, ids in config_map.items():
-        base_union[_variant_base(name)].update(ids)
+    for name, values in value_map.items():
+        base_union[_variant_base(name)].update(values)
 
     merged: list[dict[str, Any]] = []
     for entry in entries:
         name = entry["name"]
-        cfg_ids = set(config_map.get(name, []))
+        cfg_values = set(value_map.get(name, []))
         if name == _variant_base(name):
-            cfg_ids |= base_union.get(name, set())
-        if cfg_ids:
-            union = sorted(set(entry.get("test_ids") or []) | cfg_ids)
-            entry = {**entry, "test_ids": union}
+            cfg_values |= base_union.get(name, set())
+        if cfg_values:
+            entry = {**entry, attr: sorted(set(entry.get(attr) or []) | cfg_values)}
         merged.append(entry)
     return merged
+
+
+def apply_config_labels(
+    entries: list[dict[str, Any]], label_map: dict[str, list[str]] | None = None
+) -> list[dict[str, Any]]:
+    """Return entries whose ``labels`` are unioned with config-declared labels."""
+    label_map = config_label_map() if label_map is None else label_map
+    return _apply_variant_union(entries, label_map, "labels")
+
+
+def apply_config_test_ids(
+    entries: list[dict[str, Any]], config_map: dict[str, list[str]] | None = None
+) -> list[dict[str, Any]]:
+    """Return entries whose ``test_ids`` are unioned with config-declared ids."""
+    config_map = config_test_id_map() if config_map is None else config_map
+    return _apply_variant_union(entries, config_map, "test_ids")
 
 
 def entries_from_config_maps(
