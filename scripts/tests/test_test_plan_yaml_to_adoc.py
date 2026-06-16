@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for test_plan_yaml_to_adoc.py: live status icons and the bare-#N invariant."""
+"""Tests for test_plan_yaml_to_adoc.py and the bare-#N github_issues invariant."""
 
 from __future__ import annotations
 
@@ -39,31 +39,18 @@ def _plan(github_issues: list[str]) -> dict[str, Any]:
     }
 
 
-def test_fmt_gh_issues_renders_state_from_live_states() -> None:
-    """Icons come from the live ``states`` arg, not from the YAML."""
-    assert "check-circle" in adoc.fmt_gh_issues_adoc(["#40"], {40: "closed"})
-    assert "exclamation-circle" in adoc.fmt_gh_issues_adoc(["#40"], {40: "open"})
-
-
-def test_fmt_gh_issues_unknown_state_renders_plain_link() -> None:
-    """When state is unknown (offline render), emit a plain link with no icon."""
-    out = adoc.fmt_gh_issues_adoc(["#40"], {})
-    assert "issues/40[#40]" in out
+def test_fmt_gh_issues_renders_plain_links() -> None:
+    """Issue references render as plain GitHub links (no Asciidoctor icon macros)."""
+    out = adoc.fmt_gh_issues_adoc(["#40", "#41"])
+    assert out == (
+        "https://github.com/NVIDIA/ai-cloud-validation/issues/40[#40] +\n"
+        "https://github.com/NVIDIA/ai-cloud-validation/issues/41[#41]"
+    )
     assert "icon:" not in out
 
 
-def test_fetch_issue_states_falls_back_when_gh_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`make plan` must still work offline: gh failure yields an empty mapping."""
-
-    def boom(*_a: Any, **_k: Any) -> Any:
-        raise FileNotFoundError("gh")
-
-    monkeypatch.setattr(adoc.subprocess, "run", boom)
-    assert adoc.fetch_issue_states({1, 2}) == {}
-
-
 def test_validate_rejects_stored_issue_state() -> None:
-    """Storing open/closed in the YAML is rejected - state is derived at render time."""
+    """Storing open/closed in the YAML is rejected."""
     with pytest.raises(SystemExit):
         adoc.validate_test_plan(_plan(["#40 (closed)"]))
 
