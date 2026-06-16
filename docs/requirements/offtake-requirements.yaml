@@ -1,0 +1,778 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Offtake requirements - structured source of record (in-repo, public).
+# Curated from the publicly-published 'NVIDIA Requirements Guide for AI Clouds'
+
+source: offtake
+title: NVIDIA Requirements Guide for AI Clouds
+version: 2.3.1
+requirements:
+  - req_id: BM01
+    section: Exemplar Cloud Workload Performance
+    subsection: ''
+    area: Run per Scalable Unit (e.g. 512 GPU cluster)
+    test_details: Benchmarking for exemplar cloud
+    description: Achieve within 5% of an NVIDIA provided target performance number; this should be run on every Scalable Unit (SU) handed off
+  - req_id: CNP01
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: API/CLI Access
+    test_details: 'BM: #49, #52, #53, #57, #106, #108, #105, VM: #42, #45, #46, #47, #50, #110, #111, TBD-topo'
+    description: 'DGXC must have API or CLI access to the NCP provisioning system for: (1) Node lifecycle management (create, update, delete, list, or manage power states (reboot, on/off power cycle); (2) Network configuration; (3) Inventory and topology discovery; (4) security configuration (users, service accounts, groups, roles); (5) Maintenance and operations (see later section) (storage discussed in storage section)'
+  - req_id: CNP02
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: Declarative Resource Interfaces
+    test_details: INFO
+    description: For resources requiring multiple steps and a workflow, please provide the appropriate mechanism. A terraform provider is preferred. E.g. automating filesystem provisioning
+  - req_id: CNP03
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: NVLink-Aware Allocation
+    test_details: TBD-topo
+    description: For NVL72 the API must support NVLink domain-aware allocation
+  - req_id: CNP04
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: Resource States
+    test_details: 'BM: #51 VM: #45'
+    description: Must support clear resource (e.g. instance, network) states where applicable. For example, provisioning, running, degraded, maintenance required, stopping, stopped, terminating, terminated.
+  - req_id: CNP05
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: Tagging
+    test_details: 'VM: #112 TBD-tag'
+    description: Support for user-defined tags/labels and cloud-init metadata on instances.
+  - req_id: CNP06
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: Console Access
+    test_details: TBD-console
+    description: Serial console access is required (read-only sufficient, interactive preferred).Serial console output shall be logged and be available for historic queries (at least 1 month retention).
+  - req_id: CNP07
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: 'If VMaaS present: # VMs/Node'
+    test_details: INFO
+    description: 'GPU Nodes: no more than one VM per Node General Purpose CPU Nodes: More than one per node, with ability to select via memory/core count shape.'
+  - req_id: CNP08
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: Stable Identifiers
+    test_details: add
+    description: All resources (e.g. nodes, switches) must have a stable and persistent ID that does not change during the lifespan, even when it goes offline for a service event. VMs must also have a stable identifier.
+  - req_id: CNP09
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: Firmware
+    test_details: TBD
+    description: Between tenants, all firmware must be brought to a known good state, all firmware must be cryptographically signed and attested during boot.
+  - req_id: CNP10
+    section: Compute and Network Provisioning
+    subsection: General, Compute & Lifecycle Management
+    area: Remote Management
+    test_details: add
+    description: Platform management solutions (e.g., BMC) must support Redfish over TLS (Disable IPMI).
+  - req_id: BOOT01
+    section: Compute and Network Provisioning
+    subsection: Boot Process & Disks
+    area: Image Deployment & Updates
+    test_details: '#38, #39, #4 , #43, #44, #58, add-k8s'
+    description: API-driven workflow allowing DGXC to deploy, update, and manage vendor-provided or custom disk images via bare-metal, VM, or k8s node pool provisioning.
+  - req_id: BOOT02
+    section: Compute and Network Provisioning
+    subsection: Boot Process & Disks
+    area: Access to Instance Metadata from Guest OS
+    test_details: 'BM: #107 VM: #113'
+    description: Support for cloud-init and instance metadata discovery via link-local addresses or virtual devices.
+  - req_id: BOOT03
+    section: Compute and Network Provisioning
+    subsection: Boot Process & Disks
+    area: Custom Disk Images
+    test_details: '#104, #40'
+    description: 'Support for tenant created custom OS images (either of: raw, qcow2, etc). API calls: get, list, create, delete. Images should be accessible across all tenant projects/clusters/environments.'
+  - req_id: BOOT04
+    section: Compute and Network Provisioning
+    subsection: Boot Process & Disks
+    area: Node Local Storage
+    test_details: TBD
+    description: GPU and CPU nodes support access to node local storage (NVMe / SSD) for use as scratch storage or for caching services
+  - req_id: SDN01
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: Virtual Networking
+    test_details: '#11, #12, #13, #14: #115 #116'
+    description: Full API/CLI lifecycle management (Create, Read, Update, Delete, List) for software-defined private networks. Must support non-conflicting BYOIP (including 7.0.0.0/8) and stable private IP allocations. Applicable to all types of resource nodes (CPU, GPU, Storage, etc).
+  - req_id: SDN02
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: Security Groups
+    test_details: TBD (assign GH issue)
+    description: Support for VPC-style security groups (or equivalent), including IP/CIDR-based allow and deny rules. Must define scope/application at workload, node, service (e.g. K8s API Service) and subnet/tenant levels.
+  - req_id: SDN03
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: Security Operations
+    test_details: add
+    description: Full API/CLI capabilities to Create, Read, Update, and Delete security groups, including defined audit processes
+  - req_id: SDN04
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: Tenant Isolation
+    test_details: '#16, #17, #18'
+    description: Hard logical or physical network segmentation for out-of-band management (BMC), user traffic, and storage-specific operations.
+  - req_id: SDN05
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: Floating/Movable IP
+    test_details: '#117'
+    description: Ability to automatically or API-driven switch a floating private IP between nodes via API within <10 seconds without requiring an instance reboot.
+  - req_id: SDN06
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: Localized DNS
+    test_details: '#118'
+    description: Support for tenant-defined localized DNS configuration to enable internal domain resolution to private endpoints (e.g. storage endpoints)
+  - req_id: SDN07
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: VPC Peering
+    test_details: '#119'
+    description: Support for cross-virtual-network connectivity with full bandwidth and no "hairpin" routing.
+  - req_id: SDN08
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: Storage Mesh Connectivity
+    test_details: INFO
+    description: The virtual network (from SDN01) must provide unrestricted L3 routing between all storage hosts, enabling full-mesh, all-to-all communication across different subnet (w/o going thru a gateway)
+  - req_id: SDN09
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: Observability
+    test_details: INFO
+    description: The platform shall provide comprehensive logging for network infrastructure, including hardware faults, latency/performance fluctuations, and a detailed audit trail of all configuration changes to network filtering rules..
+  - req_id: SDN10
+    section: Compute and Network Provisioning
+    subsection: SDN & Virtual Networking
+    area: DNS private domain
+    test_details: ''
+    description: must allow each nodes DNS resolver to forward a tenant-defined private domains (e.g. *.nvidia.com) to a tenant specified DNS server
+  - req_id: K8S01
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: ''
+    area: Certified Versions
+    test_details: TBD-cncf tests
+    description: 'Certified Upstream Versions: Official CNCF-certified versions only; no proprietary forks, and passes the standard Kubernetes conformance tests.'
+  - req_id: K8S02
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: ''
+    area: Version Updates
+    test_details: INFO
+    description: Support the three most recent minor releases (in the maintenance window); new minor versions must be available within 4-6 weeks of the upstream release; automated control plane security patching.
+  - req_id: K8S03
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: ''
+    area: EOL Policy
+    test_details: INFO
+    description: Defined notification periods for version deprecation.
+  - req_id: K8S04
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: ''
+    area: Kubernetes Security Response
+    test_details: INFO
+    description: 'Must participate in the Kubernetes Security Response Committee (SRC) process. Must be attempting to join if not part of the security committee. Must be able to: Responsibly disclose any discovered vulnerabilities to the Kubernetes SRC Receive and respond to embargo notifications from the SRC Patch disclosed vulnerabilities in the managed service during embargo prior to public disclosure and in compliance with direction provided from the Kubernetes SRC ensuring that the patching process does not violate embargo or SRC guidance.'
+  - req_id: K8S05
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Operational Excellence
+    area: Lifecycle Management - control plane
+    test_details: '#2, #5, #6'
+    description: API/CLI/Terraform Provider for CRUD provisioning; <30 min control plane bring-up.
+  - req_id: K8S06
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Operational Excellence
+    area: Lifecycle Management - node pool
+    test_details: add
+    description: API/CLI/Terraform for CRUD provisioning ( e.g., create node pool, update node pool, delete node pool, scale a node pool to a target count). Must be able to specify node type (specific CPU or GPU instance type) including CPU-only node pools with high-performance networking for data movement and ingest workloads Ability to specify default node labels and node taints within a node pool when a node joins the cluster. When down-scaling a node pool, ability to down-scale bad/specific nodes.
+  - req_id: K8S07
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Operational Excellence
+    area: API Server Metrics
+    test_details: ''
+    description: Share API Server metrics in a Prometheus scrapable format to allow NVIDIA to measure API Server SLO
+  - req_id: K8S08
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Operational Excellence
+    area: Versioning
+    test_details: INFO
+    description: Provider-managed control plane upgrade processes.
+  - req_id: K8S09
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Operational Excellence
+    area: Zero-Downtime Upgrades
+    test_details: INFO
+    description: Minor version control plane updates without app downtime or maintenance windows.
+  - req_id: K8S10
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Operational Excellence
+    area: Node Upgrades
+    test_details: TBD
+    description: user-initiated rolling updates respecting pod disruption budgets.
+  - req_id: K8S11
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Operational Excellence
+    area: HA Control Plane
+    test_details: INFO
+    description: Redundant architecture with etcd separation.
+  - req_id: K8S12
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Operational Excellence
+    area: Backup & Disaster Recovery
+    test_details: INFO
+    description: Supported recovery within defined RPO/RTO; needs to be auditable & testable
+  - req_id: K8S14
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Robust K8s Security
+    area: Control Plane Isolation
+    test_details: TBD
+    description: Per tenant k8s control plane nodes must be separate from worker nodes and outside of the tenant cluster/VPC.
+  - req_id: K8S15
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Robust K8s Security
+    area: Access Controls
+    test_details: TBD
+    description: Cluster endpoint must provide network access controls.
+  - req_id: K8S16
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Robust K8s Security
+    area: IAM Integration
+    test_details: TBD
+    description: Kubernetes Service Accounts shall integrate with the platform IAM system to enable workloads to assume platform-managed identities and roles with appropriate scopes.
+  - req_id: K8S17
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Robust K8s Security
+    area: Service Accounts
+    test_details: TBD
+    description: Kubernetes shall support standard Service Accounts and projected tokens as the workload identity mechanism, including a cluster-specific OIDC issuer to enable workload identity federation. The cluster shall expose OIDC discovery and JWKS endpoints that are reachable by configured external identity consumers (e.g. AWS IAM, GCP workload identity)
+  - req_id: K8S19
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Robust K8s Security
+    area: Encryption
+    test_details: INFO
+    description: at-rest encryption for etcd and secrets
+  - req_id: K8S20
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Robust K8s Security
+    area: Logging
+    test_details: add
+    description: Ability to view or export Kubernetes control plane logs (apiserver, kcm).
+  - req_id: K8S21
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Component and Extension Requirements
+    area: API Extensions
+    test_details: add
+    description: Mandatory support for CRDs and Validating/Mutating Admission Controllers.
+  - req_id: K8S22
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Component and Extension Requirements
+    area: CNI
+    test_details: add
+    description: Standard compliance; supports Network Policies; IPv4/IPv6 dual-stack desired.
+  - req_id: K8S23
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Component and Extension Requirements
+    area: CSI
+    test_details: add
+    description: NCP provides CSI Driver installable by NVIDIA (helm or kustomize) for Block, shared FS, and NFS Support for static and dynamic provisioning, snapshots, and resizing via PVs and PVCs. CSI credentials are tenant cluster scoped (no cross cluster) APIs to query storage usage against overall cluster quota with per PVC/Volume usage to manage utilization across PVCs and manage quotas using provided credentials Vendor provided storage kernel modules and tools provided via (1) installed by CSI driver, (2) pre-installed in NCP provided machine image or (3) installable packages provided
+  - req_id: K8S24
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Component and Extension Requirements
+    area: DRA
+    test_details: TBD
+    description: Enabled Dynamic Resource Allocation (DRA) regardless of upstream feature status (Beta/GA). Some DRA features require enabling feature gates for the control plane, in case our customers want to run AI workload with new DRA features
+  - req_id: K8S25
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Component and Extension Requirements
+    area: Operator Support
+    test_details: add
+    description: Support standard operator-based management of hardware accelerators and associated drivers. Provider-default accelerator operators and drivers shall be replaceable or overridable to allow installation of tenant-required operator and driver versions (e.g., GPU Operator, Network Operator). Provide golden configurations for GPU Operator and Network Operator.
+  - req_id: K8S26
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Functionality
+    area: Clusters
+    test_details: add
+    description: Support multiple clusters in the same tenancy; support multiple clusters in the same VPC.
+  - req_id: K8S27
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Functionality
+    area: Kubernetes Control Plane size pinning
+    test_details: add
+    description: Pin Control Plane instances to handle a particular load-limit
+  - req_id: K8S28
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Functionality
+    area: Performance
+    test_details: add
+    description: Meet the standard Kubernetes performance test certified up to 5000 nodes (or to the maximum size of the cluster, whichever is smaller) - size CP as necessary. Managed Kubernetes Control Plane SLO and Performance meets or better than the Kubernetes standards results.
+  - req_id: K8S29
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Functionality
+    area: Kubernetes LoadBalancer Service Support
+    test_details: ''
+    description: 'The platform shall support Kubernetes Service resources of type LoadBalancer, including: External load balancers with publicly routable IPs Internal load balancers with private IPs reachable via private network access Static IP assignment'
+  - req_id: K8S30
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Functionality
+    area: DNS Configuration
+    test_details: ''
+    description: The platform shall support configuring Kubernetes internal DNS (e.g. CoreDNS) with conditional forwarding rules for specified DNS zones to designated enterprise or internal DNS resolvers.
+  - req_id: K8S31
+    section: Kubernetes As a Service (KaaS) Requirements
+    subsection: Kubernetes Functionality
+    area: Configurable Kubernetes CIDR ranges
+    test_details: ''
+    description: Ability to configure Kubernetes service IP range, Node IP range, and Pod IP range.
+  - req_id: SEC01
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Authentication
+    test_details: add
+    description: 'Users: Support standards-based user authentication via OIDC and SAML 2.0, including federation with external identity providers (e.g. NVIDIA’s enterprise IdP) for single sign-on (SSO) across platform and tenant-facing services. Validate OIDC-issued tokens including signature, issuer, audience, expiration, and required claims for identity and authorization decisions.'
+  - req_id: SEC03
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Authentication
+    test_details: add
+    description: 'External Services: Support authentication of out of cluster service accounts for service-to-service access. Must support credential-based access, including long-lived credentials where required. If long-lived credentials (e.g. API keys) are issued, the platform will support configurable expiration and rotation. Need ownership attribution for all service accounts. The platform shall provide account information (such as detection of unused accounts).'
+  - req_id: SEC04
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Authorization (RBAC)
+    test_details: add INFO
+    description: The platform shall enforce least-privilege RBAC for all managed services and infrastructure, featuring granular API actions (e.g. CRUD), scopes (e.g. dev vs staging vs prod), and function (e.g. image builder, provisioner, auditor). Roles and permissions shall be assignable to groups, with users inheriting access through group membership (GBAC); group membership may be sourced from OIDC claims and/or SCIM-provisioned groups.
+  - req_id: SEC05
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Identity / Directory Services
+    test_details: INFO
+    description: The platform shall integrate with the NVIDIA LDAP (RFC2307bis) directory service such that users identities and group membership can be resolved by dependent services for authentication and authorization decisions (e.g. storage - POSIX-based access control )
+  - req_id: SEC06
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Workload/Service Identity
+    test_details: INFO
+    description: Support standard workload, service, and node security identities using short-lived credentials, including OIDC-based workload identity federation and Kubernetes Service Accounts where applicable.
+  - req_id: SEC07
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Admin Interfaces
+    test_details: INFO
+    description: All administrative interfaces—whether UI, CLI, or API—must be protected by Multi-Factor Authentication (e.g. mgmt API)
+  - req_id: SEC08
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Audit Logs
+    test_details: add
+    description: Audit logs must be generated and retained for all security-relevant events, including management and control plane API calls, authentication events, and authorization decisions. Audit logs shall be retained for a minimum of 30 days and accessible to authorized platform operators. Must provide a log export mechanism (such as publishing to an S3 bucket). Exported logs should include sufficient metadata to identify tenant, project/account, region, service, resource identifier, actor, event timestamp, source IP where applicable, action, and authorization result.
+  - req_id: SEC23
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Provisioning
+    test_details: ''
+    description: The platform shall support SCIM 2.0 for automated user and group lifecycle management from enterprise identity providers. SCIM endpoints shall require authenticated and authorized access, support core User and Group resource operations, and synchronize group membership changes with the platform authorization engine. Synchronized groups shall be first-class RBAC objects targetable by role bindings and IAM policies; membership changes shall propagate promptly across all managed services.
+  - req_id: SEC24
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Authentication
+    test_details: ''
+    description: Must support domain-based IdP routing, mapping multiple email domains to a designated identity provider (e.g., nvidia.com and nvw.nvidia.com to the NVIDIA enterprise IdP)
+  - req_id: SEC25
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: Organization-Level Guardrail Policies
+    test_details: add
+    description: The platform shall support organization-level security guardrail policies that cascade across all subordinate tenant resources (networks, clusters, storage, compute) and cannot be weakened or bypassed by lower-level configuration. Policy violations shall be denied at resource creation/update time and recorded in audit logs.
+  - req_id: SEC26
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: SSO Enforcement
+    test_details: add
+    description: The platform shall allow authorized administrators to enforce federated SSO for a tenant, restricting local username/password and other non-federated login for regular users. Enforcement shall apply consistently across UI, CLI, API, and administrative interfaces.
+  - req_id: SEC27
+    section: Security & Identity Management
+    subsection: Identity & Access Management (IAM)
+    area: ''
+    test_details: add
+    description: 'The platform shall expose a programmatic mechanism to create and manage: - Isolation Units (e.g., projects, sub-project) - IAM Users - Service Accounts - Logs'
+  - req_id: SEC09
+    section: Security & Identity Management
+    subsection: Cryptography and Key Management
+    area: Key & Certificate Lifecycle
+    test_details: Add INFO
+    description: The platform shall support secure issuance, distribution, storage, rotation, and revocation of cryptographic keys and certificates used across platform services. It shall support automated rotation of provider-managed and customer-managed keys and certificates, with configurable rotation intervals. Must be auditable. Must have an expiration date.
+  - req_id: SEC10
+    section: Security & Identity Management
+    subsection: Cryptography and Key Management
+    area: Key Usage
+    test_details: add
+    description: The platform shall support use of managed keys and certificates across platform services for encryption, authentication, and signing.
+  - req_id: SEC11
+    section: Security & Identity Management
+    subsection: Network Isolation & Encryption
+    area: Tenancy Model
+    test_details: add
+    description: Hard physical or logical isolation for network, data, and compute. Separation of control planes and tenants is mandatory. This includes separation of storage resources. Provide hierarchical tenancy (at least organization → project).
+  - req_id: SEC12
+    section: Security & Identity Management
+    subsection: Network Isolation & Encryption
+    area: BMC Security
+    test_details: add
+    description: Out-of-band management (BMC) must be on a dedicated, restricted network (physically separate or VLAN/VRF-isolated). Direct access from the public internet or general corporate networks must be blocked, and only accessed via a hardened bastion (jumphost) server.
+  - req_id: SEC13
+    section: Security & Identity Management
+    subsection: Network Isolation & Encryption
+    area: Network Traffic Encryption
+    test_details: add
+    description: Encryption and mutual authentication (mTLS or equivalent) for all east-west and north-south network traffic
+  - req_id: SEC14
+    section: Security & Identity Management
+    subsection: Edge Network Security
+    area: Private Access
+    test_details: INFO
+    description: No public internet access by default; all API endpoints (e.g. K8s API Server) must be restricted via firewall/private link.
+  - req_id: SEC15
+    section: Security & Identity Management
+    subsection: Edge Network Security
+    area: Edge Network Security Policy
+    test_details: INFO
+    description: All traffic must be filtered via Security Groups and/or user customizable ACLs using 5-tuple rules.
+  - req_id: SEC16
+    section: Security & Identity Management
+    subsection: Edge Network Security
+    area: Enforcement
+    test_details: INFO
+    description: NCP must specify the enforcement technology (e.g., Hardware firewalls, SDN, DPUs/SmartNICs) and its specific placement in the packet path.
+  - req_id: SEC17
+    section: Security & Identity Management
+    subsection: Edge Network Security
+    area: Threat Intelligence & Scale
+    test_details: INFO
+    description: Ability to subscribe to GeoIP threat & Embargo feeds and import them into security groups. NCP should share the max supported records/rules.
+  - req_id: SEC18
+    section: Security & Identity Management
+    subsection: Edge Network Security
+    area: 'MACSec protection links:'
+    test_details: INFO
+    description: Protect links between NCP Data Center and NVIDIA POP
+  - req_id: SEC19
+    section: Security & Identity Management
+    subsection: Hardware Security & Compliance
+    area: SOC 2
+    test_details: INFO
+    description: SOC2 type 1 or better is required covering Security, Availability, and Confidentiality across all services and DC infrastructure
+  - req_id: SEC20
+    section: Security & Identity Management
+    subsection: Hardware Security & Compliance
+    area: At-Rest Data Protection
+    test_details: INFO
+    description: Mandatory encryption of all data at rest (e.g. local NVMe/SSD, network-attached storage) via Self-Encrypted Drives (SED).
+  - req_id: SEC21
+    section: Security & Identity Management
+    subsection: Hardware Security & Compliance
+    area: Data Sanitization
+    test_details: add
+    description: Data sanitization must be performed between tenants or on a hardware replacement, including cryptographic erase of all data drives between tenants; sanitization/wipe of any persistent or volatile memory including SRAM/GPU memory; resetting of TPM and BIOS
+  - req_id: SEC22
+    section: Security & Identity Management
+    subsection: Hardware Security & Compliance
+    area: Root of Trust + Secure Boot.
+    test_details: INFO
+    description: Mandatory support across all platforms for Hardware Root of Trust mechanisms (TPM 2.0). The platform must enable UEFI OS Secure Boot w/ TPM 2.0.
+  - req_id: BFX01
+    section: Breakfix Requirements
+    subsection: ''
+    area: Breakfix lifecycle
+    test_details: add
+    description: 'Compute: Power-cycle individual nodes or reset a VM instance. GPU: Reset GPUs on an individual node (as needed - k8s) Maintenance: Return/Report an individual node and a rack to the Provider for maintenance Cordon: Mark a node as unschedulable for new workloads (but finish existing) Replace: Request a host-replacement when health thresholds are breached'
+  - req_id: BFX02
+    section: Breakfix Requirements
+    subsection: ''
+    area: Breakfix Events
+    test_details: ''
+    description: 'Query for any upcoming/current maintenance events for a node or rack Query for any retirement notices for a node/rack. Query for historical / status information for equipment repair. Event information should include: ticket open date ticket update date ticket close date Hardware Stable Identifier (e.g., node ID) Hardware category/type impacted (e.g., GPU, fan, interconnect) Maintenance/Error/fault description (some short description of the issue) Action: Categorization of action (e.g. repairs done on faulty GPUs to resolve the fault) Provider Account ID ticket ID Node Handover Date (Date when the node was deployed in Production)'
+  - req_id: BFX03
+    section: Breakfix Requirements
+    subsection: ''
+    area: Diagnostics
+    test_details: ''
+    description: Identify serial numbers of installed hardware (chassis, baseboard, network adapters, CPU, GPU, etc). Obfuscated but stable identifiers are also OK. Inspect firmware versions of compute nodes and NV switch trays.
+  - req_id: DIR01
+    section: Storage Requirements
+    subsection: Home Directory Storage
+    area: File Service uid/gid Quota feature
+    test_details: INFO
+    description: Configurable filesystem-wide limit, default user/gid quota settings, and per uid/gid overrides available. Usage accounting for uid/gids when the feature is enabled.
+  - req_id: DIR02
+    section: Storage Requirements
+    subsection: Home Directory Storage
+    area: Must be NFS storage
+    test_details: INFO
+    description: NVIDIA requires NFSv4 protocol shared storage to work Access control based on DLs requires POSIX
+  - req_id: DIR03
+    section: Storage Requirements
+    subsection: Home Directory Storage
+    area: Snapshots
+    test_details: ''
+    description: The file system must support the ability to provide snapshot / restore functionality.
+  - req_id: DIR04
+    section: Storage Requirements
+    subsection: Home Directory Storage
+    area: LDAP
+    test_details: ''
+    description: File Service must support integration with an NVIDIA-managed LDAP (see SEC05)
+  - req_id: HSS01
+    section: Storage Requirements
+    subsection: High-Speed Storage Service Requirements
+    area: Provisioning APIs
+    test_details: add
+    description: Storage provisioning may be via vendor portal/API or NCP portal/API.
+  - req_id: HSS02
+    section: Storage Requirements
+    subsection: High-Speed Storage Service Requirements
+    area: Performance
+    test_details: INFO
+    description: Must provision needed throughput requested for minimum bandwidth and IOPS.
+  - req_id: HSS03
+    section: Storage Requirements
+    subsection: High-Speed Storage Service Requirements
+    area: Integration
+    test_details: INFO
+    description: 'K8s: CSI support Breakfix API required to report storage issues'
+  - req_id: HSS04
+    section: Storage Requirements
+    subsection: High-Speed Storage Service Requirements
+    area: Quota Support
+    test_details: INFO
+    description: Configurable filesystem-wide limit, default user/gid quota settings, and per uid/gid overrides available. Usage accounting for uid/gids when the feature is enabled. Configurable directory quota settings … it must be possible to apply a quota for a given directory. Usage accounting for directory quotas when enabled.
+  - req_id: HSS05
+    section: Storage Requirements
+    subsection: High-Speed Storage Service Requirements
+    area: Upgrade, maintenance
+    test_details: INFO
+    description: Provider / NCP initiates desired maintenance. NVIDIA can schedule actual maintenance and can defer maintenance up to 2 weeks. Upgrades should be non-disruptive.
+  - req_id: HSS06
+    section: Storage Requirements
+    subsection: High-Speed Storage Service Requirements
+    area: RDMA Memory Protection
+    test_details: INFO
+    description: Storage systems using RDMA must enforce memory protection via authorization keys for both local and remote access
+  - req_id: HSS07
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Parallel high speed filesystem
+    test_details: INFO
+    description: Parallel or multi-path high-speed filesystem that supports scaling to thousands of simultaneous clients while sustaining requested performance.
+  - req_id: HSS08
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Single file system size
+    test_details: INFO
+    description: It must be possible to allocate a file system of at least 1 PiB even if the initial request is less. Growing to > 10PiB as cluster size increases. This hard requirement may be higher for a specific site and if so will be communicated via the ancillary services document.
+  - req_id: HSS09
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Multiple Filesystems (fungible total capacity)
+    test_details: INFO
+    description: Can have >1 filesystem within our total capacity. Minimal file system size <= 50 TiB.
+  - req_id: HSS10
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Filesystem expansion
+    test_details: INFO
+    description: Live file system expansion is supported, in terms of capacity, inodes, IO performance, and metadata operations performance. Performance should scale linearly with capacity.
+  - req_id: HSS11
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Client
+    test_details: INFO
+    description: 'Ability to describe your client: In-Kernel, userspace, or bare-metal client installation requirements. Support integration with client kernels / OS used by NVIDIA, as needed. DKMS-enabled packages available for Ubuntu 20.04, 22.04, and 24.04-based operating systems. ARM64 versions compatible with GB200-ready kernels are mandatory, e.g. Linux 6.8.x. Managed Storage Service Provider will provide client configuration best practices and configuration guidelines for filesystem options and kernel module configuration to reliably achieve optimal performance on ARM and x86_64-based clients.'
+  - req_id: HSS12
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Quota (User, project & group)
+    test_details: INFO
+    description: Must support soft and hard quotas - uid / gid / project(directory)-id quotas with enforcement.
+  - req_id: HSS13
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Root-squash
+    test_details: INFO
+    description: Nvidia needs to be able to enable or disable and manage root-squash at any time.
+  - req_id: HSS14
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: flock
+    test_details: INFO
+    description: It must be possible to mount the file system with flock.
+  - req_id: HSS15
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Ability to Audit Changes
+    test_details: INFO
+    description: Enable Nvidia to have access to changelog data for filesystem auditing and detailed user operations tracking. Tracking by uid/gid, create files, create dirs, rename files, rename dirs, delete files, delete dirs
+  - req_id: HSS16
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: HA
+    test_details: INFO
+    description: All services are required to tolerate any critical component failure in the backend and provide continued client access to all storage services in such cases.
+  - req_id: HSS17
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Multi-Node Coherency
+    test_details: INFO
+    description: One second or less for client attribute and dentry cache updates/invalidates
+  - req_id: HSS18
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: Client Multipathing
+    test_details: INFO
+    description: Clients must have multipathing to all storage servers
+  - req_id: HSS19
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: ''
+    area: LDAP (for NFS)
+    test_details: ''
+    description: NFS-based high-speed filesystem services must support integration with an NVIDIA-managed LDAP server (including unix uid group membership for users with > 16 group memberships) as per SEC05
+  - req_id: DMS01
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: Data Movement Systems Requirements
+    area: Dedicated K8s Cluster
+    test_details: add
+    description: Provider-managed k8s cluster (or ability to stand up our own) for Data Mover stack available ahead of the GPU cluster bringup to pre-stage data
+  - req_id: DMS02
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: Data Movement Systems Requirements
+    area: Data Mover Nodes (CPU)
+    test_details: INFO
+    description: Dedicated CPU nodes for running data mover - needs high performance networking (exact quantity will be communicated via ancillary services doc)
+  - req_id: DMS03
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: Data Movement Systems Requirements
+    area: Access to same GPU storage
+    test_details: INFO
+    description: Same filesystem as mounted on GPU nodes mounted on the Data Mover nodes (or ability to mount the same filesystem via CSI)
+  - req_id: DMS04
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: Data Movement Systems Requirements
+    area: Access to nvidia corp net
+    test_details: INFO
+    description: Dedicate link (as described in network transport) to NVIDIA corp net, preferably with vpn, but otherwise with stable IP for allowlisting
+  - req_id: DMS05
+    section: These are capabilities required of the high-speed filesystem.
+    subsection: Data Movement Systems Requirements
+    area: Stable egress IP
+    test_details: add
+    description: Stable IP to IP allowlist access to Nvidia services. (e.g. similar to NAT Gateway)
+  - req_id: STG01
+    section: Host Provisioning & Lifecycle
+    subsection: ''
+    area: Operating System Support
+    test_details: INFO
+    description: 'NCP must support a workflow that allows DGXC storage operators to integrate vendor-provided or storage-specific operating system images via bare-metal or VM provisioning for storage servers. The workflow must: (a) Allow DGXC to deploy custom OS images (e.g., vendor-enhanced kernels for Lustre, Rocky Linux, Ubuntu 20.04/22.04/24.04).'
+  - req_id: STG02
+    section: Host Provisioning & Lifecycle
+    subsection: ''
+    area: Drive Sanitization Policy
+    test_details: add
+    description: Cryptographically erase data drive contents between storage system tenants with full attestation of host firmware. Must support an optional flag to skip drive sanitization during break/fix flows (e.g., power supply replacement) where tenancy does not change. Critical hardware component replacements may require sanitization without override, this is inclusive of GPU / CPU node local storage
+  - req_id: STG03
+    section: Host Provisioning & Lifecycle
+    subsection: ''
+    area: Stable IP Assignment
+    test_details: INFO
+    description: Storage nodes must support static IP addressing that remains stable during host lifecycle operations and does not reset between maintenance events.
+  - req_id: STG04
+    section: Host Provisioning & Lifecycle
+    subsection: ''
+    area: Out-of-Band Failure Detection
+    test_details: INFO
+    description: NCP must provide the ability to detect system failures out-of-band, including device, network, memory, and drive failures, enabling DGXC to proactively respond to hardware issues.
+  - req_id: STG05
+    section: Host Provisioning & Lifecycle
+    subsection: ''
+    area: Topology Observability
+    test_details: INFO
+    description: NCP must provide visibility into failure domains to enable DGXC to provision storage nodes with physical diversity. Storage systems must be able to provision nodes that purposefully span failure domains for resilience.
+  - req_id: STG06
+    section: Host Provisioning & Lifecycle
+    subsection: ''
+    area: BlueField/DPU Support
+    test_details: INFO
+    description: For storage systems utilizing BlueField-based architectures, the host provisioning system must support lifecycle management and specific configuration requirements for BlueField "JBOF" systems that export NVMe-oF to hosts.
+  - req_id: NET01
+    section: Network Transport & Fabric Visibility
+    subsection: ''
+    area: Backend Switch Fabric API
+    test_details: INFO
+    description: 'For each compute node, the API must provide visibility into the backend network switches connecting the node to the core. Identification: Each switch must be identified by a unique, stable identifier. A "switch" may represent a physical switch or a logical connectivity domain. Structure: API may be gRPC or REST. Response structure may include multiple nodes (pagination expected). Topology: Switch info can be returned as an ordered array of IDs (e.g., leaf, spine, core) or separate fields for each tier'
+  - req_id: NET02
+    section: Network Transport & Fabric Visibility
+    subsection: ''
+    area: NVLink Domain API
+    test_details: INFO
+    description: 'Requirement: For compute nodes supporting NVLink (e.g., GB200, GB300, Vera Rubin), the API shall return the unique identifier of the NVLink domain associated with each node. Implementation: Can be a separate API method or part of the Backend Switch Fabric API.'
+  - req_id: NET03
+    section: Transport and Networking requirements
+    subsection: ''
+    area: Non-Conflicting IP space allocation for the DGXC cluster
+    test_details: add
+    description: 'Bring Your Own IP (BYOIP): NCP shall support the ability for NVIDIA to bring and allocate its own IP private address space for DGXC GPU clusters. Stable IP: NCP shall provide a possibility to create static IP allocations that persist across instance restarts and re-creations. That includes floating IP allocations. DoD space: NCP shall support allocation and use of the 7.0.0.0/8 IPv4 address space for DGXC GPU cluster deployments. This IP space shall be considered equivalent to RFC1918 addresses Routing Support: NCP must support advertising and routing of BYOIP prefixes within the NCP environment and across interconnects (Private Cloud Interconnect, IPSec, etc.)'
+  - req_id: NET04
+    section: Transport and Networking requirements
+    subsection: ''
+    area: Connection to NVIDIA CorpIT Network
+    test_details: INFO
+    description: 'Bandwidth: Low bandwidth (Up to 10Gbps). Transport: Private Cloud interconnect + VIF + BGP (preferred for better performance/security). DGXC will establish connectivity to NCP through a mutually agreed Point of Presence (POP) using Private Cloud Interconnect, functionally equivalent to AWS Direct Connect, GCP Dedicated Interconnect, Azure ExpressRoute, and OCI FastConnect. Connectivity will be provisioned with a Virtual Interface (VIF) and routing established via BGP. The interconnect will be used to exchange private IP space (RFC1918, as well as 7.0.0.0/8) between DGXC and NCP.'
+  - req_id: NET05
+    section: Connection to DGXC Storage
+    subsection: ''
+    area: Connection to DGXC Storage
+    test_details: INFO
+    description: 'Transport: Private Cloud interconnect + VIF + BGP (preferred for better performance/security). DGXC will establish connectivity to NCP through a mutually agreed Point of Presence (POP) using Private Cloud Interconnect, functionally equivalent to AWS Direct Connect, GCP Dedicated Interconnect, Azure ExpressRoute, and OCI FastConnect. Connectivity will be provisioned with a Virtual Interface (VIF) and routing established via BGP. The interconnect will be used to exchange private IP space (RFC1918, as well as 7.0.0.0/8) between DGXC and NCP.'
+  - req_id: NET06
+    section: Connection to DGXC Storage
+    subsection: ''
+    area: Cluster Local Internet Access
+    test_details: INFO
+    description: 'Cluster Internet access: Egress NAT IPs should be a static pool dedicated to only Nvidia Cluster/Tenancy/VPC. These persistent IP addresses must be used exclusively for DGXC traffic and shall not be shared with or carry traffic from other NCP tenants. Availability: Must support redundant upstream paths to ensure connectivity under failure.'
+  - req_id: CAP01
+    section: Capacity & Fleet Management
+    subsection: ''
+    area: Governance metrics
+    test_details: INFO
+    description: 'Required Governance Metrics The core metrics needed to track fleet health are: Delivered: Nodes/GPUs provisioned and available to NVIDIA, allocated to a specific account/project/tenant. Healthy: Nodes/GPUs functioning and meeting SLA requirements, allocated to a specific account/project/tenant. Reserved: Resources allocated to a specific account/project/tenant. Total Active/In-Use: Nodes/GPUs currently in use within a specific account/project/tenant.'
+  - req_id: CAP02
+    section: Capacity & Fleet Management
+    subsection: ''
+    area: Resource Governance API Metrics
+    test_details: add
+    description: 'The Resource Governance API must return the following information for each node: Node ID (Unique identifier for a GPU node) Health State (Healthy/Unhealthy classification) Instance ID (Identifier for virtual workload) Creation Timestamp (Time workload/node was created) Hardware Type (Descriptor for the hardware model) GPU Count (Number of GPUs per node) Top-levelAccount/ID (Identifier for the top-level organization/account) Sub-LevelProject/ID (Identifier for the nested project/sub-account) In Use (True/False status indicating if the GPU Node is turned on and in use) Region (Region of the data center where nodes are deployed)'
+  - req_id: CAP03
+    section: Capacity & Fleet Management
+    subsection: ''
+    area: Resource Discovery APIs
+    test_details: add
+    description: 'It is not acceptable to have capacity be “handed” to DGXC through a phone, slack or email message. For example, when cluster first comes online, nodes/racks are likely being handed off weekly (or more frequently). Instead, please provide the following mechanism (and we can poll): Programmatic Capacity Discovery: All newly delivered capacity must be discoverable via a centralized API. This "Resource Index" must provide a stable resource identifier and some information on why it’s being provided (e.g. capacity fulfillment on gb300 project, break-fix / RMA return to cluster, etc)'
+  - req_id: CAP04
+    section: Capacity & Fleet Management
+    subsection: ''
+    area: Logical Compartmentalization & Resource Isolation
+    test_details: INFO
+    description: 'To ensure performance consistency and security, the NCP must support strict logical and physical isolation of NVIDIA’s reserved capacity. Capacity Reservations: A mechanism to logically group and "pin" a set of resources (compute, network, storage) to accounts (or equivalent constructs) in an NVIDIA tenancy Atomic Allocation: Support for reserving a "topology block" as a single unit, ensuring all resources in that block share identical performance characteristics and security boundaries.'
+  - req_id: CAP05
+    section: Capacity & Fleet Management
+    subsection: ''
+    area: Unified Health & Lifecycle APIs
+    test_details: INFO
+    description: 'NVIDIA requires a "single source of truth" for the health of both physical hosts and logical compute primitives. Per-Host Health: Real-time API access to the health bits of physical hardware (GPU state, thermal status, memory health). Primitive-Level Status: Health aggregation at the cluster, nodegroup, or reservation level to identify broad infrastructure failures (e.g., a spine switch failure affecting a whole block).'

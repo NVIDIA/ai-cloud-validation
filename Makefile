@@ -2,7 +2,7 @@ MY_ISV_DOMAINS := bare_metal control-plane iam image-registry network observabil
 DEMO_TARGETS := $(addprefix demo-,$(MY_ISV_DOMAINS))
 
 .PHONY: help pre-commit build test coverage clean lint format install bump-patch bump-fix bump-minor bump-feat bump-major bump bump-check \
-	security-trivy security-trivy-detail security-trufflehog ci-security demo-test demo-all $(DEMO_TARGETS) plan plan-coverage validate-suites
+	security-trivy security-trivy-detail security-trufflehog ci-security demo-test demo-all $(DEMO_TARGETS) plan plan-coverage validate-suites reqcheck
 
 PACKAGES := isvctl isvreporter isvtest
 BUMP_SCRIPT := scripts/bump-version.py
@@ -180,10 +180,17 @@ update-spdx-headers: ## Update SPDX headers in all packages
 	@uv run python scripts/add_spdx_headers.py
 	@echo "✅ SPDX headers updated!"
 
-plan: ## Render docs/test-plan.yaml to AsciiDoc
+plan: ## Render docs/test-plan.yaml + requirements mapping to AsciiDoc
 	@echo "Rendering test plan..."
 	@uv run python scripts/test_plan_yaml_to_adoc.py
-	@echo "✅ Test plan rendered!"
+	@echo "Rendering requirements traceability mapping..."
+	@uv run python scripts/requirements_matrix_to_adoc.py
+	@echo "Rendering source requirement listings (yaml -> md)..."
+	@uv run python scripts/requirements_source_to_md.py
+	@echo "✅ Test plan + requirements mapping + source listings rendered!"
+
+reqcheck: ## Validate requirements <-> test mapping consistency
+	@uv run python scripts/reqtrace.py validate
 
 plan-coverage: ## Report test-plan coverage + gaps via wired test_ids (CHECK=1 for pre-commit guardrail)
 	@uv run python scripts/test_plan_coverage.py $(if $(CHECK),--check,)

@@ -1,0 +1,3021 @@
+////
+GENERATED FILE - DO NOT EDIT BY HAND.
+Produced by scripts/requirements_matrix_to_adoc.py from
+docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
+////
+= Test ↔ Requirement Traceability
+:toc:
+:icons: font
+:max-width: none
+
+[cols="2,2,5,2,2,1,3,3",options="header"]
+|===
+| Test ID | Test Domain | Function | Test Summary | Req ID | Source | Coverage | Notes
+
+| [[BOOT01-01]]BOOT01-01
+| Foundational Services
+| Image Registry
+| CRUD an custom OS image (iso file) (Upload an ISO file if supported, or remote URL if supported).
+| BOOT01
+| offtake
+| full
+|
+
+| [[BOOT01-02]]BOOT01-02
+| Foundational Services
+| Image Registry
+| CRUD an OS install configuration (e.g. iPXE config like Carbide)
+| BOOT01
+| offtake
+| full
+|
+
+| [[BOOT03-01]]BOOT03-01
+| Foundational Services
+| Image Registry
+| CRUD a custom VM image
+| BOOT03
+| offtake
+| full
+|
+
+| [[BOOT03-02]]BOOT03-02
+| Foundational Services
+| Image Registry
+| CRUD (get, list, create, delete) custom OS images for fast boot (raw, qcow2, img, etc) for BM/VM
+| BOOT03
+| offtake
+| full
+|
+
+| [[BOOT01-03]]BOOT01-03
+| Foundational Services
+| Image Registry
+| Check that an OS image can be installed on a BMaaS system
+| BOOT01
+| offtake
+| full
+|
+
+| [[BOOT01-04]]BOOT01-04
+| Foundational Services
+| Image Registry
+| Check that an OS install configuration can be installed on a BMaaS system
+| BOOT01
+| offtake
+| full
+|
+
+| [[BOOT01-05]]BOOT01-05
+| Foundational Services
+| Image Registry
+| Check that a VM image can be installed onto a VMaaS system
+| BOOT01
+| offtake
+| full
+|
+
+| [[IMG01-01]]IMG01-01
+| Foundational Services
+| Image Registry
+| Verify that an OS image (iso file) with full NVIDIA support is readily available
+| IMG01
+| reference
+| full
+|
+
+| [[IMG02-01]]IMG02-01
+| Foundational Services
+| Image Registry
+| Verify that an OS install configuration (e.g. iPXE config like Carbide) with full NVIDIA support is readily available
+| IMG02
+| reference
+| full
+|
+
+| [[IMG03-01]]IMG03-01
+| Foundational Services
+| Image Registry
+| Verify that an VM image with full NVIDIA support is readily available
+| IMG03
+| reference
+| full
+|
+
+| [[AUTH01-01]]AUTH01-01
+| Foundational Services
+| Key Secret Mgmt
+| CRUD an SSH/Teleport compatible public key for system login
+| AUTH01
+| reference
+| full
+|
+
+| [[AUTH02-01]]AUTH02-01
+| Foundational Services
+| Key Secret Mgmt
+| Spin up an instance which uses a specified key
+| AUTH02
+| reference
+| full
+|
+
+| [[AUTH03-01]]AUTH03-01
+| Foundational Services
+| Key Secret Mgmt
+| Access other components via a specified key as possible (SOL, Network devices)
+| AUTH03
+| reference
+| full
+|
+
+| [[IAM01-01]]IAM01-01
+| Foundational Services
+| Identity and Asset Mgmt (IAM)
+| Create user and log in as that user
+| IAM01
+| reference
+| full
+|
+
+| [[IAM02-01]]IAM02-01
+| Foundational Services
+| Identity and Asset Mgmt (IAM)
+| Delete user
+| IAM02
+| reference
+| full
+|
+
+| [[IAM03-01]]IAM03-01
+| Foundational Services
+| Identity and Asset Mgmt (IAM)
+| Validate that a user created can access the API and authorized resources
+| IAM03
+| reference
+| full
+|
+
+| [[IPAM01-01]]IPAM01-01
+| Foundational Services
+| DDI
+| Check that IP addresses are managed by the platform, and that DHCP is able to provide IP addresses
+| IPAM01
+| reference
+| full
+|
+
+| [[IPAM02-01]]IPAM02-01
+| Foundational Services
+| DDI
+| Check that IP addresses are managed sensibly as VPCs are configured (Move to SDN section?)
+| IPAM02
+| reference
+| full
+|
+
+| [[NETMGMT01-01]]NETMGMT01-01
+| Foundational Services
+| Network Underlay & Mgmt
+| Verify that all switches in the are reachable and healthy (SSH, API, etc)
+| NETMGMT01
+| reference
+| full
+|
+
+| [[RESDB01-01]]RESDB01-01
+| Foundational Services
+| Resource Database
+| Verify that all resources assigned to the cluster are accounted for
+| RESDB01
+| reference
+| full
+|
+
+| [[CP03-01]]CP03-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Make sure we can ping the control plane, or get a heart beat/status code
+| CP03
+| reference
+| full
+|
+
+| [[CP04-01]]CP04-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Control Plane can be upgraded (measure impact)
+| CP04
+| reference
+| full
+|
+
+| [[CP05-01]]CP05-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Access keys can be created, received, used to log in
+| CP05
+| reference
+| full
+|
+
+| [[CP06-01]]CP06-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Access keys can expire or be disabled
+| CP06
+| reference
+| full
+|
+
+| [[CP07-01]]CP07-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Create tenants
+| CP07
+| reference
+| full
+|
+
+| [[CP08-01]]CP08-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Retrieve list of tenants
+| CP08
+| reference
+| full
+|
+
+| [[CP09-01]]CP09-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Retrieve info about individual tenant
+| CP09
+| reference
+| full
+|
+
+| [[CP10-01]]CP10-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Delete Tenant
+| CP10
+| reference
+| full
+|
+
+| [[CP11-01]]CP11-01
+| Infrastructure and Data Services
+| Control Plane accessible
+| Add user to tenant
+| CP11
+| reference
+| full
+|
+
+| [[HWING01-01]]HWING01-01
+| Infrastructure and Data Services
+| Hardware ingestion
+| Makes sure that all hardware under test has been ingested, and matches the provided hardware
+| HWING01
+| reference
+| full
+|
+
+| [[HWING02-01]]HWING02-01
+| Infrastructure and Data Services
+| Hardware ingestion
+| Make sure that a device can be removed from the system
+| HWING02
+| reference
+| full
+|
+
+| [[SEC22-01]]SEC22-01
+| Infrastructure and Data Services
+| Attestation
+| Check that hardware passes nonce check
+| SEC22
+| offtake
+| full
+|
+
+| [[ATTEST01-01]]ATTEST01-01
+| Infrastructure and Data Services
+| Attestation
+| Check that OS is approved
+| ATTEST01
+| reference
+| full
+|
+
+| [[SEC22-02]]SEC22-02
+| Infrastructure and Data Services
+| Attestation
+| Check that TPM Configuration can be set per host
+| SEC22
+| offtake
+| full
+|
+
+| [[ATTEST02-01]]ATTEST02-01
+| Infrastructure and Data Services
+| Attestation
+| Check that an updated BIOS is installed on all hardware
+| ATTEST02
+| reference
+| full
+|
+
+| [[CNP09-01]]CNP09-01
+| Infrastructure and Data Services
+| Attestation
+| Check that the updated firmware is installed
+| CNP09
+| offtake
+| full
+|
+
+| [[CNP09-02]]CNP09-02
+| Infrastructure and Data Services
+| Attestation
+| Verify all firmware is cryptographically signed and attested during boot
+| CNP09
+| offtake
+| full
+|
+
+| [[SEC22-03]]SEC22-03
+| Infrastructure and Data Services
+| Attestation
+| TPM Secure Boot in BIOS
+| SEC22
+| offtake
+| full
+|
+
+| [[CNP01-01]]CNP01-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Create a Bare Metal node
+| CNP01
+| offtake
+| full
+|
+
+| [[CNP01-02]]CNP01-02
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Supports the basic lifecycle of Bare Metal nodes, following the standard CRUD pattern
+| CNP01
+| offtake
+| full
+|
+
+| CNP01-02
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Supports the basic lifecycle of Bare Metal nodes, following the standard CRUD pattern
+| CNP04
+| offtake
+| full
+|
+
+| [[CNP01-03]]CNP01-03
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Delete a Bare Metal node
+| CNP01
+| offtake
+| full
+|
+
+| [[SEC21-01]]SEC21-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Confirm sanitization on delete - Tenant View
+| SEC21
+| offtake
+| full
+|
+
+| [[SEC21-02]]SEC21-02
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Confirm sanitization on delete - Low Level
+| SEC21
+| offtake
+| full
+|
+
+| [[CNP01-04]]CNP01-04
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Topology-based placement
+| CNP01
+| offtake
+| full
+|
+
+| [[BMAAS01-01]]BMAAS01-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Node attached storage
+| BMAAS01
+| reference
+| full
+|
+
+| [[BMAAS02-01]]BMAAS02-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Storage: Config/default/access to local NVME drives
+| BMAAS02
+| reference
+| full
+|
+
+| [[BMAAS03-01]]BMAAS03-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| A running node can be accessed via SSH/Teleport for further configuration (Bare Metal)
+| BMAAS03
+| reference
+| full
+|
+
+| [[CNP01-05]]CNP01-05
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| A running node can be rebooted in case of issue (Bare Metal)
+| CNP01
+| offtake
+| full
+|
+
+| [[CNP01-06]]CNP01-06
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| A running node can be power-cycled in case of issue
+| CNP01
+| offtake
+| full
+|
+
+| [[BMAAS04-01]]BMAAS04-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| DEPRECATED: A node can be reinstalled from its configured stock operating system
+| BMAAS04
+| reference
+| full
+|
+
+| [[CNP01-07]]CNP01-07
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| A running node can be powered off (Without being destroyed)
+| CNP01
+| offtake
+| full
+|
+
+| [[BOOT02-01]]BOOT02-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Support for cloud-init and instance metadata discovery via link-local addresses (e.g. 169.254.169.254) or virtual devices (Bare Metal)
+| BOOT02
+| offtake
+| full
+|
+
+| [[CNP01-08]]CNP01-08
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| A powered off node can be powered back on
+| CNP01
+| offtake
+| full
+|
+
+| [[CNP05-01]]CNP05-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Support for user-defined tags/labels and cloud-init metadata on instances. (Bare Metal)
+| CNP05
+| offtake
+| full
+|
+
+| [[BMAAS05-01]]BMAAS05-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Check the health and status of the DPU on instantiation
+| BMAAS05
+| reference
+| full
+|
+
+| [[BMAAS06-01]]BMAAS06-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Nodes can communicate across ethernet, infiniband, and NVLink (Bare Metal)
+| BMAAS06
+| reference
+| full
+|
+
+| [[BMAAS07-01]]BMAAS07-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Check for any per-host status log over time.
+| BMAAS07
+| reference
+| full
+|
+
+| [[CNP06-01]]CNP06-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Serial console access is required (read-only sufficient, interactive preferred) (Bare Metal)
+| CNP06
+| offtake
+| full
+|
+
+| [[BMAAS08-01]]BMAAS08-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Verify NVIDIA hardware
+| BMAAS08
+| reference
+| full
+|
+
+| [[BMAAS09-01]]BMAAS09-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| GPU Stress workload (Bare Metal)
+| BMAAS09
+| reference
+| full
+|
+
+| [[BMAAS10-01]]BMAAS10-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Nim Inference jobs (Bare Metal)
+| BMAAS10
+| reference
+| full
+|
+
+| [[BMAAS11-01]]BMAAS11-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| NCCL tests
+| BMAAS11
+| reference
+| full
+|
+
+| [[BMAAS12-01]]BMAAS12-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Training workload test
+| BMAAS12
+| reference
+| full
+|
+
+| [[CNP06-02]]CNP06-02
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Verify that serial console output is logged and queryable for at least 1 month of history
+| CNP06
+| offtake
+| full
+|
+
+| [[CNP08-01]]CNP08-01
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Verify that a BM node's ID does not change after a reboot
+| CNP08
+| offtake
+| full
+|
+
+| [[CNP08-02]]CNP08-02
+| Infrastructure and Data Services
+| Compute Services: BMaaS
+| Verify that a BM node's ID does not change after a maintenance/reprovision event
+| CNP08
+| offtake
+| full
+|
+
+| [[CNP01-09]]CNP01-09
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Create a VM node
+| CNP01
+| offtake
+| full
+|
+
+| [[CNP01-10]]CNP01-10
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Get info about a specific VM node, including if it is ready for use
+| CNP01
+| offtake
+| full
+|
+
+| CNP01-10
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Get info about a specific VM node, including if it is ready for use
+| CNP04
+| offtake
+| full
+|
+
+| [[CNP01-11]]CNP01-11
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Get a list of all VM nodes in a VPC
+| CNP01
+| offtake
+| full
+|
+
+| [[CNP01-12]]CNP01-12
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Delete a VM node
+| CNP01
+| offtake
+| full
+|
+
+| [[SEC21-03]]SEC21-03
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Confirm sanitization on delete
+| SEC21
+| offtake
+| full
+|
+
+| [[VMAAS01-01]]VMAAS01-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| A running node can be accessed via SSH/Teleport for further configuration (VM)
+| VMAAS01
+| reference
+| full
+|
+
+| [[CNP01-13]]CNP01-13
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| A running node can be rebooted in case of issue (VM)
+| CNP01
+| offtake
+| full
+|
+
+| [[VMAAS02-01]]VMAAS02-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| DEPRECATED: A node can be reinstalled from its configured stock operating system
+| VMAAS02
+| reference
+| full
+|
+
+| [[CNP01-14]]CNP01-14
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| A running VM can be stopped (Without being destroyed)
+| CNP01
+| offtake
+| full
+|
+
+| [[CNP01-15]]CNP01-15
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| A powered off VM can be started
+| CNP01
+| offtake
+| full
+|
+
+| [[CNP05-02]]CNP05-02
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Support for user-defined tags/labels and cloud-init metadata on instances. (VM)
+| CNP05
+| offtake
+| full
+|
+
+| [[BOOT02-02]]BOOT02-02
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Support for cloud-init and instance metadata discovery via link-local addresses (e.g. 169.254.169.254) or virtual devices (VM)
+| BOOT02
+| offtake
+| full
+|
+
+| [[VMAAS03-01]]VMAAS03-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Noisy Neighbor CPU/GPU tests
+| VMAAS03
+| reference
+| full
+|
+
+| [[VMAAS04-01]]VMAAS04-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Tenant cannot allocate more VMs than their quota allows
+| VMAAS04
+| reference
+| full
+|
+
+| [[VMAAS05-01]]VMAAS05-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Check that the host OS is a known acceptable image (like Ubuntu/DGXOS)
+| VMAAS05
+| reference
+| full
+|
+
+| [[VMAAS06-01]]VMAAS06-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Check that the GPU is visible and accessible from the VM
+| VMAAS06
+| reference
+| full
+|
+
+| [[VMAAS07-01]]VMAAS07-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Check that the correct Linux Kernel, libvirt, sbios, and NVIDIA drivers are installed
+| VMAAS07
+| reference
+| full
+|
+
+| [[VMAAS08-01]]VMAAS08-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Check that vEGM is configured correctly
+| VMAAS08
+| reference
+| full
+|
+
+| [[VMAAS09-01]]VMAAS09-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Check that vCPU pinning is set correctly, PCI bus is configured correctly
+| VMAAS09
+| reference
+| full
+|
+
+| [[VMAAS10-01]]VMAAS10-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| TODO: More things from the "NVIDIA Grace I/O Virtualization Guide"
+| VMAAS10
+| reference
+| partial
+|
+
+| [[VMAAS11-01]]VMAAS11-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| GPU Stress workload (VM)
+| VMAAS11
+| reference
+| full
+|
+
+| [[VMAAS12-01]]VMAAS12-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Nim Inference jobs (VM)
+| VMAAS12
+| reference
+| full
+|
+
+| [[VMAAS13-01]]VMAAS13-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Run NCCL tests
+| VMAAS13
+| reference
+| full
+|
+
+| [[VMAAS14-01]]VMAAS14-01
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Nodes can communicate across ethernet, infiniband, and NVLink (VM)
+| VMAAS14
+| reference
+| full
+|
+
+| [[CNP06-03]]CNP06-03
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Serial console access is required (read-only sufficient, interactive preferred) (VM)
+| CNP06
+| offtake
+| full
+|
+
+| [[CNP08-03]]CNP08-03
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Verify that a VM's ID does not change after a stop/start cycle
+| CNP08
+| offtake
+| full
+|
+
+| [[CNP08-04]]CNP08-04
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Verify that a VM's ID does not change after a live migration or maintenance event
+| CNP08
+| offtake
+| full
+|
+
+| [[CNP01-16]]CNP01-16
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Verify console access is restricted via RBAC
+| CNP01
+| offtake
+| full
+|
+
+| [[CNP01-17]]CNP01-17
+| Infrastructure and Data Services
+| Compute Service: VMaaS
+| Verify USB, clipboard, and unnecessary virtual devices are disabled
+| CNP01
+| offtake
+| full
+|
+
+| [[SDN01-01]]SDN01-01
+| Infrastructure and Data Services
+| SDN Controller
+| Create a VPC
+| SDN01
+| offtake
+| full
+|
+
+| [[SDN01-02]]SDN01-02
+| Infrastructure and Data Services
+| SDN Controller
+| Retrieve a VPC
+| SDN01
+| offtake
+| full
+|
+
+| [[SDN01-03]]SDN01-03
+| Infrastructure and Data Services
+| SDN Controller
+| Update a VPC
+| SDN01
+| offtake
+| full
+|
+
+| [[SDN01-04]]SDN01-04
+| Infrastructure and Data Services
+| SDN Controller
+| Delete a VPC
+| SDN01
+| offtake
+| full
+|
+
+| [[SDN04-01]]SDN04-01
+| Infrastructure and Data Services
+| SDN Controller
+| Verify that a VPC has an exclusive subnet
+| SDN04
+| offtake
+| full
+|
+
+| [[SDN04-02]]SDN04-02
+| Infrastructure and Data Services
+| SDN Controller
+| Verify that nodes in two VPCs cannot communicate over the N/S (TAN) network
+| SDN04
+| offtake
+| full
+|
+
+| [[SDN04-03]]SDN04-03
+| Infrastructure and Data Services
+| SDN Controller
+| Verify that nodes in two VPCs cannot communicate over the E/W (CIN) network
+| SDN04
+| offtake
+| full
+|
+
+| [[NET03-01]]NET03-01
+| Infrastructure and Data Services
+| SDN Controller
+| Support non-conflicting Bring-Your-Own-IP (including 7.0.0.0/8)
+| NET03
+| offtake
+| full
+|
+
+| NET03-01
+| Infrastructure and Data Services
+| SDN Controller
+| Support non-conflicting Bring-Your-Own-IP (including 7.0.0.0/8)
+| SDN01
+| offtake
+| full
+|
+
+| [[SDN11-01]]SDN11-01
+| Infrastructure and Data Services
+| SDN Controller
+| Support Stable Private IP allocations, where if a VM crashes and restarts the same IP address remains pinned until the node is deleted
+| SDN11
+| reference
+| full
+|
+
+| [[SDN05-01]]SDN05-01
+| Infrastructure and Data Services
+| SDN Controller
+| Atomically switch a floating private IP between nodes via API within <10 seconds without requiring an instance reboot.
+| SDN05
+| offtake
+| full
+|
+
+| [[SDN06-01]]SDN06-01
+| Infrastructure and Data Services
+| SDN Controller
+| Localized DNS: Support for custom, localized DNS settings to enable internal domain resolution to private endpoints (e.g. storage endpoints)
+| SDN06
+| offtake
+| full
+|
+
+| [[SDN07-01]]SDN07-01
+| Infrastructure and Data Services
+| SDN Controller
+| Support for VPC peering with full bandwidth and no "hairpin" routing.
+| SDN07
+| offtake
+| full
+|
+
+| [[SDN02-01]]SDN02-01
+| Infrastructure and Data Services
+| SDN Controller
+| Create a Security Group
+| SDN02
+| offtake
+| full
+|
+
+| SDN02-01
+| Infrastructure and Data Services
+| SDN Controller
+| Create a Security Group
+| SDN03
+| offtake
+| full
+|
+
+| [[SDN02-02]]SDN02-02
+| Infrastructure and Data Services
+| SDN Controller
+| Retrieve a Security Group/list Security Groups
+| SDN02
+| offtake
+| full
+|
+
+| SDN02-02
+| Infrastructure and Data Services
+| SDN Controller
+| Retrieve a Security Group/list Security Groups
+| SDN03
+| offtake
+| full
+|
+
+| [[SDN02-03]]SDN02-03
+| Infrastructure and Data Services
+| SDN Controller
+| Update a Security Group
+| SDN02
+| offtake
+| full
+|
+
+| SDN02-03
+| Infrastructure and Data Services
+| SDN Controller
+| Update a Security Group
+| SDN03
+| offtake
+| full
+|
+
+| [[SDN02-04]]SDN02-04
+| Infrastructure and Data Services
+| SDN Controller
+| Delete a Security Group
+| SDN02
+| offtake
+| full
+|
+
+| SDN02-04
+| Infrastructure and Data Services
+| SDN Controller
+| Delete a Security Group
+| SDN03
+| offtake
+| full
+|
+
+| [[CNP03-01]]CNP03-01
+| Infrastructure and Data Services
+| SDN Controller
+| NVLink Partitioning
+| CNP03
+| offtake
+| full
+|
+
+| [[SDN12-01]]SDN12-01
+| Infrastructure and Data Services
+| SDN Controller
+| NVLink: Create a new partition; verify success response with partition key.
+| SDN12
+| reference
+| full
+|
+
+| [[SDN13-01]]SDN13-01
+| Infrastructure and Data Services
+| SDN Controller
+| NVLink: List partitions; retrieve a specific partition by partition ID
+| SDN13
+| reference
+| full
+|
+
+| [[SDN14-01]]SDN14-01
+| Infrastructure and Data Services
+| SDN Controller
+| NVLink: Delete an empty partition (no instances); retrieve by ID and verify not found.
+| SDN14
+| reference
+| full
+|
+
+| [[SDN15-01]]SDN15-01
+| Infrastructure and Data Services
+| SDN Controller
+| NVLink: Create a partition, create instance in that partition, make sure the instance becomes ready, delete instance, verify GPUs removed from partition.
+| SDN15
+| reference
+| full
+|
+
+| [[SDN16-01]]SDN16-01
+| Infrastructure and Data Services
+| SDN Controller
+| NVLink: Create partition, create 2 instances, verify both share the same nvlink_partition_id and both GPUs are reported for that partition
+| SDN16
+| reference
+| full
+|
+
+| [[SDN17-01]]SDN17-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: Assert nvidia-imex and nvidia-imex-ctl packages are installed and nvidia-imex.service unit is registered with systemd.
+| SDN17
+| reference
+| full
+|
+
+| [[SDN18-01]]SDN18-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: Start nvidia-imex via systemctl start nvidia-imex and assert the service reaches active/ready state.
+| SDN18
+| reference
+| full
+|
+
+| [[SDN19-01]]SDN19-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: Stop nvidia-imex via systemctl stop nvidia-imex and assert clean shutdown (other nodes show disabled node status).
+| SDN19
+| reference
+| full
+|
+
+| [[SDN20-01]]SDN20-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: Enable IMEX at boot with systemctl enable nvidia-imex, reboot, and confirm IMEX starts automatically.
+| SDN20
+| reference
+| full
+|
+
+| [[SDN21-01]]SDN21-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: After all nodes start IMEX, query domain state via nvidia-imex-ctl -N and assert state is UP, fully connected matrix
+| SDN21
+| reference
+| full
+|
+
+| [[SDN22-01]]SDN22-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: With IMEX_ENABLE_AUTH_ENCRYPTION=0, form a multi-node domain and assert connectivity without any auth/encryption.
+| SDN22
+| reference
+| full
+|
+
+| [[SDN23-01]]SDN23-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: Enable IMEX_ENABLE_AUTH_ENCRYPTION=1 with SSL_TLS mode, provide valid server/client certs, and assert mutual authentication and encrypted communication.
+| SDN23
+| reference
+| full
+|
+
+| [[SDN24-01]]SDN24-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: Enable GSSAPI/Kerberos mode (GSS_AUTH_ENCRYPT), configure KDC/keytabs, and assert mutual auth + encryption between nodes.
+| SDN24
+| reference
+| full
+|
+
+| [[SDN25-01]]SDN25-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: IMEX/K8s: Submit a workload requesting a ComputeDomain; assert ComputeDomain pods are created on each allocated node.
+| SDN25
+| reference
+| full
+|
+
+| [[SDN26-01]]SDN26-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: From workload pods in a ComputeDomain run nvbandwidth-test-job
+| SDN26
+| reference
+| full
+|
+
+| [[SDN27-01]]SDN27-01
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX: After workload completes, assert ComputeDomain and associated IMEX resources are cleaned up.
+| SDN27
+| reference
+| full
+|
+
+| [[SDN28-01]]SDN28-01
+| Infrastructure and Data Services
+| SDN Controller
+| Redundant Gateways
+| SDN28
+| reference
+| full
+|
+
+| [[SDN02-05]]SDN02-05
+| Infrastructure and Data Services
+| SDN Controller
+| Verify security group rules can be scoped at workload level
+| SDN02
+| offtake
+| full
+|
+
+| [[SDN02-06]]SDN02-06
+| Infrastructure and Data Services
+| SDN Controller
+| Verify security group rules can be scoped at node level
+| SDN02
+| offtake
+| full
+|
+
+| [[SDN02-07]]SDN02-07
+| Infrastructure and Data Services
+| SDN Controller
+| Verify security group rules can be scoped at subnet/tenant level
+| SDN02
+| offtake
+| full
+|
+
+| [[SDN02-08]]SDN02-08
+| Infrastructure and Data Services
+| SDN Controller
+| Measure and verify policy propagation timing is within acceptable bounds
+| SDN02
+| offtake
+| full
+|
+
+| [[SDN02-09]]SDN02-09
+| Infrastructure and Data Services
+| SDN Controller
+| Verify security group rules can be scoped at K8s API service level
+| SDN02
+| offtake
+| full
+|
+
+| [[SDN08-01]]SDN08-01
+| Infrastructure and Data Services
+| SDN Controller
+| Verify that storage hosts can route to each other with all-to-all L3 communication
+| SDN08
+| offtake
+| full
+|
+
+| [[SDN02-10]]SDN02-10
+| Infrastructure and Data Services
+| SDN Controller
+| Verify customizable port security policies can be applied to virtual interfaces
+| SDN02
+| offtake
+| full
+|
+
+| [[SDN09-01]]SDN09-01
+| Infrastructure and Data Services
+| SDN Controller
+| Verify logging is available for network hardware faults
+| SDN09
+| offtake
+| full
+|
+
+| [[SDN09-02]]SDN09-02
+| Infrastructure and Data Services
+| SDN Controller
+| Verify logging captures latency/performance fluctuations
+| SDN09
+| offtake
+| full
+|
+
+| [[SDN09-03]]SDN09-03
+| Infrastructure and Data Services
+| SDN Controller
+| Verify a detailed audit trail exists for all configuration changes to network filtering rules
+| SDN09
+| offtake
+| full
+|
+
+| [[META01-01]]META01-01
+| Infrastructure and Data Services
+| Metadata Service
+| TODO
+| META01
+| reference
+| partial
+|
+
+| [[CTRL01-01]]CTRL01-01
+| Infrastructure and Data Services
+| Cloud Control Plane
+| Needs to have an API we can access from our tests to do actions
+| CTRL01
+| reference
+| full
+|
+
+| [[CAP02-01]]CAP02-01
+| Infrastructure and Data Services
+| Cloud Control Plane
+| Verify that fleet management API provides full set of information requested below: Node ID (Unique identifier for a GPU node) Health State (Healthy/Unhealthy classification) Instance ID (Identifier for virtual workload) Creation Timestamp (Time workload/node was created) Hardware Type (Descriptor for the hardware model) GPU Count (Number of GPUs per node) Top-levelAccount/ID (Identifier for the top-level organization/account) Sub-LevelProject/ID (Identifier for the nested project/sub-account) In Use (True/False status indicating if the GPU Node is turned on and in use) Region (Region of the data center where nodes are deployed)
+| CAP02
+| offtake
+| full
+|
+
+| [[CAP03-01]]CAP03-01
+| Infrastructure and Data Services
+| Cloud Control Plane
+| Resource discovery API: newly delivered capacity must be discoverable. This "Resource Index" must provide a stable resource identifer.
+| CAP03
+| offtake
+| full
+|
+
+| [[CNP08-05]]CNP08-05
+| Infrastructure and Data Services
+| Cloud Control Plane
+| Verify that switch identifiers are stable across reboots and firmware updates
+| CNP08
+| offtake
+| full
+|
+
+| [[LB01-01]]LB01-01
+| Infrastructure and Data Services
+| Load Balancing
+| CRUD a load balancer
+| LB01
+| reference
+| full
+|
+
+| [[LB02-01]]LB02-01
+| Infrastructure and Data Services
+| Load Balancing
+| Verify that traffic is distributed across multiple nodes
+| LB02
+| reference
+| full
+|
+
+| [[LB03-01]]LB03-01
+| Infrastructure and Data Services
+| Load Balancing
+| Verify that nodes can be marked as down or up (for rolling deployments/etc)
+| LB03
+| reference
+| full
+|
+
+| [[LB04-01]]LB04-01
+| Infrastructure and Data Services
+| Load Balancing
+| Verify that no traffic is dropped during outages
+| LB04
+| reference
+| full
+|
+
+| [[BFX04-01]]BFX04-01
+| Infrastructure and Data Services
+| Break-Fix
+| Check that GPUd or Sentinel is running
+| BFX04
+| reference
+| full
+|
+
+| [[BFX05-01]]BFX05-01
+| Infrastructure and Data Services
+| Break-Fix
+| Verify that Tenants can be notified, by some communication system, of planned future node maintenance
+| BFX05
+| reference
+| full
+|
+
+| [[BFX06-01]]BFX06-01
+| Infrastructure and Data Services
+| Break-Fix
+| Verify that Tenants can be notified, by some communication system, of immediate node failure
+| BFX06
+| reference
+| full
+|
+
+| [[BFX01-01]]BFX01-01
+| Infrastructure and Data Services
+| Break-Fix
+| Reset GPUs on an individual node via the Breakfix API
+| BFX01
+| offtake
+| full
+|
+
+| [[BFX01-02]]BFX01-02
+| Infrastructure and Data Services
+| Break-Fix
+| Return an individual node to the provider for maintenance via the API
+| BFX01
+| offtake
+| full
+|
+
+| [[BFX01-03]]BFX01-03
+| Infrastructure and Data Services
+| Break-Fix
+| Return a rack to the provider for maintenance via the API
+| BFX01
+| offtake
+| full
+|
+
+| [[BFX01-04]]BFX01-04
+| Infrastructure and Data Services
+| Break-Fix
+| Cordon a node (mark unschedulable); verify no new workloads are placed; verify existing workloads continue
+| BFX01
+| offtake
+| full
+|
+
+| [[BFX01-05]]BFX01-05
+| Infrastructure and Data Services
+| Break-Fix
+| Request a host replacement when health thresholds are breached; verify the node is removed from the pool
+| BFX01
+| offtake
+| full
+|
+
+| [[BFX02-01]]BFX02-01
+| Infrastructure and Data Services
+| Break-Fix
+| Query upcoming/current maintenance events for a node
+| BFX02
+| offtake
+| full
+|
+
+| [[BFX02-02]]BFX02-02
+| Infrastructure and Data Services
+| Break-Fix
+| Query retirement notices for a node/rack
+| BFX02
+| offtake
+| full
+|
+
+| [[BFX02-03]]BFX02-03
+| Infrastructure and Data Services
+| Break-Fix
+| Query historical repair status for a node
+| BFX02
+| offtake
+| full
+|
+
+| [[BFX03-01]]BFX03-01
+| Infrastructure and Data Services
+| Break-Fix
+| Query serial numbers of installed hardware (chassis, baseboard, NICs, CPU, GPU) — obfuscated but stable IDs are OK
+| BFX03
+| offtake
+| full
+|
+
+| [[BFX03-02]]BFX03-02
+| Infrastructure and Data Services
+| Break-Fix
+| Inspect firmware versions of NV switch trays
+| BFX03
+| offtake
+| full
+|
+
+| [[BFX03-03]]BFX03-03
+| Infrastructure and Data Services
+| Break-Fix
+| Obtain BMC kernel log messages for a node
+| BFX03
+| offtake
+| full
+|
+
+| [[HSS01-01]]HSS01-01
+| Data Services
+| SDS Controller
+| Verify storage provisioning via vendor/NCP API
+| HSS01
+| offtake
+| full
+|
+
+| [[HSS02-01]]HSS02-01
+| Data Services
+| SDS Controller
+| Verify QoS — provisioned throughput meets requested minimum bandwidth and IOPS
+| HSS02
+| offtake
+| full
+|
+
+| [[HSS03-01]]HSS03-01
+| Data Services
+| SDS Controller
+| Verify K8s CSI integration for storage
+| HSS03
+| offtake
+| full
+|
+
+| HSS03-01
+| Data Services
+| SDS Controller
+| Verify K8s CSI integration for storage
+| K8S23
+| offtake
+| full
+|
+
+| [[HSS04-01]]HSS04-01
+| Data Services
+| SDS Controller
+| Verify quota limits can be set on user workloads/volumes
+| HSS04
+| offtake
+| full
+|
+
+| [[HSS05-01]]HSS05-01
+| Data Services
+| SDS Controller
+| Verify non-disruptive upgrades (NVIDIA can defer maintenance up to 2 weeks)
+| HSS05
+| offtake
+| full
+|
+
+| [[STOR01-01]]STOR01-01
+| Data Services
+| SDS Controller
+| Storage: Config/default/access to network provided storage
+| STOR01
+| reference
+| full
+|
+
+| [[DIR02-01]]DIR02-01
+| Data Services
+| SDS Controller
+| Verify NFS protocol shared storage is available
+| DIR02
+| offtake
+| full
+|
+
+| [[DIR01-01]]DIR01-01
+| Data Services
+| SDS Controller
+| Verify configurable filesystem-wide quota limits
+| DIR01
+| offtake
+| full
+|
+
+| [[DIR01-02]]DIR01-02
+| Data Services
+| SDS Controller
+| Verify usage accounting for uid/gids
+| DIR01
+| offtake
+| full
+|
+
+| [[DMS01-01]]DMS01-01
+| Data Services
+| SDS Controller
+| Verify a dedicated K8s cluster (or ability to create one) for the data mover stack
+| DMS01
+| offtake
+| full
+|
+
+| [[DMS02-01]]DMS02-01
+| Data Services
+| SDS Controller
+| Verify dedicated CPU nodes are available for data mover with high-performance networking
+| DMS02
+| offtake
+| full
+|
+
+| [[DMS03-01]]DMS03-01
+| Data Services
+| SDS Controller
+| Verify the same filesystem mounted on GPU nodes is accessible from data mover nodes
+| DMS03
+| offtake
+| full
+|
+
+| [[DMS05-01]]DMS05-01
+| Data Services
+| SDS Controller
+| Verify stable egress IP for allowlisting access to NVIDIA services
+| DMS05
+| offtake
+| full
+|
+
+| [[STG02-01]]STG02-01
+| Data Services
+| SDS Controller
+| Verify optional skip-sanitization flag during break/fix where tenancy doesn't change
+| STG02
+| offtake
+| full
+|
+
+| [[STG03-01]]STG03-01
+| Data Services
+| SDS Controller
+| Verify stable IP assignment for storage nodes across lifecycle operations
+| STG03
+| offtake
+| full
+|
+
+| [[STG04-01]]STG04-01
+| Data Services
+| SDS Controller
+| Verify out-of-band failure detection (device, network, memory, drive)
+| STG04
+| offtake
+| full
+|
+
+| [[STG05-01]]STG05-01
+| Data Services
+| SDS Controller
+| Verify topology observability — visibility into failure domains for physical diversity
+| STG05
+| offtake
+| full
+|
+
+| [[SEC04-01]]SEC04-01
+| Data Services
+| SDS Controller
+| Verify least-privilege access policies (resource-based, user-based, network-based)
+| SEC04
+| offtake
+| full
+|
+
+| [[HSS06-01]]HSS06-01
+| Data Services
+| SDS Controller
+| Verify storage systems using RDMA enforce memory protection via authorization keys for both local and remote access
+| HSS06
+| offtake
+| full
+|
+
+| [[HSS07-01]]HSS07-01
+| Data Services
+| Parallel File System Services
+| Verify that a parallel high-speed filesystem can be provisioned via API
+| HSS07
+| offtake
+| full
+|
+
+| [[HSS09-01]]HSS09-01
+| Data Services
+| Parallel File System Services
+| Verify multiple filesystems can exist within total capacity (minimum FS size <= 50 TiB)
+| HSS09
+| offtake
+| full
+|
+
+| [[HSS10-01]]HSS10-01
+| Data Services
+| Parallel File System Services
+| Verify live filesystem expansion (capacity, inodes, IO, metadata)
+| HSS10
+| offtake
+| full
+|
+
+| [[HSS12-01]]HSS12-01
+| Data Services
+| Parallel File System Services
+| Verify uid/gid/project-id soft and hard quotas with enforcement
+| HSS12
+| offtake
+| full
+|
+
+| [[HSS13-01]]HSS13-01
+| Data Services
+| Parallel File System Services
+| Verify root-squash can be enabled and disabled at any time
+| HSS13
+| offtake
+| full
+|
+
+| [[HSS14-01]]HSS14-01
+| Data Services
+| Parallel File System Services
+| Verify the filesystem can be mounted with flock
+| HSS14
+| offtake
+| full
+|
+
+| [[HSS15-01]]HSS15-01
+| Data Services
+| Parallel File System Services
+| Verify changelog/audit data is accessible (tracking by uid/gid, file/dir operations)
+| HSS15
+| offtake
+| full
+|
+
+| [[HSS18-01]]HSS18-01
+| Data Services
+| Parallel File System Services
+| Verify client multipathing to all storage servers
+| HSS18
+| offtake
+| full
+|
+
+| [[DATASVC01-01]]DATASVC01-01
+| Data Services
+| Object Storage Service
+| Verify S3-compatible API access with authenticated endpoints
+| DATASVC01
+| reference
+| full
+|
+
+| [[K8S23-01]]K8S23-01
+| Data Services
+| Block Storage Services
+| Verify dynamic volume provisioning via CSI
+| K8S23
+| offtake
+| full
+|
+
+| [[DATASVC02-01]]DATASVC02-01
+| Data Services
+| Block Storage Services
+| Verify volume snapshots
+| DATASVC02
+| reference
+| full
+|
+
+| [[DATASVC03-01]]DATASVC03-01
+| Data Services
+| Block Storage Services
+| Verify volume resizing
+| DATASVC03
+| reference
+| full
+|
+
+| [[DATASVC04-01]]DATASVC04-01
+| Data Services
+| Block Storage Services
+| Verify persistent block volumes survive instance restarts
+| DATASVC04
+| reference
+| full
+|
+
+| [[DATASVC05-01]]DATASVC05-01
+| Data Services
+| Cache Services
+| Create a managed cache instance, write a key-value pair, read it back, verify data integrity
+| DATASVC05
+| reference
+| full
+|
+
+| [[DATASVC06-01]]DATASVC06-01
+| Data Services
+| Vector Store
+| Create a vector store, insert an embedding, perform similarity search, verify result
+| DATASVC06
+| reference
+| full
+|
+
+| [[DATASVC07-01]]DATASVC07-01
+| Data Services
+| Relational Database
+| Create a managed SQL database, create a table, insert/query data, verify results
+| DATASVC07
+| reference
+| full
+|
+
+| [[DATASVC08-01]]DATASVC08-01
+| Workload Orchestration
+| Backup and Recovery
+| Create a backup of a block volume, delete original, restore from backup, verify data is the same as the original
+| DATASVC08
+| reference
+| full
+|
+
+| [[DATASVC09-01]]DATASVC09-01
+| Workload Orchestration
+| Model Registry
+| Push a model artifact with a version tag, retrieve by version, verify it matches (prefer a smaller reference model)
+| DATASVC09
+| reference
+| full
+|
+
+| [[SLURM01-01]]SLURM01-01
+| Workload Orchestration
+| Slurm Control Plane
+| Create a SLURM instance using the software platform
+| SLURM01
+| reference
+| full
+|
+
+| [[SLURM02-01]]SLURM02-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmInfoAvailable
+| SLURM02
+| reference
+| full
+|
+
+| [[SLURM03-01]]SLURM03-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmPartition cpu and gpu
+| SLURM03
+| reference
+| full
+|
+
+| [[SLURM04-01]]SLURM04-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmJobSubmission
+| SLURM04
+| reference
+| full
+|
+
+| [[SLURM05-01]]SLURM05-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmGpuAllocation 1gpu and 2gpu
+| SLURM05
+| reference
+| full
+|
+
+| [[SLURM06-01]]SLURM06-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmNodeJobExecution cpu and gpu
+| SLURM06
+| reference
+| full
+|
+
+| [[SLURM07-01]]SLURM07-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmGpuStressWorkload
+| SLURM07
+| reference
+| full
+|
+
+| [[SLURM08-01]]SLURM08-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmNcclMultiNodeWorkload
+| SLURM08
+| reference
+| full
+|
+
+| [[SLURM09-01]]SLURM09-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmSbatchWorkload gpu and cpu
+| SLURM09
+| reference
+| full
+|
+
+| [[SLURM10-01]]SLURM10-01
+| Workload Orchestration
+| Slurm Control Plane
+| SlurmSbatchWorkload-inline
+| SLURM10
+| reference
+| full
+|
+
+| [[K8S05-01]]K8S05-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Create a K8s Instance using the software platform (CLI, Terraform)
+| K8S05
+| offtake
+| full
+|
+
+| [[K8S38-01]]K8S38-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run through all the steps of the k8s lifecycle management, including user-initated CP update
+| K8S38
+| reference
+| full
+|
+
+| [[K8S41-01]]K8S41-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| The control plane should automatically add more capacity when load increases
+| K8S41
+| reference
+| full
+|
+
+| [[K8S27-01]]K8S27-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Pin Control Plane instances to a specific count to handle a particular load-limit
+| K8S27
+| offtake
+| full
+|
+
+| [[K8S14-01]]K8S14-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| per tenant k8s control plane outside of the tenant cluster/VPC
+| K8S14
+| offtake
+| full
+|
+
+| [[K8S39-01]]K8S39-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Be able to run k8s workloads
+| K8S39
+| reference
+| full
+|
+
+| [[K8S40-01]]K8S40-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| K8s Nim Inference
+| K8S40
+| reference
+| full
+|
+
+| [[K8S32-01]]K8S32-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| K8s Nim Helm
+| K8S32
+| reference
+| full
+|
+
+| [[K8S33-01]]K8S33-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| K8s Nccl
+| K8S33
+| reference
+| full
+|
+
+| [[K8S34-01]]K8S34-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| validate adherence to upstream proxy requirements (service to pod load balancing, acces to internal services)
+| K8S34
+| reference
+| full
+|
+
+| [[K8S24-01]]K8S24-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| verify that the k8s cluster supports the DRA API (resources.k8s.io) to get GPUs on the same nvlink
+| K8S24
+| offtake
+| full
+|
+
+| [[K8S01-01]]K8S01-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| get versions, topology, core APIs by: (a) pass CNCF k8s conformance: https://github.com/cncf/k8s-conformance (b) add AI conformance: [https://github.com/cncf/k8s-ai-conformance](https://github.com/cncf/k8s-ai-conformance)
+| K8S01
+| offtake
+| full
+|
+
+| [[K8S17-01]]K8S17-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| test that the service account can be authorized with OIDC
+| K8S17
+| offtake
+| full
+|
+
+| [[K8S21-01]]K8S21-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| create a CRD, create webhook, and test validation/mutation requirement
+| K8S21
+| offtake
+| full
+|
+
+| [[K8S35-01]]K8S35-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify that pod-to-pod L3 traffic flow logs are available and queryable
+| K8S35
+| reference
+| full
+|
+
+| [[K8S22-01]]K8S22-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Apply a NetworkPolicy; verify pod connectivity is restricted as expected; verify IPv4 and IPv6 addresses are assigned on dual-stack nodes
+| K8S22
+| offtake
+| full
+|
+
+| [[K8S23-02]]K8S23-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| TODO: Helm version
+| K8S23
+| offtake
+| full
+|
+
+| [[K8S23-03]]K8S23-03
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| TODO: Kustomize version
+| K8S23
+| offtake
+| full
+|
+
+| [[K8S23-04]]K8S23-04
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify CSI supports block, shared filesystem, and NFS storage
+| K8S23
+| offtake
+| full
+|
+
+| [[K8S23-05]]K8S23-05
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify CSI supports both static and dynamic provisioning via PVs and PVCs
+| K8S23
+| offtake
+| full
+|
+
+| [[K8S23-06]]K8S23-06
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify CSI credentials are tenant cluster scoped (no cross-cluster access)
+| K8S23
+| offtake
+| full
+|
+
+| [[K8S23-07]]K8S23-07
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify APIs to query storage usage against overall cluster quota with per-PVC/Volume breakdown
+| K8S23
+| offtake
+| full
+|
+
+| [[K8S25-01]]K8S25-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| TODO: Compatibility with the mainline NVIDIA GPU Operator
+| K8S25
+| offtake
+| full
+|
+
+| [[K8S25-02]]K8S25-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify provider-default accelerator operators and drivers can be replaced or overridden with tenant-required versions
+| K8S25
+| offtake
+| full
+|
+
+| [[K8S02-01]]K8S02-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify support for the three most recent minor releases (N-2)
+| K8S02
+| offtake
+| full
+|
+
+| [[K8S02-02]]K8S02-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify automated control plane security patching with no/minimal downtime
+| K8S02
+| offtake
+| full
+|
+
+| [[K8S09-01]]K8S09-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Perform a minor version control plane upgrade and verify zero application downtime
+| K8S09
+| offtake
+| full
+|
+
+| [[K8S10-01]]K8S10-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Perform a rolling node upgrade and verify disruption budgets are respected
+| K8S10
+| offtake
+| full
+|
+
+| [[K8S11-01]]K8S11-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the control plane recovers from a single-node failure
+| K8S11
+| offtake
+| full
+|
+
+| [[K8S12-01]]K8S12-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify backup and recovery within defined RPO/RTO
+| K8S12
+| offtake
+| full
+|
+
+| [[K8S15-01]]K8S15-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the K8s API endpoint has network access controls (firewall/private link)
+| K8S15
+| offtake
+| full
+|
+
+| [[K8S19-01]]K8S19-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify at-rest encryption is enabled for etcd
+| K8S19
+| offtake
+| full
+|
+
+| [[SEC09-01]]SEC09-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify certificates are rotated on a 60-day cycle
+| SEC09
+| offtake
+| full
+|
+
+| [[SEC09-02]]SEC09-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify support for both provider-managed and customer-managed keys
+| SEC09
+| offtake
+| full
+|
+
+| [[K8S36-01]]K8S36-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify Cluster Autoscaler integration (upstream)
+| K8S36
+| reference
+| full
+|
+
+| [[K8S04-01]]K8S04-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify NCP participates in the Kubernetes Security Response Committee (SRC) process and can patch disclosed vulnerabilities during embargo
+| K8S04
+| offtake
+| full
+|
+
+| [[K8S06-01]]K8S06-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Create a K8s node pool via API/CLI specifying node type (CPU or GPU instance type)
+| K8S06
+| offtake
+| full
+|
+
+| [[K8S06-02]]K8S06-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Update a K8s node pool (e.g., scale to a target count)
+| K8S06
+| offtake
+| full
+|
+
+| [[K8S06-03]]K8S06-03
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Delete a K8s node pool
+| K8S06
+| offtake
+| full
+|
+
+| [[K8S06-04]]K8S06-04
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify default node labels and taints can be specified when a node joins the cluster via node pool
+| K8S06
+| offtake
+| full
+|
+
+| [[K8S07-01]]K8S07-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify API Server metrics are available in a Prometheus-scrapable format for SLO measurement
+| K8S07
+| offtake
+| full
+|
+
+| [[K8S17-02]]K8S17-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the cluster exposes a cluster-specific OIDC Issuer endpoint for workload identity federation
+| K8S17
+| offtake
+| full
+|
+
+| [[K8S20-01]]K8S20-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify ability to view or export Kubernetes control plane logs (apiserver, kcm)
+| K8S20
+| offtake
+| full
+|
+
+| [[K8S37-01]]K8S37-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the managed K8s service meets standard Kubernetes performance tests to max cluster size
+| K8S37
+| reference
+| full
+|
+
+| [[K8S26-01]]K8S26-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Support multiple clusters in the same tenancy and in the same VPC
+| K8S26
+| offtake
+| full
+|
+
+| [[POWER01-01]]POWER01-01
+| Workload Orchestration
+| Power Policy Management
+| TODO
+| POWER01
+| reference
+| partial
+|
+
+| [[APIGW01-01]]APIGW01-01
+| AI Platform & User Access
+| Host API Gateway
+| TODO
+| APIGW01
+| reference
+| partial
+|
+
+| [[AICP01-01]]AICP01-01
+| AI Platform & User Access
+| Al Platform 1..N Control Planes
+| TODO
+| AICP01
+| reference
+| partial
+|
+
+| [[WEBUI01-01]]WEBUI01-01
+| AI Platform & User Access
+| Web Management Dashboard
+| TODO
+| WEBUI01
+| reference
+| partial
+|
+
+| [[OBS01-01]]OBS01-01
+| Observability
+| Observability Collectors
+| Validate that an OTel endpoint is provided and some data can be pulled from it
+| OBS01
+| reference
+| full
+|
+
+| [[OBS02-01]]OBS02-01
+| Observability
+| Observability Collectors
+| Logging information about the control plane is available
+| OBS02
+| reference
+| full
+|
+
+| [[OBS03-01]]OBS03-01
+| Observability
+| Observability Collectors
+| Logging information from instances
+| OBS03
+| reference
+| full
+|
+
+| [[OBS04-01]]OBS04-01
+| Observability
+| Observability Collectors
+| Alerts can be issued by the system in case of problems
+| OBS04
+| reference
+| full
+|
+
+| [[OBS05-01]]OBS05-01
+| Observability
+| Observability Collectors
+| Verify telemetry latency is no longer than 120 seconds
+| OBS05
+| reference
+| full
+|
+
+| [[OBS06-01]]OBS06-01
+| Observability
+| Observability Collectors
+| Verify telemetry is available for North-South (front-end) network
+| OBS06
+| reference
+| full
+|
+
+| [[OBS07-01]]OBS07-01
+| Observability
+| Observability Collectors
+| Verify telemetry is available for East-West (back-end / GPU interconnect) network
+| OBS07
+| reference
+| full
+|
+
+| [[OBS08-01]]OBS08-01
+| Observability
+| Observability Collectors
+| Verify telemetry is available for Management network
+| OBS08
+| reference
+| full
+|
+
+| [[OBS09-01]]OBS09-01
+| Observability
+| Observability Collectors
+| Verify telemetry is available for NVSwitch Fabric (GB200+)
+| OBS09
+| reference
+| full
+|
+
+| [[OBS10-01]]OBS10-01
+| Observability
+| Observability Collectors
+| Verify telemetry is available for Host network (NIC-level)
+| OBS10
+| reference
+| full
+|
+
+| [[OBS11-01]]OBS11-01
+| Observability
+| Observability Collectors
+| Verify Fabric Manager logs are available (where applicable)
+| OBS11
+| reference
+| full
+|
+
+| [[OBS12-01]]OBS12-01
+| Observability
+| Observability Collectors
+| Verify Subnet Manager logs are available (where applicable)
+| OBS12
+| reference
+| full
+|
+
+| [[OBS13-01]]OBS13-01
+| Observability
+| Observability Collectors
+| Verify UFM Event logs are available
+| OBS13
+| reference
+| full
+|
+
+| [[OBS14-01]]OBS14-01
+| Observability
+| Observability Collectors
+| Verify general switch logs are available
+| OBS14
+| reference
+| full
+|
+
+| [[OBS15-01]]OBS15-01
+| Observability
+| Observability Collectors
+| Verify switch syslogs are available
+| OBS15
+| reference
+| full
+|
+
+| [[OBS16-01]]OBS16-01
+| Observability
+| Observability Collectors
+| Verify switch kernel logs are available
+| OBS16
+| reference
+| full
+|
+
+| [[OBS17-01]]OBS17-01
+| Observability
+| Observability Collectors
+| Verify BMC SEL logs are available
+| OBS17
+| reference
+| full
+|
+
+| [[OBS18-01]]OBS18-01
+| Observability
+| Observability Collectors
+| Verify host syslogs are available
+| OBS18
+| reference
+| full
+|
+
+| [[OBS19-01]]OBS19-01
+| Observability
+| Observability Collectors
+| Verify VPC Flow logs (all ingress/egress traffic) are available
+| OBS19
+| reference
+| full
+|
+
+| [[TELEM01-01]]TELEM01-01
+| Observability
+| Telemetry / Data Lakes
+| TODO
+| TELEM01
+| reference
+| partial
+|
+
+| [[TELEM02-01]]TELEM02-01
+| Observability
+| Telemetry / Data Lakes
+| Read only access to a BMaaS system's serial console
+| TELEM02
+| reference
+| full
+|
+
+| [[TELEM03-01]]TELEM03-01
+| Observability
+| Telemetry / Data Lakes
+| Read only access to a VM serial console
+| TELEM03
+| reference
+| full
+|
+
+| [[TELEM04-01]]TELEM04-01
+| Observability
+| Telemetry / Data Lakes
+| Verify BMC/Redfish telemetry is accessible via API for GPU metrics not available from the host OS
+| TELEM04
+| reference
+| full
+|
+
+| [[TELEM05-01]]TELEM05-01
+| Observability
+| Telemetry / Data Lakes
+| Verify storage resource capacity metrics are available (used/free/total)
+| TELEM05
+| reference
+| full
+|
+
+| [[TELEM06-01]]TELEM06-01
+| Observability
+| Telemetry / Data Lakes
+| Verify storage performance metrics are available (bandwidth, IOPS, latency)
+| TELEM06
+| reference
+| full
+|
+
+| [[TELEM07-01]]TELEM07-01
+| Observability
+| Telemetry / Data Lakes
+| Verify NVLink metrics are available from the GPU perspective (per-link counters, bandwidth utilization)
+| TELEM07
+| reference
+| full
+|
+
+| [[TELEM08-01]]TELEM08-01
+| Observability
+| Telemetry / Data Lakes
+| Verify NVLink metrics are available from the switch perspective (port-level counters, error rates)
+| TELEM08
+| reference
+| full
+|
+
+| [[SEC12-01]]SEC12-01
+| Security & Identity
+| Network Security
+| Verify BMC management is on a dedicated, restricted network (physically separate or VLAN/VRF-isolated)
+| SEC12
+| offtake
+| full
+|
+
+| [[SEC12-02]]SEC12-02
+| Security & Identity
+| Network Security
+| Verify BMC interfaces are not reachable from tenant networks
+| SEC12
+| offtake
+| full
+|
+
+| [[CNP10-01]]CNP10-01
+| Security & Identity
+| Network Security
+| Verify IPMI is disabled; Redfish over TLS is used with AAA
+| CNP10
+| offtake
+| full
+|
+
+| [[SEC12-03]]SEC12-03
+| Security & Identity
+| Network Security
+| Verify BMC is only accessible via a hardened bastion (jumphost) server; direct public/corporate network access is blocked
+| SEC12
+| offtake
+| full
+|
+
+| [[SEC13-01]]SEC13-01
+| Security & Identity
+| Network Security
+| Verify mTLS (or equivalent) for all east-west and north-south traffic
+| SEC13
+| offtake
+| full
+|
+
+| [[SEC14-01]]SEC14-01
+| Security & Identity
+| Network Security
+| Verify no public internet access to API endpoints by default
+| SEC14
+| offtake
+| full
+|
+
+| [[SEC13-02]]SEC13-02
+| Security & Identity
+| Network Security
+| Verify insecure protocols (HTTP, SSLv3, TLSv1) are disabled
+| SEC13
+| offtake
+| full
+|
+
+| [[SDN04-04]]SDN04-04
+| Security & Identity
+| Network Security
+| Verify IB tenant isolation — compute dedicated to NVIDIA is isolated from other customers
+| SDN04
+| offtake
+| full
+|
+
+| [[SDN04-05]]SDN04-05
+| Security & Identity
+| Network Security
+| Verify IB keys are configured: P_Key, Management Key, Aggregation Management Key, VendorSpecific Key, CongestionControl Key, Node2Node Key, Manager2Node Key
+| SDN04
+| offtake
+| full
+|
+
+| [[SEC11-01]]SEC11-01
+| Security & Identity
+| Network Security
+| Verify hard physical or logical isolation between tenants for network, data, compute, and storage resources
+| SEC11
+| offtake
+| full
+|
+
+| [[SEC01-01]]SEC01-01
+| Security & Identity
+| Authentication
+| Verify user authentication via OIDC for platform services
+| SEC01
+| offtake
+| full
+|
+
+| [[SEC06-01]]SEC06-01
+| Security & Identity
+| Authentication
+| Verify workloads and nodes receive short-lived credentials/tokens
+| SEC06
+| offtake
+| full
+|
+
+| [[SEC03-01]]SEC03-01
+| Security & Identity
+| Authentication
+| Verify out-of-cluster service accounts can authenticate with long-lived credentials
+| SEC03
+| offtake
+| full
+|
+
+| [[SEC07-01]]SEC07-01
+| Security & Identity
+| Authentication
+| Verify all administrative interfaces (UI, CLI, API) are protected by Multi-Factor Authentication
+| SEC07
+| offtake
+| full
+|
+
+| [[SEC04-02]]SEC04-02
+| Security & Identity
+| Authorization
+| Assign a minimal role to a user; verify they cannot perform actions outside that role on Compute, Storage, and Network APIs
+| SEC04
+| offtake
+| full
+|
+
+| [[SEC08-01]]SEC08-01
+| Security & Identity
+| Audit & Logging
+| Perform a management API call; verify an audit log entry is generated with correct metadata
+| SEC08
+| offtake
+| full
+|
+
+| [[SEC08-02]]SEC08-02
+| Security & Identity
+| Audit & Logging
+| Verify audit logs are retained for at least 30 days
+| SEC08
+| offtake
+| full
+|
+
+| [[SEC21-04]]SEC21-04
+| Security & Identity
+| Hardware Security & Compliance
+| Verify memory sanitization between tenants
+| SEC21
+| offtake
+| full
+|
+
+| [[SEC21-05]]SEC21-05
+| Security & Identity
+| Hardware Security & Compliance
+| Verify SRAM/GPU memory is sanitized between tenants
+| SEC21
+| offtake
+| full
+|
+
+| [[SEC21-06]]SEC21-06
+| Security & Identity
+| Hardware Security & Compliance
+| Verify TPM and BIOS are reset during tenant transitions or hardware replacement
+| SEC21
+| offtake
+| full
+|
+
+| SEC21-06
+| Security & Identity
+| Hardware Security & Compliance
+| Verify TPM and BIOS are reset during tenant transitions or hardware replacement
+| SEC22
+| offtake
+| full
+|
+
+| [[SEC20-01]]SEC20-01
+| Security & Identity
+| Hardware Security & Compliance
+| Verify all data at rest is encrypted via SED on local NVMe/SSD and network-attached storage
+| SEC20
+| offtake
+| full
+|
+
+| [[SEC09-03]]SEC09-03
+| Security & Identity
+| Hardware Security & Compliance
+| Verify a centralized KMS is used for all encryption keys and secrets
+| SEC09
+| offtake
+| full
+|
+
+| SEC09-03
+| Security & Identity
+| Hardware Security & Compliance
+| Verify a centralized KMS is used for all encryption keys and secrets
+| SEC10
+| offtake
+| full
+|
+
+| [[SEC09-04]]SEC09-04
+| Security & Identity
+| Hardware Security & Compliance
+| Verify support for Customer Managed Keys (BYOK)
+| SEC09
+| offtake
+| full
+|
+
+| [[NET01-01]]NET01-01
+| Network Transport
+| Backend Switch Fabric API
+| Query the API for a compute node and verify it returns backend switch IDs (leaf, spine, core)
+| NET01
+| offtake
+| full
+|
+
+| [[NET02-02]]NET02-02
+| Network Transport
+| NVLink Domain API
+| Query the NVLink domain ID for a compute node supporting NVLink
+| NET02
+| offtake
+| full
+|
+
+| [[NET04-01]]NET04-01
+| Network Transport
+| Transport Connectivity
+| Verify Private Cloud Interconnect to NVIDIA CorpIT is operational
+| NET04
+| offtake
+| full
+|
+
+| [[NET05-01]]NET05-01
+| Network Transport
+| Transport Connectivity
+| Verify high-bandwidth Private Cloud Interconnect to DGXC on-prem object storage
+| NET05
+| offtake
+| full
+|
+
+| [[NET05-02]]NET05-02
+| Network Transport
+| Transport Connectivity
+| Verify end-to-end MACsec encryption (fail-closed)
+| NET05
+| offtake
+| full
+|
+
+| [[NET06-01]]NET06-01
+| Network Transport
+| Transport Connectivity
+| Verify egress NAT IPs are a static pool dedicated to NVIDIA
+| NET06
+| offtake
+| full
+|
+
+| [[NET06-02]]NET06-02
+| Network Transport
+| Transport Connectivity
+| Verify redundant upstream paths for internet connectivity
+| NET06
+| offtake
+| full
+|
+
+| [[CAP01-01]]CAP01-01
+| Capacity & Fleet Management
+| Governance Metrics
+| Query and verify governance API returns Delivered, Healthy, Reserved, and Active metrics for nodes/GPUs
+| CAP01
+| offtake
+| full
+|
+
+| [[CAP04-01]]CAP04-01
+| Capacity & Fleet Management
+| Capacity Reservations
+| Verify a set of resources can be logically grouped and pinned to an account
+| CAP04
+| offtake
+| full
+|
+
+| [[CAP04-02]]CAP04-02
+| Capacity & Fleet Management
+| Capacity Reservations
+| Verify atomic allocation of a topology block as a single unit
+| CAP04
+| offtake
+| full
+|
+
+| [[CAP05-01]]CAP05-01
+| Capacity & Fleet Management
+| Unified Health APIs
+| Verify per-host health API returns real-time GPU state, thermal status, memory health
+| CAP05
+| offtake
+| full
+|
+
+| [[CAP05-02]]CAP05-02
+| Capacity & Fleet Management
+| Unified Health APIs
+| Verify primitive-level health aggregation (cluster, nodegroup, or reservation level)
+| CAP05
+| offtake
+| full
+|
+
+| [[BM01-01]]BM01-01
+| Benchmarking
+| Exemplar
+| Simulate Exemplar across 512 GPU cluster using latest dgxc-benchmarking release
+| BM01
+| offtake
+| full
+|
+
+| [[BENCH01-01]]BENCH01-01
+| Benchmarking
+| Exemplar
+| NVMesh checks?
+| BENCH01
+| reference
+| full
+|
+
+| [[BENCH02-01]]BENCH02-01
+| Benchmarking
+| Exemplar
+| IPv4 and IPv6 checks?
+| BENCH02
+| reference
+| full
+|
+
+| [[BM01-02]]BM01-02
+| Benchmarking
+| Exemplar
+| Verify performance is within 5% of NVIDIA Reference
+| BM01
+| offtake
+| full
+|
+
+|===

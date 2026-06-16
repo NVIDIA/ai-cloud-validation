@@ -1,0 +1,2316 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Test <-> Requirement junction (reconciliation layer).
+#
+# Source of truth for which requirement(s) each test exercises, across
+# multiple requirement documents (`source`).
+#
+# Per mapping:
+#   test_id       - matches docs/test-plan.yaml
+#   requirements  - list of { req_id, source: offtake|reference, coverage: full|partial }
+#   annotations   - free-form (e.g. how this relationship was decided)
+#   notes         - free-form scratch
+#
+# Render to AsciiDoc with: make plan (scripts/requirements_matrix_to_adoc.py)
+
+version: 0.1.0
+mappings:
+  - test_id: BOOT01-01
+    requirements:
+      - req_id: BOOT01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BOOT01-02
+    requirements:
+      - req_id: BOOT01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BOOT03-01
+    requirements:
+      - req_id: BOOT03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BOOT03-02
+    requirements:
+      - req_id: BOOT03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BOOT01-03
+    requirements:
+      - req_id: BOOT01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BOOT01-04
+    requirements:
+      - req_id: BOOT01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BOOT01-05
+    requirements:
+      - req_id: BOOT01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: IMG01-01
+    requirements:
+      - req_id: IMG01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: IMG02-01
+    requirements:
+      - req_id: IMG02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: IMG03-01
+    requirements:
+      - req_id: IMG03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: AUTH01-01
+    requirements:
+      - req_id: AUTH01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: AUTH02-01
+    requirements:
+      - req_id: AUTH02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: AUTH03-01
+    requirements:
+      - req_id: AUTH03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: IAM01-01
+    requirements:
+      - req_id: IAM01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: IAM02-01
+    requirements:
+      - req_id: IAM02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: IAM03-01
+    requirements:
+      - req_id: IAM03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: IPAM01-01
+    requirements:
+      - req_id: IPAM01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: IPAM02-01
+    requirements:
+      - req_id: IPAM02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NETMGMT01-01
+    requirements:
+      - req_id: NETMGMT01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: RESDB01-01
+    requirements:
+      - req_id: RESDB01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP03-01
+    requirements:
+      - req_id: CP03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP04-01
+    requirements:
+      - req_id: CP04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP05-01
+    requirements:
+      - req_id: CP05
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP06-01
+    requirements:
+      - req_id: CP06
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP07-01
+    requirements:
+      - req_id: CP07
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP08-01
+    requirements:
+      - req_id: CP08
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP09-01
+    requirements:
+      - req_id: CP09
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP10-01
+    requirements:
+      - req_id: CP10
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CP11-01
+    requirements:
+      - req_id: CP11
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HWING01-01
+    requirements:
+      - req_id: HWING01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HWING02-01
+    requirements:
+      - req_id: HWING02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC22-01
+    requirements:
+      - req_id: SEC22
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: ATTEST01-01
+    requirements:
+      - req_id: ATTEST01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC22-02
+    requirements:
+      - req_id: SEC22
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: ATTEST02-01
+    requirements:
+      - req_id: ATTEST02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP09-01
+    requirements:
+      - req_id: CNP09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP09-02
+    requirements:
+      - req_id: CNP09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC22-03
+    requirements:
+      - req_id: SEC22
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-01
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-02
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+      - req_id: CNP04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-03
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC21-01
+    requirements:
+      - req_id: SEC21
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC21-02
+    requirements:
+      - req_id: SEC21
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-04
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS01-01
+    requirements:
+      - req_id: BMAAS01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS02-01
+    requirements:
+      - req_id: BMAAS02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS03-01
+    requirements:
+      - req_id: BMAAS03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-05
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-06
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS04-01
+    requirements:
+      - req_id: BMAAS04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-07
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BOOT02-01
+    requirements:
+      - req_id: BOOT02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-08
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP05-01
+    requirements:
+      - req_id: CNP05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS05-01
+    requirements:
+      - req_id: BMAAS05
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS06-01
+    requirements:
+      - req_id: BMAAS06
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS07-01
+    requirements:
+      - req_id: BMAAS07
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP06-01
+    requirements:
+      - req_id: CNP06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS08-01
+    requirements:
+      - req_id: BMAAS08
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS09-01
+    requirements:
+      - req_id: BMAAS09
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS10-01
+    requirements:
+      - req_id: BMAAS10
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS11-01
+    requirements:
+      - req_id: BMAAS11
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BMAAS12-01
+    requirements:
+      - req_id: BMAAS12
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP06-02
+    requirements:
+      - req_id: CNP06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP08-01
+    requirements:
+      - req_id: CNP08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP08-02
+    requirements:
+      - req_id: CNP08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-09
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-10
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+      - req_id: CNP04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-11
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-12
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC21-03
+    requirements:
+      - req_id: SEC21
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS01-01
+    requirements:
+      - req_id: VMAAS01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-13
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS02-01
+    requirements:
+      - req_id: VMAAS02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-14
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-15
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP05-02
+    requirements:
+      - req_id: CNP05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BOOT02-02
+    requirements:
+      - req_id: BOOT02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS03-01
+    requirements:
+      - req_id: VMAAS03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS04-01
+    requirements:
+      - req_id: VMAAS04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS05-01
+    requirements:
+      - req_id: VMAAS05
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS06-01
+    requirements:
+      - req_id: VMAAS06
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS07-01
+    requirements:
+      - req_id: VMAAS07
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS08-01
+    requirements:
+      - req_id: VMAAS08
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS09-01
+    requirements:
+      - req_id: VMAAS09
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS10-01
+    requirements:
+      - req_id: VMAAS10
+        source: reference
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS11-01
+    requirements:
+      - req_id: VMAAS11
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS12-01
+    requirements:
+      - req_id: VMAAS12
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS13-01
+    requirements:
+      - req_id: VMAAS13
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: VMAAS14-01
+    requirements:
+      - req_id: VMAAS14
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP06-03
+    requirements:
+      - req_id: CNP06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP08-03
+    requirements:
+      - req_id: CNP08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP08-04
+    requirements:
+      - req_id: CNP08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-16
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP01-17
+    requirements:
+      - req_id: CNP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN01-01
+    requirements:
+      - req_id: SDN01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN01-02
+    requirements:
+      - req_id: SDN01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN01-03
+    requirements:
+      - req_id: SDN01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN01-04
+    requirements:
+      - req_id: SDN01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN04-01
+    requirements:
+      - req_id: SDN04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN04-02
+    requirements:
+      - req_id: SDN04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN04-03
+    requirements:
+      - req_id: SDN04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NET03-01
+    requirements:
+      - req_id: NET03
+        source: offtake
+        coverage: full
+      - req_id: SDN01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN11-01
+    requirements:
+      - req_id: SDN11
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN05-01
+    requirements:
+      - req_id: SDN05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN06-01
+    requirements:
+      - req_id: SDN06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN07-01
+    requirements:
+      - req_id: SDN07
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-01
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+      - req_id: SDN03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-02
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+      - req_id: SDN03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-03
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+      - req_id: SDN03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-04
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+      - req_id: SDN03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP03-01
+    requirements:
+      - req_id: CNP03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN12-01
+    requirements:
+      - req_id: SDN12
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN13-01
+    requirements:
+      - req_id: SDN13
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN14-01
+    requirements:
+      - req_id: SDN14
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN15-01
+    requirements:
+      - req_id: SDN15
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN16-01
+    requirements:
+      - req_id: SDN16
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN17-01
+    requirements:
+      - req_id: SDN17
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN18-01
+    requirements:
+      - req_id: SDN18
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN19-01
+    requirements:
+      - req_id: SDN19
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN20-01
+    requirements:
+      - req_id: SDN20
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN21-01
+    requirements:
+      - req_id: SDN21
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN22-01
+    requirements:
+      - req_id: SDN22
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN23-01
+    requirements:
+      - req_id: SDN23
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN24-01
+    requirements:
+      - req_id: SDN24
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN25-01
+    requirements:
+      - req_id: SDN25
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN26-01
+    requirements:
+      - req_id: SDN26
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN27-01
+    requirements:
+      - req_id: SDN27
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN28-01
+    requirements:
+      - req_id: SDN28
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-05
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-06
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-07
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-08
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-09
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN08-01
+    requirements:
+      - req_id: SDN08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN02-10
+    requirements:
+      - req_id: SDN02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN09-01
+    requirements:
+      - req_id: SDN09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN09-02
+    requirements:
+      - req_id: SDN09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN09-03
+    requirements:
+      - req_id: SDN09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: META01-01
+    requirements:
+      - req_id: META01
+        source: reference
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: CTRL01-01
+    requirements:
+      - req_id: CTRL01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CAP02-01
+    requirements:
+      - req_id: CAP02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CAP03-01
+    requirements:
+      - req_id: CAP03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP08-05
+    requirements:
+      - req_id: CNP08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: LB01-01
+    requirements:
+      - req_id: LB01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: LB02-01
+    requirements:
+      - req_id: LB02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: LB03-01
+    requirements:
+      - req_id: LB03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: LB04-01
+    requirements:
+      - req_id: LB04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX04-01
+    requirements:
+      - req_id: BFX04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX05-01
+    requirements:
+      - req_id: BFX05
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX06-01
+    requirements:
+      - req_id: BFX06
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX01-01
+    requirements:
+      - req_id: BFX01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX01-02
+    requirements:
+      - req_id: BFX01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX01-03
+    requirements:
+      - req_id: BFX01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX01-04
+    requirements:
+      - req_id: BFX01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX01-05
+    requirements:
+      - req_id: BFX01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX02-01
+    requirements:
+      - req_id: BFX02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX02-02
+    requirements:
+      - req_id: BFX02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX02-03
+    requirements:
+      - req_id: BFX02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX03-01
+    requirements:
+      - req_id: BFX03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX03-02
+    requirements:
+      - req_id: BFX03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BFX03-03
+    requirements:
+      - req_id: BFX03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS01-01
+    requirements:
+      - req_id: HSS01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS02-01
+    requirements:
+      - req_id: HSS02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS03-01
+    requirements:
+      - req_id: HSS03
+        source: offtake
+        coverage: full
+      - req_id: K8S23
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS04-01
+    requirements:
+      - req_id: HSS04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS05-01
+    requirements:
+      - req_id: HSS05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: STOR01-01
+    requirements:
+      - req_id: STOR01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DIR02-01
+    requirements:
+      - req_id: DIR02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DIR01-01
+    requirements:
+      - req_id: DIR01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DIR01-02
+    requirements:
+      - req_id: DIR01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DMS01-01
+    requirements:
+      - req_id: DMS01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DMS02-01
+    requirements:
+      - req_id: DMS02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DMS03-01
+    requirements:
+      - req_id: DMS03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DMS05-01
+    requirements:
+      - req_id: DMS05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: STG02-01
+    requirements:
+      - req_id: STG02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: STG03-01
+    requirements:
+      - req_id: STG03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: STG04-01
+    requirements:
+      - req_id: STG04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: STG05-01
+    requirements:
+      - req_id: STG05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC04-01
+    requirements:
+      - req_id: SEC04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS06-01
+    requirements:
+      - req_id: HSS06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS07-01
+    requirements:
+      - req_id: HSS07
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS09-01
+    requirements:
+      - req_id: HSS09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS10-01
+    requirements:
+      - req_id: HSS10
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS12-01
+    requirements:
+      - req_id: HSS12
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS13-01
+    requirements:
+      - req_id: HSS13
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS14-01
+    requirements:
+      - req_id: HSS14
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS15-01
+    requirements:
+      - req_id: HSS15
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: HSS18-01
+    requirements:
+      - req_id: HSS18
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC01-01
+    requirements:
+      - req_id: DATASVC01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S23-01
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC02-01
+    requirements:
+      - req_id: DATASVC02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC03-01
+    requirements:
+      - req_id: DATASVC03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC04-01
+    requirements:
+      - req_id: DATASVC04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC05-01
+    requirements:
+      - req_id: DATASVC05
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC06-01
+    requirements:
+      - req_id: DATASVC06
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC07-01
+    requirements:
+      - req_id: DATASVC07
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC08-01
+    requirements:
+      - req_id: DATASVC08
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: DATASVC09-01
+    requirements:
+      - req_id: DATASVC09
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM01-01
+    requirements:
+      - req_id: SLURM01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM02-01
+    requirements:
+      - req_id: SLURM02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM03-01
+    requirements:
+      - req_id: SLURM03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM04-01
+    requirements:
+      - req_id: SLURM04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM05-01
+    requirements:
+      - req_id: SLURM05
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM06-01
+    requirements:
+      - req_id: SLURM06
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM07-01
+    requirements:
+      - req_id: SLURM07
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM08-01
+    requirements:
+      - req_id: SLURM08
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM09-01
+    requirements:
+      - req_id: SLURM09
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SLURM10-01
+    requirements:
+      - req_id: SLURM10
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S05-01
+    requirements:
+      - req_id: K8S05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S38-01
+    requirements:
+      - req_id: K8S38
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S41-01
+    requirements:
+      - req_id: K8S41
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S27-01
+    requirements:
+      - req_id: K8S27
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S14-01
+    requirements:
+      - req_id: K8S14
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S39-01
+    requirements:
+      - req_id: K8S39
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S40-01
+    requirements:
+      - req_id: K8S40
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S32-01
+    requirements:
+      - req_id: K8S32
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S33-01
+    requirements:
+      - req_id: K8S33
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S34-01
+    requirements:
+      - req_id: K8S34
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S24-01
+    requirements:
+      - req_id: K8S24
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S01-01
+    requirements:
+      - req_id: K8S01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S17-01
+    requirements:
+      - req_id: K8S17
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S21-01
+    requirements:
+      - req_id: K8S21
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S35-01
+    requirements:
+      - req_id: K8S35
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S22-01
+    requirements:
+      - req_id: K8S22
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S23-02
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S23-03
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S23-04
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S23-05
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S23-06
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S23-07
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S25-01
+    requirements:
+      - req_id: K8S25
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S25-02
+    requirements:
+      - req_id: K8S25
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S02-01
+    requirements:
+      - req_id: K8S02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S02-02
+    requirements:
+      - req_id: K8S02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S09-01
+    requirements:
+      - req_id: K8S09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S10-01
+    requirements:
+      - req_id: K8S10
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S11-01
+    requirements:
+      - req_id: K8S11
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S12-01
+    requirements:
+      - req_id: K8S12
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S15-01
+    requirements:
+      - req_id: K8S15
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S19-01
+    requirements:
+      - req_id: K8S19
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC09-01
+    requirements:
+      - req_id: SEC09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC09-02
+    requirements:
+      - req_id: SEC09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S36-01
+    requirements:
+      - req_id: K8S36
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S04-01
+    requirements:
+      - req_id: K8S04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S06-01
+    requirements:
+      - req_id: K8S06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S06-02
+    requirements:
+      - req_id: K8S06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S06-03
+    requirements:
+      - req_id: K8S06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S06-04
+    requirements:
+      - req_id: K8S06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S07-01
+    requirements:
+      - req_id: K8S07
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S17-02
+    requirements:
+      - req_id: K8S17
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S20-01
+    requirements:
+      - req_id: K8S20
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S37-01
+    requirements:
+      - req_id: K8S37
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: K8S26-01
+    requirements:
+      - req_id: K8S26
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: POWER01-01
+    requirements:
+      - req_id: POWER01
+        source: reference
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: APIGW01-01
+    requirements:
+      - req_id: APIGW01
+        source: reference
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: AICP01-01
+    requirements:
+      - req_id: AICP01
+        source: reference
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: WEBUI01-01
+    requirements:
+      - req_id: WEBUI01
+        source: reference
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: OBS01-01
+    requirements:
+      - req_id: OBS01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS02-01
+    requirements:
+      - req_id: OBS02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS03-01
+    requirements:
+      - req_id: OBS03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS04-01
+    requirements:
+      - req_id: OBS04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS05-01
+    requirements:
+      - req_id: OBS05
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS06-01
+    requirements:
+      - req_id: OBS06
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS07-01
+    requirements:
+      - req_id: OBS07
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS08-01
+    requirements:
+      - req_id: OBS08
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS09-01
+    requirements:
+      - req_id: OBS09
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS10-01
+    requirements:
+      - req_id: OBS10
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS11-01
+    requirements:
+      - req_id: OBS11
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS12-01
+    requirements:
+      - req_id: OBS12
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS13-01
+    requirements:
+      - req_id: OBS13
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS14-01
+    requirements:
+      - req_id: OBS14
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS15-01
+    requirements:
+      - req_id: OBS15
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS16-01
+    requirements:
+      - req_id: OBS16
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS17-01
+    requirements:
+      - req_id: OBS17
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS18-01
+    requirements:
+      - req_id: OBS18
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: OBS19-01
+    requirements:
+      - req_id: OBS19
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: TELEM01-01
+    requirements:
+      - req_id: TELEM01
+        source: reference
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: TELEM02-01
+    requirements:
+      - req_id: TELEM02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: TELEM03-01
+    requirements:
+      - req_id: TELEM03
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: TELEM04-01
+    requirements:
+      - req_id: TELEM04
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: TELEM05-01
+    requirements:
+      - req_id: TELEM05
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: TELEM06-01
+    requirements:
+      - req_id: TELEM06
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: TELEM07-01
+    requirements:
+      - req_id: TELEM07
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: TELEM08-01
+    requirements:
+      - req_id: TELEM08
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC12-01
+    requirements:
+      - req_id: SEC12
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC12-02
+    requirements:
+      - req_id: SEC12
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CNP10-01
+    requirements:
+      - req_id: CNP10
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC12-03
+    requirements:
+      - req_id: SEC12
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC13-01
+    requirements:
+      - req_id: SEC13
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC14-01
+    requirements:
+      - req_id: SEC14
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC13-02
+    requirements:
+      - req_id: SEC13
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN04-04
+    requirements:
+      - req_id: SDN04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SDN04-05
+    requirements:
+      - req_id: SDN04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC11-01
+    requirements:
+      - req_id: SEC11
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC01-01
+    requirements:
+      - req_id: SEC01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC06-01
+    requirements:
+      - req_id: SEC06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC03-01
+    requirements:
+      - req_id: SEC03
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC07-01
+    requirements:
+      - req_id: SEC07
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC04-02
+    requirements:
+      - req_id: SEC04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC08-01
+    requirements:
+      - req_id: SEC08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC08-02
+    requirements:
+      - req_id: SEC08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC21-04
+    requirements:
+      - req_id: SEC21
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC21-05
+    requirements:
+      - req_id: SEC21
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC21-06
+    requirements:
+      - req_id: SEC21
+        source: offtake
+        coverage: full
+      - req_id: SEC22
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC20-01
+    requirements:
+      - req_id: SEC20
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC09-03
+    requirements:
+      - req_id: SEC09
+        source: offtake
+        coverage: full
+      - req_id: SEC10
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: SEC09-04
+    requirements:
+      - req_id: SEC09
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NET01-01
+    requirements:
+      - req_id: NET01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NET02-02
+    requirements:
+      - req_id: NET02
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NET04-01
+    requirements:
+      - req_id: NET04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NET05-01
+    requirements:
+      - req_id: NET05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NET05-02
+    requirements:
+      - req_id: NET05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NET06-01
+    requirements:
+      - req_id: NET06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: NET06-02
+    requirements:
+      - req_id: NET06
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CAP01-01
+    requirements:
+      - req_id: CAP01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CAP04-01
+    requirements:
+      - req_id: CAP04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CAP04-02
+    requirements:
+      - req_id: CAP04
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CAP05-01
+    requirements:
+      - req_id: CAP05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: CAP05-02
+    requirements:
+      - req_id: CAP05
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BM01-01
+    requirements:
+      - req_id: BM01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BENCH01-01
+    requirements:
+      - req_id: BENCH01
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BENCH02-01
+    requirements:
+      - req_id: BENCH02
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: ''
+  - test_id: BM01-02
+    requirements:
+      - req_id: BM01
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''

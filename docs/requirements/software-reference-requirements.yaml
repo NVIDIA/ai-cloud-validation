@@ -1,0 +1,1005 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Software reference requirements - structured source of record.
+# Derived from the NCP Software Reference Guide (NSRG). Render to Markdown
+# with make plan (scripts/requirements_source_to_md.py).
+
+source: reference
+title: Software Reference Requirements
+preamble: This document lists requirements derived from the *NCP Software Reference Guide* (NSRG).
+requirements:
+  - req_id: IMG01
+    domain: Foundational Services
+    component: Image Registry
+    description: Verify that an OS image (iso file) with full NVIDIA support is readily available
+    reference_mapping: 'NSRG: Compute Service (PXE/image deploy)'
+    covers_test: IMG01-01
+    status: ''
+  - req_id: IMG02
+    domain: Foundational Services
+    component: Image Registry
+    description: Verify that an OS install configuration (e.g. iPXE config like Carbide) with full NVIDIA support is readily available
+    reference_mapping: 'NSRG: Compute Service (PXE Boot Server)'
+    covers_test: IMG02-01
+    status: ''
+  - req_id: IMG03
+    domain: Foundational Services
+    component: Image Registry
+    description: Verify that an VM image with full NVIDIA support is readily available
+    reference_mapping: 'NSRG: Compute Service (VM Control Plane)'
+    covers_test: IMG03-01
+    status: ''
+  - req_id: AUTH01
+    domain: Foundational Services
+    component: Key Secret Mgmt
+    description: CRUD an SSH/Teleport compatible public key for system login
+    reference_mapping: 'NSRG: Cloud Control Plane (IAM)'
+    covers_test: AUTH01-01
+    status: ''
+  - req_id: AUTH02
+    domain: Foundational Services
+    component: Key Secret Mgmt
+    description: Spin up an instance which uses a specified key
+    reference_mapping: 'NSRG: Compute Service (instance lifecycle)'
+    covers_test: AUTH02-01
+    status: ''
+  - req_id: AUTH03
+    domain: Foundational Services
+    component: Key Secret Mgmt
+    description: Access other components via a specified key as possible (SOL, Network devices)
+    reference_mapping: 'NSRG: Compute Service (serial console / SMN)'
+    covers_test: AUTH03-01
+    status: ''
+  - req_id: IAM01
+    domain: Foundational Services
+    component: Identity and Asset Mgmt (IAM)
+    description: Create user and log in as that user
+    reference_mapping: 'NSRG: Cloud Control Plane (IAM)'
+    covers_test: IAM01-01
+    status: ''
+  - req_id: IAM02
+    domain: Foundational Services
+    component: Identity and Asset Mgmt (IAM)
+    description: Delete user
+    reference_mapping: 'NSRG: Cloud Control Plane (IAM)'
+    covers_test: IAM02-01
+    status: ''
+  - req_id: IAM03
+    domain: Foundational Services
+    component: Identity and Asset Mgmt (IAM)
+    description: Validate that a user created can access the API and authorized resources
+    reference_mapping: 'NSRG: Cloud Control Plane (IAM authz)'
+    covers_test: IAM03-01
+    status: ''
+  - req_id: IPAM01
+    domain: Foundational Services
+    component: DDI
+    description: Check that IP addresses are managed by the platform, and that DHCP is able to provide IP addresses
+    reference_mapping: 'NSRG: SDN Layer (Network Manager IPAM/DHCP)'
+    covers_test: IPAM01-01
+    status: ''
+  - req_id: IPAM02
+    domain: Foundational Services
+    component: DDI
+    description: Check that IP addresses are managed sensibly as VPCs are configured (Move to SDN section?)
+    reference_mapping: 'NSRG: SDN Layer / Creating VPCs'
+    covers_test: IPAM02-01
+    status: ''
+  - req_id: NETMGMT01
+    domain: Foundational Services
+    component: Network Underlay & Mgmt
+    description: Verify that all switches in the are reachable and healthy (SSH, API, etc)
+    reference_mapping: 'NSRG: SDN Layer / Networking (switch mgmt)'
+    covers_test: NETMGMT01-01
+    status: ''
+  - req_id: RESDB01
+    domain: Foundational Services
+    component: Resource Database
+    description: Verify that all resources assigned to the cluster are accounted for
+    reference_mapping: 'NSRG: Compute Service (Instance Database / inventory)'
+    covers_test: RESDB01-01
+    status: ''
+  - req_id: CP03
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Make sure we can ping the control plane, or get a heart beat/status code
+    reference_mapping: 'NSRG: Cloud Control Plane'
+    covers_test: CP03-01
+    status: ''
+  - req_id: CP04
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Control Plane can be upgraded (measure impact)
+    reference_mapping: 'NSRG: Cloud Control Plane'
+    covers_test: CP04-01
+    status: ''
+  - req_id: CP05
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Access keys can be created, received, used to log in
+    reference_mapping: 'NSRG: Cloud Control Plane (IAM)'
+    covers_test: CP05-01
+    status: ''
+  - req_id: CP06
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Access keys can expire or be disabled
+    reference_mapping: 'NSRG: Cloud Control Plane (IAM)'
+    covers_test: CP06-01
+    status: ''
+  - req_id: CP07
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Create tenants
+    reference_mapping: 'NSRG: Cloud Control Plane (per-tenant quotas)'
+    covers_test: CP07-01
+    status: ''
+  - req_id: CP08
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Retrieve list of tenants
+    reference_mapping: 'NSRG: Cloud Control Plane'
+    covers_test: CP08-01
+    status: ''
+  - req_id: CP09
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Retrieve info about individual tenant
+    reference_mapping: 'NSRG: Cloud Control Plane'
+    covers_test: CP09-01
+    status: ''
+  - req_id: CP10
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Delete Tenant
+    reference_mapping: 'NSRG: Cloud Control Plane'
+    covers_test: CP10-01
+    status: ''
+  - req_id: CP11
+    domain: Infrastructure and Data Services
+    component: Control Plane accessible
+    description: Add user to tenant
+    reference_mapping: 'NSRG: Cloud Control Plane (IAM)'
+    covers_test: CP11-01
+    status: ''
+  - req_id: HWING01
+    domain: Infrastructure and Data Services
+    component: Hardware ingestion
+    description: Makes sure that all hardware under test has been ingested, and matches the provided hardware
+    reference_mapping: 'NSRG: Compute Service (Machine Lifecycle Manager - discovery/ingestion)'
+    covers_test: HWING01-01
+    status: ''
+  - req_id: HWING02
+    domain: Infrastructure and Data Services
+    component: Hardware ingestion
+    description: Make sure that a device can be removed from the system
+    reference_mapping: 'NSRG: Compute Service (Machine Lifecycle Manager)'
+    covers_test: HWING02-01
+    status: ''
+  - req_id: ATTEST01
+    domain: Infrastructure and Data Services
+    component: Attestation
+    description: Check that OS is approved
+    reference_mapping: 'NSRG: Boot and Attestation / Remote Attestation'
+    covers_test: ATTEST01-01
+    status: ''
+  - req_id: ATTEST02
+    domain: Infrastructure and Data Services
+    component: Attestation
+    description: Check that an updated BIOS is installed on all hardware
+    reference_mapping: 'NSRG: Boot and Attestation / Measured Boot'
+    covers_test: ATTEST02-01
+    status: ''
+  - req_id: BMAAS01
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: Node attached storage
+    reference_mapping: 'NSRG: Virtual Storage / SDS Layer'
+    covers_test: BMAAS01-01
+    status: ''
+  - req_id: BMAAS02
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: 'Storage: Config/default/access to local NVME drives'
+    reference_mapping: 'NSRG: Virtual Storage (Ephemeral Storage)'
+    covers_test: BMAAS02-01
+    status: ''
+  - req_id: BMAAS03
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: A running node can be accessed via SSH/Teleport for further configuration (Bare Metal)
+    reference_mapping: 'NSRG: Compute Service'
+    covers_test: BMAAS03-01
+    status: ''
+  - req_id: BMAAS04
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: 'DEPRECATED: A node can be reinstalled from its configured stock operating system'
+    reference_mapping: 'NSRG: Compute Service (Machine Lifecycle Manager)'
+    covers_test: BMAAS04-01
+    status: ''
+  - req_id: BMAAS05
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: Check the health and status of the DPU on instantiation
+    reference_mapping: 'NSRG: Break-Fix (Initial Node Validation)'
+    covers_test: BMAAS05-01
+    status: ''
+  - req_id: BMAAS06
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: Nodes can communicate across ethernet, infiniband, and NVLink (Bare Metal)
+    reference_mapping: 'NSRG: Networking (TAN/CIN/NVLink) / Performance Requirements'
+    covers_test: BMAAS06-01
+    status: ''
+  - req_id: BMAAS07
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: Check for any per-host status log over time.
+    reference_mapping: 'NSRG: Telemetry & Observability (Compute)'
+    covers_test: BMAAS07-01
+    status: ''
+  - req_id: BMAAS08
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: Verify NVIDIA hardware
+    reference_mapping: 'NSRG: Break-Fix (Initial Node Validation)'
+    covers_test: BMAAS08-01
+    status: ''
+  - req_id: BMAAS09
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: GPU Stress workload (Bare Metal)
+    reference_mapping: 'NSRG: Break-Fix / Node Level Health Checks'
+    covers_test: BMAAS09-01
+    status: ''
+  - req_id: BMAAS10
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: Nim Inference jobs (Bare Metal)
+    reference_mapping: 'NSRG: AI Platform-as-a-Service'
+    covers_test: BMAAS10-01
+    status: ''
+  - req_id: BMAAS11
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: NCCL tests
+    reference_mapping: 'NSRG: Performance Requirements / Networking (CIN)'
+    covers_test: BMAAS11-01
+    status: ''
+  - req_id: BMAAS12
+    domain: Infrastructure and Data Services
+    component: 'Compute Services: BMaaS'
+    description: Training workload test
+    reference_mapping: 'NSRG: AI Platform-as-a-Service / Performance Requirements'
+    covers_test: BMAAS12-01
+    status: ''
+  - req_id: VMAAS01
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: A running node can be accessed via SSH/Teleport for further configuration (VM)
+    reference_mapping: 'NSRG: Compute Service (VM Control Plane)'
+    covers_test: VMAAS01-01
+    status: ''
+  - req_id: VMAAS02
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: 'DEPRECATED: A node can be reinstalled from its configured stock operating system'
+    reference_mapping: 'NSRG: Compute Service (VM Control Plane)'
+    covers_test: VMAAS02-01
+    status: ''
+  - req_id: VMAAS03
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Noisy Neighbor CPU/GPU tests
+    reference_mapping: 'NSRG: Workload Isolation'
+    covers_test: VMAAS03-01
+    status: ''
+  - req_id: VMAAS04
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Tenant cannot allocate more VMs than their quota allows
+    reference_mapping: 'NSRG: Cloud Control Plane (per-tenant quotas)'
+    covers_test: VMAAS04-01
+    status: ''
+  - req_id: VMAAS05
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Check that the host OS is a known acceptable image (like Ubuntu/DGXOS)
+    reference_mapping: 'NSRG: Compute Service / Boot and Attestation'
+    covers_test: VMAAS05-01
+    status: ''
+  - req_id: VMAAS06
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Check that the GPU is visible and accessible from the VM
+    reference_mapping: 'NSRG: Virtualizing a GPU'
+    covers_test: VMAAS06-01
+    status: ''
+  - req_id: VMAAS07
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Check that the correct Linux Kernel, libvirt, sbios, and NVIDIA drivers are installed
+    reference_mapping: 'NSRG: Virtualizing a GPU / Performance Requirements'
+    covers_test: VMAAS07-01
+    status: ''
+  - req_id: VMAAS08
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Check that vEGM is configured correctly
+    reference_mapping: 'NSRG: Virtualizing a GPU / Performance Requirements'
+    covers_test: VMAAS08-01
+    status: ''
+  - req_id: VMAAS09
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Check that vCPU pinning is set correctly, PCI bus is configured correctly
+    reference_mapping: 'NSRG: Performance Requirements (VM Networking) / Virtualizing a GPU'
+    covers_test: VMAAS09-01
+    status: ''
+  - req_id: VMAAS10
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: 'TODO: More things from the "NVIDIA Grace I/O Virtualization Guide"'
+    reference_mapping: 'NSRG: Performance Requirements / Virtualizing a GPU'
+    covers_test: VMAAS10-01
+    status: ''
+  - req_id: VMAAS11
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: GPU Stress workload (VM)
+    reference_mapping: 'NSRG: Break-Fix / Node Level Health Checks'
+    covers_test: VMAAS11-01
+    status: ''
+  - req_id: VMAAS12
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Nim Inference jobs (VM)
+    reference_mapping: 'NSRG: AI Platform-as-a-Service'
+    covers_test: VMAAS12-01
+    status: ''
+  - req_id: VMAAS13
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Run NCCL tests
+    reference_mapping: 'NSRG: Performance Requirements (VM Networking)'
+    covers_test: VMAAS13-01
+    status: ''
+  - req_id: VMAAS14
+    domain: Infrastructure and Data Services
+    component: 'Compute Service: VMaaS'
+    description: Nodes can communicate across ethernet, infiniband, and NVLink (VM)
+    reference_mapping: 'NSRG: Performance Requirements (VM Networking) / Networking'
+    covers_test: VMAAS14-01
+    status: ''
+  - req_id: SDN11
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: Support Stable Private IP allocations, where if a VM crashes and restarts the same IP address remains pinned until the node is deleted
+    reference_mapping: 'NSRG: SDN Layer / Creating VPCs'
+    covers_test: SDN11-01
+    status: ''
+  - req_id: SDN12
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'NVLink: Create a new partition; verify success response with partition key.'
+    reference_mapping: 'NSRG: Partitioning the NVLink Network (Scale-Up)'
+    covers_test: SDN12-01
+    status: ''
+  - req_id: SDN13
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'NVLink: List partitions; retrieve a specific partition by partition ID'
+    reference_mapping: 'NSRG: Partitioning the NVLink Network (Scale-Up)'
+    covers_test: SDN13-01
+    status: ''
+  - req_id: SDN14
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'NVLink: Delete an empty partition (no instances); retrieve by ID and verify not found.'
+    reference_mapping: 'NSRG: Partitioning the NVLink Network (Scale-Up)'
+    covers_test: SDN14-01
+    status: ''
+  - req_id: SDN15
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'NVLink: Create a partition, create instance in that partition, make sure the instance becomes ready, delete instance, verify GPUs removed from partition.'
+    reference_mapping: 'NSRG: Partitioning the NVLink Network (Scale-Up)'
+    covers_test: SDN15-01
+    status: ''
+  - req_id: SDN16
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'NVLink: Create partition, create 2 instances, verify both share the same nvlink_partition_id and both GPUs are reported for that partition'
+    reference_mapping: 'NSRG: Partitioning the NVLink Network (Scale-Up)'
+    covers_test: SDN16-01
+    status: ''
+  - req_id: SDN17
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: Assert nvidia-imex and nvidia-imex-ctl packages are installed and nvidia-imex.service unit is registered with systemd.'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN17-01
+    status: ''
+  - req_id: SDN18
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: Start nvidia-imex via systemctl start nvidia-imex and assert the service reaches active/ready state.'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN18-01
+    status: ''
+  - req_id: SDN19
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: Stop nvidia-imex via systemctl stop nvidia-imex and assert clean shutdown (other nodes show disabled node status).'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN19-01
+    status: ''
+  - req_id: SDN20
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: Enable IMEX at boot with systemctl enable nvidia-imex, reboot, and confirm IMEX starts automatically.'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN20-01
+    status: ''
+  - req_id: SDN21
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: After all nodes start IMEX, query domain state via nvidia-imex-ctl -N and assert state is UP, fully connected matrix'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN21-01
+    status: ''
+  - req_id: SDN22
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: With IMEX_ENABLE_AUTH_ENCRYPTION=0, form a multi-node domain and assert connectivity without any auth/encryption.'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN22-01
+    status: ''
+  - req_id: SDN23
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: Enable IMEX_ENABLE_AUTH_ENCRYPTION=1 with SSL_TLS mode, provide valid server/client certs, and assert mutual authentication and encrypted communication.'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN23-01
+    status: ''
+  - req_id: SDN24
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: Enable GSSAPI/Kerberos mode (GSS_AUTH_ENCRYPT), configure KDC/keytabs, and assert mutual auth + encryption between nodes.'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN24-01
+    status: ''
+  - req_id: SDN25
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: IMEX/K8s: Submit a workload requesting a ComputeDomain; assert ComputeDomain pods are created on each allocated node.'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (DRA/IMEX)'
+    covers_test: SDN25-01
+    status: ''
+  - req_id: SDN26
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: From workload pods in a ComputeDomain run nvbandwidth-test-job'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX) / Performance Requirements'
+    covers_test: SDN26-01
+    status: ''
+  - req_id: SDN27
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: 'IMEX: After workload completes, assert ComputeDomain and associated IMEX resources are cleaned up.'
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI (IMEX)'
+    covers_test: SDN27-01
+    status: ''
+  - req_id: SDN28
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: Redundant Gateways
+    reference_mapping: 'NSRG: SDN Layer'
+    covers_test: SDN28-01
+    status: ''
+  - req_id: META01
+    domain: Infrastructure and Data Services
+    component: Metadata Service
+    description: TODO
+    reference_mapping: 'NSRG: Creating VPCs (Metadata Network)'
+    covers_test: META01-01
+    status: ''
+  - req_id: CTRL01
+    domain: Infrastructure and Data Services
+    component: Cloud Control Plane
+    description: Needs to have an API we can access from our tests to do actions
+    reference_mapping: 'NSRG: Cloud Control Plane'
+    covers_test: CTRL01-01
+    status: ''
+  - req_id: LB01
+    domain: Infrastructure and Data Services
+    component: Load Balancing
+    description: CRUD a load balancer
+    reference_mapping: 'NSRG: SDN Layer'
+    covers_test: LB01-01
+    status: ''
+  - req_id: LB02
+    domain: Infrastructure and Data Services
+    component: Load Balancing
+    description: Verify that traffic is distributed across multiple nodes
+    reference_mapping: 'NSRG: SDN Layer'
+    covers_test: LB02-01
+    status: ''
+  - req_id: LB03
+    domain: Infrastructure and Data Services
+    component: Load Balancing
+    description: Verify that nodes can be marked as down or up (for rolling deployments/etc)
+    reference_mapping: 'NSRG: SDN Layer'
+    covers_test: LB03-01
+    status: ''
+  - req_id: LB04
+    domain: Infrastructure and Data Services
+    component: Load Balancing
+    description: Verify that no traffic is dropped during outages
+    reference_mapping: 'NSRG: SDN Layer'
+    covers_test: LB04-01
+    status: ''
+  - req_id: BFX04
+    domain: Infrastructure and Data Services
+    component: Break-Fix
+    description: Check that GPUd or Sentinel is running
+    reference_mapping: 'NSRG: Node Level Health Checks (DCGM)'
+    covers_test: BFX04-01
+    status: ''
+  - req_id: BFX05
+    domain: Infrastructure and Data Services
+    component: Break-Fix
+    description: Verify that Tenants can be notified, by some communication system, of planned future node maintenance
+    reference_mapping: 'NSRG: Break-Fix Architecture'
+    covers_test: BFX05-01
+    status: ''
+  - req_id: BFX06
+    domain: Infrastructure and Data Services
+    component: Break-Fix
+    description: Verify that Tenants can be notified, by some communication system, of immediate node failure
+    reference_mapping: 'NSRG: Break-Fix Architecture'
+    covers_test: BFX06-01
+    status: ''
+  - req_id: STOR01
+    domain: Data Services
+    component: SDS Controller
+    description: 'Storage: Config/default/access to network provided storage'
+    reference_mapping: 'NSRG: Software Defined Storage (SDS) Layer'
+    covers_test: STOR01-01
+    status: ''
+  - req_id: DATASVC01
+    domain: Data Services
+    component: Object Storage Service
+    description: Verify S3-compatible API access with authenticated endpoints
+    reference_mapping: 'NSRG: SDS Layer (object storage) / Storage'
+    covers_test: DATASVC01-01
+    status: ''
+  - req_id: DATASVC02
+    domain: Data Services
+    component: Block Storage Services
+    description: Verify volume snapshots
+    reference_mapping: 'NSRG: SDS Layer'
+    covers_test: DATASVC02-01
+    status: ''
+  - req_id: DATASVC03
+    domain: Data Services
+    component: Block Storage Services
+    description: Verify volume resizing
+    reference_mapping: 'NSRG: SDS Layer'
+    covers_test: DATASVC03-01
+    status: ''
+  - req_id: DATASVC04
+    domain: Data Services
+    component: Block Storage Services
+    description: Verify persistent block volumes survive instance restarts
+    reference_mapping: 'NSRG: SDS Layer'
+    covers_test: DATASVC04-01
+    status: ''
+  - req_id: DATASVC05
+    domain: Data Services
+    component: Cache Services
+    description: Create a managed cache instance, write a key-value pair, read it back, verify data integrity
+    reference_mapping: 'NSRG: Other Workloads/Native Applications'
+    covers_test: DATASVC05-01
+    status: ''
+  - req_id: DATASVC06
+    domain: Data Services
+    component: Vector Store
+    description: Create a vector store, insert an embedding, perform similarity search, verify result
+    reference_mapping: 'NSRG: Other Workloads/Native Applications'
+    covers_test: DATASVC06-01
+    status: ''
+  - req_id: DATASVC07
+    domain: Data Services
+    component: Relational Database
+    description: Create a managed SQL database, create a table, insert/query data, verify results
+    reference_mapping: 'NSRG: Other Workloads/Native Applications'
+    covers_test: DATASVC07-01
+    status: ''
+  - req_id: DATASVC08
+    domain: Workload Orchestration
+    component: Backup and Recovery
+    description: Create a backup of a block volume, delete original, restore from backup, verify data is the same as the original
+    reference_mapping: 'NSRG: SDS Layer'
+    covers_test: DATASVC08-01
+    status: ''
+  - req_id: DATASVC09
+    domain: Workload Orchestration
+    component: Model Registry
+    description: Push a model artifact with a version tag, retrieve by version, verify it matches (prefer a smaller reference model)
+    reference_mapping: 'NSRG: K8s-Native ML/AI Frameworks / CaaS (OCI registries)'
+    covers_test: DATASVC09-01
+    status: ''
+  - req_id: SLURM01
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: Create a SLURM instance using the software platform
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm)'
+    covers_test: SLURM01-01
+    status: ''
+  - req_id: SLURM02
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmInfoAvailable
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm)'
+    covers_test: SLURM02-01
+    status: ''
+  - req_id: SLURM03
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmPartition cpu and gpu
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm)'
+    covers_test: SLURM03-01
+    status: ''
+  - req_id: SLURM04
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmJobSubmission
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm)'
+    covers_test: SLURM04-01
+    status: ''
+  - req_id: SLURM05
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmGpuAllocation 1gpu and 2gpu
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm)'
+    covers_test: SLURM05-01
+    status: ''
+  - req_id: SLURM06
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmNodeJobExecution cpu and gpu
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm)'
+    covers_test: SLURM06-01
+    status: ''
+  - req_id: SLURM07
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmGpuStressWorkload
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm) / Node Level Health Checks'
+    covers_test: SLURM07-01
+    status: ''
+  - req_id: SLURM08
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmNcclMultiNodeWorkload
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm) / Performance Requirements'
+    covers_test: SLURM08-01
+    status: ''
+  - req_id: SLURM09
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmSbatchWorkload gpu and cpu
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm)'
+    covers_test: SLURM09-01
+    status: ''
+  - req_id: SLURM10
+    domain: Workload Orchestration
+    component: Slurm Control Plane
+    description: SlurmSbatchWorkload-inline
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Slurm)'
+    covers_test: SLURM10-01
+    status: ''
+  - req_id: K8S38
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: Run through all the steps of the k8s lifecycle management, including user-initated CP update
+    reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes'
+    covers_test: K8S38-01
+    status: ''
+  - req_id: K8S39
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: Be able to run k8s workloads
+    reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes'
+    covers_test: K8S39-01
+    status: ''
+  - req_id: K8S40
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: K8s Nim Inference
+    reference_mapping: 'NSRG: K8s-Native ML/AI Frameworks (Dynamo/NIM)'
+    covers_test: K8S40-01
+    status: ''
+  - req_id: K8S32
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: K8s Nim Helm
+    reference_mapping: 'NSRG: K8s-Native ML/AI Frameworks'
+    covers_test: K8S32-01
+    status: ''
+  - req_id: K8S33
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: K8s Nccl
+    reference_mapping: 'NSRG: Kubernetes Architecture for ML/AI / Performance Requirements'
+    covers_test: K8S33-01
+    status: ''
+  - req_id: K8S34
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: validate adherence to upstream proxy requirements (service to pod load balancing, acces to internal services)
+    reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes'
+    covers_test: K8S34-01
+    status: ''
+  - req_id: K8S35
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: Verify that pod-to-pod L3 traffic flow logs are available and queryable
+    reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes / Telemetry'
+    covers_test: K8S35-01
+    status: ''
+  - req_id: K8S36
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: Verify Cluster Autoscaler integration (upstream)
+    reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes (autoscaling/Karpenter)'
+    covers_test: K8S36-01
+    status: ''
+  - req_id: K8S37
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: Verify the managed K8s service meets standard Kubernetes performance tests to max cluster size
+    reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes'
+    covers_test: K8S37-01
+    status: ''
+  - req_id: K8S41
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: The control plane should automatically add more capacity when load increases (control-plane autoscaling)
+    reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes (autoscaling)'
+    covers_test: K8S41-01
+    status: ''
+  - req_id: POWER01
+    domain: Workload Orchestration
+    component: Power Policy Management
+    description: TODO
+    reference_mapping: 'NSRG: Operator View / Compute Service (power states)'
+    covers_test: POWER01-01
+    status: ''
+  - req_id: APIGW01
+    domain: AI Platform & User Access
+    component: Host API Gateway
+    description: TODO
+    reference_mapping: 'NSRG: AI Platform-as-a-Service / Host API Gateway'
+    covers_test: APIGW01-01
+    status: ''
+  - req_id: AICP01
+    domain: AI Platform & User Access
+    component: Al Platform 1..N Control Planes
+    description: TODO
+    reference_mapping: 'NSRG: AI Platform-as-a-Service (Lepton/Run:ai/NVCF)'
+    covers_test: AICP01-01
+    status: ''
+  - req_id: WEBUI01
+    domain: AI Platform & User Access
+    component: Web Management Dashboard
+    description: TODO
+    reference_mapping: 'NSRG: Cloud Control Plane (UI)'
+    covers_test: WEBUI01-01
+    status: ''
+  - req_id: OBS01
+    domain: Observability
+    component: Observability Collectors
+    description: Validate that an OTel endpoint is provided and some data can be pulled from it
+    reference_mapping: 'NSRG: Telemetry & Observability (Reference Architecture, OTel)'
+    covers_test: OBS01-01
+    status: ''
+  - req_id: OBS02
+    domain: Observability
+    component: Observability Collectors
+    description: Logging information about the control plane is available
+    reference_mapping: 'NSRG: Telemetry & Observability (Logging Baseline)'
+    covers_test: OBS02-01
+    status: ''
+  - req_id: OBS03
+    domain: Observability
+    component: Observability Collectors
+    description: Logging information from instances
+    reference_mapping: 'NSRG: Telemetry & Observability (Host-Conditional Logs)'
+    covers_test: OBS03-01
+    status: ''
+  - req_id: OBS04
+    domain: Observability
+    component: Observability Collectors
+    description: Alerts can be issued by the system in case of problems
+    reference_mapping: 'NSRG: Telemetry & Observability (Hot Path / operational)'
+    covers_test: OBS04-01
+    status: ''
+  - req_id: OBS05
+    domain: Observability
+    component: Observability Collectors
+    description: Verify telemetry latency is no longer than 120 seconds
+    reference_mapping: 'NSRG: Telemetry & Observability (Delivery Method)'
+    covers_test: OBS05-01
+    status: ''
+  - req_id: OBS06
+    domain: Observability
+    component: Observability Collectors
+    description: Verify telemetry is available for North-South (front-end) network
+    reference_mapping: 'NSRG: Telemetry & Observability (Network)'
+    covers_test: OBS06-01
+    status: ''
+  - req_id: OBS07
+    domain: Observability
+    component: Observability Collectors
+    description: Verify telemetry is available for East-West (back-end / GPU interconnect) network
+    reference_mapping: 'NSRG: Telemetry & Observability (Network)'
+    covers_test: OBS07-01
+    status: ''
+  - req_id: OBS08
+    domain: Observability
+    component: Observability Collectors
+    description: Verify telemetry is available for Management network
+    reference_mapping: 'NSRG: Telemetry & Observability (Network)'
+    covers_test: OBS08-01
+    status: ''
+  - req_id: OBS09
+    domain: Observability
+    component: Observability Collectors
+    description: Verify telemetry is available for NVSwitch Fabric (GB200+)
+    reference_mapping: 'NSRG: Telemetry & Observability (Network)'
+    covers_test: OBS09-01
+    status: ''
+  - req_id: OBS10
+    domain: Observability
+    component: Observability Collectors
+    description: Verify telemetry is available for Host network (NIC-level)
+    reference_mapping: 'NSRG: Telemetry & Observability (Network)'
+    covers_test: OBS10-01
+    status: ''
+  - req_id: OBS11
+    domain: Observability
+    component: Observability Collectors
+    description: Verify Fabric Manager logs are available (where applicable)
+    reference_mapping: 'NSRG: Telemetry & Observability (Logs)'
+    covers_test: OBS11-01
+    status: ''
+  - req_id: OBS12
+    domain: Observability
+    component: Observability Collectors
+    description: Verify Subnet Manager logs are available (where applicable)
+    reference_mapping: 'NSRG: Telemetry & Observability (Logs)'
+    covers_test: OBS12-01
+    status: ''
+  - req_id: OBS13
+    domain: Observability
+    component: Observability Collectors
+    description: Verify UFM Event logs are available
+    reference_mapping: 'NSRG: Telemetry & Observability (Logs)'
+    covers_test: OBS13-01
+    status: ''
+  - req_id: OBS14
+    domain: Observability
+    component: Observability Collectors
+    description: Verify general switch logs are available
+    reference_mapping: 'NSRG: Telemetry & Observability (Logs)'
+    covers_test: OBS14-01
+    status: ''
+  - req_id: OBS15
+    domain: Observability
+    component: Observability Collectors
+    description: Verify switch syslogs are available
+    reference_mapping: 'NSRG: Telemetry & Observability (Logs)'
+    covers_test: OBS15-01
+    status: ''
+  - req_id: OBS16
+    domain: Observability
+    component: Observability Collectors
+    description: Verify switch kernel logs are available
+    reference_mapping: 'NSRG: Telemetry & Observability (Logs)'
+    covers_test: OBS16-01
+    status: ''
+  - req_id: OBS17
+    domain: Observability
+    component: Observability Collectors
+    description: Verify BMC SEL logs are available
+    reference_mapping: 'NSRG: Telemetry & Observability (Universal / Out-of-Band Logs)'
+    covers_test: OBS17-01
+    status: ''
+  - req_id: OBS18
+    domain: Observability
+    component: Observability Collectors
+    description: Verify host syslogs are available
+    reference_mapping: 'NSRG: Telemetry & Observability (Host-Conditional Logs)'
+    covers_test: OBS18-01
+    status: ''
+  - req_id: OBS19
+    domain: Observability
+    component: Observability Collectors
+    description: Verify VPC Flow logs (all ingress/egress traffic) are available
+    reference_mapping: 'NSRG: Telemetry & Observability (Network / Logs)'
+    covers_test: OBS19-01
+    status: ''
+  - req_id: TELEM01
+    domain: Observability
+    component: Telemetry / Data Lakes
+    description: TODO
+    reference_mapping: 'NSRG: Telemetry & Observability (Cold Path / Data Lake)'
+    covers_test: TELEM01-01
+    status: ''
+  - req_id: TELEM02
+    domain: Observability
+    component: Telemetry / Data Lakes
+    description: Read only access to a BMaaS system's serial console
+    reference_mapping: 'NSRG: Compute Service (serial console)'
+    covers_test: TELEM02-01
+    status: ''
+  - req_id: TELEM03
+    domain: Observability
+    component: Telemetry / Data Lakes
+    description: Read only access to a VM serial console
+    reference_mapping: 'NSRG: Compute Service (serial console)'
+    covers_test: TELEM03-01
+    status: ''
+  - req_id: TELEM04
+    domain: Observability
+    component: Telemetry / Data Lakes
+    description: Verify BMC/Redfish telemetry is accessible via API for GPU metrics not available from the host OS
+    reference_mapping: 'NSRG: Telemetry & Observability (Hardware Management, Redfish)'
+    covers_test: TELEM04-01
+    status: ''
+  - req_id: TELEM05
+    domain: Observability
+    component: Telemetry / Data Lakes
+    description: Verify storage resource capacity metrics are available (used/free/total)
+    reference_mapping: 'NSRG: Telemetry & Observability (Storage)'
+    covers_test: TELEM05-01
+    status: ''
+  - req_id: TELEM06
+    domain: Observability
+    component: Telemetry / Data Lakes
+    description: Verify storage performance metrics are available (bandwidth, IOPS, latency)
+    reference_mapping: 'NSRG: Telemetry & Observability (Storage)'
+    covers_test: TELEM06-01
+    status: ''
+  - req_id: TELEM07
+    domain: Observability
+    component: Telemetry / Data Lakes
+    description: Verify NVLink metrics are available from the GPU perspective (per-link counters, bandwidth utilization)
+    reference_mapping: 'NSRG: Telemetry & Observability (GPU / Network)'
+    covers_test: TELEM07-01
+    status: ''
+  - req_id: TELEM08
+    domain: Observability
+    component: Telemetry / Data Lakes
+    description: Verify NVLink metrics are available from the switch perspective (port-level counters, error rates)
+    reference_mapping: 'NSRG: Telemetry & Observability (Network / Fabric)'
+    covers_test: TELEM08-01
+    status: ''
+  - req_id: BENCH01
+    domain: Benchmarking
+    component: Exemplar
+    description: NVMesh checks?
+    reference_mapping: 'NSRG: Performance Requirements / Exemplar'
+    covers_test: BENCH01-01
+    status: ''
+  - req_id: BENCH02
+    domain: Benchmarking
+    component: Exemplar
+    description: IPv4 and IPv6 checks?
+    reference_mapping: 'NSRG: Networking'
+    covers_test: BENCH02-01
+    status: ''
