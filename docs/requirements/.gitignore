@@ -1,0 +1,2 @@
+# One-off Asciidoctor HTML renders (regenerate via npx @asciidoctor/cli).
+*.html
