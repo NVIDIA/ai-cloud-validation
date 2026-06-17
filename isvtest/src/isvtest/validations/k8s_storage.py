@@ -1501,6 +1501,11 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         static_pv.capacity: PV ``spec.capacity.storage`` and the matching
             PVC request size (default: ``1Gi``).
         static_pv.access_mode: PV / PVC access mode (default: ``ReadWriteOnce``).
+        static_pv.zone: ``topology.kubernetes.io/zone`` the backing volume
+            lives in. Set for zonal block backends (AWS EBS, GCE PD, Azure
+            Disk) so the consumer pod is scheduled in the volume's zone and
+            the attach does not hang cross-zone. Unset for zone-agnostic
+            backends (e.g. EFS).
         bind_timeout_s: Max wait for PVC Bind and mount-pod Ready
             (default: 180).
         namespace_prefix: Prefix for the ephemeral namespace
@@ -1561,6 +1566,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
                     capacity=str(static_pv_cfg.get("capacity") or "1Gi"),
                     access_mode=str(static_pv_cfg.get("access_mode") or "ReadWriteOnce"),
                     bind_timeout=bind_timeout,
+                    zone=str(static_pv_cfg.get("zone") or ""),
                 )
                 if not static_ok:
                     any_failed = True
@@ -1685,6 +1691,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         capacity: str,
         access_mode: str,
         bind_timeout: int,
+        zone: str = "",
     ) -> bool:
         """Run the ``static`` subtest: pre-create PV + PVC → Bound → mount + canary."""
         pvc_name = f"csi-prov-static-{uuid.uuid4().hex[:6]}"
@@ -1698,6 +1705,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
             capacity=capacity,
             access_mode=access_mode,
             claim_name=pvc_name,
+            zone=zone,
         )
         if returncode != 0:
             self.report_subtest(
@@ -1778,6 +1786,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         capacity: str,
         access_mode: str,
         claim_name: str,
+        zone: str = "",
     ) -> tuple[int, str]:
         """Render the static PV manifest and apply it."""
 
@@ -1792,6 +1801,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
                 access_mode=access_mode,
                 claim_namespace=self._namespace,
                 claim_name=claim_name,
+                zone=zone,
             )
 
         return self._run_kubectl_apply(render_k8s_manifest(_PV_MANIFEST, _mutate))
@@ -1895,12 +1905,19 @@ def _set_pv_fields(
     access_mode: str,
     claim_namespace: str,
     claim_name: str,
+    zone: str = "",
 ) -> dict[str, Any]:
     """Mutate a parsed PersistentVolume manifest in place with the requested fields.
 
     ``claimRef`` pre-reserves the PV for the matching PVC so the binding is
     deterministic and cannot race against another claim landing in the same
     cluster while the static probe runs.
+
+    When ``zone`` is set, a ``spec.nodeAffinity`` on
+    ``topology.kubernetes.io/zone`` pins the volume to that zone. Zonal block
+    backends (AWS EBS, GCE PD, Azure Disk) can only attach to a node in the
+    volume's own zone; without this the scheduler may place the consumer pod
+    in a different zone and the attach hangs until the mount timeout.
     """
     metadata = doc.setdefault("metadata", {})
     metadata["name"] = name
@@ -1919,6 +1936,24 @@ def _set_pv_fields(
         "namespace": claim_namespace,
         "name": claim_name,
     }
+    if zone:
+        spec["nodeAffinity"] = {
+            "required": {
+                "nodeSelectorTerms": [
+                    {
+                        "matchExpressions": [
+                            {
+                                "key": "topology.kubernetes.io/zone",
+                                "operator": "In",
+                                "values": [zone],
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    else:
+        spec.pop("nodeAffinity", None)
     return doc
 
 
@@ -1929,12 +1964,37 @@ def _set_mount_pod_fields(
     name: str,
     pvc_name: str,
 ) -> dict[str, Any]:
-    """Mutate a parsed mount-pod manifest in place, binding its single PVC volume."""
+    """Mutate a parsed mount-pod manifest in place, binding its single PVC volume.
+
+    The pod is kept off transient test-provisioning node pools (nodes carrying
+    the ``isv.ncp.validation/pool`` marker). Those pools are created/scaled/
+    deleted within the same run by node-pool CRUD checks, so a freshly joined
+    node may not yet have the CSI node-plugin DaemonSet pod running - a probe
+    pod landing there hangs at mount until the bind timeout. Baseline cluster
+    nodes never carry the marker, so this is a no-op for providers that do not
+    provision test pools (single-node k3s/minikube/microk8s included).
+    """
     metadata = doc.setdefault("metadata", {})
     metadata["name"] = name
     metadata["namespace"] = namespace
 
     spec = doc.setdefault("spec", {})
+    spec["affinity"] = {
+        "nodeAffinity": {
+            "requiredDuringSchedulingIgnoredDuringExecution": {
+                "nodeSelectorTerms": [
+                    {
+                        "matchExpressions": [
+                            {
+                                "key": "isv.ncp.validation/pool",
+                                "operator": "DoesNotExist",
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    }
     volumes = spec.setdefault("volumes", [])
     if not volumes:
         volumes.append({"name": "data"})
