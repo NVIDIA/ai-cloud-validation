@@ -38,6 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Constraint shared by `labels` and `dependencies` entries: identifier-like only.
 LABEL_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+ISSUE_REF_RE = re.compile(r"#(\d+)")
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ def fmt_gh_issues_adoc(entries: list[str] | None) -> str:
         return ""
     parts = []
     for entry in entries:
-        m = re.match(r"#(\d+)", str(entry))
+        m = ISSUE_REF_RE.fullmatch(str(entry))
         if not m:
             parts.append(esc_adoc(entry))
             continue
@@ -195,7 +196,7 @@ def generate_adoc(data: dict[str, Any], outfile: str) -> None:
                     gh_entries = test.get("github_issues", [])
                     first_gh_link = ""
                     if gh_entries:
-                        m = re.match(r"#(\d+)", gh_entries[0])
+                        m = ISSUE_REF_RE.fullmatch(str(gh_entries[0]))
                         if m:
                             num = m.group(1)
                             first_gh_link = f"https://github.com/{GH_REPO}/issues/{num}[#{num}]"

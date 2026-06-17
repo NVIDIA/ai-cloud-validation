@@ -50,10 +50,15 @@ def test_fmt_gh_issues_renders_plain_links() -> None:
     assert "icon:" not in out
 
 
-def test_validate_rejects_stored_issue_state() -> None:
-    """Storing open/closed in the YAML is rejected."""
+def test_fmt_gh_issues_does_not_linkify_non_bare_references() -> None:
+    """Issue references with suffix text are rendered as plain text."""
+    assert adoc.fmt_gh_issues_adoc(["#40 extra"]) == "#40 extra"
+
+
+def test_validate_rejects_non_bare_issue_reference() -> None:
+    """Only bare '#N' issue references are valid in the YAML."""
     with pytest.raises(SystemExit):
-        adoc.validate_test_plan(_plan(["#40 (closed)"]))
+        adoc.validate_test_plan(_plan(["#40 extra"]))
 
 
 def test_validate_accepts_bare_issue_reference() -> None:

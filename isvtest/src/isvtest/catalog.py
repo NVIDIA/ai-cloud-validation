@@ -116,6 +116,8 @@ def iter_config_checks(config_path: Path) -> Iterator[tuple[str, dict[str, Any]]
             elif isinstance(checks_val, list):
                 for check in checks_val:
                     yield from _from_mapping(check)
+        elif isinstance(cat_config, dict):
+            yield from _from_mapping(cat_config)
         elif isinstance(cat_config, list):
             for check in cat_config:
                 yield from _from_mapping(check)

@@ -74,6 +74,25 @@ class TestBuildCatalog:
         assert "StepSuccessCheck" in names
         assert "FieldExistsCheck" in names
 
+    def test_extract_checks_supports_direct_dict_category_form(self, tmp_path) -> None:
+        """Direct dict category wiring is included in catalog config scans."""
+        from isvtest.catalog import _extract_checks_from_config
+
+        config = tmp_path / "direct-dict.yaml"
+        config.write_text(
+            """\
+tests:
+  validations:
+    direct:
+      DirectCheck:
+        labels: ["network"]
+      EmptyParamsCheck: {}
+""",
+            encoding="utf-8",
+        )
+
+        assert _extract_checks_from_config(config) == ["DirectCheck", "EmptyParamsCheck"]
+
     def test_released_only_filters_catalog(self) -> None:
         """Default catalog generation excludes tests not in the release manifest."""
         with patch("isvtest.catalog.load_released_test_filter", return_value={"StepSuccessCheck"}):
