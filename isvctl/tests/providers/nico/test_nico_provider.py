@@ -41,6 +41,9 @@ from isvtest.validations.sanitization import (
 )
 
 from isvctl.config.merger import merge_yaml_files
+from isvctl.config.schema import RunConfig
+from isvctl.orchestrator.context import Context
+from isvctl.orchestrator.step_executor import StepExecutor
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 NICO_COMMON = ISVCTL_ROOT / "configs" / "providers" / "nico" / "scripts" / "common"
@@ -503,6 +506,189 @@ def test_nico_check_credentials_reports_api_readiness(
     assert payload["identity_id"] == "oidc_client_credentials:test-org"
     assert payload["tests"]["identity"]["passed"] is True
     assert payload["tests"]["access"]["passed"] is True
+
+
+def test_nico_bare_metal_config_platform_matches_command_group() -> None:
+    """The orchestrator uses tests.platform to look up the bare-metal commands group."""
+    merged, _steps = _merged_nico_config_steps("bare_metal.yaml", "bare_metal")
+
+    assert merged["tests"]["platform"] == "bare_metal"
+
+
+def test_nico_bare_metal_config_wires_instance_inventory_probes() -> None:
+    """The NICo bare metal config should wire instance inventory probes."""
+    merged, steps = _merged_nico_config_steps("bare_metal.yaml", "bare_metal")
+
+    inventory_steps = {
+        "list_instances": steps["list_instances"],
+        "describe_instance": steps["describe_instance"],
+    }
+    _assert_steps_use_nico_api_base(inventory_steps)
+
+    validations = merged["tests"]["validations"]
+    assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
+    assert validations["list_instances"]["step"] == "list_instances"
+    assert validations["instance_info"]["step"] == "describe_instance"
+
+
+def test_nico_bare_metal_config_keeps_empty_instance_id_attached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unset NICO_INSTANCE_ID should not render a dangling argparse flag."""
+    monkeypatch.delenv("NICO_INSTANCE_ID", raising=False)
+    merged, steps = _merged_nico_config_steps("bare_metal.yaml", "bare_metal")
+    context = Context(RunConfig.model_validate(merged))
+    executor = StepExecutor()
+
+    for step_name in ("list_instances", "describe_instance"):
+        rendered = executor._render_args(steps[step_name]["args"], context)
+
+        assert "--instance-id" not in rendered
+        assert "--instance-id=" in rendered
+
+
+def test_nico_list_instances_normalizes_instance_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The instance list probe should normalize NICo fields for InstanceListCheck."""
+    module = _load_nico_script("bare_metal/list_instances.py", "test_nico_list_instances")
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(
+        module,
+        "forge_get_all",
+        lambda *args, **kwargs: [
+            {
+                "id": "instance-1",
+                "status": "Active",
+                "vpcId": "vpc-1",
+                "publicIp": "203.0.113.10",
+                "privateIp": "10.0.0.10",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "list_instances.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+            "--instance-id",
+            "instance-1",
+        ],
+    )
+
+    exit_code = module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0, payload
+    assert payload["success"] is True
+    assert payload["count"] == 1
+    assert payload["found_target"] is True
+    assert payload["instances"] == [
+        {
+            "instance_id": "instance-1",
+            "state": "running",
+            "vpc_id": "vpc-1",
+            "public_ip": "203.0.113.10",
+            "private_ip": "10.0.0.10",
+        }
+    ]
+
+
+def test_nico_describe_instance_normalizes_instance_detail(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The instance detail probe should normalize NICo fields for InstanceStateCheck."""
+    module = _load_nico_script("bare_metal/describe_instance.py", "test_nico_describe_instance")
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(
+        module,
+        "forge_get",
+        lambda *args, **kwargs: {
+            "id": "instance-1",
+            "status": "InUse",
+            "vpcId": "vpc-1",
+            "ipAddress": "203.0.113.10",
+            "internalIp": "10.0.0.10",
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "describe_instance.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+            "--instance-id",
+            "instance-1",
+        ],
+    )
+
+    exit_code = module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0, payload
+    assert payload["success"] is True
+    assert payload["instance_id"] == "instance-1"
+    assert payload["state"] == "running"
+    assert payload["vpc_id"] == "vpc-1"
+    assert payload["public_ip"] == "203.0.113.10"
+    assert payload["private_ip"] == "10.0.0.10"
+
+
+def test_nico_instance_inventory_scripts_skip_when_site_has_no_instances(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A site with no instance inventory should skip dependent instance validations."""
+    list_module = _load_nico_script("bare_metal/list_instances.py", "test_nico_list_instances_empty")
+    describe_module = _load_nico_script("bare_metal/describe_instance.py", "test_nico_describe_instance_empty")
+
+    monkeypatch.setattr(list_module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(describe_module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(list_module, "forge_get_all", lambda *args, **kwargs: [])
+    monkeypatch.setattr(describe_module, "forge_get_all", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        describe_module,
+        "forge_get",
+        lambda *args, **kwargs: pytest.fail("describe_instance should not fetch detail when no instance exists"),
+    )
+
+    base_argv = [
+        "--org",
+        "test-org",
+        "--site-id",
+        "site-1",
+        "--api-base",
+        "https://nico.example/v2/org",
+        "--instance-id=",
+    ]
+
+    monkeypatch.setattr(sys, "argv", ["list_instances.py", *base_argv])
+    assert list_module.main() == 0
+    list_payload = json.loads(capsys.readouterr().out)
+
+    monkeypatch.setattr(sys, "argv", ["describe_instance.py", *base_argv])
+    assert describe_module.main() == 0
+    describe_payload = json.loads(capsys.readouterr().out)
+
+    assert list_payload["success"] is True
+    assert list_payload["skipped"] is True
+    assert "No instances found" in list_payload["skip_reason"]
+    assert describe_payload["success"] is True
+    assert describe_payload["skipped"] is True
+    assert "No instances found" in describe_payload["skip_reason"]
 
 
 @pytest.mark.parametrize(

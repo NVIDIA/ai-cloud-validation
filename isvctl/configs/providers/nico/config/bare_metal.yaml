@@ -16,12 +16,11 @@
 # NICo Bare Metal (BMaaS) Validation Configuration
 #
 # Imports the provider-agnostic bare_metal contract and wires the NICo
-# hardware-lifecycle steps. NICo currently implements the hardware ingestion,
-# DPU health, governance-metrics, unified host-health, and InfiniBand
-# fabric-security steps; the remaining bare_metal
-# validations are skipped automatically because their steps are not defined
-# here (a future PR will wire the full lifecycle so NICo can pass the entire
-# BM suite).
+# hardware-lifecycle and inventory steps. NICo currently implements hardware
+# ingestion, DPU health, governance metrics, unified host-health, InfiniBand
+# fabric security, tenant-transition sanitization, attestation, and existing
+# instance inventory checks. Full lifecycle and SSH-host validations remain
+# excluded until those steps are wired for NICo.
 #
 # Architecture:
 #   - verify_ingestion.py compares expected-machine manifest vs discovered
@@ -52,6 +51,8 @@
 #     nico-admin-cli into the provider-neutral attestation contract (SEC22-01 /
 #     CNP09-02). It requires operator/admin CLI credentials in addition to the
 #     tenant REST credentials used for machine enumeration.
+#   - list_instances.py / describe_instance.py query existing instances;
+#     InstanceListCheck and InstanceStateCheck validate the JSON contract.
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -59,6 +60,7 @@
 #     NICO_SSA_ISSUER, NICO_CLIENT_ID, and NICO_CLIENT_SECRET
 #   - Expected machines pre-registered; machines ingested and DPUs initialized
 #   - NICO_ORGANIZATION and NICO_SITE_ID environment variables set
+#   - Optional NICO_INSTANCE_ID narrows inventory checks to a known instance
 #
 # Usage:
 #   NICO_BEARER_TOKEN=<token> NICO_ORGANIZATION=<org-name> NICO_SITE_ID=<uuid> \
@@ -223,17 +225,71 @@ commands:
           - "{{nico_api_base}}"
         timeout: 120
 
+      # ─── List Existing Instances ───────────────────────────────────
+      # Lists instances visible to NICo at the configured site.
+      - name: list_instances
+        phase: test
+        command: "python ../scripts/bare_metal/list_instances.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--instance-id={{instance_id}}"
+        timeout: 120
+
+      # ─── Describe Existing Instance ────────────────────────────────
+      # Describes NICO_INSTANCE_ID, or the first instance found at the site.
+      - name: describe_instance
+        phase: test
+        command: "python ../scripts/bare_metal/describe_instance.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--instance-id={{instance_id}}"
+        timeout: 120
+
 tests:
   cluster_name: "nico-bare-metal-validation"
-  description: "Verify NICo bare-metal hardware ingestion and DPU health"
+  description: "Verify NICo bare-metal hardware ingestion, DPU health, governance, host health, and instance inventory"
 
   settings:
     org: "{{env.NICO_ORGANIZATION}}"
     site_id: "{{env.NICO_SITE_ID}}"
     nico_api_base: "{{env.NICO_API_BASE}}"
+    instance_id: "{{env.NICO_INSTANCE_ID}}"
     # The imported bare_metal suite defines these for the full instance
     # lifecycle, which NICo does not run yet. Blank them so the suite's
     # {{instance_type}} self-reference does not emit missing-variable warnings.
     region: ""
     instance_type: ""
     teardown_flag: ""
+
+  # Adding describe_instance enables all suite checks anchored to that step.
+  # Keep SSH, host GPU, interconnect, and workload checks out until their
+  # scripts are wired. Exclude by validation name so NICo's wired fabric and
+  # sanitization security checks are not suppressed by broad labels.
+  exclude:
+    labels: []
+    tests:
+      - ConnectivityCheck
+      - OsCheck
+      - GpuCheck
+      - VcpuPinningCheck
+      - PciBusCheck
+      - HostSoftwareCheck
+      - GpuStressCheck
+      - NcclCheck
+      - TrainingCheck
+      - NvlinkCheck
+      - InfiniBandCheck
+      - EthernetCheck
+      - DriverCheck
+      - CpuInfoCheck
+      - ContainerRuntimeCheck
