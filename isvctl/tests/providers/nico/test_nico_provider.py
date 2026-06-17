@@ -115,6 +115,17 @@ def _load_ingestion_script() -> ModuleType:
     return module
 
 
+def _load_nico_script(relative_path: str, module_name: str) -> ModuleType:
+    """Load a NICo provider script as a module for direct unit testing."""
+    script_path = NICO_SCRIPTS / relative_path
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    with _isolated_common_imports():
+        spec.loader.exec_module(module)
+    return module
+
+
 def _load_governance_metrics_script() -> ModuleType:
     """Load the query_metrics (governance) script as a module for direct unit testing."""
     script_path = NICO_SCRIPTS / "governance" / "query_metrics.py"
@@ -327,6 +338,112 @@ def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None
     assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
     assert "--api-base" in step["args"]
     assert "{{nico_api_base}}" in step["args"]
+
+
+def _merged_nico_config_steps(
+    config_name: str,
+    command_group: str,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    merged = merge_yaml_files([NICO_CONFIG / config_name])
+    steps = {step["name"]: step for step in merged["commands"][command_group]["steps"]}
+    return merged, steps
+
+
+def _assert_steps_use_nico_api_base(steps: dict[str, dict[str, Any]]) -> None:
+    assert all(step["phase"] == "test" for step in steps.values())
+    for step in steps.values():
+        assert "--api-base" in step["args"]
+        assert "{{nico_api_base}}" in step["args"]
+
+
+def test_nico_control_plane_config_platform_matches_command_group() -> None:
+    """The orchestrator uses tests.platform to look up the control-plane commands group."""
+    merged, _steps = _merged_nico_config_steps("control-plane.yaml", "control_plane")
+
+    assert merged["tests"]["platform"] == "control_plane"
+
+
+def test_nico_control_plane_config_wires_api_health() -> None:
+    """The NICo control-plane config should wire the API health probe."""
+    merged, steps = _merged_nico_config_steps("control-plane.yaml", "control_plane")
+
+    assert set(steps) == {"check_api"}
+    _assert_steps_use_nico_api_base(steps)
+
+    validations = merged["tests"]["validations"]
+    assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
+    assert validations["api_health"]["step"] == "check_api"
+
+
+def test_nico_check_api_reads_site_and_site_list(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The API health probe should authenticate and read site metadata only."""
+    module = _load_nico_script("control-plane/check_api.py", "test_nico_check_api")
+    calls: list[tuple[str, str, dict[str, str] | None]] = []
+
+    def fake_forge_get_all(
+        org: str,
+        path: str,
+        token: str,
+        *,
+        base_url: str,
+        params: dict[str, str] | None = None,
+        **_kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        calls.append((org, path, params))
+        assert token == "test-token"
+        assert base_url == "https://nico.example/v2/org"
+        if path == "site":
+            return [{"id": "site-1", "name": "NICo lab"}]
+        raise AssertionError(path)
+
+    def fake_forge_get(
+        org: str,
+        path: str,
+        token: str,
+        *,
+        base_url: str,
+        params: dict[str, str] | None = None,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        calls.append((org, path, params))
+        assert token == "test-token"
+        assert base_url == "https://nico.example/v2/org"
+        if path == "site/site-1":
+            return {"id": "site-1", "name": "NICo lab"}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token", source="bearer"))
+    monkeypatch.setattr(module, "forge_get", fake_forge_get)
+    monkeypatch.setattr(module, "forge_get_all", fake_forge_get_all)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "check_api.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+        ],
+    )
+
+    exit_code = module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0, payload
+    assert payload["success"] is True
+    assert payload["account_id"] == "test-org"
+    assert payload["tests"]["site"]["passed"] is True
+    assert payload["tests"]["sites"]["passed"] is True
+    assert calls == [
+        ("test-org", "site/site-1", None),
+        ("test-org", "site", {"pageSize": "100"}),
+    ]
 
 
 @pytest.mark.parametrize(

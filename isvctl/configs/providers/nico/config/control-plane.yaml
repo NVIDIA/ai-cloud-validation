@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NICo Control Plane Validation Configuration
+#
+# Wires NICo API health checks adapted from the earlier Carbide provider work.
+# This file does not import the full provider-agnostic control-plane suite
+# because NICo does not yet wire the access-key, tenant, or object-lifecycle
+# steps required by that suite.
+#
+# Required:
+#   NICO_API_BASE, NICO_ORGANIZATION, NICO_SITE_ID, and NICo auth.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/nico/config/control-plane.yaml
+
+version: "1.0"
+
+commands:
+  control_plane:
+    phases: ["test"]
+    steps:
+      - name: check_api
+        phase: test
+        command: "python ../scripts/control-plane/check_api.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+tests:
+  platform: control_plane
+  cluster_name: "nico-control-plane-validation"
+  description: "Verify NICo API health"
+
+  settings:
+    org: "{{env.NICO_ORGANIZATION}}"
+    site_id: "{{env.NICO_SITE_ID}}"
+    nico_api_base: "{{env.NICO_API_BASE}}"
+
+  validations:
+    api_health:
+      step: check_api
+      checks:
+        FieldExistsCheck:
+          test_id: "N/A"
+          labels: ["control_plane"]
+          fields: ["account_id", "tests"]
+        FieldValueCheck:
+          test_id: "CP-XX-03"
+          labels: ["control_plane"]
+          field: "success"
+          expected: true
+
+  exclude:
+    labels: []
