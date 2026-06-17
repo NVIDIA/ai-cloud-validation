@@ -446,6 +446,65 @@ def test_nico_check_api_reads_site_and_site_list(
     ]
 
 
+def test_nico_iam_config_platform_matches_command_group() -> None:
+    """The orchestrator uses tests.platform to look up the IAM commands group."""
+    merged, _steps = _merged_nico_config_steps("iam.yaml", "iam")
+
+    assert merged["tests"]["platform"] == "iam"
+
+
+def test_nico_iam_config_wires_credential_readiness() -> None:
+    """The NICo IAM config should wire the credential readiness probe."""
+    merged, steps = _merged_nico_config_steps("iam.yaml", "iam")
+
+    assert set(steps) == {"check_credentials"}
+    _assert_steps_use_nico_api_base(steps)
+
+    validations = merged["tests"]["validations"]
+    assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
+    assert validations["credential_readiness"]["step"] == "check_credentials"
+
+
+def test_nico_check_credentials_reports_api_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The credentials probe should validate bearer/OIDC auth with inventory API calls."""
+    module = _load_nico_script("iam/check_credentials.py", "test_nico_check_credentials")
+
+    monkeypatch.setattr(
+        module,
+        "resolve_auth",
+        lambda: SimpleNamespace(token="test-token", source="oidc_client_credentials"),
+    )
+    monkeypatch.setattr(module, "forge_get", lambda *args, **kwargs: {"id": "site-1", "name": "NICo lab"})
+    monkeypatch.setattr(module, "forge_get_all", lambda *args, **kwargs: [{"id": "site-1"}])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "check_credentials.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+        ],
+    )
+
+    exit_code = module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0, payload
+    assert payload["success"] is True
+    assert payload["account_id"] == "test-org"
+    assert payload["authenticated"] is True
+    assert payload["identity_id"] == "oidc_client_credentials:test-org"
+    assert payload["tests"]["identity"]["passed"] is True
+    assert payload["tests"]["access"]["passed"] is True
+
+
 @pytest.mark.parametrize(
     ("script_name", "load_script"),
     [
