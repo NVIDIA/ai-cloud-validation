@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     import paramiko
 
 from isvtest.core.ngc import get_ngc_api_key
+from isvtest.core.nvidia import parse_cuda_version
 from isvtest.core.ssh import (
     get_failed_subtests,
     get_ssh_client,
@@ -966,10 +967,11 @@ class HostSoftwareCheck(BaseValidation):
                 self.report_subtest("nvidia_driver", False, "NVIDIA driver not found")
                 failures.append("NVIDIA driver not installed")
 
-            # CUDA version
-            exit_code, stdout, _ = run_ssh_command(ssh, "nvidia-smi | grep 'CUDA Version' | awk '{print $9}'")
-            if exit_code == 0 and stdout.strip():
-                self.report_subtest("cuda_version", True, f"CUDA: {stdout.strip()}")
+            # CUDA version (driver-reported max; legacy or UMD header)
+            exit_code, stdout, _ = run_ssh_command(ssh, "nvidia-smi")
+            cuda_version = parse_cuda_version(stdout) if exit_code == 0 else None
+            if cuda_version:
+                self.report_subtest("cuda_version", True, f"CUDA: {cuda_version}")
 
             # NVIDIA kernel module version (should match userspace driver)
             exit_code, stdout, _ = run_ssh_command(
@@ -1044,7 +1046,7 @@ class GpuCheck(BaseValidation):
             ssh = get_ssh_client(host, user, key_path, timeout=60)
 
             # Test nvidia-smi
-            exit_code, stdout, stderr = run_ssh_command(ssh, "nvidia-smi")
+            exit_code, smi_stdout, stderr = run_ssh_command(ssh, "nvidia-smi")
             if exit_code != 0:
                 self.set_failed(f"nvidia-smi failed: {stderr}")
                 ssh.close()
@@ -1077,10 +1079,10 @@ class GpuCheck(BaseValidation):
             if exit_code == 0:
                 self.report_subtest("gpu_memory", True, stdout.strip())
 
-            # Get CUDA version
-            exit_code, stdout, _ = run_ssh_command(ssh, "nvidia-smi | grep 'CUDA Version' | awk '{print $9}'")
-            if exit_code == 0 and stdout.strip():
-                self.report_subtest("cuda", True, f"v{stdout.strip()}")
+            # Get CUDA version from nvidia-smi header (legacy or UMD)
+            cuda_version = parse_cuda_version(smi_stdout)
+            if cuda_version:
+                self.report_subtest("cuda", True, f"v{cuda_version}")
 
             ssh.close()
 

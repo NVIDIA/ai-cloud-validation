@@ -141,9 +141,11 @@ def parse_cuda_version(output: str) -> str | None:
         CUDA version string (e.g., "12.4") or None if not found
 
     Note: This is the maximum CUDA version supported by the driver,
-    not necessarily the installed CUDA toolkit version.
+    not necessarily the installed CUDA toolkit version. Newer drivers
+    report ``CUDA UMD Version`` instead of the deprecated ``CUDA Version``
+    header; both are accepted.
     """
-    match = re.search(r"CUDA Version:\s+(\d+\.\d+)", output)
+    match = re.search(r"CUDA(?: UMD)? Version:\s+(\d+\.\d+)", output)
     if match:
         return match.group(1)
     return None
