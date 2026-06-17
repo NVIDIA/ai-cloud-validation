@@ -102,6 +102,29 @@ def test_run_validations_via_pytest_updates_ready_entries() -> None:
     assert results[1].message == "NIM was not deployed"
 
 
+def test_run_validations_via_pytest_skips_structured_step_skips() -> None:
+    """A step-level structured skip should skip all dependent validations."""
+    step_output = {"success": True, "skipped": True, "skip_reason": "No VPCs found at site"}
+    entries = [
+        _ready("TenantInfoCheck", "vpc_info", {"step_output": step_output}),
+        _ready(
+            "FieldValueCheck",
+            "traffic_validation",
+            {
+                "step_output": step_output,
+                "field": "tests.network_setup.passed",
+                "expected": True,
+            },
+        ),
+    ]
+
+    exit_code, results = run_validations_via_pytest(entries=entries)
+
+    assert exit_code == 0
+    assert [result.state for result in results] == [State.SKIPPED, State.SKIPPED]
+    assert {result.message for result in results} == {"No VPCs found at site"}
+
+
 def test_run_validations_via_pytest_does_not_rerender_resolved_config_strings() -> None:
     """Resolved temp configs may contain literal Jinja-looking strings from step output."""
     jsonpath_probe = "kubectl get pods -o jsonpath='{{\"\\t\"}}'"

@@ -237,6 +237,12 @@ class BaseValidation(ABC):
         start_time = time.time()
         error_reason: str | None = None
         try:
+            step_output = self.config.get("step_output")
+            if isinstance(step_output, dict) and step_output.get("skipped") is True:
+                # Lazy import keeps the core validation module usable outside pytest runs.
+                import pytest
+
+                pytest.skip(step_output.get("skip_reason") or f"{self.name} skipped")
             self.run()
         except Exception as e:
             self.set_failed(f"Validation raised exception: {e}")
