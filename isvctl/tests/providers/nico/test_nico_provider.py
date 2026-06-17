@@ -691,6 +691,238 @@ def test_nico_instance_inventory_scripts_skip_when_site_has_no_instances(
     assert "No instances found" in describe_payload["skip_reason"]
 
 
+def test_nico_network_config_platform_matches_command_group() -> None:
+    """The orchestrator uses tests.platform to look up the network commands group."""
+    merged, _steps = _merged_nico_config_steps("network.yaml", "network")
+
+    assert merged["tests"]["platform"] == "network"
+
+
+def test_nico_network_config_wires_network_inventory_probes() -> None:
+    """The NICo network config should wire inventory and topology probes."""
+    merged, steps = _merged_nico_config_steps("network.yaml", "network")
+
+    assert set(steps) == {"list_vpcs", "get_vpc", "network_connectivity", "traffic_validation"}
+    _assert_steps_use_nico_api_base(steps)
+
+    validations = merged["tests"]["validations"]
+    assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
+    assert validations["vpc_inventory"]["step"] == "list_vpcs"
+    assert validations["vpc_info"]["step"] == "get_vpc"
+    assert validations["network_connectivity"]["step"] == "network_connectivity"
+    assert validations["traffic_validation"]["step"] == "traffic_validation"
+
+
+def test_nico_network_config_keeps_empty_vpc_and_subnet_ids_attached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unset optional network IDs should not render dangling argparse flags."""
+    monkeypatch.delenv("NICO_VPC_ID", raising=False)
+    monkeypatch.delenv("NICO_SUBNET_ID", raising=False)
+    merged, steps = _merged_nico_config_steps("network.yaml", "network")
+    context = Context(RunConfig.model_validate(merged))
+    executor = StepExecutor()
+
+    for step_name in ("list_vpcs", "get_vpc", "network_connectivity", "traffic_validation"):
+        rendered = executor._render_args(steps[step_name]["args"], context)
+
+        assert "--vpc-id" not in rendered
+        assert "--vpc-id=" in rendered
+
+    for step_name in ("network_connectivity", "traffic_validation"):
+        rendered = executor._render_args(steps[step_name]["args"], context)
+
+        assert "--subnet-id" not in rendered
+        assert "--subnet-id=" in rendered
+
+
+def test_nico_vpc_inventory_scripts_normalize_vpc_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The VPC probes should normalize NICo fields for tenant validations."""
+    list_module = _load_nico_script("network/list_vpcs.py", "test_nico_list_vpcs")
+    get_module = _load_nico_script("network/get_vpc.py", "test_nico_get_vpc")
+
+    monkeypatch.setattr(list_module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(get_module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(
+        list_module,
+        "forge_get_all",
+        lambda *args, **kwargs: [{"id": "vpc-1", "name": "tenant-a", "description": "lab network"}],
+    )
+    monkeypatch.setattr(
+        get_module,
+        "forge_get",
+        lambda *args, **kwargs: {"vpcId": "vpc-1", "vpcName": "tenant-a", "description": "lab network"},
+    )
+
+    base_argv = [
+        "--org",
+        "test-org",
+        "--site-id",
+        "site-1",
+        "--api-base",
+        "https://nico.example/v2/org",
+        "--vpc-id",
+        "vpc-1",
+    ]
+
+    monkeypatch.setattr(sys, "argv", ["list_vpcs.py", *base_argv])
+    assert list_module.main() == 0
+    list_payload = json.loads(capsys.readouterr().out)
+
+    monkeypatch.setattr(sys, "argv", ["get_vpc.py", *base_argv])
+    assert get_module.main() == 0
+    get_payload = json.loads(capsys.readouterr().out)
+
+    assert list_payload["success"] is True
+    assert list_payload["count"] == 1
+    assert list_payload["found_target"] is True
+    assert list_payload["tenants"] == [{"tenant_id": "vpc-1", "tenant_name": "tenant-a"}]
+    assert get_payload["success"] is True
+    assert get_payload["tenant_id"] == "vpc-1"
+    assert get_payload["tenant_name"] == "tenant-a"
+    assert get_payload["description"] == "lab network"
+
+
+def test_nico_get_vpc_skips_when_site_has_no_vpcs(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty site should skip detail validation instead of failing get_vpc."""
+    module = _load_nico_script("network/get_vpc.py", "test_nico_get_vpc_empty")
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "forge_get",
+        lambda *args, **kwargs: pytest.fail("get_vpc should not fetch detail when no VPC exists"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "get_vpc.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+            "--vpc-id=",
+        ],
+    )
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert "No VPCs found" in payload["skip_reason"]
+
+
+def test_nico_network_inventory_scripts_check_existing_vpc_and_subnets(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Network probes should pass when the requested VPC and subnet exist."""
+    connectivity_module = _load_nico_script("network/test_connectivity.py", "test_nico_network_connectivity")
+    traffic_module = _load_nico_script("network/traffic_validation.py", "test_nico_traffic_validation")
+
+    monkeypatch.setattr(connectivity_module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(traffic_module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(
+        connectivity_module,
+        "forge_get_all",
+        lambda *args, **kwargs: [{"id": "subnet-1", "vpcId": "vpc-1", "cidrBlock": "10.0.0.0/24"}],
+    )
+    monkeypatch.setattr(
+        traffic_module,
+        "forge_get",
+        lambda *args, **kwargs: {"id": "vpc-1", "name": "tenant-a"},
+    )
+    monkeypatch.setattr(
+        traffic_module,
+        "forge_get_all",
+        lambda *args, **kwargs: [{"id": "subnet-1", "vpcId": "vpc-1", "cidrBlock": "10.0.0.0/24"}],
+    )
+
+    base_argv = [
+        "--org",
+        "test-org",
+        "--site-id",
+        "site-1",
+        "--api-base",
+        "https://nico.example/v2/org",
+        "--vpc-id",
+        "vpc-1",
+        "--subnet-id",
+        "subnet-1",
+    ]
+
+    monkeypatch.setattr(sys, "argv", ["test_connectivity.py", *base_argv])
+    assert connectivity_module.main() == 0
+    connectivity_payload = json.loads(capsys.readouterr().out)
+
+    monkeypatch.setattr(sys, "argv", ["traffic_validation.py", *base_argv])
+    assert traffic_module.main() == 0
+    traffic_payload = json.loads(capsys.readouterr().out)
+
+    assert connectivity_payload["success"] is True
+    assert connectivity_payload["subnet_count"] == 1
+    assert connectivity_payload["tests"]["network_assigned"]["passed"] is True
+    assert traffic_payload["success"] is True
+    assert traffic_payload["tenant_id"] == "vpc-1"
+    assert traffic_payload["subnet_count"] == 1
+    assert traffic_payload["tests"]["network_setup"]["passed"] is True
+
+
+def test_nico_network_inventory_scripts_skip_when_site_has_no_network_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A site without VPCs or subnets should skip dependent network validations."""
+    connectivity_module = _load_nico_script("network/test_connectivity.py", "test_nico_network_connectivity_empty")
+    traffic_module = _load_nico_script("network/traffic_validation.py", "test_nico_traffic_validation_empty")
+
+    monkeypatch.setattr(connectivity_module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(traffic_module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(connectivity_module, "forge_get_all", lambda *args, **kwargs: [])
+    monkeypatch.setattr(traffic_module, "forge_get_all", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        traffic_module,
+        "forge_get",
+        lambda *args, **kwargs: pytest.fail("traffic_validation should not fetch detail when no VPC exists"),
+    )
+
+    base_argv = [
+        "--org",
+        "test-org",
+        "--site-id",
+        "site-1",
+        "--api-base",
+        "https://nico.example/v2/org",
+        "--vpc-id=",
+        "--subnet-id=",
+    ]
+
+    monkeypatch.setattr(sys, "argv", ["test_connectivity.py", *base_argv])
+    assert connectivity_module.main() == 0
+    connectivity_payload = json.loads(capsys.readouterr().out)
+
+    monkeypatch.setattr(sys, "argv", ["traffic_validation.py", *base_argv])
+    assert traffic_module.main() == 0
+    traffic_payload = json.loads(capsys.readouterr().out)
+
+    assert connectivity_payload["success"] is True
+    assert connectivity_payload["skipped"] is True
+    assert "No subnets found" in connectivity_payload["skip_reason"]
+    assert traffic_payload["success"] is True
+    assert traffic_payload["skipped"] is True
+    assert "No VPCs found" in traffic_payload["skip_reason"]
+
+
 @pytest.mark.parametrize(
     ("script_name", "load_script"),
     [

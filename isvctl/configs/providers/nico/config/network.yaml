@@ -1,0 +1,146 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NICo Network Validation Configuration
+#
+# Wires existing VPC, subnet, and network-assignment probes adapted from the
+# earlier Carbide provider work. This file does not import the full
+# provider-agnostic network suite because NICo does not yet wire VPC/SG/SDN
+# lifecycle and traffic-test steps required by that suite.
+#
+# Required:
+#   NICO_API_BASE, NICO_ORGANIZATION, NICO_SITE_ID, and NICo auth.
+#
+# Optional:
+#   NICO_VPC_ID and NICO_SUBNET_ID narrow checks to known pre-existing
+#   resources. If omitted, detail checks use the first matching resource found
+#   at the site.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/nico/config/network.yaml
+
+version: "1.0"
+
+commands:
+  network:
+    phases: ["test"]
+    steps:
+      - name: list_vpcs
+        phase: test
+        command: "python ../scripts/network/list_vpcs.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--vpc-id={{vpc_id}}"
+        timeout: 120
+
+      - name: get_vpc
+        phase: test
+        command: "python ../scripts/network/get_vpc.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--vpc-id={{vpc_id}}"
+        timeout: 120
+
+      - name: network_connectivity
+        phase: test
+        command: "python ../scripts/network/test_connectivity.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--vpc-id={{vpc_id}}"
+          - "--subnet-id={{subnet_id}}"
+        timeout: 120
+
+      - name: traffic_validation
+        phase: test
+        command: "python ../scripts/network/traffic_validation.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--vpc-id={{vpc_id}}"
+          - "--subnet-id={{subnet_id}}"
+        timeout: 120
+
+tests:
+  platform: network
+  cluster_name: "nico-network-validation"
+  description: "Verify NICo VPC and subnet inventory"
+
+  settings:
+    org: "{{env.NICO_ORGANIZATION}}"
+    site_id: "{{env.NICO_SITE_ID}}"
+    nico_api_base: "{{env.NICO_API_BASE}}"
+    vpc_id: "{{env.NICO_VPC_ID}}"
+    subnet_id: "{{env.NICO_SUBNET_ID}}"
+
+  validations:
+    vpc_inventory:
+      step: list_vpcs
+      checks:
+        TenantListedCheck:
+          test_id: "N/A"
+          labels: ["network"]
+
+    vpc_info:
+      step: get_vpc
+      checks:
+        TenantInfoCheck:
+          test_id: "SDN01-02"
+          labels: ["min_req", "network"]
+
+    network_connectivity:
+      step: network_connectivity
+      checks:
+        StepSuccessCheck:
+          test_id: "N/A"
+          labels: ["network"]
+        FieldValueCheck:
+          test_id: "N/A"
+          labels: ["network"]
+          field: "tests.network_assigned.passed"
+          expected: true
+
+    traffic_validation:
+      step: traffic_validation
+      checks:
+        StepSuccessCheck:
+          test_id: "N/A"
+          labels: ["network"]
+        FieldValueCheck:
+          test_id: "N/A"
+          labels: ["network"]
+          field: "tests.network_setup.passed"
+          expected: true
+
+  exclude:
+    labels: []
