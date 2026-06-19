@@ -189,7 +189,7 @@ tests:
       checks:
         CapacityReservationGroupingCheck:
           test_id: "CAP04-01"
-          labels: ["bare_metal", "capacity", "min_req"]
+          labels: ["bare_metal", "capacity", "min_req", "security"]
           step: capacity_reservation_grouping
           min_resources: "{{min_resources}}"
 
@@ -200,7 +200,7 @@ tests:
       checks:
         CapacityTopologyBlockAtomicAllocationCheck:
           test_id: "CAP04-02"
-          labels: ["bare_metal", "capacity", "min_req"]
+          labels: ["bare_metal", "capacity", "min_req", "security"]
           min_resources: 2
 
     teardown_checks:

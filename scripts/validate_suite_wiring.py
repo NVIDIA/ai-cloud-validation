@@ -22,6 +22,8 @@ validation metadata on this branch. Each wired check must declare:
 * ``test_id`` - a plan id from ``docs/test-plan.yaml``, or ``"N/A"`` when the
   check is generic plumbing with no plan item.
 * ``labels`` - a non-empty list used for pytest selection and catalog reporting.
+  Each canonical suite check must include its suite label, for example checks in
+  ``bare_metal.yaml`` must include ``bare_metal``.
 
 Usage:
     python3 scripts/validate_suite_wiring.py
@@ -43,6 +45,18 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
 _NEXT_CATEGORY_LINE = re.compile(r"^    \S")
+SUITE_REQUIRED_LABELS: dict[str, str] = {
+    "bare_metal": "bare_metal",
+    "control-plane": "control_plane",
+    "iam": "iam",
+    "image-registry": "image_registry",
+    "k8s": "kubernetes",
+    "network": "network",
+    "observability": "observability",
+    "security": "security",
+    "slurm": "slurm",
+    "vm": "vm",
+}
 
 
 def _check_line_patterns(check_name: str) -> tuple[re.Pattern[str], ...]:
@@ -86,6 +100,11 @@ def _normalize_test_id(value: Any) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def required_suite_label(config_path: Path) -> str | None:
+    """Return the label every check in a known canonical suite must carry."""
+    return SUITE_REQUIRED_LABELS.get(config_path.stem)
 
 
 def iter_suite_checks(config_path: Path) -> Iterator[tuple[str, str, dict[str, Any]]]:
@@ -150,10 +169,13 @@ def wiring_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
             location = _format_location(path, category, name, line_number)
             test_id = _normalize_test_id(params.get("test_id"))
             labels = _normalize_labels(params.get("labels"))
+            required_label = required_suite_label(path)
             if test_id is None:
                 errors.append(f'{location}: missing test_id (use a plan id or "N/A")')
             if not labels:
                 errors.append(f"{location}: missing labels (non-empty list required)")
+            elif required_label and required_label not in labels:
+                errors.append(f"{location}: missing suite label {required_label!r}")
     return errors
 
 
@@ -177,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         print(message)
         return 0
 
-    ok = f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare test_id and labels."
+    ok = f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare test_id, labels, and suite labels."
     print(ok)
     return 0
 

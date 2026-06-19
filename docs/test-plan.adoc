@@ -4735,7 +4735,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/251[#251]
 | [[CAP04-01]]CAP04-01
 | CAP04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
-| bare_metal, capacity, min_req
+| bare_metal, capacity, min_req, security
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
@@ -4749,7 +4749,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
 | [[CAP04-02]]CAP04-02
 | CAP04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/253[#253]
-| bare_metal, capacity, min_req
+| bare_metal, capacity, min_req, security
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/253[#253]

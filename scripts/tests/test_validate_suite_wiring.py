@@ -58,6 +58,28 @@ tests:
     assert any("BadCheck" in err and "missing labels" in err for err in errors)
 
 
+def test_wiring_errors_require_canonical_suite_label(tmp_path: Path) -> None:
+    """Checks in known suite files must include that suite's label."""
+    suite = tmp_path / "k8s.yaml"
+    suite.write_text(
+        """\
+tests:
+  validations:
+    example:
+      checks:
+        MissingSuiteLabel:
+          test_id: "K8S01-01"
+          labels: ["gpu"]
+        GoodCheck:
+          test_id: "K8S01-02"
+          labels: ["gpu", "kubernetes"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("MissingSuiteLabel" in err and "missing suite label 'kubernetes'" in err for err in errors)
+    assert not any("GoodCheck" in err for err in errors)
+
+
 def test_wiring_errors_reports_yaml_parse_failures(tmp_path: Path) -> None:
     """Malformed suite YAML surfaces as a validation error instead of being skipped."""
     suite = tmp_path / "broken.yaml"
