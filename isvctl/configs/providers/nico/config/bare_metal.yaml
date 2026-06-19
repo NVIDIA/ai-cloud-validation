@@ -52,6 +52,14 @@
 #     nico-admin-cli into the provider-neutral attestation contract (SEC22-01 /
 #     CNP09-02). It requires operator/admin CLI credentials in addition to the
 #     tenant REST credentials used for machine enumeration.
+#   - query_key_access.py reads the site's SSH Key Groups and serial-console
+#     configuration from the NICo API and reports whether a
+#     tenant-specified key can access out-of-band components (serial console /
+#     SOL is verifiable; network devices are provider-managed). The
+#     setup_key_access.py and teardown_key_access.py steps provision a
+#     throwaway key group for the run, then remove it, so
+#     SpecifiedKeyAccessCheck (AUTH-XX-03) can validate the path without
+#     persistent manual key setup.
 #
 # Prerequisites:
 #   - NICO_API_BASE set to the NICo API base URL
@@ -59,6 +67,7 @@
 #     NICO_SSA_ISSUER, NICO_CLIENT_ID, and NICO_CLIENT_SECRET
 #   - Expected machines pre-registered; machines ingested and DPUs initialized
 #   - NICO_ORGANIZATION and NICO_SITE_ID environment variables set
+#   - ssh-keygen available on the host (used to mint the throwaway key)
 #
 # Usage:
 #   NICO_BEARER_TOKEN=<token> NICO_ORGANIZATION=<org-name> NICO_SITE_ID=<uuid> \
@@ -71,8 +80,26 @@ version: "1.0"
 
 commands:
   bare_metal:
-    phases: ["test"]
+    phases: ["setup", "test", "teardown"]
     steps:
+      # ─── Provision a Throwaway Specified Key (AUTH-XX-03 setup) ──────
+      # Creates an ephemeral SSH key and a key group that syncs it to the
+      # site. Emits sshkey_id / sshkeygroup_id / restore_ssh_keys_enabled for
+      # teardown to consume.
+      - name: setup_key_access
+        phase: setup
+        command: "python ../scripts/auth/setup_key_access.py"
+        requires_available_validations:
+          - SpecifiedKeyAccessCheck
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 240
+
       # ─── Verify Hardware Ingestion ─────────────────────────────────
       # Compares expected-machine manifest against discovered machines.
       # Output includes per-machine status, health, GPU/DPU counts.
@@ -221,6 +248,50 @@ commands:
           - "{{site_id}}"
           - "--api-base"
           - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Specified-Key Access (AUTH-XX-03) ──────────────────────────
+      # Reads the site's SSH Key Groups and serial-console configuration from
+      # the NICo API (/carbide/ segment, like the other NICo steps) and reports
+      # whether a tenant-specified key can access out-of-band components. The serial
+      # console (SOL) is verifiable from the tenant API (provider-enabled +
+      # SSH-key auth + key synced); network-device access is provider-managed
+      # and reported as unverified. SpecifiedKeyAccessCheck validates it.
+      - name: query_key_access
+        phase: test
+        command: "python ../scripts/auth/query_key_access.py"
+        requires_available_validations:
+          - SpecifiedKeyAccessCheck
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Remove the Throwaway Specified Key (AUTH-XX-03 teardown) ────
+      # Best-effort cleanup of the key group + key created in setup, and
+      # restores the site's SSH-key SOL flag when setup flipped it.
+      - name: teardown_key_access
+        phase: teardown
+        command: "python ../scripts/auth/teardown_key_access.py"
+        requires_available_validations:
+          - SpecifiedKeyAccessCheck
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+          - "--sshkeygroup-id"
+          - "{{steps.setup_key_access.sshkeygroup_id}}"
+          - "--sshkey-id"
+          - "{{steps.setup_key_access.sshkey_id}}"
+          - "--restore-ssh-keys-enabled"
+          - "{{steps.setup_key_access.restore_ssh_keys_enabled}}"
         timeout: 120
 
 tests:

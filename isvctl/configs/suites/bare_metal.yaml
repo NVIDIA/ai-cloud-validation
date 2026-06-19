@@ -593,5 +593,17 @@ tests:
           test_id: "CNP09-02"
           labels: ["attestation", "bare_metal", "firmware", "min_req", "security"]
 
+    # Specified-key access to out-of-band components (AUTH-XX-03). Verifies a
+    # tenant-specified key (e.g. an SSH key) can be used to access other
+    # components "as possible" -- the serial console (SOL) being the verifiable
+    # example, with network-device access reported as unverified (provider-
+    # managed). Only runs for providers that implement the query_key_access
+    # step.
+    specified_key_access:
+      step: query_key_access
+      checks:
+        SpecifiedKeyAccessCheck:
+          min_accessible_targets: 1
+
   exclude:
     labels: []
