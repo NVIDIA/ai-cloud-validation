@@ -292,6 +292,15 @@ def _phase_enum_for_name(phase_name: str) -> Phase:
     return Phase.TEST
 
 
+def _requested_config_phases(config_phases: list[str], requested_phases: list[Phase]) -> list[str]:
+    """Return configured phase names selected by the requested phase filter."""
+    if Phase.ALL in requested_phases:
+        return config_phases
+
+    requested_phase_names = {phase.value for phase in requested_phases}
+    return [phase for phase in config_phases if phase in requested_phase_names]
+
+
 def _has_explicit_pytest_selection(extra_pytest_args: list[str] | None) -> bool:
     """Return whether pytest args explicitly select tests or markers."""
     if not extra_pytest_args:
@@ -429,6 +438,22 @@ class Orchestrator:
         """
         logger.info(f"Running in steps mode for platform: {platform}")
 
+        config_phases = self.config.get_phases(platform)
+        if self.config.commands[platform].skip:
+            skipped_phases = _requested_config_phases(config_phases, requested_phases)
+            return OrchestratorResult(
+                success=True,
+                phases=[
+                    PhaseResult(
+                        phase=_phase_enum_for_name(phase_name),
+                        success=True,
+                        message=f"SKIPPED: platform '{platform}' is skipped by configuration",
+                    )
+                    for phase_name in skipped_phases
+                ],
+                inventory={},
+            )
+
         steps = self.config.get_steps(platform)
         if not steps:
             return OrchestratorResult(
@@ -448,7 +473,6 @@ class Orchestrator:
 
         steps = _apply_step_validation_gates(steps, released_tests)
 
-        config_phases = self.config.get_phases(platform)
         logger.info(f"Configured phases: {config_phases}")
 
         for step in steps:
@@ -703,7 +727,15 @@ class Orchestrator:
         display_name = phase_name or phase.value
 
         # Build step messages
-        step_messages = [f"{s.name}: {'passed' if s.success else 'failed'}" for s in step_results.steps]
+        step_messages = []
+        for step in step_results.steps:
+            if step.error == "Step skipped":
+                status = "skipped"
+            elif step.success:
+                status = "passed"
+            else:
+                status = "failed"
+            step_messages.append(f"{step.name}: {status}")
 
         # Check if any validations failed
         validation_failures = [v for v in validation_results if not v.get("passed", False)]

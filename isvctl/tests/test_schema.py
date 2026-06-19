@@ -180,12 +180,14 @@ class TestRunConfigModel:
         assert len(k8s_steps) == 2
         assert k8s_steps[0].command == "./k8s-setup.sh"
 
-        # Skipped steps are filtered out
+        # Skipped steps are returned so the executor can record skipped placeholders.
         slurm_steps = config.get_steps("slurm")
-        assert len(slurm_steps) == 0
+        assert len(slurm_steps) == 1
+        assert slurm_steps[0].name == "skipped_step"
+        assert slurm_steps[0].skip is True
 
-    def test_platform_level_skip(self) -> None:
-        """Test platform-level skip skips all phases."""
+    def test_platform_level_skip_preserves_configured_steps(self) -> None:
+        """Test platform-level skip does not hide configured steps."""
         config = RunConfig(
             commands={
                 "kubernetes": PlatformCommands(
@@ -195,7 +197,12 @@ class TestRunConfigModel:
                     ]
                 ),
                 # Platform-level skip - simpler than skipping each step
-                "slurm": PlatformCommands(skip=True),
+                "slurm": PlatformCommands(
+                    skip=True,
+                    steps=[
+                        StepConfig(name="setup_slurm", command="./slurm-setup.sh", phase="setup"),
+                    ],
+                ),
             }
         )
 
@@ -203,9 +210,10 @@ class TestRunConfigModel:
         k8s_steps = config.get_steps("kubernetes")
         assert len(k8s_steps) == 2
 
-        # Slurm should be skipped at platform level (returns empty list)
+        # Platform-level skip is handled by the orchestrator, not by dropping steps here.
         slurm_steps = config.get_steps("slurm")
-        assert len(slurm_steps) == 0
+        assert len(slurm_steps) == 1
+        assert slurm_steps[0].name == "setup_slurm"
 
     def test_get_phases(self) -> None:
         """Test getting phases for a platform."""

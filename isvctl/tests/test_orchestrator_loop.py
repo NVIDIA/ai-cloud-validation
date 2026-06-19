@@ -271,9 +271,32 @@ EOF
 
         result = orchestrator.run(phases=[Phase.SETUP])
 
-        # When platform is skipped, no steps are returned which results in "No steps defined"
-        assert not result.success
-        assert "No steps defined" in result.phases[0].message
+        assert result.success
+        assert len(result.phases) == 1
+        assert result.phases[0].phase == Phase.SETUP
+        assert result.phases[0].success
+        assert "SKIPPED" in result.phases[0].message
+        assert "platform 'kubernetes' is skipped" in result.phases[0].message
+
+    def test_run_platform_skip_marks_requested_phases_skipped(self) -> None:
+        """Platform-level skip marks each requested configured phase as skipped."""
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    skip=True,
+                    phases=["setup", "teardown"],
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+        orchestrator = Orchestrator(config)
+
+        result = orchestrator.run(phases=[Phase.SETUP, Phase.TEARDOWN])
+
+        assert result.success
+        assert [phase.phase for phase in result.phases] == [Phase.SETUP, Phase.TEARDOWN]
+        assert all(phase.success for phase in result.phases)
+        assert all(phase.message.startswith("SKIPPED:") for phase in result.phases)
 
     def test_run_test_phase_requires_steps(self) -> None:
         """Test that test phase with no steps fails gracefully."""
@@ -419,6 +442,13 @@ EOF
         )
         orchestrator = Orchestrator(config)
         result = orchestrator.run(teardown_on_failure=True)
+
+        setup_phases = [p for p in result.phases if p.phase == Phase.SETUP]
+        assert len(setup_phases) == 1
+        assert setup_phases[0].success
+        assert "setup_cluster: skipped" in setup_phases[0].message
+        assert setup_phases[0].details
+        assert setup_phases[0].details["steps"][0]["error"] == "Step skipped"
 
         teardown_phases = [p for p in result.phases if p.phase == Phase.TEARDOWN]
         assert len(teardown_phases) == 1

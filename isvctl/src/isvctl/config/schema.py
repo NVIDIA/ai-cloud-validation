@@ -410,10 +410,7 @@ class RunConfig(BaseModel):
         platform_cmds = self.commands.get(platform)
         if platform_cmds is None:
             raise KeyError(f"Platform '{platform}' not configured in commands")
-        # Check platform-level skip first
-        if platform_cmds.skip:
-            return []
-        return [step for step in platform_cmds.steps if not step.skip]
+        return platform_cmds.steps
 
     def get_phases(self, platform: str) -> list[str]:
         """Get the ordered phases list for a given platform.
