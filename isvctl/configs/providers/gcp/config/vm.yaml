@@ -278,33 +278,42 @@ commands:
           - "{{steps.reboot_instance.ssh_user | default(ssh_user, true)}}"
         timeout: 1800
 
-      # 10. Teardown NIM (shared paramiko script). The host/key chain
-      # resolves to a RUNNING NIM host, falling through to the non-empty
-      # "none" sentinel (which the shared script treats as a policy-skip:
-      # success=True / skipped=True) when none exists. deploy_nim above
-      # only ever deploys onto steps.reboot_instance.public_ip, so a
-      # post-reboot host (or its start_instance predecessor) is the only
-      # place a NIM container can live. launch_instance is deliberately
-      # NOT a fallback here: stop_instance releases the ephemeral external
-      # IP, so launch_instance.public_ip is stale/unreachable after a stop
-      # and SSH to it hangs until the step times out. Dropping it lets a
-      # stop-terminal run (e.g. the stop_instance per-step slice, where
-      # start/reboot/deploy_nim are skipped) fall through to "none" and
-      # policy-skip instead of timing out. The non-empty sentinel also
-      # keeps the argv pair from collapsing (empty defaults are DROPPED by
-      # the orchestrator's _render_args). The full domain run is unchanged:
-      # reboot_instance.public_ip wins as before.
+      # 10. Teardown NIM (shared paramiko script). The shared script's skip
+      # contract is now EXPLICIT (PR #454): the old sentinel-host
+      # ("none"/"null"/"") and missing-NGC auto-skip paths were removed, so a
+      # forwarded "none" host no longer policy-skips — without --skip the
+      # script SSHes straight to --host (which is required=True). We therefore
+      # forward --skip keyed on deploy_nim's skip state, mirroring the AWS
+      # oracle (aws/config/vm.yaml): when deploy_nim was skipped (no
+      # NGC_API_KEY, nothing deployed) the script no-ops its SSH work and emits
+      # the canonical policy-skip JSON; otherwise it tears down the container
+      # deploy_nim placed on steps.reboot_instance.public_ip (the only host
+      # deploy_nim ever targets, so teardown_nim targets the same host — no
+      # start_instance fallback). The host/key still carry a non-empty "none"
+      # default so the flag/value argv pair survives _render_args on a per-step
+      # slice where reboot_instance renders empty (empty defaults are DROPPED by
+      # the orchestrator). On a slice where deploy_nim did not run,
+      # steps.deploy_nim.skipped is absent -> default(false) -> no --skip, so the
+      # "none" host drives a best-effort SSH that fails fast on DNS resolution
+      # (no hang, leak, or false success); on the full run deploy_nim emits
+      # skipped=True and --skip no-ops the SSH cleanly. timeout bumped 180->300
+      # to clear the shared script's 240s CONTAINER_REMOVE_TIMEOUT (docker rm -f)
+      # plus the 30s SSH-connect budget, matching the AWS oracle cap.
       - name: teardown_nim
         phase: teardown
         command: "python3 ../../shared/teardown_nim.py"
         args:
           - "--host"
-          - "{{steps.reboot_instance.public_ip | default(steps.start_instance.public_ip, true) | default('none', true)}}"
+          - "{{steps.reboot_instance.public_ip | default('none', true)}}"
           - "--key-file"
-          - "{{steps.reboot_instance.key_file | default(steps.start_instance.key_file, true) | default('none', true)}}"
+          - "{{steps.reboot_instance.key_file | default('none', true)}}"
           - "--user"
           - "{{steps.reboot_instance.ssh_user | default(ssh_user, true)}}"
-        timeout: 180
+          # Skip teardown when deploy_nim was skipped; the shared script
+          # supplies the default --skip-reason. Renders to an empty token
+          # (dropped by _render_args) when deploy_nim actually ran.
+          - "{{ '--skip' if steps.deploy_nim.skipped | default(false) else '' }}"
+        timeout: 300
 
       # 11. Teardown — gates instance + firewall + key cleanup on
       # verified-reuse flags. instance_created gates BOTH the primary
