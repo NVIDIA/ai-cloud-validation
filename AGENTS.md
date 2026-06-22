@@ -168,6 +168,24 @@ forwarded env vars → optional isvreporter upload.
 | `KUBECTL` | Optional kubectl-compatible CLI prefix (POSIX `shlex` in Python, word-split in shell; overrides `K8S_PROVIDER` detection) | isvtest `get_kubectl_command`, isvctl k8s scripts |
 | `ISVCTL_DEMO_MODE` | `"1"` makes `my-isv` scripts return dummy success | scripts |
 | `AWS_SKIP_TEARDOWN` | Skip teardown phase (run later with `--phase teardown`) | AWS configs |
+| `ISVCTL_CONFIG` / `ISVCTL_SECRETS` | Override the `config.yml` / `secrets.yml` paths (default `${XDG_CONFIG_HOME:-~/.config}/isvctl/`) | isvctl `configure`, `test`, `doctor` |
+
+### Persisted user config
+
+`isvctl configure` persists env vars so users don't re-`export` them per shell.
+On disk they are grouped into provider-namespaced sections (`nico.api_base` ⇆
+`NICO_API_BASE`); non-secret values go in `config.yml` (`0644`), secrets in
+`secrets.yml` (`0600`). The variable catalog and the section/prefix mapping live
+in `isvctl/config/env_catalog.py` (shared with `doctor`); the section⇆env-name
+translation is a serialization detail in `config/user.py` (the public API stays
+keyed by env var name). Both files carry a top-level `version:` (the on-disk
+schema version, `SCHEMA_VERSION` in `config/user.py`); a missing version reads as
+the initial `1`, and a version newer than the build understands is rejected with
+a clear "upgrade isvctl" error rather than mis-parsed. Secret-vs-non-secret
+routing reuses `redaction.is_secret_env_var`. The "Flags" group is non-persistable.
+`test run`, `test validate`, and `doctor` apply both files (unless
+`--no-user-config`) via `cli/common.apply_user_config`, and an already-exported
+var always wins (process env > files > defaults).
 
 ## Cursor Cloud specific instructions
 

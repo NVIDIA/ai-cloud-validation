@@ -7,6 +7,7 @@ Unified controller for ISV Lab cluster lifecycle orchestration.
 ```bash
 # From workspace root
 uv sync
+uv run isvctl configure                 # persist env vars once (interactive)
 uv run isvctl doctor
 uv run isvctl test run -f isvctl/configs/suites/k8s.yaml
 
@@ -23,6 +24,50 @@ uv run isvctl docs tests -l kubernetes                   # filter by label
 uv run isvctl docs tests -f isvctl/configs/suites/k8s.yaml      # show config test instances
 uv run isvctl docs tests -i StepSuccessCheck             # detailed info for a test
 ```
+
+## Configuration
+
+`isvctl configure` persists the env vars an `isvctl test run` needs so you don't
+re-`export` them in every shell (handy for providers like NICo that need several).
+
+```bash
+uv run isvctl configure                 # walk every variable
+uv run isvctl configure --provider nico # only NICo's variables
+uv run isvctl configure show            # show what's saved (secrets masked)
+uv run isvctl configure path            # print the file paths
+```
+
+Values are split across two files under `${XDG_CONFIG_HOME:-~/.config}/isvctl/`,
+organized into provider-namespaced sections:
+
+- `config.yml` (`0644`) — non-secret values.
+- `secrets.yml` (`0600`) — secret values (API keys, client secrets, tokens).
+
+```yaml
+# config.yml
+nico:
+  api_base: https://nico.example.com
+  organization: example-org
+  site_id: 00000000-0000-0000-0000-000000000000
+```
+
+```yaml
+# secrets.yml (0600)
+nico:
+  client_secret: ...
+```
+
+Each key maps to an env var by section prefix — `nico.api_base` ⇆ `NICO_API_BASE`,
+`aws.region` ⇆ `AWS_REGION`, `ngc.api_key` ⇆ `NGC_API_KEY` — so what gets exported
+is unambiguous. `ISVCTL_CONFIG` and `ISVCTL_SECRETS` override the individual paths.
+Precedence is **process env > files > defaults**: a variable already exported in
+your shell is never overridden, so CI and one-off `FOO=bar isvctl ...` overrides
+keep working. Pass `--no-user-config` to `test run`/`test validate`/`doctor` to
+ignore the files. Per-run flags (`KUBECTL`, `ISVCTL_DEMO_MODE`, …) are deliberately
+not persisted — pass them on the command line or export them each time.
+
+Keep `~/.config/isvctl/` out of any repository — `secrets.yml` holds plaintext
+credentials. Run `isvctl doctor` (optionally `--provider <name>`) to verify.
 
 ## Documentation
 

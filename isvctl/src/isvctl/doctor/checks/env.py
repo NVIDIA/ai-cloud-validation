@@ -23,175 +23,19 @@ import base64
 import json
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from isvctl.config.env_catalog import ENV_VARS, Requirement
 from isvctl.doctor.result import CategoryReport, CheckResult, Status
 from isvctl.redaction import redact_text
 
 _NICO_TOKEN_TIMEOUT_SECONDS = 30
 
-
-class Requirement(StrEnum):
-    """How strictly an env var is needed."""
-
-    REQUIRED = "required"  # missing → FAIL
-    RECOMMENDED = "recommended"  # missing → WARN
-    OPTIONAL = "optional"  # missing → SKIP (informational only)
-
-
-@dataclass(frozen=True)
-class _Var:
-    """One environment variable to check."""
-
-    name: str
-    group: str
-    requirement: Requirement
-    hint: str
-
-
-# Variable table — single source of truth for which env vars `doctor` knows
-# about and how it classifies them. Keep grouped for stable rendering order.
-_VARS: tuple[_Var, ...] = (
-    # ISV Lab Service
-    _Var(
-        "ISV_SERVICE_ENDPOINT",
-        "ISV Lab Service",
-        Requirement.RECOMMENDED,
-        "needed to upload results to ISV Lab Service",
-    ),
-    _Var(
-        "ISV_SSA_ISSUER",
-        "ISV Lab Service",
-        Requirement.RECOMMENDED,
-        "needed for SSA auth against ISV Lab Service",
-    ),
-    _Var(
-        "ISV_CLIENT_ID",
-        "ISV Lab Service",
-        Requirement.RECOMMENDED,
-        "needed to authenticate result uploads",
-    ),
-    _Var(
-        "ISV_CLIENT_SECRET",
-        "ISV Lab Service",
-        Requirement.RECOMMENDED,
-        "needed to authenticate result uploads",
-    ),
-    # NGC
-    _Var(
-        "NGC_API_KEY",
-        "NGC",
-        Requirement.RECOMMENDED,
-        "needed for NIM workloads and the NGC container registry",
-    ),
-    _Var(
-        "NGC_NIM_API_KEY",
-        "NGC",
-        Requirement.OPTIONAL,
-        "alternative to NGC_API_KEY for NIM workloads",
-    ),
-    # AWS — informational only. Static keys are just one of several credential
-    # sources boto3 accepts; `--provider aws` runs `_check_aws_provider` which
-    # validates the whole chain instead of demanding these specific vars.
-    _Var(
-        "AWS_ACCESS_KEY_ID",
-        "AWS",
-        Requirement.OPTIONAL,
-        "one way to supply AWS credentials (see also AWS_PROFILE / SSO)",
-    ),
-    _Var(
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS",
-        Requirement.OPTIONAL,
-        "one way to supply AWS credentials (see also AWS_PROFILE / SSO)",
-    ),
-    _Var(
-        "AWS_REGION",
-        "AWS",
-        Requirement.OPTIONAL,
-        "AWS region; may also come from AWS_DEFAULT_REGION or ~/.aws/config",
-    ),
-    # Flags — informational only.
-    _Var(
-        "KUBECTL",
-        "Flags",
-        Requirement.OPTIONAL,
-        "override the kubectl command (POSIX shlex split)",
-    ),
-    _Var(
-        "ISVCTL_DEMO_MODE",
-        "Flags",
-        Requirement.OPTIONAL,
-        "set to '1' to use my-isv demo stubs",
-    ),
-    _Var(
-        "ISVTEST_INCLUDE_UNRELEASED",
-        "Flags",
-        Requirement.OPTIONAL,
-        "include unreleased validations",
-    ),
-    _Var(
-        "AWS_SKIP_TEARDOWN",
-        "Flags",
-        Requirement.OPTIONAL,
-        "skip AWS teardown phase",
-    ),
-    # NICo — optional by default; --provider nico runs strict provider-specific
-    # checks for the same variables.
-    _Var(
-        "NICO_API_BASE",
-        "NICo",
-        Requirement.OPTIONAL,
-        "NICo API base URL",
-    ),
-    _Var(
-        "NICO_ORGANIZATION",
-        "NICo",
-        Requirement.OPTIONAL,
-        "NICo organization name used in the API path",
-    ),
-    _Var(
-        "NICO_SITE_ID",
-        "NICo",
-        Requirement.OPTIONAL,
-        "Forge site UUID for NICo hardware checks",
-    ),
-    _Var(
-        "NICO_BEARER_TOKEN",
-        "NICo",
-        Requirement.OPTIONAL,
-        "local NICo bearer token for API authentication",
-    ),
-    _Var(
-        "NICO_SSA_ISSUER",
-        "NICo",
-        Requirement.OPTIONAL,
-        "SSA issuer URL for NICo client_credentials auth",
-    ),
-    _Var(
-        "NICO_CLIENT_ID",
-        "NICo",
-        Requirement.OPTIONAL,
-        "OIDC client ID for NICo client_credentials auth",
-    ),
-    _Var(
-        "NICO_CLIENT_SECRET",
-        "NICo",
-        Requirement.OPTIONAL,
-        "OIDC client secret for NICo client_credentials auth",
-    ),
-    _Var(
-        "NICO_OIDC_SCOPE",
-        "NICo",
-        Requirement.OPTIONAL,
-        "optional OIDC scope for NICo client_credentials auth",
-    ),
-)
+# The variable catalog lives in `isvctl.config.env_catalog` so `doctor` and
+# `isvctl configure` share one source of truth.
 
 
 def _status_for(requirement: Requirement, present: bool) -> Status:
@@ -492,7 +336,7 @@ def check_env(providers: list[str] | None = None) -> CategoryReport:
     provider_strict_vars = {
         name for prov in providers or [] for name in _PROVIDER_STRICT_ENV_VARS.get(prov, frozenset())
     }
-    for var in _VARS:
+    for var in ENV_VARS:
         if var.name in provider_strict_vars:
             continue
         # "set" means exported, even if empty — distinguishing set-but-empty

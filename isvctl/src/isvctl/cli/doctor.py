@@ -27,6 +27,7 @@ import typer
 from isvreporter.version import get_version
 
 from isvctl.cli import setup_logging
+from isvctl.cli.common import apply_user_config
 from isvctl.doctor.checks import check_configs, check_env, check_tools
 from isvctl.doctor.report import render_json, render_rich
 from isvctl.doctor.result import CategoryReport, Status, worst
@@ -97,8 +98,19 @@ def doctor(
             help="Treat warnings as failures for exit-code purposes.",
         ),
     ] = False,
+    no_user_config: Annotated[
+        bool,
+        typer.Option(
+            "--no-user-config",
+            help="Do not apply persisted user config (config.yml / secrets.yml).",
+        ),
+    ] = False,
 ) -> None:
     """Diagnose the local environment for `isvctl test run`.
+
+    Persisted user config (from `isvctl configure`) is applied first, so the
+    env category reflects what an actual run would see. Use `--no-user-config`
+    to check only the live process environment.
 
     Examples:
         isvctl doctor
@@ -113,6 +125,7 @@ def doctor(
         return
 
     setup_logging(verbose)
+    apply_user_config(no_user_config)
 
     providers = _parse_csv(provider)
     requested = _parse_csv(check) or list(_CATEGORY_NAMES)

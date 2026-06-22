@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 from isvctl.redaction import (
     REDACTED,
     filter_env,
+    is_secret_env_var,
     is_sensitive_key,
     mask_sensitive_args,
     redact_dict,
@@ -260,6 +261,35 @@ class TestFilterEnv:
         }
         result = filter_env(env)
         assert result == env
+
+
+# ---------------------------------------------------------------------------
+# is_secret_env_var
+# ---------------------------------------------------------------------------
+
+
+class TestIsSecretEnvVar:
+    """Tests for environment-variable secret classification."""
+
+    def test_explicit_deny_list(self) -> None:
+        assert is_secret_env_var("NICO_CLIENT_SECRET")
+        assert is_secret_env_var("NICO_BEARER_TOKEN")
+        assert is_secret_env_var("NGC_API_KEY")
+        assert is_secret_env_var("ISV_CLIENT_SECRET")
+        assert is_secret_env_var("AWS_SECRET_ACCESS_KEY")
+
+    def test_suffix_matches(self) -> None:
+        assert is_secret_env_var("MY_CUSTOM_SECRET")
+        assert is_secret_env_var("DB_PASSWORD")
+        assert is_secret_env_var("CUSTOM_API_KEY")
+
+    def test_non_secret_vars(self) -> None:
+        assert not is_secret_env_var("NICO_API_BASE")
+        assert not is_secret_env_var("NICO_ORGANIZATION")
+        assert not is_secret_env_var("NICO_SITE_ID")
+        assert not is_secret_env_var("NICO_CLIENT_ID")
+        assert not is_secret_env_var("KUBECTL")
+        assert not is_secret_env_var("AWS_REGION")
 
 
 # ---------------------------------------------------------------------------

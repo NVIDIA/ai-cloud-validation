@@ -41,6 +41,12 @@ export AWS_REGION=...
 export AWS_SESSION_TOKEN=...  # only required for temporary/SSO credentials
 ```
 
+Prefer not to re-`export` every shell? Persist the values once:
+
+```bash
+uv run isvctl configure   # interactive; secrets saved to a 0600 file
+```
+
 Execution:
 
 ```bash
@@ -110,6 +116,11 @@ See [Contributing](CONTRIBUTING.md) for development setup and guidelines.
 | `ISV_CLIENT_ID` | Required for ISV Lab Service uploads |
 | `ISV_CLIENT_SECRET` | Required for ISV Lab Service uploads |
 | `NGC_API_KEY` | Required for NIM model benchmarks |
+
+Instead of exporting these every session, run `isvctl configure` to persist them
+(non-secrets in `config.yml`, secrets in a `0600` `secrets.yml` under
+`${XDG_CONFIG_HOME:-~/.config}/isvctl/`). An exported variable always overrides
+the saved value. See the [isvctl README](isvctl/README.md#configuration).
 
 ## Security
 

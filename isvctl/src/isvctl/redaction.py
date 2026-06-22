@@ -198,17 +198,24 @@ SENSITIVE_ENV_SUFFIXES: tuple[str, ...] = (
 )
 
 
+def is_secret_env_var(name: str) -> bool:
+    """Return True if an environment variable name holds a secret value.
+
+    A variable is secret if it appears in the explicit deny-list or its name
+    ends with a sensitive suffix. This is the single rule used both to filter
+    secrets out of the Jinja2 context and to route values written by
+    `isvctl configure` into the permission-locked secrets file.
+    """
+    return name in SENSITIVE_ENV_VARS or any(name.upper().endswith(s) for s in SENSITIVE_ENV_SUFFIXES)
+
+
 def filter_env(env: dict[str, str]) -> dict[str, str]:
     """Return a copy of env with known-sensitive variables removed.
 
     Variables are excluded if they appear in the explicit deny-list or
     their name ends with a sensitive suffix.
     """
-    return {
-        k: v
-        for k, v in env.items()
-        if k not in SENSITIVE_ENV_VARS and not any(k.upper().endswith(s) for s in SENSITIVE_ENV_SUFFIXES)
-    }
+    return {k: v for k, v in env.items() if not is_secret_env_var(k)}
 
 
 # ---------------------------------------------------------------------------

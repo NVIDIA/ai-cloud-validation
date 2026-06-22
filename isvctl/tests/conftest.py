@@ -21,10 +21,26 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 ISVCTL_ROOT = Path(__file__).resolve().parents[1]
 AWS_VM_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "vm"
 
 _LOADED_MODULES: dict[str, ModuleType] = {}
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_config(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Point isvctl user config at an empty temp dir for every test.
+
+    Several CLI commands (`configure`, `doctor`, `test`) now load
+    config.yml / secrets.yml. Without this, tests would read the developer's
+    real ~/.config/isvctl and become environment-dependent. Tests that need a
+    populated config override XDG_CONFIG_HOME themselves.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
+    monkeypatch.delenv("ISVCTL_CONFIG", raising=False)
+    monkeypatch.delenv("ISVCTL_SECRETS", raising=False)
 
 
 def load_vm_script(script_name: str) -> ModuleType:

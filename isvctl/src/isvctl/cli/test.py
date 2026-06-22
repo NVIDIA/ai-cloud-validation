@@ -32,6 +32,7 @@ from isvtest.catalog import build_catalog, get_catalog_version
 from isvctl.cli import setup_logging
 from isvctl.cli.common import (
     OUTPUT_DIR_NAME,
+    apply_user_config,
     get_output_dir,
     print_error,
     print_progress,
@@ -138,6 +139,13 @@ def run(
             help="Enable verbose logging",
         ),
     ] = False,
+    no_user_config: Annotated[
+        bool,
+        typer.Option(
+            "--no-user-config",
+            help="Do not apply persisted user config (config.yml / secrets.yml).",
+        ),
+    ] = False,
     junitxml: Annotated[
         Path,
         typer.Option(
@@ -198,6 +206,7 @@ def run(
         isvctl test run -f config.yaml -- -v -s -k "test_name"
     """
     setup_logging(verbose)
+    apply_user_config(no_user_config)
 
     # Validate at least one config file is provided
     if not config_files:
@@ -470,12 +479,21 @@ def validate(
             help="Set values on the command line",
         ),
     ] = None,
+    no_user_config: Annotated[
+        bool,
+        typer.Option(
+            "--no-user-config",
+            help="Do not apply persisted user config (config.yml / secrets.yml).",
+        ),
+    ] = False,
 ) -> None:
     """Validate merged configuration without running.
 
     Useful for checking configuration syntax and schema compliance
     before executing a test run.
     """
+    apply_user_config(no_user_config)
+
     # Validate at least one config file is provided
     if not config_files:
         print_error("At least one --config/-f config file is required.")

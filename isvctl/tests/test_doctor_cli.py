@@ -26,6 +26,7 @@ import pytest
 from typer.testing import CliRunner
 
 from isvctl.cli.doctor import app
+from isvctl.config.env_catalog import EnvVar
 from isvctl.doctor.checks import env as env_checks
 from isvctl.doctor.checks import tools as tools_checks
 from isvctl.doctor.result import Status, worst
@@ -71,14 +72,14 @@ def all_tools_present(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def all_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set every env var the doctor knows about so the env category is all-OK."""
-    for var in env_checks._VARS:
+    for var in env_checks.ENV_VARS:
         monkeypatch.setenv(var.name, "x")
 
 
 @pytest.fixture
 def all_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure no known env var is set (independent of the host environment)."""
-    for var in env_checks._VARS:
+    for var in env_checks.ENV_VARS:
         monkeypatch.delenv(var.name, raising=False)
 
 
@@ -364,9 +365,9 @@ def test_doctor_required_env_var_reports_required(monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(
         env_checks,
-        "_VARS",
+        "ENV_VARS",
         (
-            env_checks._Var(
+            EnvVar(
                 name=name,
                 group="Test",
                 requirement=env_checks.Requirement.REQUIRED,
@@ -379,6 +380,41 @@ def test_doctor_required_env_var_reports_required(monkeypatch: pytest.MonkeyPatc
 
     assert report.results[0].status == Status.FAIL
     assert report.results[0].message == "unset (required)"
+
+
+# ---------------------------------------------------------------------------
+# Persisted user config integration
+# ---------------------------------------------------------------------------
+
+
+def test_doctor_applies_persisted_user_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """doctor should see vars persisted by `isvctl configure`, not just exports."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("NICO_API_BASE", raising=False)
+    cfg_dir = tmp_path / "isvctl"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.yml").write_text("nico:\n  api_base: https://nico.example.com\n")
+
+    result = runner.invoke(app, ["--check", "env", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    env_results = {r["name"]: r for cat in payload["categories"] for r in cat["results"]}
+    assert env_results["NICO_API_BASE"]["status"] == "OK"
+
+
+def test_doctor_no_user_config_ignores_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """--no-user-config should ignore persisted config files."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("NICO_API_BASE", raising=False)
+    cfg_dir = tmp_path / "isvctl"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.yml").write_text("nico:\n  api_base: https://nico.example.com\n")
+
+    result = runner.invoke(app, ["--check", "env", "--json", "--no-user-config"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    env_results = {r["name"]: r for cat in payload["categories"] for r in cat["results"]}
+    assert env_results["NICO_API_BASE"]["status"] != "OK"
 
 
 # ---------------------------------------------------------------------------
