@@ -231,6 +231,13 @@ tests:
           settle_timeout_s: 30
           namespace_prefix: "isvtest-netpol"
           test_egress: true
+        K8sCrdWebhookCheck:
+          test_id: "K8S21-01"
+          labels: ["kubernetes", "min_req"]
+          image: "registry.k8s.io/e2e-test-images/agnhost:2.47"
+          namespace_prefix: "isvtest-k8s21"
+          wait_timeout: 180
+          poll_interval: 2
 
     k8s_storage:
       checks:
