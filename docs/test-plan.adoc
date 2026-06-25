@@ -3292,7 +3292,7 @@ a|
 | [[K8S21-01]]K8S21-01
 | K8S21
 | https://github.com/NVIDIA/ai-cloud-validation/issues/218[#218]
-| min_req
+| kubernetes, min_req
 | k8s19
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/218[#218]
