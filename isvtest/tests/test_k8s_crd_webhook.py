@@ -80,7 +80,7 @@ def _run_check(
     check = K8sCrdWebhookCheck(
         config={
             "image": "registry.k8s.io/e2e-test-images/agnhost:2.47",
-            "namespace_prefix": "isvtest-k8s21",
+            "namespace_prefix": "isvtest-crd-webhook",
             "wait_timeout": 1,
             "poll_interval": 1,
             **(config or {}),
@@ -108,7 +108,7 @@ def test_crd_webhook_check_passes_with_expected_manifests_and_probes() -> None:
         applied_docs.extend(docs)
         if any(
             (doc.get("metadata") or {}).get("labels", {}).get("webhook-e2e-test") == "webhook-disallow"
-            or doc.get("kind") == "K8s21Widget"
+            or doc.get("kind") == "CrdWebhookWidget"
             for doc in docs
         ):
             admission_apply_timeouts.append(kwargs["timeout"])
@@ -189,11 +189,11 @@ def test_crd_webhook_check_passes_with_expected_manifests_and_probes() -> None:
         if doc["kind"] in {"ValidatingWebhookConfiguration", "MutatingWebhookConfiguration"}
         for webhook in doc["webhooks"]
     )
-    label_value = service["metadata"]["labels"]["isvtest-k8s21"]
-    assert deployments[0]["spec"]["template"]["metadata"]["labels"]["isvtest-k8s21"] == label_value
-    assert valid_crd["metadata"]["labels"]["isvtest-k8s21"] == label_value
+    label_value = service["metadata"]["labels"]["isvtest-crd-webhook"]
+    assert deployments[0]["spec"]["template"]["metadata"]["labels"]["isvtest-crd-webhook"] == label_value
+    assert valid_crd["metadata"]["labels"]["isvtest-crd-webhook"] == label_value
     assert all(
-        (webhook.get("objectSelector") or webhook.get("namespaceSelector"))["matchLabels"]["isvtest-k8s21"]
+        (webhook.get("objectSelector") or webhook.get("namespaceSelector"))["matchLabels"]["isvtest-crd-webhook"]
         == label_value
         for doc in applied_docs
         if doc["kind"] in {"ValidatingWebhookConfiguration", "MutatingWebhookConfiguration"}

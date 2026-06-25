@@ -235,7 +235,7 @@ tests:
           test_id: "K8S21-01"
           labels: ["kubernetes", "min_req"]
           image: "registry.k8s.io/e2e-test-images/agnhost:2.47"
-          namespace_prefix: "isvtest-k8s21"
+          namespace_prefix: "isvtest-crd-webhook"
           wait_timeout: 180
           poll_interval: 2
 

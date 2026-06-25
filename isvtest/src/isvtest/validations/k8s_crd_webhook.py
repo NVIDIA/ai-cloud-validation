@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Kubernetes CRD and admission webhook validation (K8S21-01)."""
+"""Validate Kubernetes CRD admission and custom-resource webhook behavior."""
 
 from __future__ import annotations
 
@@ -37,15 +37,15 @@ from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, get_kube
 from isvtest.core.validation import BaseValidation
 
 _MANIFEST_PATH = Path(__file__).parent / "manifests" / "k8s" / "crd_webhook.yaml"
-_ROLE_ANNOTATION = "isvtest.nvidia.com/k8s21-role"
-_LABEL_KEY = "isvtest-k8s21"
+_ROLE_ANNOTATION = "isvtest.nvidia.com/crd-webhook-role"
+_LABEL_KEY = "isvtest-crd-webhook"
 _DEFAULT_IMAGE = "registry.k8s.io/e2e-test-images/agnhost:2.47"
 _SERVICE_PORT = 443
 _CONTAINER_PORT = 8444
 _API_VERSION = "v1"
-_KIND = "K8s21Widget"
-_PLURAL = "k8s21widgets"
-_SINGULAR = "k8s21widget"
+_KIND = "CrdWebhookWidget"
+_PLURAL = "crdwebhookwidgets"
+_SINGULAR = "crdwebhookwidget"
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,7 @@ class _CertBundle:
 
 @dataclass(frozen=True)
 class _RuntimeNames:
-    """Names generated for one ephemeral K8S21 validation run."""
+    """Names generated for one ephemeral CRD webhook validation run."""
 
     suffix: str
     namespace: str
@@ -94,7 +94,9 @@ class K8sCrdWebhookCheck(BaseValidation):
         poll_interval: Delay between admission propagation retry attempts.
     """
 
-    description: ClassVar[str] = "Create a CRD and verify validating and mutating admission webhooks."
+    description: ClassVar[str] = (
+        "Create a CRD and verify CRD admission rejection, custom-resource mutation, and custom-resource validation."
+    )
     timeout: ClassVar[int] = 300
 
     def run(self) -> None:
@@ -109,7 +111,7 @@ class K8sCrdWebhookCheck(BaseValidation):
         self._image = str(self.config.get("image") or _DEFAULT_IMAGE)
         self._kubectl_parts = get_kubectl_command()
         self._kubectl_base = get_kubectl_base_shell()
-        self._names = _make_names(str(self.config.get("namespace_prefix", "isvtest-k8s21")))
+        self._names = _make_names(str(self.config.get("namespace_prefix", "isvtest-crd-webhook")))
         service_dns_names = _service_dns_names(self._names.service, self._names.namespace)
         self._certs = _generate_cert_bundle(service_dns_names)
 
@@ -343,7 +345,7 @@ class K8sCrdWebhookCheck(BaseValidation):
             return self._mutate_custom_resource_webhook_doc(doc, self._names.cr_mutator)
         if role == "cr-validator":
             return self._mutate_custom_resource_webhook_doc(doc, self._names.cr_validator)
-        msg = f"Unsupported K8S21 manifest role: {role}"
+        msg = f"Unsupported CRD webhook manifest role: {role}"
         raise ValueError(msg)
 
     def _mutate_secret_doc(self, doc: dict[str, Any]) -> dict[str, Any]:
@@ -486,12 +488,12 @@ class K8sCrdWebhookCheck(BaseValidation):
 
 
 def _load_template_docs() -> list[dict[str, Any]]:
-    """Load the K8S21 manifest template as a list of YAML documents."""
+    """Load the CRD webhook manifest template as a list of YAML documents."""
     return [doc for doc in yaml.safe_load_all(_MANIFEST_PATH.read_text()) if isinstance(doc, dict)]
 
 
 def _doc_role(doc: dict[str, Any]) -> str:
-    """Return the K8S21 role annotation for a template document."""
+    """Return the CRD webhook role annotation for a template document."""
     return str((_metadata(doc).get("annotations") or {}).get(_ROLE_ANNOTATION, ""))
 
 
@@ -508,21 +510,21 @@ def _make_names(namespace_prefix: str) -> _RuntimeNames:
     """Generate names unique enough for one validation run."""
     suffix = uuid.uuid4().hex[:8]
     namespace = f"{namespace_prefix}-{suffix}"
-    group = f"k8s21-{suffix}.isvtest.nvidia.com"
-    deny_group = f"k8s21-deny-{suffix}.isvtest.nvidia.com"
+    group = f"crd-webhook-{suffix}.isvtest.nvidia.com"
+    deny_group = f"crd-webhook-deny-{suffix}.isvtest.nvidia.com"
     return _RuntimeNames(
         suffix=suffix,
         namespace=namespace,
-        secret="k8s21-webhook-certs",
-        service="k8s21-webhook",
-        deployment="k8s21-webhook",
+        secret="crd-webhook-certs",
+        service="crd-webhook",
+        deployment="crd-webhook",
         crd_name=f"{_PLURAL}.{group}",
         crd_group=group,
         deny_crd_name=f"{_PLURAL}.{deny_group}",
         deny_crd_group=deny_group,
-        crd_validator=f"k8s21-{suffix}-crd-validator",
-        cr_mutator=f"k8s21-{suffix}-cr-mutator",
-        cr_validator=f"k8s21-{suffix}-cr-validator",
+        crd_validator=f"crd-webhook-{suffix}-crd-validator",
+        cr_mutator=f"crd-webhook-{suffix}-cr-mutator",
+        cr_validator=f"crd-webhook-{suffix}-cr-validator",
         resource=f"{_PLURAL}.{group}",
     )
 
@@ -541,7 +543,7 @@ def _generate_cert_bundle(dns_names: list[str]) -> _CertBundle:
     """Generate a CA and server certificate for the webhook Service DNS names."""
     now = dt.datetime.now(dt.UTC)
     ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "isvtest-k8s21-ca")])
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "isvtest-crd-webhook-ca")])
     ca_cert = (
         x509.CertificateBuilder()
         .subject_name(ca_name)

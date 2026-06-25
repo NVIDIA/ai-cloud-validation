@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Admission webhook validation template for K8S21-01.
+# Admission webhook validation template for CRD and custom-resource probes.
 #
 # Loaded and mutated by K8sCrdWebhookCheck. Placeholder values keep this file
 # valid YAML; runtime code patches namespace, names, labels, image, certificate
@@ -24,7 +24,7 @@ metadata:
   name: placeholder
   namespace: placeholder
   annotations:
-    isvtest.nvidia.com/k8s21-role: secret
+    isvtest.nvidia.com/crd-webhook-role: secret
 type: kubernetes.io/tls
 data:
   tls.crt: placeholder
@@ -36,7 +36,7 @@ metadata:
   name: placeholder
   namespace: placeholder
   annotations:
-    isvtest.nvidia.com/k8s21-role: service
+    isvtest.nvidia.com/crd-webhook-role: service
 spec:
   selector:
     app: placeholder
@@ -52,7 +52,7 @@ metadata:
   name: placeholder
   namespace: placeholder
   annotations:
-    isvtest.nvidia.com/k8s21-role: deployment
+    isvtest.nvidia.com/crd-webhook-role: deployment
 spec:
   replicas: 1
   selector:
@@ -97,9 +97,9 @@ kind: CustomResourceDefinition
 metadata:
   name: placeholder.example.com
   annotations:
-    isvtest.nvidia.com/k8s21-role: crd
+    isvtest.nvidia.com/crd-webhook-role: crd
   labels:
-    isvtest-k8s21: placeholder
+    isvtest-crd-webhook: placeholder
 spec:
   group: placeholder.example.com
   scope: Namespaced
@@ -126,7 +126,7 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: placeholder-crd-validator
   annotations:
-    isvtest.nvidia.com/k8s21-role: crd-validator
+    isvtest.nvidia.com/crd-webhook-role: crd-validator
 webhooks:
   - name: deny-crd-with-unwanted-label.k8s.io
     admissionReviewVersions: ["v1", "v1beta1"]
@@ -140,7 +140,7 @@ webhooks:
         resources: ["customresourcedefinitions"]
     objectSelector:
       matchLabels:
-        isvtest-k8s21: placeholder
+        isvtest-crd-webhook: placeholder
     clientConfig:
       caBundle: placeholder
       service:
@@ -154,7 +154,7 @@ kind: MutatingWebhookConfiguration
 metadata:
   name: placeholder-cr-mutator
   annotations:
-    isvtest.nvidia.com/k8s21-role: cr-mutator
+    isvtest.nvidia.com/crd-webhook-role: cr-mutator
 webhooks:
   - name: mutate-custom-resource-data-stage-1.k8s.io
     admissionReviewVersions: ["v1", "v1beta1"]
@@ -168,7 +168,7 @@ webhooks:
         resources: ["placeholders"]
     namespaceSelector:
       matchLabels:
-        isvtest-k8s21: placeholder
+        isvtest-crd-webhook: placeholder
     clientConfig:
       caBundle: placeholder
       service:
@@ -182,7 +182,7 @@ kind: ValidatingWebhookConfiguration
 metadata:
   name: placeholder-cr-validator
   annotations:
-    isvtest.nvidia.com/k8s21-role: cr-validator
+    isvtest.nvidia.com/crd-webhook-role: cr-validator
 webhooks:
   - name: deny-unwanted-custom-resource-data.k8s.io
     admissionReviewVersions: ["v1", "v1beta1"]
@@ -196,7 +196,7 @@ webhooks:
         resources: ["placeholders"]
     namespaceSelector:
       matchLabels:
-        isvtest-k8s21: placeholder
+        isvtest-crd-webhook: placeholder
     clientConfig:
       caBundle: placeholder
       service:
