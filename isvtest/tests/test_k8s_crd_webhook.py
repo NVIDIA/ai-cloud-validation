@@ -229,7 +229,7 @@ def test_fails_when_crd_rejection_is_not_enforced() -> None:
     check = _run_check(apply_func=fake_apply, run_command=fake_run_command)
 
     assert not check.passed
-    assert "CRD validating webhook did not reject the disallowed CRD" in check._error
+    assert "CRD validating webhook did not reject the disallowed CRD" in check.message
 
 
 def test_fails_when_custom_resource_mutation_is_missing() -> None:
@@ -253,7 +253,7 @@ def test_fails_when_custom_resource_mutation_is_missing() -> None:
     check = _run_check(apply_func=fake_apply, run_command=fake_run_command)
 
     assert not check.passed
-    assert "Custom resource mutation did not add data.mutation-stage-1=yes" in check._error
+    assert "Custom resource mutation did not add data.mutation-stage-1=yes" in check.message
 
 
 def test_fails_when_custom_resource_rejection_is_not_enforced() -> None:
@@ -275,7 +275,7 @@ def test_fails_when_custom_resource_rejection_is_not_enforced() -> None:
     check = _run_check(apply_func=fake_apply, run_command=fake_run_command)
 
     assert not check.passed
-    assert "Custom resource validating webhook did not reject disallowed data" in check._error
+    assert "Custom resource validating webhook did not reject disallowed data" in check.message
 
 
 def test_cleanup_failures_do_not_override_success() -> None:

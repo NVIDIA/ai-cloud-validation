@@ -2731,6 +2731,7 @@ domains:
             tests:
               - summary: create a CRD, create webhook, and test validation/mutation requirement
                 labels:
+                  - kubernetes
                   - min_req
                 notes: k8s19
                 req_id: K8S21

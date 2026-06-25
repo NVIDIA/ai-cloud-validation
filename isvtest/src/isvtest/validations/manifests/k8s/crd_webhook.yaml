@@ -67,6 +67,13 @@ spec:
         - name: agnhost-webhook
           image: placeholder
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           args:
             - webhook
             - --tls-cert-file=/webhook.local.config/certificates/tls.crt
