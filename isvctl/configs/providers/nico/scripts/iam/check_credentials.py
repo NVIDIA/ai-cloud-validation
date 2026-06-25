@@ -40,11 +40,15 @@ def main() -> int:
         "platform": "nico",
         "account_id": args.org,
         "authenticated": False,
+        "auth_source": "unresolved",
+        "identity_id": f"unresolved:{args.org}",
         "tests": {},
     }
 
     try:
         auth = resolve_auth()
+        result["auth_source"] = auth.source
+        result["identity_id"] = f"{auth.source}:{args.org}"
         site = forge_get(args.org, f"site/{args.site_id}", auth.token, base_url=args.api_base)
         sites = forge_get_all(
             args.org,
@@ -56,8 +60,6 @@ def main() -> int:
         )
 
         result["authenticated"] = True
-        result["auth_source"] = auth.source
-        result["identity_id"] = f"{auth.source}:{args.org}"
         result["tests"]["identity"] = {
             "passed": bool(site.get("id") or site.get("siteId")),
             "message": f"Authenticated to NICo as org {args.org}",

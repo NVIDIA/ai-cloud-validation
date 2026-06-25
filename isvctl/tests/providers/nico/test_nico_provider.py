@@ -466,6 +466,11 @@ def test_nico_iam_config_wires_credential_readiness() -> None:
     validations = merged["tests"]["validations"]
     assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
     assert validations["credential_readiness"]["step"] == "check_credentials"
+    assert validations["credential_readiness"]["checks"]["FieldExistsCheck"]["fields"] == [
+        "account_id",
+        "authenticated",
+        "tests",
+    ]
 
 
 def test_nico_check_credentials_reports_api_readiness(
@@ -506,6 +511,44 @@ def test_nico_check_credentials_reports_api_readiness(
     assert payload["identity_id"] == "oidc_client_credentials:test-org"
     assert payload["tests"]["identity"]["passed"] is True
     assert payload["tests"]["access"]["passed"] is True
+
+
+def test_nico_check_credentials_reports_identity_shape_on_auth_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The credentials probe should keep a stable identity shape when auth fails."""
+    module = _load_nico_script("iam/check_credentials.py", "test_nico_check_credentials_auth_failure")
+
+    def raise_auth_error() -> None:
+        raise module.NicoAuthError("missing credentials")
+
+    monkeypatch.setattr(module, "resolve_auth", raise_auth_error)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "check_credentials.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+        ],
+    )
+
+    exit_code = module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1, payload
+    assert payload["success"] is False
+    assert payload["account_id"] == "test-org"
+    assert payload["authenticated"] is False
+    assert payload["auth_source"] == "unresolved"
+    assert payload["identity_id"] == "unresolved:test-org"
+    assert payload["error_type"] == "auth"
+    assert payload["error"] == "missing credentials"
 
 
 def test_nico_bare_metal_config_platform_matches_command_group() -> None:
