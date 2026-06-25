@@ -1,0 +1,206 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Admission webhook validation template for K8S21-01.
+#
+# Loaded and mutated by K8sCrdWebhookCheck. Placeholder values keep this file
+# valid YAML; runtime code patches namespace, names, labels, image, certificate
+# data, CA bundle, service DNS names, and webhook rule groups/resources.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: placeholder
+  namespace: placeholder
+  annotations:
+    isvtest.nvidia.com/k8s21-role: secret
+type: kubernetes.io/tls
+data:
+  tls.crt: placeholder
+  tls.key: placeholder
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: placeholder
+  namespace: placeholder
+  annotations:
+    isvtest.nvidia.com/k8s21-role: service
+spec:
+  selector:
+    app: placeholder
+  ports:
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: https
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: placeholder
+  namespace: placeholder
+  annotations:
+    isvtest.nvidia.com/k8s21-role: deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: placeholder
+  template:
+    metadata:
+      labels:
+        app: placeholder
+    spec:
+      containers:
+        - name: agnhost-webhook
+          image: placeholder
+          imagePullPolicy: IfNotPresent
+          args:
+            - webhook
+            - --tls-cert-file=/webhook.local.config/certificates/tls.crt
+            - --tls-private-key-file=/webhook.local.config/certificates/tls.key
+            - --port=8444
+          ports:
+            - name: https
+              containerPort: 8444
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /readyz
+              port: https
+            periodSeconds: 1
+            failureThreshold: 30
+          volumeMounts:
+            - name: webhook-certs
+              readOnly: true
+              mountPath: /webhook.local.config/certificates
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: placeholder
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: placeholder.example.com
+  annotations:
+    isvtest.nvidia.com/k8s21-role: crd
+  labels:
+    isvtest-k8s21: placeholder
+spec:
+  group: placeholder.example.com
+  scope: Namespaced
+  names:
+    plural: placeholders
+    singular: placeholder
+    kind: K8s21Widget
+    listKind: K8s21WidgetList
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            data:
+              type: object
+              additionalProperties:
+                type: string
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: placeholder-crd-validator
+  annotations:
+    isvtest.nvidia.com/k8s21-role: crd-validator
+webhooks:
+  - name: deny-crd-with-unwanted-label.k8s.io
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 10
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: ["apiextensions.k8s.io"]
+        apiVersions: ["v1"]
+        resources: ["customresourcedefinitions"]
+    objectSelector:
+      matchLabels:
+        isvtest-k8s21: placeholder
+    clientConfig:
+      caBundle: placeholder
+      service:
+        namespace: placeholder
+        name: placeholder
+        path: /crd
+        port: 443
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: placeholder-cr-mutator
+  annotations:
+    isvtest.nvidia.com/k8s21-role: cr-mutator
+webhooks:
+  - name: mutate-custom-resource-data-stage-1.k8s.io
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 10
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["placeholder.example.com"]
+        apiVersions: ["v1"]
+        resources: ["placeholders"]
+    namespaceSelector:
+      matchLabels:
+        isvtest-k8s21: placeholder
+    clientConfig:
+      caBundle: placeholder
+      service:
+        namespace: placeholder
+        name: placeholder
+        path: /mutating-custom-resource
+        port: 443
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: placeholder-cr-validator
+  annotations:
+    isvtest.nvidia.com/k8s21-role: cr-validator
+webhooks:
+  - name: deny-unwanted-custom-resource-data.k8s.io
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 10
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["placeholder.example.com"]
+        apiVersions: ["v1"]
+        resources: ["placeholders"]
+    namespaceSelector:
+      matchLabels:
+        isvtest-k8s21: placeholder
+    clientConfig:
+      caBundle: placeholder
+      service:
+        namespace: placeholder
+        name: placeholder
+        path: /custom-resource
+        port: 443
