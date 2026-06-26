@@ -142,6 +142,44 @@ def _extract_check_labels_from_config(config_path: Path) -> dict[str, set[str]]:
     return result
 
 
+def _extract_check_test_ids_from_config(config_path: Path) -> dict[str, set[str]]:
+    """Extract per-check ``test_id`` declared on a config's validation wiring.
+
+    The ``"N/A"`` sentinel marks an intentional gap (no plan item) and is
+    skipped so it never appears as a test id.
+    """
+    result: dict[str, set[str]] = {}
+    for name, params in iter_config_checks(config_path):
+        test_id = params.get("test_id")
+        if isinstance(test_id, str) and test_id and test_id != "N/A":
+            result.setdefault(name, set()).add(test_id)
+    return result
+
+
+def build_test_id_map() -> dict[str, set[str]]:
+    """Map check name -> test_ids declared on its suite/provider YAML wiring.
+
+    test_ids live on the per-check YAML wiring, so this scans every config and
+    unions the ``test_id`` declared on each check (excluding the ``"N/A"``
+    sentinel). A variant's test_ids propagate up to its base name so the base
+    entry is not left bare, mirroring ``build_label_map``.
+    """
+    configs_dir = _find_configs_dir()
+    if not configs_dir:
+        return {}
+
+    test_id_map: dict[str, set[str]] = {}
+    for config_path in sorted(configs_dir.rglob("*.yaml")):
+        for name, test_ids in _extract_check_test_ids_from_config(config_path).items():
+            test_id_map.setdefault(name, set()).update(test_ids)
+
+    for name, test_ids in list(test_id_map.items()):
+        base = name.split("-")[0]
+        if base != name:
+            test_id_map.setdefault(base, set()).update(test_ids)
+    return test_id_map
+
+
 def build_label_map() -> dict[str, set[str]]:
     """Map check name -> labels declared on its suite/provider YAML wiring.
 
@@ -215,11 +253,14 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             - name: Validation class name or variant name
             - description: Human-readable description from class metadata
             - labels: List of public label strings (e.g. ["kubernetes", "gpu"])
+            - test_ids: List of test-plan ids declared on the wiring, "N/A"
+              excluded (e.g. ["SEC07-01"]); empty when only intentional gaps
             - module: Fully qualified module path
             - platforms: List of platform strings (e.g. ["KUBERNETES"])
     """
     platform_map = _build_platform_map()
     label_map = build_label_map()
+    test_id_map = build_test_id_map()
 
     # Build class metadata lookup, skipping classes marked for exclusion
     class_meta: dict[str, dict[str, Any]] = {}
@@ -255,6 +296,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
                 "name": name,
                 "description": meta["description"],
                 "labels": meta["labels"],
+                "test_ids": sorted(test_id_map.get(name, set())),
                 "module": meta["module"],
                 "platforms": sorted(platform_map.get(name, [])),
             }
@@ -274,11 +316,13 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         if variant_suffix:
             desc = f"{desc} ({variant_suffix.lstrip('-')})" if desc else variant_suffix.lstrip("-")
         labels = sorted(set(meta.get("labels", [])) | label_map.get(name, set()))
+        test_ids = sorted(test_id_map.get(name, set()))
         catalog.append(
             {
                 "name": name,
                 "description": desc,
                 "labels": labels,
+                "test_ids": test_ids,
                 "module": meta.get("module", ""),
                 "platforms": sorted(platforms),
             }
