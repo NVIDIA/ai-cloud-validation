@@ -1975,6 +1975,9 @@ class K8sCsiConcurrentPvcCheck(BaseValidation):
             return
 
         pvc_count = int(self.config.get("pvc_count", 2))
+        if pvc_count < 2:
+            self.set_failed("Invalid config: pvc_count must be >= 2 for concurrent provisioning validation")
+            return
         pvc_size = str(self.config.get("pvc_size", "1Gi"))
         bind_timeout = int(self.config.get("bind_timeout_s", 120))
         ns_prefix = self.config.get("namespace_prefix", "isvtest-csi-concurrent")
