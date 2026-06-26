@@ -147,6 +147,19 @@ def test_short_l_flag_binds_to_label_not_lab_id(monkeypatch: pytest.MonkeyPatch,
     assert _FakeOrchestrator.captured["include_labels"] == ["12345"]
 
 
+def test_label_without_provider_or_config_reports_both_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--label` with neither `--provider` nor `-f` names both ways to supply checks."""
+    _FakeOrchestrator.calls = []
+    monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
+
+    result = runner.invoke(test_cli.app, ["run", "--label", "iam", "--no-upload"])
+
+    assert result.exit_code == 1, result.output
+    assert "--provider" in result.output
+    assert "--config/-f" in result.output
+    assert _FakeOrchestrator.calls == []
+
+
 def test_provider_label_discovery_dispatches_each_matching_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

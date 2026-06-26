@@ -290,7 +290,10 @@ def run(
 
     # Validate at least one config file is provided
     if not config_files:
-        print_error("At least one --config/-f config file is required.")
+        if labels:
+            print_error("--label requires either --provider (for label discovery) or --config/-f.")
+        else:
+            print_error("At least one --config/-f config file is required.")
         raise typer.Exit(code=1)
 
     # Collect extra pytest args from context (after --)
