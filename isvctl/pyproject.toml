@@ -17,6 +17,16 @@ dependencies = [
     "google-cloud-iam>=2.12.0,<3.0.0",
     "google-cloud-logging>=3.11.0,<4.0.0",
     "google-cloud-dns>=0.35.0,<0.37.0",
+    # Security-domain SDKs (providers/gcp/scripts/security/*): KMS encryption
+    # checks, GKE private-endpoint reads, Certificate Manager rotation reads,
+    # GCS bucket fixtures, resource-manager identity probes, and the Admin SDK
+    # Directory 2-Step-Verification read.
+    "google-cloud-kms>=2.21.0,<4.0.0",
+    "google-cloud-container>=2.40.0,<3.0.0",
+    "google-cloud-certificate-manager>=1.10.0,<2.0.0",
+    "google-cloud-storage>=2.14.0,<4.0.0",
+    "google-cloud-resource-manager>=1.12.0,<2.0.0",
+    "google-api-python-client>=2.100.0,<3.0.0",
 ]
 
 [project.scripts]

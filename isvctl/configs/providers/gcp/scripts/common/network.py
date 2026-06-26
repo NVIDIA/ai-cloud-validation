@@ -281,10 +281,7 @@ def wait_for_regional_op(
         op = client.get(project=project, region=region, operation=operation_name)
         if op.status == compute_v1.Operation.Status.DONE:
             if op.error and op.error.errors:
-                msg = "; ".join(
-                    f"{getattr(e, 'code', '')}:{getattr(e, 'message', str(e))}"
-                    for e in op.error.errors
-                )
+                msg = "; ".join(f"{getattr(e, 'code', '')}:{getattr(e, 'message', str(e))}" for e in op.error.errors)
                 raise RuntimeError(f"Regional op {operation_name} failed: {msg}")
             return op
         if time.monotonic() >= deadline:
@@ -322,14 +319,10 @@ def carve_subnet_cidrs(aggregate_cidr: str, count: int, *, new_prefix: int = 24)
     """
     network = ipaddress.ip_network(aggregate_cidr, strict=False)
     if new_prefix < network.prefixlen:
-        raise ValueError(
-            f"new_prefix /{new_prefix} is wider than aggregate {aggregate_cidr}"
-        )
+        raise ValueError(f"new_prefix /{new_prefix} is wider than aggregate {aggregate_cidr}")
     subnets = list(network.subnets(new_prefix=new_prefix))
     if len(subnets) < count:
-        raise ValueError(
-            f"aggregate {aggregate_cidr} yields {len(subnets)} /{new_prefix} subnets, need {count}"
-        )
+        raise ValueError(f"aggregate {aggregate_cidr} yields {len(subnets)} /{new_prefix} subnets, need {count}")
     return [str(s) for s in subnets[:count]]
 
 
@@ -412,9 +405,7 @@ def insert_network(
     if op_name:
         _wait_or_rollback(
             lambda: wait_for_global_op(project, op_name, timeout=timeout),
-            lambda: delete_with_retry(
-                delete_network, project, name, timeout=timeout, resource_desc=f"network {name}"
-            ),
+            lambda: delete_with_retry(delete_network, project, name, timeout=timeout, resource_desc=f"network {name}"),
             resource_desc=f"network {name}",
         )
     return name
@@ -475,15 +466,17 @@ def insert_subnetwork(
         log_cfg.enable = True
         subnet.log_config = log_cfg
 
-    op = compute_v1.SubnetworksClient().insert(
-        project=project, region=region, subnetwork_resource=subnet
-    )
+    op = compute_v1.SubnetworksClient().insert(project=project, region=region, subnetwork_resource=subnet)
     op_name = _op_name(op)
     if op_name:
         _wait_or_rollback(
             lambda: wait_for_regional_op(project, region, op_name, timeout=timeout),
             lambda: delete_with_retry(
-                delete_subnetwork, project, region, name, timeout=timeout,
+                delete_subnetwork,
+                project,
+                region,
+                name,
+                timeout=timeout,
                 resource_desc=f"subnetwork {name}",
             ),
             resource_desc=f"subnetwork {name}",
@@ -635,7 +628,10 @@ def insert_firewall(project: str, fw: compute_v1.Firewall, *, timeout: int = 120
         _wait_or_rollback(
             lambda: wait_for_global_op(project, op_name, timeout=timeout),
             lambda: delete_with_retry(
-                delete_firewall, project, fw.name, timeout=timeout,
+                delete_firewall,
+                project,
+                fw.name,
+                timeout=timeout,
                 resource_desc=f"firewall {fw.name}",
             ),
             resource_desc=f"firewall {fw.name}",
@@ -861,7 +857,11 @@ def insert_address(
         _wait_or_rollback(
             lambda: wait_for_regional_op(project, region, op_name, timeout=timeout),
             lambda: delete_with_retry(
-                delete_address, project, region, name, timeout=timeout,
+                delete_address,
+                project,
+                region,
+                name,
+                timeout=timeout,
                 resource_desc=f"address {name}",
             ),
             resource_desc=f"address {name}",
@@ -982,7 +982,11 @@ def insert_instance(project: str, zone: str, instance: compute_v1.Instance, *, t
         _wait_or_rollback(
             lambda: wait_for_zonal_op(project, zone, op_name, timeout=timeout),
             lambda: delete_with_retry(
-                delete_instance, project, zone, instance.name, timeout=timeout,
+                delete_instance,
+                project,
+                zone,
+                instance.name,
+                timeout=timeout,
                 resource_desc=f"instance {instance.name}",
             ),
             resource_desc=f"instance {instance.name}",
@@ -993,6 +997,24 @@ def delete_instance(project: str, zone: str, name: str, *, timeout: int = 300) -
     """Delete an instance and wait for the zonal op (``NotFound`` idempotent)."""
     try:
         op = compute_v1.InstancesClient().delete(project=project, zone=zone, instance=name)
+    except gax.NotFound:
+        return
+    op_name = _op_name(op)
+    if op_name:
+        wait_for_zonal_op(project, zone, op_name, timeout=timeout)
+
+
+def delete_disk(project: str, zone: str, name: str, *, timeout: int = 300) -> None:
+    """Delete a Persistent Disk and wait for the zonal op (``NotFound`` idempotent).
+
+    Compute ``disks.delete`` returns a synchronous ack while the disk is removed
+    asynchronously, so a caller that only issues the call (without waiting) can
+    report cleanup success before the disk is actually gone. Blocking on the
+    returned zonal op until DONE makes deletion observable, mirroring
+    ``delete_instance`` / ``delete_network``.
+    """
+    try:
+        op = compute_v1.DisksClient().delete(project=project, zone=zone, disk=name)
     except gax.NotFound:
         return
     op_name = _op_name(op)

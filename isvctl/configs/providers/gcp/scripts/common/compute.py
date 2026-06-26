@@ -232,8 +232,7 @@ def _list_region_zones(
         except _REGION_LOOKUP_RETRY_TRANSIENT as e:
             last_transient = e
             print(
-                f"  region zones lookup transient ({type(e).__name__}); "
-                f"attempt {attempt}/{attempts}",
+                f"  region zones lookup transient ({type(e).__name__}); attempt {attempt}/{attempts}",
                 file=sys.stderr,
             )
             time.sleep(backoff * attempt)
@@ -253,8 +252,7 @@ def _list_region_zones(
             raise RuntimeError(msg) from e
     if last_transient is not None:
         print(
-            f"  region zones lookup exhausted after {attempts} attempts: "
-            f"{last_transient}",
+            f"  region zones lookup exhausted after {attempts} attempts: {last_transient}",
             file=sys.stderr,
         )
     return []
@@ -305,11 +303,7 @@ def select_zones(
     # work in offline environments.
     if not region_zones:
         preferred_in_region = [z for z in PREFERRED_ZONES if z.startswith(f"{region_or_zone}-")]
-    cross_region = [
-        z
-        for z in PREFERRED_ZONES
-        if z not in preferred_in_region and z not in other_in_region
-    ]
+    cross_region = [z for z in PREFERRED_ZONES if z not in preferred_in_region and z not in other_in_region]
     # Zone-capacity contract: intersect with PREFERRED_ZONES when
     # non-empty; only fall back to nonpreferred live zones when the
     # intersection is empty (region missing from the curated capacity
@@ -864,8 +858,7 @@ def resolve_trusted_ssh_source_ranges(env_value: str | None = None) -> list[str]
             net = ipaddress.ip_network(spec, strict=False)
         except ValueError as exc:
             raise ValueError(
-                f"{TRUSTED_SSH_SOURCE_ENV_VAR} entry {token!r} is not a valid IPv4 "
-                f"address or CIDR: {exc}"
+                f"{TRUSTED_SSH_SOURCE_ENV_VAR} entry {token!r} is not a valid IPv4 address or CIDR: {exc}"
             ) from exc
         if net.version != 4:
             raise ValueError(

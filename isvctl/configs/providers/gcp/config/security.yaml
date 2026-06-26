@@ -1,0 +1,344 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# GCP Security Validation Configuration.
+#
+# Imports the provider-agnostic security contract from suites/security.yaml and
+# wires every step to a Cloud-API stub under providers/gcp/scripts/security/.
+# Step order mirrors the AWS reference (providers/aws/config/security.yaml).
+#
+# GCP divergences baked into this wiring (full rationale in the per-step stubs):
+#
+#   * The four BMC steps (SEC12-*/CNP10-01) have no customer BMC plane on
+#     managed Compute Engine — they confirm a valid GCP identity and scan for
+#     customer BMC-labelled resources, emitting a provider_hidden pass when none
+#     exist (same posture as the AWS Nitro-hidden reference).
+#   * insecure_protocols reuses the provider-neutral raw-socket prober under
+#     providers/shared/ — no GCP API is involved; the operator supplies HTTPS
+#     endpoints via EDGE_ENDPOINTS.
+#   * KMS, IAM, GKE, Cloud Logging, and Certificate Manager reads/creates use the
+#     google-cloud-* client libraries. customer_managed_key_test creates (and
+#     cleans up) a temporary CryptoKey + CMEK disk when GCP_KMS_KEY_ID is unset.
+#   * sa_credential_test proves keyless auth via service-account impersonation
+#     (IAM Credentials generateAccessToken) — hardened orgs block SA-key
+#     creation, so there is no long-lived-key path.
+#   * `--project` is threaded as a single `--project=<value>` token so an empty
+#     value survives the orchestrator's empty-arg dropping; stubs fall back to
+#     GOOGLE_CLOUD_PROJECT / GCLOUD_PROJECT / ADC when it is blank.
+#   * GCP API operations are async and slow; step timeouts follow the minimums in
+#     context guidance (read-only ~180s, single-instance ~300s, multi-resource
+#     fixtures ~600-900s).
+#
+# Operator inputs (env -> settings; all optional, unset -> structured-skip or
+# temp-resource self-provision) are documented in docs/references/gcp.md.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/gcp/config/security.yaml
+
+import:
+  - ../../../suites/security.yaml
+
+version: "1.0"
+
+commands:
+  security:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # Preflight: minimal setup step so the orchestrator runs teardown.
+      - name: preflight
+        phase: setup
+        command: "echo"
+        args: ["{\"success\": true, \"platform\": \"security\", \"test_name\": \"preflight\"}"]
+        timeout: 10
+
+      # Test 1: BMC Management Network (SEC12-01, read-only).
+      - name: bmc_management_network
+        phase: test
+        command: "python3 ../scripts/security/bmc_management_network_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 180
+
+      # Test 2: BMC Tenant Isolation (SEC12-02, read-only).
+      - name: bmc_tenant_isolation
+        phase: test
+        command: "python3 ../scripts/security/bmc_isolation_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 180
+
+      # Test 3: BMC Protocol Security (CNP10-01, read-only identity probe).
+      - name: bmc_protocol_security
+        phase: test
+        command: "python3 ../scripts/security/bmc_protocol_security_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 180
+
+      # Test 4: BMC Bastion Access (SEC12-03, read-only).
+      - name: bmc_bastion_access
+        phase: test
+        command: "python3 ../scripts/security/bmc_bastion_access_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 180
+
+      # Test 5: API Endpoint Isolation (SEC14-01, GKE private-cluster config read).
+      - name: api_endpoint_isolation
+        phase: test
+        command: "python3 ../scripts/security/api_endpoint_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 180
+
+      # Test 6: Insecure Protocols (SEC13-02). Provider-neutral raw-socket prober.
+      # Operator supplies HTTPS endpoints via EDGE_ENDPOINTS; unset -> structured
+      # skip. No GCP API.
+      - name: insecure_protocols_test
+        phase: test
+        # The probe is a pure wire-protocol check with no cloud API; the local
+        # stub loads and runs the provider-neutral raw-socket prober under
+        # providers/shared/ unchanged, re-emitting its result under the contract.
+        command: "python3 ../scripts/security/insecure_protocols_test.py"
+        args:
+          - "--endpoints={{insecure_protocols_endpoints}}"
+        timeout: 300
+
+      # Test 7: MFA Enforcement (SEC07-01). Reads org 2-Step Verification state via
+      # Admin SDK Directory; excluded in the contract when directory access is
+      # unavailable (no validator skip path).
+      - name: mfa_enforcement
+        phase: test
+        command: "python3 ../scripts/security/mfa_enforcement_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 180
+
+      # Test 8: Certificate Rotation Cycle (SEC09-01, read-only Certificate Manager).
+      - name: cert_rotation_test
+        phase: test
+        command: "python3 ../scripts/security/cert_rotation_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 180
+
+      # Test 9: KMS Encryption Options (SEC09-02, read-only CryptoKey enumeration).
+      - name: kms_encryption_options_test
+        phase: test
+        command: "python3 ../scripts/security/kms_encryption_options_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 180
+
+      # Test 10: Centralized KMS (SEC09-03). Walks KMS locations/keyrings and samples
+      # CMEK-encrypted resources. No skip path — requires a standing Cloud KMS posture
+      # (see docs/references/gcp.md).
+      - name: centralized_kms_test
+        phase: test
+        command: "python3 ../scripts/security/centralized_kms_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 300
+
+      # Test 11: Customer-Managed Key / BYOK (SEC09-04). Creates (or reuses
+      # GCP_KMS_KEY_ID) a CryptoKey + CMEK Persistent Disk, roundtrips encrypt/decrypt,
+      # cleans up self-created resources in a finally block.
+      - name: customer_managed_key_test
+        phase: test
+        command: "python3 ../scripts/security/customer_managed_key_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+          - "--key-id={{customer_managed_key_id}}"
+        timeout: 600
+
+      # Test 12: Service Account Credential Auth (SEC03-01). Keyless proof via
+      # service-account impersonation (IAM Credentials generateAccessToken). The run
+      # credential needs roles/iam.serviceAccountTokenCreator on the target SA.
+      - name: sa_credential_test
+        phase: test
+        command: "python3 ../scripts/security/sa_credential_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+          - "--impersonate-sa={{env.GCP_SECURITY_IMPERSONATION_SA | default('', true)}}"
+        timeout: 180
+
+      # Test 13: OIDC User Authentication (SEC01-01). Black-box OIDC prober against a
+      # protected target endpoint. Requires issuer/audience/target + token fixtures;
+      # unset -> structured skip. Token fixtures are sensitive (env / token files).
+      - name: oidc_user_auth_test
+        phase: test
+        command: "python3 ../scripts/security/oidc_user_auth_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+          - "--issuer-url={{oidc_issuer_url}}"
+          - "--audience={{oidc_audience}}"
+          - "--target-url={{oidc_target_url}}"
+        sensitive_args:
+          - "--valid-token"
+          - "--wrong-issuer-token"
+          - "--wrong-audience-token"
+          - "--expired-token"
+          - "--missing-required-claim-token"
+        timeout: 120
+
+      # Test 14: Short-Lived Credentials (SEC02-01). Asserts node + workload tokens
+      # carry a finite TTL within --max-ttl-seconds. Reads expiry from the IAM
+      # Credentials generateAccessToken response. The workload half impersonates
+      # GCP_SECURITY_IMPERSONATION_SA when ADC is a user/default principal with no
+      # bound SA (same target the run cred holds tokenCreator on for
+      # sa_credential_test); unset -> the workload probe cannot run and the test
+      # structured-skips.
+      - name: short_lived_credentials_test
+        phase: test
+        command: "python3 ../scripts/security/short_lived_credentials_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+          - "--max-ttl-seconds={{short_lived_credentials_max_ttl_seconds}}"
+          - "--impersonate-sa={{env.GCP_SECURITY_IMPERSONATION_SA | default('', true)}}"
+        timeout: 180
+
+      # Test 15: Least-Privilege Policy + Minimal Role Enforcement (SEC04-01/02).
+      # Creates a scoped custom role + conditional binding on a test SA, runs the
+      # allowed probe + out-of-scope deny probes, cleans up in a finally block.
+      # Requires GCP_SECURITY_ACCESS_LEVEL (the aws:SourceIp analog); unset -> skip.
+      - name: least_privilege_test
+        phase: test
+        command: "python3 ../scripts/security/least_privilege_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+          - "--access-level={{least_privilege_access_level}}"
+        timeout: 600
+
+      # Test 16: Audit Logging + Retention (SEC08-01/02). Emits a management call with
+      # a unique user-agent, polls Cloud Logging for the matching audit entry, and
+      # reads the log bucket retention. Dual skip gates per validator half.
+      - name: audit_logging_test
+        phase: test
+        command: "python3 ../scripts/security/audit_logging_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 300
+
+      # Test 17: Tenant Isolation (SEC11-01). Provisions two scoped service accounts
+      # (each with its own VPC + KMS key + GCS bucket + Compute instance) in one
+      # project, runs cross-tenant deny probes, tears the fixture down in a finally
+      # block. Structured-skip on missing setup permissions.
+      - name: tenant_isolation_test
+        phase: test
+        command: "python3 ../scripts/security/tenant_isolation_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+        timeout: 900
+
+      # Teardown: safety-net sweep for fixture resources leaked by a crashed step.
+      # Dual-gate ownership (run-id-suffixed name AND created-by label). Receives the
+      # per-step created flags so it only sweeps resources this session created.
+      # --skip-destroy short-circuits.
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/security/teardown.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--project={{project | default('')}}"
+          - "{{teardown_flag}}"
+          - "--kms-key-created={{steps.customer_managed_key_test.key_created | default('false')}}"
+          - "--cmek-disk-created={{steps.customer_managed_key_test.disk_created | default('false')}}"
+          # sa_credential_test is keyless impersonation-only and emits no
+          # sa_created field, so this forwards the | default('false') sentinel:
+          # the SA-cleanup decision is actually driven by the least-privilege and
+          # tenant-isolation flags below. Kept to honor the teardown contract.
+          - "--sa-created={{steps.sa_credential_test.sa_created | default('false')}}"
+          - "--lp-role-created={{steps.least_privilege_test.role_created | default('false')}}"
+          - "--lp-sa-created={{steps.least_privilege_test.sa_created | default('false')}}"
+          - "--lp-bucket-created={{steps.least_privilege_test.bucket_created | default('false')}}"
+          - "--ti-sa-created={{steps.tenant_isolation_test.sa_created | default('false')}}"
+          - "--ti-vpc-created={{steps.tenant_isolation_test.vpc_created | default('false')}}"
+          - "--ti-kms-created={{steps.tenant_isolation_test.kms_key_created | default('false')}}"
+          - "--ti-bucket-created={{steps.tenant_isolation_test.bucket_created | default('false')}}"
+          - "--ti-instance-created={{steps.tenant_isolation_test.instance_created | default('false')}}"
+        timeout: 600
+
+tests:
+  cluster_name: "gcp-security-validation"
+  description: "GCP infrastructure security hardening validation"
+
+  settings:
+    # Region for regional GCP reads (KMS locations, Certificate Manager, GKE).
+    region: "us-central1"
+    # Operator project. Blank -> stubs fall back to GOOGLE_CLOUD_PROJECT /
+    # GCLOUD_PROJECT / ADC (the harness does not forward those env vars to
+    # spawned stubs, so threading via Jinja here is the explicit path).
+    project: "{{env.GOOGLE_CLOUD_PROJECT | default('', true)}}"
+    # Comma-joined host:port HTTPS endpoints for the insecure-protocols prober.
+    # Unset -> InsecureProtocolsCheck structured-skips.
+    insecure_protocols_endpoints: "{{env.EDGE_ENDPOINTS | default('', true)}}"
+    # Upper bound (seconds) for short-lived token TTLs. Default 43200 never
+    # false-fails; tighten only after a run confirms observed TTLs.
+    short_lived_credentials_max_ttl_seconds: "{{env.SEC02_MAX_TTL_SECONDS | default('43200', true)}}"
+    # Existing tenant CMEK CryptoKey path. Unset -> customer_managed_key_test
+    # creates and cleans up a temporary key.
+    customer_managed_key_id: "{{env.GCP_KMS_KEY_ID | default('', true)}}"
+    # OIDC prober inputs. Unset -> OidcUserAuthCheck structured-skips.
+    oidc_issuer_url: "{{env.OIDC_ISSUER_URL | default('', true)}}"
+    oidc_audience: "{{env.OIDC_AUDIENCE | default('', true)}}"
+    oidc_target_url: "{{env.OIDC_TARGET_URL | default('', true)}}"
+    # Access Context Manager access level for the least-privilege network
+    # dimension (the aws:SourceIp analog). Unset -> least_privilege_test skips.
+    least_privilege_access_level: "{{env.GCP_SECURITY_ACCESS_LEVEL | default('', true)}}"
+    # Skip the teardown sweep (run later with --phase teardown).
+    teardown_flag: "{{(env.GCP_SECURITY_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+
+  # MfaEnforcedCheck (SEC07-01) reads org 2-Step-Verification state via the Admin
+  # SDK Directory API and has NO validator skip path. The canonical run credential
+  # is not a Cloud Identity / Workspace admin, so the check cannot be produced
+  # honestly and would hard-fail; exclude it here (re-enable once a Workspace-admin
+  # service account with domain-wide delegation + admin.directory.user.readonly is
+  # provisioned). Mirrors the gcp/network BackendSwitchFabricCheck exclusion.
+  exclude:
+    tests:
+      - MfaEnforcedCheck

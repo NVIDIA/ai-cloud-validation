@@ -11,10 +11,11 @@ This page covers the operator setup needed to run `isvctl` tests against GCP.
 | **VM** | [`providers/gcp/config/vm.yaml`](../../isvctl/configs/providers/gcp/config/vm.yaml) | [`providers/gcp/scripts/vm/`](../../isvctl/configs/providers/gcp/scripts/vm/) | [`suites/vm.yaml`](../../isvctl/configs/suites/vm.yaml) |
 | **Network** | [`providers/gcp/config/network.yaml`](../../isvctl/configs/providers/gcp/config/network.yaml) | [`providers/gcp/scripts/network/`](../../isvctl/configs/providers/gcp/scripts/network/) | [`suites/network.yaml`](../../isvctl/configs/suites/network.yaml) |
 | **IAM** | [`providers/gcp/config/iam.yaml`](../../isvctl/configs/providers/gcp/config/iam.yaml) | [`providers/gcp/scripts/iam/`](../../isvctl/configs/providers/gcp/scripts/iam/) | [`suites/iam.yaml`](../../isvctl/configs/suites/iam.yaml) |
+| **Security** | [`providers/gcp/config/security.yaml`](../../isvctl/configs/providers/gcp/config/security.yaml) | [`providers/gcp/scripts/security/`](../../isvctl/configs/providers/gcp/scripts/security/) | [`suites/security.yaml`](../../isvctl/configs/suites/security.yaml) |
 
 Shared GCP utilities (compute helpers, SSH wrappers, retry envelopes, error classifiers) are in [`providers/gcp/scripts/common/`](../../isvctl/configs/providers/gcp/scripts/common/).
 
-Other domains (Bare Metal, EKS, Control Plane, Image Registry, Security) are not yet implemented for GCP.
+Other domains (Bare Metal, EKS, Control Plane, Image Registry) are not yet implemented for GCP.
 
 ## Prerequisites
 
@@ -133,10 +134,23 @@ before a `live` run — live mode is rejected when a required var is unset.
 | `GCP_VM_IMAGE` | Optional (vm) | public DLVM family `common-cu129-ubuntu-2204-nvidia-580` | Operator image short-name or self-link for `launch_instance` (flows to `--ami-id`); resolves as exact-name, then family alias, under the image project. See [§5](#5-gpu-image-and-docker-requirement-for-deploy_nim). |
 | `GCP_VM_IMAGE_PROJECT` | Optional (vm) | `deeplearning-platform-release` | Project hosting the operator image (flows to `--image-project`). When unset (and `GCP_VM_IMAGE` is also unset) the stub falls back to the public DLVM project. See [§5](#5-gpu-image-and-docker-requirement-for-deploy_nim). |
 | `GCP_IAM_SKIP_TEARDOWN` | Optional (iam) | unset — teardown runs | When `true`, the IAM `teardown` step returns success without deleting the service account it created (run a standalone `--phase teardown` later to clean up). See [IAM domain](#iam-domain-service-accounts). |
+| `EDGE_ENDPOINTS` | Optional (security) | unset — `InsecureProtocolsCheck` structured-skips | Comma-joined `host:port` HTTPS endpoints the provider-neutral raw-socket prober checks for plain-HTTP / legacy-TLS refusal. See [Security domain](#security-domain). |
+| `SEC02_MAX_TTL_SECONDS` | Optional (security) | `43200` | Upper bound (seconds) `ShortLivedCredentialsCheck` asserts observed node / workload token TTLs stay at-or-below. The default never false-fails; tighten only after a run confirms observed TTLs. |
+| `GCP_KMS_KEY_ID` | Optional (security) | unset — `CustomerManagedKeyCheck` self-provisions a temporary key | Full Cloud KMS CryptoKey resource path of an existing tenant CMEK to reuse for the BYOK check instead of creating a throwaway key. |
+| `OIDC_ISSUER_URL` | Optional (security) | unset — `OidcUserAuthCheck` structured-skips | OIDC issuer (Workforce Identity Federation provider or Identity Platform) the black-box prober fetches discovery + JWKS from. |
+| `OIDC_AUDIENCE` | Optional (security) | unset — `OidcUserAuthCheck` structured-skips | OIDC audience the prober validates (the IAP OAuth client ID for OAuth-client flows; resource URL for SA JWTs). |
+| `OIDC_TARGET_URL` | Optional (security) | unset — `OidcUserAuthCheck` structured-skips | Protected target endpoint (Cloud Run / IAP / GKE) the prober calls with each token fixture. |
+| `GCP_SECURITY_ACCESS_LEVEL` | Optional (security) | unset — `least_privilege_test` structured-skips | Fully-qualified Access Context Manager access level (`accessPolicies/<id>/accessLevels/<name>`) used as the least-privilege network/source dimension (the `aws:SourceIp` analog; GCP IAM Conditions have no source-IP attribute). |
+| `GCP_SECURITY_IMPERSONATION_SA` | **Required** for `ServiceAccountCredentialCheck` (security) | none — no skip path (fail or exclude) | Email of the service account `sa_credential_test` impersonates to prove keyless authentication; it also feeds the workload half of `short_lived_credentials_test` when ADC has no bound service account. The run credential must hold `roles/iam.serviceAccountTokenCreator` on it; there is no long-lived-key fallback. `ServiceAccountCredentialCheck` has **no skip path**, so leaving this unset hard-fails that check — either set it or add `ServiceAccountCredentialCheck` to `exclude.tests`. |
 
 `GOOGLE_CLOUD_PROJECT` / `GCLOUD_PROJECT` (§3) and `NGC_API_KEY` (§4) are also
 read by the suite but are not part of the firewall / image-override contract
-above.
+above. The security domain's five OIDC negative-token fixtures
+(`OIDC_VALID_TOKEN`, `OIDC_WRONG_ISSUER_TOKEN`, `OIDC_WRONG_AUDIENCE_TOKEN`,
+`OIDC_EXPIRED_TOKEN`, `OIDC_MISSING_REQUIRED_CLAIM_TOKEN`) are **sensitive** — keep
+their values in your private `.env`, never in `.env.example`; they flow through
+the `oidc_user_auth_test` step's redacted `sensitive_args` block, not a settings
+read. See [Security domain](#security-domain).
 
 ```bash
 # Required before any GCP live run that creates or reuses SSH/RDP firewalls
@@ -196,7 +210,118 @@ uv run isvctl test run -f isvctl/configs/providers/gcp/config/iam.yaml
 ```
 
 Set `GCP_IAM_SKIP_TEARDOWN=true` to keep the created service account after a
-run (clean up later with `--phase teardown`).
+run. The service account is named with a per-run random suffix
+(`isv-test-user-<disc>-<run>@<project>.iam.gserviceaccount.com`), so a fresh
+standalone `isvctl test run --phase teardown` cannot clean it up: `create_user`
+did not execute in that process, so the teardown step's
+`{{steps.create_user.username}}` reference is unresolved. Instead, copy the
+`username` value printed by the original `create_user` step and delete the
+service account directly:
+
+```bash
+uv run python3 isvctl/configs/providers/gcp/scripts/iam/delete_user.py \
+  --username <username-from-create_user-output> \
+  --project=<project>   # optional; the delete uses the projects/-/ wildcard
+```
+
+## Security domain
+
+The security suite is a validations-only domain: each step reads (or, for the
+BYOK / least-privilege / tenant-isolation fixtures, briefly creates) Google Cloud
+resources and prints a JSON result that a provider-agnostic validator inspects.
+The [AWS reference](aws.md) is the closest implemented analog; the GCP port maps
+each check onto the equivalent Google Cloud surface (Cloud KMS, IAM, GKE, Cloud
+Logging, Certificate Manager, IAM Credentials, Admin SDK Directory).
+
+Most security operator inputs are **optional** — an unset variable resolves to a
+default that makes the matching check structured-skip or self-provision a
+temporary resource, so a near-zero-config run still completes (with the
+env-gated checks skipped rather than failed). The one exception is
+`GCP_SECURITY_IMPERSONATION_SA`: `ServiceAccountCredentialCheck` has **no skip
+path**, so leaving it unset hard-fails that check unless you exclude it (see the
+row below):
+
+| Variable | Effect when unset |
+|----------|-------------------|
+| `EDGE_ENDPOINTS` | `InsecureProtocolsCheck` structured-skips (no endpoints to probe). |
+| `SEC02_MAX_TTL_SECONDS` | Defaults to `43200`; `ShortLivedCredentialsCheck` still runs. |
+| `GCP_KMS_KEY_ID` | `CustomerManagedKeyCheck` creates and then cleans up a temporary CryptoKey + CMEK disk. |
+| `OIDC_ISSUER_URL` / `OIDC_AUDIENCE` / `OIDC_TARGET_URL` | `OidcUserAuthCheck` structured-skips. |
+| `GCP_SECURITY_ACCESS_LEVEL` | `least_privilege_test` structured-skips (drops `LeastPrivilegePolicyCheck` + `MinimalRoleEnforcementCheck`). |
+| `GCP_SECURITY_IMPERSONATION_SA` | `sa_credential_test` cannot impersonate and `ServiceAccountCredentialCheck` **hard-fails** (no skip path, no long-lived-key fallback) — set the var or add `ServiceAccountCredentialCheck` to `exclude.tests`. Also feeds the workload half of `short_lived_credentials_test` when ADC has no bound SA. |
+
+The five OIDC negative-token fixtures (`OIDC_VALID_TOKEN`,
+`OIDC_WRONG_ISSUER_TOKEN`, `OIDC_WRONG_AUDIENCE_TOKEN`, `OIDC_EXPIRED_TOKEN`,
+`OIDC_MISSING_REQUIRED_CLAIM_TOKEN`) supply the prober's positive + negative JWTs.
+They are sensitive and read from the environment / token files via the redacted
+`sensitive_args` block; keep their values in your private `.env`.
+
+### Standing posture required by `CentralizedKmsCheck`
+
+`CentralizedKmsCheck` (SEC09-03) has **no operator env var and no skip path**: it
+inspects the project's standing Cloud KMS posture and requires **≥1 ENABLED
+CryptoKey AND ≥1 CMEK-encrypted resource**, with every CMEK-referencing resource
+resolving to a key (no unresolved references). A project with no Cloud KMS usage
+is an honest hard fail, not a platform gap. Before a security run, pre-provision
+a keyring + ENABLED key + at least one CMEK-encrypted resource (for example a
+CMEK-encrypted Persistent Disk) so the check has a real posture to inspect.
+(`CustomerManagedKeyCheck` self-provisions a temporary key when `GCP_KMS_KEY_ID`
+is unset; `CentralizedKmsCheck` does **not** — it reads standing posture only.)
+
+### MFA enforcement
+
+`MfaEnforcedCheck` (SEC07-01) reads org 2-Step-Verification state via the Admin
+SDK Directory API and has no skip path. The canonical run credential is typically
+not a Cloud Identity / Workspace admin, so the check is excluded in this
+configuration (`exclude.tests: [MfaEnforcedCheck]`). Re-enable it once a
+Workspace-admin service account with domain-wide delegation and
+`admin.directory.user.readonly` is provisioned.
+
+### IAM roles
+
+The principal running the security suite needs, on the project (consolidate via
+a custom role if preferred):
+
+- `roles/cloudkms.viewer` (+ `roles/cloudkms.admin` and
+  `roles/cloudkms.cryptoKeyEncrypterDecrypter` for the BYOK / tenant-isolation
+  fixtures that create keys and roundtrip encrypt/decrypt).
+- `roles/iam.serviceAccountAdmin` + `roles/iam.serviceAccountTokenCreator` — the
+  least-privilege, tenant-isolation, and `sa_credential_test` checks create
+  scoped test service accounts and mint short-lived tokens. `sa_credential_test`
+  additionally needs `roles/iam.serviceAccountTokenCreator` on
+  `GCP_SECURITY_IMPERSONATION_SA`.
+- `roles/iam.roleAdmin` — `least_privilege_test` creates a scoped custom role.
+- `roles/compute.admin` — `customer_managed_key_test` / `tenant_isolation_test`
+  create CMEK disks, VPCs, and instances; the BMC + API-isolation checks read
+  networks, firewalls, routes, and GKE clusters.
+- `roles/storage.admin` — the least-privilege + tenant-isolation probes create
+  test buckets.
+- `roles/logging.viewer` — `audit_logging_test` reads Cloud Logging audit entries
+  and log-bucket retention.
+
+### Running
+
+```bash
+# Prerequisites: ADC + a resolvable project (GOOGLE_CLOUD_PROJECT or ADC).
+uv run isvctl test run -f isvctl/configs/providers/gcp/config/security.yaml
+```
+
+Set `GCP_SECURITY_SKIP_TEARDOWN=true` to keep any fixture resources after a run.
+The `teardown` step proves ownership **solely** from the run id embedded in each
+fixture name, so a later standalone cleanup is **not** a bare `--phase teardown`:
+re-export the original run's id first, otherwise the sweep fails closed (with no
+run id it can own nothing and would otherwise be a success-looking no-op that
+leaves the preserved fixtures behind):
+
+```bash
+# Re-run cleanup later with the SAME run id the original run used:
+RUN_ID=<original-run-id> uv run isvctl test run \
+    -f isvctl/configs/providers/gcp/config/security.yaml --phase teardown
+```
+
+Each fixture step also cleans up after itself in a `finally` block; the
+`teardown` step is a dual-gated safety net that only sweeps resources whose name
+carries this run's id and a created-by label.
 
 ## Supported zones for L4 GPU VM tests
 

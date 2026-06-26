@@ -9,6 +9,10 @@
         "factory_commit": "c7ace2d3fd207d5563c0a97ad32e128a8203d5a0",
         "isv_commit": "562f594dde6cb3a7ea1b63ddfd5217a9ed5a5467"
       },
+      "security": {
+        "factory_commit": "2369f85ec5e7d9bc9d84d42504204178b8e9220d",
+        "isv_commit": "562f594dde6cb3a7ea1b63ddfd5217a9ed5a5467"
+      },
       "vm": {
         "factory_commit": "d50430b6c4602e92b612531cf1c526afcdb8426d",
         "isv_commit": "7042c2deafe769e83206906545629152d09f53a6"

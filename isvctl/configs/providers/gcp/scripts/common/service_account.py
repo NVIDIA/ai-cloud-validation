@@ -51,7 +51,7 @@ from google.api_core import exceptions as gax
 from google.cloud import iam_admin_v1
 from google.iam.v1 import iam_policy_pb2, policy_pb2
 
-from common.errors import delete_with_retry
+from common.errors import TRANSIENT_EXCEPTIONS
 from common.network import insert_instance
 
 # IAM propagation budget: a freshly-created serviceAccountUser binding is not
@@ -59,6 +59,11 @@ from common.network import insert_instance
 # actAs-not-yet-effective for up to ~3 minutes after the binding is set.
 IAM_PROPAGATION_ATTEMPTS = 12
 IAM_PROPAGATION_DELAY = 15  # seconds -> 180s budget
+
+# Bounded retry budget for the service-account delete (mirrors the transient
+# handling in common.errors.delete_with_retry).
+_SA_DELETE_ATTEMPTS = 5
+_SA_DELETE_BACKOFF = 2.0  # seconds, multiplied by the attempt number
 
 # OAuth2 tokeninfo endpoint used to resolve the ADC principal email when
 # GCP_TEST_SA_EMAIL is not supplied by the operator.
@@ -127,22 +132,40 @@ def bind_service_account_user(sa_email: str, member: str) -> None:
 def delete_service_account(sa_email: str) -> bool:
     """Delete the test-owned SA with bounded retry; return True iff it is gone.
 
-    Returns True when the SA was deleted now OR is already absent (NotFound is
-    the desired terminal state — the eventual-consistency window is absorbed by
-    the retry). Returns False only when a documented transient IAM failure
-    (rate-limit / 5xx / timeout) persists past the retry budget, so the caller
-    can fold the genuine leak into ``cleanup_errors`` / ``tests.cleanup.passed``
-    / overall ``success`` rather than silently orphaning a project-level SA.
-    Wraps the canonical GCP cleanup envelope (``common.errors.delete_with_retry``)
-    so SA cleanup matches every other cloud-delete in these stubs and the GCP VM
-    ``console_rbac`` bool contract.
+    Returns True when the SA was deleted now OR is already absent. An absent GCP
+    service account does NOT surface as ``NotFound``: a deleted/absent SA returns
+    ``PermissionDenied`` 403 ("...denied on resource (or it may not exist)") on
+    BOTH get and delete. Because this SA is test-owned — the run created it and so
+    holds ``iam.serviceAccounts.delete`` — that 403 cannot be a real permission
+    loss; it is the existence-hiding shape of the already-gone terminal state (for
+    example a concurrent owner sweep sharing this RUN_ID removed it first), so it
+    is folded into success. Only a documented transient (rate-limit / 5xx /
+    timeout) that persists past the retry budget returns False, so the caller can
+    fold the genuine leak into ``cleanup_errors`` / overall ``success`` rather than
+    silently orphaning a project-level SA. Replaces the generic
+    ``common.errors.delete_with_retry`` envelope, which classifies the
+    existence-hiding 403 as a terminal failure and would report a swept SA as a
+    leak.
     """
     iam = iam_admin_v1.IAMClient()
-    return delete_with_retry(
-        iam.delete_service_account,
-        name=f"projects/-/serviceAccounts/{sa_email}",
-        resource_desc=f"service account {sa_email}",
-    )
+    name = f"projects/-/serviceAccounts/{sa_email}"
+    for attempt in range(1, _SA_DELETE_ATTEMPTS + 1):
+        try:
+            iam.delete_service_account(name=name)
+            return True
+        except gax.NotFound:
+            return True
+        except (gax.PermissionDenied, gax.Forbidden):
+            # Existence-hiding 403 on a test-owned SA == already gone.
+            return True
+        except TRANSIENT_EXCEPTIONS:
+            if attempt < _SA_DELETE_ATTEMPTS:
+                time.sleep(_SA_DELETE_BACKOFF * attempt)
+                continue
+            return False
+        except gax.GoogleAPICallError:
+            return False
+    return False
 
 
 def insert_instance_with_iam_propagation(project: str, zone: str, instance: Any) -> None:
