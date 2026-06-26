@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 from contextlib import contextmanager
 from typing import Any
@@ -29,6 +30,7 @@ import yaml
 
 from isvtest.core.runners import CommandResult
 from isvtest.validations.k8s_storage import (
+    K8sCsiDriverHealthCheck,
     K8sCsiProvisioningModesCheck,
     K8sCsiStorageQuotaApiCheck,
     K8sCsiStorageTypesCheck,
@@ -2176,3 +2178,310 @@ class TestK8sCsiProvisioningModesCheck:
         assert not check.passed
         assert "Failed to create namespace" in check._error
         assert check._subtest_results == []
+
+
+def _deployment_json(name: str, *, replicas: int = 1, ready: int = 1) -> dict[str, Any]:
+    """Build a minimal Deployment payload for the health check."""
+    return {
+        "metadata": {"name": name},
+        "spec": {"replicas": replicas},
+        "status": {"readyReplicas": ready},
+    }
+
+
+def _daemonset_json(name: str, *, desired: int = 3, available: int = 3, ready: int = 3) -> dict[str, Any]:
+    """Build a minimal DaemonSet payload for the health check."""
+    return {
+        "metadata": {"name": name},
+        "status": {
+            "desiredNumberScheduled": desired,
+            "numberAvailable": available,
+            "numberReady": ready,
+        },
+    }
+
+
+def _name_after(cmd: str, kind: str) -> str:
+    """Return the resource name token following ``get <kind>`` in a kubectl command."""
+    tokens = shlex.split(cmd)
+    idx = tokens.index(kind)
+    return tokens[idx + 1]
+
+
+class TestK8sCsiDriverHealthCheck:
+    """Tests for ``K8sCsiDriverHealthCheck``."""
+
+    def _make(self, config: dict[str, Any] | None = None) -> K8sCsiDriverHealthCheck:
+        return K8sCsiDriverHealthCheck(config=config or {})
+
+    def _run(
+        self,
+        check: K8sCsiDriverHealthCheck,
+        *,
+        sc_items: list[dict[str, Any]],
+        csidrivers: dict[str, dict[str, Any]] | None = None,
+        deployments: dict[str, dict[str, Any]] | None = None,
+        daemonsets: dict[str, dict[str, Any]] | None = None,
+        sc_result: CommandResult | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Drive ``check.run()`` with stubbed kubectl responses; return subtests by name.
+
+        Lookups that miss the provided dicts return empty stdout, mirroring
+        ``kubectl ... --ignore-not-found=true`` for a missing object.
+        """
+        csidrivers = csidrivers or {}
+        deployments = deployments or {}
+        daemonsets = daemonsets or {}
+
+        def fake_run(cmd: str, timeout: int | None = None) -> CommandResult:
+            if "get storageclass" in cmd:
+                return sc_result if sc_result is not None else _ok(stdout=json.dumps({"items": sc_items}))
+            if "get csidriver" in cmd:
+                obj = csidrivers.get(_name_after(cmd, "csidriver"))
+                return _ok(stdout=json.dumps(obj) if obj else "")
+            if "get deployment" in cmd:
+                obj = deployments.get(_name_after(cmd, "deployment"))
+                return _ok(stdout=json.dumps(obj) if obj else "")
+            if "get daemonset" in cmd:
+                obj = daemonsets.get(_name_after(cmd, "daemonset"))
+                return _ok(stdout=json.dumps(obj) if obj else "")
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        with patch.object(check, "run_command", side_effect=fake_run):
+            check.run()
+        return {r["name"]: r for r in check._subtest_results}
+
+    @staticmethod
+    def _workloads(
+        deployment: str = "ebs-csi-controller",
+        daemonset: str = "ebs-csi-node",
+        namespace: str = "kube-system",
+    ) -> dict[str, Any]:
+        return {
+            "namespace": namespace,
+            "controller": {"deployment": deployment},
+            "node": {"daemonset": daemonset},
+        }
+
+    def test_skips_workload_subtests_when_no_workloads_configured(self) -> None:
+        # A driver spec that lists StorageClasses but no `workloads`: the driver
+        # registration is still verified, but the controller/node subtests are
+        # reported as skipped (not failed) and no workload queries are issued.
+        check = self._make({"drivers": [{"storage_classes": ["ebs"]}]})
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "ebs"}, "provisioner": "ebs.csi.aws.com"}],
+            csidrivers={"ebs.csi.aws.com": {"metadata": {"name": "ebs.csi.aws.com"}}},
+        )
+
+        assert check.passed, check._error
+        assert outcomes["csidriver-registered[ebs.csi.aws.com]"]["passed"]
+        assert outcomes["controller-deployment-healthy[ebs.csi.aws.com]"]["skipped"]
+        assert outcomes["node-daemonset-healthy[ebs.csi.aws.com]"]["skipped"]
+
+    def test_skips_whole_check_when_no_storage_classes_resolve(self) -> None:
+        # Blank/whitespace StorageClasses (e.g. unrendered Jinja defaults) mean
+        # the whole check is a no-op pass and no kubectl call is issued.
+        check = self._make({"drivers": [{"storage_classes": ["", "   "]}]})
+
+        with patch.object(check, "run_command", side_effect=AssertionError("should not query")):
+            check.run()
+
+        assert check.passed
+        assert "no storage_classes" in check._output
+        assert check._subtest_results == []
+
+    def test_healthy_controller_and_daemonset_pass(self) -> None:
+        check = self._make(
+            {"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]}
+        )
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "ebs"}, "provisioner": "ebs.csi.aws.com"}],
+            csidrivers={"ebs.csi.aws.com": {"metadata": {"name": "ebs.csi.aws.com"}}},
+            deployments={"ebs-csi-controller": _deployment_json("ebs-csi-controller", replicas=2, ready=2)},
+            daemonsets={"ebs-csi-node": _daemonset_json("ebs-csi-node")},
+        )
+
+        assert check.passed, check._error
+        assert outcomes["csidriver-registered[ebs.csi.aws.com]"]["passed"]
+        assert outcomes["controller-deployment-healthy[ebs.csi.aws.com]"]["passed"]
+        assert outcomes["node-daemonset-healthy[ebs.csi.aws.com]"]["passed"]
+
+    def test_storageclass_not_found_fails(self) -> None:
+        check = self._make({"drivers": [{"storage_classes": ["missing"]}]})
+
+        outcomes = self._run(check, sc_items=[{"metadata": {"name": "other"}, "provisioner": "x"}])
+
+        assert not check.passed
+        assert outcomes["storageclass-found[missing]"]["passed"] is False
+        assert "not found" in outcomes["storageclass-found[missing]"]["message"]
+
+    def test_csidriver_not_registered_fails(self) -> None:
+        check = self._make({"drivers": [{"storage_classes": ["ebs"]}]})
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "ebs"}, "provisioner": "ebs.csi.aws.com"}],
+            csidrivers={},  # no CSIDriver registered
+        )
+
+        assert not check.passed
+        reg = outcomes["csidriver-registered[ebs.csi.aws.com]"]
+        assert reg["passed"] is False
+        assert "not registered" in reg["message"]
+
+    def test_storageclass_list_command_failure_sets_failed(self) -> None:
+        check = self._make({"drivers": [{"storage_classes": ["ebs"]}]})
+
+        self._run(check, sc_items=[], sc_result=_fail(stderr="boom"))
+
+        assert not check.passed
+        assert "kubectl get storageclass failed" in check._error
+        assert check._subtest_results == []
+
+    def test_controller_deployment_not_ready_fails(self) -> None:
+        check = self._make(
+            {"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]}
+        )
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "ebs"}, "provisioner": "ebs.csi.aws.com"}],
+            csidrivers={"ebs.csi.aws.com": {"metadata": {"name": "ebs.csi.aws.com"}}},
+            deployments={"ebs-csi-controller": _deployment_json("ebs-csi-controller", replicas=2, ready=1)},
+            daemonsets={"ebs-csi-node": _daemonset_json("ebs-csi-node")},
+        )
+
+        assert not check.passed
+        ctrl = outcomes["controller-deployment-healthy[ebs.csi.aws.com]"]
+        assert ctrl["passed"] is False
+        assert "readyReplicas=1" in ctrl["message"]
+
+    def test_controller_replicas_below_min_fails(self) -> None:
+        check = self._make(
+            {
+                "drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}],
+                "min_controller_replicas": 2,
+            }
+        )
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "ebs"}, "provisioner": "ebs.csi.aws.com"}],
+            csidrivers={"ebs.csi.aws.com": {"metadata": {"name": "ebs.csi.aws.com"}}},
+            deployments={"ebs-csi-controller": _deployment_json("ebs-csi-controller", replicas=1, ready=1)},
+            daemonsets={"ebs-csi-node": _daemonset_json("ebs-csi-node")},
+        )
+
+        assert not check.passed
+        ctrl = outcomes["controller-deployment-healthy[ebs.csi.aws.com]"]
+        assert ctrl["passed"] is False
+        assert "min_controller_replicas=2" in ctrl["message"]
+
+    def test_daemonset_no_nodes_scheduled_fails(self) -> None:
+        check = self._make(
+            {"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]}
+        )
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "ebs"}, "provisioner": "ebs.csi.aws.com"}],
+            csidrivers={"ebs.csi.aws.com": {"metadata": {"name": "ebs.csi.aws.com"}}},
+            deployments={"ebs-csi-controller": _deployment_json("ebs-csi-controller")},
+            daemonsets={"ebs-csi-node": _daemonset_json("ebs-csi-node", desired=0, available=0, ready=0)},
+        )
+
+        assert not check.passed
+        ds = outcomes["node-daemonset-healthy[ebs.csi.aws.com]"]
+        assert ds["passed"] is False
+        assert "desiredNumberScheduled=0" in ds["message"]
+
+    def test_daemonset_unavailable_fails(self) -> None:
+        check = self._make(
+            {"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]}
+        )
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "ebs"}, "provisioner": "ebs.csi.aws.com"}],
+            csidrivers={"ebs.csi.aws.com": {"metadata": {"name": "ebs.csi.aws.com"}}},
+            deployments={"ebs-csi-controller": _deployment_json("ebs-csi-controller")},
+            daemonsets={"ebs-csi-node": _daemonset_json("ebs-csi-node", desired=3, available=2, ready=2)},
+        )
+
+        assert not check.passed
+        ds = outcomes["node-daemonset-healthy[ebs.csi.aws.com]"]
+        assert ds["passed"] is False
+        assert "available=2" in ds["message"]
+
+    def test_missing_deployment_name_fails(self) -> None:
+        # `workloads` present but controller.deployment unset: the controller
+        # subtest fails with a config-key hint and no deployment query runs.
+        check = self._make(
+            {
+                "drivers": [
+                    {
+                        "storage_classes": ["ebs"],
+                        "workloads": {"controller": {}, "node": {"daemonset": "ebs-csi-node"}},
+                    }
+                ]
+            }
+        )
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "ebs"}, "provisioner": "ebs.csi.aws.com"}],
+            csidrivers={"ebs.csi.aws.com": {"metadata": {"name": "ebs.csi.aws.com"}}},
+            daemonsets={"ebs-csi-node": _daemonset_json("ebs-csi-node")},
+        )
+
+        assert not check.passed
+        ctrl = outcomes["controller-deployment-healthy[ebs.csi.aws.com]"]
+        assert ctrl["passed"] is False
+        assert "workloads.controller.deployment must be set" in ctrl["message"]
+
+    def test_duplicate_storage_classes_resolve_to_single_provisioner(self) -> None:
+        # Two StorageClasses sharing a provisioner (AWS maps shared_fs and nfs to
+        # the same EFS class) collapse to one set of per-provisioner subtests.
+        check = self._make(
+            {"drivers": [{"storage_classes": ["efs"]}, {"storage_classes": ["efs"]}]}
+        )
+
+        outcomes = self._run(
+            check,
+            sc_items=[{"metadata": {"name": "efs"}, "provisioner": "efs.csi.aws.com"}],
+            csidrivers={"efs.csi.aws.com": {"metadata": {"name": "efs.csi.aws.com"}}},
+        )
+
+        assert check.passed, check._error
+        registered = [n for n in outcomes if n.startswith("csidriver-registered")]
+        assert registered == ["csidriver-registered[efs.csi.aws.com]"]
+
+    def test_conflicting_workloads_for_same_provisioner_fails(self) -> None:
+        # Two StorageClasses resolve to the same provisioner but supply different
+        # workloads blocks: instead of silently using the first, the check fails.
+        check = self._make(
+            {
+                "drivers": [
+                    {"storage_classes": ["efs-a"], "workloads": self._workloads(namespace="ns-a")},
+                    {"storage_classes": ["efs-b"], "workloads": self._workloads(namespace="ns-b")},
+                ]
+            }
+        )
+
+        outcomes = self._run(
+            check,
+            sc_items=[
+                {"metadata": {"name": "efs-a"}, "provisioner": "efs.csi.aws.com"},
+                {"metadata": {"name": "efs-b"}, "provisioner": "efs.csi.aws.com"},
+            ],
+            csidrivers={"efs.csi.aws.com": {"metadata": {"name": "efs.csi.aws.com"}}},
+        )
+
+        assert not check.passed
+        ctrl = outcomes["controller-deployment-healthy[efs.csi.aws.com]"]
+        assert ctrl["passed"] is False
+        assert "Conflicting" in ctrl["message"]
