@@ -20,6 +20,7 @@ Manage the test catalog: build, save, and upload to ISV Lab Service.
 
 import json
 import logging
+from collections import Counter
 from typing import Annotated
 
 import typer
@@ -95,6 +96,46 @@ def list_cmd(
             ", ".join(entry.get("labels") or []) or "-",
             entry.get("description") or "-",
         )
+
+    console.print(table)
+
+
+@app.command("labels")
+def labels_cmd(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the labels as JSON instead of a table"),
+    ] = False,
+) -> None:
+    """List every label in the catalog with the number of tests carrying it.
+
+    Released tests only by default. Set ``ISVTEST_INCLUDE_UNRELEASED=1`` to
+    include unreleased validations (matches the gate used at run time).
+
+    Examples:
+        isvctl catalog labels
+        isvctl catalog labels --json
+        ISVTEST_INCLUDE_UNRELEASED=1 isvctl catalog labels
+    """
+    counts = Counter(label for entry in build_catalog() for label in (entry.get("labels") or []))
+
+    if json_output:
+        labels = [{"label": label, "tests": count} for label, count in sorted(counts.items())]
+        typer.echo(json.dumps({"labels": labels}, indent=2))
+        return
+
+    table = Table(
+        title=f"Catalog Labels ({len(counts)} labels)",
+        title_justify="left",
+        show_header=True,
+        header_style="bold",
+        padding=(0, 1),
+    )
+    table.add_column("Label", style="green", no_wrap=True)
+    table.add_column("Tests", style="cyan", justify="right")
+
+    for label, count in sorted(counts.items()):
+        table.add_row(label, str(count))
 
     console.print(table)
 

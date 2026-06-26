@@ -77,6 +77,39 @@ def test_catalog_list_json() -> None:
     assert payload["entries"] == _FAKE_ENTRIES
 
 
+def test_catalog_labels_table() -> None:
+    """`catalog labels` renders each label and its test count."""
+    entries = [
+        {"name": "A", "labels": ["iam", "security"]},
+        {"name": "B", "labels": ["iam"]},
+        {"name": "C", "labels": []},
+    ]
+    with patch("isvctl.cli.catalog.build_catalog", return_value=entries):
+        result = runner.invoke(app, ["labels"])
+
+    assert result.exit_code == 0, result.output
+    assert "iam" in result.output
+    assert "security" in result.output
+
+
+def test_catalog_labels_json_counts_tests_per_label() -> None:
+    """`catalog labels --json` emits sorted labels with per-label test counts."""
+    entries = [
+        {"name": "A", "labels": ["iam", "security"]},
+        {"name": "B", "labels": ["iam"]},
+        {"name": "C", "labels": []},
+    ]
+    with patch("isvctl.cli.catalog.build_catalog", return_value=entries):
+        result = runner.invoke(app, ["labels", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["labels"] == [
+        {"label": "iam", "tests": 2},
+        {"label": "security", "tests": 1},
+    ]
+
+
 def test_catalog_list_unreleased_json() -> None:
     """`catalog list --unreleased` emits only entries missing from the release manifest."""
     with (
