@@ -155,6 +155,17 @@ def test_non_string_value_raises(isolated_env: Path) -> None:
         load_user_env()
 
 
+def test_load_rejects_non_persistable_catalog_var(isolated_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A resolved non-persistable catalog var is rejected on load."""
+    config = get_config_path()
+    config.parent.mkdir(parents=True)
+    config.write_text("nico:\n  api_base: kubectl\n")
+    monkeypatch.setattr("isvctl.config.user.section_key_to_env", lambda _section, _key: "KUBECTL")
+
+    with pytest.raises(ValueError, match="per-run flag"):
+        load_user_env()
+
+
 # ---------------------------------------------------------------------------
 # apply_user_env
 # ---------------------------------------------------------------------------

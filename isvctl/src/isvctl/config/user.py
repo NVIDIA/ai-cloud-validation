@@ -203,6 +203,7 @@ def _read_env_file(path: Path, *, secret_file: bool) -> dict[str, str]:
             env_name = section_key_to_env(section_name, key)
             if env_name is None:
                 raise ValueError(f"{path}: unknown key '{section_name}.{key}'")
+            _check_persistable(env_name, f"{path}: '{section_name}.{key}' maps to ")
             if not isinstance(value, str):
                 raise ValueError(f"{path}: '{section_name}.{key}' value must be a string (quote it in YAML)")
             if secret_file and not is_secret_env_var(env_name):
