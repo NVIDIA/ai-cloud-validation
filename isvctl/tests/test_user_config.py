@@ -62,6 +62,23 @@ def test_path_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_secrets_path() == Path("/tmp/s.yml")
 
 
+@pytest.mark.parametrize("operation", ["load", "write", "unset", "clear"])
+def test_user_config_operations_reject_identical_paths(isolated_env: Path, operation: str) -> None:
+    """User config helpers reject config and secrets paths resolving to one file."""
+    same_path = isolated_env / "same.yml"
+    paths = {"config_path": same_path, "secrets_path": same_path}
+
+    with pytest.raises(ValueError, match="must be different"):
+        if operation == "load":
+            load_user_env(**paths)
+        elif operation == "write":
+            write_user_config({"NICO_API_BASE": "https://x"}, **paths)
+        elif operation == "unset":
+            unset_user_config(["NICO_API_BASE"], **paths)
+        else:
+            clear_user_config(**paths)
+
+
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
@@ -326,6 +343,22 @@ def test_writing_secret_only_leaves_existing_config_untouched(isolated_env: Path
     write_user_config({"NICO_CLIENT_SECRET": "shhh"})
     assert get_config_path().read_bytes() == before  # config.yml byte-identical
     assert get_secrets_path().exists()
+
+
+def test_failed_write_leaves_existing_file_intact(isolated_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A low-level write failure leaves the previous config.yml bytes intact."""
+    write_user_config({"NICO_API_BASE": "https://before.example.com"})
+    before = get_config_path().read_bytes()
+
+    def fail_write(fd: int, data: bytes) -> int:
+        raise OSError("no space left")
+
+    monkeypatch.setattr(os, "write", fail_write)
+
+    with pytest.raises(OSError, match="no space left"):
+        write_user_config({"NICO_API_BASE": "https://after.example.com"})
+
+    assert get_config_path().read_bytes() == before
 
 
 def test_refuses_to_write_through_a_symlink(isolated_env: Path) -> None:

@@ -38,6 +38,7 @@ mis-parsed; a file predating versioning (no ``version:``) is read as version 1.
 
 import os
 import stat
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,6 +113,22 @@ def get_secrets_path() -> Path:
     """Path to the secret config file (``ISVCTL_SECRETS`` overrides)."""
     override = os.environ.get("ISVCTL_SECRETS")
     return Path(override) if override else _base_dir() / "secrets.yml"
+
+
+def _check_distinct_paths(config_path: Path, secrets_path: Path) -> None:
+    """Raise if config.yml and secrets.yml resolve to the same file."""
+    config_resolved = config_path.resolve()
+    secrets_resolved = secrets_path.resolve()
+    if config_resolved == secrets_resolved:
+        raise ValueError(f"config and secrets paths must be different (both resolve to {config_resolved})")
+
+
+def _user_config_paths(config_path: Path | None, secrets_path: Path | None) -> tuple[Path, Path]:
+    """Return validated config/secrets paths for a read or write operation."""
+    resolved_config_path = config_path or get_config_path()
+    resolved_secrets_path = secrets_path or get_secrets_path()
+    _check_distinct_paths(resolved_config_path, resolved_secrets_path)
+    return resolved_config_path, resolved_secrets_path
 
 
 def _check_schema_version(path: Path, version: object) -> None:
@@ -203,8 +220,9 @@ def load_user_env(config_path: Path | None = None, secrets_path: Path | None = N
         A ``{name: value}`` mapping. Secret values override nothing — the two
         files hold disjoint keys by construction.
     """
-    config = _read_env_file(config_path or get_config_path(), secret_file=False)
-    secrets = _read_env_file(secrets_path or get_secrets_path(), secret_file=True)
+    config_path, secrets_path = _user_config_paths(config_path, secrets_path)
+    config = _read_env_file(config_path, secret_file=False)
+    secrets = _read_env_file(secrets_path, secret_file=True)
     return {**config, **secrets}
 
 
@@ -239,6 +257,16 @@ def _to_sections(env: dict[str, str]) -> dict[str, dict[str, str]]:
     return ordered
 
 
+def _write_all(fd: int, data: bytes) -> None:
+    """Write all bytes to ``fd`` or raise on short/failed writes."""
+    remaining = memoryview(data)
+    while remaining:
+        written = os.write(fd, remaining)
+        if written == 0:
+            raise OSError("short write")
+        remaining = remaining[written:]
+
+
 def _write_env_file(path: Path, env: dict[str, str], mode: int) -> None:
     """Write a section-organized config file with the given mode (0700 dir).
 
@@ -253,22 +281,29 @@ def _write_env_file(path: Path, env: dict[str, str], mode: int) -> None:
     parent.mkdir(parents=True, exist_ok=True)
     if not parent_existed:
         os.chmod(parent, _DIR_MODE)
+    if path.is_symlink():
+        raise OSError(f"refusing to write through symlink: {path}")
 
     # `version` first, then the provider sections; sort_keys=False keeps order.
     data: dict[str, object] = {_VERSION_KEY: SCHEMA_VERSION, **_to_sections(env)}
     body = _FILE_HEADER + yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
-    # Create with the target mode up front so a secrets file is never briefly
-    # world-readable between creation and chmod. O_NOFOLLOW refuses to write
-    # through a symlink planted at `path`, so secrets can't be redirected to an
-    # arbitrary target; fchmod then enforces the mode on the opened fd (O_CREAT
-    # only honors `mode` for a freshly created file, and operating on the fd
-    # avoids re-resolving the path).
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
+    tmp_name: str | None = None
     try:
-        os.write(fd, body.encode("utf-8"))
-        os.fchmod(fd, mode)
-    finally:
-        os.close(fd)
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=parent)
+        try:
+            _write_all(fd, body.encode("utf-8"))
+            os.fchmod(fd, mode)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp_name, path)
+    except BaseException:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink()
+            except FileNotFoundError:
+                pass
+        raise
 
 
 def _write_or_remove_env_file(path: Path, env: dict[str, str], mode: int) -> None:
@@ -304,8 +339,7 @@ def write_user_config(
     Raises:
         ValueError: If a value is not a string or names an unknown env var.
     """
-    config_path = config_path or get_config_path()
-    secrets_path = secrets_path or get_secrets_path()
+    config_path, secrets_path = _user_config_paths(config_path, secrets_path)
 
     new_config: dict[str, str] = {}
     new_secrets: dict[str, str] = {}
@@ -348,8 +382,7 @@ def unset_user_config(
     Raises:
         ValueError: If any name is unknown or non-persistable.
     """
-    config_path = config_path or get_config_path()
-    secrets_path = secrets_path or get_secrets_path()
+    config_path, secrets_path = _user_config_paths(config_path, secrets_path)
 
     remove_names = set(names)
     for name in remove_names:
@@ -373,8 +406,7 @@ def unset_user_config(
 
 def clear_user_config(config_path: Path | None = None, secrets_path: Path | None = None) -> WriteResult:
     """Remove both persisted config files, if present."""
-    config_path = config_path or get_config_path()
-    secrets_path = secrets_path or get_secrets_path()
+    config_path, secrets_path = _user_config_paths(config_path, secrets_path)
     for path in (config_path, secrets_path):
         try:
             path.unlink()

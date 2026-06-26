@@ -34,6 +34,7 @@ _PERSISTABLE_PROMPTS = sum(1 for var in vars_for_provider(None) if var.persistab
 
 @pytest.fixture
 def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Point configure commands at an isolated user config directory."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.delenv("ISVCTL_CONFIG", raising=False)
     monkeypatch.delenv("ISVCTL_SECRETS", raising=False)
@@ -46,6 +47,7 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 
 def test_path_prints_both_files(isolated_env: Path) -> None:
+    """The path command prints both persisted config file locations."""
     result = runner.invoke(app, ["path"])
     assert result.exit_code == 0
     assert str(get_config_path()) in result.stdout
@@ -53,12 +55,14 @@ def test_path_prints_both_files(isolated_env: Path) -> None:
 
 
 def test_show_with_no_files(isolated_env: Path) -> None:
+    """The show command reports when no persisted config exists."""
     result = runner.invoke(app, ["show"])
     assert result.exit_code == 0
     assert "No configuration found" in result.stdout
 
 
 def test_malformed_file_errors_cleanly_not_traceback(isolated_env: Path) -> None:
+    """Malformed persisted config fails cleanly without a traceback."""
     # A bad persisted file must surface a clean error (exit 1), not a traceback —
     # `configure`/`show` are how users fix a broken file.
     config = get_config_path()
@@ -73,6 +77,7 @@ def test_malformed_file_errors_cleanly_not_traceback(isolated_env: Path) -> None
 
 
 def test_show_prints_nonsecret_and_masks_secret(isolated_env: Path) -> None:
+    """The show command prints non-secrets and masks secrets."""
     config = get_config_path()
     secrets = get_secrets_path()
     config.parent.mkdir(parents=True)
@@ -92,6 +97,7 @@ def test_show_prints_nonsecret_and_masks_secret(isolated_env: Path) -> None:
 
 
 def test_wizard_writes_both_files(isolated_env: Path) -> None:
+    """The wizard writes non-secret and secret answers to separate files."""
     # Answer only the two NICo vars we care about; Enter (blank) skips the rest.
     nico_vars = vars_for_provider("nico")
     answers = []
@@ -112,6 +118,7 @@ def test_wizard_writes_both_files(isolated_env: Path) -> None:
 
 
 def test_wizard_secrets_file_is_0600(isolated_env: Path) -> None:
+    """The wizard writes secrets.yml with owner-only permissions."""
     nico_vars = vars_for_provider("nico")
     answers = ["shhh" if var.name == "NICO_CLIENT_SECRET" else "" for var in nico_vars]
     result = runner.invoke(app, ["--provider", "nico"], input="\n".join(answers) + "\n")
@@ -120,6 +127,7 @@ def test_wizard_secrets_file_is_0600(isolated_env: Path) -> None:
 
 
 def test_wizard_blank_keeps_existing(isolated_env: Path) -> None:
+    """Blank wizard answers preserve existing saved values."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("nico:\n  api_base: https://keep.example.com\n")
 
@@ -133,6 +141,7 @@ def test_wizard_blank_keeps_existing(isolated_env: Path) -> None:
 
 
 def test_wizard_only_prompts_provider_group(isolated_env: Path) -> None:
+    """A provider-scoped wizard prompts only that provider group."""
     nico_vars = vars_for_provider("nico")
     result = runner.invoke(app, ["--provider", "nico"], input="\n" * len(nico_vars))
     assert result.exit_code == 0, result.stdout
@@ -141,12 +150,14 @@ def test_wizard_only_prompts_provider_group(isolated_env: Path) -> None:
 
 
 def test_unknown_provider_errors(isolated_env: Path) -> None:
+    """An unknown provider name is rejected before prompting."""
     result = runner.invoke(app, ["--provider", "gcp"], input="\n")
     assert result.exit_code == 2
     assert "unknown provider" in (result.stderr or result.output)
 
 
 def test_wizard_never_prompts_flags(isolated_env: Path) -> None:
+    """The bare wizard never prompts for non-persistable flags."""
     # Bare wizard walks every persistable var; flags must not appear.
     result = runner.invoke(app, [], input="\n" * _PERSISTABLE_PROMPTS)
     assert result.exit_code == 0, result.stdout
@@ -155,6 +166,7 @@ def test_wizard_never_prompts_flags(isolated_env: Path) -> None:
 
 
 def test_show_never_lists_flags(isolated_env: Path) -> None:
+    """The show command never lists non-persistable flags."""
     # Even if a flag somehow lands in a file, show resolves only persistable vars.
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("nico:\n  api_base: https://x\n")
@@ -170,6 +182,7 @@ def test_show_never_lists_flags(isolated_env: Path) -> None:
 
 
 def test_set_writes_nonsecret_from_env_name(isolated_env: Path) -> None:
+    """The set command accepts an env var name for non-secret values."""
     result = runner.invoke(app, ["set", "NICO_API_BASE", "https://nico.example.com"])
     assert result.exit_code == 0, result.stdout
 
@@ -179,6 +192,7 @@ def test_set_writes_nonsecret_from_env_name(isolated_env: Path) -> None:
 
 
 def test_set_accepts_section_key_alias(isolated_env: Path) -> None:
+    """The set command accepts section.key aliases."""
     result = runner.invoke(app, ["set", "nico.api_base", "https://nico.example.com"])
     assert result.exit_code == 0, result.stdout
 
@@ -187,6 +201,7 @@ def test_set_accepts_section_key_alias(isolated_env: Path) -> None:
 
 
 def test_set_accepts_section_key_assignment(isolated_env: Path) -> None:
+    """The set command accepts section.key=value assignments."""
     result = runner.invoke(app, ["set", "nico.api_base=https://nico.example.com"])
     assert result.exit_code == 0, result.stdout
 
@@ -195,6 +210,7 @@ def test_set_accepts_section_key_assignment(isolated_env: Path) -> None:
 
 
 def test_set_accepts_env_name_assignment(isolated_env: Path) -> None:
+    """The set command accepts ENV_NAME=value assignments."""
     result = runner.invoke(app, ["set", "NICO_API_BASE=https://nico.example.com"])
     assert result.exit_code == 0, result.stdout
 
@@ -203,6 +219,7 @@ def test_set_accepts_env_name_assignment(isolated_env: Path) -> None:
 
 
 def test_set_accepts_multiple_assignments(isolated_env: Path) -> None:
+    """The set command accepts multiple key=value assignments."""
     result = runner.invoke(app, ["set", "nico.organization=ncx", "nico.oidc_scope=example"])
     assert result.exit_code == 0, result.stdout
 
@@ -212,6 +229,7 @@ def test_set_accepts_multiple_assignments(isolated_env: Path) -> None:
 
 
 def test_set_split_form_accepts_value_containing_equals(isolated_env: Path) -> None:
+    """The split set form preserves equals signs inside the value."""
     result = runner.invoke(app, ["set", "nico.oidc_scope", "audience=example"])
     assert result.exit_code == 0, result.stdout
 
@@ -220,18 +238,21 @@ def test_set_split_form_accepts_value_containing_equals(isolated_env: Path) -> N
 
 
 def test_set_rejects_assignment_with_extra_value(isolated_env: Path) -> None:
+    """The set command rejects key=value combined with a separate value."""
     result = runner.invoke(app, ["set", "nico.organization=ncx", "ignored"])
     assert result.exit_code == 2
     assert "cannot combine key=value with a separate value" in (result.stderr or result.output)
 
 
 def test_set_rejects_multiple_split_pairs(isolated_env: Path) -> None:
+    """The set command rejects multiple split key/value pairs."""
     result = runner.invoke(app, ["set", "nico.organization", "ncx", "nico.oidc_scope", "example"])
     assert result.exit_code == 2
     assert "multiple values must use key=value" in (result.stderr or result.output)
 
 
 def test_set_prompts_for_secret_without_echoing_value(isolated_env: Path) -> None:
+    """The set command prompts for secret values without echoing them."""
     result = runner.invoke(app, ["set", "NICO_CLIENT_SECRET"], input="super-secret-value\n")
     assert result.exit_code == 0, result.stdout
 
@@ -241,12 +262,14 @@ def test_set_prompts_for_secret_without_echoing_value(isolated_env: Path) -> Non
 
 
 def test_set_rejects_unknown_key(isolated_env: Path) -> None:
+    """The set command rejects unknown section.key names."""
     result = runner.invoke(app, ["set", "nico.not_real", "value"])
     assert result.exit_code == 2
     assert "unknown config key" in (result.stderr or result.output)
 
 
 def test_set_rejects_per_run_flag_before_loading_config(isolated_env: Path) -> None:
+    """The set command rejects flags before reading existing config."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("nico:\n  client_secret: leaked\n")
 
@@ -257,6 +280,7 @@ def test_set_rejects_per_run_flag_before_loading_config(isolated_env: Path) -> N
 
 
 def test_unset_removes_one_saved_key(isolated_env: Path) -> None:
+    """The unset command removes one saved env var value."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("nico:\n  api_base: https://nico.example.com\n  organization: example-org\n")
 
@@ -268,6 +292,7 @@ def test_unset_removes_one_saved_key(isolated_env: Path) -> None:
 
 
 def test_unset_accepts_section_key_alias(isolated_env: Path) -> None:
+    """The unset command accepts section.key aliases."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("nico:\n  api_base: https://nico.example.com\n")
 
@@ -278,6 +303,7 @@ def test_unset_accepts_section_key_alias(isolated_env: Path) -> None:
 
 
 def test_unset_section_removes_saved_values_after_confirmation(isolated_env: Path) -> None:
+    """The unset command removes a whole section after confirmation."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text(
         "aws:\n"
@@ -309,6 +335,7 @@ def test_unset_section_removes_saved_values_after_confirmation(isolated_env: Pat
 
 
 def test_unset_section_requires_confirmation(isolated_env: Path) -> None:
+    """The unset command preserves a section when confirmation is denied."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("nico:\n  api_base: https://nico.example.com\n")
     get_secrets_path().write_text("nico:\n  client_secret: super-secret-value\n")
@@ -325,6 +352,7 @@ def test_unset_section_requires_confirmation(isolated_env: Path) -> None:
 
 
 def test_unset_section_with_no_saved_values(isolated_env: Path) -> None:
+    """The unset command is a no-op for a section with no saved values."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("aws:\n  region: us-west-2\n")
 
@@ -337,6 +365,7 @@ def test_unset_section_with_no_saved_values(isolated_env: Path) -> None:
 
 
 def test_unset_section_rejects_malformed_config_without_deleting(isolated_env: Path) -> None:
+    """The unset command leaves files intact when section removal cannot load config."""
     get_config_path().parent.mkdir(parents=True)
     config_body = "nico:\n  client_secret: leaked\n"
     secrets_body = "nico:\n  client_secret: super-secret-value\n"
@@ -353,12 +382,14 @@ def test_unset_section_rejects_malformed_config_without_deleting(isolated_env: P
 
 
 def test_unset_without_key_requires_all_flag(isolated_env: Path) -> None:
+    """The unset command requires a key unless --all is passed."""
     result = runner.invoke(app, ["unset"])
     assert result.exit_code == 2
     assert "provide a key or pass --all" in (result.stderr or result.output)
 
 
 def test_unset_rejects_per_run_flag_before_loading_config(isolated_env: Path) -> None:
+    """The unset command rejects flags before reading existing config."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("nico:\n  client_secret: leaked\n")
 
@@ -369,6 +400,7 @@ def test_unset_rejects_per_run_flag_before_loading_config(isolated_env: Path) ->
 
 
 def test_unset_all_requires_confirmation(isolated_env: Path) -> None:
+    """The unset --all command preserves files when confirmation is denied."""
     write_values = ["set", "NICO_API_BASE", "https://nico.example.com"]
     assert runner.invoke(app, write_values).exit_code == 0
 
@@ -378,6 +410,7 @@ def test_unset_all_requires_confirmation(isolated_env: Path) -> None:
 
 
 def test_unset_all_removes_config_after_confirmation(isolated_env: Path) -> None:
+    """The unset --all command removes all persisted files after confirmation."""
     assert runner.invoke(app, ["set", "NICO_API_BASE", "https://nico.example.com"]).exit_code == 0
     assert runner.invoke(app, ["set", "NICO_CLIENT_SECRET"], input="super-secret-value\n").exit_code == 0
 
@@ -389,6 +422,7 @@ def test_unset_all_removes_config_after_confirmation(isolated_env: Path) -> None
 
 
 def test_unset_all_can_clear_malformed_config(isolated_env: Path) -> None:
+    """The unset --all command can remove malformed persisted files."""
     get_config_path().parent.mkdir(parents=True)
     get_config_path().write_text("nico:\n  client_secret: leaked\n")
     get_secrets_path().write_text("nico:\n  client_secret: super-secret-value\n")
