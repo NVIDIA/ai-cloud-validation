@@ -66,6 +66,22 @@ def test_discovers_provider_configs_matching_label_through_imports(tmp_path: Pat
     assert [check.name for check in matches[1].matched_checks] == ["VpcFlowLogsCheck"]
 
 
+def test_discovery_excludes_configs_matched_only_by_unreleased_checks(tmp_path: Path) -> None:
+    """A config selected solely on an unreleased check is dropped when the release filter is active."""
+    configs_root = tmp_path / "configs"
+    _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
+    _write_suite(configs_root, "observability.yaml", ["network"], "UnreleasedCheck")
+    _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml")
+    _write_provider_config(configs_root, "aws", "observability.yaml", "observability.yaml")
+
+    matches = discover_provider_label_configs(
+        "aws", ["network"], configs_root=configs_root, released_tests={"NetworkCheck"}
+    )
+
+    assert [match.config_path.name for match in matches] == ["network.yaml"]
+    assert [check.name for check in matches[0].matched_checks] == ["NetworkCheck"]
+
+
 def test_discovery_requires_all_requested_labels(tmp_path: Path) -> None:
     """Repeated labels use AND semantics, matching the existing runtime label filter."""
     configs_root = tmp_path / "configs"

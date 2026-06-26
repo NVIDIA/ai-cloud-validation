@@ -160,6 +160,42 @@ def test_label_without_provider_or_config_reports_both_options(monkeypatch: pyte
     assert _FakeOrchestrator.calls == []
 
 
+def test_provider_discovery_unknown_provider_lists_available(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An unknown --provider reports it as unknown and lists the discoverable providers."""
+    configs_root = tmp_path / "configs"
+    _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
+    _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml", "network")
+    _FakeOrchestrator.calls = []
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
+
+    result = runner.invoke(test_cli.app, ["run", "--provider", "gcp", "--label", "network", "--no-upload"])
+
+    assert result.exit_code == 1, result.output
+    assert "Unknown provider 'gcp'" in result.output
+    assert "aws" in result.output
+    assert _FakeOrchestrator.calls == []
+
+
+def test_provider_discovery_no_label_match_lists_available_labels(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A valid provider with no label match reports the labels that provider does expose."""
+    configs_root = tmp_path / "configs"
+    _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
+    _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml", "network")
+    _FakeOrchestrator.calls = []
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
+
+    result = runner.invoke(test_cli.app, ["run", "--provider", "aws", "--label", "nope", "--no-upload"])
+
+    assert result.exit_code == 1, result.output
+    assert "Available labels for 'aws'" in result.output
+    assert "network" in result.output
+    assert _FakeOrchestrator.calls == []
+
+
 def test_provider_label_discovery_dispatches_each_matching_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -179,6 +215,7 @@ def test_provider_label_discovery_dispatches_each_matching_config(
     _write_provider_config(configs_root, "aws", "iam.yaml", "iam.yaml", "iam")
     _FakeOrchestrator.captured = {}
     _FakeOrchestrator.calls = []
+    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
     monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
     monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
 
@@ -203,6 +240,7 @@ def test_provider_label_discovery_dry_run_prints_plan_without_running(
     _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml", "network")
     _write_provider_config(configs_root, "aws", "observability.yaml", "observability.yaml", "observability")
     _FakeOrchestrator.calls = []
+    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
     monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
     monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
 

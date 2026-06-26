@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from isvtest.core.resolution import parse_validations
+from isvtest.core.resolution import parse_validations, resolve_class_key
 
 from isvctl.config.merger import merge_yaml_files
 
@@ -30,13 +30,45 @@ class ProviderConfigMatch:
     matched_checks: tuple[MatchedCheck, ...]
 
 
+def list_providers(configs_root: Path) -> list[str]:
+    """Return provider names that expose a discoverable ``config/*.yaml`` directory."""
+    providers_dir = configs_root / "providers"
+    if not providers_dir.is_dir():
+        return []
+    return sorted(
+        provider_dir.name
+        for provider_dir in providers_dir.iterdir()
+        if provider_dir.is_dir() and any((provider_dir / "config").glob("*.yaml"))
+    )
+
+
+def available_labels(provider: str, *, configs_root: Path) -> set[str]:
+    """Return every label declared across a provider's resolved config wiring."""
+    provider_config_dir = configs_root / "providers" / provider / "config"
+    labels: set[str] = set()
+    for config_path in provider_config_dir.glob("*.yaml"):
+        merged = merge_yaml_files([config_path])
+        raw_validations = (merged.get("tests") or {}).get("validations") or {}
+        for entry in parse_validations(raw_validations):
+            labels.update(entry.labels)
+    return labels
+
+
 def discover_provider_label_configs(
     provider: str,
     labels: list[str],
     *,
     configs_root: Path,
+    released_tests: set[str] | None = None,
 ) -> list[ProviderConfigMatch]:
-    """Return provider configs whose resolved validation wiring matches all labels."""
+    """Return provider configs whose resolved validation wiring matches all labels.
+
+    A check counts toward a match only if it is also runnable under the release
+    filter, mirroring orchestrator execution: when ``released_tests`` is a set,
+    unreleased checks are ignored so a config is not selected solely on a check
+    that would be skipped at runtime. ``None`` disables the filter (include all),
+    matching ``ISVTEST_INCLUDE_UNRELEASED``.
+    """
     requested = {label for label in labels if label}
     provider_config_dir = configs_root / "providers" / provider / "config"
     matches: list[ProviderConfigMatch] = []
@@ -48,6 +80,7 @@ def discover_provider_label_configs(
             MatchedCheck(category=entry.category, name=entry.name, labels=entry.labels)
             for entry in parse_validations(raw_validations)
             if requested.issubset(entry.labels)
+            and (released_tests is None or resolve_class_key(entry.name, released_tests) is not None)
         )
         if matched_checks:
             matches.append(ProviderConfigMatch(config_path=config_path, matched_checks=matched_checks))

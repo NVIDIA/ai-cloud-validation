@@ -28,6 +28,7 @@ from typing import Annotated, Any, TextIO
 import typer
 import yaml
 from isvtest.catalog import build_catalog, get_catalog_version
+from isvtest.release_manifest import load_released_test_filter
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import (
@@ -38,7 +39,12 @@ from isvctl.cli.common import (
     print_progress,
     print_warning,
 )
-from isvctl.config.label_discovery import ProviderConfigMatch, discover_provider_label_configs
+from isvctl.config.label_discovery import (
+    ProviderConfigMatch,
+    available_labels,
+    discover_provider_label_configs,
+    list_providers,
+)
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.loop import Orchestrator, Phase
@@ -254,9 +260,20 @@ def run(
             print_error("--provider requires at least one --label/-l for discovery.")
             raise typer.Exit(code=1)
 
-        matches = discover_provider_label_configs(provider, labels, configs_root=CONFIGS_ROOT)
+        known_providers = list_providers(CONFIGS_ROOT)
+        if provider not in known_providers:
+            print_error(f"Unknown provider {provider!r}. Available providers: {', '.join(known_providers)}")
+            raise typer.Exit(code=1)
+
+        matches = discover_provider_label_configs(
+            provider, labels, configs_root=CONFIGS_ROOT, released_tests=load_released_test_filter()
+        )
         if not matches:
-            print_error(f"No {provider!r} provider configs match labels: {', '.join(labels)}")
+            known_labels = available_labels(provider, configs_root=CONFIGS_ROOT)
+            print_error(
+                f"No {provider!r} provider configs match labels: {', '.join(labels)}. "
+                f"Available labels for {provider!r}: {', '.join(sorted(known_labels))}"
+            )
             raise typer.Exit(code=1)
 
         if dry_run:
