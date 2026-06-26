@@ -34,6 +34,11 @@ re-`export` them in every shell (handy for providers like NICo that need several
 uv run isvctl configure                 # walk every variable
 uv run isvctl configure --provider nico # only NICo's variables
 uv run isvctl configure show            # show what's saved (secrets masked)
+uv run isvctl configure set NICO_API_BASE https://nico.example.com
+uv run isvctl configure set nico.organization=ncx nico.oidc_scope=example
+uv run isvctl configure unset nico.api_base
+uv run isvctl configure unset nico     # remove one section after confirmation
+uv run isvctl configure unset --all     # remove all saved config after confirmation
 uv run isvctl configure path            # print the file paths
 ```
 
@@ -62,9 +67,16 @@ Each key maps to an env var by section prefix — `nico.api_base` ⇆ `NICO_API_
 is unambiguous. `ISVCTL_CONFIG` and `ISVCTL_SECRETS` override the individual paths.
 Precedence is **process env > files > defaults**: a variable already exported in
 your shell is never overridden, so CI and one-off `FOO=bar isvctl ...` overrides
-keep working. Pass `--no-user-config` to `test run`/`test validate`/`doctor` to
-ignore the files. Per-run flags (`KUBECTL`, `ISVCTL_DEMO_MODE`, …) are deliberately
-not persisted — pass them on the command line or export them each time.
+keep working. Use `isvctl configure set <name> [value]`,
+`isvctl configure set <name>=<value> [<name>=<value> ...]`, and
+`isvctl configure unset <name>` for precise edits; both env var names
+(`NICO_API_BASE`) and section keys (`nico.api_base`) are accepted. Multiple
+values must use `key=value` assignment form. Use `isvctl configure unset <section>`
+(`nico`, `aws`, `ngc`, `isv_lab_service`) to remove all saved values for a section
+from both files after confirmation. Omitting the value prompts interactively, with hidden input for secrets. Pass
+`--no-user-config` to `test run`/`test validate`/`doctor` to ignore the files.
+Per-run flags (`KUBECTL`, `ISVCTL_DEMO_MODE`, …) are deliberately not persisted —
+pass them on the command line or export them each time.
 
 Keep `~/.config/isvctl/` out of any repository — `secrets.yml` holds plaintext
 credentials. Run `isvctl doctor` (optionally `--provider <name>`) to verify.

@@ -24,10 +24,12 @@ import yaml
 from isvctl.config.user import (
     SCHEMA_VERSION,
     apply_user_env,
+    clear_user_config,
     file_mode,
     get_config_path,
     get_secrets_path,
     load_user_env,
+    unset_user_config,
     write_user_config,
 )
 
@@ -213,6 +215,50 @@ def test_write_roundtrips_through_load(isolated_env: Path) -> None:
     """A written value reads back identically through load_user_env."""
     write_user_config({"NICO_SITE_ID": "00000000-0000-0000-0000-000000000000"})
     assert load_user_env() == {"NICO_SITE_ID": "00000000-0000-0000-0000-000000000000"}
+
+
+def test_unset_removes_value_and_preserves_other_files(isolated_env: Path) -> None:
+    """unset_user_config removes selected values without touching unrelated files."""
+    write_user_config(
+        {
+            "NICO_API_BASE": "https://nico.example.com",
+            "AWS_REGION": "us-west-2",
+            "NICO_CLIENT_SECRET": "shhh",
+        }
+    )
+    secrets_before = get_secrets_path().read_bytes()
+
+    unset_user_config(["NICO_API_BASE"])
+
+    assert load_user_env() == {"AWS_REGION": "us-west-2", "NICO_CLIENT_SECRET": "shhh"}
+    assert get_secrets_path().read_bytes() == secrets_before
+
+
+def test_unset_deletes_file_when_last_value_is_removed(isolated_env: Path) -> None:
+    """Removing the last value in a file deletes that empty config file."""
+    write_user_config({"NICO_API_BASE": "https://nico.example.com"})
+
+    unset_user_config(["NICO_API_BASE"])
+
+    assert not get_config_path().exists()
+    assert load_user_env() == {}
+
+
+def test_unset_rejects_unknown_name(isolated_env: Path) -> None:
+    """unset_user_config validates names against the same catalog as writes."""
+    with pytest.raises(ValueError, match="unknown env var"):
+        unset_user_config(["NOT_A_REAL_ENV"])
+
+
+def test_clear_user_config_removes_both_files(isolated_env: Path) -> None:
+    """clear_user_config removes all persisted values and both backing files."""
+    write_user_config({"NICO_API_BASE": "https://nico.example.com", "NICO_CLIENT_SECRET": "shhh"})
+
+    clear_user_config()
+
+    assert not get_config_path().exists()
+    assert not get_secrets_path().exists()
+    assert load_user_env() == {}
 
 
 # ---------------------------------------------------------------------------

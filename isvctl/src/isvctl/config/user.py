@@ -38,6 +38,7 @@ mis-parsed; a file predating versioning (no ``version:``) is read as version 1.
 
 import os
 import stat
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -270,6 +271,17 @@ def _write_env_file(path: Path, env: dict[str, str], mode: int) -> None:
         os.close(fd)
 
 
+def _write_or_remove_env_file(path: Path, env: dict[str, str], mode: int) -> None:
+    """Write ``env`` to ``path``, or remove the file when no values remain."""
+    if env:
+        _write_env_file(path, env, mode)
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
 def write_user_config(
     values: dict[str, str],
     config_path: Path | None = None,
@@ -316,6 +328,58 @@ def write_user_config(
     if new_secrets:
         _write_env_file(secrets_path, {**current_secrets, **new_secrets}, _SECRETS_MODE)
 
+    return WriteResult(config_path=config_path, secrets_path=secrets_path)
+
+
+def unset_user_config(
+    names: Iterable[str],
+    config_path: Path | None = None,
+    secrets_path: Path | None = None,
+    *,
+    existing: dict[str, str] | None = None,
+) -> WriteResult:
+    """Remove persisted env vars by name while preserving unrelated values.
+
+    Args:
+        names: Env var names to remove from config.yml/secrets.yml.
+        existing: Already-loaded current values for the same paths, supplied to
+            avoid re-reading both files. Defaults to reading them from disk.
+
+    Raises:
+        ValueError: If any name is unknown or non-persistable.
+    """
+    config_path = config_path or get_config_path()
+    secrets_path = secrets_path or get_secrets_path()
+
+    remove_names = set(names)
+    for name in remove_names:
+        _check_persistable(name, "")
+
+    if existing is None:
+        existing = load_user_env(config_path, secrets_path)
+
+    current_config = {k: v for k, v in existing.items() if not is_secret_env_var(k)}
+    current_secrets = {k: v for k, v in existing.items() if is_secret_env_var(k)}
+    remaining_config = {k: v for k, v in current_config.items() if k not in remove_names}
+    remaining_secrets = {k: v for k, v in current_secrets.items() if k not in remove_names}
+
+    if remaining_config != current_config:
+        _write_or_remove_env_file(config_path, remaining_config, _CONFIG_MODE)
+    if remaining_secrets != current_secrets:
+        _write_or_remove_env_file(secrets_path, remaining_secrets, _SECRETS_MODE)
+
+    return WriteResult(config_path=config_path, secrets_path=secrets_path)
+
+
+def clear_user_config(config_path: Path | None = None, secrets_path: Path | None = None) -> WriteResult:
+    """Remove both persisted config files, if present."""
+    config_path = config_path or get_config_path()
+    secrets_path = secrets_path or get_secrets_path()
+    for path in (config_path, secrets_path):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
     return WriteResult(config_path=config_path, secrets_path=secrets_path)
 
 

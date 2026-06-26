@@ -162,3 +162,239 @@ def test_show_never_lists_flags(isolated_env: Path) -> None:
     assert result.exit_code == 0
     assert "KUBECTL" not in result.stdout
     assert "api_base" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# set / unset
+# ---------------------------------------------------------------------------
+
+
+def test_set_writes_nonsecret_from_env_name(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "NICO_API_BASE", "https://nico.example.com"])
+    assert result.exit_code == 0, result.stdout
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    assert config_data["nico"]["api_base"] == "https://nico.example.com"
+    assert not get_secrets_path().exists()
+
+
+def test_set_accepts_section_key_alias(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "nico.api_base", "https://nico.example.com"])
+    assert result.exit_code == 0, result.stdout
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    assert config_data["nico"]["api_base"] == "https://nico.example.com"
+
+
+def test_set_accepts_section_key_assignment(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "nico.api_base=https://nico.example.com"])
+    assert result.exit_code == 0, result.stdout
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    assert config_data["nico"]["api_base"] == "https://nico.example.com"
+
+
+def test_set_accepts_env_name_assignment(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "NICO_API_BASE=https://nico.example.com"])
+    assert result.exit_code == 0, result.stdout
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    assert config_data["nico"]["api_base"] == "https://nico.example.com"
+
+
+def test_set_accepts_multiple_assignments(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "nico.organization=ncx", "nico.oidc_scope=example"])
+    assert result.exit_code == 0, result.stdout
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    assert config_data["nico"]["organization"] == "ncx"
+    assert config_data["nico"]["oidc_scope"] == "example"
+
+
+def test_set_split_form_accepts_value_containing_equals(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "nico.oidc_scope", "audience=example"])
+    assert result.exit_code == 0, result.stdout
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    assert config_data["nico"]["oidc_scope"] == "audience=example"
+
+
+def test_set_rejects_assignment_with_extra_value(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "nico.organization=ncx", "ignored"])
+    assert result.exit_code == 2
+    assert "cannot combine key=value with a separate value" in (result.stderr or result.output)
+
+
+def test_set_rejects_multiple_split_pairs(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "nico.organization", "ncx", "nico.oidc_scope", "example"])
+    assert result.exit_code == 2
+    assert "multiple values must use key=value" in (result.stderr or result.output)
+
+
+def test_set_prompts_for_secret_without_echoing_value(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "NICO_CLIENT_SECRET"], input="super-secret-value\n")
+    assert result.exit_code == 0, result.stdout
+
+    secrets_data = yaml.safe_load(get_secrets_path().read_text())
+    assert secrets_data["nico"]["client_secret"] == "super-secret-value"
+    assert "super-secret-value" not in result.output
+
+
+def test_set_rejects_unknown_key(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["set", "nico.not_real", "value"])
+    assert result.exit_code == 2
+    assert "unknown config key" in (result.stderr or result.output)
+
+
+def test_set_rejects_per_run_flag_before_loading_config(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    get_config_path().write_text("nico:\n  client_secret: leaked\n")
+
+    result = runner.invoke(app, ["set", "KUBECTL", "kubectl"])
+    assert result.exit_code == 2
+    assert "per-run flag" in (result.stderr or result.output)
+    assert "Failed to read user config" not in result.output
+
+
+def test_unset_removes_one_saved_key(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    get_config_path().write_text("nico:\n  api_base: https://nico.example.com\n  organization: example-org\n")
+
+    result = runner.invoke(app, ["unset", "NICO_API_BASE"])
+    assert result.exit_code == 0, result.stdout
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    assert config_data["nico"] == {"organization": "example-org"}
+
+
+def test_unset_accepts_section_key_alias(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    get_config_path().write_text("nico:\n  api_base: https://nico.example.com\n")
+
+    result = runner.invoke(app, ["unset", "nico.api_base"])
+    assert result.exit_code == 0, result.stdout
+
+    assert not get_config_path().exists()
+
+
+def test_unset_section_removes_saved_values_after_confirmation(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    get_config_path().write_text(
+        "aws:\n"
+        "  region: us-west-2\n"
+        "isv_lab_service:\n"
+        "  service_endpoint: https://service.example.com\n"
+        "nico:\n"
+        "  api_base: https://nico.example.com\n"
+        "  organization: example-org\n"
+    )
+    get_secrets_path().write_text(
+        "isv_lab_service:\n  client_secret: service-secret-value\nnico:\n  client_secret: super-secret-value\n"
+    )
+
+    result = runner.invoke(app, ["unset", "nico"], input="y\n")
+    assert result.exit_code == 0, result.stdout
+    assert "api_base" in result.output
+    assert "client_secret" in result.output
+    assert "super-secret-value" not in result.output
+    assert "service-secret-value" not in result.output
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    secrets_data = yaml.safe_load(get_secrets_path().read_text())
+    assert "nico" not in config_data
+    assert "nico" not in secrets_data
+    assert config_data["aws"]["region"] == "us-west-2"
+    assert config_data["isv_lab_service"]["service_endpoint"] == "https://service.example.com"
+    assert secrets_data["isv_lab_service"]["client_secret"] == "service-secret-value"
+
+
+def test_unset_section_requires_confirmation(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    get_config_path().write_text("nico:\n  api_base: https://nico.example.com\n")
+    get_secrets_path().write_text("nico:\n  client_secret: super-secret-value\n")
+
+    result = runner.invoke(app, ["unset", "nico"], input="n\n")
+    assert result.exit_code == 1
+    assert "Aborted." in result.output
+    assert "super-secret-value" not in result.output
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    secrets_data = yaml.safe_load(get_secrets_path().read_text())
+    assert config_data["nico"]["api_base"] == "https://nico.example.com"
+    assert secrets_data["nico"]["client_secret"] == "super-secret-value"
+
+
+def test_unset_section_with_no_saved_values(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    get_config_path().write_text("aws:\n  region: us-west-2\n")
+
+    result = runner.invoke(app, ["unset", "nico"])
+    assert result.exit_code == 0, result.stdout
+    assert "No saved values for nico." in result.output
+
+    config_data = yaml.safe_load(get_config_path().read_text())
+    assert config_data["aws"]["region"] == "us-west-2"
+
+
+def test_unset_section_rejects_malformed_config_without_deleting(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    config_body = "nico:\n  client_secret: leaked\n"
+    secrets_body = "nico:\n  client_secret: super-secret-value\n"
+    get_config_path().write_text(config_body)
+    get_secrets_path().write_text(secrets_body)
+
+    result = runner.invoke(app, ["unset", "nico"], input="y\n")
+    assert result.exit_code == 1
+    assert "Failed to read user config" in (result.stderr or result.output)
+    assert "leaked" not in result.output
+    assert "super-secret-value" not in result.output
+    assert get_config_path().read_text() == config_body
+    assert get_secrets_path().read_text() == secrets_body
+
+
+def test_unset_without_key_requires_all_flag(isolated_env: Path) -> None:
+    result = runner.invoke(app, ["unset"])
+    assert result.exit_code == 2
+    assert "provide a key or pass --all" in (result.stderr or result.output)
+
+
+def test_unset_rejects_per_run_flag_before_loading_config(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    get_config_path().write_text("nico:\n  client_secret: leaked\n")
+
+    result = runner.invoke(app, ["unset", "KUBECTL"])
+    assert result.exit_code == 2
+    assert "per-run flag" in (result.stderr or result.output)
+    assert "Failed to read user config" not in result.output
+
+
+def test_unset_all_requires_confirmation(isolated_env: Path) -> None:
+    write_values = ["set", "NICO_API_BASE", "https://nico.example.com"]
+    assert runner.invoke(app, write_values).exit_code == 0
+
+    result = runner.invoke(app, ["unset", "--all"], input="n\n")
+    assert result.exit_code == 1
+    assert get_config_path().exists()
+
+
+def test_unset_all_removes_config_after_confirmation(isolated_env: Path) -> None:
+    assert runner.invoke(app, ["set", "NICO_API_BASE", "https://nico.example.com"]).exit_code == 0
+    assert runner.invoke(app, ["set", "NICO_CLIENT_SECRET"], input="super-secret-value\n").exit_code == 0
+
+    result = runner.invoke(app, ["unset", "--all"], input="y\n")
+    assert result.exit_code == 0, result.stdout
+
+    assert not get_config_path().exists()
+    assert not get_secrets_path().exists()
+
+
+def test_unset_all_can_clear_malformed_config(isolated_env: Path) -> None:
+    get_config_path().parent.mkdir(parents=True)
+    get_config_path().write_text("nico:\n  client_secret: leaked\n")
+    get_secrets_path().write_text("nico:\n  client_secret: super-secret-value\n")
+
+    result = runner.invoke(app, ["unset", "--all"], input="y\n")
+    assert result.exit_code == 0, result.stdout
+
+    assert not get_config_path().exists()
+    assert not get_secrets_path().exists()
