@@ -113,14 +113,16 @@ def _get_pvc_json(run_command, kubectl_base: str, namespace: str, pvc_name: str)
         return None, str(exc)
 
 
-def _poll_pvc_bound(run_command, kubectl_base: str, namespace: str, pvc_name: str, timeout_s: int) -> bool:
+def _poll_pvc_bound(
+    run_command, kubectl_base: str, namespace: str, pvc_name: str, timeout_s: int, poll_interval_s: float = 2.0
+) -> bool:
     """Poll ``kubectl get pvc`` until ``status.phase == "Bound"`` or timeout."""
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         payload, _error = _get_pvc_json(run_command, kubectl_base, namespace, pvc_name)
         if payload is not None and (payload.get("status") or {}).get("phase") == "Bound":
             return True
-        time.sleep(2.0)
+        time.sleep(poll_interval_s)
     return False
 
 
@@ -151,7 +153,7 @@ def _wait_pod_ready(run_command, kubectl_base: str, namespace: str, pod_name: st
         f"{kubectl_base} wait --for=condition=Ready "
         f"--timeout={timeout_s}s -n {shlex.quote(namespace)} pod/{shlex.quote(pod_name)}"
     )
-    result = run_command(cmd)
+    result = run_command(cmd, timeout=timeout_s + 30)
     if result.exit_code == 0:
         return True, ""
     return False, (result.stderr.strip() or result.stdout.strip())
@@ -164,6 +166,17 @@ def _storage_quantities_equal(left: Any, right: Any) -> bool:
     """
     try:
         return parse_quantity(str(left).strip()) == parse_quantity(str(right).strip())
+    except (ValueError, TypeError):
+        return False
+
+
+def _capacity_meets_request(capacity: Any, request: Any) -> bool:
+    """Return True when ``capacity`` >= ``request`` as Kubernetes storage quantities.
+
+    Returns False when either side is empty or cannot be parsed as a quantity.
+    """
+    try:
+        return parse_quantity(str(capacity).strip()) >= parse_quantity(str(request).strip())
     except (ValueError, TypeError):
         return False
 
@@ -341,32 +354,11 @@ class K8sCsiStorageTypesCheck(BaseValidation):
 
     def _apply_pvc(self, name: str, sc_name: str, access_mode: str, size: str) -> bool:
         """Render the PVC manifest and apply it; return True on success."""
-
-        def _mutate(doc: dict[str, Any]) -> dict[str, Any]:
-            return _set_pvc_fields(doc, namespace=self._namespace, name=name, sc=sc_name, mode=access_mode, size=size)
-
-        manifest = render_k8s_manifest(_PVC_MANIFEST, _mutate)
-        try:
-            proc = subprocess.run(
-                self._kubectl_parts + ["apply", "-f", "-"],
-                input=manifest,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-            )
-        except subprocess.TimeoutExpired:
-            self.log.error("kubectl apply timed out for PVC %s", name)
-            return False
-        except Exception as exc:
-            self.log.error("kubectl apply failed for PVC %s: %s", name, exc)
-            return False
-
-        if proc.returncode != 0:
-            self.log.error(
-                "kubectl apply failed for PVC %s: %s",
-                name,
-                proc.stderr.strip() or proc.stdout.strip(),
-            )
+        returncode, error = _apply_pvc_manifest(
+            self._kubectl_parts, self._namespace, name, sc_name, access_mode, size, self.timeout
+        )
+        if returncode != 0:
+            self.log.error("kubectl apply failed for PVC %s: %s", name, error.strip())
             return False
         return True
 
@@ -791,14 +783,9 @@ class K8sCsiStorageQuotaApiCheck(BaseValidation):
 
     def _apply_pvc(self, name: str, storage_class: str, access_mode: str, size: str) -> tuple[int, str]:
         """Render the PVC manifest and apply it; return (returncode, stderr)."""
-
-        def _mutate(doc: dict[str, Any]) -> dict[str, Any]:
-            return _set_pvc_fields(
-                doc, namespace=self._namespace, name=name, sc=storage_class, mode=access_mode, size=size
-            )
-
-        manifest = render_k8s_manifest(_PVC_MANIFEST, _mutate)
-        return self._run_kubectl_apply(manifest)
+        return _apply_pvc_manifest(
+            self._kubectl_parts, self._namespace, name, storage_class, access_mode, size, self.timeout
+        )
 
     def _run_kubectl_apply(self, manifest: str) -> tuple[int, str]:
         return _apply_manifest(self._kubectl_parts, manifest, self.timeout)
@@ -1480,11 +1467,13 @@ def _check_node_plugin_volumes(
 class K8sCsiProvisioningModesCheck(BaseValidation):
     """Verify CSI supports both dynamic and static provisioning.
 
-    Two subtests run against a single ephemeral namespace:
+    Three subtests run against a single ephemeral namespace:
 
     * ``dynamic`` - a PVC against ``dynamic_storage_class`` reaches ``Bound``,
       the backing PV exposes ``spec.csi.driver``, and a BusyBox pod mounts
       the PVC and round-trips a canary file (write then read back).
+    * ``capacity`` - the bound PV's ``spec.capacity.storage`` is at least the
+      PVC request, i.e. ``pv.capacity >= pvc.requests.storage``.
     * ``static`` - a PersistentVolume with the configured ``volume_handle``
       + ``csi_driver`` is pre-created, a PVC with ``storageClassName: ""``
       and a matching ``volumeName`` pre-binds to that PV, and a BusyBox pod
@@ -1492,14 +1481,17 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
       ``static_pv.csi_driver`` is unset, so the check is safe to enable on
       providers that do not supply an out-of-band volume.
 
-    Pass requires ``dynamic`` to pass; ``static`` is reported as skipped
-    (not failed) when its inputs are unset. When ``dynamic_storage_class``
-    itself is unset the whole check is skipped.
+    Pass requires ``dynamic`` and ``capacity`` to pass; ``static`` is reported
+    as skipped (not failed) when its inputs are unset. When
+    ``dynamic_storage_class`` itself is unset the whole check is skipped.
 
     Config keys (with defaults):
         dynamic_storage_class: StorageClass for the dynamic probe; defaults
             to :func:`get_k8s_csi_block_storage_class`. When unset the whole
             check is skipped.
+        dynamic_pvc_size: PVC request size for the dynamic probe, also the
+            floor the ``capacity`` subtest checks the bound PV against
+            (default: ``1Gi``).
         static_pv.volume_handle: CSI ``volumeHandle`` of the pre-provisioned
             backing volume. Unset disables the static subtest.
         static_pv.csi_driver: CSI driver name matching the backing volume
@@ -1528,6 +1520,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         dynamic_sc = str(self.config.get("dynamic_storage_class") or get_k8s_csi_block_storage_class() or "")
         static_pv_cfg = dict(self.config.get("static_pv") or {})
         bind_timeout = int(self.config.get("bind_timeout_s", 180))
+        dynamic_pvc_size = str(self.config.get("dynamic_pvc_size") or "1Gi")
         ns_prefix = self.config.get("namespace_prefix", "isvtest-csi-prov")
 
         if not dynamic_sc:
@@ -1546,7 +1539,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
             ns_created = True
 
             any_failed = False
-            dyn_summary = self._run_dynamic(dynamic_sc, bind_timeout)
+            dyn_summary = self._run_dynamic(dynamic_sc, bind_timeout, dynamic_pvc_size)
             if dyn_summary is None:
                 any_failed = True
 
@@ -1602,7 +1595,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
                 if cleanup.exit_code != 0:
                     self.log.warning("Namespace cleanup failed for %s: %s", self._namespace, cleanup.stderr)
 
-    def _run_dynamic(self, storage_class: str, bind_timeout: int) -> str | None:
+    def _run_dynamic(self, storage_class: str, bind_timeout: int, requested_size: str) -> str | None:
         """Run the ``dynamic`` subtest: PVC + consumer pod → Ready → Bound → PV has csi.driver → canary.
 
         The mount pod is applied before waiting for ``Bound`` so this works
@@ -1614,7 +1607,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         pvc_name = f"csi-prov-dyn-{uuid.uuid4().hex[:6]}"
         pod_name = f"csi-prov-dyn-{uuid.uuid4().hex[:6]}"
 
-        returncode, stderr = self._apply_pvc(pvc_name, storage_class, "ReadWriteOnce", "1Gi")
+        returncode, stderr = self._apply_pvc(pvc_name, storage_class, "ReadWriteOnce", requested_size)
         if returncode != 0:
             self.report_subtest(
                 "dynamic",
@@ -1656,7 +1649,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
             )
             return None
 
-        pv_name, csi_driver, err = self._resolve_bound_pv_driver(pvc_name)
+        pv_name, csi_driver, pv_capacity, err = self._resolve_bound_pv_driver(pvc_name)
         if err:
             self.report_subtest("dynamic", passed=False, message=err)
             return None
@@ -1667,6 +1660,20 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
                 message=f"Dynamic PV {pv_name!r} missing spec.csi.driver",
             )
             return None
+
+        capacity_ok = _capacity_meets_request(pv_capacity, requested_size)
+        self.report_subtest(
+            "capacity",
+            passed=capacity_ok,
+            message=(
+                f"PV {pv_name!r} capacity {pv_capacity!r} >= requested {requested_size!r}"
+                if capacity_ok
+                else (
+                    f"PV {pv_name!r} capacity {pv_capacity or '<empty>'!r} is less than "
+                    f"requested {requested_size!r} (or could not be parsed)"
+                )
+            ),
+        )
 
         if not self._canary_write_read(pod_name):
             self.report_subtest(
@@ -1681,7 +1688,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
 
         summary = f"Dynamic PVC {pvc_name!r} bound to PV {pv_name!r} (driver={csi_driver!r}); canary roundtrip OK"
         self.report_subtest("dynamic", passed=True, message=summary)
-        return summary
+        return summary if capacity_ok else None
 
     def _run_static(
         self,
@@ -1758,13 +1765,9 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
 
     def _apply_pvc(self, name: str, storage_class: str, access_mode: str, size: str) -> tuple[int, str]:
         """Render the PVC manifest for dynamic provisioning and apply it."""
-
-        def _mutate(doc: dict[str, Any]) -> dict[str, Any]:
-            return _set_pvc_fields(
-                doc, namespace=self._namespace, name=name, sc=storage_class, mode=access_mode, size=size
-            )
-
-        return self._run_kubectl_apply(render_k8s_manifest(_PVC_MANIFEST, _mutate))
+        return _apply_pvc_manifest(
+            self._kubectl_parts, self._namespace, name, storage_class, access_mode, size, self.timeout
+        )
 
     def _apply_static_pvc(self, name: str, pv_name: str, access_mode: str, size: str) -> tuple[int, str]:
         """Render a PVC that pre-binds to the given PV via ``volumeName`` + empty StorageClass."""
@@ -1818,25 +1821,26 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
     def _wait_pvc_bound(self, pvc_name: str, timeout_s: int) -> bool:
         return _poll_pvc_bound(self.run_command, self._kubectl_base, self._namespace, pvc_name, timeout_s)
 
-    def _resolve_bound_pv_driver(self, pvc_name: str) -> tuple[str, str, str]:
-        """Return ``(pv_name, csi_driver, error)`` - ``error`` is empty on success."""
+    def _resolve_bound_pv_driver(self, pvc_name: str) -> tuple[str, str, str, str]:
+        """Return ``(pv_name, csi_driver, capacity, error)`` - ``error`` is empty on success."""
         pvc_payload, error = _get_pvc_json(self.run_command, self._kubectl_base, self._namespace, pvc_name)
         if pvc_payload is None:
-            return "", "", f"Failed to resolve volumeName for PVC {pvc_name!r}: {error}"
+            return "", "", "", f"Failed to resolve volumeName for PVC {pvc_name!r}: {error}"
         pv_name = str((pvc_payload.get("spec") or {}).get("volumeName") or "")
         if not pv_name:
-            return "", "", f"PVC {pvc_name!r} bound but spec.volumeName is empty"
+            return "", "", "", f"PVC {pvc_name!r} bound but spec.volumeName is empty"
 
         pv_json = self.run_command(f"{self._kubectl_base} get pv {shlex.quote(pv_name)} -o json")
         if pv_json.exit_code != 0:
-            return pv_name, "", f"kubectl get pv {pv_name!r} failed: {pv_json.stderr.strip()}"
+            return pv_name, "", "", f"kubectl get pv {pv_name!r} failed: {pv_json.stderr.strip()}"
         try:
             payload = json.loads(pv_json.stdout)
         except json.JSONDecodeError as exc:
-            return pv_name, "", f"Failed to parse PV {pv_name!r} JSON: {exc}"
+            return pv_name, "", "", f"Failed to parse PV {pv_name!r} JSON: {exc}"
         spec = payload.get("spec") or {}
         driver = (spec.get("csi") or {}).get("driver")
-        return pv_name, str(driver) if driver else "", ""
+        capacity = (spec.get("capacity") or {}).get("storage")
+        return pv_name, str(driver) if driver else "", str(capacity) if capacity else "", ""
 
     def _canary_roundtrip(self, pvc_name: str, pod_name: str, timeout_s: int) -> bool:
         """Apply a BusyBox mount pod for ``pvc_name``, wait for Ready, and run the canary round-trip."""
@@ -1928,6 +1932,517 @@ def _set_pv_fields(
         "name": claim_name,
     }
     return doc
+
+
+class K8sCsiConcurrentPvcCheck(BaseValidation):
+    """Verify the CSI driver can provision multiple PVCs in parallel against the same StorageClass.
+
+    Two subtests run against a single ephemeral namespace:
+
+    * ``pvc-bound[0]`` … ``pvc-bound[N-1]`` - each PVC reaches ``Bound``
+      within ``bind_timeout_s``. Consumer pods are deployed alongside the
+      PVCs so this works for StorageClasses with
+      ``volumeBindingMode: WaitForFirstConsumer``.
+    * ``distinct-pvs`` - every bound PVC resolves to a different
+      ``spec.volumeName``. Fails if any PVC is unbound or two PVCs share
+      a backing PV.
+
+    Pass requires all ``pvc-bound`` subtests and ``distinct-pvs`` to pass.
+    When ``storage_class`` is unset the whole check is skipped.
+
+    Config keys (with defaults):
+        storage_class: StorageClass to probe; defaults to
+            :func:`get_k8s_csi_block_storage_class` (env: ``K8S_CSI_BLOCK_SC``).
+            Whole check skipped when unset.
+        pvc_count: Number of PVCs to create (default: ``2``).
+        pvc_size: Capacity per PVC (default: ``1Gi``).
+        bind_timeout_s: Per-pod / per-PVC bind wait (default: ``120``).
+        namespace_prefix: Prefix for the ephemeral namespace
+            (default: ``isvtest-csi-concurrent``).
+        timeout: Overall class-level timeout for each ``run_command``
+            (default: 300).
+    """
+
+    description: ClassVar[str] = "Verify CSI provisions multiple concurrent PVCs backed by distinct PVs."
+    timeout: ClassVar[int] = 300
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
+
+    def run(self) -> None:
+        """Create N PVCs + consumer pods concurrently, assert all bind to distinct PVs."""
+        storage_class = str(self.config.get("storage_class") or get_k8s_csi_block_storage_class() or "")
+        if not storage_class:
+            self.set_passed("Skipped: no storage_class configured")
+            return
+
+        pvc_count = int(self.config.get("pvc_count", 2))
+        pvc_size = str(self.config.get("pvc_size", "1Gi"))
+        bind_timeout = int(self.config.get("bind_timeout_s", 120))
+        ns_prefix = self.config.get("namespace_prefix", "isvtest-csi-concurrent")
+
+        self._kubectl_parts = get_kubectl_command()
+        self._kubectl_base = get_kubectl_base_shell()
+        self._namespace = f"{ns_prefix}-{uuid.uuid4().hex[:8]}"
+        ns_quoted = shlex.quote(self._namespace)
+
+        pvc_names = [f"csi-conc-{i}-{uuid.uuid4().hex[:6]}" for i in range(pvc_count)]
+        pod_names = [f"csi-conc-{i}-{uuid.uuid4().hex[:6]}" for i in range(pvc_count)]
+
+        ns_created = False
+        try:
+            ns_result = self.run_command(f"{self._kubectl_base} create namespace {ns_quoted}")
+            if ns_result.exit_code != 0:
+                self.set_failed(f"Failed to create namespace {self._namespace}: {ns_result.stderr}")
+                return
+            ns_created = True
+
+            # Apply PVC manifests then wait for all to be Bound.
+            apply_errors: list[str] = []
+            for pvc_name in pvc_names:
+                rc, err = _apply_pvc_manifest(
+                    self._kubectl_parts,
+                    self._namespace,
+                    pvc_name,
+                    storage_class,
+                    "ReadWriteOnce",
+                    pvc_size,
+                    self.timeout,
+                )
+                if rc != 0:
+                    apply_errors.append(f"{pvc_name}: {err.strip()[:150]}")
+
+            if apply_errors:
+                self.set_failed(f"kubectl apply failed for PVC(s): {'; '.join(apply_errors)}")
+                return
+
+            # Submit all consumer pods before waiting on any.
+            pod_apply_errors: list[str] = []
+            for pvc_name, pod_name in zip(pvc_names, pod_names):
+                rc, err = _apply_mount_pod_manifest(
+                    self._kubectl_parts, self._namespace, pod_name, pvc_name, self.timeout
+                )
+                if rc != 0:
+                    pod_apply_errors.append(f"{pod_name}: {err.strip()[:150]}")
+
+            if pod_apply_errors:
+                self.set_failed(f"kubectl apply failed for consumer pod(s): {'; '.join(pod_apply_errors)}")
+                return
+
+            # Wait for each pod to become Ready, then confirm PVC is Bound.
+            any_failed = False
+            for i, (pvc_name, pod_name) in enumerate(zip(pvc_names, pod_names)):
+                subtest = f"pvc-bound[{i}]"
+                pod_ready, wait_err = _wait_pod_ready(
+                    self.run_command, self._kubectl_base, self._namespace, pod_name, bind_timeout
+                )
+                bound = pod_ready and _poll_pvc_bound(
+                    self.run_command, self._kubectl_base, self._namespace, pvc_name, 5
+                )
+                self.report_subtest(
+                    subtest,
+                    passed=bound,
+                    message=(
+                        f"PVC {pvc_name!r} bound against {storage_class!r} via consumer pod {pod_name!r}"
+                        if bound
+                        else (
+                            f"PVC {pvc_name!r} did not reach Bound via consumer pod {pod_name!r} "
+                            f"within {bind_timeout}s ({storage_class!r}): {wait_err[:200]}"
+                        )
+                    ),
+                )
+                if not bound:
+                    any_failed = True
+
+            # Collect PV names from all bound PVCs and assert they are distinct.
+            pv_names: list[str] = []
+            for pvc_name in pvc_names:
+                payload, _err = _get_pvc_json(self.run_command, self._kubectl_base, self._namespace, pvc_name)
+                if payload is not None:
+                    pv_name = str((payload.get("spec") or {}).get("volumeName") or "")
+                    if pv_name:
+                        pv_names.append(pv_name)
+
+            if len(pv_names) == pvc_count and len(set(pv_names)) == pvc_count:
+                self.report_subtest(
+                    "distinct-pvs",
+                    passed=True,
+                    message=f"All {pvc_count} PVCs backed by distinct PVs: {', '.join(sorted(pv_names))}",
+                )
+            else:
+                any_failed = True
+                if len(pv_names) < pvc_count:
+                    self.report_subtest(
+                        "distinct-pvs",
+                        passed=False,
+                        message=(
+                            f"Only {len(pv_names)}/{pvc_count} PVCs resolved a volumeName "
+                            f"(some PVCs may not have reached Bound)"
+                        ),
+                    )
+                else:
+                    duplicates = [pv for pv in pv_names if pv_names.count(pv) > 1]
+                    self.report_subtest(
+                        "distinct-pvs",
+                        passed=False,
+                        message=f"PVCs share backing PV(s): {', '.join(sorted(set(duplicates)))}",
+                    )
+
+            if any_failed:
+                self.set_failed("One or more concurrent-PVC subtests failed; see subtest details")
+            else:
+                self.set_passed(f"{pvc_count} concurrent PVCs provisioned with distinct PVs against {storage_class!r}")
+        finally:
+            if ns_created:
+                cleanup = self.run_command(
+                    f"{self._kubectl_base} delete namespace {ns_quoted} --wait=false --ignore-not-found=true"
+                )
+                if cleanup.exit_code != 0:
+                    self.log.warning("Namespace cleanup failed for %s: %s", self._namespace, cleanup.stderr)
+
+
+class K8sCsiPvcExpandCheck(BaseValidation):
+    """Verify the CSI driver can expand a bound PVC and the mount reflects the new capacity.
+
+    The PVC/PV capacity subtests pass when capacity reaches >= the
+    requested ``expanded_size`` (not an exact match, as a CSI driver may
+    provision more than requested due to rounding up to the next valid storage increment).
+
+    The test is skipped when the StorageClass does not set allowVolumeExpansion=true
+    or when ``storage_class`` is unset.
+
+    Config keys (with defaults):
+        storage_class: StorageClass to probe; defaults to
+            :func:`get_k8s_csi_block_storage_class` (env: ``K8S_CSI_BLOCK_SC``).
+        initial_size: Starting PVC capacity (default: ``1Gi``).
+        expanded_size: Target capacity after resize (default: ``2Gi``).
+        bind_timeout_s: Wait for initial PVC Bind + pod Ready (default: ``120``).
+        expand_timeout_s: Wait for PVC / PV capacity to reflect the new
+            size (default: ``180``).
+        namespace_prefix: Prefix for the ephemeral namespace
+            (default: ``isvtest-csi-expand``).
+        timeout: Overall class-level timeout for each ``run_command``
+            (default: 600).
+    """
+
+    description: ClassVar[str] = "Verify CSI PVC expansion updates PV capacity and the mounted filesystem size."
+    timeout: ClassVar[int] = 600
+    labels: ClassVar[tuple[str, ...]] = ("kubernetes",)
+
+    def run(self) -> None:
+        """Provision a PVC, resize it, and assert PV + df reflect the new capacity."""
+        storage_class = str(self.config.get("storage_class") or get_k8s_csi_block_storage_class() or "")
+        if not storage_class:
+            self.set_passed("Skipped: no storage_class configured")
+            return
+
+        initial_size = str(self.config.get("initial_size", "1Gi"))
+        expanded_size = str(self.config.get("expanded_size", "2Gi"))
+        bind_timeout = int(self.config.get("bind_timeout_s", 120))
+        expand_timeout = int(self.config.get("expand_timeout_s", 180))
+        ns_prefix = self.config.get("namespace_prefix", "isvtest-csi-expand")
+
+        self._kubectl_parts = get_kubectl_command()
+        self._kubectl_base = get_kubectl_base_shell()
+
+        # Check whether the StorageClass advertises allowVolumeExpansion.
+        sc_result = self.run_command(f"{self._kubectl_base} get storageclass {shlex.quote(storage_class)} -o json")
+        if sc_result.exit_code != 0:
+            self.set_failed(
+                f"Could not fetch StorageClass {storage_class!r}: {sc_result.stderr.strip() or sc_result.stdout.strip()}"
+            )
+            return
+        try:
+            sc_payload = json.loads(sc_result.stdout)
+        except json.JSONDecodeError as exc:
+            self.set_failed(f"Failed to parse StorageClass {storage_class!r} JSON: {exc}")
+            return
+
+        allows_expansion = bool(sc_payload.get("allowVolumeExpansion"))
+        if not allows_expansion:
+            skip_msg = f"StorageClass {storage_class!r} does not set allowVolumeExpansion=true"
+            for name in ("sc-allows-expansion", "pvc-patch-accepted", "pv-capacity-updated", "df-shows-new-size"):
+                self.report_subtest(name, passed=True, message=skip_msg, skipped=True)
+            self.set_passed(f"Skipped: {skip_msg}")
+            return
+
+        self.report_subtest(
+            "sc-allows-expansion",
+            passed=True,
+            message=f"StorageClass {storage_class!r} has allowVolumeExpansion=true",
+        )
+
+        self._namespace = f"{ns_prefix}-{uuid.uuid4().hex[:8]}"
+        ns_quoted = shlex.quote(self._namespace)
+
+        pvc_name = f"csi-expand-{uuid.uuid4().hex[:6]}"
+        pod_name = f"csi-expand-{uuid.uuid4().hex[:6]}"
+
+        ns_created = False
+        try:
+            ns_result = self.run_command(f"{self._kubectl_base} create namespace {ns_quoted}")
+            if ns_result.exit_code != 0:
+                self.set_failed(f"Failed to create namespace {self._namespace}: {ns_result.stderr}")
+                return
+            ns_created = True
+
+            rc, err = _apply_pvc_manifest(
+                self._kubectl_parts,
+                self._namespace,
+                pvc_name,
+                storage_class,
+                "ReadWriteOnce",
+                initial_size,
+                self.timeout,
+            )
+            if rc != 0:
+                self.set_failed(f"kubectl apply failed for PVC {pvc_name!r}: {err.strip()}")
+                return
+
+            rc, err = _apply_mount_pod_manifest(self._kubectl_parts, self._namespace, pod_name, pvc_name, self.timeout)
+            if rc != 0:
+                self.set_failed(f"kubectl apply failed for consumer pod {pod_name!r}: {err.strip()[:200]}")
+                return
+
+            pod_ready, wait_err = _wait_pod_ready(
+                self.run_command, self._kubectl_base, self._namespace, pod_name, bind_timeout
+            )
+            if not pod_ready or not _poll_pvc_bound(self.run_command, self._kubectl_base, self._namespace, pvc_name, 5):
+                self.set_failed(
+                    f"PVC {pvc_name!r} did not reach Bound before resize within {bind_timeout}s: {wait_err[:200]}"
+                )
+                return
+
+            any_failed = False
+
+            # Patch the PVC to the larger size.
+            patch_json = json.dumps({"spec": {"resources": {"requests": {"storage": expanded_size}}}})
+            patch_cmd = (
+                f"{self._kubectl_base} patch pvc {shlex.quote(pvc_name)} "
+                f"-n {shlex.quote(self._namespace)} "
+                f"--type=merge -p {shlex.quote(patch_json)}"
+            )
+            patch_result = self.run_command(patch_cmd)
+            if patch_result.exit_code != 0:
+                self.report_subtest(
+                    "pvc-patch-accepted",
+                    passed=False,
+                    message=(
+                        f"kubectl patch failed for PVC {pvc_name!r}: "
+                        f"{patch_result.stderr.strip() or patch_result.stdout.strip()}"
+                    ),
+                )
+                for name in ("pv-capacity-updated", "df-shows-new-size"):
+                    self.report_subtest(
+                        name, passed=True, message="pvc-patch-accepted failed; probe skipped", skipped=True
+                    )
+                self.set_failed("PVC patch rejected; downstream expansion probes skipped")
+                return
+
+            self.report_subtest(
+                "pvc-patch-accepted",
+                passed=True,
+                message=f"PVC {pvc_name!r} patched to {expanded_size!r}",
+            )
+
+            # Poll until PVC status.capacity.storage reflects the new size.
+            pv_name = self._poll_pvc_capacity_updated(pvc_name, expanded_size, expand_timeout)
+            if pv_name is None:
+                any_failed = True
+                self.report_subtest(
+                    "pv-capacity-updated",
+                    passed=False,
+                    message=(
+                        f"PVC {pvc_name!r} status.capacity.storage did not reach >= {expanded_size!r} "
+                        f"within {expand_timeout}s"
+                    ),
+                )
+                self.report_subtest(
+                    "df-shows-new-size",
+                    passed=True,
+                    message="pv-capacity-updated failed; df probe skipped",
+                    skipped=True,
+                )
+            else:
+                # Also check the PV's spec.capacity.storage.
+                pv_ok = self._check_pv_capacity(pv_name, expanded_size)
+                self.report_subtest(
+                    "pv-capacity-updated",
+                    passed=pv_ok,
+                    message=(
+                        f"PV {pv_name!r} spec.capacity.storage is >= {expanded_size!r}"
+                        if pv_ok
+                        else f"PV {pv_name!r} spec.capacity.storage did not reach >= {expanded_size!r}"
+                    ),
+                )
+                if not pv_ok:
+                    any_failed = True
+
+                df_ok = self._poll_df_size(pod_name, expanded_size, expand_timeout)
+                self.report_subtest(
+                    "df-shows-new-size",
+                    passed=df_ok,
+                    message=(
+                        f"df /data inside pod {pod_name!r} reflects ≥90% of {expanded_size!r}"
+                        if df_ok
+                        else (
+                            f"df /data inside pod {pod_name!r} did not reflect ≥90% of {expanded_size!r} "
+                            f"within {expand_timeout}s"
+                        )
+                    ),
+                )
+                if not df_ok:
+                    any_failed = True
+
+            if any_failed:
+                self.set_failed("One or more PVC-expand subtests failed; see subtest details")
+            else:
+                self.set_passed(
+                    f"PVC {pvc_name!r} expanded from {initial_size!r} to {expanded_size!r}; "
+                    f"PV and mount reflect new capacity"
+                )
+        finally:
+            if ns_created:
+                cleanup = self.run_command(
+                    f"{self._kubectl_base} delete namespace {ns_quoted} --wait=false --ignore-not-found=true"
+                )
+                if cleanup.exit_code != 0:
+                    self.log.warning("Namespace cleanup failed for %s: %s", self._namespace, cleanup.stderr)
+
+    def _poll_pvc_capacity_updated(self, pvc_name: str, expected_size: str, timeout_s: int) -> str | None:
+        """Poll until ``PVC.status.capacity.storage`` is at least ``expected_size``.
+
+        Returns the PVC's ``spec.volumeName`` (used to check the PV) on
+        success, or ``None`` on timeout / parse failure.
+        """
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            payload, _err = _get_pvc_json(self.run_command, self._kubectl_base, self._namespace, pvc_name)
+            if payload is not None:
+                capacity = str(((payload.get("status") or {}).get("capacity") or {}).get("storage") or "")
+                if capacity and _capacity_meets_request(capacity, expected_size):
+                    return str((payload.get("spec") or {}).get("volumeName") or "")
+            time.sleep(3.0)
+        return None
+
+    def _check_pv_capacity(self, pv_name: str, expected_size: str) -> bool:
+        """Return True when the PV's ``spec.capacity.storage`` is at least ``expected_size``."""
+        if not pv_name:
+            return False
+        result = self.run_command(f"{self._kubectl_base} get pv {shlex.quote(pv_name)} -o json")
+        if result.exit_code != 0:
+            self.log.warning("kubectl get pv %s failed: %s", pv_name, result.stderr.strip())
+            return False
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return False
+        capacity = str(((payload.get("spec") or {}).get("capacity") or {}).get("storage") or "")
+        return bool(capacity) and _capacity_meets_request(capacity, expected_size)
+
+    def _poll_df_size(self, pod_name: str, expected_size: str, timeout_s: int) -> bool:
+        """Poll ``df -k /data`` inside ``pod_name`` until it reports ≥ 90 % of ``expected_size``.
+
+        Retries every 5 s up to ``timeout_s``. Some CSI drivers (especially
+        NFS/shared-FS) update the Kubernetes API objects before the
+        mount-side quota or export size propagates to the node.
+        """
+        try:
+            expected_bytes = int(parse_quantity(expected_size))
+        except (ValueError, TypeError):
+            self.log.warning("Could not parse expected_size %r as a Kubernetes quantity", expected_size)
+            return False
+
+        cmd = f"{self._kubectl_base} exec -n {shlex.quote(self._namespace)} {shlex.quote(pod_name)} -- df -k /data"
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            result = self.run_command(cmd)
+            if result.exit_code != 0:
+                self.log.warning(
+                    "df exec failed in pod %s: %s",
+                    pod_name,
+                    result.stderr.strip() or result.stdout.strip(),
+                )
+                time.sleep(5.0)
+                continue
+            kb_blocks = _parse_df_size_kb(result.stdout)
+            if kb_blocks is None:
+                self.log.warning("df output not parseable in pod %s:\n%s", pod_name, result.stdout.strip())
+                time.sleep(5.0)
+                continue
+            actual_bytes = kb_blocks * 1024
+            if actual_bytes >= int(expected_bytes * 0.90):
+                return True
+            self.log.info(
+                "df /data in pod %s: %d KiB (%d bytes); waiting for ≥90%% of %s (%d bytes)\n%s",
+                pod_name,
+                kb_blocks,
+                actual_bytes,
+                expected_size,
+                int(expected_bytes * 0.90),
+                result.stdout.strip(),
+            )
+            time.sleep(5.0)
+        return False
+
+
+def _parse_df_size_kb(df_output: str) -> int | None:
+    """Extract the total-size column (1K-blocks) from ``df -k`` output.
+
+    Handles the two common output shapes:
+
+    * Single data line (most filesystems)::
+
+        Filesystem   1K-blocks  Used  Available  Use%  Mounted on
+        /dev/sda1    2097152    512   2096640    0%    /data
+
+    * Wrapped data line (long NFS/CIFS paths)::
+
+        Filesystem
+                     1K-blocks  Used  Available  Use%  Mounted on
+        server:/very/long/path/name
+                     2097152    512   2096640    0%    /data
+
+    Returns the integer value of the first ``1K-blocks`` field found on a
+    data line, or ``None`` when the output cannot be parsed.
+    """
+    lines = df_output.strip().splitlines()
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("Filesystem"):
+            continue
+        parts = stripped.split()
+        # A data line has ≥5 fields (filesystem, size, used, avail, use%, mount).
+        # A wrapped-path continuation line has 5 fields (no leading filesystem token).
+        if len(parts) >= 5:
+            # If the first field looks numeric it's a wrapped continuation line
+            # and parts[0] is the 1K-blocks value; otherwise parts[1] is.
+            if parts[0].isdigit():
+                try:
+                    return int(parts[0])
+                except ValueError:
+                    continue
+            if len(parts) >= 6:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    continue
+    return None
+
+
+def _apply_pvc_manifest(
+    kubectl_parts: list[str],
+    namespace: str,
+    name: str,
+    sc: str,
+    mode: str,
+    size: str,
+    timeout: float,
+) -> tuple[int, str]:
+    """Render the PVC manifest and apply it; return ``(returncode, stderr-or-stdout)``."""
+
+    def _mutate(doc: dict[str, Any]) -> dict[str, Any]:
+        return _set_pvc_fields(doc, namespace=namespace, name=name, sc=sc, mode=mode, size=size)
+
+    return _apply_manifest(kubectl_parts, render_k8s_manifest(_PVC_MANIFEST, _mutate), timeout)
 
 
 def _set_mount_pod_fields(

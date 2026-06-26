@@ -288,6 +288,7 @@ tests:
           # unset, so providers that don't pre-provision a volume can still
           # run the dynamic probe.
           dynamic_storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+          dynamic_pvc_size: "1Gi"
           static_pv:
             volume_handle: "{{ steps.setup.csi.static_volume_handle | default('', true) }}"
             csi_driver: "{{ steps.setup.csi.static_driver_name | default('', true) }}"
@@ -319,6 +320,23 @@ tests:
                 - "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
               workloads: {}
           min_controller_replicas: 1
+        K8sCsiConcurrentPvcCheck:
+          test_id: "K8S23-08"
+          labels: ["kubernetes", "min_req"]
+          storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+          pvc_count: 2
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          namespace_prefix: "isvtest-csi-concurrent"
+        K8sCsiPvcExpandCheck:
+          test_id: "K8S23-09"
+          labels: ["kubernetes", "min_req"]
+          storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+          initial_size: "1Gi"
+          expanded_size: "2Gi"
+          bind_timeout_s: 120
+          expand_timeout_s: 180
+          namespace_prefix: "isvtest-csi-expand"
 
     k8s_identity:
       checks:
