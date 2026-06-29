@@ -134,6 +134,7 @@ def labels_cmd(
     label_files = build_label_file_map() if show_files else {}
 
     def files_for(label: str) -> list[str]:
+        """Return the sorted config files declaring ``label`` (empty without --files)."""
         return sorted(label_files.get(label, set()))
 
     if json_output:
