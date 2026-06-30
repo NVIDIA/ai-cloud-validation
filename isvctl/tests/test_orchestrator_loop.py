@@ -240,6 +240,80 @@ EOF
         assert result.inventory is not None
         assert "unreleased_setup" in result.inventory
 
+    def test_pytest_k_selection_prunes_unrelated_steps(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A focused -k run should execute only steps needed by the selected validation."""
+        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
+        selected_probe = _write_script(
+            tmp_path,
+            "selected_probe.sh",
+            '#!/bin/bash\necho \'{"success": true, "platform": "kubernetes", "field": "present"}\'\n',
+        )
+        setup_script = _write_script(
+            tmp_path,
+            "selected_setup.sh",
+            '#!/bin/bash\necho \'{"success": true, "platform": "kubernetes"}\'\n',
+        )
+        teardown_script = _write_script(
+            tmp_path,
+            "selected_teardown.sh",
+            '#!/bin/bash\necho \'{"success": true, "platform": "kubernetes"}\'\n',
+        )
+
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["setup", "test", "teardown"],
+                    steps=[
+                        StepConfig(
+                            name="selected_setup",
+                            command=setup_script,
+                            phase="setup",
+                            requires_available_validations=["FieldExistsCheck"],
+                        ),
+                        StepConfig(name="selected_probe", command=selected_probe, phase="test"),
+                        StepConfig(name="unrelated_probe", command="false", phase="test"),
+                        StepConfig(
+                            name="selected_teardown",
+                            command=teardown_script,
+                            phase="teardown",
+                            requires_available_validations=["FieldExistsCheck"],
+                        ),
+                        StepConfig(name="unrelated_teardown", command="false", phase="teardown"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(
+                platform="kubernetes",
+                validations={
+                    "selected_checks": {
+                        "step": "selected_probe",
+                        "checks": {"FieldExistsCheck": {"field": "field"}},
+                    },
+                    "unrelated_checks": {
+                        "step": "unrelated_probe",
+                        "checks": {"StepSuccessCheck": {}},
+                    },
+                },
+            ),
+        )
+
+        result = Orchestrator(config).run(extra_pytest_args=["-k", "FieldExistsCheck"])
+
+        assert result.success
+        steps_by_phase = {
+            phase.phase: [step["name"] for step in phase.details["steps"]] for phase in result.phases if phase.details
+        }
+        assert steps_by_phase[Phase.SETUP] == ["selected_setup"]
+        assert steps_by_phase[Phase.TEST] == ["selected_probe"]
+        assert steps_by_phase[Phase.TEARDOWN] == ["selected_teardown"]
+        validations = result.phases[1].details["validations"]
+        assert [validation["name"] for validation in validations] == ["FieldExistsCheck", "StepSuccessCheck"]
+        assert validations[1]["skip_reason"] == "test_excluded"
+
     def test_run_setup_phase_command_failure(self) -> None:
         """Test setup phase with command failure."""
         config = RunConfig(
