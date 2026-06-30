@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from isvctl.config.label_discovery import discover_provider_label_configs
+from isvctl.config.label_discovery import available_labels, discover_provider_label_configs
 
 
 def _write_provider_config(root: Path, provider: str, name: str, suite: str) -> Path:
@@ -80,6 +80,19 @@ def test_discovery_excludes_configs_matched_only_by_unreleased_checks(tmp_path: 
 
     assert [match.config_path.name for match in matches] == ["network.yaml"]
     assert [check.name for check in matches[0].matched_checks] == ["NetworkCheck"]
+
+
+def test_available_labels_honors_release_filter(tmp_path: Path) -> None:
+    """Provider label suggestions only include labels from checks that can run."""
+    configs_root = tmp_path / "configs"
+    _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
+    _write_suite(configs_root, "future.yaml", ["future"], "UnreleasedCheck")
+    _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml")
+    _write_provider_config(configs_root, "aws", "future.yaml", "future.yaml")
+
+    labels = available_labels("aws", configs_root=configs_root, released_tests={"NetworkCheck"})
+
+    assert labels == {"network"}
 
 
 def test_discovery_requires_all_requested_labels(tmp_path: Path) -> None:

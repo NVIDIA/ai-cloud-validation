@@ -50,12 +50,19 @@ def list_providers(configs_root: Path) -> list[str]:
     )
 
 
-def available_labels(provider: str, *, configs_root: Path) -> set[str]:
-    """Return every label declared across a provider's resolved config wiring."""
+def available_labels(
+    provider: str,
+    *,
+    configs_root: Path,
+    released_tests: set[str] | None = None,
+) -> set[str]:
+    """Return labels declared by runnable checks across a provider's resolved configs."""
     provider_config_dir = configs_root / "providers" / provider / "config"
     labels: set[str] = set()
     for config_path in provider_config_dir.glob("*.yaml"):
         for entry in _iter_config_validations(config_path):
+            if released_tests is not None and resolve_class_key(entry.name, released_tests) is None:
+                continue
             labels.update(entry.labels)
     return labels
 

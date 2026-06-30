@@ -265,11 +265,12 @@ def run(
             print_error(f"Unknown provider {provider!r}. Available providers: {', '.join(known_providers)}")
             raise typer.Exit(code=1)
 
+        released_tests = load_released_test_filter()
         matches = discover_provider_label_configs(
-            provider, labels, configs_root=CONFIGS_ROOT, released_tests=load_released_test_filter()
+            provider, labels, configs_root=CONFIGS_ROOT, released_tests=released_tests
         )
         if not matches:
-            known_labels = available_labels(provider, configs_root=CONFIGS_ROOT)
+            known_labels = available_labels(provider, configs_root=CONFIGS_ROOT, released_tests=released_tests)
             print_error(
                 f"No {provider!r} provider configs match labels: {', '.join(labels)}. "
                 f"Available labels for {provider!r}: {', '.join(sorted(known_labels))}"

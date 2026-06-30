@@ -187,6 +187,7 @@ def test_provider_discovery_no_label_match_lists_available_labels(
     _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
     _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml", "network")
     _FakeOrchestrator.calls = []
+    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
     monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
     monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
 

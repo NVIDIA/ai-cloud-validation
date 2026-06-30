@@ -106,6 +106,11 @@ isvctl test run -f isvctl/configs/suites/k8s.yaml --phase teardown
 # Dry run - validate config without executing
 isvctl test run -f isvctl/configs/suites/k8s.yaml --dry-run
 
+# Discover provider configs with matching requirement labels, then run each
+# matching config as its own lifecycle
+isvctl test run --provider aws --label network
+isvctl test run --provider aws --label network --dry-run
+
 # Verbose with pytest options
 isvctl test run -f isvctl/configs/suites/k8s.yaml -- -v -s --tb=short
 ```

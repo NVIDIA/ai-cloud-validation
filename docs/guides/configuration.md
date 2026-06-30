@@ -81,6 +81,33 @@ isvctl test run -f config.yaml --dry-run
 isvctl test run -f config.yaml -- -v -s -k "NodeCount"
 ```
 
+## Provider Label Discovery
+
+Explicit config mode and provider discovery mode are intentionally separate:
+
+- `isvctl test run -f config.yaml --label network` runs the supplied config and
+  filters validations inside it.
+- `isvctl test run --provider aws --label network` scans
+  `isvctl/configs/providers/aws/config/*.yaml`, resolves each config's imports,
+  and runs every provider config that contains at least one runnable check with
+  all requested labels.
+
+Discovery mode treats provider configs as independent lifecycle contexts. It
+does not merge matching configs into a super-config, so each selected config
+keeps its own platform, commands, step outputs, teardown behavior, working
+directory, and JUnit/reporting context.
+
+Use `--dry-run` to inspect the plan before running any lifecycle:
+
+```bash
+isvctl test run --provider aws --label network --dry-run
+```
+
+The output lists the selected config files and the checks that matched. This is
+the runtime form of the matrix model: provider configs describe the service
+line or execution surface, while labels select requirement rows such as
+`network`, `security`, `iam`, `observability`, or `sanitization`.
+
 ## Config Structure
 
 ### Complete Example
@@ -676,11 +703,22 @@ Filter tests using labels:
 # Run only specific tests
 isvctl test run -f config.yaml -- -k "vpc_crud"
 
-# Run by label
+# Filter a specific config by label
 isvctl test run -f config.yaml --label kubernetes
+
+# Discover provider configs by label, then filter each selected config
+isvctl test run --provider aws --label network
 ```
 
-Available labels: `bare_metal`, `vm`, `kubernetes`, `slurm`, `gpu`, `network`, `ssh`, `security`, `iam`, `workload`, `slow`
+Repeated labels use AND semantics: a check must carry every requested label to
+match. For example, `--label network --label security` selects checks that are
+both network-related and security-related.
+
+Common label groups:
+
+- Execution targets: `bare_metal`, `vm`, `kubernetes`, `slurm`
+- Requirement areas: `network`, `security`, `iam`, `observability`, `sanitization`
+- Traits: `min_req`, `gpu`, `ssh`, `workload`, `slow`
 
 ## Related Documentation
 
