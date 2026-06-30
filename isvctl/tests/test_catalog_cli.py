@@ -16,10 +16,13 @@
 """Unit tests for the catalog CLI subcommand."""
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
+import isvctl.cli.catalog as catalog_cli
 from isvctl.cli.catalog import app
 
 runner = CliRunner()
@@ -40,6 +43,45 @@ _FAKE_ENTRIES = [
         "platforms": [],
     },
 ]
+
+
+def _write_provider_config(root: Path, provider: str, name: str, suite: str) -> Path:
+    """Write a provider config importing one suite."""
+    config_path = root / "providers" / provider / "config" / name
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        f"""\
+import:
+  - ../../../suites/{suite}
+commands:
+  demo:
+    phases: [test]
+    steps: []
+tests:
+  platform: demo
+""",
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def _write_suite(root: Path, name: str, labels: list[str], check_name: str) -> None:
+    """Write a suite with one labelled validation check."""
+    labels_yaml = ", ".join(f'"{label}"' for label in labels)
+    suite_path = root / "suites" / name
+    suite_path.parent.mkdir(parents=True, exist_ok=True)
+    suite_path.write_text(
+        f"""\
+tests:
+  validations:
+    sample:
+      checks:
+        {check_name}:
+          test_id: "N/A"
+          labels: [{labels_yaml}]
+""",
+        encoding="utf-8",
+    )
 
 
 def test_catalog_help() -> None:
@@ -138,6 +180,56 @@ def test_catalog_labels_files_option_adds_files() -> None:
         },
         {"label": "security", "tests": 1, "files": ["suites/security.yaml"]},
     ]
+
+
+def test_catalog_labels_provider_json_honors_release_filter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`catalog labels --provider --json` lists runnable provider labels only."""
+    configs_root = tmp_path / "configs"
+    _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
+    _write_suite(configs_root, "observability.yaml", ["network", "observability"], "VpcFlowLogsCheck")
+    _write_suite(configs_root, "future.yaml", ["future"], "UnreleasedCheck")
+    _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml")
+    _write_provider_config(configs_root, "aws", "observability.yaml", "observability.yaml")
+    _write_provider_config(configs_root, "aws", "future.yaml", "future.yaml")
+    monkeypatch.setattr(catalog_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(catalog_cli, "load_released_test_filter", lambda: {"NetworkCheck", "VpcFlowLogsCheck"})
+
+    result = runner.invoke(app, ["labels", "--provider", "aws", "--files", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["provider"] == "aws"
+    assert payload["labels"] == [
+        {
+            "label": "network",
+            "tests": 2,
+            "configs": 2,
+            "files": [
+                "providers/aws/config/network.yaml",
+                "providers/aws/config/observability.yaml",
+            ],
+        },
+        {
+            "label": "observability",
+            "tests": 1,
+            "configs": 1,
+            "files": ["providers/aws/config/observability.yaml"],
+        },
+    ]
+
+
+def test_catalog_labels_provider_unknown_lists_available(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An unknown provider reports discoverable providers for label inspection."""
+    configs_root = tmp_path / "configs"
+    _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
+    _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml")
+    monkeypatch.setattr(catalog_cli, "CONFIGS_ROOT", configs_root)
+
+    result = runner.invoke(app, ["labels", "--provider", "gcp", "--json"])
+
+    assert result.exit_code == 1, result.output
+    assert "Unknown provider 'gcp'" in result.output
+    assert "aws" in result.output
 
 
 def test_catalog_list_unreleased_json() -> None:

@@ -21,18 +21,21 @@ Manage the test catalog: build, save, and upload to ISV Lab Service.
 import json
 import logging
 from collections import Counter
+from pathlib import Path
 from typing import Annotated
 
 import typer
 from isvtest.catalog import build_catalog, build_label_file_map, get_catalog_version
-from isvtest.release_manifest import load_released_tests
+from isvtest.release_manifest import load_released_test_filter, load_released_tests
 from rich.console import Console
 from rich.table import Table
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import get_output_dir, print_error, print_progress
+from isvctl.config.label_discovery import list_providers, summarize_provider_labels
 
 logger = logging.getLogger(__name__)
+CONFIGS_ROOT = Path(__file__).resolve().parents[3] / "configs"
 
 app = typer.Typer(
     name="catalog",
@@ -112,6 +115,10 @@ def labels_cmd(
         bool,
         typer.Option("--json", help="Emit the labels as JSON instead of a table"),
     ] = False,
+    provider: Annotated[
+        str | None,
+        typer.Option("--provider", help="Limit labels to runnable checks in one provider's configs"),
+    ] = None,
     show_files: Annotated[
         bool,
         typer.Option("--files", help="Also show the config file(s) declaring each label"),
@@ -125,10 +132,59 @@ def labels_cmd(
 
     Examples:
         isvctl catalog labels
+        isvctl catalog labels --provider aws
         isvctl catalog labels --files
         isvctl catalog labels --json
         ISVTEST_INCLUDE_UNRELEASED=1 isvctl catalog labels
     """
+    if provider:
+        known_providers = list_providers(CONFIGS_ROOT)
+        if provider not in known_providers:
+            print_error(f"Unknown provider {provider!r}. Available providers: {', '.join(known_providers)}")
+            raise typer.Exit(code=1)
+
+        released_tests = load_released_test_filter()
+        summaries = summarize_provider_labels(provider, configs_root=CONFIGS_ROOT, released_tests=released_tests)
+
+        def files_for_provider(config_paths: tuple[Path, ...]) -> list[str]:
+            """Return provider config paths relative to the configs root."""
+            return [path.relative_to(CONFIGS_ROOT).as_posix() for path in config_paths]
+
+        if json_output:
+            labels = [
+                {
+                    "label": summary.label,
+                    "tests": len(summary.checks),
+                    "configs": len(summary.config_paths),
+                    **({"files": files_for_provider(summary.config_paths)} if show_files else {}),
+                }
+                for summary in summaries
+            ]
+            typer.echo(json.dumps({"provider": provider, "labels": labels}, indent=2))
+            return
+
+        table = Table(
+            title=f"Provider Catalog Labels: {provider} ({len(summaries)} labels)",
+            title_justify="left",
+            show_header=True,
+            header_style="bold",
+            padding=(0, 1),
+        )
+        table.add_column("Label", style="green", no_wrap=True)
+        table.add_column("Tests", style="cyan", justify="right")
+        table.add_column("Configs", style="cyan", justify="right")
+        if show_files:
+            table.add_column("Files", style="dim")
+
+        for summary in summaries:
+            row = [summary.label, str(len(summary.checks)), str(len(summary.config_paths))]
+            if show_files:
+                row.append("\n".join(files_for_provider(summary.config_paths)) or "-")
+            table.add_row(*row)
+
+        console.print(table)
+        return
+
     counts = Counter(label for entry in build_catalog() for label in (entry.get("labels") or []))
     sorted_counts = sorted(counts.items())
     label_files = build_label_file_map() if show_files else {}

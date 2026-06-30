@@ -100,13 +100,16 @@ directory, and JUnit/reporting context.
 Use `--dry-run` to inspect the plan before running any lifecycle:
 
 ```bash
+isvctl catalog labels --provider aws
 isvctl test run --provider aws --label network --dry-run
 ```
 
-The output lists the selected config files and the checks that matched. This is
-the runtime form of the matrix model: provider configs describe the service
-line or execution surface, while labels select requirement rows such as
-`network`, `security`, `iam`, `observability`, or `sanitization`.
+`catalog labels --provider` lists runnable labels across the provider's resolved
+configs, including config counts and optional config file paths with `--files`.
+The dry-run output lists the selected config files and the checks that matched.
+Together these are the runtime form of the matrix model: provider configs
+describe the service line or execution surface, while labels select requirement
+rows such as `network`, `security`, `iam`, `observability`, or `sanitization`.
 
 ## Config Structure
 

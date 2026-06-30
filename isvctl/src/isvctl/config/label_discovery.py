@@ -38,6 +38,15 @@ class ProviderConfigMatch:
     matched_checks: tuple[MatchedCheck, ...]
 
 
+@dataclass(frozen=True)
+class ProviderLabelSummary:
+    """Provider-scoped label metadata for runnable checks."""
+
+    label: str
+    checks: tuple[str, ...]
+    config_paths: tuple[Path, ...]
+
+
 def list_providers(configs_root: Path) -> list[str]:
     """Return provider names that expose a discoverable ``config/*.yaml`` directory."""
     providers_dir = configs_root / "providers"
@@ -65,6 +74,35 @@ def available_labels(
                 continue
             labels.update(entry.labels)
     return labels
+
+
+def summarize_provider_labels(
+    provider: str,
+    *,
+    configs_root: Path,
+    released_tests: set[str] | None = None,
+) -> list[ProviderLabelSummary]:
+    """Return runnable label summaries across a provider's resolved configs."""
+    provider_config_dir = configs_root / "providers" / provider / "config"
+    label_checks: dict[str, set[str]] = {}
+    label_configs: dict[str, set[Path]] = {}
+
+    for config_path in sorted(provider_config_dir.glob("*.yaml")):
+        for entry in _iter_config_validations(config_path):
+            if released_tests is not None and resolve_class_key(entry.name, released_tests) is None:
+                continue
+            for label in entry.labels:
+                label_checks.setdefault(label, set()).add(entry.name)
+                label_configs.setdefault(label, set()).add(config_path)
+
+    return [
+        ProviderLabelSummary(
+            label=label,
+            checks=tuple(sorted(label_checks[label])),
+            config_paths=tuple(sorted(label_configs[label])),
+        )
+        for label in sorted(label_checks)
+    ]
 
 
 def discover_provider_label_configs(
