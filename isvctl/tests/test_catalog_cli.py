@@ -185,14 +185,22 @@ def test_catalog_labels_files_option_adds_files() -> None:
 def test_catalog_labels_provider_json_honors_release_filter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """`catalog labels --provider --json` lists runnable provider labels only."""
     configs_root = tmp_path / "configs"
+    _write_suite(configs_root, "vm.yaml", ["vm"], "VmCheck")
     _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
     _write_suite(configs_root, "observability.yaml", ["network", "observability"], "VpcFlowLogsCheck")
+    _write_suite(configs_root, "gpu.yaml", ["gpu"], "GpuCheck")
     _write_suite(configs_root, "future.yaml", ["future"], "UnreleasedCheck")
+    _write_provider_config(configs_root, "aws", "vm.yaml", "vm.yaml")
     _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml")
     _write_provider_config(configs_root, "aws", "observability.yaml", "observability.yaml")
+    _write_provider_config(configs_root, "aws", "gpu.yaml", "gpu.yaml")
     _write_provider_config(configs_root, "aws", "future.yaml", "future.yaml")
     monkeypatch.setattr(catalog_cli, "CONFIGS_ROOT", configs_root)
-    monkeypatch.setattr(catalog_cli, "load_released_test_filter", lambda: {"NetworkCheck", "VpcFlowLogsCheck"})
+    monkeypatch.setattr(
+        catalog_cli,
+        "load_released_test_filter",
+        lambda: {"VmCheck", "NetworkCheck", "VpcFlowLogsCheck", "GpuCheck"},
+    )
 
     result = runner.invoke(app, ["labels", "--provider", "aws", "--files", "--json"])
 
@@ -201,7 +209,17 @@ def test_catalog_labels_provider_json_honors_release_filter(monkeypatch: pytest.
     assert payload["provider"] == "aws"
     assert payload["labels"] == [
         {
+            "label": "vm",
+            "display": "VMaaS",
+            "kind": "capability",
+            "tests": 1,
+            "configs": 1,
+            "files": ["providers/aws/config/vm.yaml"],
+        },
+        {
             "label": "network",
+            "display": "Networking",
+            "kind": "requirement",
             "tests": 2,
             "configs": 2,
             "files": [
@@ -211,9 +229,19 @@ def test_catalog_labels_provider_json_honors_release_filter(monkeypatch: pytest.
         },
         {
             "label": "observability",
+            "display": "Observability",
+            "kind": "requirement",
             "tests": 1,
             "configs": 1,
             "files": ["providers/aws/config/observability.yaml"],
+        },
+        {
+            "label": "gpu",
+            "display": "GPU",
+            "kind": "trait",
+            "tests": 1,
+            "configs": 1,
+            "files": ["providers/aws/config/gpu.yaml"],
         },
     ]
 

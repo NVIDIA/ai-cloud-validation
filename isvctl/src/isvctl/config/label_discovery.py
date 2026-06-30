@@ -11,6 +11,7 @@ from pathlib import Path
 
 from isvtest.core.resolution import ValidationEntry, parse_validations, resolve_class_key
 
+from isvctl.config.label_taxonomy import label_sort_key
 from isvctl.config.merger import merge_yaml_files
 
 
@@ -101,7 +102,7 @@ def summarize_provider_labels(
             checks=tuple(sorted(label_checks[label])),
             config_paths=tuple(sorted(label_configs[label])),
         )
-        for label in sorted(label_checks)
+        for label in sorted(label_checks, key=label_sort_key)
     ]
 
 

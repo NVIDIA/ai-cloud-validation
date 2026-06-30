@@ -111,6 +111,21 @@ Together these are the runtime form of the matrix model: provider configs
 describe the service line or execution surface, while labels select requirement
 rows such as `network`, `security`, `iam`, `observability`, or `sanitization`.
 
+The label taxonomy is intentionally explicit:
+
+- Capability labels are execution columns: `native_cloud`, `vm` (VMaaS),
+  `bare_metal` (BMaaS), `slurm`, and `kubernetes` (K8s). Current configs also
+  expose `control_plane` and `image_registry` as capability labels while the
+  Native AI Cloud column naming settles.
+- Requirement labels are cross-cutting rows: `iam`, `security`, `network`
+  (Networking), `observability`, and `sanitization`.
+- Trait labels refine a query without defining a row or column: `min_req`,
+  `gpu`, `ssh`, `workload`, `slow`, and similar hardware or execution traits.
+
+Keep YAML suites and provider configs lifecycle-scoped while this taxonomy is
+settled. Rename or consolidate suite files only after the capability columns and
+requirement rows are stable enough to avoid config merge collisions.
+
 ## Config Structure
 
 ### Complete Example

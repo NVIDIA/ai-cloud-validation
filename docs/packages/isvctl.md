@@ -108,6 +108,7 @@ isvctl test run -f isvctl/configs/suites/k8s.yaml --dry-run
 
 # Discover provider configs with matching requirement labels, then run each
 # matching config as its own lifecycle
+# Label output classifies capabilities, requirements, and traits.
 isvctl catalog labels --provider aws
 isvctl test run --provider aws --label network
 isvctl test run --provider aws --label network --dry-run

@@ -33,6 +33,7 @@ from rich.table import Table
 from isvctl.cli import setup_logging
 from isvctl.cli.common import get_output_dir, print_error, print_progress
 from isvctl.config.label_discovery import list_providers, summarize_provider_labels
+from isvctl.config.label_taxonomy import label_metadata
 
 logger = logging.getLogger(__name__)
 CONFIGS_ROOT = Path(__file__).resolve().parents[3] / "configs"
@@ -151,15 +152,19 @@ def labels_cmd(
             return [path.relative_to(CONFIGS_ROOT).as_posix() for path in config_paths]
 
         if json_output:
-            labels = [
-                {
-                    "label": summary.label,
-                    "tests": len(summary.checks),
-                    "configs": len(summary.config_paths),
-                    **({"files": files_for_provider(summary.config_paths)} if show_files else {}),
-                }
-                for summary in summaries
-            ]
+            labels = []
+            for summary in summaries:
+                metadata = label_metadata(summary.label)
+                labels.append(
+                    {
+                        "label": summary.label,
+                        "display": metadata.display_name,
+                        "kind": metadata.kind,
+                        "tests": len(summary.checks),
+                        "configs": len(summary.config_paths),
+                        **({"files": files_for_provider(summary.config_paths)} if show_files else {}),
+                    }
+                )
             typer.echo(json.dumps({"provider": provider, "labels": labels}, indent=2))
             return
 
@@ -171,13 +176,22 @@ def labels_cmd(
             padding=(0, 1),
         )
         table.add_column("Label", style="green", no_wrap=True)
+        table.add_column("Display")
+        table.add_column("Kind", style="magenta")
         table.add_column("Tests", style="cyan", justify="right")
         table.add_column("Configs", style="cyan", justify="right")
         if show_files:
             table.add_column("Files", style="dim")
 
         for summary in summaries:
-            row = [summary.label, str(len(summary.checks)), str(len(summary.config_paths))]
+            metadata = label_metadata(summary.label)
+            row = [
+                summary.label,
+                metadata.display_name,
+                metadata.kind,
+                str(len(summary.checks)),
+                str(len(summary.config_paths)),
+            ]
             if show_files:
                 row.append("\n".join(files_for_provider(summary.config_paths)) or "-")
             table.add_row(*row)
