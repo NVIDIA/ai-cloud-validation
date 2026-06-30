@@ -291,6 +291,9 @@ tests:
           static_pv:
             volume_handle: "{{ steps.setup.csi.static_volume_handle | default('', true) }}"
             csi_driver: "{{ steps.setup.csi.static_driver_name | default('', true) }}"
+            # Zonal block volumes (EBS/PD/Disk) must pin their consumer pod to
+            # the volume's AZ; empty for zone-agnostic backends.
+            zone: "{{ steps.setup.csi.static_volume_az | default('', true) }}"
             fs_type: "ext4"
             capacity: "1Gi"
             access_mode: "ReadWriteOnce"

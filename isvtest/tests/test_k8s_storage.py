@@ -1911,6 +1911,35 @@ class TestSetPvFields:
         assert out["spec"]["csi"]["volumeHandle"] == "vh"
         assert out["spec"]["claimRef"]["name"] == "pvc"
 
+    def test_no_zone_omits_node_affinity(self) -> None:
+        """A zone-agnostic backend (e.g. EFS) must not pin the PV to a zone."""
+        out = _set_pv_fields(self._base_doc(), **self._args())
+        assert "nodeAffinity" not in out["spec"]
+
+    def test_zone_sets_topology_node_affinity(self) -> None:
+        """A zonal block backend pins the PV to its volume's AZ."""
+        out = _set_pv_fields(self._base_doc(), zone="us-west-2a", **self._args())
+        terms = out["spec"]["nodeAffinity"]["required"]["nodeSelectorTerms"]
+        expr = terms[0]["matchExpressions"][0]
+        assert expr == {
+            "key": "topology.kubernetes.io/zone",
+            "operator": "In",
+            "values": ["us-west-2a"],
+        }
+
+    def _args(self) -> dict[str, Any]:
+        """Common required kwargs for ``_set_pv_fields``."""
+        return {
+            "name": "pv-z",
+            "driver": "ebs.csi.aws.com",
+            "volume_handle": "vol-1",
+            "fs_type": "ext4",
+            "capacity": "1Gi",
+            "access_mode": "ReadWriteOnce",
+            "claim_namespace": "ns",
+            "claim_name": "pvc",
+        }
+
 
 class TestSetMountPodFields:
     """Tests for ``_set_mount_pod_fields`` - the BusyBox mount-pod mutator."""
@@ -1942,6 +1971,15 @@ class TestSetMountPodFields:
         # volumeMounts inside the container are template-defined; the mutator
         # only touches volumes so the mount path stays /data as documented.
         assert out["spec"]["containers"][0]["volumeMounts"][0]["mountPath"] == "/data"
+
+    def test_excludes_test_pool_nodes(self) -> None:
+        """Probe pods must avoid transient test-pool nodes via node anti-affinity."""
+        out = _set_mount_pod_fields(self._base_doc(), namespace="ns1", name="probe-1", pvc_name="pvc-1")
+        terms = out["spec"]["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"][
+            "nodeSelectorTerms"
+        ]
+        expr = terms[0]["matchExpressions"][0]
+        assert expr == {"key": "isv.ncp.validation/pool", "operator": "DoesNotExist"}
 
 
 class TestK8sCsiProvisioningModesCheck:

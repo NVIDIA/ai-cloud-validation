@@ -411,6 +411,7 @@ EFS_SC=$(kubectl get sc -o json 2>/dev/null \
 
 STATIC_VOLUME_HANDLE=""
 STATIC_DRIVER_NAME=""
+STATIC_VOLUME_AZ=""
 if [ -n "$BLOCK_SC" ]; then
     NODE_AZ=$(kubectl get nodes -l nvidia.com/gpu.present=true \
         -o jsonpath='{.items[0].metadata.labels.topology\.kubernetes\.io/zone}' 2>/dev/null || echo "")
@@ -449,6 +450,16 @@ if [ -n "$BLOCK_SC" ]; then
 
         if [ -n "$STATIC_VOLUME_HANDLE" ]; then
             STATIC_DRIVER_NAME="ebs.csi.aws.com"
+            # EBS volumes are zonal; the static PV must pin its consumer pod to
+            # the volume's AZ or the attach hangs cross-zone. Read the actual AZ
+            # (covers both the freshly-created and reused-volume paths).
+            STATIC_VOLUME_AZ=$(aws ec2 describe-volumes \
+                --volume-ids "$STATIC_VOLUME_HANDLE" \
+                --region "$AWS_REGION" \
+                --query 'Volumes[0].AvailabilityZone' --output text 2>/dev/null || echo "")
+            if [ "$STATIC_VOLUME_AZ" = "None" ]; then
+                STATIC_VOLUME_AZ=""
+            fi
         fi
     else
         echo "Warning: could not determine worker-node AZ; skipping standalone EBS volume creation" >&2
@@ -490,7 +501,8 @@ cat << EOF
     "shared_fs_storage_class": "${EFS_SC}",
     "nfs_storage_class": "${EFS_SC}",
     "static_volume_handle": "${STATIC_VOLUME_HANDLE}",
-    "static_driver_name": "${STATIC_DRIVER_NAME}"
+    "static_driver_name": "${STATIC_DRIVER_NAME}",
+    "static_volume_az": "${STATIC_VOLUME_AZ}"
   },
   "aws": {
     "region": "${AWS_REGION}",
