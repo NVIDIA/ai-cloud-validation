@@ -48,6 +48,7 @@ class TestUploadTestCatalog:
                 "description": "Test A",
                 "labels": ["k8s"],
                 "module": "mod.a",
+                "test_ids": ["K8S06-01"],
             },
             {"name": "TestB", "description": "Test B", "labels": [], "module": "mod.b"},
         ]
@@ -72,8 +73,10 @@ class TestUploadTestCatalog:
         assert len(payload["entries"]) == 2
         assert payload["entries"][0]["name"] == "TestA"
         assert payload["entries"][0]["labels"] == ["k8s"]
+        assert payload["entries"][0]["test_ids"] == ["K8S06-01"]
         assert "markers" not in payload["entries"][0]
         assert payload["entries"][1]["labels"] == []
+        assert payload["entries"][1]["test_ids"] == []
 
     @patch("isvreporter.client.urlopen")
     def test_skips_upload_when_version_exists(self, mock_urlopen: MagicMock) -> None:
@@ -176,6 +179,7 @@ class TestUploadTestCatalog:
         assert entry["labels"] == []
         assert "markers" not in entry
         assert entry["module"] == ""
+        assert entry["test_ids"] == []
 
     @patch("isvreporter.client.urlopen")
     def test_markers_field_is_not_forwarded(self, mock_urlopen: MagicMock) -> None:

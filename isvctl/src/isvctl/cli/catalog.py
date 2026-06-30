@@ -20,10 +20,11 @@ Manage the test catalog: build, save, and upload to ISV Lab Service.
 
 import json
 import logging
+from collections import Counter
 from typing import Annotated
 
 import typer
-from isvtest.catalog import build_catalog, get_catalog_version
+from isvtest.catalog import build_catalog, build_label_file_map, get_catalog_version
 from isvtest.release_manifest import load_released_tests
 from rich.console import Console
 from rich.table import Table
@@ -84,17 +85,83 @@ def list_cmd(
         padding=(0, 1),
     )
     table.add_column("Test", style="green", no_wrap=True)
-    table.add_column("Platforms", style="cyan")
-    table.add_column("Labels", style="dim")
+    table.add_column("Test IDs", style="magenta", max_width=32)
+    table.add_column("Labels (Platforms)", style="dim", max_width=40)
     table.add_column("Description")
 
     for entry in sorted(catalog_entries, key=lambda e: e["name"]):
+        labels = ", ".join(entry.get("labels") or [])
+        platforms = ", ".join(entry.get("platforms") or [])
+        if labels and platforms:
+            labels_platforms = f"{labels} ({platforms})"
+        else:
+            labels_platforms = labels or platforms
         table.add_row(
             entry["name"],
-            ", ".join(entry.get("platforms") or []) or "-",
-            ", ".join(entry.get("labels") or []) or "-",
+            ", ".join(entry.get("test_ids") or []) or "-",
+            labels_platforms or "-",
             entry.get("description") or "-",
         )
+
+    console.print(table)
+
+
+@app.command("labels")
+def labels_cmd(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the labels as JSON instead of a table"),
+    ] = False,
+    show_files: Annotated[
+        bool,
+        typer.Option("--files", help="Also show the config file(s) declaring each label"),
+    ] = False,
+) -> None:
+    """List every label in the catalog with the number of tests carrying it.
+
+    Released tests only by default. Set ``ISVTEST_INCLUDE_UNRELEASED=1`` to
+    include unreleased validations (matches the gate used at run time). Pass
+    ``--files`` to also list the config file(s) that declare each label.
+
+    Examples:
+        isvctl catalog labels
+        isvctl catalog labels --files
+        isvctl catalog labels --json
+        ISVTEST_INCLUDE_UNRELEASED=1 isvctl catalog labels
+    """
+    counts = Counter(label for entry in build_catalog() for label in (entry.get("labels") or []))
+    sorted_counts = sorted(counts.items())
+    label_files = build_label_file_map() if show_files else {}
+
+    def files_for(label: str) -> list[str]:
+        """Return the sorted config files declaring ``label`` (empty without --files)."""
+        return sorted(label_files.get(label, set()))
+
+    if json_output:
+        labels = [
+            {"label": label, "tests": count, **({"files": files_for(label)} if show_files else {})}
+            for label, count in sorted_counts
+        ]
+        typer.echo(json.dumps({"labels": labels}, indent=2))
+        return
+
+    table = Table(
+        title=f"Catalog Labels ({len(counts)} labels)",
+        title_justify="left",
+        show_header=True,
+        header_style="bold",
+        padding=(0, 1),
+    )
+    table.add_column("Label", style="green", no_wrap=True)
+    table.add_column("Tests", style="cyan", justify="right")
+    if show_files:
+        table.add_column("Files", style="dim")
+
+    for label, count in sorted_counts:
+        row = [label, str(count)]
+        if show_files:
+            row.append("\n".join(files_for(label)) or "-")
+        table.add_row(*row)
 
     console.print(table)
 

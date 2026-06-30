@@ -77,6 +77,69 @@ def test_catalog_list_json() -> None:
     assert payload["entries"] == _FAKE_ENTRIES
 
 
+def test_catalog_labels_table() -> None:
+    """`catalog labels` renders each label and its test count."""
+    entries = [
+        {"name": "A", "labels": ["iam", "security"]},
+        {"name": "B", "labels": ["iam"]},
+        {"name": "C", "labels": []},
+    ]
+    with patch("isvctl.cli.catalog.build_catalog", return_value=entries):
+        result = runner.invoke(app, ["labels"])
+
+    assert result.exit_code == 0, result.output
+    assert "iam" in result.output
+    assert "security" in result.output
+    assert "Files" not in result.output
+
+
+def test_catalog_labels_json_counts_tests_per_label() -> None:
+    """`catalog labels --json` (default) emits sorted labels with test counts, no files."""
+    entries = [
+        {"name": "A", "labels": ["iam", "security"]},
+        {"name": "B", "labels": ["iam"]},
+        {"name": "C", "labels": []},
+    ]
+    with patch("isvctl.cli.catalog.build_catalog", return_value=entries):
+        result = runner.invoke(app, ["labels", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["labels"] == [
+        {"label": "iam", "tests": 2},
+        {"label": "security", "tests": 1},
+    ]
+
+
+def test_catalog_labels_files_option_adds_files() -> None:
+    """`catalog labels --files --json` includes the declaring config files per label."""
+    entries = [
+        {"name": "A", "labels": ["iam", "security"]},
+        {"name": "B", "labels": ["iam"]},
+        {"name": "C", "labels": []},
+    ]
+    file_map = {
+        "iam": {"suites/control-plane.yaml", "suites/security.yaml"},
+        "security": {"suites/security.yaml"},
+    }
+    with (
+        patch("isvctl.cli.catalog.build_catalog", return_value=entries),
+        patch("isvctl.cli.catalog.build_label_file_map", return_value=file_map),
+    ):
+        result = runner.invoke(app, ["labels", "--files", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["labels"] == [
+        {
+            "label": "iam",
+            "tests": 2,
+            "files": ["suites/control-plane.yaml", "suites/security.yaml"],
+        },
+        {"label": "security", "tests": 1, "files": ["suites/security.yaml"]},
+    ]
+
+
 def test_catalog_list_unreleased_json() -> None:
     """`catalog list --unreleased` emits only entries missing from the release manifest."""
     with (

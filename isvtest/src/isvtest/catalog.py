@@ -29,7 +29,7 @@ in provider configs (e.g. Bm* checks that run on-host, not via SSH).
 """
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -142,31 +142,84 @@ def _extract_check_labels_from_config(config_path: Path) -> dict[str, set[str]]:
     return result
 
 
-def build_label_map() -> dict[str, set[str]]:
-    """Map check name -> labels declared on its suite/provider YAML wiring.
+def _extract_check_test_ids_from_config(config_path: Path) -> dict[str, set[str]]:
+    """Extract per-check ``test_id`` declared on a config's validation wiring.
 
-    Labels live on the per-check YAML wiring, so this scans every config and
-    unions the ``labels:`` declared on each check. A variant's labels propagate
-    up to its base name so the base entry is not left bare. Shared by the
-    catalog and ``isvctl docs`` so both report the same labels.
+    The ``"N/A"`` sentinel marks an intentional gap (no plan item) and is
+    skipped so it never appears as a test id.
+    """
+    result: dict[str, set[str]] = {}
+    for name, params in iter_config_checks(config_path):
+        test_id = params.get("test_id")
+        if isinstance(test_id, str) and test_id and test_id != "N/A":
+            result.setdefault(name, set()).add(test_id)
+    return result
+
+
+def _build_check_attribute_map(
+    extract_fn: Callable[[Path], dict[str, set[str]]],
+) -> dict[str, set[str]]:
+    """Map check name -> a per-check attribute unioned across all config wiring.
+
+    Scans every config (suites AND providers, not just the canonical suites:
+    on-host ``bm_*`` checks are wired only in provider configs), unions the
+    values ``extract_fn`` pulls from each, then propagates a variant's values up
+    to its base name (``Foo-bar`` -> ``Foo``) so the base entry is not left bare.
+    Shared by ``build_label_map`` and ``build_test_id_map``.
     """
     configs_dir = _find_configs_dir()
     if not configs_dir:
         return {}
 
-    # Scan every config (suites AND providers), not just the canonical suites:
-    # on-host checks (bm_*) are wired only in provider configs, so their labels
-    # live there. Per-check ``labels:`` declared anywhere in YAML are unioned.
-    label_map: dict[str, set[str]] = {}
+    attribute_map: dict[str, set[str]] = {}
     for config_path in sorted(configs_dir.rglob("*.yaml")):
-        for name, labels in _extract_check_labels_from_config(config_path).items():
-            label_map.setdefault(name, set()).update(labels)
+        for name, values in extract_fn(config_path).items():
+            attribute_map.setdefault(name, set()).update(values)
 
-    for name, labels in list(label_map.items()):
+    for name, values in list(attribute_map.items()):
         base = name.split("-")[0]
         if base != name:
-            label_map.setdefault(base, set()).update(labels)
-    return label_map
+            attribute_map.setdefault(base, set()).update(values)
+    return attribute_map
+
+
+def build_test_id_map() -> dict[str, set[str]]:
+    """Map check name -> test_ids declared on its suite/provider YAML wiring.
+
+    test_ids live on the per-check YAML wiring, so every config is scanned and
+    the ``test_id`` declared on each check is unioned (excluding the ``"N/A"``
+    sentinel), mirroring ``build_label_map``.
+    """
+    return _build_check_attribute_map(_extract_check_test_ids_from_config)
+
+
+def build_label_map() -> dict[str, set[str]]:
+    """Map check name -> labels declared on its suite/provider YAML wiring.
+
+    Labels live on the per-check YAML wiring, so every config is scanned and the
+    ``labels:`` declared on each check is unioned. Shared by the catalog and
+    ``isvctl docs`` so both report the same labels.
+    """
+    return _build_check_attribute_map(_extract_check_labels_from_config)
+
+
+def build_label_file_map() -> dict[str, set[str]]:
+    """Map label -> config files (relative to ``isvctl/configs``) that declare it.
+
+    Unlike the catalog this is a raw config scan (not release-gated): it records
+    every suite/provider YAML where a label appears on a check's wiring.
+    """
+    configs_dir = _find_configs_dir()
+    if not configs_dir:
+        return {}
+
+    label_files: dict[str, set[str]] = {}
+    for config_path in sorted(configs_dir.rglob("*.yaml")):
+        rel = config_path.relative_to(configs_dir).as_posix()
+        for labels in _extract_check_labels_from_config(config_path).values():
+            for label in labels:
+                label_files.setdefault(label, set()).add(rel)
+    return label_files
 
 
 def _build_platform_map() -> dict[str, set[str]]:
@@ -215,11 +268,14 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             - name: Validation class name or variant name
             - description: Human-readable description from class metadata
             - labels: List of public label strings (e.g. ["kubernetes", "gpu"])
+            - test_ids: List of test-plan ids declared on the wiring, "N/A"
+              excluded (e.g. ["SEC07-01"]); empty when only intentional gaps
             - module: Fully qualified module path
             - platforms: List of platform strings (e.g. ["KUBERNETES"])
     """
     platform_map = _build_platform_map()
     label_map = build_label_map()
+    test_id_map = build_test_id_map()
 
     # Build class metadata lookup, skipping classes marked for exclusion
     class_meta: dict[str, dict[str, Any]] = {}
@@ -255,6 +311,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
                 "name": name,
                 "description": meta["description"],
                 "labels": meta["labels"],
+                "test_ids": sorted(test_id_map.get(name, set())),
                 "module": meta["module"],
                 "platforms": sorted(platform_map.get(name, [])),
             }
@@ -274,11 +331,13 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         if variant_suffix:
             desc = f"{desc} ({variant_suffix.lstrip('-')})" if desc else variant_suffix.lstrip("-")
         labels = sorted(set(meta.get("labels", [])) | label_map.get(name, set()))
+        test_ids = sorted(test_id_map.get(name, set()))
         catalog.append(
             {
                 "name": name,
                 "description": desc,
                 "labels": labels,
+                "test_ids": test_ids,
                 "module": meta.get("module", ""),
                 "platforms": sorted(platforms),
             }

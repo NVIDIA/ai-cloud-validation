@@ -102,6 +102,8 @@ class _TenantSanitizationCheck(BaseValidation):
     single test ID and can be toggled independently in a suite.
     """
 
+    # Abstract base: the concrete subclasses below are the catalog entries.
+    catalog_exclude: ClassVar[bool] = True
     timeout: ClassVar[int] = 120
     gpu_only: ClassVar[bool] = False
     subtest_prefix: ClassVar[str] = "machine"
@@ -184,6 +186,7 @@ class MemorySanitizationCheck(_TenantSanitizationCheck):
             transitions: list[str] -- recent neutral lifecycle sequence
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check host memory is sanitized between tenants"
     subject: ClassVar[str] = "Host memory sanitization"
     subtest_prefix: ClassVar[str] = "memory"
@@ -204,6 +207,7 @@ class GpuMemorySanitizationCheck(_TenantSanitizationCheck):
             the in-scope machines).
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check SRAM/GPU memory is sanitized between tenants"
     subject: ClassVar[str] = "GPU memory sanitization"
     subtest_prefix: ClassVar[str] = "gpu_memory"
@@ -227,6 +231,7 @@ class FirmwareResetCheck(_TenantSanitizationCheck):
             subtest.
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check TPM/BIOS are reset during tenant transitions"
     subject: ClassVar[str] = "Firmware reset"
     subtest_prefix: ClassVar[str] = "firmware"
@@ -277,6 +282,7 @@ class DiskSanitizationCheck(_TenantSanitizationCheck):
             (see ``MemorySanitizationCheck``).
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check storage is sanitized on delete between tenants"
     subject: ClassVar[str] = "Storage sanitization"
     subtest_prefix: ClassVar[str] = "disk"

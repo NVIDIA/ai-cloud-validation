@@ -23,11 +23,12 @@ import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, TextIO
+from typing import Annotated, Any, TextIO
 
 import typer
 import yaml
 from isvtest.catalog import build_catalog, get_catalog_version
+from isvtest.release_manifest import load_released_test_filter
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import (
@@ -38,6 +39,12 @@ from isvctl.cli.common import (
     print_progress,
     print_warning,
 )
+from isvctl.config.label_discovery import (
+    ProviderConfigMatch,
+    available_labels,
+    discover_provider_label_configs,
+    list_providers,
+)
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.loop import Orchestrator, Phase
@@ -45,6 +52,7 @@ from isvctl.redaction import redact_dict
 from isvctl.reporting import check_upload_credentials, create_test_run, get_environment_config, update_test_run
 
 logger = logging.getLogger(__name__)
+CONFIGS_ROOT = Path(__file__).resolve().parents[3] / "configs"
 
 
 class TeeWriter:
@@ -78,11 +86,40 @@ app = typer.Typer(
 )
 
 
+def _provider_discovery_plan(provider: str, labels: list[str], matches: list[ProviderConfigMatch]) -> dict[str, Any]:
+    """Return a JSON-serializable provider label discovery plan."""
+    return {
+        "provider": provider,
+        "labels": labels,
+        "configs": [
+            {
+                "config": str(match.config_path),
+                "matched_checks": [
+                    {
+                        "category": check.category,
+                        "name": check.name,
+                        "labels": list(check.labels),
+                    }
+                    for check in match.matched_checks
+                ],
+            }
+            for match in matches
+        ],
+    }
+
+
+def _junitxml_for_discovered_config(junitxml: Path, match: ProviderConfigMatch, total: int) -> Path:
+    """Return a non-overlapping JUnit path for a discovered config run."""
+    if total <= 1:
+        return junitxml
+    return junitxml.with_name(f"{junitxml.stem}-{match.config_path.stem}{junitxml.suffix}")
+
+
 @app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def run(
     ctx: typer.Context,
     config_files: Annotated[
-        list[Path],
+        list[Path] | None,
         typer.Option(
             "--config",
             "-f",
@@ -92,7 +129,14 @@ def run(
             dir_okay=False,
             readable=True,
         ),
-    ],
+    ] = None,
+    provider: Annotated[
+        str | None,
+        typer.Option(
+            "--provider",
+            help="Provider name for label discovery when no --config/-f files are supplied.",
+        ),
+    ] = None,
     set_values: Annotated[
         list[str] | None,
         typer.Option(
@@ -208,9 +252,65 @@ def run(
     setup_logging(verbose)
     apply_user_config(no_user_config)
 
+    if provider:
+        if config_files:
+            print_error("--provider discovery cannot be combined with --config/-f.")
+            raise typer.Exit(code=1)
+        if not labels:
+            print_error("--provider requires at least one --label/-l for discovery.")
+            raise typer.Exit(code=1)
+
+        known_providers = list_providers(CONFIGS_ROOT)
+        if provider not in known_providers:
+            print_error(f"Unknown provider {provider!r}. Available providers: {', '.join(known_providers)}")
+            raise typer.Exit(code=1)
+
+        matches = discover_provider_label_configs(
+            provider, labels, configs_root=CONFIGS_ROOT, released_tests=load_released_test_filter()
+        )
+        if not matches:
+            known_labels = available_labels(provider, configs_root=CONFIGS_ROOT)
+            print_error(
+                f"No {provider!r} provider configs match labels: {', '.join(labels)}. "
+                f"Available labels for {provider!r}: {', '.join(sorted(known_labels))}"
+            )
+            raise typer.Exit(code=1)
+
+        if dry_run:
+            typer.echo(json.dumps(_provider_discovery_plan(provider, labels, matches), indent=2))
+            return
+
+        print_progress(
+            f"Discovered {len(matches)} {provider!r} provider config(s) matching labels: {', '.join(labels)}"
+        )
+        for match in matches:
+            print_progress(f"\n--- Running {match.config_path} ---")
+            run(
+                ctx,
+                config_files=[match.config_path],
+                provider=None,
+                set_values=set_values,
+                phase=phase,
+                labels=labels,
+                dry_run=False,
+                working_dir=working_dir,
+                verbose=verbose,
+                no_user_config=no_user_config,
+                junitxml=_junitxml_for_discovered_config(junitxml, match, len(matches)),
+                color=color,
+                no_upload=no_upload,
+                lab_id=lab_id,
+                tags=tags,
+                isv_software_version=isv_software_version,
+            )
+        return
+
     # Validate at least one config file is provided
     if not config_files:
-        print_error("At least one --config/-f config file is required.")
+        if labels:
+            print_error("--label requires either --provider (for label discovery) or --config/-f.")
+        else:
+            print_error("At least one --config/-f config file is required.")
         raise typer.Exit(code=1)
 
     # Collect extra pytest args from context (after --)
@@ -353,8 +453,11 @@ def run(
     # Update test run after tests complete
     if upload_results and test_run_id and lab_id:
         print_progress("Uploading test results to ISV Lab Service...")
-        # Look for junit XML in _output, working directory, or current directory
-        junit_path = output_dir / "junit-validation.xml"
+        # Prefer the requested --junitxml (provider discovery gives each config
+        # its own report name), then fall back to _output, working dir, or cwd.
+        junit_path = junitxml
+        if not junit_path.exists():
+            junit_path = output_dir / "junit-validation.xml"
         if not junit_path.exists():
             junit_path = effective_working_dir / "junit-validation.xml"
         if not junit_path.exists():

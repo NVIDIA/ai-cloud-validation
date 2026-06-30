@@ -49,6 +49,7 @@ class TestBuildCatalog:
             assert "name" in entry
             assert "description" in entry
             assert "labels" in entry
+            assert "test_ids" in entry
             assert "module" in entry
             assert "markers" not in entry
 
@@ -93,6 +94,53 @@ tests:
 
         assert _extract_checks_from_config(config) == ["DirectCheck", "EmptyParamsCheck"]
 
+    def test_extract_check_test_ids_excludes_na_and_blanks(self, tmp_path) -> None:
+        """Wiring test_ids are extracted per check, with "N/A"/empty dropped."""
+        from isvtest.catalog import _extract_check_test_ids_from_config
+
+        config = tmp_path / "test-ids.yaml"
+        config.write_text(
+            """\
+tests:
+  validations:
+    sample:
+      checks:
+        MappedCheck:
+          test_id: "SEC07-01"
+        GapCheck:
+          test_id: "N/A"
+        BlankCheck:
+          test_id: ""
+        NoIdCheck: {}
+""",
+            encoding="utf-8",
+        )
+
+        assert _extract_check_test_ids_from_config(config) == {"MappedCheck": {"SEC07-01"}}
+
+    def test_entries_expose_wired_test_ids(self) -> None:
+        """Catalog entries carry the plan ids declared on their wiring."""
+        catalog = build_catalog(released_only=False)
+        by_name = {e["name"]: e for e in catalog}
+
+        # Every entry has a list-of-strings test_ids and never the "N/A" sentinel.
+        for entry in catalog:
+            assert isinstance(entry["test_ids"], list)
+            assert all(isinstance(tid, str) for tid in entry["test_ids"])
+            assert "N/A" not in entry["test_ids"]
+
+        # Single mapping, and a duality unioned across the bm/vm suites.
+        assert by_name["MfaEnforcedCheck"]["test_ids"] == ["SEC07-01"]
+        assert by_name["GpuCheck"]["test_ids"] == ["BMAAS08-01", "VMAAS06-01"]
+
+    def test_variant_test_ids_propagate_to_base(self) -> None:
+        """A variant's wired test_id surfaces on its base-class catalog entry."""
+        catalog = build_catalog(released_only=False)
+        by_name = {e["name"]: e for e in catalog}
+
+        assert by_name["StepSuccessCheck-delete_tenant"]["test_ids"] == ["CP10-01"]
+        assert "CP10-01" in by_name["StepSuccessCheck"]["test_ids"]
+
     def test_released_only_filters_catalog(self) -> None:
         """Default catalog generation excludes tests not in the release manifest."""
         with patch("isvtest.catalog.load_released_test_filter", return_value={"StepSuccessCheck"}):
@@ -125,6 +173,7 @@ tests:
                 "isvtest.catalog.build_label_map",
                 return_value={"ExplicitLabelCatalogCheck": {"accelerator", "long_running"}},
             ),
+            patch("isvtest.catalog.build_test_id_map", return_value={}),
             patch("isvtest.catalog.load_released_test_filter", return_value=None),
         ):
             catalog = build_catalog()
@@ -134,6 +183,7 @@ tests:
                 "name": "ExplicitLabelCatalogCheck",
                 "description": "Explicit labels",
                 "labels": ["accelerator", "long_running"],
+                "test_ids": [],
                 "module": __name__,
                 "platforms": [],
             }
@@ -210,6 +260,7 @@ tests:
                 "isvtest.catalog.build_label_map",
                 return_value={"ObservabilityLabelledCheck": {"observability"}},
             ),
+            patch("isvtest.catalog.build_test_id_map", return_value={}),
             patch("isvtest.catalog.load_released_test_filter", return_value=None),
         ):
             catalog = build_catalog()
@@ -219,6 +270,7 @@ tests:
                 "name": "ObservabilityLabelledCheck",
                 "description": "Observability check labelled but not in any suite",
                 "labels": ["observability"],
+                "test_ids": [],
                 "module": "isvtest.validations.fake",
                 "platforms": ["OBSERVABILITY"],
             }
