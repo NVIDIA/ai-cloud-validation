@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Storage Validation - Canonical Contract
+#
+# Validations-only contract for the storage capability area. Provider
+# configs import this file and supply their own commands (steps + scripts).
+#
+# This file defines WHAT to validate, not HOW to run it. Each validation
+# only inspects JSON output fields. As long as your scripts output the
+# right fields, the validations pass regardless of which cloud you use.
+#
+# Scope: today this suite covers persistent block storage (EBS-style
+# volumes); it is the umbrella home for future storage checks (object,
+# file, ...) so they don't each spawn a new suite file.
+#
+# Coverage notes:
+# - A shared fixture launches one instance and creates + attaches a single
+#   block volume (formatted, mounted, seeded with a sentinel file). All
+#   three test-phase checks reuse that fixture:
+#   - snapshot_lifecycle  - DATASVC-XX-02 (issue #321): snapshot the volume,
+#     restore it to a new volume, attach + mount the restore, and verify the
+#     sentinel data survived the round-trip.
+#   - volume_resize       - DATASVC-XX-03 (issue #322): grow the volume
+#     (ModifyVolume), then grow the in-guest partition + filesystem and
+#     confirm the larger size is visible to the guest.
+#   - volume_persistence  - DATASVC-XX-04 (issue #323): stop + start the
+#     instance and confirm the volume stays attached with its data intact.
+#
+# Quick start:
+#   1. Copy providers/my-isv/config/storage.yaml to providers/<your-platform>/config/storage.yaml
+#   2. Replace stub paths with your platform scripts
+#   3. Run: uv run isvctl test run -f isvctl/configs/providers/<your-platform>/config/storage.yaml
+#
+# See also:
+#   - my-isv living example: providers/my-isv/config/storage.yaml
+#   - AWS reference: providers/aws/config/storage.yaml + providers/aws/scripts/storage/
+#   - Per-step field breakdown: ../suites/README.md
+
+version: "1.0"
+
+tests:
+  platform: storage
+  cluster_name: "storage-validation"
+  description: "Storage: block-volume snapshots, resizing, and persistence across restarts"
+
+  settings:
+    # Provider-specific - override in your provider config
+    region: ""
+    instance_type: ""
+    volume_size_gib: "10"
+    teardown_flag: "{{(env.BLOCK_STORAGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+
+  # ─── Validations ─────────────────────────────────────────────────
+  # These are PROVIDER-AGNOSTIC. They only check JSON field names/values.
+  validations:
+    # ─── Fixture: instance + attached, formatted, seeded volume ──────
+    instance_launched:
+      step: launch_instance
+      checks:
+        InstanceStateCheck:
+          expected_state: "running"
+
+    fixture_volume:
+      step: create_volume
+      checks:
+        StepSuccessCheck: {}
+        FieldExistsCheck:
+          fields: ["volume_id", "mount_point", "operations"]
+        CrudOperationsCheck:
+          operations: ["create", "attach", "format", "mount", "write_sentinel"]
+
+    # ─── DATASVC-XX-02: volume snapshots (issue #321) ────────────────
+    snapshot_lifecycle:
+      step: snapshot_lifecycle
+      checks:
+        StepSuccessCheck: {}
+        FieldExistsCheck:
+          fields: ["volume_id", "snapshot_id", "operations"]
+        CrudOperationsCheck:
+          operations: ["create_snapshot", "restore_volume", "verify_data"]
+
+    # ─── DATASVC-XX-03: volume resizing (issue #322) ─────────────────
+    volume_resize:
+      step: volume_resize
+      checks:
+        StepSuccessCheck: {}
+        FieldExistsCheck:
+          fields: ["volume_id", "operations"]
+        CrudOperationsCheck:
+          operations: ["modify_volume", "grow_partition", "resize_filesystem", "verify_size"]
+
+    # ─── DATASVC-XX-04: persistence across restarts (issue #323) ─────
+    volume_persistence:
+      step: volume_persistence
+      checks:
+        StepSuccessCheck: {}
+        FieldExistsCheck:
+          fields: ["volume_id", "operations"]
+        CrudOperationsCheck:
+          operations: ["stop", "start", "verify_attached", "verify_data"]
+
+    # ─── Teardown ────────────────────────────────────────────────────
+    teardown_checks:
+      step: teardown_volume
+      checks:
+        StepSuccessCheck: {}
+
+  exclude:
+    labels: []
