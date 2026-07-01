@@ -100,9 +100,20 @@ class K8sNimInferenceWorkload(BaseWorkloadCheck):
         elif runtime_class_name != "nvidia":
             yaml_content = yaml_content.replace("runtimeClassName: nvidia", f"runtimeClassName: {runtime_class_name}")
 
-        # Apply memory overrides for the NIM server container.
-        yaml_content = yaml_content.replace('memory: "16Gi"', f'memory: "{nim_memory_request}"')
-        yaml_content = yaml_content.replace('memory: "32Gi"', f'memory: "{nim_memory_limit}"')
+        # Apply memory overrides for the NIM server (GPU) container only.
+        # Anchor each substitution on the container's nvidia.com/gpu line inside
+        # its limits/requests block so the request and limit values can never
+        # clobber each other (e.g. request == old limit) or touch the sidecar.
+        yaml_content = re.sub(
+            r'(limits:\n\s+nvidia\.com/gpu: "1"\n\s+)memory: "32Gi"',
+            rf'\g<1>memory: "{nim_memory_limit}"',
+            yaml_content,
+        )
+        yaml_content = re.sub(
+            r'(requests:\n\s+nvidia\.com/gpu: "1"\n\s+)memory: "16Gi"',
+            rf'\g<1>memory: "{nim_memory_request}"',
+            yaml_content,
+        )
 
         # Inject NIM_MAX_MODEL_LEN when set (inserted before NIM_CACHE_PATH).
         if nim_max_model_len:

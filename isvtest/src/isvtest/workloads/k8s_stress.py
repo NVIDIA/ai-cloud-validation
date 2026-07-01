@@ -35,6 +35,7 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
     description = "Run GPU stress test on all GPU nodes in the cluster."
 
     def run(self) -> None:
+        """Run the GPU stress workload on each GPU node and validate the result."""
         # Get configuration
         namespace = get_k8s_namespace()
         image = self.config.get("image") or get_gpu_stress_image()

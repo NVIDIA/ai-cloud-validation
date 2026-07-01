@@ -217,10 +217,14 @@ class K8sCncfConformanceCheck(BaseValidation):
                     ok, junit_xml = self._exec_cat(namespace, self._POD_NAME, self._JUNIT_PATH, quiet=(attempt < 3))
                     if ok and junit_xml:
                         break
-                    self.log.warning(
-                        f"JUnit retrieval attempt {attempt}/3 via 'kubectl exec cat' failed; retrying in 5s"
-                    )
-                    time.sleep(5)
+                    # Only log "retrying" and sleep when another exec attempt
+                    # actually follows; on the last attempt fall straight
+                    # through to the kubectl cp fallback below.
+                    if attempt < 3:
+                        self.log.warning(
+                            f"JUnit retrieval attempt {attempt}/3 via 'kubectl exec cat' failed; retrying in 5s"
+                        )
+                        time.sleep(5)
             if not ok or not junit_xml:
                 # Final fallback: kubectl cp (tar streaming).
                 ok, junit_xml = self._kubectl_cp(namespace, self._POD_NAME, self._JUNIT_PATH)
