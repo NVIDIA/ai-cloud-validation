@@ -12,10 +12,11 @@ This page covers the operator setup needed to run `isvctl` tests against GCP.
 | **Network** | [`providers/gcp/config/network.yaml`](../../isvctl/configs/providers/gcp/config/network.yaml) | [`providers/gcp/scripts/network/`](../../isvctl/configs/providers/gcp/scripts/network/) | [`suites/network.yaml`](../../isvctl/configs/suites/network.yaml) |
 | **IAM** | [`providers/gcp/config/iam.yaml`](../../isvctl/configs/providers/gcp/config/iam.yaml) | [`providers/gcp/scripts/iam/`](../../isvctl/configs/providers/gcp/scripts/iam/) | [`suites/iam.yaml`](../../isvctl/configs/suites/iam.yaml) |
 | **Security** | [`providers/gcp/config/security.yaml`](../../isvctl/configs/providers/gcp/config/security.yaml) | [`providers/gcp/scripts/security/`](../../isvctl/configs/providers/gcp/scripts/security/) | [`suites/security.yaml`](../../isvctl/configs/suites/security.yaml) |
+| **Image Registry** ([guide](../../isvctl/configs/providers/gcp/scripts/image-registry/docs/gcp-image-registry.md)) | [`providers/gcp/config/image-registry.yaml`](../../isvctl/configs/providers/gcp/config/image-registry.yaml) | [`providers/gcp/scripts/image-registry/`](../../isvctl/configs/providers/gcp/scripts/image-registry/) | [`suites/image-registry.yaml`](../../isvctl/configs/suites/image-registry.yaml) |
 
 Shared GCP utilities (compute helpers, SSH wrappers, retry envelopes, error classifiers) are in [`providers/gcp/scripts/common/`](../../isvctl/configs/providers/gcp/scripts/common/).
 
-Other domains (Bare Metal, EKS, Control Plane, Image Registry) are not yet implemented for GCP.
+Other domains (Bare Metal, EKS, Control Plane) are not yet implemented for GCP.
 
 ## Prerequisites
 
@@ -103,12 +104,12 @@ Operators without an NGC entitlement should pick option 2; operators with one an
 
 ### 6. Trusted SSH ingress source (`NETWORK_FIREWALL_TRUST_IP`) — required
 
-The VM suite opens an SSH (tcp/22) firewall rule so it can reach the launched
-probe VM. There is **no open-internet default**: the only trusted source for
-that ingress is the operator environment variable `NETWORK_FIREWALL_TRUST_IP`.
-It is **required** — if it is unset, empty, non-IPv4, or normalizes to
-`0.0.0.0/0`, `launch_instance` fails fast with an operator error and the run
-exits non-zero before creating any resource.
+The VM, network, and image-registry suites open an SSH (tcp/22) firewall rule so
+they can reach the launched VM. There is **no open-internet default**: the only
+trusted source for that ingress is the operator environment variable
+`NETWORK_FIREWALL_TRUST_IP`. It is **required** — if it is unset, empty,
+non-IPv4, or normalizes to `0.0.0.0/0`, `launch_instance` fails fast with an
+operator error and the run exits non-zero before creating any resource.
 
 ```bash
 # A single operator IP (normalizes to a /32 host rule):
@@ -119,9 +120,9 @@ export NETWORK_FIREWALL_TRUST_IP=203.0.113.0/24,198.51.100.0/24
 ```
 
 Set it to the public egress IP/CIDR of the host running the suite (for a
-cloud runner, its NAT egress range). The VM suite's launch firewall sets its
-`sourceRanges` to the normalized list, and a pre-existing rule that allows
-`0.0.0.0/0` on tcp/22 is not eligible for verified-reuse.
+cloud runner, its NAT egress range). The VM, network, and image-registry launch
+firewalls set their `sourceRanges` to the normalized list, and a pre-existing
+rule that allows `0.0.0.0/0` on tcp/22 is not eligible for verified-reuse.
 
 ## Operator environment variables
 
@@ -130,10 +131,11 @@ before a `live` run — live mode is rejected when a required var is unset.
 
 | Variable | Required? | Default / fallback | Purpose |
 |----------|-----------|--------------------|---------|
-| `NETWORK_FIREWALL_TRUST_IP` | **Required** (vm, network) | none — fail closed (no fallback) | Trusted IPv4 source range(s) for SSH (tcp/22) and RDP (tcp/3389) firewall ingress. A bare IPv4 normalizes to `/32`; comma-separated IPv4 CIDRs are allowed. The suite never opens these admin ports from `0.0.0.0/0`: when this var is unset, empty, non-IPv4, or `0.0.0.0/0`, the affected step emits an operator error, sets `success=false`, and exits non-zero. |
+| `NETWORK_FIREWALL_TRUST_IP` | **Required** (vm, network, image-registry) | none — fail closed (no fallback) | Trusted IPv4 source range(s) for SSH (tcp/22) and RDP (tcp/3389) firewall ingress. A bare IPv4 normalizes to `/32`; comma-separated IPv4 CIDRs are allowed. The suite never opens these admin ports from `0.0.0.0/0`: when this var is unset, empty, non-IPv4, or `0.0.0.0/0`, the affected step emits an operator error, sets `success=false`, and exits non-zero. The image-registry `launch_instance` step consumes it the same way as the vm / network launch firewalls. |
 | `GCP_VM_IMAGE` | Optional (vm) | public DLVM family `common-cu129-ubuntu-2204-nvidia-580` | Operator image short-name or self-link for `launch_instance` (flows to `--ami-id`); resolves as exact-name, then family alias, under the image project. See [§5](#5-gpu-image-and-docker-requirement-for-deploy_nim). |
 | `GCP_VM_IMAGE_PROJECT` | Optional (vm) | `deeplearning-platform-release` | Project hosting the operator image (flows to `--image-project`). When unset (and `GCP_VM_IMAGE` is also unset) the stub falls back to the public DLVM project. See [§5](#5-gpu-image-and-docker-requirement-for-deploy_nim). |
 | `GCP_IAM_SKIP_TEARDOWN` | Optional (iam) | unset — teardown runs | When `true`, the IAM `teardown` step returns success without deleting the service account it created (run a standalone `--phase teardown` later to clean up). See [IAM domain](#iam-domain-service-accounts). |
+| `GCP_IMAGE_REGISTRY_SKIP_TEARDOWN` | Optional (image-registry) | unset — teardown runs | When `true`, the image-registry `teardown` step returns success without deleting the in-test resources (imported image, staging bucket + disk objects, instance, SSH firewall rule, local SSH key); forwarded as `--skip-destroy`. The GCP-namespaced override of the suite's vendor-neutral `IR_SKIP_TEARDOWN`. See the [Image Registry guide](../../isvctl/configs/providers/gcp/scripts/image-registry/docs/gcp-image-registry.md). |
 | `EDGE_ENDPOINTS` | Optional (security) | unset — `InsecureProtocolsCheck` structured-skips | Comma-joined `host:port` HTTPS endpoints the provider-neutral raw-socket prober checks for plain-HTTP / legacy-TLS refusal. See [Security domain](#security-domain). |
 | `SEC02_MAX_TTL_SECONDS` | Optional (security) | `43200` | Upper bound (seconds) `ShortLivedCredentialsCheck` asserts observed node / workload token TTLs stay at-or-below. The default never false-fails; tighten only after a run confirms observed TTLs. |
 | `GCP_KMS_KEY_ID` | Optional (security) | unset — `CustomerManagedKeyCheck` self-provisions a temporary key | Full Cloud KMS CryptoKey resource path of an existing tenant CMEK to reuse for the BYOK check instead of creating a throwaway key. |

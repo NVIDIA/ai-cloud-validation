@@ -1,0 +1,215 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# GCP Image Registry Validation Configuration.
+#
+# Imports the provider-agnostic image-registry contract from
+# suites/image-registry.yaml and wires every step to a Compute Engine /
+# Cloud Storage stub under providers/gcp/scripts/image-registry/.
+#
+# Steps mirror the AWS oracle order:
+#   1. upload_image  (setup)    - Download a VM disk, stage it in Cloud Storage,
+#                                 register it as a Compute Engine machine image.
+#                                 RAW source -> ImagesClient.insert(raw_disk);
+#                                 foreign format (vmdk/vhd/qcow2) -> the
+#                                 `gcloud compute images import` (Cloud Build)
+#                                 workflow.
+#   2. crud_image    (test)     - ImagesClient get/list/create/delete lifecycle.
+#   3. launch_instance (test)   - Launch a GPU instance from the imported image
+#                                 (SSH key + VPC firewall + external IP).
+#   4. crud_install_config (test) - Instance-template create/read/update
+#                                 (create-replacement, immutable)/delete.
+#   5. teardown      (teardown) - Delete instance, image, bucket+objects,
+#                                 firewall rule, and local SSH key.
+#
+# The canonical suite also defines install_image_bm / install_config_bm
+# (bare-metal install). Google Cloud Bare Metal Solution has no self-service API
+# to install an arbitrary registry image onto bare metal (verified platform
+# gap), so — exactly like the AWS oracle's image-registry config — those two
+# steps are deliberately OMITTED here. With the steps unwired, their
+# bm_from_image / bm_from_config validation groups resolve to a
+# step_not_configured skip, which is scoped to those two groups only and does
+# NOT exclude the shared StepSuccessCheck / FieldExistsCheck / InstanceStateCheck
+# classes the live groups depend on. No exclude.tests / validation_overrides
+# entry is needed — the omission IS the mechanism.
+#
+# Operator env var (the only one this domain reads):
+#   GCP_IMAGE_REGISTRY_SKIP_TEARDOWN=true  -> preserve in-test resources for
+#   debugging (forwarded as --skip-destroy). Unset -> teardown runs.
+#   The launch_instance SSH firewall additionally reads the cross-cutting
+#   NETWORK_FIREWALL_TRUST_IP (required; no open-internet fallback) — see
+#   docs/references/gcp.md.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/gcp/config/image-registry.yaml
+
+import:
+  - ../../../suites/image-registry.yaml
+
+version: "1.0"
+
+commands:
+  image_registry:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # 1. Stage disk in Cloud Storage + register as a Compute Engine image.
+      # Foreign-format default (vmdk) drives `gcloud compute images import`
+      # (Cloud Build): download + convert + register can run 20-40 min, so the
+      # cap mirrors the AWS oracle's 3600s import budget with headroom over the
+      # internal download (1200s) + register/poll waits.
+      - name: upload_image
+        phase: setup
+        command: "python3 ../scripts/image-registry/upload_image.py"
+        args:
+          - "--image-url"
+          - "{{image_url}}"
+          - "--image-format"
+          - "{{image_format}}"
+          - "--guest-os"
+          - "{{guest_os}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{zone}}"
+        timeout: 3600
+
+      # 2. Image CRUD (get/list/create/delete). The create copies a new image
+      # to READY: worst-case internal stack is the create global op (300s) +
+      # READY poll (300s) + delete global op (300s) = 900s; 1200s gives margin.
+      - name: crud_image
+        phase: test
+        command: "python3 ../scripts/image-registry/crud_image.py"
+        args:
+          - "--image-id"
+          - "{{steps.upload_image.image_id}}"
+          - "--region"
+          - "{{region}}"
+        timeout: 1200
+
+      # 3. Launch a GPU instance from the imported image. The cap absorbs the
+      # multi-zone L4 stockout walk (per-zone 600s insert op) + 300s RUNNING
+      # poll + 120s public-IP poll; internal waits are deadline-bounded so the
+      # cap is headroom, not a sum. Matches the gcp/vm launch cap.
+      - name: launch_instance
+        phase: test
+        command: "python3 ../scripts/image-registry/launch_instance.py"
+        args:
+          - "--image-id"
+          - "{{steps.upload_image.image_id}}"
+          - "--instance-type"
+          - "{{instance_type}}"
+          - "--region"
+          - "{{region}}"
+          # NOTE: do NOT pin --zone here. launch_instance.py treats a full zone
+          # as a single-zone pin that DISABLES the multi-zone stockout walk
+          # (select_zones: _is_full_zone -> [zone]). A GPU (g2/L4) launch must
+          # walk us-central1-a/b/c then cross-region PREFERRED_ZONES to survive
+          # a per-zone ZONE_RESOURCE_POOL_EXHAUSTED stockout — exactly as the
+          # gcp/vm launch_instance step does (region-only, no --zone). The step
+          # emits the zone it actually landed on, which teardown reads back via
+          # {{steps.launch_instance.zone}}.
+          - "--network"
+          - "{{network}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 900
+
+      # 4. Install-config CRUD (instance template). Two global inserts + two
+      # global deletes, each capped at 120s inside the stub: worst-case internal
+      # stack is 4 x 120s = 480s; 600s gives margin (above the 180s API-only floor).
+      - name: crud_install_config
+        phase: test
+        command: "python3 ../scripts/image-registry/crud_install_config.py"
+        args:
+          - "--region"
+          - "{{region}}"
+        timeout: 600
+
+      # 5. Teardown — every id forwarded from its producing step with a
+      # non-empty default('none', true) sentinel so a step-isolated slice with
+      # an unresolved upstream reference still runs teardown (empty args are
+      # dropped by the orchestrator, which would otherwise collapse the argv
+      # pair). firewall/key deletes gate on the forwarded ownership bits.
+      # Worst-case internal stack is instance delete (180s) + image (300s) +
+      # firewall (300s) + bucket/object deletes + delete_with_retry backoffs +
+      # leaked-zone reclaim; 1200s gives margin (well under the AWS oracle's
+      # 1800s teardown cap).
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/image-registry/teardown.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id | default('none', true)}}"
+          - "--image-id"
+          - "{{steps.upload_image.image_id | default('none', true)}}"
+          - "--disk-ids"
+          - "{{steps.upload_image.disk_ids | join(',') | default('none', true)}}"
+          - "--bucket-name"
+          - "{{steps.upload_image.storage_bucket | default('none', true)}}"
+          - "--key-name"
+          - "{{steps.launch_instance.key_name | default('none', true)}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_path | default('none', true)}}"
+          - "--key-created"
+          - "{{steps.launch_instance.key_created | default('false')}}"
+          - "--security-group-id"
+          - "{{steps.launch_instance.security_group_id | default('none', true)}}"
+          - "--firewall-created"
+          - "{{steps.launch_instance.firewall_created | default('false')}}"
+          - "--instance-profile"
+          - "{{steps.launch_instance.instance_profile | default('none', true)}}"
+          - "--leaked-zones"
+          - "{{steps.launch_instance.leaked_zones | join(',') | default('none', true)}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_instance.zone | default(zone, true)}}"
+          - "{{teardown_flag}}"
+        timeout: 1200
+
+tests:
+  cluster_name: "gcp-image-registry-validation"
+  description: "GCP Compute Engine image registry (disk import + lifecycle) validation tests"
+
+  settings:
+    region: "us-central1"
+    zone: "us-central1-a"
+    # Foreign-format (VMDK) source -> the `gcloud compute images import` /
+    # Cloud Build translation path, which REQUIRES a `--os` translation target
+    # (guest_os below). That target enum (Cloud SDK) tops out at `ubuntu-2204`
+    # and has no `ubuntu-2404` choice, so image_url is GCP-pinned to the Ubuntu
+    # 22.04 (jammy) VMDK to keep the disk's OS and the translation hint in sync
+    # — overriding the vendor-neutral suite default (noble 24.04), which AWS
+    # imports without an OS hint. image_url and guest_os MUST be changed
+    # together: an operator pointing image_url at a different OS must set the
+    # matching gcloud `--os` value in guest_os. Operators may instead override
+    # with a RAW (.tar.gz disk.raw) source + image_format=raw for the pure-SDK
+    # ImagesClient.insert path, which ignores guest_os.
+    image_url: "https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-amd64.vmdk"
+    image_format: "vmdk"
+    # gcloud `compute images import --os` translation target for the foreign
+    # format path; coupled to image_url above (Ubuntu 22.04 -> ubuntu-2204).
+    guest_os: "ubuntu-2204"
+    # g2-standard-8 + integrated nvidia-l4 is the reviewed GCP GPU pin (mirrors
+    # the AWS oracle launching a GPU instance from the imported image). The
+    # imported Ubuntu image has no GPU drivers; the suite validates SSH + OS,
+    # not GPU, so the L4 simply idles.
+    instance_type: "g2-standard-8"
+    network: "default"
+    ssh_user: "ubuntu"
+    # GCP-namespaced override of the suite's vendor-neutral IR_SKIP_TEARDOWN so
+    # the shared operator .env does not collide across NCPs. OPTIONAL: unset
+    # runs teardown normally.
+    teardown_flag: "{{(env.GCP_IMAGE_REGISTRY_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
