@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -443,11 +444,35 @@ class TestRun:
         assert len(phase_polls) <= 2
 
     def test_junit_retrieval_failure(self) -> None:
-        router = _happy_router({"cat /tmp/results/junit": fail(stderr="no such file")})
+        router = _happy_router(
+            {
+                "cat /tmp/results/junit": fail(stderr="no such file"),
+                " cp ": fail(stderr="tar: removing leading '/'"),
+            }
+        )
         check = _run_check(router)
 
         assert not check.passed
         assert "Could not retrieve" in check.message
+
+    def test_junit_retrieval_falls_back_to_kubectl_cp(self) -> None:
+        router = _happy_router({"cat /tmp/results/junit": fail(stderr="stream reset")})
+
+        def run(cmd: str, timeout: int | None = None) -> CommandResult:
+            if " cp " in cmd:
+                router.seen.append(cmd)
+                Path(cmd.split()[-1]).write_text(PASSING_JUNIT, encoding="utf-8")
+                return ok()
+            return router(cmd, timeout)
+
+        runner = MagicMock()
+        runner.run.side_effect = run
+        with patch("isvtest.validations.k8s_conformance.is_k8s_available", return_value=True):
+            check = _make_check(runner)
+            check.run()
+
+        assert check.passed
+        assert any(" cp " in cmd for cmd in router.seen)
 
     def test_malformed_junit_sets_failed(self) -> None:
         router = _happy_router({"cat /tmp/results/junit": ok("<<<not xml")})

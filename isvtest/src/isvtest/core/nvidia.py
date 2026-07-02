@@ -61,9 +61,19 @@ def count_gpus_from_full_output(output: str) -> int:
     Returns:
         Number of GPUs found in output
 
-    Example pattern matched: "| 0  NVIDIA A100-SXM4-80GB"
+    Counts GPU identity rows by anchoring on the PCI Bus-Id that appears on
+    every physical GPU row of the table, regardless of vendor/name (e.g.
+    "NVIDIA A100-SXM4-80GB" or "Tesla T4"). Anchoring on the Bus-Id avoids
+    over-counting rows in the "Processes" table (which also start with a GPU
+    index but carry no Bus-Id) and MIG-device rows.
+
+    Example row matched: "|   0  Tesla T4  Off | 00000000:00:04.0 Off | ... |"
     """
-    gpu_lines = re.findall(r"\|\s*\d+\s+NVIDIA", output, re.MULTILINE)
+    gpu_lines = re.findall(
+        r"^\|\s+\d+\s+.+[0-9A-Fa-f]{8}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}\.\d",
+        output,
+        re.MULTILINE,
+    )
     return len(gpu_lines)
 
 
