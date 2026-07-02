@@ -37,8 +37,7 @@ version: "1.0"
 tests:
   cluster_name: "network-validation"
   description: "Network validation tests"
-  platform: network
-  kind: module
+  module: network
 
   settings:
     # Provider-specific - override in your provider config

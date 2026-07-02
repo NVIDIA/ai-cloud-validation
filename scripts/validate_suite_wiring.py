@@ -19,9 +19,10 @@
 Suite configs under ``isvctl/configs/suites/`` are the source of truth for
 validation metadata on this branch. This validator enforces:
 
-* ``tests.kind`` - every suite declares ``capability`` or ``module``. The
-  capability/module *label* axes are derived from the ``kind`` + ``platform`` of
-  the suites themselves (so adding a suite extends the axes automatically).
+* ``tests.capability`` / ``tests.module`` - every suite declares exactly one of
+  these axis keys (its value is also the runtime platform). The capability/module
+  *label* axes are derived from these keys (so adding a suite extends the axes
+  automatically).
 * ``test_id`` - a plan id from ``docs/test-plan.yaml``, or ``"N/A"`` when the
   check is generic plumbing with no plan item.
 * ``labels`` - a non-empty list used for pytest selection and catalog reporting.
@@ -57,9 +58,6 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
 _NEXT_CATEGORY_LINE = re.compile(r"^    \S")
-CAPABILITY_KIND = "capability"
-MODULE_KIND = "module"
-VALID_KINDS = (CAPABILITY_KIND, MODULE_KIND)
 SUITE_REQUIRED_LABELS: dict[str, str] = {
     "bare_metal": "bare_metal",
     "control-plane": "control_plane",
@@ -184,8 +182,8 @@ def iter_suite_checks(config_path: Path) -> Iterator[tuple[str, str, dict[str, A
                 yield from _from_mapping(category, check)
 
 
-def _suite_kind_and_platform(config_path: Path) -> tuple[Any, Any]:
-    """Return the ``(kind, platform)`` declared in a suite's ``tests:`` block."""
+def _suite_capability_and_module(config_path: Path) -> tuple[Any, Any]:
+    """Return the ``(capability, module)`` axis keys declared in a suite's ``tests:`` block."""
     try:
         data = yaml.safe_load(config_path.read_text())
     except (OSError, yaml.YAMLError) as exc:
@@ -193,30 +191,28 @@ def _suite_kind_and_platform(config_path: Path) -> tuple[Any, Any]:
     tests = (data or {}).get("tests", {})
     if not isinstance(tests, dict):
         return None, None
-    return tests.get("kind"), tests.get("platform")
+    return tests.get("capability"), tests.get("module")
 
 
 def derive_axis_labels(suites_dir: Path = SUITES_DIR) -> tuple[frozenset[str], frozenset[str]]:
-    """Derive the (capability, module) label axes from the suites' kind + platform.
+    """Derive the (capability, module) label axes from the suites' axis keys.
 
-    Capability labels are the platforms of ``kind: capability`` suites; module
-    labels are the platforms of ``kind: module`` suites plus the piggyback
-    allowlist (:data:`EXTRA_MODULE_LABELS`). Malformed suites are skipped here;
+    Capability labels are the values of ``capability:`` keys; module labels are
+    the values of ``module:`` keys plus the piggyback allowlist
+    (:data:`EXTRA_MODULE_LABELS`). Malformed suites are skipped here;
     :func:`wiring_errors` reports them separately.
     """
     capability: set[str] = set()
     module: set[str] = set()
     for path in sorted(suites_dir.glob("*.yaml")):
         try:
-            kind, platform = _suite_kind_and_platform(path)
+            cap, mod = _suite_capability_and_module(path)
         except ValueError:
             continue
-        if not isinstance(platform, str) or not platform:
-            continue
-        if kind == CAPABILITY_KIND:
-            capability.add(platform)
-        elif kind == MODULE_KIND:
-            module.add(platform)
+        if isinstance(cap, str) and cap:
+            capability.add(cap)
+        if isinstance(mod, str) and mod:
+            module.add(mod)
     return frozenset(capability), frozenset(module | EXTRA_MODULE_LABELS)
 
 
@@ -286,16 +282,20 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
         try:
             lines = path.read_text().splitlines()
             checks = list(iter_suite_checks(path))
-            kind, _platform = _suite_kind_and_platform(path)
+            capability, module = _suite_capability_and_module(path)
         except ValueError as exc:
             errors.append(str(exc))
             continue
 
-        if kind not in VALID_KINDS:
-            declared = f"{kind!r}" if kind is not None else "none"
+        has_capability = isinstance(capability, str) and bool(capability)
+        has_module = isinstance(module, str) and bool(module)
+        if has_capability and has_module:
             errors.append(
-                f"{_relative(path)}: missing/invalid tests.kind (declared {declared}; "
-                f"expected one of {', '.join(VALID_KINDS)})"
+                f"{_relative(path)}: declares both tests.capability and tests.module (exactly one required)"
+            )
+        elif not has_capability and not has_module:
+            errors.append(
+                f"{_relative(path)}: missing axis key (declare tests.capability or tests.module)"
             )
 
         for category, name, params in checks:

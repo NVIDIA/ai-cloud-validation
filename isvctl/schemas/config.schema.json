@@ -234,16 +234,12 @@
             }
           ],
           "default": null,
-          "description": "Platform type: KUBERNETES, SLURM, BARE_METAL, CONTROL_PLANE, IAM, NETWORK, SECURITY, VM, IMAGE_REGISTRY, OBSERVABILITY",
+          "description": "Runtime platform (the commands[...] group to run and the upload/report key). Derived from 'capability'/'module' when not set explicitly.",
           "title": "Platform"
         },
-        "kind": {
+        "capability": {
           "anyOf": [
             {
-              "enum": [
-                "capability",
-                "module"
-              ],
               "type": "string"
             },
             {
@@ -251,8 +247,21 @@
             }
           ],
           "default": null,
-          "description": "Suite classification for the capability x module matrix. 'capability' suites (vm, bare_metal, kubernetes, slurm) own a run's lifecycle; 'module' suites (iam, network, security, ...) are operational concerns. Provider configs inherit this from the suite they import.",
-          "title": "Kind"
+          "description": "Capability (service line) this suite validates: vm, bare_metal, kubernetes, slurm. Its value is also the runtime platform. Mutually exclusive with 'module'.",
+          "title": "Capability"
+        },
+        "module": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operational-concern module this suite validates: iam, network, security, observability, control_plane, image_registry, ... Its value is also the runtime platform. Mutually exclusive with 'capability'.",
+          "title": "Module"
         },
         "settings": {
           "additionalProperties": true,

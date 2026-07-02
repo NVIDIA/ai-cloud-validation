@@ -45,8 +45,7 @@ commands:
         timeout: 120
 
 tests:
-  platform: control_plane
-  kind: module
+  module: control_plane
   cluster_name: "nico-control-plane-validation"
   description: "Verify NICo API health"
 

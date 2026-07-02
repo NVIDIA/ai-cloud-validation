@@ -22,9 +22,9 @@ The key validation point is the command output schema - ISV stubs must return
 JSON that matches these schemas, which then become the inventory for tests.
 """
 
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LabConfig(BaseModel):
@@ -360,17 +360,47 @@ class ValidationConfig(BaseModel):
     description: str | None = Field(default=None, description="Test run description")
     platform: str | None = Field(
         default=None,
-        description="Platform type: KUBERNETES, SLURM, BARE_METAL, CONTROL_PLANE, IAM, NETWORK, SECURITY, VM, IMAGE_REGISTRY, OBSERVABILITY",
-    )
-    kind: Literal["capability", "module"] | None = Field(
-        default=None,
         description=(
-            "Suite classification for the capability x module matrix. "
-            "'capability' suites (vm, bare_metal, kubernetes, slurm) own a run's lifecycle; "
-            "'module' suites (iam, network, security, ...) are operational concerns. "
-            "Provider configs inherit this from the suite they import."
+            "Runtime platform (the commands[...] group to run and the upload/report key). "
+            "Derived from 'capability'/'module' when not set explicitly."
         ),
     )
+    capability: str | None = Field(
+        default=None,
+        description=(
+            "Capability (service line) this suite validates: vm, bare_metal, kubernetes, slurm. "
+            "Its value is also the runtime platform. Mutually exclusive with 'module'."
+        ),
+    )
+    module: str | None = Field(
+        default=None,
+        description=(
+            "Operational-concern module this suite validates: iam, network, security, "
+            "observability, control_plane, image_registry, ... Its value is also the runtime "
+            "platform. Mutually exclusive with 'capability'."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _derive_platform_from_axis(self) -> "ValidationConfig":
+        """Fold 'capability'/'module' into the runtime 'platform'.
+
+        A suite declares exactly one of 'capability' or 'module'; its value is
+        the runtime platform (the commands[...] key). 'platform' may still be set
+        explicitly (provider configs read raw for import-skipping upload paths)
+        and, when present, must not contradict the declared axis.
+        """
+        if self.capability and self.module:
+            raise ValueError("declare only one of 'capability' or 'module', not both")
+        axis_platform = self.capability or self.module
+        if axis_platform:
+            if self.platform and self.platform != axis_platform:
+                raise ValueError(
+                    f"platform {self.platform!r} contradicts "
+                    f"{'capability' if self.capability else 'module'} {axis_platform!r}"
+                )
+            self.platform = axis_platform
+        return self
     settings: dict[str, Any] = Field(default_factory=dict, description="Test settings")
     validations: dict[str, list[dict[str, Any]] | dict[str, Any]] = Field(
         default_factory=dict,

@@ -36,8 +36,7 @@ version: "1.0"
 tests:
   cluster_name: "security-validation"
   description: "Infrastructure security hardening validation"
-  platform: security
-  kind: module
+  module: security
 
   settings:
     region: ""

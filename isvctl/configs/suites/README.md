@@ -32,20 +32,24 @@ one environment - the orchestrator runs a single `commands[platform]` block and
 validations read its step outputs via `{{ steps.<name>.<field> }}` - so the
 capability is the natural run unit and modules are label-selected slices.
 
-### The `kind` field
+### The `capability:` / `module:` axis key
 
-Every suite declares `tests.kind` beside `tests.platform`:
+Every suite declares exactly one axis key in its `tests:` block - its value is
+also the runtime platform (the `commands[...]` group to run), so there is no
+separate `platform:` line to keep in sync:
 
-- **`kind: capability`** - `vm`, `bare_metal`, `k8s`, `slurm`. Owns a run's
-  setup/test/teardown lifecycle.
-- **`kind: module`** - `iam`, `network`, `security`, `observability`,
-  `control-plane`, `image-registry`. An operational concern.
+- **`capability: <name>`** - `vm`, `bare_metal`, `kubernetes`, `slurm`. Owns a
+  run's setup/test/teardown lifecycle.
+- **`module: <name>`** - `iam`, `network`, `security`, `observability`,
+  `control_plane`, `image_registry`. An operational concern.
 
-Provider configs inherit `kind` through `import:` (an `aws/config/eks.yaml` that
-imports `k8s.yaml` is a capability config automatically - classification is by
-the field, never by filename or directory). The capability and module **label
-axes are derived** from the suites' `kind` + `platform`, so adding a suite
-extends the axes without editing a central list.
+Provider configs inherit the axis key through `import:` (an `aws/config/eks.yaml`
+that imports `k8s.yaml` is a capability config automatically - classification is
+by the key, never by filename or directory). The capability and module **label
+axes are derived** from the suites' `capability:`/`module:` values, so adding a
+suite extends the axes without editing a central list. (`platform` remains a
+valid explicit field for provider configs read raw by import-skipping upload
+paths; when a suite declares an axis key, `platform` is derived from it.)
 
 ### Where a check lives (the placement rule)
 
@@ -55,7 +59,7 @@ extends the axes without editing a central list.
   `vm.yaml`; the `storage`-labeled `K8sCsi*` checks in `k8s.yaml` reading
   `{{ steps.setup.csi.* }}`; BM sanitization/attestation in `bare_metal.yaml`.
 - **Provisions its own test subject** or hits an **API** -> **its own
-  `kind: module` suite**, running once per lab, capability-agnostic. Examples:
+  `module:` suite**, running once per lab, capability-agnostic. Examples:
   `network.yaml` (creates its own VPC), `iam.yaml`, `control-plane.yaml`,
   `image-registry.yaml` (boots a VM *from the uploaded image* - the VM is the
   subject, not a borrowed host).
@@ -86,7 +90,7 @@ validation-only fragment per capability.
 
 `scripts/validate_suite_wiring.py` (run via `make validate-suites`) enforces:
 
-- every suite declares a valid `kind`;
+- every suite declares exactly one of `capability:` / `module:`;
 - every wiring label is a known **capability**, **module**, or **modifier**
   label (`MODIFIER_LABELS`: `min_req`, `slow`, `gpu`, `ssh`, `workload`, and the
   hardware traits) - typos and ungoverned label growth fail the check;
@@ -94,7 +98,7 @@ validation-only fragment per capability.
   is any-intersection, so two capability labels would skip the check under every
   column).
 
-Provider configs are governed for labels too (they inherit `kind`/`test_id`).
+Provider configs are governed for labels too (they inherit the axis key/`test_id`).
 
 ### Composition pattern (future env-dependent modules)
 
@@ -137,7 +141,7 @@ failure, with **`-f`** as the power-user override. There is no `--all` flag:
 capability runs are environment-bound, so "run everything" is one `--capability`
 command per environment.
 
-`--capability`/`--module` resolve by the effective `kind` (never by filename):
+`--capability`/`--module` resolve by the effective `capability:`/`module:` key (never by filename):
 `isvctl` classifies each `providers/<p>/config/*.yaml` by the suite it imports.
 An `aws/config/eks.yaml` importing `k8s.yaml` is the `kubernetes` capability.
 `--capability k8s` is accepted as an alias for `kubernetes`.

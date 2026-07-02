@@ -35,8 +35,7 @@
 version: "1.0"
 
 tests:
-  platform: bare_metal
-  kind: capability
+  capability: bare_metal
   cluster_name: "bm-validation"
   description: "Bare metal (BMaaS) GPU validation tests"
 

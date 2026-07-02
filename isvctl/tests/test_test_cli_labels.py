@@ -90,14 +90,14 @@ tests:
 
 
 def _write_kind_suite(root: Path, name: str, platform: str, kind: str) -> None:
-    """Write a suite declaring kind + platform for capability/module resolution."""
+    """Write a suite declaring its capability/module axis key for resolution."""
+    axis_key = "capability" if kind == "capability" else "module"
     suite_path = root / "suites" / name
     suite_path.parent.mkdir(parents=True, exist_ok=True)
     suite_path.write_text(
         f"""\
 tests:
-  platform: {platform}
-  kind: {kind}
+  {axis_key}: {platform}
   validations: {{}}
 """,
         encoding="utf-8",

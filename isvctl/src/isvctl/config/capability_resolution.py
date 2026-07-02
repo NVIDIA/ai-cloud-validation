@@ -4,18 +4,18 @@
 """Capability/module resolution for ``--capability`` and ``--module`` selection.
 
 Sibling of :mod:`isvctl.config.label_discovery`. Classifies a provider's configs
-by their effective ``tests.kind`` + ``tests.platform`` (inherited through
+by their effective ``tests.capability`` / ``tests.module`` key (inherited through
 ``import:``) and plans which configs to run:
 
-* ``--capability <cap>`` runs the whole matrix column: the one ``kind:
-  capability`` config whose platform is ``<cap>`` first, then every ``kind:
-  module`` config, each with capability-scoped exclude labels so checks tagged
-  with a *different* capability are skipped.
-* ``--module <mod>`` runs a single ``kind: module`` config.
+* ``--capability <cap>`` runs the whole matrix column: the one config declaring
+  ``capability: <cap>`` first, then every ``module:`` config, each with
+  capability-scoped exclude labels so checks tagged with a *different* capability
+  are skipped.
+* ``--module <mod>`` runs a single config declaring ``module: <mod>``.
 
-Classification is by the ``kind`` field, never by filename: an
-``aws/config/eks.yaml`` that imports ``k8s.yaml`` classifies as the
-``kubernetes`` capability.
+Classification is by the ``capability``/``module`` key, never by filename: an
+``aws/config/eks.yaml`` that imports ``k8s.yaml`` inherits ``capability:
+kubernetes``.
 """
 
 from __future__ import annotations
@@ -58,21 +58,26 @@ class PlannedRun:
 
 
 def _effective_kind_and_platform(config_path: Path) -> tuple[str | None, str | None]:
-    """Return the ``(kind, platform)`` a config resolves to after imports."""
+    """Return the ``(kind, platform)`` a config resolves to after imports.
+
+    ``kind`` is ``"capability"`` or ``"module"`` depending on which axis key the
+    config declares; ``platform`` is that key's value (the commands[...] key).
+    """
     merged = merge_yaml_files([config_path])
     tests = merged.get("tests") or {}
     if not isinstance(tests, dict):
         return None, None
-    kind = tests.get("kind")
-    platform = tests.get("platform")
-    return (
-        kind if isinstance(kind, str) else None,
-        platform if isinstance(platform, str) else None,
-    )
+    capability = tests.get("capability")
+    module = tests.get("module")
+    if isinstance(capability, str) and capability:
+        return CAPABILITY_KIND, capability
+    if isinstance(module, str) and module:
+        return MODULE_KIND, module
+    return None, None
 
 
 def capability_label_universe(configs_root: Path) -> frozenset[str]:
-    """Return every capability label defined by the shipped ``kind: capability`` suites.
+    """Return every capability label defined by the shipped capability suites.
 
     Derived from ``configs_root/suites`` (not the provider's configs) so exclusion
     is stable even when a provider is missing a capability config.
@@ -87,8 +92,9 @@ def capability_label_universe(configs_root: Path) -> frozenset[str]:
         tests = (data or {}).get("tests", {})
         if not isinstance(tests, dict):
             continue
-        if tests.get("kind") == CAPABILITY_KIND and isinstance(tests.get("platform"), str):
-            universe.add(tests["platform"])
+        capability = tests.get("capability")
+        if isinstance(capability, str) and capability:
+            universe.add(capability)
     return frozenset(universe)
 
 
@@ -111,11 +117,10 @@ def classify_provider_configs(provider: str, *, configs_root: Path) -> list[Clas
     for config_path in sorted(provider_config_dir.glob("*.yaml")):
         kind, platform = _effective_kind_and_platform(config_path)
         if kind not in (CAPABILITY_KIND, MODULE_KIND) or not platform:
-            declared = f"{kind!r}" if kind is not None else "none"
             raise CapabilityResolutionError(
-                f"Config {config_path} has no valid tests.kind (declared {declared}); "
-                f"every provider config must inherit a '{CAPABILITY_KIND}' or '{MODULE_KIND}' "
-                f"suite via import."
+                f"Config {config_path} declares neither tests.capability nor tests.module; "
+                f"every provider config must inherit a capability/module suite via import "
+                f"(or declare one of these keys directly)."
             )
         classified.append(ClassifiedConfig(config_path=config_path, kind=kind, platform=platform))
     return classified

@@ -44,8 +44,7 @@ commands:
         timeout: 120
 
 tests:
-  platform: iam
-  kind: module
+  module: iam
   cluster_name: "nico-iam-validation"
   description: "Verify NICo credential readiness"
 

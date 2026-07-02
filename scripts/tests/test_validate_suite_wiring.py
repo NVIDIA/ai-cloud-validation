@@ -22,8 +22,7 @@ def test_wiring_errors_flags_missing_metadata(tmp_path: Path) -> None:
     suite.write_text(
         """\
 tests:
-  platform: security
-  kind: module
+  module: security
   validations:
     example:
       checks:
@@ -37,7 +36,7 @@ tests:
 """
     )
     errors = validate_suite_wiring.wiring_errors(tmp_path)
-    assert any("demo.yaml:10" in err and "BadCheck" in err and "missing test_id" in err for err in errors)
+    assert any("demo.yaml:9" in err and "BadCheck" in err and "missing test_id" in err for err in errors)
     assert any("demo.yaml:" in err and "AlsoBad" in err and "missing labels" in err for err in errors)
     assert not any("GoodCheck" in err for err in errors)
 
@@ -48,8 +47,7 @@ def test_wiring_errors_rejects_scalar_labels(tmp_path: Path) -> None:
     suite.write_text(
         """\
 tests:
-  platform: kubernetes
-  kind: capability
+  capability: kubernetes
   validations:
     example:
       checks:
@@ -68,8 +66,7 @@ def test_wiring_errors_require_canonical_suite_label(tmp_path: Path) -> None:
     suite.write_text(
         """\
 tests:
-  platform: kubernetes
-  kind: capability
+  capability: kubernetes
   validations:
     example:
       checks:
@@ -86,9 +83,9 @@ tests:
     assert not any("GoodCheck" in err for err in errors)
 
 
-def test_wiring_errors_flags_missing_or_invalid_kind(tmp_path: Path) -> None:
-    """A suite without a valid tests.kind is reported."""
-    (tmp_path / "no_kind.yaml").write_text(
+def test_wiring_errors_flags_missing_or_conflicting_axis_key(tmp_path: Path) -> None:
+    """A suite must declare exactly one of tests.capability / tests.module."""
+    (tmp_path / "no_axis.yaml").write_text(
         """\
 tests:
   platform: vm
@@ -100,11 +97,11 @@ tests:
           labels: ["vm"]
 """
     )
-    (tmp_path / "bad_kind.yaml").write_text(
+    (tmp_path / "both_axes.yaml").write_text(
         """\
 tests:
-  platform: vm
-  kind: bogus
+  capability: vm
+  module: iam
   validations:
     example:
       checks:
@@ -114,8 +111,8 @@ tests:
 """
     )
     errors = validate_suite_wiring.wiring_errors(tmp_path)
-    assert any("no_kind.yaml" in err and "tests.kind" in err and "none" in err for err in errors)
-    assert any("bad_kind.yaml" in err and "tests.kind" in err and "'bogus'" in err for err in errors)
+    assert any("no_axis.yaml" in err and "missing axis key" in err for err in errors)
+    assert any("both_axes.yaml" in err and "both tests.capability and tests.module" in err for err in errors)
 
 
 def test_wiring_errors_flags_unknown_label(tmp_path: Path) -> None:
@@ -124,8 +121,7 @@ def test_wiring_errors_flags_unknown_label(tmp_path: Path) -> None:
     suite.write_text(
         """\
 tests:
-  platform: network
-  kind: module
+  module: network
   validations:
     example:
       checks:
@@ -143,8 +139,7 @@ def test_wiring_errors_flags_multiple_capability_labels(tmp_path: Path) -> None:
     (tmp_path / "bare_metal.yaml").write_text(
         """\
 tests:
-  platform: bare_metal
-  kind: capability
+  capability: bare_metal
   validations:
     example:
       checks:
@@ -156,8 +151,7 @@ tests:
     (tmp_path / "vm.yaml").write_text(
         """\
 tests:
-  platform: vm
-  kind: capability
+  capability: vm
   validations:
     example:
       checks:
@@ -173,14 +167,13 @@ tests:
 
 
 def test_wiring_errors_flags_provider_config_label_typo(tmp_path: Path) -> None:
-    """Provider configs are governed for labels even though they inherit kind."""
+    """Provider configs are governed for labels even though they inherit the axis key."""
     suites_dir = tmp_path / "suites"
     suites_dir.mkdir()
     (suites_dir / "network.yaml").write_text(
         """\
 tests:
-  platform: network
-  kind: module
+  module: network
   validations:
     example:
       checks:

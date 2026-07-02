@@ -53,8 +53,7 @@ commands:
 tests:
   cluster_name: "{{steps.setup.cluster_name}}"
   description: "Kubernetes cluster validation"
-  platform: kubernetes
-  kind: capability
+  capability: kubernetes
 
   settings:
     show_skipped_tests: false

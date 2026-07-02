@@ -437,23 +437,27 @@ class TestImportEndToEnd:
         assert "credentials" in validations
         assert "teardown_checks" in validations
         assert result["tests"]["cluster_name"] == "aws-iam-validation"
-        assert result["tests"]["platform"] == "iam"
+        # The iam suite declares the module axis key; platform is derived at model-validation.
+        assert result["tests"]["module"] == "iam"
+        assert RunConfig.model_validate(result).tests.platform == "iam"
 
-    def test_my_isv_observability_declares_raw_platform_for_report_upload(self) -> None:
-        """Raw observability config exposes platform for upload paths that skip imports."""
+    def test_my_isv_observability_declares_raw_axis_for_report_upload(self) -> None:
+        """Raw observability config exposes its axis key for upload paths that skip imports."""
         config_path = self.CONFIGS_DIR / "providers" / "my-isv" / "config" / "observability.yaml"
 
         raw_config = yaml.safe_load(config_path.read_text()) or {}
-        assert raw_config.get("tests", {}).get("platform") == "observability"
+        # Declared explicitly (not just inherited) so get_platform_from_config resolves it.
+        assert raw_config.get("tests", {}).get("module") == "observability"
 
         result = merge_yaml_files([config_path])
-        assert result["tests"]["platform"] == "observability"
+        assert RunConfig.model_validate(result).tests.platform == "observability"
 
     def test_aws_observability_inherits_supported_validations(self) -> None:
         """AWS observability keeps network/telemetry checks; host/BMC checks moved to bare_metal."""
         result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "observability.yaml"])
 
-        assert result["tests"]["platform"] == "observability"
+        assert result["tests"]["module"] == "observability"
+        assert RunConfig.model_validate(result).tests.platform == "observability"
         assert result["tests"]["cluster_name"] == "aws-observability-validation"
 
         steps = result["commands"]["observability"]["steps"]
@@ -589,7 +593,9 @@ class TestImportEndToEnd:
         assert context.render_string(exclude_selector) == "isv.ncp.validation/pool=test"
         assert context.render_string(total_gpu_count) == "2"
         assert context.render_string(expected_total) == "2"
-        assert result["tests"]["platform"] == "kubernetes"
+        # The k8s suite declares the capability axis key; platform is derived at model-validation.
+        assert result["tests"]["capability"] == "kubernetes"
+        assert config.tests.platform == "kubernetes"
 
     def test_aws_eks_does_not_hardcode_world_open_endpoint_allowlist(self) -> None:
         """EKS setup must not create clusters that make the security suite fail."""

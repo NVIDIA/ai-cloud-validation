@@ -348,7 +348,10 @@ commands:
         timeout: 900
 
 tests:
-  platform: observability
+  # Declared explicitly (not just inherited from the imported suite) so the
+  # raw-read upload path (get_platform_from_config, which skips imports) resolves
+  # the platform from this axis key.
+  module: observability
   cluster_name: "aws-observability-validation"
   description: "AWS observability validation for VPC Flow Logs and telemetry"
 

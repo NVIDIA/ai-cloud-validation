@@ -140,6 +140,21 @@ class TestGetPlatformFromConfig:
         config = _write_config(tmp_path, "tests:\n  platform: observability\n")
         assert get_platform_from_config(str(config)) == OBSERVABILITY
 
+    def test_config_with_capability_axis_key(self, tmp_path: Path) -> None:
+        """The capability axis key is used as the platform when no platform is set."""
+        config = _write_config(tmp_path, "tests:\n  capability: kubernetes\n")
+        assert get_platform_from_config(str(config)) == KUBERNETES
+
+    def test_config_with_module_axis_key(self, tmp_path: Path) -> None:
+        """The module axis key is used as the platform when no platform is set."""
+        config = _write_config(tmp_path, "tests:\n  module: observability\n")
+        assert get_platform_from_config(str(config)) == OBSERVABILITY
+
+    def test_explicit_platform_wins_over_axis_key(self, tmp_path: Path) -> None:
+        """An explicit platform takes precedence over the axis key."""
+        config = _write_config(tmp_path, "tests:\n  platform: slurm\n  capability: slurm\n")
+        assert get_platform_from_config(str(config)) == SLURM
+
     def test_config_without_tests_section(self, tmp_path: Path) -> None:
         """Test that missing tests section returns default."""
         config = _write_config(tmp_path, "commands:\n  setup: echo hello\n")

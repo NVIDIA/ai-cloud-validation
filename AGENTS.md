@@ -114,17 +114,18 @@ exception: the single-node local providers
 `isvctl/configs/providers/{k3s,microk8s,minikube}.yaml`, which wire host-level
 checks that exist in no suite.
 
-Suites are classified by `tests.kind` (`capability` | `module`) beside
-`tests.platform`; provider configs inherit it via `import:`. The capability
-label axis (`vm`, `bare_metal`, `kubernetes`, `slurm`) and module label axis
-(`iam`, `network`, `security`, `observability`, `control_plane`,
-`image_registry`, ...) are *derived* from the suites' kind + platform.
-`scripts/validate_suite_wiring.py` governs labels: every wiring label must be a
-capability, module, or `MODIFIER_LABELS` label, and a check may carry at most
-one capability label (capability-scoped exclusion is any-intersection). A check
-that needs a capability's live host lives inline in that capability suite
+Suites are classified by a single axis key in `tests:` - `capability: <name>`
+(`vm`, `bare_metal`, `kubernetes`, `slurm`) or `module: <name>` (`iam`,
+`network`, `security`, `observability`, `control_plane`, `image_registry`, ...);
+its value is also the runtime `platform` (derived when not set explicitly).
+Provider configs inherit it via `import:`. The capability/module label axes are
+*derived* from these keys. `scripts/validate_suite_wiring.py` governs labels:
+every suite declares exactly one axis key, every wiring label must be a
+capability, module, or `MODIFIER_LABELS` label, and a check may carry at most one
+capability label (capability-scoped exclusion is any-intersection). A check that
+needs a capability's live host lives inline in that capability suite
 ("piggyback"); a concern that provisions its own subject or hits an API stays in
-its own `kind: module` suite. See `isvctl/configs/suites/README.md`.
+its own `module:` suite. See `isvctl/configs/suites/README.md`.
 
 Workloads (`isvtest/src/isvtest/workloads/`) are long-running tests (NIM, NCCL,
 stress) labelled `("workload", "slow", ...)` with manifests and helper scripts

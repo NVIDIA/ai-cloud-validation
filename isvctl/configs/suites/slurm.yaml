@@ -44,8 +44,7 @@ commands:
 tests:
   cluster_name: "{{steps.setup.cluster_name}}"
   description: "Slurm cluster validation"
-  platform: slurm
-  kind: capability
+  capability: slurm
 
   settings:
     show_skipped_tests: false

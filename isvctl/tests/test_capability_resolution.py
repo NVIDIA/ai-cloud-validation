@@ -30,14 +30,14 @@ from isvctl.config.capability_resolution import (
 
 
 def _write_suite(root: Path, name: str, platform: str, kind: str) -> None:
-    """Write a provider-neutral suite declaring kind + platform."""
+    """Write a provider-neutral suite declaring its capability/module axis key."""
+    axis_key = "capability" if kind == "capability" else "module"
     suite_path = root / "suites" / name
     suite_path.parent.mkdir(parents=True, exist_ok=True)
     suite_path.write_text(
         f"""\
 tests:
-  platform: {platform}
-  kind: {kind}
+  {axis_key}: {platform}
   validations: {{}}
 """,
         encoding="utf-8",
@@ -94,7 +94,8 @@ def test_classify_errors_on_missing_kind(tmp_path: Path) -> None:
     with pytest.raises(CapabilityResolutionError) as exc:
         classify_provider_configs("acme", configs_root=tmp_path)
     assert "stray.yaml" in str(exc.value)
-    assert "tests.kind" in str(exc.value)
+    assert "tests.capability" in str(exc.value)
+    assert "tests.module" in str(exc.value)
 
 
 def test_plan_capability_run_orders_and_excludes(tmp_path: Path) -> None:
