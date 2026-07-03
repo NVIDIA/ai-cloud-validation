@@ -59,11 +59,9 @@ tests:
       checks:
         FieldExistsCheck:
           test_id: "N/A"
-          labels: ["iam"]
           fields: ["account_id", "authenticated", "tests"]
         StepSuccessCheck:
           test_id: "N/A"
-          labels: ["iam"]
 
   exclude:
     labels: []
