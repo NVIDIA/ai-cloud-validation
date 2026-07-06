@@ -35,9 +35,9 @@
 version: "1.0"
 
 tests:
+  module: image_registry
   cluster_name: "image-registry-validation"
   description: "Image registry validation tests"
-  module: image_registry
 
   settings:
     # Provider-specific - override in your provider config

@@ -21,9 +21,9 @@
 version: "1.0"
 
 tests:
+  module: observability
   cluster_name: "observability-validation"
   description: "Observability collector validation tests"
-  module: observability
 
   settings:
     region: ""

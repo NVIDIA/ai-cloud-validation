@@ -51,9 +51,9 @@ commands:
 # Test Configuration
 # =============================================================================
 tests:
+  platform: kubernetes
   cluster_name: "{{steps.setup.cluster_name}}"
   description: "Kubernetes cluster validation"
-  platform: kubernetes
 
   settings:
     show_skipped_tests: false
