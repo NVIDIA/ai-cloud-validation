@@ -30,6 +30,9 @@ Implements:
 * :class:`K8sCsiProvisioningModesCheck` - verify CSI supports
   both dynamic and static provisioning, driving each through a real mount
   + canary-file write/read inside a BusyBox pod.
+* :class:`K8sCsiDriverHealthCheck` - verify each configured StorageClass
+  resolves to a registered ``CSIDriver`` and that the driver's controller
+  Deployment and node DaemonSet are healthy.
 """
 
 from __future__ import annotations
@@ -1242,6 +1245,11 @@ def _parse_label_pairs(raw: list[Any]) -> list[tuple[str, str]]:
     return pairs
 
 
+def _as_dict(value: Any) -> dict[str, Any]:
+    """Return ``value`` when it is a dict, else an empty dict (defensive config access)."""
+    return value if isinstance(value, dict) else {}
+
+
 def _load_items(stdout: str) -> list[dict[str, Any]]:
     """Parse a ``kubectl get ... -o json`` list payload into its ``items`` list."""
     if not stdout:
@@ -1942,3 +1950,256 @@ def _set_mount_pod_fields(
     volumes[0].pop("emptyDir", None)
     volumes[0]["persistentVolumeClaim"] = {"claimName": pvc_name}
     return doc
+
+
+class K8sCsiDriverHealthCheck(BaseValidation):
+    """Verify CSI drivers are installed and healthy for the configured StorageClasses.
+
+    Resolves each StorageClass to its ``spec.provisioner`` and, per unique
+    provisioner, checks the StorageClass exists, the ``CSIDriver`` is registered,
+    and (when ``workloads`` are given) the controller Deployment and node
+    DaemonSet are Ready.
+
+    Config (``drivers`` is a list of specs; the whole check skips when no
+    StorageClasses resolve)::
+
+        drivers:
+          - storage_classes: [<sc-name>, ...]
+            workloads:                 # optional; omit to skip controller/node checks
+              namespace: kube-system
+              controller: {deployment: <name>}
+              node: {daemonset: <name>}
+
+    ``min_controller_replicas`` (default 1) sets the minimum Ready controller
+    replicas.
+    """
+
+    description: ClassVar[str] = "Verify the CSI driver is installed and healthy."
+    timeout: ClassVar[int] = 60
+
+    def run(self) -> None:
+        """Resolve each driver spec's StorageClasses to provisioners and run health subtests."""
+        sc_to_workloads = self._collect_driver_specs()
+        if not sc_to_workloads:
+            self.set_passed("Skipped: no storage_classes configured")
+            return
+
+        min_replicas = self._parse_positive_int("min_controller_replicas", default=1)
+        if min_replicas is None:
+            return
+        kubectl_base = get_kubectl_base_shell()
+
+        # Single kubectl call to resolve all SC names → provisioners.
+        sc_result = self.run_command(f"{kubectl_base} get storageclass -o json")
+        if sc_result.exit_code != 0:
+            self.set_failed(f"kubectl get storageclass failed: {sc_result.stderr.strip()}")
+            return
+        all_sc_items = _load_items(sc_result.stdout)
+        sc_to_provisioner: dict[str, str] = {
+            (item.get("metadata") or {}).get("name", ""): str(item.get("provisioner") or "") for item in all_sc_items
+        }
+
+        any_failed = False
+        provisioner_to_scs: dict[str, list[str]] = {}
+        # Multiple StorageClasses can share a provisioner; track each distinct
+        # workloads block to detect conflicting configs.
+        provisioner_to_workloads: dict[str, list[dict[str, Any]]] = {}
+        for sc_name, workloads in sc_to_workloads.items():
+            provisioner = sc_to_provisioner.get(sc_name)
+            if not provisioner:
+                self.report_subtest(
+                    f"storageclass-found[{sc_name}]",
+                    passed=False,
+                    message=(
+                        f"StorageClass {sc_name!r} not found in the cluster "
+                        f"({len(all_sc_items)} StorageClass(es) present)"
+                    ),
+                )
+                any_failed = True
+                continue
+            provisioner_to_scs.setdefault(provisioner, []).append(sc_name)
+            if workloads:
+                distinct = provisioner_to_workloads.setdefault(provisioner, [])
+                if workloads not in distinct:
+                    distinct.append(workloads)
+
+        for provisioner in sorted(provisioner_to_scs):
+            if self._report_provisioner_health(
+                kubectl_base,
+                provisioner,
+                provisioner_to_scs[provisioner],
+                provisioner_to_workloads.get(provisioner) or [],
+                min_replicas,
+            ):
+                any_failed = True
+
+        if any_failed:
+            self.set_failed("One or more CSI driver health subtests failed; see subtest details")
+        else:
+            self.set_passed(f"CSI driver health verified for: {', '.join(sorted(provisioner_to_scs))}")
+
+    def _collect_driver_specs(self) -> dict[str, dict[str, Any]]:
+        """Map each configured StorageClass name to its (optional) ``workloads``"""
+        specs = self.config.get("drivers")
+        sc_to_workloads: dict[str, dict[str, Any]] = {}
+        for spec in specs if isinstance(specs, list) else []:
+            if not isinstance(spec, dict):
+                continue
+            workloads = _as_dict(spec.get("workloads"))
+            for raw_sc in spec.get("storage_classes") or []:
+                sc = str(raw_sc).strip()
+                if sc and sc not in sc_to_workloads:
+                    sc_to_workloads[sc] = workloads
+        return sc_to_workloads
+
+    def _report_provisioner_health(
+        self,
+        kubectl_base: str,
+        provisioner: str,
+        storage_classes: list[str],
+        workloads_list: list[dict[str, Any]],
+        min_replicas: int,
+    ) -> bool:
+        """Report the registration + controller/node subtests for one provisioner.
+
+        Returns ``True`` if any non-skipped subtest failed.
+        """
+        tag = f"[{provisioner}]"
+
+        ok, msg = self._check_csidriver_registered(kubectl_base, provisioner)
+        self.report_subtest(f"csidriver-registered{tag}", passed=ok, message=msg)
+        failed = not ok
+
+        if len(workloads_list) > 1:
+            conflict_msg = (
+                f"Conflicting `workloads` blocks for provisioner {provisioner!r} "
+                f"across StorageClasses {storage_classes} ({len(workloads_list)} distinct); "
+                "use a single workloads block per provisioner"
+            )
+            self.report_subtest(f"controller-deployment-healthy{tag}", passed=False, message=conflict_msg)
+            self.report_subtest(f"node-daemonset-healthy{tag}", passed=False, message=conflict_msg)
+            return True
+
+        if not workloads_list:
+            skip_msg = (
+                f"No workloads configured for provisioner {provisioner!r}; add a "
+                "`workloads` block (controller.deployment and node.daemonset) to its "
+                "drivers entry to health-check the controller Deployment and node DaemonSet"
+            )
+            self.report_subtest(f"controller-deployment-healthy{tag}", passed=True, message=skip_msg, skipped=True)
+            self.report_subtest(f"node-daemonset-healthy{tag}", passed=True, message=skip_msg, skipped=True)
+            return failed
+
+        workloads = workloads_list[0]
+        namespace = str(workloads.get("namespace") or "kube-system")
+        controller = _as_dict(workloads.get("controller"))
+        node = _as_dict(workloads.get("node"))
+
+        ok, msg = self._check_controller_deployment(
+            kubectl_base, namespace, str(controller.get("deployment") or ""), min_replicas
+        )
+        self.report_subtest(f"controller-deployment-healthy{tag}", passed=ok, message=msg)
+        failed = failed or not ok
+
+        ok, msg = self._check_node_daemonset(kubectl_base, namespace, str(node.get("daemonset") or ""))
+        self.report_subtest(f"node-daemonset-healthy{tag}", passed=ok, message=msg)
+        return failed or not ok
+
+    def _check_csidriver_registered(self, kubectl_base: str, provisioner: str) -> tuple[bool, str]:
+        """Return ``(ok, message)`` for the ``csidriver-registered`` subtest."""
+        cmd = f"{kubectl_base} get csidriver {shlex.quote(provisioner)} --ignore-not-found=true -o json"
+        result = self.run_command(cmd)
+        if result.exit_code != 0:
+            return False, f"kubectl get csidriver {provisioner!r} failed: {result.stderr.strip()}"
+        if not result.stdout.strip():
+            return False, f"CSIDriver/{provisioner} is not registered in the cluster"
+        try:
+            payload = parse_kubectl_json(result, f"CSIDriver {provisioner!r}")
+        except KubectlParseError as exc:
+            return False, str(exc)
+        name = (payload.get("metadata") or {}).get("name", "")
+        return True, f"CSIDriver/{name} is registered"
+
+    def _check_controller_deployment(
+        self,
+        kubectl_base: str,
+        namespace: str,
+        deployment_name: str,
+        min_replicas: int,
+    ) -> tuple[bool, str]:
+        """Return ``(ok, message)`` for the ``controller-deployment-healthy`` subtest."""
+        deployment, error = self._get_workload(
+            kubectl_base, "deployment", namespace, deployment_name, "workloads.controller.deployment"
+        )
+        if error:
+            return False, error
+
+        meta = deployment.get("metadata") or {}
+        spec = deployment.get("spec") or {}
+        status = deployment.get("status") or {}
+        name = meta.get("name", "")
+        desired = int(spec.get("replicas") or 0)
+        ready = int(status.get("readyReplicas") or 0)
+        if desired < min_replicas:
+            return False, (
+                f"Deployment {namespace}/{name} has spec.replicas={desired} < min_controller_replicas={min_replicas}"
+            )
+        if ready != desired:
+            return False, (f"Deployment {namespace}/{name}: readyReplicas={ready} != spec.replicas={desired}")
+        return True, f"Deployment {namespace}/{name}: {ready}/{desired} replicas Ready"
+
+    def _check_node_daemonset(
+        self,
+        kubectl_base: str,
+        namespace: str,
+        daemonset_name: str,
+    ) -> tuple[bool, str]:
+        """Return ``(ok, message)`` for the ``node-daemonset-healthy`` subtest."""
+        daemonset, error = self._get_workload(
+            kubectl_base, "daemonset", namespace, daemonset_name, "workloads.node.daemonset"
+        )
+        if error:
+            return False, error
+
+        meta = daemonset.get("metadata") or {}
+        status = daemonset.get("status") or {}
+        name = meta.get("name", "")
+        desired = int(status.get("desiredNumberScheduled") or 0)
+        available = int(status.get("numberAvailable") or 0)
+        ready = int(status.get("numberReady") or 0)
+        if desired == 0:
+            # An empty DaemonSet usually means its nodeSelector / tolerations
+            # don't match any node.
+            return False, (
+                f"DaemonSet {namespace}/{name}: desiredNumberScheduled=0 (no nodes match the DaemonSet's node selector)"
+            )
+        if available != desired or ready != desired:
+            return False, (f"DaemonSet {namespace}/{name}: desired={desired}, available={available}, ready={ready}")
+        return True, f"DaemonSet {namespace}/{name}: {ready}/{desired} pods Ready and Available"
+
+    def _get_workload(
+        self,
+        kubectl_base: str,
+        kind: str,
+        namespace: str,
+        name: str,
+        name_config_key: str,
+    ) -> tuple[dict[str, Any], str]:
+        """Fetch a Deployment or DaemonSet by name.
+
+        Returns ``(workload, "")`` on success or ``({}, error)`` on failure.
+        """
+        if not name:
+            return {}, f"{name_config_key} must be set for the {kind} subtest"
+        cmd = (
+            f"{kubectl_base} get {kind} {shlex.quote(name)} -n {shlex.quote(namespace)} --ignore-not-found=true -o json"
+        )
+        result = self.run_command(cmd)
+        if result.exit_code != 0:
+            return {}, f"kubectl get {kind} failed: {result.stderr.strip()}"
+        if not result.stdout.strip():
+            return {}, f"{kind.capitalize()} {namespace}/{name} not found"
+        try:
+            return parse_kubectl_json(result, f"{kind.capitalize()} {name!r}"), ""
+        except KubectlParseError as exc:
+            return {}, str(exc)

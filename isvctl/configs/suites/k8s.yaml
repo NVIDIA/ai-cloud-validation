@@ -296,6 +296,29 @@ tests:
             access_mode: "ReadWriteOnce"
           bind_timeout_s: 180
           namespace_prefix: "isvtest-csi-prov"
+        K8sCsiDriverHealthCheck:
+          test_id: "N/A"
+          labels: ["kubernetes", "min_req"]
+          # Verifies each configured CSI driver is installed and healthy.
+          # Controller/node health (Deployment + DaemonSet) runs only
+          # when a spec supplies a `workloads` block; otherwise those subtests are
+          # skipped (driver registration is still checked).
+          #   - storage_classes: ["..."]
+          #     workloads:
+          #       namespace: kube-system
+          #       controller: { deployment: <name> }
+          #       node: { daemonset: <name> }
+          drivers:
+            - storage_classes:
+                - "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+              workloads: {}
+            - storage_classes:
+                - "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+              workloads: {}
+            - storage_classes:
+                - "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+              workloads: {}
+          min_controller_replicas: 1
 
     k8s_identity:
       checks:
