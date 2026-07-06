@@ -109,24 +109,20 @@ tests:
       checks:
         TenantListedCheck:
           test_id: "N/A"
-          labels: ["network"]
 
     vpc_info:
       step: get_vpc
       checks:
         TenantInfoCheck:
-          test_id: "SDN01-02"
-          labels: ["min_req", "network"]
+          test_id: "N/A"
 
     network_connectivity:
       step: network_connectivity
       checks:
         StepSuccessCheck:
           test_id: "N/A"
-          labels: ["network"]
         FieldValueCheck:
           test_id: "N/A"
-          labels: ["network"]
           field: "tests.network_assigned.passed"
           expected: true
 
@@ -135,10 +131,8 @@ tests:
       checks:
         StepSuccessCheck:
           test_id: "N/A"
-          labels: ["network"]
         FieldValueCheck:
           test_id: "N/A"
-          labels: ["network"]
           field: "tests.network_setup.passed"
           expected: true
 

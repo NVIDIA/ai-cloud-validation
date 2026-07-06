@@ -60,11 +60,9 @@ tests:
       checks:
         FieldExistsCheck:
           test_id: "N/A"
-          labels: ["control_plane"]
           fields: ["account_id", "tests"]
         FieldValueCheck:
           test_id: "CP03-01"
-          labels: ["control_plane"]
           field: "success"
           expected: true
 
