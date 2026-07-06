@@ -2293,9 +2293,7 @@ class TestK8sCsiDriverHealthCheck:
         assert check._subtest_results == []
 
     def test_healthy_controller_and_daemonset_pass(self) -> None:
-        check = self._make(
-            {"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]}
-        )
+        check = self._make({"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]})
 
         outcomes = self._run(
             check,
@@ -2343,9 +2341,7 @@ class TestK8sCsiDriverHealthCheck:
         assert check._subtest_results == []
 
     def test_controller_deployment_not_ready_fails(self) -> None:
-        check = self._make(
-            {"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]}
-        )
+        check = self._make({"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]})
 
         outcomes = self._run(
             check,
@@ -2382,9 +2378,7 @@ class TestK8sCsiDriverHealthCheck:
         assert "min_controller_replicas=2" in ctrl["message"]
 
     def test_daemonset_no_nodes_scheduled_fails(self) -> None:
-        check = self._make(
-            {"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]}
-        )
+        check = self._make({"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]})
 
         outcomes = self._run(
             check,
@@ -2400,9 +2394,7 @@ class TestK8sCsiDriverHealthCheck:
         assert "desiredNumberScheduled=0" in ds["message"]
 
     def test_daemonset_unavailable_fails(self) -> None:
-        check = self._make(
-            {"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]}
-        )
+        check = self._make({"drivers": [{"storage_classes": ["ebs"], "workloads": self._workloads()}]})
 
         outcomes = self._run(
             check,
@@ -2446,9 +2438,7 @@ class TestK8sCsiDriverHealthCheck:
     def test_duplicate_storage_classes_resolve_to_single_provisioner(self) -> None:
         # Two StorageClasses sharing a provisioner (AWS maps shared_fs and nfs to
         # the same EFS class) collapse to one set of per-provisioner subtests.
-        check = self._make(
-            {"drivers": [{"storage_classes": ["efs"]}, {"storage_classes": ["efs"]}]}
-        )
+        check = self._make({"drivers": [{"storage_classes": ["efs"]}, {"storage_classes": ["efs"]}]})
 
         outcomes = self._run(
             check,

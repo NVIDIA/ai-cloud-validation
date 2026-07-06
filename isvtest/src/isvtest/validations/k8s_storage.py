@@ -1996,8 +1996,7 @@ class K8sCsiDriverHealthCheck(BaseValidation):
             return
         all_sc_items = _load_items(sc_result.stdout)
         sc_to_provisioner: dict[str, str] = {
-            (item.get("metadata") or {}).get("name", ""): str(item.get("provisioner") or "")
-            for item in all_sc_items
+            (item.get("metadata") or {}).get("name", ""): str(item.get("provisioner") or "") for item in all_sc_items
         }
 
         any_failed = False
@@ -2193,8 +2192,7 @@ class K8sCsiDriverHealthCheck(BaseValidation):
         if not name:
             return {}, f"{name_config_key} must be set for the {kind} subtest"
         cmd = (
-            f"{kubectl_base} get {kind} {shlex.quote(name)} "
-            f"-n {shlex.quote(namespace)} --ignore-not-found=true -o json"
+            f"{kubectl_base} get {kind} {shlex.quote(name)} -n {shlex.quote(namespace)} --ignore-not-found=true -o json"
         )
         result = self.run_command(cmd)
         if result.exit_code != 0:
