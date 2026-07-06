@@ -32,7 +32,7 @@ anything this script leaks on a hard crash.
 When ``EDGE_ENDPOINTS`` (or ``--endpoints``) is supplied, fixture
 provisioning is skipped and the operator-supplied edge endpoints are
 probed directly. This is the escape hatch for tenants who want to
-verify their real edge surface instead of the provider-platform
+verify their real edge surface instead of the provider-capability
 fixture.
 
 Usage:
