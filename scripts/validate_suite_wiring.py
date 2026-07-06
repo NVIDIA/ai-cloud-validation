@@ -55,6 +55,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from isvtest.catalog import build_axis_taxonomy
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
@@ -113,13 +114,28 @@ def required_suite_label(platform: Any, module: Any) -> str | None:
     return None
 
 
-def iter_suite_checks(config_path: Path) -> Iterator[tuple[str, str, dict[str, Any]]]:
-    """Yield ``(category, check_name, params)`` for checks in a suite file."""
+def _load_config(config_path: Path) -> tuple[list[str], Any]:
+    """Read and parse a config file once, returning ``(lines, data)``.
+
+    Raises:
+        ValueError: When the file cannot be read or parsed.
+    """
     try:
-        data = yaml.safe_load(config_path.read_text())
+        text = config_path.read_text()
+        data = yaml.safe_load(text)
     except (OSError, yaml.YAMLError) as exc:
         raise ValueError(f"failed to read/parse {config_path}: {exc}") from exc
+    return text.splitlines(), data
 
+
+def iter_suite_checks(config_path: Path) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Yield ``(category, check_name, params)`` for checks in a suite file."""
+    _, data = _load_config(config_path)
+    yield from _iter_checks(data)
+
+
+def _iter_checks(data: Any) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Yield ``(category, check_name, params)`` from parsed config data."""
     validations = (data or {}).get("tests", {}).get("validations", {})
     if not isinstance(validations, dict):
         return
@@ -143,12 +159,8 @@ def iter_suite_checks(config_path: Path) -> Iterator[tuple[str, str, dict[str, A
                 yield from _from_mapping(category, check)
 
 
-def _suite_platform_and_module(config_path: Path) -> tuple[Any, Any]:
-    """Return the ``(platform, module)`` axis keys declared in a suite's ``tests:`` block."""
-    try:
-        data = yaml.safe_load(config_path.read_text())
-    except (OSError, yaml.YAMLError) as exc:
-        raise ValueError(f"failed to read/parse {config_path}: {exc}") from exc
+def _axis_keys(data: Any) -> tuple[Any, Any]:
+    """Return the ``(platform, module)`` axis keys declared in a config's ``tests:`` block."""
     tests = (data or {}).get("tests", {})
     if not isinstance(tests, dict):
         return None, None
@@ -158,22 +170,11 @@ def _suite_platform_and_module(config_path: Path) -> tuple[Any, Any]:
 def derive_axis_labels(suites_dir: Path = SUITES_DIR) -> tuple[frozenset[str], frozenset[str]]:
     """Derive the (platform, module) label axes from the suites' axis keys.
 
-    Module labels are the values of ``module:`` keys; platform labels are the
-    ``platform:`` values of suites that declare no ``module``. Malformed suites
-    are skipped here; :func:`wiring_errors` reports them separately.
+    Thin wrapper over the canonical scanner :func:`isvtest.catalog.build_axis_taxonomy`.
+    Malformed suites are skipped there; :func:`wiring_errors` reports them separately.
     """
-    platform_labels: set[str] = set()
-    module: set[str] = set()
-    for path in sorted(suites_dir.glob("*.yaml")):
-        try:
-            platform, mod = _suite_platform_and_module(path)
-        except ValueError:
-            continue
-        if isinstance(mod, str) and mod:
-            module.add(mod)
-        elif isinstance(platform, str) and platform:
-            platform_labels.add(platform)
-    return frozenset(platform_labels), frozenset(module)
+    platforms, modules = build_axis_taxonomy(suites_dir)
+    return frozenset(platforms), frozenset(modules)
 
 
 def _iter_provider_configs(providers_dir: Path) -> Iterator[Path]:
@@ -184,17 +185,16 @@ def _iter_provider_configs(providers_dir: Path) -> Iterator[Path]:
     yield from sorted(providers_dir.glob("*.yaml"))
 
 
-def _label_governance_errors(
+def _multiple_platform_labels_error(
     location: str,
     labels: list[str],
     platform_labels: frozenset[str],
-) -> list[str]:
-    """Return multiple-platform-label errors for one check."""
-    errors: list[str] = []
+) -> str | None:
+    """Return the multiple-platform-label error for one check, or None."""
     platform_hits = sorted({label for label in labels if label in platform_labels})
     if len(platform_hits) > 1:
-        errors.append(f"{location}: multiple platform labels ({', '.join(platform_hits)}); at most one is allowed")
-    return errors
+        return f"{location}: multiple platform labels ({', '.join(platform_hits)}); at most one is allowed"
+    return None
 
 
 def _format_location(config_path: Path, category: str, check_name: str, line_number: int | None) -> str:
@@ -231,16 +231,24 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
     platform_labels, _module_labels = derive_axis_labels(suites_dir)
 
     errors: list[str] = []
-    occurrence: dict[tuple[Path, str, str], int] = defaultdict(int)
+
+    def _located_checks(path: Path, lines: list[str], data: Any) -> Iterator[tuple[str, dict[str, Any]]]:
+        """Yield ``(location, params)`` for each wired check, with line attribution."""
+        occurrence: dict[tuple[str, str], int] = defaultdict(int)
+        for category, name, params in _iter_checks(data):
+            key = (category, name)
+            line_numbers = find_check_line_numbers(lines, category, name)
+            line_number = line_numbers[occurrence[key]] if occurrence[key] < len(line_numbers) else None
+            occurrence[key] += 1
+            yield _format_location(path, category, name, line_number), params
 
     for path in sorted(suites_dir.glob("*.yaml")):
         try:
-            lines = path.read_text().splitlines()
-            checks = list(iter_suite_checks(path))
-            platform, module = _suite_platform_and_module(path)
+            lines, data = _load_config(path)
         except ValueError as exc:
             errors.append(str(exc))
             continue
+        platform, module = _axis_keys(data)
 
         has_platform = isinstance(platform, str) and bool(platform)
         has_module = isinstance(module, str) and bool(module)
@@ -249,39 +257,31 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
         elif not has_platform and not has_module:
             errors.append(f"{_relative(path)}: missing axis key (declare tests.platform or tests.module)")
 
-        for category, name, params in checks:
-            key = (path, category, name)
-            line_numbers = find_check_line_numbers(lines, category, name)
-            line_number = line_numbers[occurrence[key]] if occurrence[key] < len(line_numbers) else None
-            occurrence[key] += 1
-
-            location = _format_location(path, category, name, line_number)
+        required_label = required_suite_label(platform, module)
+        for location, params in _located_checks(path, lines, data):
             test_id = _normalize_test_id(params.get("test_id"))
             labels = _normalize_labels(params.get("labels"))
-            required_label = required_suite_label(platform, module)
             if test_id is None:
                 errors.append(f'{location}: missing test_id (use a plan id or "N/A")')
             if not labels:
                 errors.append(f"{location}: missing labels (non-empty list required)")
             elif required_label and required_label not in labels:
                 errors.append(f"{location}: missing suite label {required_label!r}")
-            errors.extend(_label_governance_errors(location, labels, platform_labels))
+            governance_error = _multiple_platform_labels_error(location, labels, platform_labels)
+            if governance_error:
+                errors.append(governance_error)
 
     for path in _iter_provider_configs(providers_dir):
         try:
-            lines = path.read_text().splitlines()
-            checks = list(iter_suite_checks(path))
+            lines, data = _load_config(path)
         except ValueError as exc:
             errors.append(str(exc))
             continue
-        for category, name, params in checks:
-            key = (path, category, name)
-            line_numbers = find_check_line_numbers(lines, category, name)
-            line_number = line_numbers[occurrence[key]] if occurrence[key] < len(line_numbers) else None
-            occurrence[key] += 1
-            location = _format_location(path, category, name, line_number)
+        for location, params in _located_checks(path, lines, data):
             labels = _normalize_labels(params.get("labels"))
-            errors.extend(_label_governance_errors(location, labels, platform_labels))
+            governance_error = _multiple_platform_labels_error(location, labels, platform_labels)
+            if governance_error:
+                errors.append(governance_error)
 
     return errors
 

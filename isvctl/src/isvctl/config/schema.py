@@ -111,7 +111,8 @@ class StepConfig(BaseModel):
 class PlatformCommands(BaseModel):
     """Lifecycle commands for a specific platform.
 
-    Groups commands for a platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security, observability).
+    Groups commands for a platform (any platform/module axis value declared by a
+    suite's tests.platform / tests.module, e.g. kubernetes, iam).
     Supports skip at both platform level (skips all phases) and phase level.
 
     The `phases` field defines the execution order. Steps are grouped by their `phase`
@@ -418,7 +419,7 @@ class RunConfig(BaseModel):
     lab: LabConfig | None = Field(default=None, description="Lab configuration")
     commands: dict[str, PlatformCommands] = Field(
         default_factory=dict,
-        description="Lifecycle commands by platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security, observability)",
+        description="Lifecycle commands by platform (any platform/module axis value declared by a suite, e.g. kubernetes, iam)",
     )
     context: dict[str, Any] = Field(default_factory=dict, description="Context variables for templating")
     tests: ValidationConfig | None = Field(default=None, description="Test configuration")

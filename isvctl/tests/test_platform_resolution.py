@@ -25,52 +25,24 @@ from isvctl.config.platform_resolution import (
     PlatformResolutionError,
     classify_provider_configs,
     plan_platform_run,
-    resolve_module_config,
+    resolve_module_configs,
 )
 
-
-def _write_suite(root: Path, name: str, platform: str, kind: str) -> None:
-    """Write a provider-neutral suite declaring its platform/module axis key."""
-    axis_key = "platform" if kind == "platform" else "module"
-    suite_path = root / "suites" / name
-    suite_path.parent.mkdir(parents=True, exist_ok=True)
-    suite_path.write_text(
-        f"""\
-tests:
-  {axis_key}: {platform}
-  validations: {{}}
-""",
-        encoding="utf-8",
-    )
-
-
-def _write_provider_config(root: Path, provider: str, name: str, suite: str) -> Path:
-    """Write a provider config importing one suite (inheriting its kind/platform)."""
-    config_path = root / "providers" / provider / "config" / name
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        f"""\
-import:
-  - ../../../suites/{suite}
-version: "1.0"
-""",
-        encoding="utf-8",
-    )
-    return config_path
+from .conftest import write_axis_provider_config, write_axis_suite
 
 
 def _standard_provider(root: Path) -> None:
     """Build a provider with vm/bare_metal platforms and iam/network modules."""
-    _write_suite(root, "vm.yaml", "vm", "platform")
-    _write_suite(root, "bare_metal.yaml", "bare_metal", "platform")
-    _write_suite(root, "k8s.yaml", "kubernetes", "platform")
-    _write_suite(root, "slurm.yaml", "slurm", "platform")
-    _write_suite(root, "iam.yaml", "iam", "module")
-    _write_suite(root, "network.yaml", "network", "module")
-    _write_provider_config(root, "acme", "vm.yaml", "vm.yaml")
-    _write_provider_config(root, "acme", "bare_metal.yaml", "bare_metal.yaml")
-    _write_provider_config(root, "acme", "iam.yaml", "iam.yaml")
-    _write_provider_config(root, "acme", "network.yaml", "network.yaml")
+    write_axis_suite(root, "vm.yaml", "vm", "platform")
+    write_axis_suite(root, "bare_metal.yaml", "bare_metal", "platform")
+    write_axis_suite(root, "k8s.yaml", "kubernetes", "platform")
+    write_axis_suite(root, "slurm.yaml", "slurm", "platform")
+    write_axis_suite(root, "iam.yaml", "iam", "module")
+    write_axis_suite(root, "network.yaml", "network", "module")
+    write_axis_provider_config(root, "acme", "vm.yaml", "vm.yaml")
+    write_axis_provider_config(root, "acme", "bare_metal.yaml", "bare_metal.yaml")
+    write_axis_provider_config(root, "acme", "iam.yaml", "iam.yaml")
+    write_axis_provider_config(root, "acme", "network.yaml", "network.yaml")
 
 
 def test_classify_reads_kind_via_imports(tmp_path: Path) -> None:
@@ -118,7 +90,7 @@ def test_plan_platform_run_orders_and_excludes(tmp_path: Path) -> None:
 def test_plan_platform_run_k8s_alias(tmp_path: Path) -> None:
     """`--platform k8s` resolves to the kubernetes platform config."""
     _standard_provider(tmp_path)
-    _write_provider_config(tmp_path, "acme", "eks.yaml", "k8s.yaml")
+    write_axis_provider_config(tmp_path, "acme", "eks.yaml", "k8s.yaml")
     runs = plan_platform_run("acme", "k8s", configs_root=tmp_path)
     assert runs[0].role == "platform"
     assert runs[0].platform == "kubernetes"
@@ -139,28 +111,28 @@ def test_plan_platform_run_missing_lists_available(tmp_path: Path) -> None:
 def test_plan_platform_run_duplicate_platform_errors(tmp_path: Path) -> None:
     """Two configs for the same platform tell the user to disambiguate with -f."""
     _standard_provider(tmp_path)
-    _write_provider_config(tmp_path, "acme", "vm2.yaml", "vm.yaml")
+    write_axis_provider_config(tmp_path, "acme", "vm2.yaml", "vm.yaml")
     with pytest.raises(PlatformResolutionError) as exc:
         plan_platform_run("acme", "vm", configs_root=tmp_path)
     assert "multiple" in str(exc.value)
     assert "--config/-f" in str(exc.value)
 
 
-def test_resolve_module_config_returns_single(tmp_path: Path) -> None:
+def test_resolve_module_configs_returns_single(tmp_path: Path) -> None:
     """`--module iam` resolves the one iam module config, no platform excludes."""
     _standard_provider(tmp_path)
-    run = resolve_module_config("acme", "iam", configs_root=tmp_path)
+    (run,) = resolve_module_configs("acme", ["iam"], configs_root=tmp_path)
     assert run.role == "module"
     assert run.platform == "iam"
     assert run.exclude_labels == ()
     assert run.config_path.name == "iam.yaml"
 
 
-def test_resolve_module_config_missing_lists_available(tmp_path: Path) -> None:
+def test_resolve_module_configs_missing_lists_available(tmp_path: Path) -> None:
     """An absent module lists the module platforms the provider exposes."""
     _standard_provider(tmp_path)
     with pytest.raises(PlatformResolutionError) as exc:
-        resolve_module_config("acme", "storage", configs_root=tmp_path)
+        resolve_module_configs("acme", ["storage"], configs_root=tmp_path)
     assert "no 'storage' module" in str(exc.value)
     assert "iam" in str(exc.value)
     assert "network" in str(exc.value)

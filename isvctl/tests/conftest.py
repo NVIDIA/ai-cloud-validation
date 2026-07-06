@@ -43,6 +43,50 @@ def _isolate_user_config(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pyte
     monkeypatch.delenv("ISVCTL_SECRETS", raising=False)
 
 
+def write_axis_suite(root: Path, name: str, value: str, axis_key: str) -> None:
+    """Write a provider-neutral suite declaring one platform/module axis key."""
+    suite_path = root / "suites" / name
+    suite_path.parent.mkdir(parents=True, exist_ok=True)
+    suite_path.write_text(
+        f"""\
+tests:
+  {axis_key}: {value}
+  validations: {{}}
+""",
+        encoding="utf-8",
+    )
+
+
+def write_axis_provider_config(
+    root: Path, provider: str, name: str, suite: str, *, run_platform: str | None = None
+) -> Path:
+    """Write a provider config importing one suite (inheriting its kind/platform).
+
+    With ``run_platform``, the config also carries a runnable echo step in that
+    platform's commands group so CLI tests can execute it end-to-end.
+    """
+    config_path = root / "providers" / provider / "config" / name
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    body = f"""\
+import:
+  - ../../../suites/{suite}
+version: "1.0"
+"""
+    if run_platform:
+        body += f"""\
+commands:
+  {run_platform}:
+    phases: [test]
+    steps:
+      - name: test_step
+        command: echo
+        args: ['{{"success": true}}']
+        phase: test
+"""
+    config_path.write_text(body, encoding="utf-8")
+    return config_path
+
+
 def load_aws_script(domain: str, script_name: str) -> ModuleType:
     """Load an AWS provider script as a module for direct helper testing.
 

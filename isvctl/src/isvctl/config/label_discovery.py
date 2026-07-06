@@ -38,6 +38,11 @@ class ProviderConfigMatch:
     matched_checks: tuple[MatchedCheck, ...]
 
 
+def provider_config_dir(provider: str, configs_root: Path) -> Path:
+    """Return the directory holding a provider's config YAML files."""
+    return configs_root / "providers" / provider / "config"
+
+
 def list_providers(configs_root: Path) -> list[str]:
     """Return provider names that expose a discoverable ``config/*.yaml`` directory."""
     providers_dir = configs_root / "providers"
@@ -52,9 +57,8 @@ def list_providers(configs_root: Path) -> list[str]:
 
 def available_labels(provider: str, *, configs_root: Path) -> set[str]:
     """Return every label declared across a provider's resolved config wiring."""
-    provider_config_dir = configs_root / "providers" / provider / "config"
     labels: set[str] = set()
-    for config_path in provider_config_dir.glob("*.yaml"):
+    for config_path in provider_config_dir(provider, configs_root).glob("*.yaml"):
         for entry in _iter_config_validations(config_path):
             labels.update(entry.labels)
     return labels
@@ -76,10 +80,9 @@ def discover_provider_label_configs(
     matching ``ISVTEST_INCLUDE_UNRELEASED``.
     """
     requested = {label for label in labels if label}
-    provider_config_dir = configs_root / "providers" / provider / "config"
     matches: list[ProviderConfigMatch] = []
 
-    for config_path in sorted(provider_config_dir.glob("*.yaml")):
+    for config_path in sorted(provider_config_dir(provider, configs_root).glob("*.yaml")):
         matched_checks = tuple(
             MatchedCheck(category=entry.category, name=entry.name, labels=entry.labels)
             for entry in _iter_config_validations(config_path)

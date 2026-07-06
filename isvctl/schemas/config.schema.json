@@ -62,7 +62,7 @@
     },
     "PlatformCommands": {
       "additionalProperties": true,
-      "description": "Lifecycle commands for a specific platform.\n\nGroups commands for a platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security, observability).\nSupports skip at both platform level (skips all phases) and phase level.\n\nThe `phases` field defines the execution order. Steps are grouped by their `phase`\nfield and executed in the order defined by `phases`. Validations run after each phase.\n\nExample:\n   ```yaml\n   network:\n     phases: [\"setup\", \"test\", \"teardown\"]  # Defines execution order\n     steps:\n       - name: create_vpc\n         phase: setup\n         command: \"./create_vpc.py\"\n       - name: cleanup\n         phase: teardown\n         command: \"./teardown.py\"\n   ```\n\nIf a step's phase is not in the phases list, an error is raised.\n\nSupports skip at both platform level (skips all phases) and step level.",
+      "description": "Lifecycle commands for a specific platform.\n\nGroups commands for a platform (any platform/module axis value declared by a\nsuite's tests.platform / tests.module, e.g. kubernetes, iam).\nSupports skip at both platform level (skips all phases) and phase level.\n\nThe `phases` field defines the execution order. Steps are grouped by their `phase`\nfield and executed in the order defined by `phases`. Validations run after each phase.\n\nExample:\n   ```yaml\n   network:\n     phases: [\"setup\", \"test\", \"teardown\"]  # Defines execution order\n     steps:\n       - name: create_vpc\n         phase: setup\n         command: \"./create_vpc.py\"\n       - name: cleanup\n         phase: teardown\n         command: \"./teardown.py\"\n   ```\n\nIf a step's phase is not in the phases list, an error is raised.\n\nSupports skip at both platform level (skips all phases) and step level.",
       "properties": {
         "skip": {
           "default": false,
@@ -312,7 +312,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/PlatformCommands"
       },
-      "description": "Lifecycle commands by platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security, observability)",
+      "description": "Lifecycle commands by platform (any platform/module axis value declared by a suite, e.g. kubernetes, iam)",
       "title": "Commands",
       "type": "object"
     },

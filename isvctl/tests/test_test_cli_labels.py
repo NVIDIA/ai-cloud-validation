@@ -25,6 +25,8 @@ from typer.testing import CliRunner
 import isvctl.cli.test as test_cli
 from isvctl.orchestrator.loop import OrchestratorResult, Phase, PhaseResult
 
+from .conftest import write_axis_provider_config, write_axis_suite
+
 runner = CliRunner()
 
 
@@ -89,53 +91,16 @@ tests:
     )
 
 
-def _write_kind_suite(root: Path, name: str, platform: str, kind: str) -> None:
-    """Write a suite declaring its platform/module axis key for resolution."""
-    axis_key = "platform" if kind == "platform" else "module"
-    suite_path = root / "suites" / name
-    suite_path.parent.mkdir(parents=True, exist_ok=True)
-    suite_path.write_text(
-        f"""\
-tests:
-  {axis_key}: {platform}
-  validations: {{}}
-""",
-        encoding="utf-8",
-    )
-
-
-def _write_kind_provider_config(root: Path, provider: str, name: str, suite: str, platform: str) -> Path:
-    """Write a provider config importing a kind-bearing suite with a runnable step."""
-    config_path = root / "providers" / provider / "config" / name
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        f"""\
-import:
-  - ../../../suites/{suite}
-commands:
-  {platform}:
-    phases: [test]
-    steps:
-      - name: test_step
-        command: echo
-        args: ['{{"success": true}}']
-        phase: test
-""",
-        encoding="utf-8",
-    )
-    return config_path
-
-
 def _build_platform_provider(configs_root: Path) -> None:
     """Build an ``acme`` provider with vm/bare_metal platforms + iam/network modules."""
-    _write_kind_suite(configs_root, "vm.yaml", "vm", "platform")
-    _write_kind_suite(configs_root, "bare_metal.yaml", "bare_metal", "platform")
-    _write_kind_suite(configs_root, "iam.yaml", "iam", "module")
-    _write_kind_suite(configs_root, "network.yaml", "network", "module")
-    _write_kind_provider_config(configs_root, "acme", "vm.yaml", "vm.yaml", "vm")
-    _write_kind_provider_config(configs_root, "acme", "bare_metal.yaml", "bare_metal.yaml", "bare_metal")
-    _write_kind_provider_config(configs_root, "acme", "iam.yaml", "iam.yaml", "iam")
-    _write_kind_provider_config(configs_root, "acme", "network.yaml", "network.yaml", "network")
+    write_axis_suite(configs_root, "vm.yaml", "vm", "platform")
+    write_axis_suite(configs_root, "bare_metal.yaml", "bare_metal", "platform")
+    write_axis_suite(configs_root, "iam.yaml", "iam", "module")
+    write_axis_suite(configs_root, "network.yaml", "network", "module")
+    write_axis_provider_config(configs_root, "acme", "vm.yaml", "vm.yaml", run_platform="vm")
+    write_axis_provider_config(configs_root, "acme", "bare_metal.yaml", "bare_metal.yaml", run_platform="bare_metal")
+    write_axis_provider_config(configs_root, "acme", "iam.yaml", "iam.yaml", run_platform="iam")
+    write_axis_provider_config(configs_root, "acme", "network.yaml", "network.yaml", run_platform="network")
 
 
 class _FakeOrchestrator:

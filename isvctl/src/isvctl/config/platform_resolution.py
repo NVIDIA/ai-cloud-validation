@@ -22,16 +22,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
-import yaml
+from isvreporter.platform import PLATFORM_ALIASES as _CANONICAL_ALIASES
+from isvtest.catalog import build_axis_taxonomy
 
+from isvctl.config.label_discovery import provider_config_dir
 from isvctl.config.merger import merge_yaml_files
 
-PLATFORM_SUITE_KIND = "platform"
-MODULE_KIND = "module"
-# CLI aliases accepted for platform names, mirroring the orchestrator's
-# ``k8s`` -> ``kubernetes`` normalization.
-PLATFORM_ALIASES = {"k8s": "kubernetes"}
+AxisKind = Literal["platform", "module"]
+
+# CLI aliases accepted for platform names (e.g. ``k8s`` -> ``kubernetes``),
+# derived from the reporter's canonical alias table so aliases live in one place.
+PLATFORM_ALIASES = {
+    alias: canonical.lower() for alias, canonical in _CANONICAL_ALIASES.items() if alias != canonical.lower()
+}
 
 
 class PlatformResolutionError(Exception):
@@ -43,7 +48,7 @@ class ClassifiedConfig:
     """A provider config classified by its effective kind and platform."""
 
     config_path: Path
-    kind: str
+    kind: AxisKind
     platform: str
 
 
@@ -52,27 +57,34 @@ class PlannedRun:
     """A single config to run as part of a ``--platform``/``--module`` selection."""
 
     config_path: Path
-    role: str  # "platform" or "module"
+    role: AxisKind
     platform: str
     exclude_labels: tuple[str, ...] = ()
 
 
-def _effective_kind_and_platform(config_path: Path) -> tuple[str | None, str | None]:
+def _effective_kind_and_platform(config_path: Path) -> tuple[AxisKind | None, str | None]:
     """Return the ``(kind, platform)`` a config resolves to after imports.
 
     A config that declares ``tests.module`` is a module (its module value is the
-    platform); otherwise ``tests.platform`` marks it a platform suite.
+    platform); otherwise ``tests.platform`` marks it a platform suite. Declaring
+    both is rejected, matching the schema's mutual-exclusion rule.
     """
     merged = merge_yaml_files([config_path])
     tests = merged.get("tests") or {}
     if not isinstance(tests, dict):
         return None, None
     module = tests.get("module")
-    if isinstance(module, str) and module:
-        return MODULE_KIND, module
     platform = tests.get("platform")
-    if isinstance(platform, str) and platform:
-        return PLATFORM_SUITE_KIND, platform
+    has_module = isinstance(module, str) and bool(module)
+    has_platform = isinstance(platform, str) and bool(platform)
+    if has_module and has_platform:
+        raise PlatformResolutionError(
+            f"Config {config_path} declares both tests.platform and tests.module; declare exactly one."
+        )
+    if has_module:
+        return "module", module
+    if has_platform:
+        return "platform", platform
     return None, None
 
 
@@ -80,33 +92,10 @@ def platform_label_universe(configs_root: Path) -> frozenset[str]:
     """Return every platform label defined by the shipped platform suites.
 
     Derived from ``configs_root/suites`` (not the provider's configs) so exclusion
-    is stable even when a provider is missing a platform config. A platform suite
-    is one that declares ``platform`` and no ``module``.
+    is stable even when a provider is missing a platform config.
     """
-    suites_dir = configs_root / "suites"
-    universe: set[str] = set()
-    for path in sorted(suites_dir.glob("*.yaml")):
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
-            continue
-        tests = (data or {}).get("tests", {})
-        if not isinstance(tests, dict):
-            continue
-        if tests.get("module"):
-            continue
-        platform = tests.get("platform")
-        if isinstance(platform, str) and platform:
-            universe.add(platform)
-    return frozenset(universe)
-
-
-def _provider_config_dir(provider: str, configs_root: Path) -> Path:
-    """Return a provider's config directory, erroring if it is absent."""
-    provider_config_dir = configs_root / "providers" / provider / "config"
-    if not provider_config_dir.is_dir():
-        raise PlatformResolutionError(f"Provider {provider!r} has no config directory at {provider_config_dir}.")
-    return provider_config_dir
+    platforms, _modules = build_axis_taxonomy(configs_root / "suites")
+    return frozenset(platforms)
 
 
 def classify_provider_configs(provider: str, *, configs_root: Path) -> list[ClassifiedConfig]:
@@ -115,11 +104,13 @@ def classify_provider_configs(provider: str, *, configs_root: Path) -> list[Clas
     Raises:
         PlatformResolutionError: If a config declares no (or an invalid) kind.
     """
-    provider_config_dir = _provider_config_dir(provider, configs_root)
+    config_dir = provider_config_dir(provider, configs_root)
+    if not config_dir.is_dir():
+        raise PlatformResolutionError(f"Provider {provider!r} has no config directory at {config_dir}.")
     classified: list[ClassifiedConfig] = []
-    for config_path in sorted(provider_config_dir.glob("*.yaml")):
+    for config_path in sorted(config_dir.glob("*.yaml")):
         kind, platform = _effective_kind_and_platform(config_path)
-        if kind not in (PLATFORM_SUITE_KIND, MODULE_KIND) or not platform:
+        if kind is None or not platform:
             raise PlatformResolutionError(
                 f"Config {config_path} declares neither tests.platform nor tests.module; "
                 f"every provider config must inherit a platform or module suite "
@@ -129,14 +120,26 @@ def classify_provider_configs(provider: str, *, configs_root: Path) -> list[Clas
     return classified
 
 
-def _available_platforms(classified: list[ClassifiedConfig]) -> list[str]:
-    """Return the sorted platform values a provider exposes."""
-    return sorted({c.platform for c in classified if c.kind == PLATFORM_SUITE_KIND})
+def _single_config(classified: list[ClassifiedConfig], kind: AxisKind, value: str, provider: str) -> ClassifiedConfig:
+    """Return the one config of ``kind`` with platform ``value``, or raise.
 
-
-def _available_modules(classified: list[ClassifiedConfig]) -> list[str]:
-    """Return the sorted module platforms a provider exposes."""
-    return sorted({c.platform for c in classified if c.kind == MODULE_KIND})
+    Raises:
+        PlatformResolutionError: When no config matches (listing the available
+            values) or several do (asking for ``-f`` disambiguation).
+    """
+    matches = [c for c in classified if c.kind == kind and c.platform == value]
+    if not matches:
+        available = sorted({c.platform for c in classified if c.kind == kind})
+        raise PlatformResolutionError(
+            f"Provider {provider!r} has no {value!r} {kind} config. "
+            f"Available {kind}s: {', '.join(available) or '(none)'}."
+        )
+    if len(matches) > 1:
+        paths = ", ".join(str(c.config_path) for c in matches)
+        raise PlatformResolutionError(
+            f"Provider {provider!r} has multiple {value!r} {kind} configs ({paths}). Disambiguate with --config/-f."
+        )
+    return matches[0]
 
 
 def plan_platform_run(provider: str, platform: str, *, configs_root: Path) -> list[PlannedRun]:
@@ -151,36 +154,17 @@ def plan_platform_run(provider: str, platform: str, *, configs_root: Path) -> li
     """
     normalized = PLATFORM_ALIASES.get(platform, platform)
     classified = classify_provider_configs(provider, configs_root=configs_root)
-
-    platform_configs = [c for c in classified if c.kind == PLATFORM_SUITE_KIND and c.platform == normalized]
-    if not platform_configs:
-        available = _available_platforms(classified)
-        raise PlatformResolutionError(
-            f"Provider {provider!r} has no {normalized!r} platform config. "
-            f"Available platforms: {', '.join(available) or '(none)'}."
-        )
-    if len(platform_configs) > 1:
-        paths = ", ".join(str(c.config_path) for c in platform_configs)
-        raise PlatformResolutionError(
-            f"Provider {provider!r} has multiple {normalized!r} platform configs ({paths}). "
-            f"Disambiguate with --config/-f."
-        )
+    platform_config = _single_config(classified, "platform", normalized, provider)
 
     universe = platform_label_universe(configs_root)
     exclude_labels = tuple(sorted(universe - {normalized}))
 
-    runs: list[PlannedRun] = [
-        PlannedRun(
-            config_path=platform_configs[0].config_path,
-            role=PLATFORM_SUITE_KIND,
-            platform=normalized,
-        )
-    ]
-    for module_config in sorted((c for c in classified if c.kind == MODULE_KIND), key=lambda c: c.config_path):
+    runs: list[PlannedRun] = [PlannedRun(config_path=platform_config.config_path, role="platform", platform=normalized)]
+    for module_config in sorted((c for c in classified if c.kind == "module"), key=lambda c: c.config_path):
         runs.append(
             PlannedRun(
                 config_path=module_config.config_path,
-                role=MODULE_KIND,
+                role="module",
                 platform=module_config.platform,
                 exclude_labels=exclude_labels,
             )
@@ -188,25 +172,21 @@ def plan_platform_run(provider: str, platform: str, *, configs_root: Path) -> li
     return runs
 
 
-def resolve_module_config(provider: str, module: str, *, configs_root: Path) -> PlannedRun:
-    """Resolve the single ``kind: module`` config for ``--module <module>``.
+def resolve_module_configs(provider: str, modules: list[str], *, configs_root: Path) -> list[PlannedRun]:
+    """Resolve the single ``kind: module`` config for each ``--module <module>``.
 
-    Runs standalone (no platform context), so no platform excludes apply.
+    Module runs are standalone (no platform context), so no platform excludes
+    apply. The provider is classified once for the whole selection.
 
     Raises:
         PlatformResolutionError: On unknown/duplicate module configs.
     """
     classified = classify_provider_configs(provider, configs_root=configs_root)
-    module_configs = [c for c in classified if c.kind == MODULE_KIND and c.platform == module]
-    if not module_configs:
-        available = _available_modules(classified)
-        raise PlatformResolutionError(
-            f"Provider {provider!r} has no {module!r} module config. "
-            f"Available modules: {', '.join(available) or '(none)'}."
+    return [
+        PlannedRun(
+            config_path=_single_config(classified, "module", module, provider).config_path,
+            role="module",
+            platform=module,
         )
-    if len(module_configs) > 1:
-        paths = ", ".join(str(c.config_path) for c in module_configs)
-        raise PlatformResolutionError(
-            f"Provider {provider!r} has multiple {module!r} module configs ({paths}). Disambiguate with --config/-f."
-        )
-    return PlannedRun(config_path=module_configs[0].config_path, role=MODULE_KIND, platform=module)
+        for module in modules
+    ]

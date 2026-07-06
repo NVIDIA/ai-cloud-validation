@@ -50,7 +50,7 @@ from isvctl.config.platform_resolution import (
     PlannedRun,
     PlatformResolutionError,
     plan_platform_run,
-    resolve_module_config,
+    resolve_module_configs,
 )
 from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.loop import Orchestrator, Phase
@@ -114,13 +114,6 @@ def _provider_discovery_plan(provider: str, labels: list[str], matches: list[Pro
     }
 
 
-def _junitxml_for_discovered_config(junitxml: Path, match: ProviderConfigMatch, total: int) -> Path:
-    """Return a non-overlapping JUnit path for a discovered config run."""
-    if total <= 1:
-        return junitxml
-    return junitxml.with_name(f"{junitxml.stem}-{match.config_path.stem}{junitxml.suffix}")
-
-
 def _junitxml_for_config(junitxml: Path, config_path: Path, total: int) -> Path:
     """Return a non-overlapping JUnit path for one planned config run."""
     if total <= 1:
@@ -149,25 +142,17 @@ def _execute_planned_runs(
     ctx: typer.Context,
     runs: list[PlannedRun],
     *,
-    set_values: list[str] | None,
-    phase: Phase,
     labels: list[str] | None,
     user_exclude_labels: list[str] | None,
-    working_dir: Path | None,
-    verbose: bool,
-    no_user_config: bool,
     junitxml: Path,
-    color: str | None,
-    no_upload: bool,
-    lab_id: int | None,
-    tags: list[str] | None,
-    isv_software_version: str | None,
+    forward_kwargs: dict[str, Any],
 ) -> None:
     """Run each planned config as its own orchestration, continuing past failures.
 
     Each config's platform-scoped excludes are unioned with any user
     ``--exclude-label`` values. A combined pass/fail summary is printed and the
-    process exits 1 if any config failed.
+    process exits 1 if any config failed. ``forward_kwargs`` are the remaining
+    ``run()`` options, passed through unchanged.
     """
     total = len(runs)
     outcomes: list[tuple[Path, bool]] = []
@@ -179,22 +164,11 @@ def _execute_planned_runs(
                 ctx,
                 config_files=[planned.config_path],
                 provider=None,
-                set_values=set_values,
-                phase=phase,
                 labels=labels,
-                platform=None,
-                modules=None,
                 exclude_labels=combined_excludes or None,
                 dry_run=False,
-                working_dir=working_dir,
-                verbose=verbose,
-                no_user_config=no_user_config,
                 junitxml=_junitxml_for_config(junitxml, planned.config_path, total),
-                color=color,
-                no_upload=no_upload,
-                lab_id=lab_id,
-                tags=tags,
-                isv_software_version=isv_software_version,
+                **forward_kwargs,
             )
             outcomes.append((planned.config_path, True))
         except typer.Exit as exc:
@@ -388,15 +362,27 @@ def run(
             print_error(f"Unknown provider {provider!r}. Available providers: {', '.join(known_providers)}")
             raise typer.Exit(code=1)
 
+        # run() options forwarded unchanged into each per-config recursive run.
+        forward_kwargs: dict[str, Any] = {
+            "set_values": set_values,
+            "phase": phase,
+            "working_dir": working_dir,
+            "verbose": verbose,
+            "no_user_config": no_user_config,
+            "color": color,
+            "no_upload": no_upload,
+            "lab_id": lab_id,
+            "tags": tags,
+            "isv_software_version": isv_software_version,
+        }
+
         if platform or modules:
             try:
                 if platform:
                     runs = plan_platform_run(provider, platform, configs_root=CONFIGS_ROOT)
                     selection: dict[str, Any] = {"platform": platform}
                 else:
-                    runs = [
-                        resolve_module_config(provider, module, configs_root=CONFIGS_ROOT) for module in (modules or [])
-                    ]
+                    runs = resolve_module_configs(provider, modules or [], configs_root=CONFIGS_ROOT)
                     selection = {"modules": modules}
             except PlatformResolutionError as exc:
                 print_error(str(exc))
@@ -409,19 +395,10 @@ def run(
             _execute_planned_runs(
                 ctx,
                 runs,
-                set_values=set_values,
-                phase=phase,
                 labels=labels,
                 user_exclude_labels=exclude_labels,
-                working_dir=working_dir,
-                verbose=verbose,
-                no_user_config=no_user_config,
                 junitxml=junitxml,
-                color=color,
-                no_upload=no_upload,
-                lab_id=lab_id,
-                tags=tags,
-                isv_software_version=isv_software_version,
+                forward_kwargs=forward_kwargs,
             )
             return
 
@@ -453,20 +430,11 @@ def run(
                 ctx,
                 config_files=[match.config_path],
                 provider=None,
-                set_values=set_values,
-                phase=phase,
                 labels=labels,
                 exclude_labels=exclude_labels,
                 dry_run=False,
-                working_dir=working_dir,
-                verbose=verbose,
-                no_user_config=no_user_config,
-                junitxml=_junitxml_for_discovered_config(junitxml, match, len(matches)),
-                color=color,
-                no_upload=no_upload,
-                lab_id=lab_id,
-                tags=tags,
-                isv_software_version=isv_software_version,
+                junitxml=_junitxml_for_config(junitxml, match.config_path, len(matches)),
+                **forward_kwargs,
             )
         return
 

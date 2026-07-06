@@ -363,23 +363,28 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
     return catalog
 
 
-def build_axis_taxonomy() -> tuple[list[str], list[str]]:
+def build_axis_taxonomy(suites_dir: Path | None = None) -> tuple[list[str], list[str]]:
     """Return ``(platforms, modules)``: the capability and concern axis labels.
 
     Derived from the suite axis keys (``tests.platform`` / ``tests.module``)
-    under ``isvctl/configs/suites``, so adding a suite extends the axes
-    automatically. A suite that declares ``module:`` contributes a module label;
-    otherwise its ``platform:`` contributes a platform (capability) label.
-    Mirrors ``derive_axis_labels`` in ``scripts/validate_suite_wiring.py``.
+    under ``suites_dir`` (default: ``isvctl/configs/suites``), so adding a suite
+    extends the axes automatically. A suite that declares ``module:`` contributes
+    a module label; otherwise its ``platform:`` contributes a platform
+    (capability) label. This is the canonical axis scanner - isvctl's
+    platform/module selection and ``scripts/validate_suite_wiring.py`` both
+    build on it. Malformed suites are skipped here; the wiring validator
+    reports them separately.
 
     Both lists are label-form (lowercase, matching each entry's ``labels``) and
     sorted, so a consumer can build the capability x module matrix directly.
     """
-    configs_dir = _find_configs_dir()
+    if suites_dir is None:
+        configs_dir = _find_configs_dir()
+        suites_dir = configs_dir / "suites" if configs_dir else None
     platforms: set[str] = set()
     modules: set[str] = set()
-    if configs_dir:
-        for path in sorted((configs_dir / "suites").glob("*.yaml")):
+    if suites_dir is not None:
+        for path in sorted(suites_dir.glob("*.yaml")):
             try:
                 data = yaml.safe_load(path.read_text())
             except (OSError, yaml.YAMLError):
