@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -687,6 +688,106 @@ def test_switch_log_aspects_emit_provider_hidden_contract(aspect: str, checker: 
         assert subtest["provider_hidden"] is True
         assert subtest["probes"]["switches_checked"] == 0
         assert "provider-owned" in subtest["message"]
+
+
+class FakeCloudWatchClient:
+    """Fake CloudWatch client returning scripted metrics and statistics."""
+
+    def __init__(self, *, metrics: list[dict[str, Any]], statistics_sequence: list[list[dict[str, Any]]]) -> None:
+        """Initialize fake client state."""
+        self.metrics = metrics
+        self.statistics_sequence = list(statistics_sequence)
+        self.list_dimensions: list[list[dict[str, str]]] = []
+
+    def list_metrics(self, *, Namespace: str, MetricName: str, Dimensions: list[dict[str, str]]) -> dict[str, Any]:
+        """Record the requested dimensions and return the configured metrics."""
+        self.list_dimensions.append(Dimensions)
+        return {"Metrics": self.metrics}
+
+    def get_metric_statistics(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the next scripted datapoint batch, reusing the last when exhausted."""
+        datapoints = self.statistics_sequence.pop(0) if self.statistics_sequence else []
+        return {"Datapoints": datapoints}
+
+
+def _recent_datapoint(age_seconds: int) -> dict[str, Any]:
+    """Build a CloudWatch datapoint aged ``age_seconds`` before now."""
+    return {"Timestamp": datetime.now(UTC) - timedelta(seconds=age_seconds), "Sum": 100.0}
+
+
+def test_telemetry_delivery_scopes_to_instance_and_passes() -> None:
+    """Delivery probe scopes CloudWatch queries to the launched instance."""
+    script = _load_script("telemetry_delivery_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    cloudwatch = FakeCloudWatchClient(metrics=[metric], statistics_sequence=[[_recent_datapoint(30)]])
+
+    result = script.check_telemetry_delivery_latency(
+        cloudwatch,
+        network_id="vpc-123",
+        instance_id="i-123",
+        max_delivery_seconds=300,
+    )
+
+    assert result["success"] is True
+    assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
+    probes = result["tests"]["delivery_within_threshold"]["probes"]
+    assert probes["probe_resource_id"] == "i-123"
+    assert probes["observed_delivery_seconds"] <= 300
+
+
+def test_telemetry_delivery_polls_until_datapoint_appears() -> None:
+    """Delivery probe retries until a CloudWatch datapoint is ingested."""
+    script = _load_script("telemetry_delivery_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    cloudwatch = FakeCloudWatchClient(
+        metrics=[metric],
+        statistics_sequence=[[], [_recent_datapoint(45)]],
+    )
+    sleeps: list[float] = []
+
+    result = script.check_telemetry_delivery_latency(
+        cloudwatch,
+        network_id="vpc-123",
+        instance_id="i-123",
+        max_delivery_seconds=300,
+        poll_timeout_seconds=60,
+        poll_interval_seconds=1,
+        sleep=sleeps.append,
+    )
+
+    assert result["success"] is True
+    assert sleeps == [1]
+    assert result["tests"]["delivery_sample_present"]["passed"] is True
+
+
+def test_telemetry_delivery_fails_without_datapoints() -> None:
+    """Delivery probe fails cleanly when no datapoint ever appears."""
+    script = _load_script("telemetry_delivery_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    cloudwatch = FakeCloudWatchClient(metrics=[metric], statistics_sequence=[])
+
+    result = script.check_telemetry_delivery_latency(
+        cloudwatch,
+        network_id="vpc-123",
+        instance_id="i-123",
+        poll_timeout_seconds=0,
+    )
+
+    assert result["success"] is False
+    assert result["tests"]["delivery_sample_present"]["passed"] is False
+    assert result["tests"]["telemetry_endpoint_reachable"]["passed"] is True
 
 
 class FakeEc2FlowLogDeleteClient:

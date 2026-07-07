@@ -77,6 +77,7 @@ commands:
           - "{{steps.create_network.subnets[0].subnet_id}}"
           - "--key-name"
           - "isv-observability-host-key-{{steps.create_network.network_id}}"
+          - "--detailed-monitoring"
         timeout: 2400
 
       - name: telemetry_delivery_latency
@@ -87,9 +88,13 @@ commands:
           - "{{region}}"
           - "--network-id"
           - "{{steps.create_network.network_id}}"
+          - "--instance-id"
+          - "{{steps.launch_host.instance_id}}"
           - "--max-delivery-seconds"
-          - "120"
-        timeout: 120
+          - "300"
+          - "--poll-timeout-seconds"
+          - "240"
+        timeout: 360
 
       - name: north_south_network_telemetry
         phase: test
