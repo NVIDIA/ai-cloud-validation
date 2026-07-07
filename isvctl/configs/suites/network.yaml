@@ -229,7 +229,7 @@ tests:
     teardown_checks:
       step: teardown
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-network_teardown:
           test_id: "N/A"
           labels: ["network"]
 

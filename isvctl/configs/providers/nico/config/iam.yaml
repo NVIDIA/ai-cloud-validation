@@ -57,10 +57,10 @@ tests:
     credential_readiness:
       step: check_credentials
       checks:
-        FieldExistsCheck:
+        FieldExistsCheck-iam_credential_readiness:
           test_id: "N/A"
           fields: ["account_id", "authenticated", "tests"]
-        StepSuccessCheck:
+        StepSuccessCheck-iam_credential_readiness:
           test_id: "N/A"
 
   exclude:

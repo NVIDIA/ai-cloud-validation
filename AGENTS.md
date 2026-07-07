@@ -131,7 +131,12 @@ report `(-, module)` (no capability).
 one axis key, every suite check carries that declared axis label, and a check
 may carry at most one platform label (platform-scoped exclusion is
 any-intersection). Labels are otherwise free-form (they originate in the wiring
-YAML, so there is no external allowlist). A check that needs a
+YAML, so there is no external allowlist). Wiring names are globally unique
+across suites: a generic class wired in several places uses a distinct variant
+name per wiring (`StepSuccessCheck-iam_teardown`, `GpuCheck-bm_gpu`), so
+catalog entries, JUnit case names, and matrix cells stay 1:1 with wirings.
+Variants resolve to their base class at runtime and inherit its
+release-manifest status. A check that needs a
 platform's live host lives inline in that platform suite ("piggyback"); a
 concern that provisions its own subject or hits an API stays in its own `module:`
 suite. See `isvctl/configs/suites/README.md`.

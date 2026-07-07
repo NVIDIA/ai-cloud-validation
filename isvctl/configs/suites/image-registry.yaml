@@ -54,10 +54,10 @@ tests:
     image_upload:
       step: upload_image
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-img_image_upload:
           test_id: "N/A"
           labels: ["image_registry"]
-        FieldExistsCheck:
+        FieldExistsCheck-img_image_upload:
           test_id: "BOOT01-01"
           labels: ["image_registry", "min_req"]
           fields: ["image_id", "storage_bucket", "disk_ids"]
@@ -66,14 +66,14 @@ tests:
     image_crud:
       step: crud_image
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-img_image_crud:
           test_id: "N/A"
           labels: ["image_registry"]
-        FieldExistsCheck:
+        FieldExistsCheck-img_image_crud:
           test_id: "N/A"
           labels: ["image_registry"]
           fields: ["image_id", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-img_image_crud:
           test_id: "BOOT03-02"
           labels: ["image_registry", "min_req"]
           operations: ["get", "list", "create", "delete"]
@@ -82,14 +82,14 @@ tests:
     vm_from_image:
       step: launch_instance
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-img_vm_from_image:
           test_id: "BOOT01-05"
           labels: ["image_registry", "min_req"]
-        FieldExistsCheck:
+        FieldExistsCheck-img_vm_from_image:
           test_id: "N/A"
           labels: ["image_registry"]
           fields: ["instance_id", "public_ip", "key_path"]
-        InstanceStateCheck:
+        InstanceStateCheck-img_vm_from_image:
           test_id: "N/A"
           labels: ["image_registry"]
           expected_state: "running"
@@ -97,10 +97,10 @@ tests:
     vm_ssh:
       step: launch_instance
       checks:
-        ConnectivityCheck:
+        ConnectivityCheck-img_vm_ssh:
           test_id: "N/A"
           labels: ["image_registry", "ssh"]
-        OsCheck:
+        OsCheck-img_vm_ssh:
           test_id: "N/A"
           labels: ["image_registry", "ssh"]
           expected_os: "ubuntu"
@@ -109,10 +109,10 @@ tests:
     install_config_crud:
       step: crud_install_config
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-img_install_config_crud:
           test_id: "N/A"
           labels: ["image_registry"]
-        FieldExistsCheck:
+        FieldExistsCheck-img_install_config_crud:
           test_id: "BOOT01-02"
           labels: ["image_registry"]
           fields: ["config_id", "config_name", "operations"]
@@ -121,14 +121,14 @@ tests:
     bm_from_image:
       step: install_image_bm
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-img_bm_from_image:
           test_id: "BOOT01-03"
           labels: ["image_registry", "min_req"]
-        FieldExistsCheck:
+        FieldExistsCheck-img_bm_from_image:
           test_id: "N/A"
           labels: ["image_registry"]
           fields: ["instance_id", "image_id", "instance_state"]
-        InstanceStateCheck:
+        InstanceStateCheck-img_bm_from_image:
           test_id: "N/A"
           labels: ["image_registry"]
           expected_state: "running"
@@ -137,14 +137,14 @@ tests:
     bm_from_config:
       step: install_config_bm
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-img_bm_from_config:
           test_id: "BOOT01-04"
           labels: ["image_registry", "min_req"]
-        FieldExistsCheck:
+        FieldExistsCheck-img_bm_from_config:
           test_id: "N/A"
           labels: ["image_registry"]
           fields: ["instance_id", "config_id", "instance_state"]
-        InstanceStateCheck:
+        InstanceStateCheck-img_bm_from_config:
           test_id: "N/A"
           labels: ["image_registry"]
           expected_state: "running"
@@ -152,7 +152,7 @@ tests:
     teardown_checks:
       step: teardown
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-img_teardown:
           test_id: "N/A"
           labels: ["image_registry"]
 

@@ -213,7 +213,7 @@ tests:
     teardown_checks:
       step: teardown
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-security_teardown:
           test_id: "N/A"
           labels: ["security"]
 

@@ -110,8 +110,12 @@ class TestBuildCatalog:
         """Test that some known validation tests appear in the catalog."""
         catalog = build_catalog()
         names = {e["name"] for e in catalog}
-        assert "StepSuccessCheck" in names
-        assert "FieldExistsCheck" in names
+        assert "StepSuccessCheck-iam_teardown" in names
+        assert "FieldExistsCheck-iam_setup" in names
+        # Generic plumbing classes are wired only under variant names, so no
+        # bare entry (it would carry no wiring of its own).
+        assert "StepSuccessCheck" not in names
+        assert "FieldExistsCheck" not in names
 
     def test_extract_checks_supports_direct_dict_category_form(self, tmp_path) -> None:
         """Direct dict category wiring is included in catalog config scans."""
@@ -167,24 +171,33 @@ tests:
             assert all(isinstance(tid, str) for tid in entry["test_ids"])
             assert "N/A" not in entry["test_ids"]
 
-        # Single mapping, and a duality unioned across the bm/vm suites.
+        # Per-wiring names: the bm and vm GpuCheck wirings are separate tests,
+        # each carrying only its own suite's plan id.
         assert by_name["MfaEnforcedCheck"]["test_ids"] == ["SEC07-01"]
-        assert by_name["GpuCheck"]["test_ids"] == ["BMAAS08-01", "VMAAS06-01"]
+        assert by_name["GpuCheck-bm_gpu"]["test_ids"] == ["BMAAS08-01"]
+        assert by_name["GpuCheck-vm_gpu"]["test_ids"] == ["VMAAS06-01"]
 
-    def test_variant_test_ids_propagate_to_base(self) -> None:
-        """A variant's wired test_id surfaces on its base-class catalog entry."""
+    def test_variant_test_ids_stay_on_the_variant(self) -> None:
+        """A variant's wired test_id stays on the variant; no bare-base entry exists."""
         catalog = build_catalog(released_only=False)
         by_name = {e["name"]: e for e in catalog}
 
         assert by_name["StepSuccessCheck-delete_tenant"]["test_ids"] == ["CP10-01"]
-        assert "CP10-01" in by_name["StepSuccessCheck"]["test_ids"]
+        assert "StepSuccessCheck" not in by_name
 
     def test_released_only_filters_catalog(self) -> None:
-        """Default catalog generation excludes tests not in the release manifest."""
+        """Default catalog generation excludes tests not in the release manifest.
+
+        The manifest lists validation classes; variant wirings of a released
+        class are released with it (mirrors the runtime gating).
+        """
         with patch("isvtest.catalog.load_released_test_filter", return_value={"StepSuccessCheck"}):
             catalog = build_catalog()
 
-        assert {e["name"] for e in catalog} == {"StepSuccessCheck"}
+        names = {e["name"] for e in catalog}
+        assert names
+        assert all(name.startswith("StepSuccessCheck-") for name in names)
+        assert "StepSuccessCheck-iam_teardown" in names
 
     def test_unreleased_env_includes_full_catalog(self) -> None:
         """When the release filter is disabled, default catalog generation includes all tests."""
@@ -192,8 +205,8 @@ tests:
             catalog = build_catalog()
 
         names = {e["name"] for e in catalog}
-        assert "StepSuccessCheck" in names
-        assert "FieldExistsCheck" in names
+        assert "StepSuccessCheck-iam_teardown" in names
+        assert "FieldExistsCheck-iam_setup" in names
 
     def test_labels_are_lists_of_strings(self) -> None:
         """Test that labels are lists of strings."""
@@ -207,6 +220,7 @@ tests:
         with (
             patch("isvtest.catalog.discover_all_tests", return_value=[ExplicitLabelCatalogCheck]),
             patch("isvtest.catalog._build_axis_maps", return_value=({}, {})),
+            patch("isvtest.catalog._all_wired_names", return_value=set()),
             patch(
                 "isvtest.catalog.build_label_map",
                 return_value={"ExplicitLabelCatalogCheck": {"accelerator", "long_running"}},
@@ -239,10 +253,10 @@ tests:
         """Checks wired in a platform suite land on platforms, not modules."""
         catalog = build_catalog(released_only=False)
         by_name = {e["name"]: e for e in catalog}
-        entry = by_name["GpuCheck"]
-        assert "bare_metal" in entry["platforms"]
-        assert "vm" in entry["platforms"]
-        assert entry["modules"] == []
+        assert by_name["GpuCheck-bm_gpu"]["platforms"] == ["bare_metal"]
+        assert by_name["GpuCheck-bm_gpu"]["modules"] == []
+        assert by_name["GpuCheck-vm_gpu"]["platforms"] == ["vm"]
+        assert by_name["GpuCheck-vm_gpu"]["modules"] == []
 
     def test_suite_membership_overrides_label_axis_inference(self) -> None:
         """Regression: trait labels must not add extra axis ownership.
@@ -306,6 +320,7 @@ tests:
         with (
             patch("isvtest.catalog.discover_all_tests", return_value=[ObservabilityLabelledCheck]),
             patch("isvtest.catalog._build_axis_maps", return_value=({}, {})),
+            patch("isvtest.catalog._all_wired_names", return_value=set()),
             patch(
                 "isvtest.catalog.build_label_map",
                 return_value={"ObservabilityLabelledCheck": {"observability"}},

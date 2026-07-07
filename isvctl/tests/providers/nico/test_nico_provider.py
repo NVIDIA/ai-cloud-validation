@@ -570,7 +570,7 @@ def test_nico_iam_config_wires_credential_readiness() -> None:
     validations = merged["tests"]["validations"]
     assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
     assert validations["credential_readiness"]["step"] == "check_credentials"
-    assert validations["credential_readiness"]["checks"]["FieldExistsCheck"]["fields"] == [
+    assert validations["credential_readiness"]["checks"]["FieldExistsCheck-iam_credential_readiness"]["fields"] == [
         "account_id",
         "authenticated",
         "tests",

@@ -119,7 +119,7 @@ tests:
     network_connectivity:
       step: network_connectivity
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-network_connectivity:
           test_id: "N/A"
         FieldValueCheck:
           test_id: "N/A"
@@ -129,7 +129,7 @@ tests:
     traffic_validation:
       step: traffic_validation
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-network_traffic_validation:
           test_id: "N/A"
         FieldValueCheck:
           test_id: "N/A"

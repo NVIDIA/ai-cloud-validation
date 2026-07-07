@@ -51,11 +51,11 @@ tests:
     setup_checks:
       step: create_user
       checks:
-        FieldExistsCheck:
+        FieldExistsCheck-iam_setup:
           test_id: "IAM01-01"
           labels: ["iam", "min_req"]
           fields: ["username", "access_key_id"]
-        StepSuccessCheck:
+        StepSuccessCheck-iam_setup:
           test_id: "N/A"
           labels: ["iam"]
 
@@ -65,14 +65,14 @@ tests:
         IamCredentialAccessCheck:
           test_id: "IAM03-01"
           labels: ["iam"]
-        StepSuccessCheck:
+        StepSuccessCheck-iam_credentials:
           test_id: "N/A"
           labels: ["iam"]
 
     teardown_checks:
       step: teardown
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-iam_teardown:
           test_id: "N/A"
           labels: ["iam"]
 

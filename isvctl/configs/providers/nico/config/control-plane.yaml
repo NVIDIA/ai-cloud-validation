@@ -58,7 +58,7 @@ tests:
     api_health:
       step: check_api
       checks:
-        FieldExistsCheck:
+        FieldExistsCheck-cp_api_health:
           test_id: "N/A"
           fields: ["account_id", "tests"]
         FieldValueCheck:

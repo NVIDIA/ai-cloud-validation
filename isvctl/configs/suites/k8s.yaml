@@ -75,7 +75,7 @@ tests:
     # The separate CPU and GPU create checks prove distinct pools, each with
     # its own instance type and node count, coexist in the same cluster.
     k8s_node_pools:
-      - K8sNodePoolCheck:
+      - K8sNodePoolCheck-create_cpu_pool:
           # Create (CPU pool): pool reaches desired replica count with its
           # specified CPU instance type.
           test_id: "K8S06-01"
@@ -89,7 +89,7 @@ tests:
           node_type: "{{ steps.create_test_node_pool.node_type | default('cpu') }}"
           wait_timeout: 900
           poll_interval: 10
-      - K8sNodePoolCheck:
+      - K8sNodePoolCheck-create_gpu_pool:
           # Create (GPU pool): a separate pool reaches its own node count with
           # its specified GPU instance type, coexisting with the CPU pool.
           test_id: "K8S06-01"
@@ -103,7 +103,7 @@ tests:
           node_type: "{{ steps.create_test_gpu_node_pool.node_type | default('gpu') }}"
           wait_timeout: 900
           poll_interval: 10
-      - K8sNodePoolCheck:
+      - K8sNodePoolCheck-update_pool:
           # Update (scale): same pool converges to the new count.
           test_id: "K8S06-02"
           labels: ["kubernetes", "min_req", "slow"]
@@ -116,7 +116,7 @@ tests:
           node_type: "{{ steps.update_test_node_pool.node_type | default('cpu') }}"
           wait_timeout: 900
           poll_interval: 10
-      - K8sNodePoolCheck:
+      - K8sNodePoolCheck-delete_pool:
           # Delete: assert the throwaway pool reaches zero nodes after the
           # delete step. Selector comes from its create step; the label/taint/
           # instance-type assertions are omitted (no nodes to check).

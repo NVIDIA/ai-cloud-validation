@@ -102,7 +102,14 @@ Keep them inline, or use one validation-only fragment per platform.
 - every suite check carries the suite's declared `platform:` or `module:` label;
 - a check carries **at most one platform label** (platform-scoped exclusion
   is any-intersection, so two platform labels would skip the check under every
-  column).
+  column);
+- every **wiring name is globally unique** across suites. A generic check
+  class wired in several places uses a distinct variant name per wiring
+  (`StepSuccessCheck-iam_teardown`, `GpuCheck-bm_gpu`), typically
+  `Class-<suite>_<category>`. The catalog, JUnit results, and the
+  capability x module matrix are all keyed by name, so a reused bare name
+  would union unrelated labels/test_ids onto one entry. Variant names resolve
+  to their base class at runtime and inherit its release-manifest status.
 
 Labels are otherwise free-form: they originate in the wiring YAML itself, so
 there is no external allowlist to validate them against.

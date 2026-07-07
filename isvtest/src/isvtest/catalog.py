@@ -138,10 +138,11 @@ def _build_check_attribute_map(
     """Map check name -> a per-check attribute unioned across all config wiring.
 
     Scans every config (suites AND providers, not just the canonical suites:
-    on-host ``bm_*`` checks are wired only in provider configs), unions the
-    values ``extract_fn`` pulls from each, then propagates a variant's values up
-    to its base name (``Foo-bar`` -> ``Foo``) so the base entry is not left bare.
-    Shared by ``build_label_map`` and ``build_test_id_map``.
+    on-host ``bm_*`` checks are wired only in provider configs). Names are kept
+    as wired: wiring names are globally unique (enforced by
+    ``scripts/validate_suite_wiring.py``), so a variant's values never smear
+    onto its base class or sibling variants. Shared by ``build_label_map`` and
+    ``build_test_id_map``.
     """
     configs_dir = _find_configs_dir()
     if not configs_dir:
@@ -151,12 +152,18 @@ def _build_check_attribute_map(
     for config_path in sorted(configs_dir.rglob("*.yaml")):
         for name, values in extract_fn(config_path).items():
             attribute_map.setdefault(name, set()).update(values)
-
-    for name, values in list(attribute_map.items()):
-        base = name.split("-")[0]
-        if base != name:
-            attribute_map.setdefault(base, set()).update(values)
     return attribute_map
+
+
+def _all_wired_names() -> set[str]:
+    """Every check name as wired in any suite or provider config (raw, exact)."""
+    configs_dir = _find_configs_dir()
+    if not configs_dir:
+        return set()
+    names: set[str] = set()
+    for config_path in sorted(configs_dir.rglob("*.yaml")):
+        names.update(_extract_checks_from_config(config_path))
+    return names
 
 
 def build_test_id_map() -> dict[str, set[str]]:
@@ -281,6 +288,8 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
     platform_axis_set = frozenset(platform_axis)
     module_axis_set = frozenset(module_axis)
 
+    wired_names = _all_wired_names()
+
     # Build class metadata lookup, skipping classes marked for exclusion
     class_meta: dict[str, dict[str, Any]] = {}
     excluded_names: set[str] = set()
@@ -301,9 +310,17 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
     def _entry_axes(name: str) -> tuple[list[str], list[str]]:
         return sorted(platform_map.get(name, set())), sorted(module_map.get(name, set()))
 
-    # Add all discovered classes
+    def _has_variant_wiring(class_name: str) -> bool:
+        prefix = f"{class_name}-"
+        return any(name.startswith(prefix) for name in wired_names)
+
+    # Add all discovered classes. A class wired only under variant names gets
+    # no bare entry: the variants are the tests, and a bare entry would carry
+    # no wiring of its own.
     for name, meta in class_meta.items():
         seen.add(name)
+        if name not in wired_names and _has_variant_wiring(name):
+            continue
         platforms, modules = _entry_axes(name)
         catalog.append(
             {
@@ -316,21 +333,22 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             }
         )
 
-    # Add variant entries from configs that aren't base classes
-    all_axis_names = set(platform_map) | set(module_map)
-    for name in all_axis_names:
+    # Add variant entries wired in any config (suites or providers). Each
+    # variant carries only its own wiring's labels/test_ids - the base class's
+    # other wirings must not smear their scope onto it.
+    variant_names = {name for name in (set(platform_map) | set(module_map) | wired_names) if "-" in name}
+    for name in sorted(variant_names):
         if name in seen:
             continue
-        base = name.split("-")[0] if "-" in name else name
+        base = name.split("-")[0]
         if name in excluded_names or base in excluded_names:
             continue
         seen.add(name)
         meta = class_meta.get(base, {})
-        variant_suffix = name[len(base) :] if base != name else ""
+        variant_suffix = name[len(base) :]
         desc = meta.get("description", "")
-        if variant_suffix:
-            desc = f"{desc} ({variant_suffix.lstrip('-')})" if desc else variant_suffix.lstrip("-")
-        labels = sorted(set(meta.get("labels", [])) | label_map.get(name, set()))
+        desc = f"{desc} ({variant_suffix.lstrip('-')})" if desc else variant_suffix.lstrip("-")
+        labels = sorted(label_map.get(name, set()))
         _infer_axis_from_labels(name, labels, platform_map, module_map, platform_axis_set, module_axis_set)
         platforms, modules = _entry_axes(name)
         catalog.append(
@@ -349,8 +367,15 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         if released_tests is None:
             logger.info("Including unreleased tests in catalog because %s is enabled", INCLUDE_UNRELEASED_ENV)
         else:
-            omitted_names = sorted(entry["name"] for entry in catalog if entry["name"] not in released_tests)
-            catalog = [entry for entry in catalog if entry["name"] in released_tests]
+
+            def _is_released(name: str) -> bool:
+                # The manifest lists validation classes; a variant wiring of a
+                # released class is released (same code path as the runtime's
+                # _is_released_validation).
+                return name in released_tests or name.split("-")[0] in released_tests
+
+            omitted_names = sorted(entry["name"] for entry in catalog if not _is_released(entry["name"]))
+            catalog = [entry for entry in catalog if _is_released(entry["name"])]
             if omitted_names:
                 logger.info("Omitted %d unreleased tests from catalog", len(omitted_names))
                 logger.debug("Unreleased tests omitted from catalog: %s", ", ".join(omitted_names))
