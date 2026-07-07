@@ -30,6 +30,7 @@ the container stays Running long enough for the harness to ``cat`` the JUnit.
 
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 import uuid
@@ -197,7 +198,36 @@ class K8sCncfConformanceCheck(BaseValidation):
                 self.set_failed(completion_error, output=output[-4000:])
                 return
 
-            ok, junit_xml = self._exec_cat(namespace, self._POD_NAME, self._JUNIT_PATH)
+            # JUnit retrieval is multi-stage to tolerate flaky managed-K8s
+            # LoadBalancers that reset long-running TCP streams partway through
+            # a multi-megabyte `kubectl exec -- cat`:
+            #
+            #   1. If a provider has pre-staged the JUnit at the path in
+            #      $ISVTEST_CONFORMANCE_JUNIT_LOCAL_PATH (e.g. via a sidecar
+            #      copy through a different network path), use that. The
+            #      conformance pod stays Running until the harness cleans up,
+            #      so a pre-stage step that runs after `done` appears can
+            #      reliably exfiltrate the JUnit out-of-band.
+            #   2. Retry `kubectl exec -- cat` up to 3 times.
+            #   3. Fall back to `kubectl cp` (tar streaming) which uses
+            #      different stream framing than raw exec.
+            ok, junit_xml = self._try_local_junit()
+            if not ok or not junit_xml:
+                for attempt in range(1, 4):
+                    ok, junit_xml = self._exec_cat(namespace, self._POD_NAME, self._JUNIT_PATH, quiet=(attempt < 3))
+                    if ok and junit_xml:
+                        break
+                    # Only log "retrying" and sleep when another exec attempt
+                    # actually follows; on the last attempt fall straight
+                    # through to the kubectl cp fallback below.
+                    if attempt < 3:
+                        self.log.warning(
+                            f"JUnit retrieval attempt {attempt}/3 via 'kubectl exec cat' failed; retrying in 5s"
+                        )
+                        time.sleep(5)
+            if not ok or not junit_xml:
+                # Final fallback: kubectl cp (tar streaming).
+                ok, junit_xml = self._kubectl_cp(namespace, self._POD_NAME, self._JUNIT_PATH)
             if not ok or not junit_xml:
                 logs = self._get_pod_logs(namespace, self._POD_NAME)
                 self.set_failed(
@@ -396,6 +426,57 @@ class K8sCncfConformanceCheck(BaseValidation):
                 self.log.warning(f"kubectl exec cat {path} failed: {result.stderr.strip()}")
             return False, ""
         return True, result.stdout
+
+    def _try_local_junit(self) -> tuple[bool, str]:
+        """Read a pre-staged JUnit XML from the local filesystem if the
+        provider has populated ``$ISVTEST_CONFORMANCE_JUNIT_LOCAL_PATH``.
+
+        Returns ``(ok, content)``. ``ok=False`` means either the env var
+        is unset, the file does not exist, or the file is empty.
+        """
+        local_path = os.environ.get("ISVTEST_CONFORMANCE_JUNIT_LOCAL_PATH", "")
+        if not local_path:
+            return False, ""
+        if not Path(local_path).is_file():
+            return False, ""
+        try:
+            with open(local_path, encoding="utf-8") as f:
+                content = f.read()
+        except OSError as exc:
+            self.log.warning(f"failed to read pre-staged JUnit at {local_path}: {exc}")
+            return False, ""
+        if not content:
+            return False, ""
+        self.log.info(f"Loaded pre-staged conformance JUnit from {local_path} ({len(content)} bytes)")
+        return True, content
+
+    def _kubectl_cp(self, namespace: str, pod_name: str, path: str) -> tuple[bool, str]:
+        """Copy ``path`` out of the pod to a temp file using `kubectl cp`, then
+        read it locally. Returns ``(ok, content)``.
+
+        `kubectl cp` uses tar streaming, which behaves differently from a raw
+        `kubectl exec -- cat` and recovers better from mid-stream TCP resets
+        on multi-megabyte files. Used as a fallback when the cat path fails.
+        """
+        with tempfile.NamedTemporaryFile(delete=False) as fh:
+            local_path = fh.name
+        try:
+            cmd = get_kubectl_base_shell("cp", f"{namespace}/{pod_name}:{path}", local_path)
+            result = self.run_command(cmd, timeout=self._EXEC_CAT_TIMEOUT)
+            if result.exit_code != 0:
+                self.log.warning(f"kubectl cp {path} failed: {result.stderr.strip()}")
+                return False, ""
+            try:
+                with open(local_path, encoding="utf-8") as f:
+                    content = f.read()
+            except OSError as exc:
+                self.log.warning(f"failed to read local copy of {path}: {exc}")
+                return False, ""
+            if not content:
+                return False, ""
+            return True, content
+        finally:
+            Path(local_path).unlink(missing_ok=True)
 
     def _get_pod_logs(self, namespace: str, pod_name: str) -> str:
         """Return the last 200 lines of pod logs, or ``""`` on failure."""

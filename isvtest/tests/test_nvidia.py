@@ -15,7 +15,49 @@
 
 """Tests for NVIDIA parsing helpers."""
 
-from isvtest.core.nvidia import parse_cuda_version
+from isvtest.core.nvidia import count_gpus_from_full_output, parse_cuda_version
+
+_T4_SINGLE = """\
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 535.104.05             Driver Version: 535.104.05   CUDA Version: 12.2     |
+|=========================================+======================+======================|
+|   0  Tesla T4                       Off | 00000000:00:04.0 Off |                    0 |
+| N/A   34C    P8               9W /  70W |      0MiB / 15360MiB |      0%      Default |
++-----------------------------------------+----------------------+----------------------+
+"""
+
+_A100_TWO_WITH_PROCESSES = """\
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.54.15              Driver Version: 550.54.15    CUDA Version: 12.4     |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-SXM4-80GB          On  |   00000000:07:00.0 Off |                    0 |
+| N/A   30C    P0              63W / 400W |      0MiB /  81920MiB   |      0%      Default |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA A100-SXM4-80GB          On  |   00000000:0A:00.0 Off |                    0 |
+| N/A   29C    P0              62W / 400W |      0MiB /  81920MiB   |      0%      Default |
++-----------------------------------------+------------------------+----------------------+
+| Processes:                                                                            |
+|=======================================================================================|
+|    0   N/A  N/A      1234      C   /usr/bin/python                             456MiB |
+|    1   N/A  N/A      5678      C   /usr/bin/python                             789MiB |
++---------------------------------------------------------------------------------------+
+"""
+
+
+class TestCountGpusFromFullOutput:
+    """Tests for count_gpus_from_full_output()."""
+
+    def test_single_non_nvidia_named_gpu(self) -> None:
+        # "Tesla T4" has no "NVIDIA" prefix; it must still be counted.
+        assert count_gpus_from_full_output(_T4_SINGLE) == 1
+
+    def test_does_not_overcount_process_rows(self) -> None:
+        # Process-table rows also start with a GPU index but have no Bus-Id
+        # and must not be counted as additional GPUs.
+        assert count_gpus_from_full_output(_A100_TWO_WITH_PROCESSES) == 2
+
+    def test_no_gpus(self) -> None:
+        assert count_gpus_from_full_output("No devices were found") == 0
 
 
 class TestParseCudaVersion:

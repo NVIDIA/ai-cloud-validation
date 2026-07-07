@@ -237,6 +237,8 @@ class K8sNcclMultiNodeWorkload(BaseWorkloadCheck):
         quick_mode: bool = False,
     ) -> str:
         """Replace placeholder values in the MPIJob manifest."""
+        import re as _re
+
         yaml_content = yaml_content.replace("name: nccl-allreduce-multinode", f"name: {job_name}", 1)
         yaml_content = yaml_content.replace("slotsPerWorker: 4", f"slotsPerWorker: {gpus_per_node}")
         yaml_content = yaml_content.replace("replicas: 2", f"replicas: {node_count}")
@@ -246,6 +248,36 @@ class K8sNcclMultiNodeWorkload(BaseWorkloadCheck):
             yaml_content = yaml_content.replace("nvcr.io/nvidia/hpc-benchmarks:25.04", image)
         if quick_mode:
             yaml_content = yaml_content.replace("-b 8 -e 4G -f 2", "-b 1M -e 256M -f 2")
+
+        # Optional: remove runtimeClassName from worker pods.
+        # Set runtime_class_name: "" in config to omit runtimeClassName (e.g. GKE COS
+        # device-plugin model where the "nvidia" containerd handler is not configured).
+        runtime_class_name = self.config.get("runtime_class_name", None)
+        if runtime_class_name is not None:
+            if runtime_class_name == "":
+                yaml_content = _re.sub(r"\n          runtimeClassName: \S+", "", yaml_content)
+            else:
+                yaml_content = yaml_content.replace(
+                    "runtimeClassName: nvidia", f"runtimeClassName: {runtime_class_name}"
+                )
+
+        # Optional: remove the Launcher's control-plane nodeAffinity.
+        # The default manifest requires a node with node-role.kubernetes.io/control-plane,
+        # which is not present on clusters that do not expose control-plane nodes.
+        # Set override_launcher_affinity: true to drop the affinity and let the launcher
+        # schedule on any available node.
+        if self.config.get("override_launcher_affinity", False):
+            yaml_content = _re.sub(
+                r"\n          affinity:\n            nodeAffinity:\n"
+                r"              requiredDuringSchedulingIgnoredDuringExecution:\n"
+                r"                nodeSelectorTerms:\n"
+                r"                  - matchExpressions:\n"
+                r"                      - key: node-role\.kubernetes\.io/control-plane\n"
+                r"                        operator: Exists",
+                "",
+                yaml_content,
+            )
+
         return yaml_content
 
     def _resolve_compute_domain_mode(self) -> bool:
