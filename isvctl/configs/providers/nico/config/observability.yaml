@@ -29,6 +29,22 @@ commands:
   observability:
     phases: ["test"]
     steps:
+      - name: fabric_manager_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--aspect"
+          - "fabric_manager_logs"
+        timeout: 120
+
+      - name: subnet_manager_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--aspect"
+          - "subnet_manager_logs"
+        timeout: 120
+
       - name: ufm_event_logs
         phase: test
         command: "python3 ../scripts/observability/log_availability_test.py"

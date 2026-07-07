@@ -33,6 +33,7 @@ from common.ufm_client import (
     describe_http_error,
     describe_url_error,
     get_event_history,
+    get_log_text,
     resolve_ufm_auth,
     ufm_configured,
 )
@@ -44,6 +45,16 @@ ASPECT_TESTS: dict[str, list[str]] = {
         "event_log_endpoint_reachable",
         "event_log_source_present",
         "event_entries_queryable",
+    ],
+    "fabric_manager_logs": [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ],
+    "subnet_manager_logs": [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
     ],
     "general_switch_logs": [
         "log_endpoint_reachable",
@@ -68,6 +79,18 @@ DEMO_PROBES: dict[str, dict[str, Any]] = {
         "log_source": "demo-ufm-event-log",
         "entry_count": 5,
         "latest_timestamp": "2026-05-20T13:19:00Z",
+    },
+    "fabric_manager_logs": {
+        "log_endpoints_checked": 1,
+        "log_source": "demo-fabric-manager-log",
+        "entry_count": 7,
+        "latest_timestamp": "2026-05-20T13:18:30Z",
+    },
+    "subnet_manager_logs": {
+        "log_endpoints_checked": 1,
+        "log_source": "demo-subnet-manager-log",
+        "entry_count": 6,
+        "latest_timestamp": "2026-05-20T13:18:00Z",
     },
     "general_switch_logs": {
         "switches_checked": 2,
@@ -186,6 +209,63 @@ def check_ufm_event_logs(*, page_size: int = 10) -> dict[str, Any]:
     return result
 
 
+def _parse_log_lines(content: str) -> tuple[int, str]:
+    """Count non-empty log lines and return the latest timestamp-like prefix."""
+    lines = [line for line in content.splitlines() if line.strip()]
+    latest_timestamp = ""
+    if lines:
+        candidate = lines[0].split()[0] if lines[0].split() else ""
+        latest_timestamp = candidate
+    return len(lines), latest_timestamp
+
+
+def check_ufm_log_text(*, aspect: str, log_type: str, log_source: str, length: int = 100) -> dict[str, Any]:
+    """Query a UFM text log endpoint and emit the observability contract."""
+    result = _base_result(aspect)
+    probes = {
+        "log_endpoints_checked": 0,
+        "log_source": "",
+        "entry_count": 0,
+        "latest_timestamp": "",
+    }
+
+    if not ufm_configured():
+        error = "UFM access is not configured; set UFM_ADDRESS and UFM_TOKEN or UFM_USERNAME/UFM_PASSWORD"
+        for name in ASPECT_TESTS[aspect]:
+            result["tests"][name] = _failed(error, probes)
+        result["error"] = error
+        return result
+
+    try:
+        auth = resolve_ufm_auth()
+        content = get_log_text(auth, log_type, length=length)
+    except HTTPError as e:
+        error = describe_http_error(e)
+        for name in ASPECT_TESTS[aspect]:
+            result["tests"][name] = _failed(error, probes)
+        result["error"] = error
+        return result
+    except (URLError, UfmAuthError) as e:
+        error = describe_url_error(e) if isinstance(e, URLError) else str(e)
+        for name in ASPECT_TESTS[aspect]:
+            result["tests"][name] = _failed(error, probes)
+        result["error"] = error
+        return result
+
+    entry_count, latest_timestamp = _parse_log_lines(content)
+    probes = {
+        "log_endpoints_checked": 1,
+        "log_source": log_source,
+        "entry_count": entry_count,
+        "latest_timestamp": latest_timestamp,
+    }
+    result["tests"]["log_endpoint_reachable"] = _passed("UFM log endpoint reachable", probes)
+    result["tests"]["log_source_present"] = _passed(f"UFM log source present: {log_source}", probes)
+    result["tests"]["log_entries_queryable"] = _passed(f"{entry_count} UFM log entries returned", probes)
+    result["success"] = True
+    return result
+
+
 def _check_switch_logs(aspect: str) -> dict[str, Any]:
     """Emit provider-hidden evidence for customer-inaccessible switch logs."""
     result = _base_result(aspect)
@@ -235,6 +315,18 @@ def main() -> int:
         result["success"] = True
     elif args.aspect == "ufm_event_logs":
         result = check_ufm_event_logs(page_size=args.page_size)
+    elif args.aspect == "fabric_manager_logs":
+        result = check_ufm_log_text(
+            aspect="fabric_manager_logs",
+            log_type="UFM",
+            log_source="ufm-fabric-manager",
+        )
+    elif args.aspect == "subnet_manager_logs":
+        result = check_ufm_log_text(
+            aspect="subnet_manager_logs",
+            log_type="SM",
+            log_source="ufm-subnet-manager",
+        )
     else:
         result = _check_switch_logs(args.aspect)
 

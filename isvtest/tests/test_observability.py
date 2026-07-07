@@ -24,10 +24,14 @@ import pytest
 from isvtest.validations.observability import (
     BmcGpuTelemetryCheck,
     BmcSelLogsCheck,
+    FabricManagerLogsCheck,
     GeneralSwitchLogsCheck,
+    HostNicNetworkTelemetryCheck,
     HostSyslogCheck,
+    NorthSouthNetworkTelemetryCheck,
     SwitchKernelLogsCheck,
     SwitchSyslogCheck,
+    TelemetryDeliveryLatencyCheck,
     UfmEventLogsCheck,
     VpcFlowLogsCheck,
 )
@@ -310,6 +314,95 @@ def _ufm_event_logs_provider_hidden_output() -> dict[str, Any]:
     }
 
 
+def _telemetry_delivery_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing telemetry delivery latency step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "cloudwatch",
+        "observed_delivery_seconds": 42,
+        "max_delivery_seconds": 120,
+        "sample_count": 3,
+        "latest_timestamp": "2026-05-20T13:21:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "telemetry_delivery_latency",
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "delivery_sample_present", "delivery_within_threshold"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _network_telemetry_output(aspect: str, **overrides: Any) -> dict[str, Any]:
+    """Build passing network-plane telemetry step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "cloudwatch",
+        "metric_names": ["NetworkPacketsIn", "NetworkPacketsOut"],
+        "sample_count": 4,
+        "latest_timestamp": "2026-05-20T13:21:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": aspect,
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "plane_metrics_present", "samples_recent"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _host_nic_telemetry_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing host NIC telemetry step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "cloudwatch",
+        "nics_checked": 2,
+        "metric_names": ["NetworkPacketsIn", "NetworkPacketsOut"],
+        "sample_count": 4,
+        "latest_timestamp": "2026-05-20T13:21:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "host_nic_network_telemetry",
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "nic_metrics_present", "samples_recent"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _fabric_manager_logs_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing Fabric Manager log step output."""
+    probes: dict[str, Any] = {
+        "log_endpoints_checked": 1,
+        "log_source": "ufm-fabric-manager",
+        "entry_count": 7,
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "fabric_manager_logs",
+        "tests": _tests(
+            ["log_endpoint_reachable", "log_source_present", "log_entries_queryable"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
 @pytest.mark.parametrize(
     ("validation_cls", "step_output", "expected"),
     [
@@ -318,9 +411,21 @@ def _ufm_event_logs_provider_hidden_output() -> dict[str, Any]:
         (BmcSelLogsCheck, _bmc_sel_output(), "BMC SEL logs queryable"),
         (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_output(), "BMC GPU telemetry available"),
         (UfmEventLogsCheck, _ufm_event_logs_output(), "UFM Event logs queryable"),
+        (FabricManagerLogsCheck, _fabric_manager_logs_output(), "Fabric Manager logs queryable"),
         (GeneralSwitchLogsCheck, _general_switch_logs_output(), "General switch logs available"),
         (SwitchSyslogCheck, _switch_syslog_output(), "Switch syslogs available"),
         (SwitchKernelLogsCheck, _switch_kernel_logs_output(), "Switch kernel logs available"),
+        (TelemetryDeliveryLatencyCheck, _telemetry_delivery_output(), "Telemetry delivery latency"),
+        (
+            NorthSouthNetworkTelemetryCheck,
+            _network_telemetry_output("north_south_network_telemetry"),
+            "North-South network telemetry",
+        ),
+        (
+            HostNicNetworkTelemetryCheck,
+            _host_nic_telemetry_output(),
+            "Host NIC telemetry available",
+        ),
     ],
 )
 def test_observability_checks_pass_with_required_evidence(
@@ -330,9 +435,13 @@ def test_observability_checks_pass_with_required_evidence(
         | BmcSelLogsCheck
         | BmcGpuTelemetryCheck
         | UfmEventLogsCheck
+        | FabricManagerLogsCheck
         | GeneralSwitchLogsCheck
         | SwitchSyslogCheck
         | SwitchKernelLogsCheck
+        | TelemetryDeliveryLatencyCheck
+        | NorthSouthNetworkTelemetryCheck
+        | HostNicNetworkTelemetryCheck
     ],
     step_output: dict[str, Any],
     expected: str,
@@ -424,6 +533,16 @@ def test_bmc_gpu_telemetry_rejects_string_metric_names() -> None:
 
     assert result["passed"] is False
     assert "metric_names" in result["error"]
+
+
+def test_telemetry_delivery_latency_rejects_slow_delivery() -> None:
+    """Telemetry delivery validation fails when latency exceeds the threshold."""
+    result = TelemetryDeliveryLatencyCheck(
+        config={**_config(_telemetry_delivery_output(observed_delivery_seconds=180)), "max_delivery_seconds": 120}
+    ).execute()
+
+    assert result["passed"] is False
+    assert "exceeds threshold" in result["error"]
 
 
 def test_switch_syslog_requires_recent_entries() -> None:

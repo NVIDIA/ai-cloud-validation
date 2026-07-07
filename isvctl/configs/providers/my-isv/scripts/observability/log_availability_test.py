@@ -44,6 +44,14 @@ The ``--aspect`` flag selects the observability surface to probe:
             event_entries_queryable}
     probes: log_endpoints_checked, log_source, entry_count, latest_timestamp
 
+  fabric_manager_logs:
+    tests: {log_endpoint_reachable, log_source_present, log_entries_queryable}
+    probes: log_endpoints_checked, log_source, entry_count, latest_timestamp
+
+  subnet_manager_logs:
+    tests: {log_endpoint_reachable, log_source_present, log_entries_queryable}
+    probes: log_endpoints_checked, log_source, entry_count, latest_timestamp
+
   general_switch_logs:
     tests: {log_endpoint_reachable, switch_log_source_present,
             entries_queryable}
@@ -102,6 +110,16 @@ ASPECT_TESTS: dict[str, list[str]] = {
         "event_log_source_present",
         "event_entries_queryable",
     ],
+    "fabric_manager_logs": [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ],
+    "subnet_manager_logs": [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ],
     "general_switch_logs": [
         "log_endpoint_reachable",
         "switch_log_source_present",
@@ -149,6 +167,18 @@ DEMO_PROBES: dict[str, dict[str, Any]] = {
         "log_source": "demo-ufm-event-log",
         "entry_count": 5,
         "latest_timestamp": "2026-05-20T13:19:00Z",
+    },
+    "fabric_manager_logs": {
+        "log_endpoints_checked": 1,
+        "log_source": "demo-fabric-manager-log",
+        "entry_count": 7,
+        "latest_timestamp": "2026-05-20T13:18:30Z",
+    },
+    "subnet_manager_logs": {
+        "log_endpoints_checked": 1,
+        "log_source": "demo-subnet-manager-log",
+        "entry_count": 6,
+        "latest_timestamp": "2026-05-20T13:18:00Z",
     },
     "general_switch_logs": {
         "switches_checked": 2,

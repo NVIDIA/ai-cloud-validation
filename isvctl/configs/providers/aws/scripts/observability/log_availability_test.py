@@ -50,6 +50,16 @@ ASPECT_TESTS: dict[str, list[str]] = {
         "event_log_source_present",
         "event_entries_queryable",
     ],
+    "fabric_manager_logs": [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ],
+    "subnet_manager_logs": [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ],
     "general_switch_logs": [
         "log_endpoint_reachable",
         "switch_log_source_present",
@@ -370,6 +380,28 @@ def check_ufm_event_logs(*, region: str) -> dict[str, Any]:
     return result
 
 
+def check_fabric_manager_logs(*, region: str) -> dict[str, Any]:
+    """Emit AWS provider-hidden evidence for customer-inaccessible Fabric Manager logs."""
+    result = _base_result("fabric_manager_logs")
+    result["success"] = True
+    result["tests"] = {
+        name: _fabric_provider_hidden(name, region=region, probe_field="log_endpoints_checked")
+        for name in ASPECT_TESTS["fabric_manager_logs"]
+    }
+    return result
+
+
+def check_subnet_manager_logs(*, region: str) -> dict[str, Any]:
+    """Emit AWS provider-hidden evidence for customer-inaccessible Subnet Manager logs."""
+    result = _base_result("subnet_manager_logs")
+    result["success"] = True
+    result["tests"] = {
+        name: _fabric_provider_hidden(name, region=region, probe_field="log_endpoints_checked")
+        for name in ASPECT_TESTS["subnet_manager_logs"]
+    }
+    return result
+
+
 def check_general_switch_logs(*, region: str) -> dict[str, Any]:
     """Emit AWS provider-hidden evidence for customer-inaccessible switch logs."""
     result = _base_result("general_switch_logs")
@@ -451,6 +483,10 @@ def main() -> int:
         result = check_bmc_gpu_telemetry(region=args.region)
     elif args.aspect == "ufm_event_logs":
         result = check_ufm_event_logs(region=args.region)
+    elif args.aspect == "fabric_manager_logs":
+        result = check_fabric_manager_logs(region=args.region)
+    elif args.aspect == "subnet_manager_logs":
+        result = check_subnet_manager_logs(region=args.region)
     elif args.aspect == "general_switch_logs":
         result = check_general_switch_logs(region=args.region)
     elif args.aspect == "switch_syslogs":

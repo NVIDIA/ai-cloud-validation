@@ -30,6 +30,37 @@ tests:
     network_id: ""
 
   validations:
+    telemetry_delivery:
+      checks:
+        TelemetryDeliveryLatencyCheck:
+          test_id: "OBS05-01"
+          labels: ["min_req", "observability"]
+          step: telemetry_delivery_latency
+          max_delivery_seconds: 120
+
+    network_telemetry:
+      checks:
+        NorthSouthNetworkTelemetryCheck:
+          test_id: "OBS06-01"
+          labels: ["min_req", "network", "observability"]
+          step: north_south_network_telemetry
+        EastWestNetworkTelemetryCheck:
+          test_id: "OBS07-01"
+          labels: ["min_req", "network", "observability"]
+          step: east_west_network_telemetry
+        ManagementNetworkTelemetryCheck:
+          test_id: "OBS08-01"
+          labels: ["min_req", "network", "observability"]
+          step: management_network_telemetry
+        NvswitchFabricTelemetryCheck:
+          test_id: "OBS09-01"
+          labels: ["min_req", "network", "observability"]
+          step: nvswitch_fabric_telemetry
+        HostNicNetworkTelemetryCheck:
+          test_id: "OBS10-01"
+          labels: ["min_req", "network", "observability"]
+          step: host_nic_network_telemetry
+
     network_logs:
       checks:
         VpcFlowLogsCheck:
@@ -60,10 +91,21 @@ tests:
 
     fabric_logs:
       checks:
+        FabricManagerLogsCheck:
+          test_id: "OBS11-01"
+          labels: ["min_req", "observability"]
+          step: fabric_manager_logs
         UfmEventLogsCheck:
           test_id: "OBS13-01"
           labels: ["min_req", "observability"]
           step: ufm_event_logs
+
+    subnet_manager_logs:
+      checks:
+        SubnetManagerLogsCheck:
+          test_id: "OBS12-01"
+          labels: ["min_req", "observability"]
+          step: subnet_manager_logs
 
     switch_logs:
       checks:

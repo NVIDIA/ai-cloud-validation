@@ -275,6 +275,203 @@ class BmcGpuTelemetryCheck(BaseValidation):
         )
 
 
+class TelemetryDeliveryLatencyCheck(BaseValidation):
+    """Validate telemetry delivery latency stays within the configured threshold.
+
+    Config:
+        step_output: The telemetry_delivery_latency step output to check
+        max_delivery_seconds: Maximum allowed delivery latency (default 120)
+
+    Step output:
+        tests: dict with telemetry_endpoint_reachable, delivery_sample_present,
+               delivery_within_threshold
+        tests.<check>.probes.telemetry_source: Non-empty telemetry source identifier
+        tests.<check>.probes.observed_delivery_seconds: Non-negative integer latency
+        tests.<check>.probes.max_delivery_seconds: Positive integer threshold
+    """
+
+    description: ClassVar[str] = "Check telemetry delivery latency is within threshold"
+
+    def run(self) -> None:
+        """Validate telemetry delivery latency results and evidence."""
+        required = ["telemetry_endpoint_reachable", "delivery_sample_present", "delivery_within_threshold"]
+        if not check_required_tests(self, required, "Telemetry delivery latency tests failed"):
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["telemetry_source"], "telemetry delivery"):
+            return
+        if not _require_non_negative_int(self, probes, "observed_delivery_seconds", "telemetry delivery"):
+            return
+
+        max_delivery_seconds = self.config.get("max_delivery_seconds", 120)
+        if type(max_delivery_seconds) is not int or max_delivery_seconds < 1:
+            self.set_failed("max_delivery_seconds must be a positive integer")
+            return
+
+        observed = probes["observed_delivery_seconds"]
+        if observed > max_delivery_seconds:
+            self.set_failed(
+                f"Telemetry delivery latency {observed}s exceeds threshold {max_delivery_seconds}s "
+                f"via {probes['telemetry_source']}"
+            )
+            return
+
+        self.set_passed(
+            f"Telemetry delivery latency {observed}s within {max_delivery_seconds}s via {probes['telemetry_source']}"
+        )
+
+
+class _NetworkTelemetryCheck(BaseValidation):
+    """Shared validation logic for network-plane telemetry checks."""
+
+    _required_tests: ClassVar[list[str]] = [
+        "telemetry_endpoint_reachable",
+        "plane_metrics_present",
+        "samples_recent",
+    ]
+    _plane_label: ClassVar[str] = "network telemetry"
+    _metric_field: ClassVar[str] = "metric_names"
+
+    def run(self) -> None:
+        """Validate network telemetry results and evidence."""
+        if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
+            return
+        if message := _provider_hidden_message(self, self._required_tests, self._plane_label):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
+            return
+        if not _require_non_empty_string_list(self, probes, self._metric_field, self._plane_label):
+            return
+        if not _require_positive_int(self, probes, "sample_count", self._plane_label):
+            return
+        if not _require_non_empty_strings(self, probes, ["latest_timestamp"], self._plane_label):
+            return
+
+        metric_names = probes[self._metric_field]
+        self.set_passed(
+            f"{self._plane_label} available via {probes['telemetry_source']} "
+            f"({len(metric_names)} metrics, {probes['sample_count']} recent samples)"
+        )
+
+
+class NorthSouthNetworkTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate North-South (front-end) network telemetry is available."""
+
+    description: ClassVar[str] = "Check North-South network telemetry is available"
+    _plane_label: ClassVar[str] = "North-South network telemetry"
+
+
+class EastWestNetworkTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate East-West (GPU interconnect) network telemetry is available."""
+
+    description: ClassVar[str] = "Check East-West network telemetry is available"
+    _plane_label: ClassVar[str] = "East-West network telemetry"
+
+
+class ManagementNetworkTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate management network telemetry is available."""
+
+    description: ClassVar[str] = "Check management network telemetry is available"
+    _plane_label: ClassVar[str] = "Management network telemetry"
+
+
+class NvswitchFabricTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate NVSwitch fabric telemetry is available."""
+
+    description: ClassVar[str] = "Check NVSwitch fabric telemetry is available"
+    _plane_label: ClassVar[str] = "NVSwitch fabric telemetry"
+
+
+class HostNicNetworkTelemetryCheck(BaseValidation):
+    """Validate host NIC-level network telemetry is available.
+
+    Config:
+        step_output: The host_nic_network_telemetry step output to check
+
+    Step output:
+        tests: dict with telemetry_endpoint_reachable, nic_metrics_present,
+               samples_recent
+        tests.<check>.probes.telemetry_source: Non-empty telemetry source identifier
+        tests.<check>.probes.nics_checked: Positive integer count of NICs inspected
+        tests.<check>.probes.metric_names: Non-empty list of metric names
+        tests.<check>.probes.sample_count: Positive integer count of recent samples
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest sample
+    """
+
+    description: ClassVar[str] = "Check host NIC-level network telemetry is available"
+
+    def run(self) -> None:
+        """Validate host NIC telemetry results and evidence."""
+        required = ["telemetry_endpoint_reachable", "nic_metrics_present", "samples_recent"]
+        if not check_required_tests(self, required, "Host NIC network telemetry tests failed"):
+            return
+        if message := _provider_hidden_message(self, required, "Host NIC network telemetry"):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["telemetry_source", "latest_timestamp"], "host NIC telemetry"):
+            return
+        if not _require_non_empty_string_list(self, probes, "metric_names", "host NIC telemetry"):
+            return
+        if not _require_positive_int(self, probes, "nics_checked", "host NIC telemetry"):
+            return
+        if not _require_positive_int(self, probes, "sample_count", "host NIC telemetry"):
+            return
+
+        metric_names = probes["metric_names"]
+        self.set_passed(
+            f"Host NIC telemetry available from {probes['nics_checked']} NIC(s) "
+            f"via {probes['telemetry_source']} ({len(metric_names)} metrics, {probes['sample_count']} samples)"
+        )
+
+
+class _FabricLogCheck(BaseValidation):
+    """Shared validation logic for fabric-manager style log checks."""
+
+    _required_tests: ClassVar[list[str]] = [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ]
+    _log_label: ClassVar[str] = "fabric log"
+
+    def run(self) -> None:
+        """Validate fabric log results and evidence."""
+        if not check_required_tests(self, self._required_tests, f"{self._log_label} tests failed"):
+            return
+        if message := _provider_hidden_message(self, self._required_tests, self._log_label):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["log_source"], self._log_label):
+            return
+        if not _require_positive_int(self, probes, "log_endpoints_checked", self._log_label):
+            return
+        if not _require_non_negative_int(self, probes, "entry_count", self._log_label):
+            return
+
+        self.set_passed(
+            f"{self._log_label} queryable from {probes['log_endpoints_checked']} endpoint(s) "
+            f"via {probes['log_source']} ({probes['entry_count']} entries)"
+        )
+
+
+class FabricManagerLogsCheck(_FabricLogCheck):
+    """Validate Fabric Manager logs are queryable where applicable."""
+
+    description: ClassVar[str] = "Check Fabric Manager logs are available"
+    _log_label: ClassVar[str] = "Fabric Manager logs"
+
+
+class SubnetManagerLogsCheck(_FabricLogCheck):
+    """Validate Subnet Manager logs are queryable where applicable."""
+
+    description: ClassVar[str] = "Check Subnet Manager logs are available"
+    _log_label: ClassVar[str] = "Subnet Manager logs"
+
+
 class UfmEventLogsCheck(BaseValidation):
     """Validate UFM Event logs are queryable.
 
