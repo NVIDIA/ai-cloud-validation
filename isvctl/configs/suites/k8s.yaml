@@ -321,7 +321,7 @@ tests:
               workloads: {}
           min_controller_replicas: 1
         K8sCsiConcurrentPvcCheck:
-          test_id: "K8S23-08"
+          test_id: "N/A"
           labels: ["kubernetes", "min_req"]
           storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
           pvc_count: 2
@@ -329,7 +329,7 @@ tests:
           bind_timeout_s: 120
           namespace_prefix: "isvtest-csi-concurrent"
         K8sCsiPvcExpandCheck:
-          test_id: "K8S23-09"
+          test_id: "N/A"
           labels: ["kubernetes", "min_req"]
           storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
           initial_size: "1Gi"
