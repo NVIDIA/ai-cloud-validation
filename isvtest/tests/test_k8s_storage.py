@@ -2087,6 +2087,67 @@ class TestK8sCsiProvisioningModesCheck:
         assert not outcomes["dynamic"]["passed"]
         assert "canary write/read failed" in outcomes["dynamic"]["message"]
 
+    def test_dynamic_capacity_subtest_passes_when_pv_meets_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_env(monkeypatch)
+        check = self._make({"dynamic_storage_class": "gp3", "bind_timeout_s": 5, "namespace_prefix": "ut"})
+        # Default PV payload reports capacity 1Gi, exactly the requested size.
+        with (
+            patch.object(check, "run_command", side_effect=self._make_router()),
+            patch("isvtest.validations.k8s_storage.subprocess.run", return_value=_FakeProc(returncode=0)),
+            _patched_clock(),
+        ):
+            check.run()
+
+        assert check.passed, check._error
+        outcomes = {r["name"]: r for r in check._subtest_results}
+        assert outcomes["capacity"]["passed"]
+        assert "1Gi" in outcomes["capacity"]["message"]
+
+    def test_dynamic_pv_capacity_below_request_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_env(monkeypatch)
+        check = self._make({"dynamic_storage_class": "gp3", "bind_timeout_s": 5, "namespace_prefix": "ut"})
+        # PV provisions smaller than the 1Gi request: the capacity subtest must
+        # fail and sink the overall check, while bind + canary still pass.
+        small_pv = json.dumps({"spec": {"csi": {"driver": "ebs.csi.aws.com"}, "capacity": {"storage": "500Mi"}}})
+        with (
+            patch.object(check, "run_command", side_effect=self._make_router(pv_payload=small_pv)),
+            patch("isvtest.validations.k8s_storage.subprocess.run", return_value=_FakeProc(returncode=0)),
+            _patched_clock(),
+        ):
+            check.run()
+
+        assert not check.passed
+        outcomes = {r["name"]: r for r in check._subtest_results}
+        assert not outcomes["capacity"]["passed"]
+        assert "less than" in outcomes["capacity"]["message"]
+        # bind + read/write are independent of capacity and still succeed.
+        assert outcomes["dynamic"]["passed"]
+
+    def test_dynamic_pvc_size_config_drives_capacity_floor(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_env(monkeypatch)
+        check = self._make(
+            {
+                "dynamic_storage_class": "gp3",
+                "dynamic_pvc_size": "2Gi",
+                "bind_timeout_s": 5,
+                "namespace_prefix": "ut",
+            }
+        )
+        # PV satisfies the configured 2Gi request, so the capacity floor moves
+        # with the config rather than the hardcoded 1Gi default.
+        pv_2gi = json.dumps({"spec": {"csi": {"driver": "ebs.csi.aws.com"}, "capacity": {"storage": "2Gi"}}})
+        with (
+            patch.object(check, "run_command", side_effect=self._make_router(pv_payload=pv_2gi)),
+            patch("isvtest.validations.k8s_storage.subprocess.run", return_value=_FakeProc(returncode=0)),
+            _patched_clock(),
+        ):
+            check.run()
+
+        assert check.passed, check._error
+        outcomes = {r["name"]: r for r in check._subtest_results}
+        assert outcomes["capacity"]["passed"]
+        assert "requested '2Gi'" in outcomes["capacity"]["message"]
+
     def test_static_happy_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make(
