@@ -364,6 +364,38 @@ def test_resolve_entries_treats_variant_names_as_released() -> None:
     assert resolved.skip_reason is None, "variant of a released class must not be marked UNRELEASED"
 
 
+def test_resolve_entries_rejects_bare_variant_required_class() -> None:
+    """Reusable generic checks must be wired with a variant suffix."""
+    entry = _entry(
+        "FieldValueCheck",
+        params={"field": "success", "expected": True, "step_output": {"success": True}},
+    )
+
+    resolved = _resolve(entry, released_tests={"FieldValueCheck"})
+
+    assert resolved.state == State.ERROR
+    assert resolved.error_reason == ErrorReason.INVALID_CONFIG
+    assert "must use a variant name" in resolved.message
+
+
+def test_resolve_entries_accepts_variant_required_class_with_suffix() -> None:
+    """A variant suffix satisfies the bare-name guard for reusable checks."""
+    entry = _entry(
+        "FieldValueCheck-cp_api_health",
+        params={"field": "success", "expected": True},
+        step="check_api",
+    )
+
+    resolved = _resolve(
+        entry,
+        released_tests={"FieldValueCheck"},
+        step_phases={"check_api": "test"},
+        step_outputs={"check_api": {"success": True}},
+    )
+
+    assert resolved.is_ready
+
+
 def test_resolve_entries_warns_when_default_filter_masks_missing_step_field(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,

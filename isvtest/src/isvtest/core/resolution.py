@@ -28,6 +28,7 @@ from typing import Any
 from jinja2 import ChainableUndefined, Environment, Undefined
 
 from isvtest.config.loader import _ternary
+from isvtest.core.validation import validate_wiring_name
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +415,9 @@ def _validate_entry_shape(entry: ValidationEntry) -> str | None:
     invalid_message = entry.params_template.get("_invalid_config")
     if invalid_message:
         return str(invalid_message)
+    wiring_error = validate_wiring_name(entry.name)
+    if wiring_error:
+        return wiring_error
     return None
 
 

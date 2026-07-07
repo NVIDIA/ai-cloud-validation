@@ -408,7 +408,7 @@ EOF
                     "setup_checks": {
                         "step": "setup_cluster",
                         "checks": {
-                            "FieldExistsCheck": {
+                            "FieldExistsCheck-setup_checks": {
                                 "field": "missing_field",
                             }
                         },
@@ -503,7 +503,7 @@ EOF
                 validations={
                     "probe_checks": {
                         "step": "probe",
-                        "checks": {"StepSuccessCheck": {}},
+                        "checks": {"StepSuccessCheck-probe_checks": {}},
                     },
                 },
             ),
@@ -516,7 +516,7 @@ EOF
         validations = result.phases[0].details["validations"]
         assert validations == [
             {
-                "name": "StepSuccessCheck",
+                "name": "StepSuccessCheck-probe_checks",
                 "passed": True,
                 "skipped": True,
                 "message": "step 'probe' did not produce output",
@@ -545,7 +545,7 @@ EOF
                 validations={
                     "probe_checks": {
                         "checks": {
-                            "FieldExistsCheck": {
+                            "FieldExistsCheck-probe_checks": {
                                 "field": "{{ missing.value }}",
                             }
                         },
@@ -559,7 +559,7 @@ EOF
 
         assert not result.success
         validation = result.phases[0].details["validations"][0]
-        assert validation["name"] == "FieldExistsCheck"
+        assert validation["name"] == "FieldExistsCheck-probe_checks"
         assert validation["passed"] is False
         assert validation["skipped"] is False
         assert validation["state"] == "error"
@@ -585,11 +585,11 @@ EOF
                 validations={
                     "skip_checks": {
                         "step": "no_json",
-                        "checks": {"StepSuccessCheck": {}},
+                        "checks": {"StepSuccessCheck-skip_checks": {}},
                     },
                     "error_checks": {
                         "checks": {
-                            "FieldExistsCheck": {
+                            "FieldExistsCheck-error_checks": {
                                 "field": "{{ missing.value }}",
                             }
                         },
@@ -603,12 +603,12 @@ EOF
 
         root = ET.parse(junit_path).getroot()
         cases = {case.attrib["name"]: case for case in root.iter("testcase")}
-        assert "StepSuccessCheck" in cases
-        assert cases["StepSuccessCheck"].find("skipped") is not None
-        assert cases["StepSuccessCheck"].find("skipped").attrib["type"] == "step_no_output"
-        assert "FieldExistsCheck" in cases
-        assert cases["FieldExistsCheck"].find("error") is not None
-        assert cases["FieldExistsCheck"].find("error").attrib["type"] == "template_render_failed"
+        assert "StepSuccessCheck-skip_checks" in cases
+        assert cases["StepSuccessCheck-skip_checks"].find("skipped") is not None
+        assert cases["StepSuccessCheck-skip_checks"].find("skipped").attrib["type"] == "step_no_output"
+        assert "FieldExistsCheck-error_checks" in cases
+        assert cases["FieldExistsCheck-error_checks"].find("error") is not None
+        assert cases["FieldExistsCheck-error_checks"].find("error").attrib["type"] == "template_render_failed"
 
 
 class TestLabelFiltering:

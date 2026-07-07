@@ -34,6 +34,7 @@ class FieldExistsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check required fields exist in output"
+    variant_required: ClassVar[bool] = True
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -83,6 +84,7 @@ class FieldValueCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check field has expected value"
+    variant_required: ClassVar[bool] = True
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -207,6 +209,7 @@ class StepSuccessCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check step completed successfully"
+    variant_required: ClassVar[bool] = True
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
@@ -278,6 +281,7 @@ class CrudOperationsCheck(BaseValidation):
     """
 
     description: ClassVar[str] = "Check all CRUD operations passed"
+    variant_required: ClassVar[bool] = True
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})

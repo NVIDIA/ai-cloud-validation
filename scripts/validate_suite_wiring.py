@@ -34,15 +34,18 @@ validation metadata on this branch. This validator enforces:
   skip the check under every column). Labels are otherwise free-form: they
   originate in the wiring YAML itself, so there is no external allowlist to
   validate them against.
-* name uniqueness - a wiring name may appear only once across all suite files.
-  The catalog, results matching, and the capability x module matrix are keyed
-  by name, so a generic check class wired more than once must use a distinct
-  variant name per wiring (``StepSuccessCheck-iam_teardown``); reusing a bare
-  class name across wirings unions unrelated labels/test_ids onto one entry.
+* name uniqueness - a wiring name may appear only once within each suite file
+  and within each provider config file. Suite files are also checked against each
+  other. Reusing a name in the same file (or across suite files) unions unrelated
+  labels/test_ids onto one catalog entry. Generic checks must use a distinct
+  variant name per wiring (``StepSuccessCheck-iam_teardown``).
+* variant names - reusable generic checks (``FieldValueCheck``, ``StepSuccessCheck``,
+  ...) declare ``variant_required`` and must be wired with a variant suffix, not
+  the bare class name.
 
-Provider configs under ``isvctl/configs/providers/`` are scanned for the label
-governance rules only (they inherit ``kind``/``test_id`` from the suites they
-import).
+Provider configs under ``isvctl/configs/providers/`` inherit suite ``test_id`` /
+``labels`` via ``import:`` where applicable; they are still scanned for
+within-file name uniqueness, variant-name rules, and label governance.
 
 Usage:
     python3 scripts/validate_suite_wiring.py
@@ -61,6 +64,7 @@ from typing import Any
 
 import yaml
 from isvtest.catalog import build_axis_taxonomy
+from isvtest.core.validation import validate_wiring_name
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
@@ -221,14 +225,31 @@ def _relative(path: Path) -> Path | str:
         return path
 
 
+def _duplicate_names_within_config(data: Any) -> list[str]:
+    """Return wiring names that appear more than once in one config."""
+    counts: dict[str, int] = defaultdict(int)
+    for _category, name, _params in _iter_checks(data):
+        counts[name] += 1
+    return sorted(name for name, count in counts.items() if count > 1)
+
+
+def _duplicate_name_error(name: str, files: list[str], *, scope: str) -> str:
+    """Return the wiring-name uniqueness error for one duplicated name."""
+    return (
+        f"{scope} wiring name {name!r} appears {len(files)} times "
+        f"({', '.join(sorted(set(files)))}); "
+        f"give each wiring a unique variant name like {name.split('-')[0]}-<suite>_<category>"
+    )
+
+
 def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = None) -> list[str]:
     """Return human-readable errors for incomplete/ungoverned suite check wiring.
 
     Validates suite files under ``suites_dir`` (kind, test_id, labels, suite
-    label, and label governance) and then applies the label governance rules to
-    provider configs under ``providers_dir`` (defaults to the ``providers``
-    directory beside ``suites_dir``), which inherit kind/test_id via ``import:``.
-    The platform/module label axes are derived from ``suites_dir``.
+    label, and label governance) and provider configs under ``providers_dir``
+    (defaults to the ``providers`` directory beside ``suites_dir``) for name
+    uniqueness, variant-name rules, and label governance. The platform/module
+    label axes are derived from ``suites_dir``.
     """
     if providers_dir is None:
         providers_dir = suites_dir.parent / "providers"
@@ -236,18 +257,28 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
     platform_labels, _module_labels = derive_axis_labels(suites_dir)
 
     errors: list[str] = []
-    # wiring name -> suite files that wire it (names must be globally unique)
-    name_files: dict[str, list[str]] = defaultdict(list)
+    suite_name_files: dict[str, list[str]] = defaultdict(list)
 
-    def _located_checks(path: Path, lines: list[str], data: Any) -> Iterator[tuple[str, dict[str, Any]]]:
-        """Yield ``(location, params)`` for each wired check, with line attribution."""
+    def _record_suite_names(path: Path, data: Any) -> None:
+        """Track suite wiring names for cross-suite uniqueness."""
+        for _category, name, _params in _iter_checks(data):
+            suite_name_files[name].append(str(_relative(path)))
+
+    def _check_variant_required(location: str, name: str) -> None:
+        """Append an error when a reusable class is wired under its bare name."""
+        wiring_error = validate_wiring_name(name)
+        if wiring_error:
+            errors.append(f"{location}: {wiring_error}")
+
+    def _located_checks(path: Path, lines: list[str], data: Any) -> Iterator[tuple[str, str, dict[str, Any]]]:
+        """Yield ``(location, name, params)`` for each wired check, with line attribution."""
         occurrence: dict[tuple[str, str], int] = defaultdict(int)
         for category, name, params in _iter_checks(data):
             key = (category, name)
             line_numbers = find_check_line_numbers(lines, category, name)
             line_number = line_numbers[occurrence[key]] if occurrence[key] < len(line_numbers) else None
             occurrence[key] += 1
-            yield _format_location(path, category, name, line_number), params
+            yield _format_location(path, category, name, line_number), name, params
 
     for path in sorted(suites_dir.glob("*.yaml")):
         try:
@@ -265,9 +296,9 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
             errors.append(f"{_relative(path)}: missing axis key (declare tests.platform or tests.module)")
 
         required_label = required_suite_label(platform, module)
-        for _category, name, _params in _iter_checks(data):
-            name_files[name].append(str(_relative(path)))
-        for location, params in _located_checks(path, lines, data):
+        _record_suite_names(path, data)
+        for location, name, params in _located_checks(path, lines, data):
+            _check_variant_required(location, name)
             test_id = _normalize_test_id(params.get("test_id"))
             labels = _normalize_labels(params.get("labels"))
             if test_id is None:
@@ -280,24 +311,27 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
             if governance_error:
                 errors.append(governance_error)
 
-    for name, files in sorted(name_files.items()):
-        if len(files) > 1:
-            errors.append(
-                f"wiring name {name!r} appears {len(files)} times ({', '.join(sorted(set(files)))}); "
-                f"give each wiring a unique variant name like {name.split('-')[0]}-<suite>_<category>"
-            )
-
     for path in _iter_provider_configs(providers_dir):
         try:
             lines, data = _load_config(path)
         except ValueError as exc:
             errors.append(str(exc))
             continue
-        for location, params in _located_checks(path, lines, data):
+        for duplicate_name in _duplicate_names_within_config(data):
+            errors.append(
+                f"{_relative(path)}: provider wiring name {duplicate_name!r} appears more than once; "
+                f"give each wiring a unique variant name like {duplicate_name.split('-')[0]}-<category>"
+            )
+        for location, name, params in _located_checks(path, lines, data):
+            _check_variant_required(location, name)
             labels = _normalize_labels(params.get("labels"))
             governance_error = _multiple_platform_labels_error(location, labels, platform_labels)
             if governance_error:
                 errors.append(governance_error)
+
+    for name, files in sorted(suite_name_files.items()):
+        if len(files) > 1:
+            errors.append(_duplicate_name_error(name, files, scope="suite"))
 
     return errors
 

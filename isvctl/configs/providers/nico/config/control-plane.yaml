@@ -61,7 +61,7 @@ tests:
         FieldExistsCheck-cp_api_health:
           test_id: "N/A"
           fields: ["account_id", "tests"]
-        FieldValueCheck:
+        FieldValueCheck-nico_api_health:
           test_id: "CP03-01"
           field: "success"
           expected: true

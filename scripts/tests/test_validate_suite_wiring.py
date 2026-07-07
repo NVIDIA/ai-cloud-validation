@@ -231,3 +231,53 @@ def test_repo_suites_declare_test_id_and_labels() -> None:
     """Guardrail: every check in isvctl/configs/suites declares wiring metadata."""
     errors = validate_suite_wiring.wiring_errors()
     assert not errors, "suite wiring validation failed:\n  " + "\n  ".join(errors)
+
+
+def test_wiring_errors_flags_duplicate_names_within_provider_config(tmp_path: Path) -> None:
+    """Provider wiring names must be unique within each provider config file."""
+    suites_dir = tmp_path / "suites"
+    suites_dir.mkdir()
+    provider_config = tmp_path / "providers" / "acme" / "config" / "network.yaml"
+    provider_config.parent.mkdir(parents=True)
+    provider_config.write_text(
+        """\
+tests:
+  validations:
+    network_connectivity:
+      checks:
+        FieldValueCheck:
+          test_id: "N/A"
+          field: "tests.network_assigned.passed"
+          expected: true
+    traffic_validation:
+      checks:
+        FieldValueCheck:
+          test_id: "N/A"
+          field: "tests.network_setup.passed"
+          expected: true
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(suites_dir, tmp_path / "providers")
+    assert any("network.yaml" in err and "FieldValueCheck" in err and "appears more than once" in err for err in errors)
+    assert any("must use a variant name" in err for err in errors)
+
+
+def test_wiring_errors_flags_bare_variant_required_class(tmp_path: Path) -> None:
+    """Reusable generic checks must be wired with a variant suffix."""
+    suite = tmp_path / "demo.yaml"
+    suite.write_text(
+        """\
+tests:
+  module: control_plane
+  validations:
+    api_health:
+      checks:
+        FieldValueCheck:
+          test_id: "N/A"
+          labels: ["control_plane"]
+          field: "success"
+          expected: true
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("FieldValueCheck" in err and "must use a variant name" in err for err in errors)

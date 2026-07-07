@@ -65,7 +65,7 @@ tests:
         # authenticated-endpoint half - a successful authenticated check_api
         # response. The data-path half is the CrudOperationsCheck in the
         # "s3_object_lifecycle" section, which declares the same test_id.
-        FieldValueCheck:
+        FieldValueCheck-cp_api_health:
           test_id: "DATASVC01-01"
           labels: ["control_plane", "min_req"]
           field: "success"
