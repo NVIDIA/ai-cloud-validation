@@ -324,6 +324,7 @@ class TelemetryDeliveryLatencyCheck(BaseValidation):
 class _NetworkTelemetryCheck(BaseValidation):
     """Shared validation logic for network-plane telemetry checks."""
 
+    catalog_exclude: ClassVar[bool] = True
     _required_tests: ClassVar[list[str]] = [
         "telemetry_endpoint_reachable",
         "plane_metrics_present",
@@ -359,6 +360,7 @@ class _NetworkTelemetryCheck(BaseValidation):
 class NorthSouthNetworkTelemetryCheck(_NetworkTelemetryCheck):
     """Validate North-South (front-end) network telemetry is available."""
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check North-South network telemetry is available"
     _plane_label: ClassVar[str] = "North-South network telemetry"
 
@@ -366,6 +368,7 @@ class NorthSouthNetworkTelemetryCheck(_NetworkTelemetryCheck):
 class EastWestNetworkTelemetryCheck(_NetworkTelemetryCheck):
     """Validate East-West (GPU interconnect) network telemetry is available."""
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check East-West network telemetry is available"
     _plane_label: ClassVar[str] = "East-West network telemetry"
 
@@ -373,6 +376,7 @@ class EastWestNetworkTelemetryCheck(_NetworkTelemetryCheck):
 class ManagementNetworkTelemetryCheck(_NetworkTelemetryCheck):
     """Validate management network telemetry is available."""
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check management network telemetry is available"
     _plane_label: ClassVar[str] = "Management network telemetry"
 
@@ -380,6 +384,7 @@ class ManagementNetworkTelemetryCheck(_NetworkTelemetryCheck):
 class NvswitchFabricTelemetryCheck(_NetworkTelemetryCheck):
     """Validate NVSwitch fabric telemetry is available."""
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check NVSwitch fabric telemetry is available"
     _plane_label: ClassVar[str] = "NVSwitch fabric telemetry"
 
@@ -430,6 +435,7 @@ class HostNicNetworkTelemetryCheck(BaseValidation):
 class _FabricLogCheck(BaseValidation):
     """Shared validation logic for fabric-manager style log checks."""
 
+    catalog_exclude: ClassVar[bool] = True
     _required_tests: ClassVar[list[str]] = [
         "log_endpoint_reachable",
         "log_source_present",
@@ -461,6 +467,7 @@ class _FabricLogCheck(BaseValidation):
 class FabricManagerLogsCheck(_FabricLogCheck):
     """Validate Fabric Manager logs are queryable where applicable."""
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check Fabric Manager logs are available"
     _log_label: ClassVar[str] = "Fabric Manager logs"
 
@@ -468,6 +475,7 @@ class FabricManagerLogsCheck(_FabricLogCheck):
 class SubnetManagerLogsCheck(_FabricLogCheck):
     """Validate Subnet Manager logs are queryable where applicable."""
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check Subnet Manager logs are available"
     _log_label: ClassVar[str] = "Subnet Manager logs"
 
