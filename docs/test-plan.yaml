@@ -3432,51 +3432,58 @@ domains:
               - summary: Verify UFM Event logs are available
                 labels:
                   - min_req
+                  - observability
                 priority: P1
-                milestone: M5
+                milestone: M7
                 notes: ""
                 github_issues:
                   - "#350"
                 req_id: OBS13
                 test_id: OBS13-01
                 legacy_ids: [OBS-XX-13]
-                status: pending
+                status: done
               - summary: Verify general switch logs are available
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
-                milestone: M5
+                milestone: M7
                 notes: ""
                 github_issues:
                   - "#351"
                 req_id: OBS14
                 test_id: OBS14-01
                 legacy_ids: [OBS-XX-14]
-                status: pending
+                status: done
               - summary: Verify switch syslogs are available
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
-                milestone: M5
+                milestone: M7
                 notes: ""
                 github_issues:
                   - "#352"
                 req_id: OBS15
                 test_id: OBS15-01
                 legacy_ids: [OBS-XX-15]
-                status: pending
+                status: done
               - summary: Verify switch kernel logs are available
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
-                milestone: M5
+                milestone: M7
                 notes: ""
                 github_issues:
                   - "#353"
                 req_id: OBS16
                 test_id: OBS16-01
                 legacy_ids: [OBS-XX-16]
-                status: pending
+                status: done
               - summary: Verify BMC SEL logs are available
                 labels:
                   - min_req

@@ -273,3 +273,171 @@ class BmcGpuTelemetryCheck(BaseValidation):
             f"via {probes['telemetry_endpoint']} ({len(metric_names)} metrics, "
             f"{probes['sample_count']} samples, {len(unavailable_metrics)} host-OS gap metrics)"
         )
+
+
+class UfmEventLogsCheck(BaseValidation):
+    """Validate UFM Event logs are queryable.
+
+    Config:
+        step_output: The ufm_event_logs step output to check
+
+    Step output:
+        tests: dict with event_log_endpoint_reachable, event_log_source_present,
+               event_entries_queryable
+        For provider-hidden fabric planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.log_endpoints_checked: Positive integer count of
+            log endpoints inspected
+        tests.<check>.probes.log_source: Non-empty UFM event log source identifier
+        tests.<check>.probes.entry_count: Non-negative integer count of event entries
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
+    """
+
+    description: ClassVar[str] = "Check UFM Event logs are available"
+
+    def run(self) -> None:
+        """Validate UFM event log results and evidence."""
+        required = ["event_log_endpoint_reachable", "event_log_source_present", "event_entries_queryable"]
+        if not check_required_tests(self, required, "UFM Event log tests failed"):
+            return
+        if message := _provider_hidden_message(self, required, "UFM Event logs"):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["log_source", "latest_timestamp"], "UFM Event log"):
+            return
+        if not _require_positive_int(self, probes, "log_endpoints_checked", "UFM Event log"):
+            return
+        if not _require_non_negative_int(self, probes, "entry_count", "UFM Event log"):
+            return
+
+        self.set_passed(
+            f"UFM Event logs queryable from {probes['log_endpoints_checked']} endpoint(s) "
+            f"via {probes['log_source']} ({probes['entry_count']} entries)"
+        )
+
+
+class GeneralSwitchLogsCheck(BaseValidation):
+    """Validate general switch logs are available.
+
+    Config:
+        step_output: The general_switch_logs step output to check
+
+    Step output:
+        tests: dict with log_endpoint_reachable, switch_log_source_present,
+               entries_queryable
+        For provider-hidden switch planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.switches_checked: Positive integer count of switches
+            inspected
+        tests.<check>.probes.log_source: Non-empty switch log source identifier
+        tests.<check>.probes.entry_count: Non-negative integer count of log entries
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
+    """
+
+    description: ClassVar[str] = "Check general switch logs are available"
+
+    def run(self) -> None:
+        """Validate general switch log results and evidence."""
+        required = ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"]
+        if not check_required_tests(self, required, "General switch log tests failed"):
+            return
+        if message := _provider_hidden_message(self, required, "General switch logs"):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["log_source", "latest_timestamp"], "general switch log"):
+            return
+        if not _require_positive_int(self, probes, "switches_checked", "general switch log"):
+            return
+        if not _require_non_negative_int(self, probes, "entry_count", "general switch log"):
+            return
+
+        self.set_passed(
+            f"General switch logs available from {probes['switches_checked']} switch(es) "
+            f"via {probes['log_source']} ({probes['entry_count']} entries)"
+        )
+
+
+class SwitchSyslogCheck(BaseValidation):
+    """Validate switch syslogs are available.
+
+    Config:
+        step_output: The switch_syslogs step output to check
+
+    Step output:
+        tests: dict with syslog_endpoint_reachable, switch_syslog_source_present,
+               entries_recent
+        For provider-hidden switch planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.switches_checked: Positive integer count of switches
+            inspected
+        tests.<check>.probes.log_source: Non-empty switch syslog source identifier
+        tests.<check>.probes.entry_count: Positive integer count of recent syslog entries
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
+    """
+
+    description: ClassVar[str] = "Check switch syslogs are available"
+
+    def run(self) -> None:
+        """Validate switch syslog results and evidence."""
+        required = ["syslog_endpoint_reachable", "switch_syslog_source_present", "entries_recent"]
+        if not check_required_tests(self, required, "Switch syslog tests failed"):
+            return
+        if message := _provider_hidden_message(self, required, "Switch syslogs"):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["log_source", "latest_timestamp"], "switch syslog"):
+            return
+        if not _require_positive_int(self, probes, "switches_checked", "switch syslog"):
+            return
+        if not _require_positive_int(self, probes, "entry_count", "switch syslog"):
+            return
+
+        self.set_passed(
+            f"Switch syslogs available from {probes['switches_checked']} switch(es) "
+            f"via {probes['log_source']} ({probes['entry_count']} recent entries)"
+        )
+
+
+class SwitchKernelLogsCheck(BaseValidation):
+    """Validate switch kernel logs are available.
+
+    Config:
+        step_output: The switch_kernel_logs step output to check
+
+    Step output:
+        tests: dict with log_endpoint_reachable, kernel_log_source_present,
+               entries_queryable
+        For provider-hidden switch planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.switches_checked: Positive integer count of switches
+            inspected
+        tests.<check>.probes.log_source: Non-empty switch kernel log source identifier
+        tests.<check>.probes.entry_count: Non-negative integer count of kernel log entries
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
+    """
+
+    description: ClassVar[str] = "Check switch kernel logs are available"
+
+    def run(self) -> None:
+        """Validate switch kernel log results and evidence."""
+        required = ["log_endpoint_reachable", "kernel_log_source_present", "entries_queryable"]
+        if not check_required_tests(self, required, "Switch kernel log tests failed"):
+            return
+        if message := _provider_hidden_message(self, required, "Switch kernel logs"):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["log_source", "latest_timestamp"], "switch kernel log"):
+            return
+        if not _require_positive_int(self, probes, "switches_checked", "switch kernel log"):
+            return
+        if not _require_non_negative_int(self, probes, "entry_count", "switch kernel log"):
+            return
+
+        self.set_passed(
+            f"Switch kernel logs available from {probes['switches_checked']} switch(es) "
+            f"via {probes['log_source']} ({probes['entry_count']} entries)"
+        )

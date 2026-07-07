@@ -45,12 +45,35 @@ ASPECT_TESTS: dict[str, list[str]] = {
         "host_os_gap_identified",
         "telemetry_samples_recent",
     ],
+    "ufm_event_logs": [
+        "event_log_endpoint_reachable",
+        "event_log_source_present",
+        "event_entries_queryable",
+    ],
+    "general_switch_logs": [
+        "log_endpoint_reachable",
+        "switch_log_source_present",
+        "entries_queryable",
+    ],
+    "switch_syslogs": [
+        "syslog_endpoint_reachable",
+        "switch_syslog_source_present",
+        "entries_recent",
+    ],
+    "switch_kernel_logs": [
+        "log_endpoint_reachable",
+        "kernel_log_source_present",
+        "entries_queryable",
+    ],
 }
 
 JOURNALCTL_ISO_TS = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+\-]\d{4})")
 DMESG_ISO_TS = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:,\d+)?(?:[+\-]\d{2}:?\d{2}|Z)?)")
 AWS_NO_CUSTOMER_BMC_MESSAGE = (
     "AWS EC2/EKS tenants do not receive customer-accessible BMC SEL logs or Redfish GPU telemetry"
+)
+AWS_NO_CUSTOMER_FABRIC_MESSAGE = (
+    "AWS EC2/EKS tenants do not receive customer-accessible UFM event logs or switch fabric logs"
 )
 
 
@@ -77,6 +100,23 @@ def _provider_hidden(test_name: str, *, region: str) -> dict[str, Any]:
         "provider_hidden": True,
         "probes": {"bmc_endpoints_checked": 0},
         "message": (f"{test_name}: {AWS_NO_CUSTOMER_BMC_MESSAGE} in region {region}; BMC plane is provider-owned."),
+    }
+
+
+def _fabric_provider_hidden(
+    test_name: str,
+    *,
+    region: str,
+    probe_field: str,
+) -> dict[str, Any]:
+    """Build a passing provider-hidden subtest result for AWS fabric observability."""
+    return {
+        "passed": True,
+        "provider_hidden": True,
+        "probes": {probe_field: 0},
+        "message": (
+            f"{test_name}: {AWS_NO_CUSTOMER_FABRIC_MESSAGE} in region {region}; fabric plane is provider-owned."
+        ),
     }
 
 
@@ -319,6 +359,50 @@ def check_bmc_gpu_telemetry(*, region: str) -> dict[str, Any]:
     return result
 
 
+def check_ufm_event_logs(*, region: str) -> dict[str, Any]:
+    """Emit AWS provider-hidden evidence for customer-inaccessible UFM event logs."""
+    result = _base_result("ufm_event_logs")
+    result["success"] = True
+    result["tests"] = {
+        name: _fabric_provider_hidden(name, region=region, probe_field="log_endpoints_checked")
+        for name in ASPECT_TESTS["ufm_event_logs"]
+    }
+    return result
+
+
+def check_general_switch_logs(*, region: str) -> dict[str, Any]:
+    """Emit AWS provider-hidden evidence for customer-inaccessible switch logs."""
+    result = _base_result("general_switch_logs")
+    result["success"] = True
+    result["tests"] = {
+        name: _fabric_provider_hidden(name, region=region, probe_field="switches_checked")
+        for name in ASPECT_TESTS["general_switch_logs"]
+    }
+    return result
+
+
+def check_switch_syslogs(*, region: str) -> dict[str, Any]:
+    """Emit AWS provider-hidden evidence for customer-inaccessible switch syslogs."""
+    result = _base_result("switch_syslogs")
+    result["success"] = True
+    result["tests"] = {
+        name: _fabric_provider_hidden(name, region=region, probe_field="switches_checked")
+        for name in ASPECT_TESTS["switch_syslogs"]
+    }
+    return result
+
+
+def check_switch_kernel_logs(*, region: str) -> dict[str, Any]:
+    """Emit AWS provider-hidden evidence for customer-inaccessible switch kernel logs."""
+    result = _base_result("switch_kernel_logs")
+    result["success"] = True
+    result["tests"] = {
+        name: _fabric_provider_hidden(name, region=region, probe_field="switches_checked")
+        for name in ASPECT_TESTS["switch_kernel_logs"]
+    }
+    return result
+
+
 @handle_aws_errors
 def main() -> int:
     """Run the selected AWS observability probe and emit structured JSON."""
@@ -363,8 +447,18 @@ def main() -> int:
         )
     elif args.aspect == "bmc_sel_logs":
         result = check_bmc_sel_logs(region=args.region)
-    else:
+    elif args.aspect == "bmc_gpu_telemetry":
         result = check_bmc_gpu_telemetry(region=args.region)
+    elif args.aspect == "ufm_event_logs":
+        result = check_ufm_event_logs(region=args.region)
+    elif args.aspect == "general_switch_logs":
+        result = check_general_switch_logs(region=args.region)
+    elif args.aspect == "switch_syslogs":
+        result = check_switch_syslogs(region=args.region)
+    elif args.aspect == "switch_kernel_logs":
+        result = check_switch_kernel_logs(region=args.region)
+    else:
+        raise ValueError(f"unsupported aspect: {args.aspect}")
 
     print(json.dumps(result, indent=2, default=str))
     return 0 if result["success"] else 1

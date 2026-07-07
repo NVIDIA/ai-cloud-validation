@@ -24,6 +24,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import pytest
 from botocore.exceptions import ClientError
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[3]
@@ -640,6 +641,51 @@ def test_bmc_gpu_telemetry_aspect_emits_provider_hidden_contract() -> None:
         assert subtest["passed"] is True
         assert subtest["provider_hidden"] is True
         assert subtest["probes"]["bmc_endpoints_checked"] == 0
+        assert "provider-owned" in subtest["message"]
+
+
+def test_ufm_event_logs_aspect_emits_provider_hidden_contract() -> None:
+    """AWS UFM event logs report provider-hidden evidence instead of being excluded."""
+    script = _load_script("log_availability_test.py")
+
+    result = script.check_ufm_event_logs(region="us-west-2")
+
+    assert result["success"] is True
+    assert result["platform"] == "observability"
+    assert result["test_name"] == "ufm_event_logs"
+    assert set(result["tests"]) == {
+        "event_log_endpoint_reachable",
+        "event_log_source_present",
+        "event_entries_queryable",
+    }
+    for subtest in result["tests"].values():
+        assert subtest["passed"] is True
+        assert subtest["provider_hidden"] is True
+        assert subtest["probes"]["log_endpoints_checked"] == 0
+        assert "provider-owned" in subtest["message"]
+
+
+@pytest.mark.parametrize(
+    ("aspect", "checker"),
+    [
+        ("general_switch_logs", "check_general_switch_logs"),
+        ("switch_syslogs", "check_switch_syslogs"),
+        ("switch_kernel_logs", "check_switch_kernel_logs"),
+    ],
+)
+def test_switch_log_aspects_emit_provider_hidden_contract(aspect: str, checker: str) -> None:
+    """AWS switch log aspects report provider-hidden evidence."""
+    script = _load_script("log_availability_test.py")
+
+    result = getattr(script, checker)(region="us-west-2")
+
+    assert result["success"] is True
+    assert result["platform"] == "observability"
+    assert result["test_name"] == aspect
+    for subtest in result["tests"].values():
+        assert subtest["passed"] is True
+        assert subtest["provider_hidden"] is True
+        assert subtest["probes"]["switches_checked"] == 0
         assert "provider-owned" in subtest["message"]
 
 

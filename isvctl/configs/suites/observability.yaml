@@ -58,5 +58,27 @@ tests:
           labels: ["gpu", "min_req", "observability", "security"]
           step: bmc_gpu_telemetry
 
+    fabric_logs:
+      checks:
+        UfmEventLogsCheck:
+          test_id: "OBS13-01"
+          labels: ["min_req", "observability"]
+          step: ufm_event_logs
+
+    switch_logs:
+      checks:
+        GeneralSwitchLogsCheck:
+          test_id: "OBS14-01"
+          labels: ["min_req", "network", "observability"]
+          step: general_switch_logs
+        SwitchSyslogCheck:
+          test_id: "OBS15-01"
+          labels: ["min_req", "network", "observability"]
+          step: switch_syslogs
+        SwitchKernelLogsCheck:
+          test_id: "OBS16-01"
+          labels: ["min_req", "network", "observability"]
+          step: switch_kernel_logs
+
   exclude:
     labels: []

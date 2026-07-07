@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NICo Observability Validation Configuration
+#
+# Imports validations from the provider-agnostic observability canonical config.
+# UFM event logs are probed via the UFM REST API when UFM_ADDRESS and credentials
+# are configured. Switch syslog/kernel logs are provider-operated and emit
+# provider-hidden evidence.
+
+import:
+  - ../../../suites/observability.yaml
+
+version: "1.0"
+
+commands:
+  observability:
+    phases: ["test"]
+    steps:
+      - name: ufm_event_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--aspect"
+          - "ufm_event_logs"
+        timeout: 120
+
+      - name: general_switch_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--aspect"
+          - "general_switch_logs"
+        timeout: 60
+
+      - name: switch_syslogs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--aspect"
+          - "switch_syslogs"
+        timeout: 60
+
+      - name: switch_kernel_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--aspect"
+          - "switch_kernel_logs"
+        timeout: 60
+
+tests:
+  platform: observability
+  cluster_name: "nico-observability-validation"
+  description: "NICo observability validation for UFM event logs and switch log evidence"
+
+  settings:
+    region: ""

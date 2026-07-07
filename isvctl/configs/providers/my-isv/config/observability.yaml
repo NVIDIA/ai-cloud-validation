@@ -70,6 +70,46 @@ commands:
           - "bmc_gpu_telemetry"
         timeout: 60
 
+      - name: ufm_event_logs
+        phase: test
+        command: "python ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "ufm_event_logs"
+        timeout: 60
+
+      - name: general_switch_logs
+        phase: test
+        command: "python ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "general_switch_logs"
+        timeout: 60
+
+      - name: switch_syslogs
+        phase: test
+        command: "python ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "switch_syslogs"
+        timeout: 60
+
+      - name: switch_kernel_logs
+        phase: test
+        command: "python ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "switch_kernel_logs"
+        timeout: 60
+
 tests:
   platform: observability
   cluster_name: "my-isv-observability-validation"

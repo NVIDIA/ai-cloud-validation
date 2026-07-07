@@ -1972,6 +1972,53 @@ def test_ufm_get_sm_config(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen["authorization"] == "Basic ufm-token"
 
 
+def test_ufm_get_event_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_event_history fetches paginated UFM event logs."""
+    module = _load_ufm_client()
+    events = [{"timestamp": "2026-05-20T13:19:00Z", "message": "link up"}]
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(request, timeout: int = 30, context: Any = None):
+        seen["url"] = request.full_url
+        return _Response({"content": events})
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    result = module.get_event_history(auth, page_number=1, rpp=10)
+
+    assert result == events
+    assert seen["url"] == "https://ufm.example:443/ufmRestV3/app/logs/history_events?page_number=1&rpp=10"
+
+
+def test_ufm_get_log_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_log_text fetches raw UFM log text for a log type."""
+    module = _load_ufm_client()
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(request, timeout: int = 30, context: Any = None):
+        seen["url"] = request.full_url
+        return _Response({"content": "2026-05-20 event log line"})
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    result = module.get_log_text(auth, "Event", length=50)
+
+    assert result == "2026-05-20 event log line"
+    assert seen["url"] == "https://ufm.example:443/ufmRestV3/app/logs/Event?length=50"
+
+
 # ---------------------------------------------------------------------------
 # query_ib_tenant_isolation (SDN04-04) script
 # ---------------------------------------------------------------------------

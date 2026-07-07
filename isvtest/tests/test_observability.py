@@ -24,7 +24,11 @@ import pytest
 from isvtest.validations.observability import (
     BmcGpuTelemetryCheck,
     BmcSelLogsCheck,
+    GeneralSwitchLogsCheck,
     HostSyslogCheck,
+    SwitchKernelLogsCheck,
+    SwitchSyslogCheck,
+    UfmEventLogsCheck,
     VpcFlowLogsCheck,
 )
 
@@ -179,6 +183,133 @@ def _bmc_gpu_telemetry_provider_hidden_output() -> dict[str, Any]:
     }
 
 
+def _ufm_event_logs_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing UFM event log step output."""
+    probes: dict[str, Any] = {
+        "log_endpoints_checked": 1,
+        "log_source": "ufm-event-history",
+        "entry_count": 5,
+        "latest_timestamp": "2026-05-20T13:19:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "observability",
+        "test_name": "ufm_event_logs",
+        "tests": _tests(
+            ["event_log_endpoint_reachable", "event_log_source_present", "event_entries_queryable"],
+            probes,
+        ),
+    }
+    output.update(overrides)
+    return output
+
+
+def _general_switch_logs_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing general switch log step output."""
+    probes: dict[str, Any] = {
+        "switches_checked": 2,
+        "log_source": "switch-operational-log",
+        "entry_count": 8,
+        "latest_timestamp": "2026-05-20T13:18:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "observability",
+        "test_name": "general_switch_logs",
+        "tests": _tests(
+            ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"],
+            probes,
+        ),
+    }
+    output.update(overrides)
+    return output
+
+
+def _switch_syslog_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing switch syslog step output."""
+    probes: dict[str, Any] = {
+        "switches_checked": 2,
+        "log_source": "switch-syslog",
+        "entry_count": 10,
+        "latest_timestamp": "2026-05-20T13:17:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "observability",
+        "test_name": "switch_syslogs",
+        "tests": _tests(
+            ["syslog_endpoint_reachable", "switch_syslog_source_present", "entries_recent"],
+            probes,
+        ),
+    }
+    output.update(overrides)
+    return output
+
+
+def _switch_kernel_logs_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing switch kernel log step output."""
+    probes: dict[str, Any] = {
+        "switches_checked": 2,
+        "log_source": "switch-kernel-log",
+        "entry_count": 3,
+        "latest_timestamp": "2026-05-20T13:16:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "observability",
+        "test_name": "switch_kernel_logs",
+        "tests": _tests(
+            ["log_endpoint_reachable", "kernel_log_source_present", "entries_queryable"],
+            probes,
+        ),
+    }
+    output.update(overrides)
+    return output
+
+
+def _fabric_provider_hidden_tests(names: list[str]) -> dict[str, dict[str, Any]]:
+    """Build a passing tests map for provider-hidden fabric evidence."""
+    return {
+        name: {
+            "passed": True,
+            "provider_hidden": True,
+            "probes": {"switches_checked": 0},
+            "message": "Fabric plane is provider-owned",
+        }
+        for name in names
+    }
+
+
+def _ufm_event_logs_provider_hidden_output() -> dict[str, Any]:
+    """Build provider-hidden UFM event log step output."""
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "ufm_event_logs",
+        "tests": {
+            name: {
+                "passed": True,
+                "provider_hidden": True,
+                "probes": {"log_endpoints_checked": 0},
+                "message": "UFM plane is provider-owned",
+            }
+            for name in [
+                "event_log_endpoint_reachable",
+                "event_log_source_present",
+                "event_entries_queryable",
+            ]
+        },
+    }
+
+
 @pytest.mark.parametrize(
     ("validation_cls", "step_output", "expected"),
     [
@@ -186,10 +317,23 @@ def _bmc_gpu_telemetry_provider_hidden_output() -> dict[str, Any]:
         (HostSyslogCheck, _host_syslog_output(), "Host syslogs available"),
         (BmcSelLogsCheck, _bmc_sel_output(), "BMC SEL logs queryable"),
         (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_output(), "BMC GPU telemetry available"),
+        (UfmEventLogsCheck, _ufm_event_logs_output(), "UFM Event logs queryable"),
+        (GeneralSwitchLogsCheck, _general_switch_logs_output(), "General switch logs available"),
+        (SwitchSyslogCheck, _switch_syslog_output(), "Switch syslogs available"),
+        (SwitchKernelLogsCheck, _switch_kernel_logs_output(), "Switch kernel logs available"),
     ],
 )
 def test_observability_checks_pass_with_required_evidence(
-    validation_cls: type[VpcFlowLogsCheck | HostSyslogCheck | BmcSelLogsCheck | BmcGpuTelemetryCheck],
+    validation_cls: type[
+        VpcFlowLogsCheck
+        | HostSyslogCheck
+        | BmcSelLogsCheck
+        | BmcGpuTelemetryCheck
+        | UfmEventLogsCheck
+        | GeneralSwitchLogsCheck
+        | SwitchSyslogCheck
+        | SwitchKernelLogsCheck
+    ],
     step_output: dict[str, Any],
     expected: str,
 ) -> None:
@@ -205,10 +349,23 @@ def test_observability_checks_pass_with_required_evidence(
     [
         (BmcSelLogsCheck, _bmc_sel_provider_hidden_output(), "provider-hidden"),
         (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_provider_hidden_output(), "provider-hidden"),
+        (UfmEventLogsCheck, _ufm_event_logs_provider_hidden_output(), "provider-hidden"),
+        (
+            GeneralSwitchLogsCheck,
+            {
+                "success": True,
+                "platform": "observability",
+                "test_name": "general_switch_logs",
+                "tests": _fabric_provider_hidden_tests(
+                    ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"]
+                ),
+            },
+            "provider-hidden",
+        ),
     ],
 )
 def test_bmc_observability_checks_pass_with_provider_hidden_evidence(
-    validation_cls: type[BmcSelLogsCheck | BmcGpuTelemetryCheck],
+    validation_cls: type[BmcSelLogsCheck | BmcGpuTelemetryCheck | UfmEventLogsCheck | GeneralSwitchLogsCheck],
     step_output: dict[str, Any],
     expected: str,
 ) -> None:
@@ -267,6 +424,22 @@ def test_bmc_gpu_telemetry_rejects_string_metric_names() -> None:
 
     assert result["passed"] is False
     assert "metric_names" in result["error"]
+
+
+def test_switch_syslog_requires_recent_entries() -> None:
+    """Switch syslog validation fails without a positive recent-entry count."""
+    result = SwitchSyslogCheck(config=_config(_switch_syslog_output(entry_count=0))).execute()
+
+    assert result["passed"] is False
+    assert "entry_count" in result["error"]
+
+
+def test_ufm_event_logs_allow_empty_history_with_queryable_source() -> None:
+    """UFM event logs can be available even when no events are present."""
+    result = UfmEventLogsCheck(config=_config(_ufm_event_logs_output(entry_count=0, latest_timestamp=""))).execute()
+
+    assert result["passed"] is False
+    assert "latest_timestamp" in result["error"]
 
 
 def test_missing_required_observability_test_fails() -> None:
