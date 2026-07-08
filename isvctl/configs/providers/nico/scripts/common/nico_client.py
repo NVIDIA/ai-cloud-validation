@@ -28,6 +28,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 DEFAULT_PAGE_SIZE = 100
+DEFAULT_API_NAME = "carbide"
 OIDC_TOKEN_TIMEOUT_SECONDS = 30
 
 
@@ -45,6 +46,11 @@ class NicoAuth(NamedTuple):
 def _env(name: str) -> str:
     """Return a stripped environment value or an empty string."""
     return os.environ.get(name, "").strip()
+
+
+def nico_api_name() -> str:
+    """Return the NICo API path segment (``carbide`` or ``nico``)."""
+    return _env("NICO_API_NAME") or DEFAULT_API_NAME
 
 
 def resolve_auth(*, timeout: int = OIDC_TOKEN_TIMEOUT_SECONDS) -> NicoAuth:
@@ -179,7 +185,7 @@ def forge_get(
 
     Args:
         org: NGC org name.
-        path: API path relative to /carbide/ (e.g., "machine", "expected-machine").
+        path: API path relative to the API name segment (e.g., "machine", "expected-machine").
         token: Bearer token.
         base_url: NICo API base URL.
         params: Query parameters (will be URL-encoded).
@@ -191,7 +197,7 @@ def forge_get(
     Raises:
         HTTPError: On non-2xx response.
     """
-    url = f"{base_url}/{org}/carbide/{path}"
+    url = f"{base_url}/{org}/{nico_api_name()}/{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
 
@@ -221,7 +227,7 @@ def forge_get_all(
 
     Args:
         org: NGC org name.
-        path: API path relative to /carbide/ (e.g., "machine", "expected-machine").
+        path: API path relative to the API name segment (e.g., "machine", "expected-machine").
         token: Bearer token.
         base_url: NICo API base URL.
         params: Additional query parameters.

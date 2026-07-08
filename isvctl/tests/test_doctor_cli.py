@@ -351,6 +351,56 @@ def test_nico_oidc_token_request_reports_http_error_body(monkeypatch: pytest.Mon
         )
 
 
+def test_probe_nico_api_defaults_to_carbide_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Doctor should probe legacy /carbide/ site paths by default."""
+    seen: dict[str, str] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, timeout: int = 10):
+        seen["url"] = request.full_url
+        return _Response()
+
+    monkeypatch.delenv("NICO_API_NAME", raising=False)
+    monkeypatch.setattr(env_checks, "urlopen", fake_urlopen)
+
+    assert env_checks._probe_nico_api("ncx", "site-1", "http://127.0.0.1:8080/v2/org", "tok") is True
+    assert seen["url"] == "http://127.0.0.1:8080/v2/org/ncx/carbide/site/site-1"
+
+
+def test_probe_nico_api_honors_nico_api_name_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Doctor should probe /nico/ site paths when NICO_API_NAME is set."""
+    seen: dict[str, str] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, timeout: int = 10):
+        seen["url"] = request.full_url
+        return _Response()
+
+    monkeypatch.setenv("NICO_API_NAME", "nico")
+    monkeypatch.setattr(env_checks, "urlopen", fake_urlopen)
+
+    assert env_checks._probe_nico_api("ncx", "site-1", "http://127.0.0.1:8080/v2/org", "tok") is True
+    assert seen["url"] == "http://127.0.0.1:8080/v2/org/ncx/nico/site/site-1"
+
+
 def test_doctor_strict_flips_warnings_to_failure(all_tools_present: None, all_env_unset: None) -> None:
     """Without --strict, recommended-but-missing env vars only WARN."""
     result = runner.invoke(app, ["--check", "env"])

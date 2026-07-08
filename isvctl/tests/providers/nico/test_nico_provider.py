@@ -317,6 +317,60 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
     assert items == [{"id": "m-1"}]
 
 
+def test_forge_get_defaults_to_carbide_api_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy NICo sites expose REST paths under /carbide/."""
+    module = _load_nico_client()
+    seen: dict[str, str] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, timeout: int = 30):
+        seen["url"] = request.full_url
+        return _Response()
+
+    monkeypatch.delenv("NICO_API_NAME", raising=False)
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+
+    module.forge_get("ncx", "machine", "tok", base_url="http://127.0.0.1:8080/v2/org")
+
+    assert seen["url"] == "http://127.0.0.1:8080/v2/org/ncx/carbide/machine"
+
+
+def test_forge_get_honors_nico_api_name_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Updated NICo sites expose REST paths under /nico/."""
+    module = _load_nico_client()
+    seen: dict[str, str] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, timeout: int = 30):
+        seen["url"] = request.full_url
+        return _Response()
+
+    monkeypatch.setenv("NICO_API_NAME", "nico")
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+
+    module.forge_get("ncx", "site/site-1", "tok", base_url="http://127.0.0.1:8080/v2/org")
+
+    assert seen["url"] == "http://127.0.0.1:8080/v2/org/ncx/nico/site/site-1"
+
+
 @pytest.mark.parametrize(
     "step_name",
     [

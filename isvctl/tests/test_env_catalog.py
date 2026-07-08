@@ -56,6 +56,7 @@ def test_vars_for_provider_nico_scopes_to_group() -> None:
     assert all(var.group == "NICo" for var in nico_vars)
     names = {var.name for var in nico_vars}
     assert "NICO_API_BASE" in names
+    assert "NICO_API_NAME" in names
     assert "NICO_CLIENT_SECRET" in names
     assert "AWS_REGION" not in names
 

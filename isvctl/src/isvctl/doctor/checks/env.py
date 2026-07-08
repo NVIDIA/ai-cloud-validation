@@ -33,6 +33,7 @@ from isvctl.doctor.result import CategoryReport, CheckResult, Status
 from isvctl.redaction import redact_text
 
 _NICO_TOKEN_TIMEOUT_SECONDS = 30
+_NICO_DEFAULT_API_NAME = "carbide"
 
 # The variable catalog lives in `isvctl.config.env_catalog` so `doctor` and
 # `isvctl configure` share one source of truth.
@@ -210,9 +211,14 @@ def _resolve_nico_doctor_token() -> tuple[str, str]:
     return token, "OIDC client_credentials configured"
 
 
+def _nico_api_name() -> str:
+    """Return the NICo API path segment (``carbide`` or ``nico``)."""
+    return _env_value("NICO_API_NAME") or _NICO_DEFAULT_API_NAME
+
+
 def _probe_nico_api(organization: str, site_id: str, api_base: str, token: str) -> bool:
     """Probe the NICo site endpoint with the resolved token."""
-    url = f"{api_base.rstrip('/')}/{organization}/carbide/site/{site_id}"
+    url = f"{api_base.rstrip('/')}/{organization}/{_nico_api_name()}/site/{site_id}"
     request = Request(url, headers={"Authorization": f"Bearer {token}"})
     with urlopen(request, timeout=10) as response:
         response.read()
@@ -294,7 +300,7 @@ def _check_nico_provider() -> list[CheckResult]:
                 status=Status.FAIL,
                 message="unreachable or unauthorized",
                 detail=str(exc),
-                remediation="check NICO_API_BASE, NICO_ORGANIZATION, NICO_SITE_ID, credentials, and any port-forward",
+                remediation="check NICO_API_BASE, NICO_API_NAME, NICO_ORGANIZATION, NICO_SITE_ID, credentials, and any port-forward",
                 group="NICo",
             )
         )

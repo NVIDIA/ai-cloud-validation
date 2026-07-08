@@ -148,6 +148,12 @@ ENV_VARS: tuple[EnvVar, ...] = (
         "NICo API base URL",
     ),
     EnvVar(
+        "NICO_API_NAME",
+        "NICo",
+        Requirement.OPTIONAL,
+        "NICo API path segment (carbide or nico); defaults to carbide",
+    ),
+    EnvVar(
         "NICO_ORGANIZATION",
         "NICo",
         Requirement.OPTIONAL,
