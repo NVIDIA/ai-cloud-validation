@@ -31,3 +31,6 @@ ai-cloud-validation*.tar.gz
 
 # Trivy local / CI artifact (default output name)
 *.sarif
+
+# Vendored sources
+isvtest/vendor/

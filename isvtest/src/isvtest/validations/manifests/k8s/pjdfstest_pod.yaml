@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Parameterisable pjdfstest POSIX-compliance pod for K8sPosixComplianceCheck.
+#
+# Loaded by isvtest.core.k8s.render_k8s_manifest and mutated in-memory at
+# runtime by _set_fs_pod_fields (metadata.{name,namespace}, the container
+# image and command, the persistentVolumeClaim.claimName, and optional
+# nodeSelector/tolerations are overridden before apply).
+#
+# Unlike storage_mount_pod.yaml this pod runs as **root** and **privileged**:
+# pjdfstest exercises chown/mknod/setuid/special-file semantics that require
+# a full set of capabilities, so a cap-dropped non-root container cannot run
+# it. On clusters that enforce a restrictive Pod Security Standard the apply
+# is rejected; K8sPosixComplianceCheck detects that and skips rather than
+# failing. The default keepalive command sleeps so the harness can kubectl cp
+# the vendored source in and exec the build + prove run; the harness deletes
+# the pod (via the namespace) when done.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: placeholder
+  namespace: placeholder
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+    fsGroup: 0
+  containers:
+    - name: probe
+      image: placeholder
+      command: ["sh", "-c", "sleep infinity"]
+      securityContext:
+        privileged: true
+        runAsNonRoot: false
+        runAsUser: 0
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: placeholder

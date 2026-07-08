@@ -2,12 +2,18 @@ MY_ISV_DOMAINS := bare_metal control-plane iam image-registry network observabil
 DEMO_TARGETS := $(addprefix demo-,$(MY_ISV_DOMAINS))
 
 .PHONY: help pre-commit build test coverage clean lint format install bump-patch bump-fix bump-minor bump-feat bump-major bump bump-check \
-	security-trivy security-trivy-detail security-trufflehog ci-security demo-test demo-all $(DEMO_TARGETS) plan plan-coverage validate-suites reqcheck
+	security-trivy security-trivy-detail security-trufflehog ci-security demo-test demo-all $(DEMO_TARGETS) plan plan-coverage validate-suites \
+	reqcheck vendor-pjdfstest
 
 PACKAGES := isvctl isvreporter isvtest
 BUMP_SCRIPT := scripts/bump-version.py
 RUFF_VERSION := 0.15.12
 RUFF := uvx --from ruff==$(RUFF_VERSION) ruff
+
+# Vendored pjdfstest
+PJDFSTEST_REPO := https://github.com/pjd/pjdfstest.git
+PJDFSTEST_REV := ededbeb2b44929972898afb87474b0937f78a877
+PJDFSTEST_DIR := isvtest/vendor/pjdfstest
 
 # DISABLED (2026-03-24): Trivy supply chain compromise - see GHSA-69fq-xp46-6x23.
 # Do NOT pull aquasec/trivy images from Docker Hub until Aqua Security regains control.
@@ -197,6 +203,12 @@ plan-coverage: ## Report test-plan coverage + gaps via wired test_ids (CHECK=1 f
 
 validate-suites: ## Require test_id and labels on every suite check (CHECK=1 for CI/pre-commit)
 	@uv run python scripts/validate_suite_wiring.py $(if $(CHECK),--check,)
+
+vendor-pjdfstest: ## Download pinned pjdfstest source into isvtest/vendor/ (gitignored; required by K8sPosixComplianceCheck)
+	@rm -rf $(PJDFSTEST_DIR)
+	@git clone --quiet $(PJDFSTEST_REPO) $(PJDFSTEST_DIR)
+	@git -C $(PJDFSTEST_DIR) checkout --quiet $(PJDFSTEST_REV)
+	@echo "✅ Vendored pjdfstest @ $(PJDFSTEST_REV) -> $(PJDFSTEST_DIR)"
 
 .PHONY: changelog-fill
 changelog-fill: ## Fill CHANGELOG.md gaps via an LLM CLI (CLI=auto|cursor|codex|claude)

@@ -67,6 +67,10 @@ _RESOURCEQUOTA_MANIFEST = _MANIFEST_DIR / "storage_resourcequota.yaml"
 _PV_MANIFEST = _MANIFEST_DIR / "storage_pv.yaml"
 _MOUNT_POD_MANIFEST = _MANIFEST_DIR / "storage_mount_pod.yaml"
 
+# BusyBox provides flock/stat/ls/mkdir/awk/seq; override via the ``image``
+# config key for air-gapped clusters that mirror to a private registry.
+_DEFAULT_IMAGE = "busybox:1.36"
+
 _STORAGE_TYPES: tuple[tuple[str, str], ...] = (
     ("block", "ReadWriteOnce"),
     ("shared-fs", "ReadWriteMany"),
@@ -142,7 +146,7 @@ def _apply_mount_pod_manifest(
     """
 
     def _mutate(doc: dict[str, Any]) -> dict[str, Any]:
-        return _set_mount_pod_fields(doc, namespace=namespace, name=pod_name, pvc_name=pvc_name)
+        return _set_fs_pod_fields(doc, namespace=namespace, name=pod_name, pvc_name=pvc_name)
 
     return _apply_manifest(kubectl_parts, render_k8s_manifest(_MOUNT_POD_MANIFEST, _mutate), timeout)
 
@@ -1821,7 +1825,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         """Render the BusyBox mount pod and apply it."""
 
         def _mutate(doc: dict[str, Any]) -> dict[str, Any]:
-            return _set_mount_pod_fields(doc, namespace=self._namespace, name=pod_name, pvc_name=pvc_name)
+            return _set_fs_pod_fields(doc, namespace=self._namespace, name=pod_name, pvc_name=pvc_name)
 
         return self._run_kubectl_apply(render_k8s_manifest(_MOUNT_POD_MANIFEST, _mutate))
 
@@ -2483,22 +2487,38 @@ def _apply_pvc_manifest(
     return _apply_manifest(kubectl_parts, render_k8s_manifest(_PVC_MANIFEST, _mutate), timeout)
 
 
-def _set_mount_pod_fields(
+def _set_fs_pod_fields(
     doc: dict[str, Any],
     *,
     namespace: str,
     name: str,
     pvc_name: str,
+    image: str = _DEFAULT_IMAGE,
+    node_name: str | None = None,
+    node_selector: dict[str, str] | None = None,
+    tolerations: list[dict[str, Any]] | None = None,
+    command: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Mutate a parsed mount-pod manifest in place, binding its single PVC volume.
+    """Mutate a parsed probe-pod manifest in place, binding its single PVC volume.
 
-    The pod is kept off transient test-provisioning node pools (nodes carrying
-    the ``isv.ncp.validation/pool`` marker). Those pools are created/scaled/
-    deleted within the same run by node-pool CRUD checks, so a freshly joined
-    node may not yet have the CSI node-plugin DaemonSet pod running - a probe
-    pod landing there hangs at mount until the bind timeout. Baseline cluster
-    nodes never carry the marker, so this is a no-op for providers that do not
-    provision test pools (single-node k3s/minikube/microk8s included).
+    Sets the container ``image``, optionally pins the pod to ``node_name`` or
+    restricts scheduling via ``node_selector`` (``spec.nodeSelector``), and
+    overrides the container command. ``command`` must be a full argv list
+    (e.g. ``["sh", "-c", "sleep 3600"]``). ``node_name`` and ``node_selector``
+    may both be set (nodeName takes precedence in the scheduler, nodeSelector
+    is still recorded). ``tolerations`` is appended to any existing
+    ``spec.tolerations``. The CSI provisioning checks call this with only
+    ``namespace``/``name``/``pvc_name`` (the manifest defaults cover image and
+    command); the shared-filesystem checks additionally supply
+    image/command/node placement.
+
+    The pod is also kept off transient test-provisioning node pools (nodes
+    carrying the ``isv.ncp.validation/pool`` marker). Those pools are created/
+    scaled/deleted within the same run by node-pool CRUD checks, so a freshly
+    joined node may not yet have the CSI node-plugin DaemonSet pod running - a
+    probe pod landing there hangs at mount until the bind timeout. Baseline
+    cluster nodes never carry the marker, so this is a no-op for providers that
+    do not provision test pools (single-node k3s/minikube/microk8s included).
     """
     metadata = doc.setdefault("metadata", {})
     metadata["name"] = name
@@ -2521,12 +2541,33 @@ def _set_mount_pod_fields(
             }
         }
     }
+    if node_name:
+        spec["nodeName"] = node_name
+    if node_selector:
+        spec["nodeSelector"] = node_selector
+    if tolerations:
+        existing = spec.setdefault("tolerations", [])
+        existing.extend(tolerations)
+    # Force the kubelet to always apply fsGroup ownership to the mount point.
+    # Without this, kubelets configured with FSGroupChangePolicy=OnRootMismatch
+    # may skip the chown on a fresh volume whose root is owned by root:root,
+    # leaving /data unwritable by the non-root container user.
+    sc = spec.setdefault("securityContext", {})
+    sc.setdefault("fsGroupChangePolicy", "Always")
+
     volumes = spec.setdefault("volumes", [])
     if not volumes:
         volumes.append({"name": "data"})
     volumes[0]["name"] = "data"
     volumes[0].pop("emptyDir", None)
     volumes[0]["persistentVolumeClaim"] = {"claimName": pvc_name}
+
+    containers = spec.setdefault("containers", [])
+    if not containers:
+        containers.append({"name": "probe"})
+    containers[0]["image"] = image
+    if command is not None:
+        containers[0]["command"] = command
     return doc
 
 
