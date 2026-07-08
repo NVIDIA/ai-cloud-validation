@@ -3332,6 +3332,7 @@ domains:
               - summary: Verify telemetry latency is no longer than 120 seconds
                 labels:
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3346,6 +3347,8 @@ domains:
               - summary: Verify telemetry is available for North-South (front-end) network
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3358,6 +3361,8 @@ domains:
               - summary: Verify telemetry is available for East-West (back-end / GPU interconnect) network
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3370,6 +3375,8 @@ domains:
               - summary: Verify telemetry is available for Management network
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3382,6 +3389,8 @@ domains:
               - summary: Verify telemetry is available for NVSwitch Fabric (GB200+)
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3394,6 +3403,8 @@ domains:
               - summary: Verify telemetry is available for Host network (NIC-level)
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3408,6 +3419,7 @@ domains:
               - summary: Verify Fabric Manager logs are available (where applicable)
                 labels:
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3420,6 +3432,7 @@ domains:
               - summary: Verify Subnet Manager logs are available (where applicable)
                 labels:
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3432,6 +3445,7 @@ domains:
               - summary: Verify UFM Event logs are available
                 labels:
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3444,6 +3458,8 @@ domains:
               - summary: Verify general switch logs are available
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3456,6 +3472,8 @@ domains:
               - summary: Verify switch syslogs are available
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3468,6 +3486,8 @@ domains:
               - summary: Verify switch kernel logs are available
                 labels:
                   - min_req
+                  - network
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
