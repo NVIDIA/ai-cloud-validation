@@ -17,13 +17,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 DEMO_MODE = os.environ.get("ISVCTL_DEMO_MODE") == "1"
 
-ASPECT_TESTS = [
+ASPECT_TESTS: list[str] = [
     "telemetry_endpoint_reachable",
     "delivery_sample_present",
     "delivery_within_threshold",
 ]
 
-DEMO_PROBES = {
+DEMO_PROBES: dict[str, Any] = {
     "telemetry_source": "demo-telemetry-pipeline",
     "observed_delivery_seconds": 42,
     "max_delivery_seconds": 120,

@@ -287,7 +287,8 @@ class TelemetryDeliveryLatencyCheck(BaseValidation):
                delivery_within_threshold
         tests.<check>.probes.telemetry_source: Non-empty telemetry source identifier
         tests.<check>.probes.observed_delivery_seconds: Non-negative integer latency
-        tests.<check>.probes.max_delivery_seconds: Positive integer threshold
+        tests.<check>.probes.max_delivery_seconds: Informational echo of the
+            script-side threshold; the enforced threshold is the config value above
     """
 
     description: ClassVar[str] = "Check telemetry delivery latency is within threshold"
@@ -303,9 +304,8 @@ class TelemetryDeliveryLatencyCheck(BaseValidation):
         if not _require_non_negative_int(self, probes, "observed_delivery_seconds", "telemetry delivery"):
             return
 
-        max_delivery_seconds = self.config.get("max_delivery_seconds", 120)
-        if type(max_delivery_seconds) is not int or max_delivery_seconds < 1:
-            self.set_failed("max_delivery_seconds must be a positive integer")
+        max_delivery_seconds = self._parse_positive_int("max_delivery_seconds", default=120)
+        if max_delivery_seconds is None:
             return
 
         observed = probes["observed_delivery_seconds"]

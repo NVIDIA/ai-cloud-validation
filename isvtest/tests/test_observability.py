@@ -530,12 +530,20 @@ def test_switch_syslog_requires_recent_entries() -> None:
     assert "entry_count" in result["error"]
 
 
-def test_ufm_event_logs_allow_empty_history_with_queryable_source() -> None:
-    """UFM event logs can be available even when no events are present."""
+def test_ufm_event_logs_reject_missing_latest_timestamp() -> None:
+    """UFM event log validation fails when latest_timestamp is empty."""
     result = UfmEventLogsCheck(config=_config(_ufm_event_logs_output(entry_count=0, latest_timestamp=""))).execute()
 
     assert result["passed"] is False
     assert "latest_timestamp" in result["error"]
+
+
+def test_ufm_event_logs_allow_empty_history_with_queryable_source() -> None:
+    """UFM event logs can be available even when no events are present."""
+    result = UfmEventLogsCheck(config=_config(_ufm_event_logs_output(entry_count=0))).execute()
+
+    assert result["passed"] is True
+    assert "0 entries" in result["output"]
 
 
 def test_missing_required_observability_test_fails() -> None:
