@@ -30,6 +30,7 @@ commands:
     steps:
       - name: telemetry_delivery_latency
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/telemetry_delivery_test.py"
         args:
           - "--region"
@@ -42,6 +43,7 @@ commands:
 
       - name: north_south_network_telemetry
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/network_telemetry_test.py"
         args:
           - "--region"
@@ -54,6 +56,7 @@ commands:
 
       - name: east_west_network_telemetry
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/network_telemetry_test.py"
         args:
           - "--region"
@@ -64,6 +67,7 @@ commands:
 
       - name: management_network_telemetry
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/network_telemetry_test.py"
         args:
           - "--region"
@@ -74,6 +78,7 @@ commands:
 
       - name: nvswitch_fabric_telemetry
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/network_telemetry_test.py"
         args:
           - "--region"
@@ -84,6 +89,7 @@ commands:
 
       - name: host_nic_network_telemetry
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/network_telemetry_test.py"
         args:
           - "--region"
@@ -94,6 +100,7 @@ commands:
 
       - name: vpc_flow_logs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -106,6 +113,7 @@ commands:
 
       - name: host_syslogs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -116,6 +124,7 @@ commands:
 
       - name: bmc_sel_logs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -126,6 +135,7 @@ commands:
 
       - name: bmc_gpu_telemetry
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -136,6 +146,7 @@ commands:
 
       - name: ufm_event_logs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -146,6 +157,7 @@ commands:
 
       - name: fabric_manager_logs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -156,6 +168,7 @@ commands:
 
       - name: subnet_manager_logs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -166,6 +179,7 @@ commands:
 
       - name: general_switch_logs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -176,6 +190,7 @@ commands:
 
       - name: switch_syslogs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -186,6 +201,7 @@ commands:
 
       - name: switch_kernel_logs
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/observability/log_availability_test.py"
         args:
           - "--region"

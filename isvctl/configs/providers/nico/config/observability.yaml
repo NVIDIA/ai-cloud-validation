@@ -31,6 +31,7 @@ commands:
     steps:
       - name: fabric_manager_logs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--aspect"
@@ -39,6 +40,7 @@ commands:
 
       - name: subnet_manager_logs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--aspect"
@@ -47,6 +49,7 @@ commands:
 
       - name: ufm_event_logs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--aspect"
@@ -55,6 +58,7 @@ commands:
 
       - name: general_switch_logs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--aspect"
@@ -63,6 +67,7 @@ commands:
 
       - name: switch_syslogs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--aspect"
@@ -71,6 +76,7 @@ commands:
 
       - name: switch_kernel_logs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--aspect"
