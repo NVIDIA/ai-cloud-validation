@@ -54,7 +54,7 @@ NICO_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "nico" / "scripts"
 class _Response:
     """Minimal context-manager response for urllib-based tests."""
 
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(self, payload: Any) -> None:
         self._payload = payload
 
     def __enter__(self) -> _Response:
@@ -325,7 +325,7 @@ def test_forge_get_uses_configured_api_name(
     module = _load_nico_client()
     seen: dict[str, str] = {}
 
-    def fake_urlopen(request, timeout: int = 30):
+    def fake_urlopen(request: Any, timeout: int = 30) -> _Response:
         seen["url"] = request.full_url
         return _Response({})
 
@@ -1947,7 +1947,7 @@ def test_ufm_get_event_history(monkeypatch: pytest.MonkeyPatch) -> None:
     events = [{"timestamp": "2026-05-20T13:19:00Z", "message": "link up"}]
     seen: dict[str, Any] = {}
 
-    def fake_urlopen(request, timeout: int = 30, context: Any = None):
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
         seen["url"] = request.full_url
         return _Response({"content": events})
 
@@ -1970,7 +1970,7 @@ def test_ufm_get_log_text(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_ufm_client()
     seen: dict[str, Any] = {}
 
-    def fake_urlopen(request, timeout: int = 30, context: Any = None):
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
         seen["url"] = request.full_url
         return _Response({"content": "2026-05-20 event log line"})
 
@@ -1986,6 +1986,90 @@ def test_ufm_get_log_text(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result == "2026-05-20 event log line"
     assert seen["url"] == "https://ufm.example:443/ufmRestV3/app/logs/Event?length=50"
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"content": [{"id": "e-1"}, "not-a-dict"]}, [{"id": "e-1"}]),
+        ({"content": " "}, []),
+        ([{"id": "e-2"}, "not-a-dict"], [{"id": "e-2"}]),
+    ],
+)
+def test_ufm_get_event_history_tolerates_response_shapes(
+    monkeypatch: pytest.MonkeyPatch, payload: Any, expected: list[dict[str, Any]]
+) -> None:
+    """get_event_history accepts wrapped, blank-content, and top-level list responses."""
+    module = _load_ufm_client()
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        return _Response(payload)
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    assert module.get_event_history(auth) == expected
+
+
+def test_ufm_get_event_history_rejects_unrecognized_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_event_history raises when the response does not carry a list of events."""
+    module = _load_ufm_client()
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        return _Response({"content": 5})
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    with pytest.raises(module.UfmAuthError, match="did not return a list"):
+        module.get_event_history(auth)
+
+
+def test_ufm_get_log_text_accepts_direct_string_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_log_text returns a bare string response as-is."""
+    module = _load_ufm_client()
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        return _Response("2026-05-20 raw log line")
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    assert module.get_log_text(auth, "Event") == "2026-05-20 raw log line"
+
+
+def test_ufm_get_log_text_rejects_unrecognized_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_log_text raises when the response carries no log text."""
+    module = _load_ufm_client()
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        return _Response({"content": 5})
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    with pytest.raises(module.UfmAuthError, match="did not return log text"):
+        module.get_log_text(auth, "Event")
 
 
 # ---------------------------------------------------------------------------

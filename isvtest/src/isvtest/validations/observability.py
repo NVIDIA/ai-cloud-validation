@@ -528,7 +528,7 @@ class _SwitchLogCheck(_FabricLogCheck):
     def _pass_message(self, probes: dict[str, object]) -> str:
         """Build the pass message from validated evidence."""
         return (
-            f"{self._log_label} available from {probes['switches_checked']} switch(es) "
+            f"{self._log_label} available from {probes[self._count_field]} switch(es) "
             f"via {probes['log_source']} ({probes['entry_count']} {self._entries_label})"
         )
 

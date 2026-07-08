@@ -358,7 +358,7 @@ def test_probe_nico_api_uses_configured_api_name(
     """Doctor probes legacy /carbide/ site paths by default and /nico/ when NICO_API_NAME is set."""
     seen: dict[str, str] = {}
 
-    def fake_urlopen(request, timeout: int = 10):
+    def fake_urlopen(request: Any, timeout: int = 10) -> _JsonResponse:
         seen["url"] = request.full_url
         return _JsonResponse({})
 
