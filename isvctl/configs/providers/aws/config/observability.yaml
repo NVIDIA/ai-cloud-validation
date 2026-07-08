@@ -104,9 +104,13 @@ commands:
           - "{{region}}"
           - "--network-id"
           - "{{steps.create_network.network_id}}"
+          - "--instance-id"
+          - "{{steps.launch_host.instance_id}}"
           - "--aspect"
           - "north_south_network_telemetry"
-        timeout: 120
+          - "--poll-timeout-seconds"
+          - "240"
+        timeout: 360
 
       - name: east_west_network_telemetry
         phase: test
@@ -152,9 +156,13 @@ commands:
           - "{{region}}"
           - "--network-id"
           - "{{steps.create_network.network_id}}"
+          - "--instance-id"
+          - "{{steps.launch_host.instance_id}}"
           - "--aspect"
           - "host_nic_network_telemetry"
-        timeout: 120
+          - "--poll-timeout-seconds"
+          - "240"
+        timeout: 360
 
       - name: vpc_flow_logs
         phase: test

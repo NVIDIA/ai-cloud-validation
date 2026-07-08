@@ -10,6 +10,8 @@ import argparse
 import json
 import os
 import sys
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -69,6 +71,12 @@ AWS_NO_CUSTOMER_FABRIC_MESSAGE = (
 SAMPLE_WINDOW_SECONDS = 600
 PACKET_METRICS = ["NetworkPacketsIn", "NetworkPacketsOut"]
 
+# A freshly launched host has no CloudWatch datapoints until the first metric is
+# ingested, so the customer-visible probes poll until samples appear rather than
+# taking a single-shot reading right after launch.
+DEFAULT_POLL_TIMEOUT_SECONDS = 240
+DEFAULT_POLL_INTERVAL_SECONDS = 20
+
 
 def _base_result(aspect: str) -> dict[str, Any]:
     """Build the common observability result envelope."""
@@ -120,31 +128,54 @@ def _newest_datapoint_timestamp(datapoints: list[dict[str, Any]]) -> str:
     return timestamp.isoformat()
 
 
-def _list_target_metrics(cloudwatch: Any, *, dimension_name: str) -> list[dict[str, Any]]:
-    """Return packet metrics for the requested CloudWatch dimension."""
-    metrics: list[dict[str, Any]] = []
-    for metric_name in PACKET_METRICS:
-        response = cloudwatch.list_metrics(
-            Namespace="AWS/EC2",
-            MetricName=metric_name,
-            Dimensions=[{"Name": dimension_name}],
-        )
-        metrics.extend(response.get("Metrics", []))
-    return metrics
+def _collect_recent_samples(cloudwatch: Any, metrics: list[dict[str, Any]]) -> tuple[int, str]:
+    """Return (sample_count, latest_iso_timestamp) across the given metrics."""
+    end_time = datetime.now(UTC)
+    start_time = end_time - timedelta(seconds=SAMPLE_WINDOW_SECONDS)
+    sample_count = 0
+    latest_timestamp = ""
+    for metric in metrics[:20]:
+        try:
+            response = cloudwatch.get_metric_statistics(
+                Namespace=metric["Namespace"],
+                MetricName=metric["MetricName"],
+                Dimensions=metric.get("Dimensions", []),
+                StartTime=start_time,
+                EndTime=end_time,
+                Period=60,
+                Statistics=["Sum"],
+            )
+        except ClientError:
+            continue
+        datapoints = response.get("Datapoints", [])
+        if datapoints:
+            sample_count += len(datapoints)
+            candidate = _newest_datapoint_timestamp(datapoints)
+            if candidate and (not latest_timestamp or candidate > latest_timestamp):
+                latest_timestamp = candidate
+    return sample_count, latest_timestamp
 
 
-def _count_recent_samples(cloudwatch: Any, metric: dict[str, Any], *, start_time: datetime, end_time: datetime) -> int:
-    """Return the number of recent datapoints for a metric."""
-    response = cloudwatch.get_metric_statistics(
-        Namespace=metric["Namespace"],
-        MetricName=metric["MetricName"],
-        Dimensions=metric.get("Dimensions", []),
-        StartTime=start_time,
-        EndTime=end_time,
-        Period=60,
-        Statistics=["Sum"],
-    )
-    return len(response.get("Datapoints", []))
+def _poll_recent_samples(
+    list_metrics: Callable[[], list[dict[str, Any]]],
+    cloudwatch: Any,
+    *,
+    poll_timeout_seconds: int,
+    poll_interval_seconds: int,
+    sleep: Callable[[float], None],
+) -> tuple[list[dict[str, Any]], int, str]:
+    """Poll CloudWatch until recent samples appear or the timeout elapses."""
+    metrics = list_metrics()
+    sample_count, latest_timestamp = _collect_recent_samples(cloudwatch, metrics)
+    deadline = time.monotonic() + max(poll_timeout_seconds, 0)
+    while sample_count == 0 and time.monotonic() < deadline:
+        sleep(poll_interval_seconds)
+        try:
+            metrics = list_metrics()
+        except ClientError:
+            continue
+        sample_count, latest_timestamp = _collect_recent_samples(cloudwatch, metrics)
+    return metrics, sample_count, latest_timestamp
 
 
 def _check_plane_telemetry(
@@ -154,24 +185,39 @@ def _check_plane_telemetry(
     region: str,
     network_id: str,
     dimension_name: str,
+    instance_id: str = "",
+    poll_timeout_seconds: int = 0,
+    poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Validate customer-visible packet telemetry for a network plane."""
+    """Validate customer-visible packet telemetry for a network plane.
+
+    When ``instance_id`` is provided the probe is scoped to that instance so it
+    measures the host under test rather than unrelated account instances, and it
+    polls until samples appear to absorb CloudWatch ingestion delay.
+    """
     result = _base_result(aspect)
-    end_time = datetime.now(UTC)
-    start_time = end_time - timedelta(seconds=SAMPLE_WINDOW_SECONDS)
+    dimensions = [{"Name": dimension_name, "Value": instance_id}] if instance_id else [{"Name": dimension_name}]
     probes = {
         "telemetry_source": "cloudwatch",
         "metric_names": PACKET_METRICS,
         "sample_count": 0,
         "latest_timestamp": "",
-        "probe_resource_id": network_id,
+        "probe_resource_id": instance_id or network_id,
     }
 
+    def list_metrics() -> list[dict[str, Any]]:
+        metrics: list[dict[str, Any]] = []
+        for metric_name in PACKET_METRICS:
+            metrics.extend(
+                cloudwatch.list_metrics(
+                    Namespace="AWS/EC2", MetricName=metric_name, Dimensions=dimensions
+                ).get("Metrics", [])
+            )
+        return metrics
+
     try:
-        metrics = _list_target_metrics(cloudwatch, dimension_name=dimension_name)
-        result["tests"]["telemetry_endpoint_reachable"] = _passed(
-            f"CloudWatch metrics endpoint reachable ({len(metrics)} packet metric(s) visible)", probes
-        )
+        metrics = list_metrics()
     except ClientError:
         error = "AWS API error while querying CloudWatch metrics"
         for name in ASPECT_TESTS[aspect]:
@@ -179,34 +225,21 @@ def _check_plane_telemetry(
         result["error"] = error
         return result
 
+    result["tests"]["telemetry_endpoint_reachable"] = _passed(
+        f"CloudWatch metrics endpoint reachable ({len(metrics)} packet metric(s) visible)", probes
+    )
+
+    metrics, sample_count, latest_timestamp = _poll_recent_samples(
+        list_metrics,
+        cloudwatch,
+        poll_timeout_seconds=poll_timeout_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+        sleep=sleep,
+    )
+    probes = {**probes, "sample_count": sample_count, "latest_timestamp": latest_timestamp}
+
     if metrics:
         result["tests"]["plane_metrics_present"] = _passed("Packet telemetry metrics are configured", probes)
-        sample_count = 0
-        latest_timestamp = ""
-        for metric in metrics[:20]:
-            try:
-                response = cloudwatch.get_metric_statistics(
-                    Namespace=metric["Namespace"],
-                    MetricName=metric["MetricName"],
-                    Dimensions=metric.get("Dimensions", []),
-                    StartTime=start_time,
-                    EndTime=end_time,
-                    Period=60,
-                    Statistics=["Sum"],
-                )
-            except ClientError:
-                continue
-            datapoints = response.get("Datapoints", [])
-            if datapoints:
-                sample_count += len(datapoints)
-                candidate = _newest_datapoint_timestamp(datapoints)
-                if candidate and (not latest_timestamp or candidate > latest_timestamp):
-                    latest_timestamp = candidate
-        probes = {
-            **probes,
-            "sample_count": sample_count,
-            "latest_timestamp": latest_timestamp,
-        }
         if sample_count > 0:
             result["tests"]["samples_recent"] = _passed(
                 f"{sample_count} recent packet telemetry sample(s) found", probes
@@ -235,24 +268,64 @@ def _check_hidden_plane_telemetry(*, aspect: str, region: str) -> dict[str, Any]
     return result
 
 
-def _check_host_nic_telemetry(cloudwatch: Any, *, region: str, network_id: str) -> dict[str, Any]:
-    """Validate host NIC-level packet telemetry."""
+def _count_instance_nics(ec2: Any, instance_id: str) -> int:
+    """Return the number of network interfaces attached to an instance."""
+    if not instance_id:
+        return 0
+    reservations = ec2.describe_instances(InstanceIds=[instance_id]).get("Reservations", [])
+    return sum(
+        len(instance.get("NetworkInterfaces", []))
+        for reservation in reservations
+        for instance in reservation.get("Instances", [])
+    )
+
+
+def _check_host_nic_telemetry(
+    cloudwatch: Any,
+    *,
+    region: str,
+    network_id: str,
+    instance_id: str = "",
+    ec2: Any = None,
+    poll_timeout_seconds: int = 0,
+    poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Validate host NIC-level packet telemetry.
+
+    AWS EC2 publishes network packet metrics at the instance level rather than
+    per-ENI, so when scoped to a launched host the probe reads that instance's
+    packet telemetry and reports its attached NIC count as evidence.
+    """
     aspect = "host_nic_network_telemetry"
     result = _base_result(aspect)
-    end_time = datetime.now(UTC)
-    start_time = end_time - timedelta(seconds=SAMPLE_WINDOW_SECONDS)
+    scoped = bool(instance_id)
+    dimensions = [{"Name": "InstanceId", "Value": instance_id}] if scoped else [{"Name": "NetworkInterfaceId"}]
     probes = {
         "telemetry_source": "cloudwatch",
         "metric_names": PACKET_METRICS,
         "nics_checked": 0,
         "sample_count": 0,
         "latest_timestamp": "",
-        "probe_resource_id": network_id,
+        "probe_resource_id": instance_id or network_id,
     }
 
+    def list_metrics() -> list[dict[str, Any]]:
+        metrics: list[dict[str, Any]] = []
+        for metric_name in PACKET_METRICS:
+            metrics.extend(
+                cloudwatch.list_metrics(
+                    Namespace="AWS/EC2", MetricName=metric_name, Dimensions=dimensions
+                ).get("Metrics", [])
+            )
+        return metrics
+
     try:
-        metrics = _list_target_metrics(cloudwatch, dimension_name="NetworkInterfaceId")
-        probes["nics_checked"] = len({tuple(metric.get("Dimensions", [])) for metric in metrics})
+        metrics = list_metrics()
+        if scoped and ec2 is not None:
+            probes["nics_checked"] = _count_instance_nics(ec2, instance_id)
+        else:
+            probes["nics_checked"] = len({tuple(metric.get("Dimensions", [])) for metric in metrics})
         result["tests"]["telemetry_endpoint_reachable"] = _passed(
             f"CloudWatch metrics endpoint reachable ({len(metrics)} NIC packet metric(s) visible)", probes
         )
@@ -263,27 +336,17 @@ def _check_host_nic_telemetry(cloudwatch: Any, *, region: str, network_id: str) 
         result["error"] = error
         return result
 
+    metrics, sample_count, latest_timestamp = _poll_recent_samples(
+        list_metrics,
+        cloudwatch,
+        poll_timeout_seconds=poll_timeout_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+        sleep=sleep,
+    )
+    probes = {**probes, "sample_count": sample_count, "latest_timestamp": latest_timestamp}
+
     if metrics:
         result["tests"]["nic_metrics_present"] = _passed("Host NIC packet telemetry metrics are configured", probes)
-        sample_count = 0
-        latest_timestamp = ""
-        for metric in metrics[:20]:
-            count = _count_recent_samples(cloudwatch, metric, start_time=start_time, end_time=end_time)
-            if count:
-                sample_count += count
-                response = cloudwatch.get_metric_statistics(
-                    Namespace=metric["Namespace"],
-                    MetricName=metric["MetricName"],
-                    Dimensions=metric.get("Dimensions", []),
-                    StartTime=start_time,
-                    EndTime=end_time,
-                    Period=60,
-                    Statistics=["Sum"],
-                )
-                candidate = _newest_datapoint_timestamp(response.get("Datapoints", []))
-                if candidate and (not latest_timestamp or candidate > latest_timestamp):
-                    latest_timestamp = candidate
-        probes = {**probes, "sample_count": sample_count, "latest_timestamp": latest_timestamp}
         if sample_count > 0:
             result["tests"]["samples_recent"] = _passed(
                 f"{sample_count} recent host NIC telemetry sample(s) found", probes
@@ -308,14 +371,30 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="AWS network telemetry availability test")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     parser.add_argument("--network-id", default="")
+    parser.add_argument("--instance-id", default="", help="Scope the probe to a specific EC2 instance")
     parser.add_argument("--aspect", required=True, choices=sorted(ASPECT_TESTS))
+    parser.add_argument(
+        "--poll-timeout-seconds",
+        type=int,
+        default=DEFAULT_POLL_TIMEOUT_SECONDS,
+        help="Seconds to wait for CloudWatch samples to appear before giving up",
+    )
+    parser.add_argument("--poll-interval-seconds", type=int, default=DEFAULT_POLL_INTERVAL_SECONDS)
     args = parser.parse_args()
 
     cloudwatch = boto3.client("cloudwatch", region_name=args.region)
     if args.aspect in HIDDEN_ASPECTS:
         result = _check_hidden_plane_telemetry(aspect=args.aspect, region=args.region)
     elif args.aspect == "host_nic_network_telemetry":
-        result = _check_host_nic_telemetry(cloudwatch, region=args.region, network_id=args.network_id)
+        result = _check_host_nic_telemetry(
+            cloudwatch,
+            region=args.region,
+            network_id=args.network_id,
+            instance_id=args.instance_id,
+            ec2=boto3.client("ec2", region_name=args.region) if args.instance_id else None,
+            poll_timeout_seconds=args.poll_timeout_seconds,
+            poll_interval_seconds=args.poll_interval_seconds,
+        )
     else:
         result = _check_plane_telemetry(
             cloudwatch,
@@ -323,6 +402,9 @@ def main() -> int:
             region=args.region,
             network_id=args.network_id,
             dimension_name="InstanceId",
+            instance_id=args.instance_id,
+            poll_timeout_seconds=args.poll_timeout_seconds,
+            poll_interval_seconds=args.poll_interval_seconds,
         )
 
     print(json.dumps(result, indent=2, default=str))

@@ -790,6 +790,97 @@ def test_telemetry_delivery_fails_without_datapoints() -> None:
     assert result["tests"]["telemetry_endpoint_reachable"]["passed"] is True
 
 
+class FakeNetworkTelemetryCloudWatch:
+    """Fake CloudWatch client for network telemetry probes."""
+
+    def __init__(self, *, metrics: list[dict[str, Any]], statistics_sequence: list[list[dict[str, Any]]]) -> None:
+        """Initialize fake client state."""
+        self.metrics = metrics
+        self.statistics_sequence = list(statistics_sequence)
+        self.list_dimensions: list[list[dict[str, str]]] = []
+
+    def list_metrics(self, *, Namespace: str, MetricName: str, Dimensions: list[dict[str, str]]) -> dict[str, Any]:
+        """Record requested dimensions and return the configured metrics."""
+        self.list_dimensions.append(Dimensions)
+        return {"Metrics": self.metrics}
+
+    def get_metric_statistics(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the next scripted datapoint batch, reusing the last when exhausted."""
+        datapoints = self.statistics_sequence.pop(0) if self.statistics_sequence else []
+        return {"Datapoints": datapoints}
+
+
+class FakeDescribeInstancesEc2:
+    """Fake EC2 client returning a fixed NIC count for an instance."""
+
+    def __init__(self, *, nic_count: int) -> None:
+        """Initialize fake client state."""
+        self.nic_count = nic_count
+
+    def describe_instances(self, *, InstanceIds: list[str]) -> dict[str, Any]:
+        """Return an instance with ``nic_count`` network interfaces."""
+        return {
+            "Reservations": [
+                {"Instances": [{"NetworkInterfaces": [{"NetworkInterfaceId": f"eni-{i}"} for i in range(self.nic_count)]}]}
+            ]
+        }
+
+
+def test_north_south_telemetry_scopes_to_instance_and_polls() -> None:
+    """North-South probe scopes to the instance and polls for samples."""
+    script = _load_script("network_telemetry_test.py")
+    metric = {"Namespace": "AWS/EC2", "MetricName": "NetworkPacketsIn", "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}]}
+    # First scan finds nothing (both packet metrics), second scan finds a datapoint.
+    cloudwatch = FakeNetworkTelemetryCloudWatch(
+        metrics=[metric],
+        statistics_sequence=[[], [], [_recent_datapoint(30)], []],
+    )
+    sleeps: list[float] = []
+
+    result = script._check_plane_telemetry(
+        cloudwatch,
+        aspect="north_south_network_telemetry",
+        region="us-west-2",
+        network_id="vpc-123",
+        dimension_name="InstanceId",
+        instance_id="i-123",
+        poll_timeout_seconds=60,
+        poll_interval_seconds=1,
+        sleep=sleeps.append,
+    )
+
+    assert result["success"] is True
+    assert sleeps == [1]
+    assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
+    probes = result["tests"]["samples_recent"]["probes"]
+    assert probes["probe_resource_id"] == "i-123"
+    assert probes["sample_count"] == 1
+
+
+def test_host_nic_telemetry_scopes_to_instance_nics() -> None:
+    """Host NIC probe uses instance-level metrics and reports the instance NIC count."""
+    script = _load_script("network_telemetry_test.py")
+    metric = {"Namespace": "AWS/EC2", "MetricName": "NetworkPacketsIn", "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}]}
+    cloudwatch = FakeNetworkTelemetryCloudWatch(
+        metrics=[metric],
+        statistics_sequence=[[_recent_datapoint(20)]],
+    )
+
+    result = script._check_host_nic_telemetry(
+        cloudwatch,
+        region="us-west-2",
+        network_id="vpc-123",
+        instance_id="i-123",
+        ec2=FakeDescribeInstancesEc2(nic_count=2),
+    )
+
+    assert result["success"] is True
+    assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
+    probes = result["tests"]["samples_recent"]["probes"]
+    assert probes["nics_checked"] == 2
+    assert probes["sample_count"] == 1
+
+
 class FakeEc2FlowLogDeleteClient:
     """Fake EC2 client that records deleted Flow Logs."""
 
