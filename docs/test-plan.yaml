@@ -3332,171 +3332,151 @@ domains:
               - summary: Verify telemetry latency is no longer than 120 seconds
                 labels:
                   - min_req
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#342"
                 req_id: OBS05
                 test_id: OBS05-01
                 legacy_ids: [OBS-XX-05]
-                status: done
+                status: pending
           - description: Network Telemetry
             tests:
               - summary: Verify telemetry is available for North-South (front-end) network
                 labels:
                   - min_req
-                  - network
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#343"
                 req_id: OBS06
                 test_id: OBS06-01
                 legacy_ids: [OBS-XX-06]
-                status: done
+                status: pending
               - summary: Verify telemetry is available for East-West (back-end / GPU interconnect) network
                 labels:
                   - min_req
-                  - network
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#344"
                 req_id: OBS07
                 test_id: OBS07-01
                 legacy_ids: [OBS-XX-07]
-                status: done
+                status: pending
               - summary: Verify telemetry is available for Management network
                 labels:
                   - min_req
-                  - network
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#345"
                 req_id: OBS08
                 test_id: OBS08-01
                 legacy_ids: [OBS-XX-08]
-                status: done
+                status: pending
               - summary: Verify telemetry is available for NVSwitch Fabric (GB200+)
                 labels:
                   - min_req
-                  - network
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#346"
                 req_id: OBS09
                 test_id: OBS09-01
                 legacy_ids: [OBS-XX-09]
-                status: done
+                status: pending
               - summary: Verify telemetry is available for Host network (NIC-level)
                 labels:
                   - min_req
-                  - network
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#347"
                 req_id: OBS10
                 test_id: OBS10-01
                 legacy_ids: [OBS-XX-10]
-                status: done
+                status: pending
           - description: Required Logs
             tests:
               - summary: Verify Fabric Manager logs are available (where applicable)
                 labels:
                   - min_req
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#348"
                 req_id: OBS11
                 test_id: OBS11-01
                 legacy_ids: [OBS-XX-11]
-                status: done
+                status: pending
               - summary: Verify Subnet Manager logs are available (where applicable)
                 labels:
                   - min_req
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#349"
                 req_id: OBS12
                 test_id: OBS12-01
                 legacy_ids: [OBS-XX-12]
-                status: done
+                status: pending
               - summary: Verify UFM Event logs are available
                 labels:
                   - min_req
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#350"
                 req_id: OBS13
                 test_id: OBS13-01
                 legacy_ids: [OBS-XX-13]
-                status: done
+                status: pending
               - summary: Verify general switch logs are available
                 labels:
                   - min_req
-                  - network
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#351"
                 req_id: OBS14
                 test_id: OBS14-01
                 legacy_ids: [OBS-XX-14]
-                status: done
+                status: pending
               - summary: Verify switch syslogs are available
                 labels:
                   - min_req
-                  - network
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#352"
                 req_id: OBS15
                 test_id: OBS15-01
                 legacy_ids: [OBS-XX-15]
-                status: done
+                status: pending
               - summary: Verify switch kernel logs are available
                 labels:
                   - min_req
-                  - network
-                  - observability
                 priority: P1
-                milestone: M7
+                milestone: M5
                 notes: ""
                 github_issues:
                   - "#353"
                 req_id: OBS16
                 test_id: OBS16-01
                 legacy_ids: [OBS-XX-16]
-                status: done
+                status: pending
               - summary: Verify BMC SEL logs are available
                 labels:
                   - min_req
