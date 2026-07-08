@@ -54,7 +54,7 @@ def _provider_hidden_message(validation: BaseValidation, required: list[str], la
         for result in required_results
         if isinstance(result, dict) and isinstance((message := result.get("message")), str) and message.strip()
     ]
-    detail = messages[0] if messages else "BMC plane is provider-owned"
+    detail = messages[0] if messages else "plane is provider-owned"
     return f"{label} provider-hidden: {detail}"
 
 
@@ -331,7 +331,8 @@ class _NetworkTelemetryCheck(BaseValidation):
         "samples_recent",
     ]
     _plane_label: ClassVar[str] = "network telemetry"
-    _metric_field: ClassVar[str] = "metric_names"
+    # When set, the named count probe must additionally be a positive integer.
+    _count_field: ClassVar[str] = ""
 
     def run(self) -> None:
         """Validate network telemetry results and evidence."""
@@ -343,15 +344,21 @@ class _NetworkTelemetryCheck(BaseValidation):
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
             return
-        if not _require_non_empty_string_list(self, probes, self._metric_field, self._plane_label):
+        if not _require_non_empty_string_list(self, probes, "metric_names", self._plane_label):
             return
         if not _require_positive_int(self, probes, "sample_count", self._plane_label):
             return
         if not _require_non_empty_strings(self, probes, ["latest_timestamp"], self._plane_label):
             return
+        if self._count_field and not _require_positive_int(self, probes, self._count_field, self._plane_label):
+            return
 
-        metric_names = probes[self._metric_field]
-        self.set_passed(
+        self.set_passed(self._pass_message(probes))
+
+    def _pass_message(self, probes: dict[str, object]) -> str:
+        """Build the pass message from validated evidence."""
+        metric_names = probes["metric_names"]
+        return (
             f"{self._plane_label} available via {probes['telemetry_source']} "
             f"({len(metric_names)} metrics, {probes['sample_count']} recent samples)"
         )
@@ -389,7 +396,7 @@ class NvswitchFabricTelemetryCheck(_NetworkTelemetryCheck):
     _plane_label: ClassVar[str] = "NVSwitch fabric telemetry"
 
 
-class HostNicNetworkTelemetryCheck(BaseValidation):
+class HostNicNetworkTelemetryCheck(_NetworkTelemetryCheck):
     """Validate host NIC-level network telemetry is available.
 
     Config:
@@ -405,28 +412,20 @@ class HostNicNetworkTelemetryCheck(BaseValidation):
         tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest sample
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check host NIC-level network telemetry is available"
+    _required_tests: ClassVar[list[str]] = [
+        "telemetry_endpoint_reachable",
+        "nic_metrics_present",
+        "samples_recent",
+    ]
+    _plane_label: ClassVar[str] = "Host NIC network telemetry"
+    _count_field: ClassVar[str] = "nics_checked"
 
-    def run(self) -> None:
-        """Validate host NIC telemetry results and evidence."""
-        required = ["telemetry_endpoint_reachable", "nic_metrics_present", "samples_recent"]
-        if not check_required_tests(self, required, "Host NIC network telemetry tests failed"):
-            return
-        if message := _provider_hidden_message(self, required, "Host NIC network telemetry"):
-            self.set_passed(message)
-            return
-        probes = _merged_probes(self)
-        if not _require_non_empty_strings(self, probes, ["telemetry_source", "latest_timestamp"], "host NIC telemetry"):
-            return
-        if not _require_non_empty_string_list(self, probes, "metric_names", "host NIC telemetry"):
-            return
-        if not _require_positive_int(self, probes, "nics_checked", "host NIC telemetry"):
-            return
-        if not _require_positive_int(self, probes, "sample_count", "host NIC telemetry"):
-            return
-
+    def _pass_message(self, probes: dict[str, object]) -> str:
+        """Build the pass message from validated evidence."""
         metric_names = probes["metric_names"]
-        self.set_passed(
+        return (
             f"Host NIC telemetry available from {probes['nics_checked']} NIC(s) "
             f"via {probes['telemetry_source']} ({len(metric_names)} metrics, {probes['sample_count']} samples)"
         )
@@ -442,6 +441,10 @@ class _FabricLogCheck(BaseValidation):
         "log_entries_queryable",
     ]
     _log_label: ClassVar[str] = "fabric log"
+    _count_field: ClassVar[str] = "log_endpoints_checked"
+    _entry_count_positive: ClassVar[bool] = False
+    _require_latest_timestamp: ClassVar[bool] = False
+    _entries_label: ClassVar[str] = "entries"
 
     def run(self) -> None:
         """Validate fabric log results and evidence."""
@@ -451,16 +454,22 @@ class _FabricLogCheck(BaseValidation):
             self.set_passed(message)
             return
         probes = _merged_probes(self)
-        if not _require_non_empty_strings(self, probes, ["log_source"], self._log_label):
+        string_fields = ["log_source", "latest_timestamp"] if self._require_latest_timestamp else ["log_source"]
+        if not _require_non_empty_strings(self, probes, string_fields, self._log_label):
             return
-        if not _require_positive_int(self, probes, "log_endpoints_checked", self._log_label):
+        if not _require_positive_int(self, probes, self._count_field, self._log_label):
             return
-        if not _require_non_negative_int(self, probes, "entry_count", self._log_label):
+        require_entry_count = _require_positive_int if self._entry_count_positive else _require_non_negative_int
+        if not require_entry_count(self, probes, "entry_count", self._log_label):
             return
 
-        self.set_passed(
-            f"{self._log_label} queryable from {probes['log_endpoints_checked']} endpoint(s) "
-            f"via {probes['log_source']} ({probes['entry_count']} entries)"
+        self.set_passed(self._pass_message(probes))
+
+    def _pass_message(self, probes: dict[str, object]) -> str:
+        """Build the pass message from validated evidence."""
+        return (
+            f"{self._log_label} queryable from {probes[self._count_field]} endpoint(s) "
+            f"via {probes['log_source']} ({probes['entry_count']} {self._entries_label})"
         )
 
 
@@ -480,7 +489,7 @@ class SubnetManagerLogsCheck(_FabricLogCheck):
     _log_label: ClassVar[str] = "Subnet Manager logs"
 
 
-class UfmEventLogsCheck(BaseValidation):
+class UfmEventLogsCheck(_FabricLogCheck):
     """Validate UFM Event logs are queryable.
 
     Config:
@@ -498,31 +507,33 @@ class UfmEventLogsCheck(BaseValidation):
         tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check UFM Event logs are available"
+    _required_tests: ClassVar[list[str]] = [
+        "event_log_endpoint_reachable",
+        "event_log_source_present",
+        "event_entries_queryable",
+    ]
+    _log_label: ClassVar[str] = "UFM Event logs"
+    _require_latest_timestamp: ClassVar[bool] = True
 
-    def run(self) -> None:
-        """Validate UFM event log results and evidence."""
-        required = ["event_log_endpoint_reachable", "event_log_source_present", "event_entries_queryable"]
-        if not check_required_tests(self, required, "UFM Event log tests failed"):
-            return
-        if message := _provider_hidden_message(self, required, "UFM Event logs"):
-            self.set_passed(message)
-            return
-        probes = _merged_probes(self)
-        if not _require_non_empty_strings(self, probes, ["log_source", "latest_timestamp"], "UFM Event log"):
-            return
-        if not _require_positive_int(self, probes, "log_endpoints_checked", "UFM Event log"):
-            return
-        if not _require_non_negative_int(self, probes, "entry_count", "UFM Event log"):
-            return
 
-        self.set_passed(
-            f"UFM Event logs queryable from {probes['log_endpoints_checked']} endpoint(s) "
-            f"via {probes['log_source']} ({probes['entry_count']} entries)"
+class _SwitchLogCheck(_FabricLogCheck):
+    """Shared validation logic for switch-level log checks."""
+
+    catalog_exclude: ClassVar[bool] = True
+    _count_field: ClassVar[str] = "switches_checked"
+    _require_latest_timestamp: ClassVar[bool] = True
+
+    def _pass_message(self, probes: dict[str, object]) -> str:
+        """Build the pass message from validated evidence."""
+        return (
+            f"{self._log_label} available from {probes['switches_checked']} switch(es) "
+            f"via {probes['log_source']} ({probes['entry_count']} {self._entries_label})"
         )
 
 
-class GeneralSwitchLogsCheck(BaseValidation):
+class GeneralSwitchLogsCheck(_SwitchLogCheck):
     """Validate general switch logs are available.
 
     Config:
@@ -540,31 +551,17 @@ class GeneralSwitchLogsCheck(BaseValidation):
         tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check general switch logs are available"
-
-    def run(self) -> None:
-        """Validate general switch log results and evidence."""
-        required = ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"]
-        if not check_required_tests(self, required, "General switch log tests failed"):
-            return
-        if message := _provider_hidden_message(self, required, "General switch logs"):
-            self.set_passed(message)
-            return
-        probes = _merged_probes(self)
-        if not _require_non_empty_strings(self, probes, ["log_source", "latest_timestamp"], "general switch log"):
-            return
-        if not _require_positive_int(self, probes, "switches_checked", "general switch log"):
-            return
-        if not _require_non_negative_int(self, probes, "entry_count", "general switch log"):
-            return
-
-        self.set_passed(
-            f"General switch logs available from {probes['switches_checked']} switch(es) "
-            f"via {probes['log_source']} ({probes['entry_count']} entries)"
-        )
+    _required_tests: ClassVar[list[str]] = [
+        "log_endpoint_reachable",
+        "switch_log_source_present",
+        "entries_queryable",
+    ]
+    _log_label: ClassVar[str] = "General switch logs"
 
 
-class SwitchSyslogCheck(BaseValidation):
+class SwitchSyslogCheck(_SwitchLogCheck):
     """Validate switch syslogs are available.
 
     Config:
@@ -582,31 +579,19 @@ class SwitchSyslogCheck(BaseValidation):
         tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check switch syslogs are available"
-
-    def run(self) -> None:
-        """Validate switch syslog results and evidence."""
-        required = ["syslog_endpoint_reachable", "switch_syslog_source_present", "entries_recent"]
-        if not check_required_tests(self, required, "Switch syslog tests failed"):
-            return
-        if message := _provider_hidden_message(self, required, "Switch syslogs"):
-            self.set_passed(message)
-            return
-        probes = _merged_probes(self)
-        if not _require_non_empty_strings(self, probes, ["log_source", "latest_timestamp"], "switch syslog"):
-            return
-        if not _require_positive_int(self, probes, "switches_checked", "switch syslog"):
-            return
-        if not _require_positive_int(self, probes, "entry_count", "switch syslog"):
-            return
-
-        self.set_passed(
-            f"Switch syslogs available from {probes['switches_checked']} switch(es) "
-            f"via {probes['log_source']} ({probes['entry_count']} recent entries)"
-        )
+    _required_tests: ClassVar[list[str]] = [
+        "syslog_endpoint_reachable",
+        "switch_syslog_source_present",
+        "entries_recent",
+    ]
+    _log_label: ClassVar[str] = "Switch syslogs"
+    _entry_count_positive: ClassVar[bool] = True
+    _entries_label: ClassVar[str] = "recent entries"
 
 
-class SwitchKernelLogsCheck(BaseValidation):
+class SwitchKernelLogsCheck(_SwitchLogCheck):
     """Validate switch kernel logs are available.
 
     Config:
@@ -624,25 +609,11 @@ class SwitchKernelLogsCheck(BaseValidation):
         tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
     """
 
+    catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check switch kernel logs are available"
-
-    def run(self) -> None:
-        """Validate switch kernel log results and evidence."""
-        required = ["log_endpoint_reachable", "kernel_log_source_present", "entries_queryable"]
-        if not check_required_tests(self, required, "Switch kernel log tests failed"):
-            return
-        if message := _provider_hidden_message(self, required, "Switch kernel logs"):
-            self.set_passed(message)
-            return
-        probes = _merged_probes(self)
-        if not _require_non_empty_strings(self, probes, ["log_source", "latest_timestamp"], "switch kernel log"):
-            return
-        if not _require_positive_int(self, probes, "switches_checked", "switch kernel log"):
-            return
-        if not _require_non_negative_int(self, probes, "entry_count", "switch kernel log"):
-            return
-
-        self.set_passed(
-            f"Switch kernel logs available from {probes['switches_checked']} switch(es) "
-            f"via {probes['log_source']} ({probes['entry_count']} entries)"
-        )
+    _required_tests: ClassVar[list[str]] = [
+        "log_endpoint_reachable",
+        "kernel_log_source_present",
+        "entries_queryable",
+    ]
+    _log_label: ClassVar[str] = "Switch kernel logs"

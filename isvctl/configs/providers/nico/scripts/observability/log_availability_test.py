@@ -117,6 +117,8 @@ NICO_SWITCH_LOGS_HIDDEN_MESSAGE = (
     "switch log collection is provider-operated"
 )
 
+UFM_NOT_CONFIGURED_ERROR = "UFM access is not configured; set UFM_ADDRESS and UFM_TOKEN or UFM_USERNAME/UFM_PASSWORD"
+
 
 def _base_result(aspect: str) -> dict[str, Any]:
     """Build the common observability result envelope."""
@@ -154,6 +156,23 @@ def _provider_hidden(test_name: str, *, probe_field: str, message: str) -> dict[
     }
 
 
+def _fail_all(result: dict[str, Any], aspect: str, error: str, probes: dict[str, Any]) -> dict[str, Any]:
+    """Mark every subtest failed with the same error and set the top-level error."""
+    for name in ASPECT_TESTS[aspect]:
+        result["tests"][name] = _failed(error, probes)
+    result["error"] = error
+    return result
+
+
+def _describe_error(e: Exception) -> str:
+    """Return a concise, provider-neutral description of a UFM request failure."""
+    if isinstance(e, HTTPError):
+        return describe_http_error(e)
+    if isinstance(e, URLError):
+        return describe_url_error(e)
+    return str(e)
+
+
 def _event_timestamp(entry: dict[str, Any]) -> str:
     """Return the best available timestamp field from a UFM event entry."""
     for field in ("timestamp", "time", "event_time", "created_at", "date"):
@@ -174,27 +193,13 @@ def check_ufm_event_logs(*, page_size: int = 10) -> dict[str, Any]:
     }
 
     if not ufm_configured():
-        error = "UFM access is not configured; set UFM_ADDRESS and UFM_TOKEN or UFM_USERNAME/UFM_PASSWORD"
-        for name in ASPECT_TESTS["ufm_event_logs"]:
-            result["tests"][name] = _failed(error, probes)
-        result["error"] = error
-        return result
+        return _fail_all(result, "ufm_event_logs", UFM_NOT_CONFIGURED_ERROR, probes)
 
     try:
         auth = resolve_ufm_auth()
         entries = get_event_history(auth, page_number=1, rpp=page_size)
-    except HTTPError as e:
-        error = describe_http_error(e)
-        for name in ASPECT_TESTS["ufm_event_logs"]:
-            result["tests"][name] = _failed(error, probes)
-        result["error"] = error
-        return result
-    except (URLError, UfmAuthError) as e:
-        error = describe_url_error(e) if isinstance(e, URLError) else str(e)
-        for name in ASPECT_TESTS["ufm_event_logs"]:
-            result["tests"][name] = _failed(error, probes)
-        result["error"] = error
-        return result
+    except (HTTPError, URLError, UfmAuthError) as e:
+        return _fail_all(result, "ufm_event_logs", _describe_error(e), probes)
 
     probes = {
         "log_endpoints_checked": 1,
@@ -212,10 +217,7 @@ def check_ufm_event_logs(*, page_size: int = 10) -> dict[str, Any]:
 def _parse_log_lines(content: str) -> tuple[int, str]:
     """Count non-empty log lines and return the latest timestamp-like prefix."""
     lines = [line for line in content.splitlines() if line.strip()]
-    latest_timestamp = ""
-    if lines:
-        candidate = lines[0].split()[0] if lines[0].split() else ""
-        latest_timestamp = candidate
+    latest_timestamp = lines[0].split()[0] if lines else ""
     return len(lines), latest_timestamp
 
 
@@ -230,27 +232,13 @@ def check_ufm_log_text(*, aspect: str, log_type: str, log_source: str, length: i
     }
 
     if not ufm_configured():
-        error = "UFM access is not configured; set UFM_ADDRESS and UFM_TOKEN or UFM_USERNAME/UFM_PASSWORD"
-        for name in ASPECT_TESTS[aspect]:
-            result["tests"][name] = _failed(error, probes)
-        result["error"] = error
-        return result
+        return _fail_all(result, aspect, UFM_NOT_CONFIGURED_ERROR, probes)
 
     try:
         auth = resolve_ufm_auth()
         content = get_log_text(auth, log_type, length=length)
-    except HTTPError as e:
-        error = describe_http_error(e)
-        for name in ASPECT_TESTS[aspect]:
-            result["tests"][name] = _failed(error, probes)
-        result["error"] = error
-        return result
-    except (URLError, UfmAuthError) as e:
-        error = describe_url_error(e) if isinstance(e, URLError) else str(e)
-        for name in ASPECT_TESTS[aspect]:
-            result["tests"][name] = _failed(error, probes)
-        result["error"] = error
-        return result
+    except (HTTPError, URLError, UfmAuthError) as e:
+        return _fail_all(result, aspect, _describe_error(e), probes)
 
     entry_count, latest_timestamp = _parse_log_lines(content)
     probes = {

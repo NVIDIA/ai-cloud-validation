@@ -317,58 +317,27 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
     assert items == [{"id": "m-1"}]
 
 
-def test_forge_get_defaults_to_carbide_api_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Legacy NICo sites expose REST paths under /carbide/."""
+@pytest.mark.parametrize(("api_name_env", "segment"), [(None, "carbide"), ("nico", "nico")])
+def test_forge_get_uses_configured_api_name(
+    monkeypatch: pytest.MonkeyPatch, api_name_env: str | None, segment: str
+) -> None:
+    """Legacy NICo sites expose REST paths under /carbide/, updated sites under /nico/."""
     module = _load_nico_client()
     seen: dict[str, str] = {}
 
-    class _Response:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return b"{}"
-
     def fake_urlopen(request, timeout: int = 30):
         seen["url"] = request.full_url
-        return _Response()
+        return _Response({})
 
-    monkeypatch.delenv("NICO_API_NAME", raising=False)
-    monkeypatch.setattr(module, "urlopen", fake_urlopen)
-
-    module.forge_get("ncx", "machine", "tok", base_url="http://127.0.0.1:8080/v2/org")
-
-    assert seen["url"] == "http://127.0.0.1:8080/v2/org/ncx/carbide/machine"
-
-
-def test_forge_get_honors_nico_api_name_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Updated NICo sites expose REST paths under /nico/."""
-    module = _load_nico_client()
-    seen: dict[str, str] = {}
-
-    class _Response:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return b"{}"
-
-    def fake_urlopen(request, timeout: int = 30):
-        seen["url"] = request.full_url
-        return _Response()
-
-    monkeypatch.setenv("NICO_API_NAME", "nico")
+    if api_name_env is None:
+        monkeypatch.delenv("NICO_API_NAME", raising=False)
+    else:
+        monkeypatch.setenv("NICO_API_NAME", api_name_env)
     monkeypatch.setattr(module, "urlopen", fake_urlopen)
 
     module.forge_get("ncx", "site/site-1", "tok", base_url="http://127.0.0.1:8080/v2/org")
 
-    assert seen["url"] == "http://127.0.0.1:8080/v2/org/ncx/nico/site/site-1"
+    assert seen["url"] == f"http://127.0.0.1:8080/v2/org/ncx/{segment}/site/site-1"
 
 
 @pytest.mark.parametrize(

@@ -90,3 +90,21 @@ tests:
 
   settings:
     region: ""
+
+  # Only the UFM fabric and switch log steps are wired today. Exclude the
+  # imported suite checks whose steps (flow logs, host syslogs, BMC planes,
+  # telemetry planes) NICo does not run yet. Exclude by validation name so
+  # the wired fabric and switch checks are not suppressed by broad labels.
+  exclude:
+    labels: []
+    tests:
+      - VpcFlowLogsCheck
+      - HostSyslogCheck
+      - BmcSelLogsCheck
+      - BmcGpuTelemetryCheck
+      - TelemetryDeliveryLatencyCheck
+      - NorthSouthNetworkTelemetryCheck
+      - EastWestNetworkTelemetryCheck
+      - ManagementNetworkTelemetryCheck
+      - NvswitchFabricTelemetryCheck
+      - HostNicNetworkTelemetryCheck

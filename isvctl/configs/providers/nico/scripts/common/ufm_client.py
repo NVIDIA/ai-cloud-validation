@@ -182,11 +182,6 @@ def get_event_history(
     Returns:
         Parsed list of event log entries from the UFM response ``content`` field.
     """
-    if page_number < 1:
-        raise UfmAuthError("page_number must be at least 1")
-    if rpp < 1:
-        raise UfmAuthError("rpp must be at least 1")
-
     response = ufm_get(
         f"app/logs/history_events?page_number={page_number}&rpp={rpp}",
         auth,

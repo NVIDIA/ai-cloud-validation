@@ -45,14 +45,6 @@ ASPECT_TESTS: dict[str, list[str]] = {
     ],
 }
 
-NETWORK_PLANES = {
-    "north_south_network_telemetry": "north_south",
-    "east_west_network_telemetry": "east_west",
-    "management_network_telemetry": "management",
-    "nvswitch_fabric_telemetry": "nvswitch_fabric",
-    "host_nic_network_telemetry": "host_nic",
-}
-
 DEMO_PROBES: dict[str, dict[str, Any]] = {
     "north_south_network_telemetry": {
         "telemetry_source": "demo-north-south-telemetry",
@@ -94,7 +86,6 @@ def _base_result(aspect: str) -> dict[str, Any]:
         "success": False,
         "platform": "observability",
         "test_name": aspect,
-        "network_plane": NETWORK_PLANES[aspect],
         "tests": {name: {"passed": False} for name in ASPECT_TESTS[aspect]},
     }
 

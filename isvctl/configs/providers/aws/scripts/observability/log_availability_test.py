@@ -86,6 +86,19 @@ AWS_NO_CUSTOMER_FABRIC_MESSAGE = (
     "AWS EC2/EKS tenants do not receive customer-accessible UFM event logs or switch fabric logs"
 )
 
+# Aspects AWS does not expose to tenants, and the count-probe field each
+# aspect's validation expects in the provider-hidden evidence.
+HIDDEN_ASPECT_PROBE_FIELDS: dict[str, str] = {
+    "bmc_sel_logs": "bmc_endpoints_checked",
+    "bmc_gpu_telemetry": "bmc_endpoints_checked",
+    "ufm_event_logs": "log_endpoints_checked",
+    "fabric_manager_logs": "log_endpoints_checked",
+    "subnet_manager_logs": "log_endpoints_checked",
+    "general_switch_logs": "switches_checked",
+    "switch_syslogs": "switches_checked",
+    "switch_kernel_logs": "switches_checked",
+}
+
 
 def _passed(message: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a passing subtest result."""
@@ -103,30 +116,13 @@ def _failed(error: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     return result
 
 
-def _provider_hidden(test_name: str, *, region: str) -> dict[str, Any]:
-    """Build a passing provider-hidden subtest result for AWS BMC observability."""
-    return {
-        "passed": True,
-        "provider_hidden": True,
-        "probes": {"bmc_endpoints_checked": 0},
-        "message": (f"{test_name}: {AWS_NO_CUSTOMER_BMC_MESSAGE} in region {region}; BMC plane is provider-owned."),
-    }
-
-
-def _fabric_provider_hidden(
-    test_name: str,
-    *,
-    region: str,
-    probe_field: str,
-) -> dict[str, Any]:
-    """Build a passing provider-hidden subtest result for AWS fabric observability."""
+def _provider_hidden(test_name: str, *, probe_field: str, message: str) -> dict[str, Any]:
+    """Build a passing provider-hidden subtest result."""
     return {
         "passed": True,
         "provider_hidden": True,
         "probes": {probe_field: 0},
-        "message": (
-            f"{test_name}: {AWS_NO_CUSTOMER_FABRIC_MESSAGE} in region {region}; fabric plane is provider-owned."
-        ),
+        "message": f"{test_name}: {message}",
     }
 
 
@@ -353,84 +349,17 @@ def check_host_syslogs(host: str, ssh_user: str, key_file: str, *, max_age_minut
     return result
 
 
-def check_bmc_sel_logs(*, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for customer-inaccessible BMC SEL logs."""
-    result = _base_result("bmc_sel_logs")
-    result["success"] = True
-    result["tests"] = {name: _provider_hidden(name, region=region) for name in ASPECT_TESTS["bmc_sel_logs"]}
-    return result
-
-
-def check_bmc_gpu_telemetry(*, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for customer-inaccessible BMC GPU telemetry."""
-    result = _base_result("bmc_gpu_telemetry")
-    result["success"] = True
-    result["tests"] = {name: _provider_hidden(name, region=region) for name in ASPECT_TESTS["bmc_gpu_telemetry"]}
-    return result
-
-
-def check_ufm_event_logs(*, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for customer-inaccessible UFM event logs."""
-    result = _base_result("ufm_event_logs")
+def check_provider_hidden_aspect(aspect: str, *, region: str) -> dict[str, Any]:
+    """Emit AWS provider-hidden evidence for a customer-inaccessible aspect."""
+    if aspect.startswith("bmc_"):
+        message = f"{AWS_NO_CUSTOMER_BMC_MESSAGE} in region {region}; BMC plane is provider-owned."
+    else:
+        message = f"{AWS_NO_CUSTOMER_FABRIC_MESSAGE} in region {region}; fabric plane is provider-owned."
+    result = _base_result(aspect)
     result["success"] = True
     result["tests"] = {
-        name: _fabric_provider_hidden(name, region=region, probe_field="log_endpoints_checked")
-        for name in ASPECT_TESTS["ufm_event_logs"]
-    }
-    return result
-
-
-def check_fabric_manager_logs(*, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for customer-inaccessible Fabric Manager logs."""
-    result = _base_result("fabric_manager_logs")
-    result["success"] = True
-    result["tests"] = {
-        name: _fabric_provider_hidden(name, region=region, probe_field="log_endpoints_checked")
-        for name in ASPECT_TESTS["fabric_manager_logs"]
-    }
-    return result
-
-
-def check_subnet_manager_logs(*, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for customer-inaccessible Subnet Manager logs."""
-    result = _base_result("subnet_manager_logs")
-    result["success"] = True
-    result["tests"] = {
-        name: _fabric_provider_hidden(name, region=region, probe_field="log_endpoints_checked")
-        for name in ASPECT_TESTS["subnet_manager_logs"]
-    }
-    return result
-
-
-def check_general_switch_logs(*, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for customer-inaccessible switch logs."""
-    result = _base_result("general_switch_logs")
-    result["success"] = True
-    result["tests"] = {
-        name: _fabric_provider_hidden(name, region=region, probe_field="switches_checked")
-        for name in ASPECT_TESTS["general_switch_logs"]
-    }
-    return result
-
-
-def check_switch_syslogs(*, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for customer-inaccessible switch syslogs."""
-    result = _base_result("switch_syslogs")
-    result["success"] = True
-    result["tests"] = {
-        name: _fabric_provider_hidden(name, region=region, probe_field="switches_checked")
-        for name in ASPECT_TESTS["switch_syslogs"]
-    }
-    return result
-
-
-def check_switch_kernel_logs(*, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for customer-inaccessible switch kernel logs."""
-    result = _base_result("switch_kernel_logs")
-    result["success"] = True
-    result["tests"] = {
-        name: _fabric_provider_hidden(name, region=region, probe_field="switches_checked")
-        for name in ASPECT_TESTS["switch_kernel_logs"]
+        name: _provider_hidden(name, probe_field=HIDDEN_ASPECT_PROBE_FIELDS[aspect], message=message)
+        for name in ASPECT_TESTS[aspect]
     }
     return result
 
@@ -477,22 +406,8 @@ def main() -> int:
             args.key_file,
             max_age_minutes=args.max_age_minutes,
         )
-    elif args.aspect == "bmc_sel_logs":
-        result = check_bmc_sel_logs(region=args.region)
-    elif args.aspect == "bmc_gpu_telemetry":
-        result = check_bmc_gpu_telemetry(region=args.region)
-    elif args.aspect == "ufm_event_logs":
-        result = check_ufm_event_logs(region=args.region)
-    elif args.aspect == "fabric_manager_logs":
-        result = check_fabric_manager_logs(region=args.region)
-    elif args.aspect == "subnet_manager_logs":
-        result = check_subnet_manager_logs(region=args.region)
-    elif args.aspect == "general_switch_logs":
-        result = check_general_switch_logs(region=args.region)
-    elif args.aspect == "switch_syslogs":
-        result = check_switch_syslogs(region=args.region)
-    elif args.aspect == "switch_kernel_logs":
-        result = check_switch_kernel_logs(region=args.region)
+    elif args.aspect in HIDDEN_ASPECT_PROBE_FIELDS:
+        result = check_provider_hidden_aspect(args.aspect, region=args.region)
     else:
         raise ValueError(f"unsupported aspect: {args.aspect}")
 

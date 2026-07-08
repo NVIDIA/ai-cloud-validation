@@ -598,95 +598,72 @@ def test_host_syslogs_aspect_fails_when_ssh_is_unavailable(monkeypatch: Any) -> 
     assert "SSH" in result["tests"]["syslog_endpoint_reachable"]["error"]
 
 
-def test_bmc_sel_logs_aspect_emits_provider_hidden_contract() -> None:
-    """AWS BMC SEL observability reports provider-hidden evidence instead of being excluded."""
-    script = _load_script("log_availability_test.py")
-
-    result = script.check_bmc_sel_logs(region="us-west-2")
-
-    assert result["success"] is True
-    assert result["platform"] == "observability"
-    assert result["test_name"] == "bmc_sel_logs"
-    assert "bmc_endpoints_checked" not in result
-    assert "provider_hidden" not in result
-    assert set(result["tests"]) == {
-        "sel_log_endpoint_reachable",
-        "sel_log_source_present",
-        "sel_entries_queryable",
-    }
-    for subtest in result["tests"].values():
-        assert subtest["passed"] is True
-        assert subtest["provider_hidden"] is True
-        assert subtest["probes"]["bmc_endpoints_checked"] == 0
-        assert "provider-owned" in subtest["message"]
-
-
-def test_bmc_gpu_telemetry_aspect_emits_provider_hidden_contract() -> None:
-    """AWS BMC GPU telemetry reports provider-hidden evidence instead of being excluded."""
-    script = _load_script("log_availability_test.py")
-
-    result = script.check_bmc_gpu_telemetry(region="us-west-2")
-
-    assert result["success"] is True
-    assert result["platform"] == "observability"
-    assert result["test_name"] == "bmc_gpu_telemetry"
-    assert "bmc_endpoints_checked" not in result
-    assert "provider_hidden" not in result
-    assert set(result["tests"]) == {
-        "telemetry_endpoint_reachable",
-        "gpu_metrics_present",
-        "host_os_gap_identified",
-        "telemetry_samples_recent",
-    }
-    for subtest in result["tests"].values():
-        assert subtest["passed"] is True
-        assert subtest["provider_hidden"] is True
-        assert subtest["probes"]["bmc_endpoints_checked"] == 0
-        assert "provider-owned" in subtest["message"]
-
-
-def test_ufm_event_logs_aspect_emits_provider_hidden_contract() -> None:
-    """AWS UFM event logs report provider-hidden evidence instead of being excluded."""
-    script = _load_script("log_availability_test.py")
-
-    result = script.check_ufm_event_logs(region="us-west-2")
-
-    assert result["success"] is True
-    assert result["platform"] == "observability"
-    assert result["test_name"] == "ufm_event_logs"
-    assert set(result["tests"]) == {
-        "event_log_endpoint_reachable",
-        "event_log_source_present",
-        "event_entries_queryable",
-    }
-    for subtest in result["tests"].values():
-        assert subtest["passed"] is True
-        assert subtest["provider_hidden"] is True
-        assert subtest["probes"]["log_endpoints_checked"] == 0
-        assert "provider-owned" in subtest["message"]
-
-
 @pytest.mark.parametrize(
-    ("aspect", "checker"),
+    ("aspect", "expected_tests", "probe_field"),
     [
-        ("general_switch_logs", "check_general_switch_logs"),
-        ("switch_syslogs", "check_switch_syslogs"),
-        ("switch_kernel_logs", "check_switch_kernel_logs"),
+        (
+            "bmc_sel_logs",
+            {"sel_log_endpoint_reachable", "sel_log_source_present", "sel_entries_queryable"},
+            "bmc_endpoints_checked",
+        ),
+        (
+            "bmc_gpu_telemetry",
+            {
+                "telemetry_endpoint_reachable",
+                "gpu_metrics_present",
+                "host_os_gap_identified",
+                "telemetry_samples_recent",
+            },
+            "bmc_endpoints_checked",
+        ),
+        (
+            "ufm_event_logs",
+            {"event_log_endpoint_reachable", "event_log_source_present", "event_entries_queryable"},
+            "log_endpoints_checked",
+        ),
+        (
+            "fabric_manager_logs",
+            {"log_endpoint_reachable", "log_source_present", "log_entries_queryable"},
+            "log_endpoints_checked",
+        ),
+        (
+            "subnet_manager_logs",
+            {"log_endpoint_reachable", "log_source_present", "log_entries_queryable"},
+            "log_endpoints_checked",
+        ),
+        (
+            "general_switch_logs",
+            {"log_endpoint_reachable", "switch_log_source_present", "entries_queryable"},
+            "switches_checked",
+        ),
+        (
+            "switch_syslogs",
+            {"syslog_endpoint_reachable", "switch_syslog_source_present", "entries_recent"},
+            "switches_checked",
+        ),
+        (
+            "switch_kernel_logs",
+            {"log_endpoint_reachable", "kernel_log_source_present", "entries_queryable"},
+            "switches_checked",
+        ),
     ],
 )
-def test_switch_log_aspects_emit_provider_hidden_contract(aspect: str, checker: str) -> None:
-    """AWS switch log aspects report provider-hidden evidence."""
+def test_hidden_aspects_emit_provider_hidden_contract(aspect: str, expected_tests: set[str], probe_field: str) -> None:
+    """AWS provider-hidden aspects report evidence instead of being excluded."""
     script = _load_script("log_availability_test.py")
 
-    result = getattr(script, checker)(region="us-west-2")
+    result = script.check_provider_hidden_aspect(aspect, region="us-west-2")
 
     assert result["success"] is True
     assert result["platform"] == "observability"
     assert result["test_name"] == aspect
+    assert probe_field not in result
+    assert "provider_hidden" not in result
+    assert set(result["tests"]) == expected_tests
     for subtest in result["tests"].values():
         assert subtest["passed"] is True
         assert subtest["provider_hidden"] is True
-        assert subtest["probes"]["switches_checked"] == 0
+        assert subtest["probes"][probe_field] == 0
         assert "provider-owned" in subtest["message"]
 
 
@@ -790,26 +767,6 @@ def test_telemetry_delivery_fails_without_datapoints() -> None:
     assert result["tests"]["telemetry_endpoint_reachable"]["passed"] is True
 
 
-class FakeNetworkTelemetryCloudWatch:
-    """Fake CloudWatch client for network telemetry probes."""
-
-    def __init__(self, *, metrics: list[dict[str, Any]], statistics_sequence: list[list[dict[str, Any]]]) -> None:
-        """Initialize fake client state."""
-        self.metrics = metrics
-        self.statistics_sequence = list(statistics_sequence)
-        self.list_dimensions: list[list[dict[str, str]]] = []
-
-    def list_metrics(self, *, Namespace: str, MetricName: str, Dimensions: list[dict[str, str]]) -> dict[str, Any]:
-        """Record requested dimensions and return the configured metrics."""
-        self.list_dimensions.append(Dimensions)
-        return {"Metrics": self.metrics}
-
-    def get_metric_statistics(self, **kwargs: Any) -> dict[str, Any]:
-        """Return the next scripted datapoint batch, reusing the last when exhausted."""
-        datapoints = self.statistics_sequence.pop(0) if self.statistics_sequence else []
-        return {"Datapoints": datapoints}
-
-
 class FakeDescribeInstancesEc2:
     """Fake EC2 client returning a fixed NIC count for an instance."""
 
@@ -821,7 +778,11 @@ class FakeDescribeInstancesEc2:
         """Return an instance with ``nic_count`` network interfaces."""
         return {
             "Reservations": [
-                {"Instances": [{"NetworkInterfaces": [{"NetworkInterfaceId": f"eni-{i}"} for i in range(self.nic_count)]}]}
+                {
+                    "Instances": [
+                        {"NetworkInterfaces": [{"NetworkInterfaceId": f"eni-{i}"} for i in range(self.nic_count)]}
+                    ]
+                }
             ]
         }
 
@@ -829,9 +790,13 @@ class FakeDescribeInstancesEc2:
 def test_north_south_telemetry_scopes_to_instance_and_polls() -> None:
     """North-South probe scopes to the instance and polls for samples."""
     script = _load_script("network_telemetry_test.py")
-    metric = {"Namespace": "AWS/EC2", "MetricName": "NetworkPacketsIn", "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}]}
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
     # First scan finds nothing (both packet metrics), second scan finds a datapoint.
-    cloudwatch = FakeNetworkTelemetryCloudWatch(
+    cloudwatch = FakeCloudWatchClient(
         metrics=[metric],
         statistics_sequence=[[], [], [_recent_datapoint(30)], []],
     )
@@ -840,9 +805,7 @@ def test_north_south_telemetry_scopes_to_instance_and_polls() -> None:
     result = script._check_plane_telemetry(
         cloudwatch,
         aspect="north_south_network_telemetry",
-        region="us-west-2",
         network_id="vpc-123",
-        dimension_name="InstanceId",
         instance_id="i-123",
         poll_timeout_seconds=60,
         poll_interval_seconds=1,
@@ -860,15 +823,19 @@ def test_north_south_telemetry_scopes_to_instance_and_polls() -> None:
 def test_host_nic_telemetry_scopes_to_instance_nics() -> None:
     """Host NIC probe uses instance-level metrics and reports the instance NIC count."""
     script = _load_script("network_telemetry_test.py")
-    metric = {"Namespace": "AWS/EC2", "MetricName": "NetworkPacketsIn", "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}]}
-    cloudwatch = FakeNetworkTelemetryCloudWatch(
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    cloudwatch = FakeCloudWatchClient(
         metrics=[metric],
         statistics_sequence=[[_recent_datapoint(20)]],
     )
 
-    result = script._check_host_nic_telemetry(
+    result = script._check_plane_telemetry(
         cloudwatch,
-        region="us-west-2",
+        aspect="host_nic_network_telemetry",
         network_id="vpc-123",
         instance_id="i-123",
         ec2=FakeDescribeInstancesEc2(nic_count=2),
@@ -876,6 +843,7 @@ def test_host_nic_telemetry_scopes_to_instance_nics() -> None:
 
     assert result["success"] is True
     assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
+    assert result["tests"]["nic_metrics_present"]["passed"] is True
     probes = result["tests"]["samples_recent"]["probes"]
     assert probes["nics_checked"] == 2
     assert probes["sample_count"] == 1

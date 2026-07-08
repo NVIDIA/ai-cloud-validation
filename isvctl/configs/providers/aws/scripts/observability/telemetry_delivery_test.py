@@ -12,7 +12,7 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import boto3
 from botocore.exceptions import ClientError
+from common.cloudwatch import newest_datapoint_timestamp, scan_recent_datapoints
 from common.errors import handle_aws_errors
 
 ASPECT_TESTS = [
@@ -35,7 +36,6 @@ ASPECT_TESTS = [
 DEFAULT_MAX_DELIVERY_SECONDS = 300
 DEFAULT_POLL_TIMEOUT_SECONDS = 240
 DEFAULT_POLL_INTERVAL_SECONDS = 20
-SAMPLE_WINDOW_SECONDS = 600
 
 
 def _base_result() -> dict[str, Any]:
@@ -64,45 +64,19 @@ def _failed(error: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     return result
 
 
-def _newest_datapoint_age_seconds(datapoints: list[dict[str, Any]]) -> tuple[int, str]:
-    """Return age in seconds and ISO timestamp for the newest datapoint."""
-    if not datapoints:
-        return -1, ""
-    newest = max(datapoints, key=lambda point: point["Timestamp"])
-    timestamp = newest["Timestamp"]
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=UTC)
-    age = int((datetime.now(UTC) - timestamp).total_seconds())
-    return age, timestamp.isoformat()
-
-
 def _scan_newest_datapoint(cloudwatch: Any, metrics: list[dict[str, Any]]) -> tuple[int, str, int]:
     """Return (age_seconds, iso_timestamp, sample_count) for the freshest datapoint."""
-    end_time = datetime.now(UTC)
-    start_time = end_time - timedelta(seconds=SAMPLE_WINDOW_SECONDS)
     newest_age = -1
     newest_timestamp = ""
     sample_count = 0
-    for metric in metrics[:20]:
-        try:
-            response = cloudwatch.get_metric_statistics(
-                Namespace=metric["Namespace"],
-                MetricName=metric["MetricName"],
-                Dimensions=metric.get("Dimensions", []),
-                StartTime=start_time,
-                EndTime=end_time,
-                Period=60,
-                Statistics=["Sum"],
-            )
-        except ClientError:
+    for datapoints in scan_recent_datapoints(cloudwatch, metrics):
+        timestamp = newest_datapoint_timestamp(datapoints)
+        if timestamp is None:
             continue
-        datapoints = response.get("Datapoints", [])
-        if not datapoints:
-            continue
-        age, timestamp = _newest_datapoint_age_seconds(datapoints)
+        age = int((datetime.now(UTC) - timestamp).total_seconds())
         if age >= 0 and (newest_age < 0 or age < newest_age):
             newest_age = age
-            newest_timestamp = timestamp
+            newest_timestamp = timestamp.isoformat()
             sample_count = len(datapoints)
     return newest_age, newest_timestamp, sample_count
 
@@ -159,14 +133,17 @@ def check_telemetry_delivery_latency(
         probes,
     )
 
+    # A freshly launched instance appears in ListMetrics only after its first
+    # datapoint is ingested, so the metric list is refreshed while it is empty.
     deadline = time.monotonic() + max(poll_timeout_seconds, 0)
     newest_age, newest_timestamp, sample_count = _scan_newest_datapoint(cloudwatch, metrics)
     while newest_age < 0 and time.monotonic() < deadline:
         sleep(poll_interval_seconds)
-        try:
-            metrics = _list_metrics()
-        except ClientError:
-            continue
+        if not metrics:
+            try:
+                metrics = _list_metrics()
+            except ClientError:
+                continue
         newest_age, newest_timestamp, sample_count = _scan_newest_datapoint(cloudwatch, metrics)
 
     probes = {

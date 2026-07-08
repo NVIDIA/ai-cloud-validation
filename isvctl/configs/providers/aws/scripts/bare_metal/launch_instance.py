@@ -332,7 +332,6 @@ def main() -> int:
         result["state"] = instance["State"]["Name"]
         result["vpc_id"] = vpc_id
         result["availability_zone"] = instance.get("Placement", {}).get("AvailabilityZone")
-        result["monitoring"] = instance.get("Monitoring", {}).get("State", "disabled")
         result["success"] = True
 
     except Exception as e:

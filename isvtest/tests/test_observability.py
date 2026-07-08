@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from isvtest.core.validation import BaseValidation
 from isvtest.validations.observability import (
     BmcGpuTelemetryCheck,
     BmcSelLogsCheck,
@@ -50,14 +51,18 @@ def _tests(names: list[str], probes: dict[str, Any] | None = None) -> dict[str, 
     return {name: dict(test_result) for name in names}
 
 
-def _provider_hidden_tests(names: list[str]) -> dict[str, dict[str, Any]]:
+def _provider_hidden_tests(
+    names: list[str],
+    probe_field: str = "bmc_endpoints_checked",
+    message: str = "AWS BMC plane is provider-owned",
+) -> dict[str, dict[str, Any]]:
     """Build a passing tests map for provider-hidden evidence."""
     return {
         name: {
             "passed": True,
             "provider_hidden": True,
-            "probes": {"bmc_endpoints_checked": 0},
-            "message": "AWS BMC plane is provider-owned",
+            "probes": {probe_field: 0},
+            "message": message,
         }
         for name in names
     }
@@ -279,38 +284,21 @@ def _switch_kernel_logs_output(**overrides: Any) -> dict[str, Any]:
     return output
 
 
-def _fabric_provider_hidden_tests(names: list[str]) -> dict[str, dict[str, Any]]:
-    """Build a passing tests map for provider-hidden fabric evidence."""
-    return {
-        name: {
-            "passed": True,
-            "provider_hidden": True,
-            "probes": {"switches_checked": 0},
-            "message": "Fabric plane is provider-owned",
-        }
-        for name in names
-    }
-
-
 def _ufm_event_logs_provider_hidden_output() -> dict[str, Any]:
     """Build provider-hidden UFM event log step output."""
     return {
         "success": True,
         "platform": "observability",
         "test_name": "ufm_event_logs",
-        "tests": {
-            name: {
-                "passed": True,
-                "provider_hidden": True,
-                "probes": {"log_endpoints_checked": 0},
-                "message": "UFM plane is provider-owned",
-            }
-            for name in [
+        "tests": _provider_hidden_tests(
+            [
                 "event_log_endpoint_reachable",
                 "event_log_source_present",
                 "event_entries_queryable",
-            ]
-        },
+            ],
+            probe_field="log_endpoints_checked",
+            message="UFM plane is provider-owned",
+        ),
     }
 
 
@@ -429,20 +417,7 @@ def _fabric_manager_logs_output(**overrides: Any) -> dict[str, Any]:
     ],
 )
 def test_observability_checks_pass_with_required_evidence(
-    validation_cls: type[
-        VpcFlowLogsCheck
-        | HostSyslogCheck
-        | BmcSelLogsCheck
-        | BmcGpuTelemetryCheck
-        | UfmEventLogsCheck
-        | FabricManagerLogsCheck
-        | GeneralSwitchLogsCheck
-        | SwitchSyslogCheck
-        | SwitchKernelLogsCheck
-        | TelemetryDeliveryLatencyCheck
-        | NorthSouthNetworkTelemetryCheck
-        | HostNicNetworkTelemetryCheck
-    ],
+    validation_cls: type[BaseValidation],
     step_output: dict[str, Any],
     expected: str,
 ) -> None:
@@ -465,8 +440,10 @@ def test_observability_checks_pass_with_required_evidence(
                 "success": True,
                 "platform": "observability",
                 "test_name": "general_switch_logs",
-                "tests": _fabric_provider_hidden_tests(
-                    ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"]
+                "tests": _provider_hidden_tests(
+                    ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"],
+                    probe_field="switches_checked",
+                    message="Fabric plane is provider-owned",
                 ),
             },
             "provider-hidden",
@@ -474,7 +451,7 @@ def test_observability_checks_pass_with_required_evidence(
     ],
 )
 def test_bmc_observability_checks_pass_with_provider_hidden_evidence(
-    validation_cls: type[BmcSelLogsCheck | BmcGpuTelemetryCheck | UfmEventLogsCheck | GeneralSwitchLogsCheck],
+    validation_cls: type[BaseValidation],
     step_output: dict[str, Any],
     expected: str,
 ) -> None:
