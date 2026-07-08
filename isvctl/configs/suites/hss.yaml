@@ -24,12 +24,12 @@
 # the validations pass regardless of which storage vendor/NCP you use.
 #
 # Quick start:
-#   1. Copy providers/my-isv/config/storage.yaml to providers/<your-platform>/config/storage.yaml
+#   1. Copy providers/my-isv/config/hss.yaml to providers/<your-platform>/config/hss.yaml
 #   2. Replace stub paths with your platform scripts
-#   3. Run: uv run isvctl test run -f isvctl/configs/providers/<your-platform>/config/storage.yaml
+#   3. Run: uv run isvctl test run -f isvctl/configs/providers/<your-platform>/config/hss.yaml
 #
 # See also:
-#   - my-isv living example: providers/my-isv/config/storage.yaml
+#   - my-isv living example: providers/my-isv/config/hss.yaml
 #   - Per-step field breakdown: ../suites/README.md
 
 version: "1.0"

@@ -32,6 +32,7 @@ template, then fill in the TODOs.
 | `vm/` | 9 | [`suites/vm.yaml`](../../../suites/vm.yaml) | [`config/vm.yaml`](../config/vm.yaml) | [`providers/aws/scripts/vm/`](../../aws/scripts/vm/) |
 | `bare_metal/` | 12 | [`suites/bare_metal.yaml`](../../../suites/bare_metal.yaml) | [`config/bare_metal.yaml`](../config/bare_metal.yaml) | [`providers/aws/scripts/bare_metal/`](../../aws/scripts/bare_metal/) |
 | `storage/` | 5 | [`suites/storage.yaml`](../../../suites/storage.yaml) | [`config/storage.yaml`](../config/storage.yaml) | [`providers/aws/scripts/storage/`](../../aws/scripts/storage/) |
+| `hss/` | 12 | [`suites/hss.yaml`](../../../suites/hss.yaml) | [`config/hss.yaml`](../config/hss.yaml) | [`providers/aws/scripts/storage/`](../../aws/scripts/storage/) |
 | `network/` | 18 | [`suites/network.yaml`](../../../suites/network.yaml) | [`config/network.yaml`](../config/network.yaml) | [`providers/aws/scripts/network/`](../../aws/scripts/network/) |
 | `observability/` | 1 | [`suites/observability.yaml`](../../../suites/observability.yaml) | [`config/observability.yaml`](../config/observability.yaml) | [`providers/aws/scripts/observability/`](../../aws/scripts/observability/) |
 | `image-registry/` | 7 | [`suites/image-registry.yaml`](../../../suites/image-registry.yaml) | [`config/image-registry.yaml`](../config/image-registry.yaml) | [`providers/aws/scripts/image-registry/`](../../aws/scripts/image-registry/) |
