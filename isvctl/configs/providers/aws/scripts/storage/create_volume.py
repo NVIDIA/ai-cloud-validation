@@ -134,8 +134,7 @@ def main() -> int:
     ec2 = boto3.client("ec2", region_name=args.region)
 
     try:
-        instances = ec2.describe_instances(InstanceIds=[args.instance_id])
-        instance = instances["Reservations"][0]["Instances"][0]
+        instance = ebs.describe_instance(ec2, args.instance_id)
         availability_zone = instance["Placement"]["AvailabilityZone"]
         public_ip = instance.get("PublicIpAddress")
         result["availability_zone"] = availability_zone
@@ -148,7 +147,7 @@ def main() -> int:
         ebs.attach_volume(ec2, volume_id, args.instance_id, args.device)
         ebs.wait_for_volume_in_use(ec2, volume_id)
         operations["attach"]["passed"] = True
-    except (ClientError, BotoCoreError) as e:
+    except (ClientError, BotoCoreError, RuntimeError) as e:
         result["error"] = f"Volume create/attach failed: {e}"
         print(json.dumps(result, indent=2))
         return 1

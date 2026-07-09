@@ -98,8 +98,7 @@ def main() -> int:
         ec2.get_waiter("instance_status_ok").wait(
             InstanceIds=[args.instance_id], WaiterConfig={"Delay": 15, "MaxAttempts": 40}
         )
-        instances = ec2.describe_instances(InstanceIds=[args.instance_id])
-        instance = instances["Reservations"][0]["Instances"][0]
+        instance = ebs.describe_instance(ec2, args.instance_id)
         public_ip = instance.get("PublicIpAddress") or wait_for_public_ip(ec2, args.instance_id)
         if not public_ip:
             _fail(operations["start"], "No public IP after restart")
@@ -112,7 +111,7 @@ def main() -> int:
             print(json.dumps(result, indent=2))
             return 1
         operations["start"]["passed"] = True
-    except (ClientError, BotoCoreError) as e:
+    except (ClientError, BotoCoreError, RuntimeError) as e:
         result["error"] = f"Restart failed: {e}"
         print(json.dumps(result, indent=2))
         return 1

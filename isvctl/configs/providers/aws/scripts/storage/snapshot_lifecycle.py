@@ -92,8 +92,7 @@ def main() -> int:
     snapshot_id: str | None = None
     restored_volume_id: str | None = None
     try:
-        instances = ec2.describe_instances(InstanceIds=[args.instance_id])
-        instance = instances["Reservations"][0]["Instances"][0]
+        instance = ebs.describe_instance(ec2, args.instance_id)
         availability_zone = instance["Placement"]["AvailabilityZone"]
         public_ip = instance.get("PublicIpAddress")
 
@@ -151,7 +150,7 @@ def main() -> int:
 
         result["success"] = all(op["passed"] for op in operations.values())
         return _emit(result, ec2, restored_volume_id, snapshot_id)
-    except (ClientError, BotoCoreError) as e:
+    except (ClientError, BotoCoreError, RuntimeError) as e:
         result["error"] = str(e)
         return _emit(result, ec2, restored_volume_id, snapshot_id)
 

@@ -111,8 +111,8 @@ def main() -> int:
     by_id = ebs.guest_by_id_path(args.volume_id)
 
     try:
-        instances = ec2.describe_instances(InstanceIds=[args.instance_id])
-        public_ip = instances["Reservations"][0]["Instances"][0].get("PublicIpAddress")
+        instance = ebs.describe_instance(ec2, args.instance_id)
+        public_ip = instance.get("PublicIpAddress")
 
         volumes = ec2.describe_volumes(VolumeIds=[args.volume_id])
         old_size = volumes["Volumes"][0]["Size"]
@@ -129,7 +129,7 @@ def main() -> int:
             result["error"] = f"ModifyVolume failed: {e}"
             print(json.dumps(result, indent=2))
             return 1
-    except (ClientError, BotoCoreError) as e:
+    except (ClientError, BotoCoreError, RuntimeError) as e:
         result["error"] = str(e)
         print(json.dumps(result, indent=2))
         return 1
@@ -164,11 +164,15 @@ def main() -> int:
     fs_after = int(after_out.strip()) if rc == 0 and after_out.strip().isdigit() else None
     result["fs_bytes_after"] = fs_after
 
-    ebs_grew = ec2.describe_volumes(VolumeIds=[args.volume_id])["Volumes"][0]["Size"] == result["new_size_gib"]
+    try:
+        ebs_grew = ec2.describe_volumes(VolumeIds=[args.volume_id])["Volumes"][0]["Size"] == result["new_size_gib"]
+    except (ClientError, BotoCoreError) as e:
+        _fail(operations["verify_size"], f"Could not verify final volume size: {e}")
+        ebs_grew = False
     fs_grew = fs_before is not None and fs_after is not None and fs_after > fs_before
     if ebs_grew and fs_grew:
         operations["verify_size"]["passed"] = True
-    else:
+    elif "error" not in operations["verify_size"]:
         _fail(
             operations["verify_size"],
             f"Size did not grow as expected (ebs_grew={ebs_grew}, fs_before={fs_before}, fs_after={fs_after})",

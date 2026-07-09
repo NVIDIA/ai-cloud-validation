@@ -60,6 +60,9 @@ def main() -> int:
     parser.add_argument("--grow-gib", type=int, default=5, help="GiB to add to the volume")
     args = parser.parse_args()
 
+    if args.grow_gib <= 0:
+        parser.error("--grow-gib must be positive")
+
     operations: dict[str, dict[str, Any]] = {
         "modify_volume": {"passed": False},
         "grow_partition": {"passed": False},

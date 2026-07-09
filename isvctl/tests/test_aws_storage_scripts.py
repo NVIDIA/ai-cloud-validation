@@ -143,6 +143,18 @@ def test_nvme_serial_and_by_id_path_drop_dash() -> None:
     )
 
 
+def test_describe_instance_raises_when_missing() -> None:
+    """An empty DescribeInstances response surfaces as RuntimeError."""
+    module = _load_script("create_volume.py")
+
+    class EmptyEc2:
+        def describe_instances(self, InstanceIds: list[str]) -> dict[str, Any]:
+            return {"Reservations": []}
+
+    with pytest.raises(RuntimeError, match="Instance not found"):
+        module.ebs.describe_instance(EmptyEc2(), "i-gone")
+
+
 def test_detach_and_delete_volume_treats_missing_as_gone() -> None:
     """A volume that is already gone is a successful cleanup (returns None)."""
     module = _load_script("teardown_volume.py")
@@ -217,6 +229,27 @@ def test_create_volume_guest_setup_failure_fails_step(
     assert exit_code == 1
     assert payload["success"] is False
     assert payload["operations"]["format"]["passed"] is False
+
+
+def test_create_volume_missing_instance_emits_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A missing fixture instance returns JSON instead of an IndexError."""
+    module = _load_script("create_volume.py")
+
+    class EmptyEc2:
+        def describe_instances(self, InstanceIds: list[str]) -> dict[str, Any]:
+            return {"Reservations": []}
+
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **k: EmptyEc2())
+    monkeypatch.setattr(sys, "argv", ["create_volume.py", "--instance-id", "i-gone", "--key-file", "/tmp/k.pem"])
+
+    exit_code = module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["success"] is False
+    assert "Instance not found" in payload["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +435,50 @@ def test_volume_resize_growpart_failure_fails_step(
     assert payload["success"] is False
     assert payload["operations"]["grow_partition"]["passed"] is False
     assert payload["operations"]["resize_filesystem"]["passed"] is False
+
+
+def test_volume_resize_final_size_api_error_fails_step(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A transient API error on the final size check fails verify_size cleanly."""
+    module = _load_script("volume_resize.py")
+
+    class FlakyEc2(FakeEc2):
+        def __init__(self) -> None:
+            super().__init__(volume_size=10)
+            self.describe_count = 0
+
+        def describe_volumes(self, VolumeIds: list[str]) -> dict[str, Any]:
+            self.describe_count += 1
+            if self.describe_count >= 2:
+                raise _client_error("InternalError")
+            return super().describe_volumes(VolumeIds)
+
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **k: FlakyEc2())
+    monkeypatch.setattr(module.ebs, "wait_for_modification_complete", lambda *a, **k: "completed")
+    monkeypatch.setattr(module, "wait_for_ssh", lambda *a, **k: True)
+
+    sizes = iter(["10000000000", "15000000000"])
+
+    def fake_ssh(host: str, user: str, key: str, script: str, **kwargs: Any) -> tuple[int, str, str]:
+        if "df -B1" in script:
+            return (0, next(sizes), "")
+        return (0, "", "")
+
+    monkeypatch.setattr(module, "ssh_run", fake_ssh)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["volume_resize.py", "--instance-id", "i-fixture", "--volume-id", "vol-fixture", "--key-file", "/tmp/k.pem"],
+    )
+
+    exit_code = module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["success"] is False
+    assert payload["operations"]["verify_size"]["passed"] is False
+    assert "Could not verify final volume size" in payload["operations"]["verify_size"]["error"]
 
 
 # ---------------------------------------------------------------------------

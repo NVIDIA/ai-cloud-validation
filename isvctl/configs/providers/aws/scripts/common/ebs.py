@@ -58,6 +58,20 @@ def guest_by_id_path(volume_id: str) -> str:
     return f"/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_{nvme_serial_for_volume(volume_id)}"
 
 
+def describe_instance(ec2: Any, instance_id: str) -> dict[str, Any]:
+    """Return the instance dict for ``instance_id``.
+
+    Raises:
+        RuntimeError: When ``describe_instances`` returns no matching instance
+            (for example after termination, when the ID is stale).
+    """
+    response = ec2.describe_instances(InstanceIds=[instance_id])
+    reservations = response.get("Reservations", [])
+    if not reservations or not reservations[0].get("Instances"):
+        raise RuntimeError(f"Instance not found: {instance_id}")
+    return reservations[0]["Instances"][0]
+
+
 def _tag_spec(resource_type: str, name: str) -> dict[str, Any]:
     """Build a TagSpecifications entry carrying the Name and ownership tags."""
     return {
