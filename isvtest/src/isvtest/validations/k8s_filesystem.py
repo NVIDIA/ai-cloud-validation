@@ -208,9 +208,10 @@ _RE_PROVE_RESULT = re.compile(r"^Result:\s*(PASS|FAIL)\s*$", re.MULTILINE)
 # prove footer: "Files=238, Tests=12345, 30 wallclock secs (...)".
 _RE_PROVE_FILES_TESTS = re.compile(r"^Files=(\d+),\s*Tests=(\d+)", re.MULTILINE)
 # Per-file failure lines in the "Test Summary Report" block, e.g.
-# "tests/chmod/12.t (Wstat: 0 Tests: 203 Failed: 1)".
+# "tests/chmod/12.t (Wstat: 0 Tests: 203 Failed: 1)". A non-zero Wstat marks a
+# file prove deemed "Dubious" (crashed / exited non-zero) even when Failed is 0.
 _RE_PROVE_FAILED_FILE = re.compile(
-    r"^(\S+\.t)\s+\(Wstat:\s*\d+\s+Tests:\s*(\d+)\s+Failed:\s*(\d+)\)",
+    r"^(\S+\.t)\s+\(Wstat:\s*(\d+)\s+Tests:\s*(\d+)\s+Failed:\s*(\d+)\)",
     re.MULTILINE,
 )
 # Per-file lines: progress lines ("<path>.t ..... ok") during the run and the
@@ -232,6 +233,8 @@ class PjdfstestResult:
     success: bool
     files_total: int = 0
     tests_total: int = 0
+    # (file, failed_subtest_count). A count of 0 means the file failed only by a
+    # non-zero Wstat (crashed / dubious exit), not by a failing subtest.
     failed_files: list[tuple[str, int]] = field(default_factory=list)
     all_files: list[str] = field(default_factory=list)
     result: str = ""  # "PASS" | "FAIL" | ""
@@ -252,8 +255,15 @@ def parse_pjdfstest_output(output: str) -> PjdfstestResult:
         A :class:`PjdfstestResult`. ``success`` is False (with ``error`` set)
         when no recognizable prove summary is present.
     """
+    # A Test Summary Report entry is a failure when subtests failed OR when the
+    # file exited non-zero / died from a signal (non-zero Wstat), which prove
+    # flags as "Dubious" even with Failed: 0. Record the failed-subtest count
+    # (0 for a Wstat-only failure); the presence in this list, not the count,
+    # is what marks the file failed.
     failed_files = [
-        (name, int(failed)) for name, _tests, failed in _RE_PROVE_FAILED_FILE.findall(output) if int(failed) > 0
+        (name, int(failed))
+        for name, wstat, _tests, failed in _RE_PROVE_FAILED_FILE.findall(output)
+        if int(failed) > 0 or int(wstat) != 0
     ]
 
     # Enumerate every test file (progress + summary lines), preserving first-seen
@@ -1115,9 +1125,11 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
     def _is_podsecurity_denial(text: str) -> bool:
         """Return True when ``text`` looks like a Pod Security admission rejection."""
         low = (text or "").lower()
-        if "podsecurity" in low or "violates" in low:
+        if "podsecurity" in low or "pod security" in low:
             return True
-        return "privileged" in low and ("forbidden" in low or "not allowed" in low or "denied" in low)
+        return "privileged" in low and (
+            "forbidden" in low or "not allowed" in low or "denied" in low or "violates" in low
+        )
 
     def _apply_posix_pod(self, name: str, pvc_name: str) -> tuple[int, str]:
         image = str(self.config.get("image") or _DEFAULT_BUILD_IMAGE)
@@ -1242,9 +1254,14 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
             # complete per-file POSIX-compliance record, not just the failures.
             failed_map = dict(result.failed_files)
             for fname in result.all_files:
-                nfailed = failed_map.get(fname, 0)
-                if nfailed:
-                    self.report_subtest(fname, passed=False, message=f"{nfailed} POSIX subtest(s) failed")
+                if fname in failed_map:
+                    nfailed = failed_map[fname]
+                    message = (
+                        f"{nfailed} POSIX subtest(s) failed"
+                        if nfailed
+                        else "non-zero exit status (crashed / dubious)"
+                    )
+                    self.report_subtest(fname, passed=False, message=message)
                 else:
                     self.report_subtest(fname, passed=True)
 

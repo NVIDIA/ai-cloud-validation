@@ -544,6 +544,22 @@ _PROVE_FAIL = (
     "Result: FAIL\n"
 )
 
+# A file whose subtests all pass but that exits non-zero: prove flags it
+# "Dubious" and reports a non-zero Wstat with Failed: 0. It must still be
+# treated as a failed file.
+_PROVE_FAIL_WSTAT = (
+    "tests/open/00.t .. ok\n"
+    "tests/chmod/01.t .. Dubious, test returned 1 (wstat 256, 0x100)\n"
+    "All 5 subtests passed\n"
+    "\n"
+    "Test Summary Report\n"
+    "-------------------\n"
+    "tests/chmod/01.t (Wstat: 256 Tests: 5 Failed: 0)\n"
+    "  Non-zero exit status: 1\n"
+    "Files=238, Tests=8000, 50 wallclock secs ( ... )\n"
+    "Result: FAIL\n"
+)
+
 
 class TestParsePjdfstest:
     def test_pass_output(self) -> None:
@@ -568,6 +584,16 @@ class TestParsePjdfstest:
         # Every file is enumerated once (progress + summary lines deduped),
         # preserving execution order, including the passing file.
         assert r.all_files == ["tests/open/00.t", "tests/chmod/12.t", "tests/open/05.t"]
+
+    def test_nonzero_wstat_with_zero_failed_is_a_failure(self) -> None:
+        # A file that prove marks "Dubious" (non-zero Wstat, Failed: 0) must be
+        # recorded as a failed file (with a 0 subtest count) so its per-file
+        # subtest is reported failing rather than passing.
+        r = parse_pjdfstest_output(_PROVE_FAIL_WSTAT)
+        assert not r.success
+        assert r.result == "FAIL"
+        assert r.failed_files == [("tests/chmod/01.t", 0)]
+        assert r.all_files == ["tests/open/00.t", "tests/chmod/01.t"]
 
     def test_unparseable_output_is_error(self) -> None:
         r = parse_pjdfstest_output("bash: prove: command not found\n")
