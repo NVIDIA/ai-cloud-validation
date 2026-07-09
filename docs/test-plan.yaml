@@ -2444,6 +2444,7 @@ domains:
               - summary: Verify volume snapshots
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2456,6 +2457,7 @@ domains:
               - summary: Verify volume resizing
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2468,6 +2470,7 @@ domains:
               - summary: Verify persistent block volumes survive instance restarts
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""

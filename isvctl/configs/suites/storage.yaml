@@ -71,52 +71,80 @@ tests:
       step: launch_instance
       checks:
         InstanceStateCheck:
+          test_id: "N/A"
+          labels: ["storage"]
           expected_state: "running"
 
     fixture_volume:
       step: create_volume
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          test_id: "N/A"
+          labels: ["storage"]
         FieldExistsCheck:
+          test_id: "N/A"
+          labels: ["storage"]
           fields: ["volume_id", "mount_point", "operations"]
         CrudOperationsCheck:
+          test_id: "N/A"
+          labels: ["storage"]
           operations: ["create", "attach", "format", "mount", "write_sentinel"]
 
     # ─── DATASVC-XX-02: volume snapshots (issue #321) ────────────────
     snapshot_lifecycle:
       step: snapshot_lifecycle
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          test_id: "N/A"
+          labels: ["storage"]
         FieldExistsCheck:
+          test_id: "N/A"
+          labels: ["storage"]
           fields: ["volume_id", "snapshot_id", "operations"]
         CrudOperationsCheck:
+          test_id: "DATASVC02-01"
+          labels: ["min_req", "storage"]
           operations: ["create_snapshot", "restore_volume", "verify_data"]
 
     # ─── DATASVC-XX-03: volume resizing (issue #322) ─────────────────
     volume_resize:
       step: volume_resize
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          test_id: "N/A"
+          labels: ["storage"]
         FieldExistsCheck:
+          test_id: "N/A"
+          labels: ["storage"]
           fields: ["volume_id", "operations"]
         CrudOperationsCheck:
+          test_id: "DATASVC03-01"
+          labels: ["min_req", "storage"]
           operations: ["modify_volume", "grow_partition", "resize_filesystem", "verify_size"]
 
     # ─── DATASVC-XX-04: persistence across restarts (issue #323) ─────
     volume_persistence:
       step: volume_persistence
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          test_id: "N/A"
+          labels: ["storage"]
         FieldExistsCheck:
+          test_id: "N/A"
+          labels: ["storage"]
           fields: ["volume_id", "operations"]
         CrudOperationsCheck:
+          test_id: "DATASVC04-01"
+          labels: ["min_req", "storage"]
           operations: ["stop", "start", "verify_attached", "verify_data"]
 
     # ─── Teardown ────────────────────────────────────────────────────
     teardown_checks:
       step: teardown_volume
       checks:
-        StepSuccessCheck: {}
+        StepSuccessCheck:
+          test_id: "N/A"
+          labels: ["storage"]
 
   exclude:
     labels: []
