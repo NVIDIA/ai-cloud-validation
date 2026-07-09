@@ -26,6 +26,8 @@ Lustre notes:
   - Minimum StorageCapacity for PERSISTENT_2/125 is 1200 GiB (~1.2 TiB), which
     is comfortably <= the 50 TiB minimum-filesystem-size ceiling HSS09 checks.
   - RootSquash is formatted "UID:GID"; "0:0" disables squashing (root stays root).
+  - Storage capacity increases may briefly set Lifecycle=UPDATING; wait until
+    StorageCapacity reflects the target and Lifecycle returns to AVAILABLE.
 """
 
 from __future__ import annotations
@@ -192,18 +194,37 @@ def wait_root_squash(fsx: Any, fs_id: str, expected: str, *, timeout: float = 60
     return False
 
 
-def wait_storage_capacity(fsx: Any, fs_id: str, at_least: int, *, timeout: float = 900.0, delay: float = 15.0) -> int:
-    """Poll until the filesystem reports StorageCapacity >= ``at_least``; return it."""
+def wait_storage_capacity(fsx: Any, fs_id: str, at_least: int, *, timeout: float = 1800.0, delay: float = 15.0) -> int:
+    """Poll until StorageCapacity >= ``at_least`` and Lifecycle is AVAILABLE.
+
+    FSx for Lustre may briefly enter ``UPDATING`` while adding capacity; the new
+    ``StorageCapacity`` is visible once scaling finishes and the filesystem
+    returns to ``AVAILABLE`` (background ``STORAGE_OPTIMIZATION`` may still run).
+
+    Raises:
+        RuntimeError: Filesystem entered a terminal failure lifecycle.
+        TimeoutError: Capacity/AVAILABLE not reached before ``timeout``.
+    """
     deadline = time.monotonic() + timeout
-    last = 0
+    last_capacity = 0
+    last_lifecycle = "UNKNOWN"
     while time.monotonic() < deadline:
         fs = describe_filesystem(fsx, fs_id)
         if fs is not None:
-            last = fs.get("StorageCapacity", 0)
-            if last >= at_least:
-                return last
+            last_capacity = fs.get("StorageCapacity", 0)
+            last_lifecycle = fs.get("Lifecycle", "UNKNOWN")
+            if last_lifecycle in LIFECYCLE_TERMINAL_BAD:
+                details = fs.get("FailureDetails", {}).get("Message", "")
+                raise RuntimeError(
+                    f"Filesystem {fs_id} entered {last_lifecycle} during capacity increase: {details}"
+                )
+            if last_capacity >= at_least and last_lifecycle == LIFECYCLE_AVAILABLE:
+                return last_capacity
         time.sleep(delay)
-    return last
+    raise TimeoutError(
+        f"Timed out waiting for filesystem {fs_id} capacity >= {at_least} GiB "
+        f"(last StorageCapacity={last_capacity}, Lifecycle={last_lifecycle})"
+    )
 
 
 def delete_filesystem(fsx: Any, fs_id: str, *, wait: bool = True, timeout: float = 900.0, delay: float = 15.0) -> bool:

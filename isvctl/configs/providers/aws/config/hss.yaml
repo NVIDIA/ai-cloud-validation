@@ -64,7 +64,8 @@ commands:
         phase: test
         command: "python ../scripts/storage/live_expansion_test.py"
         args: ["--region", "{{region}}"]
-        timeout: 3000
+        # Create (~15-30m) + capacity scale wait (up to 30m) + delete (~15m).
+        timeout: 4200
 
       - name: root_squash
         phase: test
