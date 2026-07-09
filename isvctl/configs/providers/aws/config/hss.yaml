@@ -1,0 +1,94 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# AWS High-Speed Storage (HSS) Validation Configuration
+#
+# Imports the provider-agnostic storage template and wires the control-plane
+# checks to real Amazon FSx for Lustre implementations in scripts/storage/*.
+# FSx for Lustre is AWS's managed parallel high-speed filesystem, so it is the
+# natural backend for the HSS validations.
+#
+# Coverage (implemented against the FSx for Lustre control plane):
+#   HssStorageProvisioningCheck (HSS01-01) - create + AVAILABLE + capacity match
+#   HssMultipleFilesystemsCheck (HSS09-01) - two filesystems, minimum size <= 50 TiB
+#   HssLiveExpansionCheck       (HSS10-01) - online StorageCapacity increase
+#   HssRootSquashCheck          (HSS13-01) - toggle RootSquashConfiguration
+#
+# These checks create real FSx for Lustre filesystems (PERSISTENT_2), so a run
+# requires AWS credentials with FSx/EC2 permissions and incurs cost/time
+# (filesystem creation takes ~10-15 min each). They ship unreleased; run with
+# ISVTEST_INCLUDE_UNRELEASED=1 to exercise them.
+#
+# Not yet implemented on AWS (see exclude.tests below) - these need a mounted
+# Lustre client (out of scope for this control-plane pass) or are not exposed by
+# the managed FSx service.
+#
+# Usage:
+#   AWS_REGION=us-west-2 ISVTEST_INCLUDE_UNRELEASED=1 \
+#     uv run isvctl test run -f isvctl/configs/providers/aws/config/hss.yaml
+
+import:
+  - ../../../suites/hss.yaml
+
+version: "1.0"
+
+commands:
+  storage:
+    phases: ["test"]
+    steps:
+      - name: provision_storage
+        phase: test
+        command: "python ../scripts/storage/provision_storage_test.py"
+        args: ["--region", "{{region}}", "--capacity-gib", "1200"]
+        timeout: 2400
+
+      - name: multiple_filesystems
+        phase: test
+        command: "python ../scripts/storage/multiple_filesystems_test.py"
+        args: ["--region", "{{region}}", "--count", "2", "--max-fs-tib", "50"]
+        timeout: 2400
+
+      - name: live_expansion
+        phase: test
+        command: "python ../scripts/storage/live_expansion_test.py"
+        args: ["--region", "{{region}}"]
+        timeout: 3000
+
+      - name: root_squash
+        phase: test
+        command: "python ../scripts/storage/root_squash_test.py"
+        args: ["--region", "{{region}}"]
+        timeout: 2400
+
+tests:
+  cluster_name: "aws-hss-validation"
+  description: "AWS high-speed storage validation (Amazon FSx for Lustre)"
+
+  settings:
+    region: "{{env.AWS_REGION | default('us-west-2', true)}}"
+
+  exclude:
+    # Checks that require a mounted Lustre client (lfs / mount / fio on an EC2
+    # instance) or a capability the managed FSx service does not expose. These
+    # are wired for my-isv but not yet implemented on AWS.
+    tests:
+      - HssQosThroughputCheck # HSS02-01: IOPS/bandwidth need an fio benchmark on a mounted client
+      - HssNonDisruptiveUpgradeCheck # HSS05-01: FSx maintenance windows do not model deferring maintenance up to 2 weeks
+      - HssRdmaMemoryProtectionCheck # HSS06-01: FSx Lustre EFA/RDMA does not expose per-key (L_Key/R_Key) memory protection via API
+      - HssParallelFsProvisioningCheck # HSS07-01: mount_successful needs a mounted Lustre client (follow-up)
+      - HssQuotaEnforcementCheck # HSS12-01: needs `lfs setquota`/`lfs quota` on a mounted client
+      - HssFlockMountCheck # HSS14-01: needs a mounted client (mount -o flock)
+      - HssChangelogAuditCheck # HSS15-01: needs Lustre changelog registration on a mounted client
+      - HssMultipathCheck # HSS18-01: needs a mounted client (`lfs check servers`)

@@ -1,0 +1,219 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Shared Amazon FSx for Lustre helpers for the AWS storage (HSS) scripts.
+
+FSx for Lustre is AWS's managed parallel high-speed filesystem, so it is the
+natural backend for the HSS ("High-Speed Storage") validations. These helpers
+create a minimal network (VPC + subnet + Lustre-port security group), provision
+and poll Lustre filesystems, and tear everything down. Every script that uses
+them keeps the provider-neutral JSON contract the validations assert on.
+
+Lustre notes:
+  - PERSISTENT_2 is used (supports provisioned throughput and root-squash).
+  - Minimum StorageCapacity for PERSISTENT_2/125 is 1200 GiB (~1.2 TiB), which
+    is comfortably <= the 50 TiB minimum-filesystem-size ceiling HSS09 checks.
+  - RootSquash is formatted "UID:GID"; "0:0" disables squashing (root stays root).
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from typing import Any
+
+from common.errors import delete_with_retry
+from common.vpc import cleanup_vpc_resources, create_test_vpc
+
+# Lustre client<->server ports (LNet). Opened intra-VPC so a mount client in the
+# same network can reach the filesystem; harmless for provisioning-only checks.
+LUSTRE_PORTS: tuple[tuple[int, int], ...] = ((988, 988), (1018, 1023))
+
+# FSx filesystem lifecycle states.
+LIFECYCLE_AVAILABLE = "AVAILABLE"
+LIFECYCLE_TERMINAL_BAD = frozenset({"FAILED", "MISCONFIGURED", "MISCONFIGURED_UNAVAILABLE"})
+
+
+def new_suffix() -> str:
+    """Return a short unique suffix for resource names."""
+    return str(uuid.uuid4())[:8]
+
+
+def create_fsx_network(ec2: Any, cidr: str, suffix: str, created: dict[str, Any]) -> dict[str, Any]:
+    """Create a VPC, one subnet, and a Lustre-port security group.
+
+    Resource IDs are recorded in ``created`` as soon as they exist so the
+    caller's cleanup path can reclaim partially-created resources on failure.
+
+    Returns:
+        Dict with vpc_id, subnet_id, sg_id.
+    """
+    vpc = create_test_vpc(ec2, cidr, f"isv-fsx-{suffix}", enable_dns=True)
+    vpc_id = vpc.get("vpc_id")
+    created["vpc_id"] = vpc_id
+    if not vpc["passed"]:
+        raise RuntimeError(vpc.get("error", "VPC creation failed"))
+
+    azs = ec2.describe_availability_zones(Filters=[{"Name": "state", "Values": ["available"]}])
+    zone_names = [z["ZoneName"] for z in azs["AvailabilityZones"]]
+    if not zone_names:
+        raise RuntimeError("No availability zones found for FSx subnet")
+
+    # A single /24 subnet is enough for a managed FSx filesystem.
+    subnet_cidr = cidr.rsplit(".", 2)[0] + ".0.0/24" if cidr.endswith("/16") else cidr
+    subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock=subnet_cidr, AvailabilityZone=zone_names[0])
+    subnet_id = subnet["Subnet"]["SubnetId"]
+    created.setdefault("subnet_ids", []).append(subnet_id)
+    ec2.create_tags(
+        Resources=[subnet_id],
+        Tags=[{"Key": "Name", "Value": f"isv-fsx-{suffix}"}, {"Key": "CreatedBy", "Value": "isvtest"}],
+    )
+
+    sg = ec2.create_security_group(
+        GroupName=f"isv-fsx-{suffix}",
+        Description="FSx for Lustre validation (intra-VPC Lustre ports)",
+        VpcId=vpc_id,
+    )
+    sg_id = sg["GroupId"]
+    created.setdefault("sg_ids", []).append(sg_id)
+    ec2.authorize_security_group_ingress(
+        GroupId=sg_id,
+        IpPermissions=[
+            {"IpProtocol": "tcp", "FromPort": lo, "ToPort": hi, "IpRanges": [{"CidrIp": cidr}]}
+            for lo, hi in LUSTRE_PORTS
+        ],
+    )
+    return {"vpc_id": vpc_id, "subnet_id": subnet_id, "sg_id": sg_id}
+
+
+def cleanup_fsx_network(ec2: Any, created: dict[str, Any]) -> None:
+    """Best-effort teardown of the VPC/subnet/SG created by ``create_fsx_network``."""
+    vpc_id = created.get("vpc_id")
+    if not vpc_id:
+        return
+    cleanup_vpc_resources(
+        ec2,
+        vpc_id,
+        subnet_ids=created.get("subnet_ids"),
+        sg_ids=created.get("sg_ids"),
+    )
+
+
+def create_lustre_filesystem(
+    fsx: Any,
+    subnet_id: str,
+    sg_ids: list[str],
+    storage_capacity: int,
+    *,
+    per_unit_throughput: int = 125,
+    deployment_type: str = "PERSISTENT_2",
+    root_squash: str | None = None,
+    name: str = "isv-fsx-lustre",
+    suffix: str | None = None,
+) -> str:
+    """Create an FSx for Lustre filesystem and return its FileSystemId.
+
+    Does not wait for AVAILABLE - call :func:`wait_filesystem_available`.
+    """
+    lustre_config: dict[str, Any] = {
+        "DeploymentType": deployment_type,
+        "PerUnitStorageThroughput": per_unit_throughput,
+    }
+    if root_squash is not None:
+        lustre_config["RootSquashConfiguration"] = {"RootSquash": root_squash}
+
+    resp = fsx.create_file_system(
+        FileSystemType="LUSTRE",
+        StorageCapacity=storage_capacity,
+        SubnetIds=[subnet_id],
+        SecurityGroupIds=sg_ids,
+        LustreConfiguration=lustre_config,
+        Tags=[
+            {"Key": "Name", "Value": f"{name}-{suffix}" if suffix else name},
+            {"Key": "CreatedBy", "Value": "isvtest"},
+        ],
+    )
+    return resp["FileSystem"]["FileSystemId"]
+
+
+def describe_filesystem(fsx: Any, fs_id: str) -> dict[str, Any] | None:
+    """Return the FSx filesystem description, or None if it no longer exists."""
+    from botocore.exceptions import ClientError
+
+    try:
+        resp = fsx.describe_file_systems(FileSystemIds=[fs_id])
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "FileSystemNotFound":
+            return None
+        raise
+    systems = resp.get("FileSystems", [])
+    return systems[0] if systems else None
+
+
+def wait_filesystem_available(fsx: Any, fs_id: str, *, timeout: float = 1800.0, delay: float = 15.0) -> dict[str, Any]:
+    """Poll until the filesystem is AVAILABLE; raise on failure or timeout."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        fs = describe_filesystem(fsx, fs_id)
+        if fs is None:
+            raise RuntimeError(f"Filesystem {fs_id} disappeared while waiting for AVAILABLE")
+        lifecycle = fs.get("Lifecycle")
+        if lifecycle == LIFECYCLE_AVAILABLE:
+            return fs
+        if lifecycle in LIFECYCLE_TERMINAL_BAD:
+            details = fs.get("FailureDetails", {}).get("Message", "")
+            raise RuntimeError(f"Filesystem {fs_id} entered {lifecycle}: {details}")
+        time.sleep(delay)
+    raise TimeoutError(f"Timed out waiting for filesystem {fs_id} to become AVAILABLE")
+
+
+def wait_root_squash(fsx: Any, fs_id: str, expected: str, *, timeout: float = 600.0, delay: float = 10.0) -> bool:
+    """Poll until the filesystem's RootSquash setting equals ``expected``."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        fs = describe_filesystem(fsx, fs_id)
+        if fs is not None:
+            current = fs.get("LustreConfiguration", {}).get("RootSquashConfiguration", {}).get("RootSquash")
+            if current == expected:
+                return True
+        time.sleep(delay)
+    return False
+
+
+def wait_storage_capacity(fsx: Any, fs_id: str, at_least: int, *, timeout: float = 900.0, delay: float = 15.0) -> int:
+    """Poll until the filesystem reports StorageCapacity >= ``at_least``; return it."""
+    deadline = time.monotonic() + timeout
+    last = 0
+    while time.monotonic() < deadline:
+        fs = describe_filesystem(fsx, fs_id)
+        if fs is not None:
+            last = fs.get("StorageCapacity", 0)
+            if last >= at_least:
+                return last
+        time.sleep(delay)
+    return last
+
+
+def delete_filesystem(fsx: Any, fs_id: str, *, wait: bool = True, timeout: float = 900.0, delay: float = 15.0) -> bool:
+    """Best-effort delete of an FSx filesystem, optionally waiting for removal."""
+    ok = delete_with_retry(fsx.delete_file_system, FileSystemId=fs_id, resource_desc=f"FSx filesystem {fs_id}")
+    if not ok or not wait:
+        return ok
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if describe_filesystem(fsx, fs_id) is None:
+            return True
+        time.sleep(delay)
+    return False
