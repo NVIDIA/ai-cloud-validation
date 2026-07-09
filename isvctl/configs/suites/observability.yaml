@@ -30,6 +30,40 @@ tests:
     network_id: ""
 
   validations:
+    telemetry_delivery:
+      checks:
+        TelemetryDeliveryLatencyCheck:
+          test_id: "OBS05-01"
+          labels: ["min_req", "observability"]
+          step: telemetry_delivery_latency
+          # AWS EC2 CloudWatch metrics land on a 1-minute cadence (detailed
+          # monitoring) plus ingestion delay, so sub-120s delivery is not
+          # achievable; 300s is the realistic provider-neutral budget.
+          max_delivery_seconds: 300
+
+    network_telemetry:
+      checks:
+        NorthSouthNetworkTelemetryCheck:
+          test_id: "OBS06-01"
+          labels: ["min_req", "network", "observability"]
+          step: north_south_network_telemetry
+        EastWestNetworkTelemetryCheck:
+          test_id: "OBS07-01"
+          labels: ["min_req", "network", "observability"]
+          step: east_west_network_telemetry
+        ManagementNetworkTelemetryCheck:
+          test_id: "OBS08-01"
+          labels: ["min_req", "network", "observability"]
+          step: management_network_telemetry
+        NvswitchFabricTelemetryCheck:
+          test_id: "OBS09-01"
+          labels: ["min_req", "network", "observability"]
+          step: nvswitch_fabric_telemetry
+        HostNicNetworkTelemetryCheck:
+          test_id: "OBS10-01"
+          labels: ["min_req", "network", "observability"]
+          step: host_nic_network_telemetry
+
     network_logs:
       checks:
         VpcFlowLogsCheck:
@@ -57,6 +91,39 @@ tests:
           test_id: "TELEM04-01"
           labels: ["gpu", "min_req", "observability", "security"]
           step: bmc_gpu_telemetry
+
+    fabric_logs:
+      checks:
+        FabricManagerLogsCheck:
+          test_id: "OBS11-01"
+          labels: ["min_req", "observability"]
+          step: fabric_manager_logs
+        UfmEventLogsCheck:
+          test_id: "OBS13-01"
+          labels: ["min_req", "observability"]
+          step: ufm_event_logs
+
+    subnet_manager_logs:
+      checks:
+        SubnetManagerLogsCheck:
+          test_id: "OBS12-01"
+          labels: ["min_req", "observability"]
+          step: subnet_manager_logs
+
+    switch_logs:
+      checks:
+        GeneralSwitchLogsCheck:
+          test_id: "OBS14-01"
+          labels: ["min_req", "network", "observability"]
+          step: general_switch_logs
+        SwitchSyslogCheck:
+          test_id: "OBS15-01"
+          labels: ["min_req", "network", "observability"]
+          step: switch_syslogs
+        SwitchKernelLogsCheck:
+          test_id: "OBS16-01"
+          labels: ["min_req", "network", "observability"]
+          step: switch_kernel_logs
 
   exclude:
     labels: []

@@ -77,10 +77,102 @@ commands:
           - "{{steps.create_network.subnets[0].subnet_id}}"
           - "--key-name"
           - "isv-observability-host-key-{{steps.create_network.network_id}}"
+          - "--detailed-monitoring"
         timeout: 2400
+
+      - name: telemetry_delivery_latency
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/telemetry_delivery_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--instance-id"
+          - "{{steps.launch_host.instance_id}}"
+          - "--max-delivery-seconds"
+          - "300"
+          - "--poll-timeout-seconds"
+          - "240"
+        timeout: 360
+
+      - name: north_south_network_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/network_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--instance-id"
+          - "{{steps.launch_host.instance_id}}"
+          - "--aspect"
+          - "north_south_network_telemetry"
+          - "--poll-timeout-seconds"
+          - "240"
+        timeout: 360
+
+      - name: east_west_network_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/network_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--aspect"
+          - "east_west_network_telemetry"
+        timeout: 60
+
+      - name: management_network_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/network_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--aspect"
+          - "management_network_telemetry"
+        timeout: 60
+
+      - name: nvswitch_fabric_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/network_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--aspect"
+          - "nvswitch_fabric_telemetry"
+        timeout: 60
+
+      - name: host_nic_network_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/network_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--instance-id"
+          - "{{steps.launch_host.instance_id}}"
+          - "--aspect"
+          - "host_nic_network_telemetry"
+          - "--poll-timeout-seconds"
+          - "240"
+        timeout: 360
 
       - name: vpc_flow_logs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -95,6 +187,7 @@ commands:
 
       - name: host_syslogs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -111,6 +204,7 @@ commands:
 
       - name: bmc_sel_logs
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
@@ -121,12 +215,79 @@ commands:
 
       - name: bmc_gpu_telemetry
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/observability/log_availability_test.py"
         args:
           - "--region"
           - "{{region}}"
           - "--aspect"
           - "bmc_gpu_telemetry"
+        timeout: 60
+
+      - name: ufm_event_logs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "ufm_event_logs"
+        timeout: 60
+
+      - name: fabric_manager_logs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "fabric_manager_logs"
+        timeout: 60
+
+      - name: subnet_manager_logs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "subnet_manager_logs"
+        timeout: 60
+
+      - name: general_switch_logs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "general_switch_logs"
+        timeout: 60
+
+      - name: switch_syslogs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "switch_syslogs"
+        timeout: 60
+
+      - name: switch_kernel_logs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "switch_kernel_logs"
         timeout: 60
 
       - name: teardown_host

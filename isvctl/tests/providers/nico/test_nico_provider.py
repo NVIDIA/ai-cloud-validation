@@ -54,7 +54,7 @@ NICO_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "nico" / "scripts"
 class _Response:
     """Minimal context-manager response for urllib-based tests."""
 
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(self, payload: Any) -> None:
         self._payload = payload
 
     def __enter__(self) -> _Response:
@@ -317,58 +317,27 @@ def test_forge_get_all_extracts_result_key_from_wrapped_response(monkeypatch: py
     assert items == [{"id": "m-1"}]
 
 
-def test_forge_get_defaults_to_carbide_api_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Legacy NICo sites expose REST paths under /carbide/."""
+@pytest.mark.parametrize(("api_name_env", "segment"), [(None, "carbide"), ("nico", "nico")])
+def test_forge_get_uses_configured_api_name(
+    monkeypatch: pytest.MonkeyPatch, api_name_env: str | None, segment: str
+) -> None:
+    """Legacy NICo sites expose REST paths under /carbide/, updated sites under /nico/."""
     module = _load_nico_client()
     seen: dict[str, str] = {}
 
-    class _Response:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return b"{}"
-
-    def fake_urlopen(request, timeout: int = 30):
+    def fake_urlopen(request: Any, timeout: int = 30) -> _Response:
         seen["url"] = request.full_url
-        return _Response()
+        return _Response({})
 
-    monkeypatch.delenv("NICO_API_NAME", raising=False)
-    monkeypatch.setattr(module, "urlopen", fake_urlopen)
-
-    module.forge_get("ncx", "machine", "tok", base_url="http://127.0.0.1:8080/v2/org")
-
-    assert seen["url"] == "http://127.0.0.1:8080/v2/org/ncx/carbide/machine"
-
-
-def test_forge_get_honors_nico_api_name_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Updated NICo sites expose REST paths under /nico/."""
-    module = _load_nico_client()
-    seen: dict[str, str] = {}
-
-    class _Response:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return b"{}"
-
-    def fake_urlopen(request, timeout: int = 30):
-        seen["url"] = request.full_url
-        return _Response()
-
-    monkeypatch.setenv("NICO_API_NAME", "nico")
+    if api_name_env is None:
+        monkeypatch.delenv("NICO_API_NAME", raising=False)
+    else:
+        monkeypatch.setenv("NICO_API_NAME", api_name_env)
     monkeypatch.setattr(module, "urlopen", fake_urlopen)
 
     module.forge_get("ncx", "site/site-1", "tok", base_url="http://127.0.0.1:8080/v2/org")
 
-    assert seen["url"] == "http://127.0.0.1:8080/v2/org/ncx/nico/site/site-1"
+    assert seen["url"] == f"http://127.0.0.1:8080/v2/org/ncx/{segment}/site/site-1"
 
 
 @pytest.mark.parametrize(
@@ -1970,6 +1939,137 @@ def test_ufm_get_sm_config(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config == smconf
     assert seen["url"] == "https://ufm.example:443/ufmRestV3/app/smconf"
     assert seen["authorization"] == "Basic ufm-token"
+
+
+def test_ufm_get_event_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_event_history fetches paginated UFM event logs."""
+    module = _load_ufm_client()
+    events = [{"timestamp": "2026-05-20T13:19:00Z", "message": "link up"}]
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        seen["url"] = request.full_url
+        return _Response({"content": events})
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    result = module.get_event_history(auth, page_number=1, rpp=10)
+
+    assert result == events
+    assert seen["url"] == "https://ufm.example:443/ufmRestV3/app/logs/history_events?page_number=1&rpp=10"
+
+
+def test_ufm_get_log_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_log_text fetches raw UFM log text for a log type."""
+    module = _load_ufm_client()
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        seen["url"] = request.full_url
+        return _Response({"content": "2026-05-20 event log line"})
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    result = module.get_log_text(auth, "Event", length=50)
+
+    assert result == "2026-05-20 event log line"
+    assert seen["url"] == "https://ufm.example:443/ufmRestV3/app/logs/Event?length=50"
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"content": [{"id": "e-1"}, "not-a-dict"]}, [{"id": "e-1"}]),
+        ({"content": " "}, []),
+        ([{"id": "e-2"}, "not-a-dict"], [{"id": "e-2"}]),
+    ],
+)
+def test_ufm_get_event_history_tolerates_response_shapes(
+    monkeypatch: pytest.MonkeyPatch, payload: Any, expected: list[dict[str, Any]]
+) -> None:
+    """get_event_history accepts wrapped, blank-content, and top-level list responses."""
+    module = _load_ufm_client()
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        return _Response(payload)
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    assert module.get_event_history(auth) == expected
+
+
+def test_ufm_get_event_history_rejects_unrecognized_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_event_history raises when the response does not carry a list of events."""
+    module = _load_ufm_client()
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        return _Response({"content": 5})
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    with pytest.raises(module.UfmAuthError, match="did not return a list"):
+        module.get_event_history(auth)
+
+
+def test_ufm_get_log_text_accepts_direct_string_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_log_text returns a bare string response as-is."""
+    module = _load_ufm_client()
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        return _Response("2026-05-20 raw log line")
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    assert module.get_log_text(auth, "Event") == "2026-05-20 raw log line"
+
+
+def test_ufm_get_log_text_rejects_unrecognized_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_log_text raises when the response carries no log text."""
+    module = _load_ufm_client()
+
+    def fake_urlopen(request: Any, timeout: int = 30, context: Any = None) -> _Response:
+        return _Response({"content": 5})
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    auth = module.UfmAuth(
+        base_url="https://ufm.example:443/ufmRestV3",
+        auth_header="Basic ufm-token",
+        insecure=False,
+        source="UFM_TOKEN",
+    )
+
+    with pytest.raises(module.UfmAuthError, match="did not return log text"):
+        module.get_log_text(auth, "Event")
 
 
 # ---------------------------------------------------------------------------

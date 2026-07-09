@@ -20,10 +20,12 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import pytest
 from botocore.exceptions import ClientError
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[3]
@@ -596,51 +598,255 @@ def test_host_syslogs_aspect_fails_when_ssh_is_unavailable(monkeypatch: Any) -> 
     assert "SSH" in result["tests"]["syslog_endpoint_reachable"]["error"]
 
 
-def test_bmc_sel_logs_aspect_emits_provider_hidden_contract() -> None:
-    """AWS BMC SEL observability reports provider-hidden evidence instead of being excluded."""
+@pytest.mark.parametrize(
+    ("aspect", "expected_tests", "probe_field"),
+    [
+        (
+            "bmc_sel_logs",
+            {"sel_log_endpoint_reachable", "sel_log_source_present", "sel_entries_queryable"},
+            "bmc_endpoints_checked",
+        ),
+        (
+            "bmc_gpu_telemetry",
+            {
+                "telemetry_endpoint_reachable",
+                "gpu_metrics_present",
+                "host_os_gap_identified",
+                "telemetry_samples_recent",
+            },
+            "bmc_endpoints_checked",
+        ),
+        (
+            "ufm_event_logs",
+            {"event_log_endpoint_reachable", "event_log_source_present", "event_entries_queryable"},
+            "log_endpoints_checked",
+        ),
+        (
+            "fabric_manager_logs",
+            {"log_endpoint_reachable", "log_source_present", "log_entries_queryable"},
+            "log_endpoints_checked",
+        ),
+        (
+            "subnet_manager_logs",
+            {"log_endpoint_reachable", "log_source_present", "log_entries_queryable"},
+            "log_endpoints_checked",
+        ),
+        (
+            "general_switch_logs",
+            {"log_endpoint_reachable", "switch_log_source_present", "entries_queryable"},
+            "switches_checked",
+        ),
+        (
+            "switch_syslogs",
+            {"syslog_endpoint_reachable", "switch_syslog_source_present", "entries_recent"},
+            "switches_checked",
+        ),
+        (
+            "switch_kernel_logs",
+            {"log_endpoint_reachable", "kernel_log_source_present", "entries_queryable"},
+            "switches_checked",
+        ),
+    ],
+)
+def test_hidden_aspects_emit_provider_hidden_contract(aspect: str, expected_tests: set[str], probe_field: str) -> None:
+    """AWS provider-hidden aspects report evidence instead of being excluded."""
     script = _load_script("log_availability_test.py")
 
-    result = script.check_bmc_sel_logs(region="us-west-2")
+    result = script.check_provider_hidden_aspect(aspect, region="us-west-2")
 
     assert result["success"] is True
     assert result["platform"] == "observability"
-    assert result["test_name"] == "bmc_sel_logs"
-    assert "bmc_endpoints_checked" not in result
+    assert result["test_name"] == aspect
+    assert probe_field not in result
     assert "provider_hidden" not in result
-    assert set(result["tests"]) == {
-        "sel_log_endpoint_reachable",
-        "sel_log_source_present",
-        "sel_entries_queryable",
-    }
+    assert set(result["tests"]) == expected_tests
     for subtest in result["tests"].values():
         assert subtest["passed"] is True
         assert subtest["provider_hidden"] is True
-        assert subtest["probes"]["bmc_endpoints_checked"] == 0
+        assert subtest["probes"][probe_field] == 0
         assert "provider-owned" in subtest["message"]
 
 
-def test_bmc_gpu_telemetry_aspect_emits_provider_hidden_contract() -> None:
-    """AWS BMC GPU telemetry reports provider-hidden evidence instead of being excluded."""
-    script = _load_script("log_availability_test.py")
+class FakeCloudWatchClient:
+    """Fake CloudWatch client returning scripted metrics and statistics."""
 
-    result = script.check_bmc_gpu_telemetry(region="us-west-2")
+    def __init__(self, *, metrics: list[dict[str, Any]], statistics_sequence: list[list[dict[str, Any]]]) -> None:
+        """Initialize fake client state."""
+        self.metrics = metrics
+        self.statistics_sequence = list(statistics_sequence)
+        self.list_dimensions: list[list[dict[str, str]]] = []
+
+    def list_metrics(self, *, Namespace: str, MetricName: str, Dimensions: list[dict[str, str]]) -> dict[str, Any]:
+        """Record the requested dimensions and return the configured metrics."""
+        self.list_dimensions.append(Dimensions)
+        return {"Metrics": self.metrics}
+
+    def get_metric_statistics(self, **kwargs: Any) -> dict[str, Any]:
+        """Return the next scripted datapoint batch, reusing the last when exhausted."""
+        datapoints = self.statistics_sequence.pop(0) if self.statistics_sequence else []
+        return {"Datapoints": datapoints}
+
+
+def _recent_datapoint(age_seconds: int) -> dict[str, Any]:
+    """Build a CloudWatch datapoint aged ``age_seconds`` before now."""
+    return {"Timestamp": datetime.now(UTC) - timedelta(seconds=age_seconds), "Sum": 100.0}
+
+
+def test_telemetry_delivery_scopes_to_instance_and_passes() -> None:
+    """Delivery probe scopes CloudWatch queries to the launched instance."""
+    script = _load_script("telemetry_delivery_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    cloudwatch = FakeCloudWatchClient(metrics=[metric], statistics_sequence=[[_recent_datapoint(30)]])
+
+    result = script.check_telemetry_delivery_latency(
+        cloudwatch,
+        network_id="vpc-123",
+        instance_id="i-123",
+        max_delivery_seconds=300,
+    )
 
     assert result["success"] is True
-    assert result["platform"] == "observability"
-    assert result["test_name"] == "bmc_gpu_telemetry"
-    assert "bmc_endpoints_checked" not in result
-    assert "provider_hidden" not in result
-    assert set(result["tests"]) == {
-        "telemetry_endpoint_reachable",
-        "gpu_metrics_present",
-        "host_os_gap_identified",
-        "telemetry_samples_recent",
+    assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
+    probes = result["tests"]["delivery_within_threshold"]["probes"]
+    assert probes["probe_resource_id"] == "i-123"
+    assert probes["observed_delivery_seconds"] <= 300
+
+
+def test_telemetry_delivery_polls_until_datapoint_appears() -> None:
+    """Delivery probe retries until a CloudWatch datapoint is ingested."""
+    script = _load_script("telemetry_delivery_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
     }
-    for subtest in result["tests"].values():
-        assert subtest["passed"] is True
-        assert subtest["provider_hidden"] is True
-        assert subtest["probes"]["bmc_endpoints_checked"] == 0
-        assert "provider-owned" in subtest["message"]
+    cloudwatch = FakeCloudWatchClient(
+        metrics=[metric],
+        statistics_sequence=[[], [_recent_datapoint(45)]],
+    )
+    sleeps: list[float] = []
+
+    result = script.check_telemetry_delivery_latency(
+        cloudwatch,
+        network_id="vpc-123",
+        instance_id="i-123",
+        max_delivery_seconds=300,
+        poll_timeout_seconds=60,
+        poll_interval_seconds=1,
+        sleep=sleeps.append,
+    )
+
+    assert result["success"] is True
+    assert sleeps == [1]
+    assert result["tests"]["delivery_sample_present"]["passed"] is True
+
+
+def test_telemetry_delivery_fails_without_datapoints() -> None:
+    """Delivery probe fails cleanly when no datapoint ever appears."""
+    script = _load_script("telemetry_delivery_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    cloudwatch = FakeCloudWatchClient(metrics=[metric], statistics_sequence=[])
+
+    result = script.check_telemetry_delivery_latency(
+        cloudwatch,
+        network_id="vpc-123",
+        instance_id="i-123",
+        poll_timeout_seconds=0,
+    )
+
+    assert result["success"] is False
+    assert result["tests"]["delivery_sample_present"]["passed"] is False
+    assert result["tests"]["telemetry_endpoint_reachable"]["passed"] is True
+
+
+class FakeDescribeInstancesEc2:
+    """Fake EC2 client returning a fixed NIC count for an instance."""
+
+    def __init__(self, *, nic_count: int) -> None:
+        """Initialize fake client state."""
+        self.nic_count = nic_count
+
+    def describe_instances(self, *, InstanceIds: list[str]) -> dict[str, Any]:
+        """Return an instance with ``nic_count`` network interfaces."""
+        return {
+            "Reservations": [
+                {
+                    "Instances": [
+                        {"NetworkInterfaces": [{"NetworkInterfaceId": f"eni-{i}"} for i in range(self.nic_count)]}
+                    ]
+                }
+            ]
+        }
+
+
+def test_north_south_telemetry_scopes_to_instance_and_polls() -> None:
+    """North-South probe scopes to the instance and polls for samples."""
+    script = _load_script("network_telemetry_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    # First scan finds nothing (both packet metrics), second scan finds a datapoint.
+    cloudwatch = FakeCloudWatchClient(
+        metrics=[metric],
+        statistics_sequence=[[], [], [_recent_datapoint(30)], []],
+    )
+    sleeps: list[float] = []
+
+    result = script._check_plane_telemetry(
+        cloudwatch,
+        aspect="north_south_network_telemetry",
+        network_id="vpc-123",
+        instance_id="i-123",
+        poll_timeout_seconds=60,
+        poll_interval_seconds=1,
+        sleep=sleeps.append,
+    )
+
+    assert result["success"] is True
+    assert sleeps == [1]
+    assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
+    probes = result["tests"]["samples_recent"]["probes"]
+    assert probes["probe_resource_id"] == "i-123"
+    assert probes["sample_count"] == 1
+
+
+def test_host_nic_telemetry_scopes_to_instance_nics() -> None:
+    """Host NIC probe uses instance-level metrics and reports the instance NIC count."""
+    script = _load_script("network_telemetry_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    cloudwatch = FakeCloudWatchClient(
+        metrics=[metric],
+        statistics_sequence=[[_recent_datapoint(20)]],
+    )
+
+    result = script._check_plane_telemetry(
+        cloudwatch,
+        aspect="host_nic_network_telemetry",
+        network_id="vpc-123",
+        instance_id="i-123",
+        ec2=FakeDescribeInstancesEc2(nic_count=2),
+    )
+
+    assert result["success"] is True
+    assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
+    assert result["tests"]["nic_metrics_present"]["passed"] is True
+    probes = result["tests"]["samples_recent"]["probes"]
+    assert probes["nics_checked"] == 2
+    assert probes["sample_count"] == 1
 
 
 class FakeEc2FlowLogDeleteClient:

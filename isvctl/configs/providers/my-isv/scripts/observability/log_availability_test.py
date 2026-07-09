@@ -38,6 +38,34 @@ The ``--aspect`` flag selects the observability surface to probe:
             host_os_gap_identified, telemetry_samples_recent}
     probes: bmc_endpoints_checked, telemetry_endpoint, metric_names,
             host_os_unavailable_metrics, sample_count
+
+  ufm_event_logs:
+    tests: {event_log_endpoint_reachable, event_log_source_present,
+            event_entries_queryable}
+    probes: log_endpoints_checked, log_source, entry_count, latest_timestamp
+
+  fabric_manager_logs:
+    tests: {log_endpoint_reachable, log_source_present, log_entries_queryable}
+    probes: log_endpoints_checked, log_source, entry_count, latest_timestamp
+
+  subnet_manager_logs:
+    tests: {log_endpoint_reachable, log_source_present, log_entries_queryable}
+    probes: log_endpoints_checked, log_source, entry_count, latest_timestamp
+
+  general_switch_logs:
+    tests: {log_endpoint_reachable, switch_log_source_present,
+            entries_queryable}
+    probes: switches_checked, log_source, entry_count, latest_timestamp
+
+  switch_syslogs:
+    tests: {syslog_endpoint_reachable, switch_syslog_source_present,
+            entries_recent}
+    probes: switches_checked, log_source, entry_count, latest_timestamp
+
+  switch_kernel_logs:
+    tests: {log_endpoint_reachable, kernel_log_source_present,
+            entries_queryable}
+    probes: switches_checked, log_source, entry_count, latest_timestamp
 """
 
 from __future__ import annotations
@@ -77,6 +105,36 @@ ASPECT_TESTS: dict[str, list[str]] = {
         "host_os_gap_identified",
         "telemetry_samples_recent",
     ],
+    "ufm_event_logs": [
+        "event_log_endpoint_reachable",
+        "event_log_source_present",
+        "event_entries_queryable",
+    ],
+    "fabric_manager_logs": [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ],
+    "subnet_manager_logs": [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ],
+    "general_switch_logs": [
+        "log_endpoint_reachable",
+        "switch_log_source_present",
+        "entries_queryable",
+    ],
+    "switch_syslogs": [
+        "syslog_endpoint_reachable",
+        "switch_syslog_source_present",
+        "entries_recent",
+    ],
+    "switch_kernel_logs": [
+        "log_endpoint_reachable",
+        "kernel_log_source_present",
+        "entries_queryable",
+    ],
 }
 
 DEMO_PROBES: dict[str, dict[str, Any]] = {
@@ -103,6 +161,42 @@ DEMO_PROBES: dict[str, dict[str, Any]] = {
         "metric_names": ["gpu.power_state", "gpu.remediation_state"],
         "host_os_unavailable_metrics": ["gpu.power_state", "gpu.remediation_state"],
         "sample_count": 4,
+    },
+    "ufm_event_logs": {
+        "log_endpoints_checked": 1,
+        "log_source": "demo-ufm-event-log",
+        "entry_count": 5,
+        "latest_timestamp": "2026-05-20T13:19:00Z",
+    },
+    "fabric_manager_logs": {
+        "log_endpoints_checked": 1,
+        "log_source": "demo-fabric-manager-log",
+        "entry_count": 7,
+        "latest_timestamp": "2026-05-20T13:18:30Z",
+    },
+    "subnet_manager_logs": {
+        "log_endpoints_checked": 1,
+        "log_source": "demo-subnet-manager-log",
+        "entry_count": 6,
+        "latest_timestamp": "2026-05-20T13:18:00Z",
+    },
+    "general_switch_logs": {
+        "switches_checked": 2,
+        "log_source": "demo-switch-operational-log",
+        "entry_count": 8,
+        "latest_timestamp": "2026-05-20T13:18:00Z",
+    },
+    "switch_syslogs": {
+        "switches_checked": 2,
+        "log_source": "demo-switch-syslog",
+        "entry_count": 10,
+        "latest_timestamp": "2026-05-20T13:17:00Z",
+    },
+    "switch_kernel_logs": {
+        "switches_checked": 2,
+        "log_source": "demo-switch-kernel-log",
+        "entry_count": 3,
+        "latest_timestamp": "2026-05-20T13:16:00Z",
     },
 }
 

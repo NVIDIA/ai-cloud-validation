@@ -54,7 +54,7 @@ def _provider_hidden_message(validation: BaseValidation, required: list[str], la
         for result in required_results
         if isinstance(result, dict) and isinstance((message := result.get("message")), str) and message.strip()
     ]
-    detail = messages[0] if messages else "BMC plane is provider-owned"
+    detail = messages[0] if messages else "plane is provider-owned"
     return f"{label} provider-hidden: {detail}"
 
 
@@ -273,3 +273,347 @@ class BmcGpuTelemetryCheck(BaseValidation):
             f"via {probes['telemetry_endpoint']} ({len(metric_names)} metrics, "
             f"{probes['sample_count']} samples, {len(unavailable_metrics)} host-OS gap metrics)"
         )
+
+
+class TelemetryDeliveryLatencyCheck(BaseValidation):
+    """Validate telemetry delivery latency stays within the configured threshold.
+
+    Config:
+        step_output: The telemetry_delivery_latency step output to check
+        max_delivery_seconds: Maximum allowed delivery latency (default 120)
+
+    Step output:
+        tests: dict with telemetry_endpoint_reachable, delivery_sample_present,
+               delivery_within_threshold
+        tests.<check>.probes.telemetry_source: Non-empty telemetry source identifier
+        tests.<check>.probes.observed_delivery_seconds: Non-negative integer latency
+        tests.<check>.probes.max_delivery_seconds: Informational echo of the
+            script-side threshold; the enforced threshold is the config value above
+    """
+
+    description: ClassVar[str] = "Check telemetry delivery latency is within threshold"
+
+    def run(self) -> None:
+        """Validate telemetry delivery latency results and evidence."""
+        required = ["telemetry_endpoint_reachable", "delivery_sample_present", "delivery_within_threshold"]
+        if not check_required_tests(self, required, "Telemetry delivery latency tests failed"):
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["telemetry_source"], "telemetry delivery"):
+            return
+        if not _require_non_negative_int(self, probes, "observed_delivery_seconds", "telemetry delivery"):
+            return
+
+        max_delivery_seconds = self._parse_positive_int("max_delivery_seconds", default=120)
+        if max_delivery_seconds is None:
+            return
+
+        observed = probes["observed_delivery_seconds"]
+        if observed > max_delivery_seconds:
+            self.set_failed(
+                f"Telemetry delivery latency {observed}s exceeds threshold {max_delivery_seconds}s "
+                f"via {probes['telemetry_source']}"
+            )
+            return
+
+        self.set_passed(
+            f"Telemetry delivery latency {observed}s within {max_delivery_seconds}s via {probes['telemetry_source']}"
+        )
+
+
+class _NetworkTelemetryCheck(BaseValidation):
+    """Shared validation logic for network-plane telemetry checks."""
+
+    catalog_exclude: ClassVar[bool] = True
+    _required_tests: ClassVar[list[str]] = [
+        "telemetry_endpoint_reachable",
+        "plane_metrics_present",
+        "samples_recent",
+    ]
+    _plane_label: ClassVar[str] = "network telemetry"
+    # When set, the named count probe must additionally be a positive integer.
+    _count_field: ClassVar[str] = ""
+
+    def run(self) -> None:
+        """Validate network telemetry results and evidence."""
+        if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
+            return
+        if message := _provider_hidden_message(self, self._required_tests, self._plane_label):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
+            return
+        if not _require_non_empty_string_list(self, probes, "metric_names", self._plane_label):
+            return
+        if not _require_positive_int(self, probes, "sample_count", self._plane_label):
+            return
+        if not _require_non_empty_strings(self, probes, ["latest_timestamp"], self._plane_label):
+            return
+        if self._count_field and not _require_positive_int(self, probes, self._count_field, self._plane_label):
+            return
+
+        self.set_passed(self._pass_message(probes))
+
+    def _pass_message(self, probes: dict[str, object]) -> str:
+        """Build the pass message from validated evidence."""
+        metric_names = probes["metric_names"]
+        return (
+            f"{self._plane_label} available via {probes['telemetry_source']} "
+            f"({len(metric_names)} metrics, {probes['sample_count']} recent samples)"
+        )
+
+
+class NorthSouthNetworkTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate North-South (front-end) network telemetry is available."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check North-South network telemetry is available"
+    _plane_label: ClassVar[str] = "North-South network telemetry"
+
+
+class EastWestNetworkTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate East-West (GPU interconnect) network telemetry is available."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check East-West network telemetry is available"
+    _plane_label: ClassVar[str] = "East-West network telemetry"
+
+
+class ManagementNetworkTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate management network telemetry is available."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check management network telemetry is available"
+    _plane_label: ClassVar[str] = "Management network telemetry"
+
+
+class NvswitchFabricTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate NVSwitch fabric telemetry is available."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check NVSwitch fabric telemetry is available"
+    _plane_label: ClassVar[str] = "NVSwitch fabric telemetry"
+
+
+class HostNicNetworkTelemetryCheck(_NetworkTelemetryCheck):
+    """Validate host NIC-level network telemetry is available.
+
+    Config:
+        step_output: The host_nic_network_telemetry step output to check
+
+    Step output:
+        tests: dict with telemetry_endpoint_reachable, nic_metrics_present,
+               samples_recent
+        tests.<check>.probes.telemetry_source: Non-empty telemetry source identifier
+        tests.<check>.probes.nics_checked: Positive integer count of NICs inspected
+        tests.<check>.probes.metric_names: Non-empty list of metric names
+        tests.<check>.probes.sample_count: Positive integer count of recent samples
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest sample
+    """
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check host NIC-level network telemetry is available"
+    _required_tests: ClassVar[list[str]] = [
+        "telemetry_endpoint_reachable",
+        "nic_metrics_present",
+        "samples_recent",
+    ]
+    _plane_label: ClassVar[str] = "Host NIC network telemetry"
+    _count_field: ClassVar[str] = "nics_checked"
+
+    def _pass_message(self, probes: dict[str, object]) -> str:
+        """Build the pass message from validated evidence."""
+        metric_names = probes["metric_names"]
+        return (
+            f"Host NIC telemetry available from {probes['nics_checked']} NIC(s) "
+            f"via {probes['telemetry_source']} ({len(metric_names)} metrics, {probes['sample_count']} samples)"
+        )
+
+
+class _FabricLogCheck(BaseValidation):
+    """Shared validation logic for fabric-manager style log checks."""
+
+    catalog_exclude: ClassVar[bool] = True
+    _required_tests: ClassVar[list[str]] = [
+        "log_endpoint_reachable",
+        "log_source_present",
+        "log_entries_queryable",
+    ]
+    _log_label: ClassVar[str] = "fabric log"
+    _count_field: ClassVar[str] = "log_endpoints_checked"
+    _entry_count_positive: ClassVar[bool] = False
+    _require_latest_timestamp: ClassVar[bool] = False
+    _entries_label: ClassVar[str] = "entries"
+
+    def run(self) -> None:
+        """Validate fabric log results and evidence."""
+        if not check_required_tests(self, self._required_tests, f"{self._log_label} tests failed"):
+            return
+        if message := _provider_hidden_message(self, self._required_tests, self._log_label):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        string_fields = ["log_source", "latest_timestamp"] if self._require_latest_timestamp else ["log_source"]
+        if not _require_non_empty_strings(self, probes, string_fields, self._log_label):
+            return
+        if not _require_positive_int(self, probes, self._count_field, self._log_label):
+            return
+        require_entry_count = _require_positive_int if self._entry_count_positive else _require_non_negative_int
+        if not require_entry_count(self, probes, "entry_count", self._log_label):
+            return
+
+        self.set_passed(self._pass_message(probes))
+
+    def _pass_message(self, probes: dict[str, object]) -> str:
+        """Build the pass message from validated evidence."""
+        return (
+            f"{self._log_label} queryable from {probes[self._count_field]} endpoint(s) "
+            f"via {probes['log_source']} ({probes['entry_count']} {self._entries_label})"
+        )
+
+
+class FabricManagerLogsCheck(_FabricLogCheck):
+    """Validate Fabric Manager logs are queryable where applicable."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check Fabric Manager logs are available"
+    _log_label: ClassVar[str] = "Fabric Manager logs"
+
+
+class SubnetManagerLogsCheck(_FabricLogCheck):
+    """Validate Subnet Manager logs are queryable where applicable."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check Subnet Manager logs are available"
+    _log_label: ClassVar[str] = "Subnet Manager logs"
+
+
+class UfmEventLogsCheck(_FabricLogCheck):
+    """Validate UFM Event logs are queryable.
+
+    Config:
+        step_output: The ufm_event_logs step output to check
+
+    Step output:
+        tests: dict with event_log_endpoint_reachable, event_log_source_present,
+               event_entries_queryable
+        For provider-hidden fabric planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.log_endpoints_checked: Positive integer count of
+            log endpoints inspected
+        tests.<check>.probes.log_source: Non-empty UFM event log source identifier
+        tests.<check>.probes.entry_count: Non-negative integer count of event entries
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
+    """
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check UFM Event logs are available"
+    _required_tests: ClassVar[list[str]] = [
+        "event_log_endpoint_reachable",
+        "event_log_source_present",
+        "event_entries_queryable",
+    ]
+    _log_label: ClassVar[str] = "UFM Event logs"
+    _require_latest_timestamp: ClassVar[bool] = True
+
+
+class _SwitchLogCheck(_FabricLogCheck):
+    """Shared validation logic for switch-level log checks."""
+
+    catalog_exclude: ClassVar[bool] = True
+    _count_field: ClassVar[str] = "switches_checked"
+    _require_latest_timestamp: ClassVar[bool] = True
+
+    def _pass_message(self, probes: dict[str, object]) -> str:
+        """Build the pass message from validated evidence."""
+        return (
+            f"{self._log_label} available from {probes[self._count_field]} switch(es) "
+            f"via {probes['log_source']} ({probes['entry_count']} {self._entries_label})"
+        )
+
+
+class GeneralSwitchLogsCheck(_SwitchLogCheck):
+    """Validate general switch logs are available.
+
+    Config:
+        step_output: The general_switch_logs step output to check
+
+    Step output:
+        tests: dict with log_endpoint_reachable, switch_log_source_present,
+               entries_queryable
+        For provider-hidden switch planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.switches_checked: Positive integer count of switches
+            inspected
+        tests.<check>.probes.log_source: Non-empty switch log source identifier
+        tests.<check>.probes.entry_count: Non-negative integer count of log entries
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
+    """
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check general switch logs are available"
+    _required_tests: ClassVar[list[str]] = [
+        "log_endpoint_reachable",
+        "switch_log_source_present",
+        "entries_queryable",
+    ]
+    _log_label: ClassVar[str] = "General switch logs"
+
+
+class SwitchSyslogCheck(_SwitchLogCheck):
+    """Validate switch syslogs are available.
+
+    Config:
+        step_output: The switch_syslogs step output to check
+
+    Step output:
+        tests: dict with syslog_endpoint_reachable, switch_syslog_source_present,
+               entries_recent
+        For provider-hidden switch planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.switches_checked: Positive integer count of switches
+            inspected
+        tests.<check>.probes.log_source: Non-empty switch syslog source identifier
+        tests.<check>.probes.entry_count: Positive integer count of recent syslog entries
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
+    """
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check switch syslogs are available"
+    _required_tests: ClassVar[list[str]] = [
+        "syslog_endpoint_reachable",
+        "switch_syslog_source_present",
+        "entries_recent",
+    ]
+    _log_label: ClassVar[str] = "Switch syslogs"
+    _entry_count_positive: ClassVar[bool] = True
+    _entries_label: ClassVar[str] = "recent entries"
+
+
+class SwitchKernelLogsCheck(_SwitchLogCheck):
+    """Validate switch kernel logs are available.
+
+    Config:
+        step_output: The switch_kernel_logs step output to check
+
+    Step output:
+        tests: dict with log_endpoint_reachable, kernel_log_source_present,
+               entries_queryable
+        For provider-hidden switch planes, all required subtests may pass with
+        provider_hidden=true instead of concrete endpoint probes.
+        tests.<check>.probes.switches_checked: Positive integer count of switches
+            inspected
+        tests.<check>.probes.log_source: Non-empty switch kernel log source identifier
+        tests.<check>.probes.entry_count: Non-negative integer count of kernel log entries
+        tests.<check>.probes.latest_timestamp: Non-empty timestamp for the latest entry
+    """
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check switch kernel logs are available"
+    _required_tests: ClassVar[list[str]] = [
+        "log_endpoint_reachable",
+        "kernel_log_source_present",
+        "entries_queryable",
+    ]
+    _log_label: ClassVar[str] = "Switch kernel logs"

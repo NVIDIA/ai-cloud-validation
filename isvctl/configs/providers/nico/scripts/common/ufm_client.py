@@ -164,6 +164,59 @@ def get_sm_config(auth: UfmAuth, *, timeout: int = UFM_TIMEOUT_SECONDS) -> dict[
     return config
 
 
+def get_event_history(
+    auth: UfmAuth,
+    *,
+    page_number: int = 1,
+    rpp: int = 10,
+    timeout: int = UFM_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
+    """Return paginated UFM event logs from ``/app/logs/history_events``.
+
+    Args:
+        auth: Resolved UFM auth.
+        page_number: One-based page index for server-side pagination.
+        rpp: Records per page.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Parsed list of event log entries from the UFM response ``content`` field.
+    """
+    response = ufm_get(
+        f"app/logs/history_events?page_number={page_number}&rpp={rpp}",
+        auth,
+        timeout=timeout,
+    )
+    if isinstance(response, dict):
+        content = response.get("content")
+        if isinstance(content, list):
+            return [entry for entry in content if isinstance(entry, dict)]
+        if isinstance(content, str) and not content.strip():
+            return []
+    if isinstance(response, list):
+        return [entry for entry in response if isinstance(entry, dict)]
+    raise UfmAuthError("UFM /app/logs/history_events did not return a list")
+
+
+def get_log_text(
+    auth: UfmAuth,
+    log_type: str,
+    *,
+    length: int = 100,
+    timeout: int = UFM_TIMEOUT_SECONDS,
+) -> str:
+    """Return raw log text for a UFM log type such as ``Event``, ``SM``, or ``UFM``."""
+    if length < 1 or length > 10000:
+        raise UfmAuthError("length must be between 1 and 10000")
+
+    response = ufm_get(f"app/logs/{log_type}?length={length}", auth, timeout=timeout)
+    if isinstance(response, dict) and isinstance(response.get("content"), str):
+        return response["content"]
+    if isinstance(response, str):
+        return response
+    raise UfmAuthError(f"UFM /app/logs/{log_type} did not return log text")
+
+
 def parse_key_value(value: Any) -> int | None:
     """Parse a UFM key value (hex "0x10" or decimal) to an int, else None."""
     if isinstance(value, bool):

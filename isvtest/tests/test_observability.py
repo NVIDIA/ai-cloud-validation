@@ -21,10 +21,19 @@ from typing import Any
 
 import pytest
 
+from isvtest.core.validation import BaseValidation
 from isvtest.validations.observability import (
     BmcGpuTelemetryCheck,
     BmcSelLogsCheck,
+    FabricManagerLogsCheck,
+    GeneralSwitchLogsCheck,
+    HostNicNetworkTelemetryCheck,
     HostSyslogCheck,
+    NorthSouthNetworkTelemetryCheck,
+    SwitchKernelLogsCheck,
+    SwitchSyslogCheck,
+    TelemetryDeliveryLatencyCheck,
+    UfmEventLogsCheck,
     VpcFlowLogsCheck,
 )
 
@@ -42,14 +51,18 @@ def _tests(names: list[str], probes: dict[str, Any] | None = None) -> dict[str, 
     return {name: dict(test_result) for name in names}
 
 
-def _provider_hidden_tests(names: list[str]) -> dict[str, dict[str, Any]]:
+def _provider_hidden_tests(
+    names: list[str],
+    probe_field: str = "bmc_endpoints_checked",
+    message: str = "AWS BMC plane is provider-owned",
+) -> dict[str, dict[str, Any]]:
     """Build a passing tests map for provider-hidden evidence."""
     return {
         name: {
             "passed": True,
             "provider_hidden": True,
-            "probes": {"bmc_endpoints_checked": 0},
-            "message": "AWS BMC plane is provider-owned",
+            "probes": {probe_field: 0},
+            "message": message,
         }
         for name in names
     }
@@ -179,6 +192,205 @@ def _bmc_gpu_telemetry_provider_hidden_output() -> dict[str, Any]:
     }
 
 
+def _ufm_event_logs_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing UFM event log step output."""
+    probes: dict[str, Any] = {
+        "log_endpoints_checked": 1,
+        "log_source": "ufm-event-history",
+        "entry_count": 5,
+        "latest_timestamp": "2026-05-20T13:19:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "observability",
+        "test_name": "ufm_event_logs",
+        "tests": _tests(
+            ["event_log_endpoint_reachable", "event_log_source_present", "event_entries_queryable"],
+            probes,
+        ),
+    }
+    output.update(overrides)
+    return output
+
+
+def _general_switch_logs_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing general switch log step output."""
+    probes: dict[str, Any] = {
+        "switches_checked": 2,
+        "log_source": "switch-operational-log",
+        "entry_count": 8,
+        "latest_timestamp": "2026-05-20T13:18:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "observability",
+        "test_name": "general_switch_logs",
+        "tests": _tests(
+            ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"],
+            probes,
+        ),
+    }
+    output.update(overrides)
+    return output
+
+
+def _switch_syslog_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing switch syslog step output."""
+    probes: dict[str, Any] = {
+        "switches_checked": 2,
+        "log_source": "switch-syslog",
+        "entry_count": 10,
+        "latest_timestamp": "2026-05-20T13:17:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "observability",
+        "test_name": "switch_syslogs",
+        "tests": _tests(
+            ["syslog_endpoint_reachable", "switch_syslog_source_present", "entries_recent"],
+            probes,
+        ),
+    }
+    output.update(overrides)
+    return output
+
+
+def _switch_kernel_logs_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing switch kernel log step output."""
+    probes: dict[str, Any] = {
+        "switches_checked": 2,
+        "log_source": "switch-kernel-log",
+        "entry_count": 3,
+        "latest_timestamp": "2026-05-20T13:16:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    output: dict[str, Any] = {
+        "success": True,
+        "platform": "observability",
+        "test_name": "switch_kernel_logs",
+        "tests": _tests(
+            ["log_endpoint_reachable", "kernel_log_source_present", "entries_queryable"],
+            probes,
+        ),
+    }
+    output.update(overrides)
+    return output
+
+
+def _ufm_event_logs_provider_hidden_output() -> dict[str, Any]:
+    """Build provider-hidden UFM event log step output."""
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "ufm_event_logs",
+        "tests": _provider_hidden_tests(
+            [
+                "event_log_endpoint_reachable",
+                "event_log_source_present",
+                "event_entries_queryable",
+            ],
+            probe_field="log_endpoints_checked",
+            message="UFM plane is provider-owned",
+        ),
+    }
+
+
+def _telemetry_delivery_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing telemetry delivery latency step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "cloudwatch",
+        "observed_delivery_seconds": 42,
+        "max_delivery_seconds": 120,
+        "sample_count": 3,
+        "latest_timestamp": "2026-05-20T13:21:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "telemetry_delivery_latency",
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "delivery_sample_present", "delivery_within_threshold"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _network_telemetry_output(aspect: str, **overrides: Any) -> dict[str, Any]:
+    """Build passing network-plane telemetry step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "cloudwatch",
+        "metric_names": ["NetworkPacketsIn", "NetworkPacketsOut"],
+        "sample_count": 4,
+        "latest_timestamp": "2026-05-20T13:21:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": aspect,
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "plane_metrics_present", "samples_recent"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _host_nic_telemetry_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing host NIC telemetry step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "cloudwatch",
+        "nics_checked": 2,
+        "metric_names": ["NetworkPacketsIn", "NetworkPacketsOut"],
+        "sample_count": 4,
+        "latest_timestamp": "2026-05-20T13:21:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "host_nic_network_telemetry",
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "nic_metrics_present", "samples_recent"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _fabric_manager_logs_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing Fabric Manager log step output."""
+    probes: dict[str, Any] = {
+        "log_endpoints_checked": 1,
+        "log_source": "ufm-fabric-manager",
+        "entry_count": 7,
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "fabric_manager_logs",
+        "tests": _tests(
+            ["log_endpoint_reachable", "log_source_present", "log_entries_queryable"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
 @pytest.mark.parametrize(
     ("validation_cls", "step_output", "expected"),
     [
@@ -186,10 +398,26 @@ def _bmc_gpu_telemetry_provider_hidden_output() -> dict[str, Any]:
         (HostSyslogCheck, _host_syslog_output(), "Host syslogs available"),
         (BmcSelLogsCheck, _bmc_sel_output(), "BMC SEL logs queryable"),
         (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_output(), "BMC GPU telemetry available"),
+        (UfmEventLogsCheck, _ufm_event_logs_output(), "UFM Event logs queryable"),
+        (FabricManagerLogsCheck, _fabric_manager_logs_output(), "Fabric Manager logs queryable"),
+        (GeneralSwitchLogsCheck, _general_switch_logs_output(), "General switch logs available"),
+        (SwitchSyslogCheck, _switch_syslog_output(), "Switch syslogs available"),
+        (SwitchKernelLogsCheck, _switch_kernel_logs_output(), "Switch kernel logs available"),
+        (TelemetryDeliveryLatencyCheck, _telemetry_delivery_output(), "Telemetry delivery latency"),
+        (
+            NorthSouthNetworkTelemetryCheck,
+            _network_telemetry_output("north_south_network_telemetry"),
+            "North-South network telemetry",
+        ),
+        (
+            HostNicNetworkTelemetryCheck,
+            _host_nic_telemetry_output(),
+            "Host NIC telemetry available",
+        ),
     ],
 )
 def test_observability_checks_pass_with_required_evidence(
-    validation_cls: type[VpcFlowLogsCheck | HostSyslogCheck | BmcSelLogsCheck | BmcGpuTelemetryCheck],
+    validation_cls: type[BaseValidation],
     step_output: dict[str, Any],
     expected: str,
 ) -> None:
@@ -205,10 +433,25 @@ def test_observability_checks_pass_with_required_evidence(
     [
         (BmcSelLogsCheck, _bmc_sel_provider_hidden_output(), "provider-hidden"),
         (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_provider_hidden_output(), "provider-hidden"),
+        (UfmEventLogsCheck, _ufm_event_logs_provider_hidden_output(), "provider-hidden"),
+        (
+            GeneralSwitchLogsCheck,
+            {
+                "success": True,
+                "platform": "observability",
+                "test_name": "general_switch_logs",
+                "tests": _provider_hidden_tests(
+                    ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"],
+                    probe_field="switches_checked",
+                    message="Fabric plane is provider-owned",
+                ),
+            },
+            "provider-hidden",
+        ),
     ],
 )
 def test_bmc_observability_checks_pass_with_provider_hidden_evidence(
-    validation_cls: type[BmcSelLogsCheck | BmcGpuTelemetryCheck],
+    validation_cls: type[BaseValidation],
     step_output: dict[str, Any],
     expected: str,
 ) -> None:
@@ -267,6 +510,40 @@ def test_bmc_gpu_telemetry_rejects_string_metric_names() -> None:
 
     assert result["passed"] is False
     assert "metric_names" in result["error"]
+
+
+def test_telemetry_delivery_latency_rejects_slow_delivery() -> None:
+    """Telemetry delivery validation fails when latency exceeds the threshold."""
+    result = TelemetryDeliveryLatencyCheck(
+        config={**_config(_telemetry_delivery_output(observed_delivery_seconds=180)), "max_delivery_seconds": 120}
+    ).execute()
+
+    assert result["passed"] is False
+    assert "exceeds threshold" in result["error"]
+
+
+def test_switch_syslog_requires_recent_entries() -> None:
+    """Switch syslog validation fails without a positive recent-entry count."""
+    result = SwitchSyslogCheck(config=_config(_switch_syslog_output(entry_count=0))).execute()
+
+    assert result["passed"] is False
+    assert "entry_count" in result["error"]
+
+
+def test_ufm_event_logs_reject_missing_latest_timestamp() -> None:
+    """UFM event log validation fails when latest_timestamp is empty."""
+    result = UfmEventLogsCheck(config=_config(_ufm_event_logs_output(entry_count=0, latest_timestamp=""))).execute()
+
+    assert result["passed"] is False
+    assert "latest_timestamp" in result["error"]
+
+
+def test_ufm_event_logs_allow_empty_history_with_queryable_source() -> None:
+    """UFM event logs can be available even when no events are present."""
+    result = UfmEventLogsCheck(config=_config(_ufm_event_logs_output(entry_count=0))).execute()
+
+    assert result["passed"] is True
+    assert "0 entries" in result["output"]
 
 
 def test_missing_required_observability_test_fails() -> None:

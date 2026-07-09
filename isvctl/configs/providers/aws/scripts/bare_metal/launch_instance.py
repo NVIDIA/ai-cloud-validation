@@ -195,6 +195,11 @@ def main() -> int:
         default=200,
         help="Root volume size in GiB (default: 200, larger for BM workloads)",
     )
+    parser.add_argument(
+        "--detailed-monitoring",
+        action="store_true",
+        help="Enable EC2 detailed monitoring (1-minute CloudWatch metrics instead of the 5-minute default)",
+    )
     args = parser.parse_args()
 
     # Reuse existing instance if env vars are set
@@ -266,6 +271,7 @@ def main() -> int:
                     KeyName=args.key_name,
                     SubnetId=subnet_id,
                     SecurityGroupIds=[sg_id],
+                    Monitoring={"Enabled": args.detailed_monitoring},
                     TagSpecifications=[
                         {
                             "ResourceType": "instance",
