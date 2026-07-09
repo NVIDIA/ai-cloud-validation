@@ -71,6 +71,10 @@ For the domain / script-count / AWS-reference overview see the
 | `host_syslogs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.hosts_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `bmc_sel_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.bmc_endpoints_checked`, `log_source`, `entry_count` |
 | `bmc_gpu_telemetry` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.bmc_endpoints_checked`, `telemetry_endpoint`, `metric_names`, `host_os_unavailable_metrics`, `sample_count` |
+| `storage_capacity_telemetry` | test | `providers/my-isv/scripts/observability/storage_telemetry_test.py` | `tests.*.probes.volumes_checked`, `telemetry_source`, `metric_names`, `capacity_kinds`, `sample_count`, `latest_timestamp` |
+| `storage_performance_telemetry` | test | `providers/my-isv/scripts/observability/storage_telemetry_test.py` | `tests.*.probes.volumes_checked`, `telemetry_source`, `metric_names`, `performance_kinds`, `sample_count`, `latest_timestamp` |
+| `gpu_nvlink_telemetry` | test | `providers/my-isv/scripts/observability/nvlink_telemetry_test.py` | `tests.*.probes.links_checked`, `telemetry_source`, `metric_names`, `sample_count`, `latest_timestamp` |
+| `switch_nvlink_telemetry` | test | `providers/my-isv/scripts/observability/nvlink_telemetry_test.py` | `tests.*.probes.ports_checked`, `telemetry_source`, `metric_names`, `sample_count`, `latest_timestamp` |
 | `ufm_event_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.log_endpoints_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `general_switch_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `switch_syslogs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |

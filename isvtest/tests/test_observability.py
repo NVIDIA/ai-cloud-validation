@@ -27,10 +27,14 @@ from isvtest.validations.observability import (
     BmcSelLogsCheck,
     FabricManagerLogsCheck,
     GeneralSwitchLogsCheck,
+    GpuNvlinkTelemetryCheck,
     HostNicNetworkTelemetryCheck,
     HostSyslogCheck,
     NorthSouthNetworkTelemetryCheck,
+    StorageCapacityTelemetryCheck,
+    StoragePerformanceTelemetryCheck,
     SwitchKernelLogsCheck,
+    SwitchNvlinkTelemetryCheck,
     SwitchSyslogCheck,
     TelemetryDeliveryLatencyCheck,
     UfmEventLogsCheck,
@@ -370,6 +374,114 @@ def _host_nic_telemetry_output(**overrides: Any) -> dict[str, Any]:
     }
 
 
+def _storage_capacity_telemetry_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing storage capacity telemetry step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "demo-storage-capacity",
+        "volumes_checked": 2,
+        "metric_names": ["storage.used.bytes", "storage.free.bytes", "storage.total.bytes"],
+        "capacity_kinds": ["used", "free", "total"],
+        "sample_count": 3,
+        "latest_timestamp": "2026-05-20T13:21:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "storage_capacity_telemetry",
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "capacity_metrics_present", "samples_recent"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _storage_performance_telemetry_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing storage performance telemetry step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "cloudwatch",
+        "volumes_checked": 1,
+        "metric_names": ["VolumeReadBytes", "VolumeReadOps", "VolumeTotalReadTime"],
+        "performance_kinds": ["bandwidth", "iops", "latency"],
+        "sample_count": 4,
+        "latest_timestamp": "2026-05-20T13:20:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "storage_performance_telemetry",
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "performance_metrics_present", "samples_recent"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _gpu_nvlink_telemetry_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing GPU NVLink telemetry step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "demo-gpu-nvlink",
+        "links_checked": 4,
+        "metric_names": ["nvlink.tx_bytes", "nvlink.rx_bytes", "nvlink.bandwidth_util"],
+        "sample_count": 6,
+        "latest_timestamp": "2026-05-20T13:19:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "gpu_nvlink_telemetry",
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "link_metrics_present", "samples_recent"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _switch_nvlink_telemetry_output(**overrides: Any) -> dict[str, Any]:
+    """Build passing switch NVLink telemetry step output."""
+    probes: dict[str, Any] = {
+        "telemetry_source": "demo-switch-nvlink",
+        "ports_checked": 8,
+        "metric_names": ["nvlink.port.rx_errors", "nvlink.port.tx_counters"],
+        "sample_count": 5,
+        "latest_timestamp": "2026-05-20T13:18:00Z",
+    }
+    for key in set(overrides) & set(probes):
+        probes[key] = overrides.pop(key)
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "switch_nvlink_telemetry",
+        "tests": _tests(
+            ["telemetry_endpoint_reachable", "port_metrics_present", "samples_recent"],
+            probes,
+        ),
+        **overrides,
+    }
+
+
+def _storage_capacity_provider_hidden_output() -> dict[str, Any]:
+    """Build provider-hidden storage capacity telemetry step output."""
+    return {
+        "success": True,
+        "platform": "observability",
+        "test_name": "storage_capacity_telemetry",
+        "tests": _provider_hidden_tests(
+            ["telemetry_endpoint_reachable", "capacity_metrics_present", "samples_recent"],
+            probe_field="volumes_checked",
+            message="AWS storage plane is provider-owned",
+        ),
+    }
+
+
 def _fabric_manager_logs_output(**overrides: Any) -> dict[str, Any]:
     """Build passing Fabric Manager log step output."""
     probes: dict[str, Any] = {
@@ -398,6 +510,10 @@ def _fabric_manager_logs_output(**overrides: Any) -> dict[str, Any]:
         (HostSyslogCheck, _host_syslog_output(), "Host syslogs available"),
         (BmcSelLogsCheck, _bmc_sel_output(), "BMC SEL logs queryable"),
         (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_output(), "BMC GPU telemetry available"),
+        (StorageCapacityTelemetryCheck, _storage_capacity_telemetry_output(), "storage capacity telemetry"),
+        (StoragePerformanceTelemetryCheck, _storage_performance_telemetry_output(), "storage performance telemetry"),
+        (GpuNvlinkTelemetryCheck, _gpu_nvlink_telemetry_output(), "GPU NVLink telemetry"),
+        (SwitchNvlinkTelemetryCheck, _switch_nvlink_telemetry_output(), "switch NVLink telemetry"),
         (UfmEventLogsCheck, _ufm_event_logs_output(), "UFM Event logs queryable"),
         (FabricManagerLogsCheck, _fabric_manager_logs_output(), "Fabric Manager logs queryable"),
         (GeneralSwitchLogsCheck, _general_switch_logs_output(), "General switch logs available"),
@@ -433,6 +549,7 @@ def test_observability_checks_pass_with_required_evidence(
     [
         (BmcSelLogsCheck, _bmc_sel_provider_hidden_output(), "provider-hidden"),
         (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_provider_hidden_output(), "provider-hidden"),
+        (StorageCapacityTelemetryCheck, _storage_capacity_provider_hidden_output(), "provider-hidden"),
         (UfmEventLogsCheck, _ufm_event_logs_provider_hidden_output(), "provider-hidden"),
         (
             GeneralSwitchLogsCheck,
@@ -484,6 +601,34 @@ def test_bmc_sel_allows_empty_log_with_queryable_source() -> None:
 
     assert result["passed"] is True
     assert "0 entries" in result["output"]
+
+
+def test_storage_capacity_telemetry_requires_capacity_kinds() -> None:
+    """Storage capacity telemetry must report used, free, and total kinds."""
+    result = StorageCapacityTelemetryCheck(
+        config=_config(_storage_capacity_telemetry_output(capacity_kinds=["used", "free"]))
+    ).execute()
+
+    assert result["passed"] is False
+    assert "total" in result["error"]
+
+
+def test_storage_performance_telemetry_requires_performance_kinds() -> None:
+    """Storage performance telemetry must report bandwidth, IOPS, and latency kinds."""
+    result = StoragePerformanceTelemetryCheck(
+        config=_config(_storage_performance_telemetry_output(performance_kinds=["bandwidth", "iops"]))
+    ).execute()
+
+    assert result["passed"] is False
+    assert "latency" in result["error"]
+
+
+def test_gpu_nvlink_telemetry_requires_link_count() -> None:
+    """GPU NVLink telemetry validation fails without a positive link count."""
+    result = GpuNvlinkTelemetryCheck(config=_config(_gpu_nvlink_telemetry_output(links_checked=0))).execute()
+
+    assert result["passed"] is False
+    assert "links_checked" in result["error"]
 
 
 def test_bmc_gpu_telemetry_requires_non_empty_metric_names() -> None:

@@ -144,6 +144,50 @@ commands:
           - "bmc_gpu_telemetry"
         timeout: 60
 
+      - name: storage_capacity_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python ../scripts/observability/storage_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "storage_capacity_telemetry"
+        timeout: 60
+
+      - name: storage_performance_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python ../scripts/observability/storage_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "storage_performance_telemetry"
+        timeout: 60
+
+      - name: gpu_nvlink_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python ../scripts/observability/nvlink_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "gpu_nvlink_telemetry"
+        timeout: 60
+
+      - name: switch_nvlink_telemetry
+        phase: test
+        continue_on_failure: true
+        command: "python ../scripts/observability/nvlink_telemetry_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "switch_nvlink_telemetry"
+        timeout: 60
+
       - name: ufm_event_logs
         phase: test
         continue_on_failure: true

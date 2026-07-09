@@ -3602,6 +3602,7 @@ domains:
               - summary: Verify storage resource capacity metrics are available (used/free/total)
                 labels:
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3610,10 +3611,11 @@ domains:
                 req_id: TELEM05
                 test_id: TELEM05-01
                 legacy_ids: [TELEM-XX-05]
-                status: pending
+                status: approved
               - summary: Verify storage performance metrics are available (bandwidth, IOPS, latency)
                 labels:
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3622,12 +3624,13 @@ domains:
                 req_id: TELEM06
                 test_id: TELEM06-01
                 legacy_ids: [TELEM-XX-06]
-                status: pending
+                status: approved
           - description: NVLink Switch Telemetry
             tests:
               - summary: Verify NVLink metrics are available from the GPU perspective (per-link counters, bandwidth utilization)
                 labels:
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3636,10 +3639,11 @@ domains:
                 req_id: TELEM07
                 test_id: TELEM07-01
                 legacy_ids: [TELEM-XX-07]
-                status: pending
+                status: approved
               - summary: Verify NVLink metrics are available from the switch perspective (port-level counters, error rates)
                 labels:
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3648,7 +3652,7 @@ domains:
                 req_id: TELEM08
                 test_id: TELEM08-01
                 legacy_ids: [TELEM-XX-08]
-                status: pending
+                status: approved
   - name: "Security & Identity"
     components:
       - name: Network Security

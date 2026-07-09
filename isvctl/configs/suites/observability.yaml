@@ -92,6 +92,34 @@ tests:
           labels: ["gpu", "min_req", "observability", "security"]
           step: bmc_gpu_telemetry
 
+    storage_capacity_telemetry:
+      checks:
+        StorageCapacityTelemetryCheck:
+          test_id: "TELEM05-01"
+          labels: ["min_req", "observability"]
+          step: storage_capacity_telemetry
+
+    storage_performance_telemetry:
+      checks:
+        StoragePerformanceTelemetryCheck:
+          test_id: "TELEM06-01"
+          labels: ["min_req", "observability"]
+          step: storage_performance_telemetry
+
+    gpu_nvlink_telemetry:
+      checks:
+        GpuNvlinkTelemetryCheck:
+          test_id: "TELEM07-01"
+          labels: ["min_req", "observability"]
+          step: gpu_nvlink_telemetry
+
+    switch_nvlink_telemetry:
+      checks:
+        SwitchNvlinkTelemetryCheck:
+          test_id: "TELEM08-01"
+          labels: ["min_req", "observability"]
+          step: switch_nvlink_telemetry
+
     fabric_logs:
       checks:
         FabricManagerLogsCheck:

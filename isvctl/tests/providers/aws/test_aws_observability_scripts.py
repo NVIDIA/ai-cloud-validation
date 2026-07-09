@@ -952,3 +952,108 @@ def test_teardown_vpc_flow_logs_reports_delete_failure_and_continues() -> None:
     assert result["cleanup_errors"][0]["resource_type"] == "flow_log_id"
     assert result["cleanup_errors"][0]["resource_id"] == "fl-123"
     assert result["cleanup_errors"][0]["error_type"] == "access_denied"
+
+
+class FakeDescribeInstancesWithVolumesEc2:
+    """Fake EC2 client returning attached EBS volumes for an instance."""
+
+    def __init__(self, *, volume_ids: list[str]) -> None:
+        """Initialize fake client state."""
+        self.volume_ids = volume_ids
+
+    def describe_instances(self, *, InstanceIds: list[str]) -> dict[str, Any]:
+        """Return an instance with the configured block device mappings."""
+        return {
+            "Reservations": [
+                {
+                    "Instances": [
+                        {"BlockDeviceMappings": [{"Ebs": {"VolumeId": volume_id}} for volume_id in self.volume_ids]}
+                    ]
+                }
+            ]
+        }
+
+
+def test_storage_performance_telemetry_scopes_to_instance_volumes() -> None:
+    """Storage performance probe scopes CloudWatch queries to attached EBS volumes."""
+    script = _load_script("storage_telemetry_test.py")
+    dimensions = [{"Name": "VolumeId", "Value": "vol-123"}]
+    metrics = [
+        {"Namespace": "AWS/EBS", "MetricName": "VolumeReadBytes", "Dimensions": dimensions},
+        {"Namespace": "AWS/EBS", "MetricName": "VolumeReadOps", "Dimensions": dimensions},
+        {"Namespace": "AWS/EBS", "MetricName": "VolumeTotalReadTime", "Dimensions": dimensions},
+    ]
+    cloudwatch = FakeCloudWatchClient(
+        metrics=metrics,
+        statistics_sequence=[[_recent_datapoint(30)], [_recent_datapoint(30)], [_recent_datapoint(30)]],
+    )
+
+    result = script._check_storage_performance_telemetry(
+        cloudwatch,
+        FakeDescribeInstancesWithVolumesEc2(volume_ids=["vol-123"]),
+        instance_id="i-123",
+    )
+
+    assert result["success"] is True
+    assert result["test_name"] == "storage_performance_telemetry"
+    probes = result["tests"]["samples_recent"]["probes"]
+    assert probes["volumes_checked"] == 1
+    assert probes["performance_kinds"] == ["bandwidth", "iops", "latency"]
+    assert probes["sample_count"] == 3
+
+
+def test_storage_performance_telemetry_fails_without_attached_volumes() -> None:
+    """Storage performance probe fails cleanly when the instance has no volumes."""
+    script = _load_script("storage_telemetry_test.py")
+    cloudwatch = FakeCloudWatchClient(metrics=[], statistics_sequence=[])
+
+    result = script._check_storage_performance_telemetry(
+        cloudwatch,
+        FakeDescribeInstancesWithVolumesEc2(volume_ids=[]),
+        instance_id="i-123",
+    )
+
+    assert result["success"] is False
+    assert "No EBS volumes" in result["error"]
+
+
+@pytest.mark.parametrize(
+    ("aspect", "expected_tests", "probe_field"),
+    [
+        (
+            "storage_capacity_telemetry",
+            {"telemetry_endpoint_reachable", "capacity_metrics_present", "samples_recent"},
+            "volumes_checked",
+        ),
+        (
+            "gpu_nvlink_telemetry",
+            {"telemetry_endpoint_reachable", "link_metrics_present", "samples_recent"},
+            "links_checked",
+        ),
+        (
+            "switch_nvlink_telemetry",
+            {"telemetry_endpoint_reachable", "port_metrics_present", "samples_recent"},
+            "ports_checked",
+        ),
+    ],
+)
+def test_telem_hidden_aspects_emit_provider_hidden_contract(
+    aspect: str, expected_tests: set[str], probe_field: str
+) -> None:
+    """AWS provider-hidden TELEM aspects report evidence instead of being excluded."""
+    if aspect == "storage_capacity_telemetry":
+        script = _load_script("storage_telemetry_test.py")
+        result = script._check_hidden_storage_capacity(region="us-west-2")
+    else:
+        script = _load_script("nvlink_telemetry_test.py")
+        result = script.check_provider_hidden_aspect(aspect, region="us-west-2")
+
+    assert result["success"] is True
+    assert result["platform"] == "observability"
+    assert result["test_name"] == aspect
+    assert set(result["tests"]) == expected_tests
+    for subtest in result["tests"].values():
+        assert subtest["passed"] is True
+        assert subtest["provider_hidden"] is True
+        assert subtest["probes"][probe_field] == 0
+        assert "provider-owned" in subtest["message"]

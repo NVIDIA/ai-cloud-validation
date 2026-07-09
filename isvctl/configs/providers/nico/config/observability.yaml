@@ -102,6 +102,10 @@ tests:
       - HostSyslogCheck
       - BmcSelLogsCheck
       - BmcGpuTelemetryCheck
+      - StorageCapacityTelemetryCheck
+      - StoragePerformanceTelemetryCheck
+      - GpuNvlinkTelemetryCheck
+      - SwitchNvlinkTelemetryCheck
       - TelemetryDeliveryLatencyCheck
       - NorthSouthNetworkTelemetryCheck
       - EastWestNetworkTelemetryCheck

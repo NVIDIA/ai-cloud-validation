@@ -218,6 +218,154 @@ class BmcSelLogsCheck(BaseValidation):
         )
 
 
+def _require_metric_kinds(
+    validation: BaseValidation,
+    probes: dict[str, object],
+    field: str,
+    required_kinds: list[str],
+    label: str,
+) -> bool:
+    """Fail validation when required metric-kind categories are missing."""
+    value = probes.get(field)
+    if not isinstance(value, list) or not value or not all(_is_non_empty_string(item) for item in value):
+        validation.set_failed(f"{label} evidence field '{field}' must be a non-empty list of strings")
+        return False
+    normalized = {str(item).strip().lower() for item in value}
+    missing = [kind for kind in required_kinds if kind not in normalized]
+    if missing:
+        validation.set_failed(f"Missing {label} metric kinds: {', '.join(missing)}")
+        return False
+    return True
+
+
+class _StorageTelemetryCheck(BaseValidation):
+    """Shared validation logic for storage telemetry checks."""
+
+    catalog_exclude: ClassVar[bool] = True
+    _required_tests: ClassVar[list[str]] = [
+        "telemetry_endpoint_reachable",
+        "capacity_metrics_present",
+        "samples_recent",
+    ]
+    _metrics_present_test: ClassVar[str] = "capacity_metrics_present"
+    _plane_label: ClassVar[str] = "storage capacity telemetry"
+    _kind_field: ClassVar[str] = "capacity_kinds"
+    _required_kinds: ClassVar[list[str]] = ["used", "free", "total"]
+
+    def run(self) -> None:
+        """Validate storage telemetry results and evidence."""
+        if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
+            return
+        if message := _provider_hidden_message(self, self._required_tests, self._plane_label):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
+            return
+        if not _require_non_empty_string_list(self, probes, "metric_names", self._plane_label):
+            return
+        if not _require_metric_kinds(self, probes, self._kind_field, self._required_kinds, self._plane_label):
+            return
+        if not _require_positive_int(self, probes, "volumes_checked", self._plane_label):
+            return
+        if not _require_positive_int(self, probes, "sample_count", self._plane_label):
+            return
+        if not _require_non_empty_strings(self, probes, ["latest_timestamp"], self._plane_label):
+            return
+
+        metric_names = probes["metric_names"]
+        kinds = probes[self._kind_field]
+        self.set_passed(
+            f"{self._plane_label} available for {probes['volumes_checked']} volume(s) "
+            f"via {probes['telemetry_source']} ({len(metric_names)} metrics, "
+            f"{len(kinds)} capacity kinds, {probes['sample_count']} samples)"
+        )
+
+
+class StorageCapacityTelemetryCheck(_StorageTelemetryCheck):
+    """Validate storage resource capacity metrics are available."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check storage capacity telemetry is available (used/free/total)"
+
+
+class StoragePerformanceTelemetryCheck(_StorageTelemetryCheck):
+    """Validate storage performance metrics are available."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check storage performance telemetry is available (bandwidth/IOPS/latency)"
+    _required_tests: ClassVar[list[str]] = [
+        "telemetry_endpoint_reachable",
+        "performance_metrics_present",
+        "samples_recent",
+    ]
+    _metrics_present_test: ClassVar[str] = "performance_metrics_present"
+    _plane_label: ClassVar[str] = "storage performance telemetry"
+    _kind_field: ClassVar[str] = "performance_kinds"
+    _required_kinds: ClassVar[list[str]] = ["bandwidth", "iops", "latency"]
+
+
+class _NvlinkTelemetryCheck(BaseValidation):
+    """Shared validation logic for NVLink telemetry checks."""
+
+    catalog_exclude: ClassVar[bool] = True
+    _required_tests: ClassVar[list[str]] = [
+        "telemetry_endpoint_reachable",
+        "link_metrics_present",
+        "samples_recent",
+    ]
+    _metrics_present_test: ClassVar[str] = "link_metrics_present"
+    _plane_label: ClassVar[str] = "GPU NVLink telemetry"
+    _count_field: ClassVar[str] = "links_checked"
+
+    def run(self) -> None:
+        """Validate NVLink telemetry results and evidence."""
+        if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
+            return
+        if message := _provider_hidden_message(self, self._required_tests, self._plane_label):
+            self.set_passed(message)
+            return
+        probes = _merged_probes(self)
+        if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
+            return
+        if not _require_non_empty_string_list(self, probes, "metric_names", self._plane_label):
+            return
+        if not _require_positive_int(self, probes, self._count_field, self._plane_label):
+            return
+        if not _require_positive_int(self, probes, "sample_count", self._plane_label):
+            return
+        if not _require_non_empty_strings(self, probes, ["latest_timestamp"], self._plane_label):
+            return
+
+        metric_names = probes["metric_names"]
+        self.set_passed(
+            f"{self._plane_label} available from {probes[self._count_field]} link(s) "
+            f"via {probes['telemetry_source']} ({len(metric_names)} metrics, {probes['sample_count']} samples)"
+        )
+
+
+class GpuNvlinkTelemetryCheck(_NvlinkTelemetryCheck):
+    """Validate NVLink metrics are available from the GPU perspective."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check GPU NVLink telemetry is available"
+
+
+class SwitchNvlinkTelemetryCheck(_NvlinkTelemetryCheck):
+    """Validate NVLink metrics are available from the switch perspective."""
+
+    catalog_exclude: ClassVar[bool] = False
+    description: ClassVar[str] = "Check switch NVLink telemetry is available"
+    _required_tests: ClassVar[list[str]] = [
+        "telemetry_endpoint_reachable",
+        "port_metrics_present",
+        "samples_recent",
+    ]
+    _metrics_present_test: ClassVar[str] = "port_metrics_present"
+    _plane_label: ClassVar[str] = "switch NVLink telemetry"
+    _count_field: ClassVar[str] = "ports_checked"
+
+
 class BmcGpuTelemetryCheck(BaseValidation):
     """Validate BMC or Redfish GPU telemetry is available.
 

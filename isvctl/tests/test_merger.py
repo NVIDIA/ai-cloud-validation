@@ -466,6 +466,10 @@ class TestImportEndToEnd:
             "host_syslogs",
             "bmc_sel_logs",
             "bmc_gpu_telemetry",
+            "storage_capacity_telemetry",
+            "storage_performance_telemetry",
+            "gpu_nvlink_telemetry",
+            "switch_nvlink_telemetry",
         } <= step_names
 
         steps_by_name = {step["name"]: step for step in steps}
@@ -480,10 +484,23 @@ class TestImportEndToEnd:
         assert validations["host_logs"]["checks"]["HostSyslogCheck"]["step"] == "host_syslogs"
         assert validations["bmc_logs"]["checks"]["BmcSelLogsCheck"]["step"] == "bmc_sel_logs"
         assert validations["bmc_telemetry"]["checks"]["BmcGpuTelemetryCheck"]["step"] == "bmc_gpu_telemetry"
+        assert validations["storage_capacity_telemetry"]["checks"]["StorageCapacityTelemetryCheck"]["step"] == (
+            "storage_capacity_telemetry"
+        )
+        assert validations["storage_performance_telemetry"]["checks"]["StoragePerformanceTelemetryCheck"]["step"] == (
+            "storage_performance_telemetry"
+        )
+        assert (
+            validations["gpu_nvlink_telemetry"]["checks"]["GpuNvlinkTelemetryCheck"]["step"] == "gpu_nvlink_telemetry"
+        )
+        assert validations["switch_nvlink_telemetry"]["checks"]["SwitchNvlinkTelemetryCheck"]["step"] == (
+            "switch_nvlink_telemetry"
+        )
 
         excluded = set(result["tests"].get("exclude", {}).get("tests", []))
         assert "BmcSelLogsCheck" not in excluded
         assert "BmcGpuTelemetryCheck" not in excluded
+        assert "StorageCapacityTelemetryCheck" not in excluded
 
     def test_aws_iam_commands_override_test_stubs(self) -> None:
         """AWS commands replace the test definition's placeholder stubs."""
