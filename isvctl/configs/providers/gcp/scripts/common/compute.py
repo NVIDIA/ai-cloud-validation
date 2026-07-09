@@ -55,6 +55,8 @@ import google.auth
 from google.api_core import exceptions as gax
 from google.cloud import compute_v1
 
+from common.errors import retry_idempotent
+
 # --------------------------------------------------------------------- #
 # Auth / project resolution                                             #
 # --------------------------------------------------------------------- #
@@ -227,7 +229,12 @@ def _list_region_zones(
     for attempt in range(1, attempts + 1):
         try:
             client = compute_v1.RegionsClient()
-            region_obj = client.get(project=project, region=region)
+            region_obj = retry_idempotent(
+                client.get,
+                project=project,
+                region=region,
+                op_desc=f"regions.get {region}",
+            )
             return [url.rsplit("/", 1)[-1] for url in region_obj.zones or ()]
         except _REGION_LOOKUP_RETRY_TRANSIENT as e:
             last_transient = e
@@ -327,30 +334,55 @@ _ZONE_TOKENS_CASE_INSENSITIVE = (
 )
 
 
+def _carries_capacity_token(msg: str) -> bool:
+    """Return True iff ``msg`` carries a documented zone-capacity token.
+
+    Union of the observed wire wordings: case-sensitive ``ZONE_RESOURCE`` plus
+    case-insensitive ``STOCKOUT`` / "does not have enough resources". Used both
+    for the ``RuntimeError`` wait-helper shape and to token-gate the HTTP 503
+    ``ServiceUnavailable`` spelling of a sync stockout.
+    """
+    if any(tok in msg for tok in _ZONE_TOKENS_CASE_SENSITIVE):
+        return True
+    msg_upper = msg.upper()
+    return any(tok.upper() in msg_upper for tok in _ZONE_TOKENS_CASE_INSENSITIVE)
+
+
 def is_zone_unavailable(err: Exception, op: Any = None) -> bool:
     """Return True iff ``err`` (or the optional ``op``) signals zone-unavailable.
 
-    Four shapes:
+    Covers every documented zone-capacity wire shape:
 
-      1. ``ResourceExhausted`` / 503 sync.
-      2. Async op DONE with ZONE_RESOURCE / STOCKOUT in
-         ``op.error.errors[].code``.
-      3. HTTP 400 ``machineType ... does not exist in zone``.
-      4. ``RuntimeError`` from the wait helper joining
-         ``code:message`` — matches ZONE_RESOURCE, STOCKOUT, or the
-         human-readable "does not have enough resources" sentence.
+      1a. ``ResourceExhausted`` (HTTP 429) sync stockout.
+      1b. ``ServiceUnavailable`` (HTTP 503) sync stockout — the SAME stockout
+          can surface as 429 OR 503, so the 503 spelling counts ONLY when the
+          error carries a documented zone-capacity token. A bare 503 with no
+          such token is an ordinary backend transient and must be retried /
+          re-raised, never consumed as a zone-walk candidate.
+      2.  Async op DONE with ZONE_RESOURCE / STOCKOUT in
+          ``op.error.errors[].code``.
+      3.  HTTP 400 "Machine type ... does not exist in zone" — matched
+          case-insensitively so the "Machine type" prose spelling and the
+          camelCase ``machineType`` field spelling both classify.
+      4.  ``RuntimeError`` from the wait helper joining ``code:message`` —
+          matches ZONE_RESOURCE, STOCKOUT, or the human-readable "does not
+          have enough resources" sentence.
     """
     if isinstance(err, gax.ResourceExhausted):
         return True
     msg = str(err)
-    if "does not exist in zone" in msg and "machineType" in msg:
+    # HTTP 503 is a stockout only when it carries a zone-capacity token; a
+    # generic 503 stays a plain transient (retry/re-raise), never a walk.
+    if isinstance(err, gax.ServiceUnavailable):
+        return _carries_capacity_token(msg)
+    # Machine-type-not-in-zone (HTTP 400). Case-normalized so both the
+    # "Machine type ... does not exist in zone." prose form and the camelCase
+    # "machineType" field form match.
+    msg_lower = msg.lower()
+    if "does not exist in zone" in msg_lower and ("machine type" in msg_lower or "machinetype" in msg_lower):
         return True
-    if isinstance(err, RuntimeError):
-        if any(tok in msg for tok in _ZONE_TOKENS_CASE_SENSITIVE):
-            return True
-        msg_upper = msg.upper()
-        if any(tok.upper() in msg_upper for tok in _ZONE_TOKENS_CASE_INSENSITIVE):
-            return True
+    if isinstance(err, RuntimeError) and _carries_capacity_token(msg):
+        return True
     if op is not None and getattr(op, "error", None):
         for e in op.error.errors:
             code = (getattr(e, "code", "") or "").upper()
@@ -369,7 +401,13 @@ def delete_failed_zonal_instance(project: str, zone: str, name: str) -> bool:
     completed or the record was already absent.
     """
     try:
-        op = compute_v1.InstancesClient().delete(project=project, zone=zone, instance=name)
+        op = retry_idempotent(
+            compute_v1.InstancesClient().delete,
+            project=project,
+            zone=zone,
+            instance=name,
+            op_desc=f"instances.delete {name} (failed-zone cleanup)",
+        )
     except gax.NotFound:
         return True
     except gax.GoogleAPICallError as e:
@@ -483,7 +521,13 @@ def wait_for_zonal_op(
     client = compute_v1.ZoneOperationsClient()
     deadline = time.monotonic() + timeout
     while True:
-        op = client.get(project=project, zone=zone, operation=operation_name)
+        op = retry_idempotent(
+            client.get,
+            project=project,
+            zone=zone,
+            operation=operation_name,
+            op_desc=f"zoneOperations.get {operation_name}",
+        )
         if op.status == compute_v1.Operation.Status.DONE:
             if op.error and op.error.errors:
                 msg = "; ".join(f"{getattr(e, 'code', '')}:{getattr(e, 'message', str(e))}" for e in op.error.errors)
@@ -561,7 +605,12 @@ def wait_for_global_op(project: str, operation_name: str, *, timeout: int = 600)
     client = compute_v1.GlobalOperationsClient()
     deadline = time.monotonic() + timeout
     while True:
-        op = client.get(project=project, operation=operation_name)
+        op = retry_idempotent(
+            client.get,
+            project=project,
+            operation=operation_name,
+            op_desc=f"globalOperations.get {operation_name}",
+        )
         if op.status == compute_v1.Operation.Status.DONE:
             if op.error and op.error.errors:
                 msg = "; ".join(f"{getattr(e, 'code', '')}:{getattr(e, 'message', str(e))}" for e in op.error.errors)
@@ -579,7 +628,13 @@ def wait_for_global_op(project: str, operation_name: str, *, timeout: int = 600)
 
 def get_instance(project: str, zone: str, name: str) -> compute_v1.Instance:
     """Wrapper around InstancesClient().get for convenience."""
-    return compute_v1.InstancesClient().get(project=project, zone=zone, instance=name)
+    return retry_idempotent(
+        compute_v1.InstancesClient().get,
+        project=project,
+        zone=zone,
+        instance=name,
+        op_desc=f"instances.get {name}",
+    )
 
 
 def poll_instance_state(
@@ -673,27 +728,78 @@ def short_name(self_link: str | None) -> str:
     return self_link.rsplit("/", 1)[-1]
 
 
+# Canonical Compute Engine image / image-family self-links. The installed REST
+# transport binds ``{project}`` and ``{image}`` / ``{family}`` as SEPARATE path
+# segments (services/images/transports/rest_base.py:
+# ``/compute/v1/projects/{project}/global/images/{image}``), so a full self-link
+# passed straight through as ``{image}`` produces a broken URL and a
+# deterministic NotFound. Parse the embedded project + identifier instead. The
+# family alternative MUST precede the plain-image group so ``.../images/family/x``
+# is not mis-read as an image literally named ``family``.
+_IMAGE_SELF_LINK_RE = re.compile(
+    r"(?:^|/)projects/(?P<project>[^/]+)/global/images/"
+    r"(?:family/(?P<family>[^/?#]+)|(?P<image>[^/?#]+))/?$"
+)
+
+
 def resolve_image(
     image_project: str,
     image_arg: str,
 ) -> compute_v1.Image:
-    """Resolve an operator-supplied image short-name or family to a concrete Image.
+    """Resolve an operator-supplied image short-name, family, or self-link to an Image.
 
-    The operator's ``args.project`` (forwarded as ``image_project``
-    here) MUST be the FIRST lookup scope —
-    vendor-default constants are only an explicit fallback. The resolver
-    tries:
-        1. ``images.get(project=image_project, image=image_arg)``      (exact name)
-        2. ``images.get_from_family(project=image_project, family=image_arg)``
-           (family alias)
+    The documented ``GCP_*_IMAGE`` override accepts three shapes:
+
+        1. A canonical image self-link
+           (``.../projects/<proj>/global/images/<name>``) — the embedded project
+           and image name are extracted and passed to ``images.get`` as the
+           separate ``{project}`` / ``{image}`` path segments the SDK requires.
+        2. A canonical family self-link
+           (``.../projects/<proj>/global/images/family/<family>``) — routed to
+           ``images.get_from_family`` with the embedded project + family.
+        3. A bare short-name / family alias — resolved under ``image_project``
+           (the operator's project is the FIRST lookup scope; vendor defaults are
+           only an explicit fallback): try ``images.get`` (exact name) then
+           ``images.get_from_family`` (family alias).
+
     Raising the original ``NotFound`` keeps the failure inspectable when
     nothing matches.
     """
     client = compute_v1.ImagesClient()
+
+    match = _IMAGE_SELF_LINK_RE.search(image_arg.strip())
+    if match:
+        embedded_project = match.group("project")
+        family = match.group("family")
+        if family:
+            return retry_idempotent(
+                client.get_from_family,
+                project=embedded_project,
+                family=family,
+                op_desc=f"images.get_from_family {family}",
+            )
+        return retry_idempotent(
+            client.get,
+            project=embedded_project,
+            image=match.group("image"),
+            op_desc=f"images.get {match.group('image')}",
+        )
+
+    # Bare short-name / family alias under the operator image project.
     try:
-        return client.get(project=image_project, image=image_arg)
+        return retry_idempotent(
+            client.get,
+            project=image_project,
+            image=image_arg,
+            op_desc=f"images.get {image_arg}",
+        )
     except gax.NotFound:
-        return client.get_from_family(project=image_project, family=image_arg)
+        return retry_idempotent(
+            client.get_from_family,
+            project=image_project,
+            family=image_arg,
+            op_desc=f"images.get_from_family {image_arg}",
+        )
 
 
 # --------------------------------------------------------------------- #
@@ -838,8 +944,10 @@ def resolve_trusted_ssh_source_ranges(env_value: str | None = None) -> list[str]
 
     Raises ``ValueError`` (operator-actionable) when the variable is unset,
     empty, non-IPv4, malformed, or normalizes to an all-internet range such
-    as ``0.0.0.0/0``. The caller surfaces the message as a launch error,
-    sets ``success=false``, and exits non-zero — there is no fallback range.
+    as ``0.0.0.0/0`` — including a SPLIT all-internet union such as
+    ``0.0.0.0/1,128.0.0.0/1`` whose collapsed coverage equals ``0.0.0.0/0``.
+    The caller surfaces the message as a launch error, sets ``success=false``,
+    and exits non-zero — there is no fallback range.
     """
     raw = env_value if env_value is not None else os.environ.get(TRUSTED_SSH_SOURCE_ENV_VAR)
     if raw is None or not raw.strip():
@@ -849,7 +957,7 @@ def resolve_trusted_ssh_source_ranges(env_value: str | None = None) -> list[str]
             "(e.g. 203.0.113.4 or 203.0.113.0/24) and re-run."
         )
 
-    ranges: list[str] = []
+    networks: list[ipaddress.IPv4Network] = []
     for token in (t.strip() for t in raw.split(",")):
         if not token:
             continue
@@ -870,11 +978,26 @@ def resolve_trusted_ssh_source_ranges(env_value: str | None = None) -> list[str]
                 f"{TRUSTED_SSH_SOURCE_ENV_VAR} entry {token!r} normalizes to the open "
                 "internet (0.0.0.0/0), which is forbidden for SSH/RDP ingress."
             )
-        ranges.append(str(net))
+        networks.append(net)
 
-    if not ranges:
+    if not networks:
         raise ValueError(f"{TRUSTED_SSH_SOURCE_ENV_VAR} contained no usable IPv4 source ranges.")
-    return ranges
+
+    # Collapse the COMPLETE normalized list and reject when the union covers all
+    # of IPv4 space. Rejecting only per-entry /0 (above) misses an equivalent
+    # all-internet union split across entries (e.g. 0.0.0.0/1 + 128.0.0.0/1),
+    # which would otherwise open tcp/22 to the whole internet despite the
+    # fail-closed contract.
+    collapsed = list(ipaddress.collapse_addresses(networks))
+    total_addresses = sum(net.num_addresses for net in collapsed)
+    if any(net.prefixlen == 0 for net in collapsed) or total_addresses >= (1 << 32):
+        rendered = ",".join(str(net) for net in networks)
+        raise ValueError(
+            f"{TRUSTED_SSH_SOURCE_ENV_VAR} ranges {rendered!r} collapse to the open "
+            "internet (0.0.0.0/0 equivalent), which is forbidden for SSH/RDP ingress."
+        )
+
+    return [str(net) for net in networks]
 
 
 # --------------------------------------------------------------------- #
@@ -992,6 +1115,16 @@ def _firewall_matches_ssh_shape(
     # because teardown gates on the `firewall_created` flag.
     if set(rule.source_ranges) != set(source_ranges):
         return False
+    # GCP evaluates an INGRESS rule's source as the UNION of source_ranges,
+    # source_tags, and source_service_accounts. Matching source_ranges alone is
+    # insufficient: a rule whose ranges equal the trusted set but that ALSO
+    # carries source_tags or source_service_accounts admits SSH from tagged
+    # instances / service-account identities too — a strictly broader effective
+    # source than the operator-trusted ranges. Assert the FULL effective source
+    # set equals the trusted ranges by requiring both tag/SA source selectors to
+    # be empty, so such a superset rule is REJECTED rather than silently adopted.
+    if rule.source_tags or rule.source_service_accounts:
+        return False
     if set(rule.target_tags) != {ISV_NETWORK_TAG}:
         return False
     # Require exactly one allowed entry: tcp/22. Multiple entries or
@@ -1066,7 +1199,12 @@ def insert_ssh_firewall(
     try:
         op = fw_client.insert(project=project, firewall_resource=rule)
     except gax.Conflict:
-        existing = fw_client.get(project=project, firewall=name)
+        existing = retry_idempotent(
+            fw_client.get,
+            project=project,
+            firewall=name,
+            op_desc=f"firewalls.get {name} (reuse readback)",
+        )
         if not _firewall_has_isv_ownership(existing):
             raise RuntimeError(
                 f"firewall {name!r} exists in {project} without ownership marker "

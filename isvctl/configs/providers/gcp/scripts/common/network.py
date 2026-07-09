@@ -56,7 +56,7 @@ from google.api_core import exceptions as gax
 from google.cloud import compute_v1
 
 from common.compute import short_name, zone_to_region
-from common.errors import delete_with_retry
+from common.errors import delete_with_retry, is_resource_not_ready, retry_idempotent
 
 # --------------------------------------------------------------------- #
 # Provenance markers                                                    #
@@ -86,6 +86,16 @@ DEFAULT_SSH_USER = "ubuntu"
 # Metadata-server resolver — the only internal-DNS source Compute Engine
 # exposes to Linux guests. There is no per-VPC DHCP-options API.
 METADATA_DNS_SERVER = "169.254.169.254"
+
+# Canonical "retain ALL flow records" VPC Flow Logs configuration. This is the
+# SINGLE source of truth for both the requested patch values and the strict
+# read-back assertions in the enable/availability steps — a setup that reads
+# back with a weaker sampling rate, metadata scope, or aggregation interval than
+# requested must NOT be accepted as ALL. flow_sampling round-trips through a
+# proto FLOAT; 1.0 is exactly representable, so an exact compare is safe.
+FLOW_LOG_FLOW_SAMPLING = 1.0
+FLOW_LOG_METADATA = "INCLUDE_ALL_METADATA"
+FLOW_LOG_AGGREGATION_INTERVAL = "INTERVAL_5_SEC"
 
 
 # --------------------------------------------------------------------- #
@@ -132,7 +142,7 @@ def resolve_trusted_firewall_sources(env_var: str = FIREWALL_TRUST_IP_ENV) -> li
             f"ingress. Set it to a trusted IPv4 address or CIDR (e.g. "
             f"203.0.113.10 or 203.0.113.0/24); 0.0.0.0/0 is forbidden."
         )
-    sources: list[str] = []
+    networks: list[ipaddress.IPv4Network] = []
     for token in raw.split(","):
         value = token.strip()
         if not value:
@@ -146,12 +156,23 @@ def resolve_trusted_firewall_sources(env_var: str = FIREWALL_TRUST_IP_ENV) -> li
                 f"operator error: {env_var} entry {value!r} must be IPv4 (SSH/RDP trust ranges are IPv4)."
             )
         rendered = str(network)
-        if rendered in _FORBIDDEN_FIREWALL_RANGES:
+        if rendered in _FORBIDDEN_FIREWALL_RANGES or network.prefixlen == 0:
             raise OperatorConfigError(
                 f"operator error: {env_var} value {rendered} is forbidden; it defeats the SSH/RDP ingress guardrail."
             )
-        sources.append(rendered)
-    return sources
+        networks.append(network)
+
+    # Reject a SPLIT all-internet union (e.g. 0.0.0.0/1 + 128.0.0.0/1) whose
+    # collapsed coverage equals 0.0.0.0/0. Per-entry /0 rejection alone misses
+    # equivalent unions that would open tcp/22 or tcp/3389 to the whole internet.
+    collapsed = list(ipaddress.collapse_addresses(networks))
+    if any(net.prefixlen == 0 for net in collapsed) or sum(net.num_addresses for net in collapsed) >= (1 << 32):
+        rendered_union = ",".join(str(net) for net in networks)
+        raise OperatorConfigError(
+            f"operator error: {env_var} value {rendered_union!r} collapses to the open internet "
+            "(0.0.0.0/0 equivalent); it defeats the SSH/RDP ingress guardrail."
+        )
+    return [str(net) for net in networks]
 
 
 # --------------------------------------------------------------------- #
@@ -278,7 +299,13 @@ def wait_for_regional_op(
     client = compute_v1.RegionOperationsClient()
     deadline = time.monotonic() + timeout
     while True:
-        op = client.get(project=project, region=region, operation=operation_name)
+        op = retry_idempotent(
+            client.get,
+            project=project,
+            region=region,
+            operation=operation_name,
+            op_desc=f"regionOperations.get {operation_name}",
+        )
         if op.status == compute_v1.Operation.Status.DONE:
             if op.error and op.error.errors:
                 msg = "; ".join(f"{getattr(e, 'code', '')}:{getattr(e, 'message', str(e))}" for e in op.error.errors)
@@ -353,7 +380,12 @@ def region_zones(project: str, region: str) -> list[str]:
     unauthorized region rather than silently returning an empty list.
     """
     try:
-        region_obj = compute_v1.RegionsClient().get(project=project, region=region)
+        region_obj = retry_idempotent(
+            compute_v1.RegionsClient().get,
+            project=project,
+            region=region,
+            op_desc=f"regions.get {region}",
+        )
     except (gax.NotFound, gax.PermissionDenied, gax.InvalidArgument, gax.Unauthenticated) as e:
         raise RuntimeError(f"region {region!r} is invalid or unauthorized: {e}") from e
     return [url.rsplit("/", 1)[-1] for url in region_obj.zones or ()]
@@ -383,6 +415,7 @@ def insert_network(
     routing_mode: str = "REGIONAL",
     description: str = ISV_RESOURCE_DESCRIPTION,
     timeout: int = 120,
+    on_accepted: Callable[[], None] | None = None,
 ) -> str:
     """Create a custom-mode network and wait for the insert op to finish.
 
@@ -391,6 +424,13 @@ def insert_network(
     a default route (0.0.0.0/0 via the implicit default-internet-gateway)
     so no route table / IGW resource is created — those have no Compute
     Engine analog. Returns the network short name.
+
+    ``on_accepted`` (if supplied) fires EXACTLY ONCE, after the synchronous
+    ``insert`` is accepted by the API but BEFORE the async op-wait. Callers
+    stamp their ``*_created`` ownership tracker there so (a) a synchronous
+    conflict — which raises before acceptance — never claims a foreign
+    resource, and (b) a wait-side failure still hands teardown a truthful
+    created=True for the accepted-but-unconfirmed resource.
     """
     net = compute_v1.Network()
     net.name = name
@@ -401,6 +441,8 @@ def insert_network(
     net.routing_config = routing
 
     op = compute_v1.NetworksClient().insert(project=project, network_resource=net)
+    if on_accepted is not None:
+        on_accepted()
     op_name = _op_name(op)
     if op_name:
         _wait_or_rollback(
@@ -413,7 +455,12 @@ def insert_network(
 
 def get_network(project: str, name: str) -> compute_v1.Network:
     """Return the live ``Network`` resource (raises ``NotFound`` if absent)."""
-    return compute_v1.NetworksClient().get(project=project, network=name)
+    return retry_idempotent(
+        compute_v1.NetworksClient().get,
+        project=project,
+        network=name,
+        op_desc=f"networks.get {name}",
+    )
 
 
 def delete_network(project: str, name: str, *, timeout: int = 120) -> None:
@@ -437,6 +484,48 @@ def network_has_isv_ownership(net: compute_v1.Network) -> bool:
 # --------------------------------------------------------------------- #
 
 
+def _insert_subnetwork_awaiting_parent(
+    project: str,
+    region: str,
+    subnet: compute_v1.Subnetwork,
+    *,
+    resource_desc: str,
+    attempts: int = 5,
+    backoff_seconds: float = 3.0,
+) -> Any:
+    """Submit ``subnetworks.insert``, retrying ONLY the parent-not-ready 400.
+
+    Bounded dependent-readiness gate for the create path. Compute Engine's global
+    network-insert op reaching DONE does not guarantee the network is immediately
+    usable as a subnet parent: a ``subnetworks.insert`` issued in the brief
+    eventual-consistency window after DONE can be rejected PRE-ACCEPTANCE with
+    HTTP 400 ``resourceNotReady`` / "resource is not ready". We retry the insert
+    ACK on THAT response only (``is_resource_not_ready``), with linear backoff;
+    any other error (conflict, quota, permission, 5xx, or a wait-side op failure)
+    propagates immediately so we never broadly retry conflicts or ambiguous
+    responses. A not-ready 400 is pre-acceptance, so no resource is created and
+    no ownership is stamped on a rejected attempt — the caller's ``on_accepted``
+    hook runs only once this returns the accepted op.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return compute_v1.SubnetworksClient().insert(project=project, region=region, subnetwork_resource=subnet)
+        except gax.BadRequest as e:  # HTTP 400 (covers gax.FailedPrecondition)
+            if not is_resource_not_ready(e) or attempt >= attempts:
+                raise
+            last_error = e
+            delay = backoff_seconds * attempt
+            print(
+                f"  parent network not ready for {resource_desc} "
+                f"(attempt {attempt}/{attempts}): {e}; retrying subnet insert in {delay:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    if last_error is not None:  # pragma: no cover - loop returns or raises above
+        raise last_error
+
+
 def insert_subnetwork(
     project: str,
     region: str,
@@ -447,6 +536,9 @@ def insert_subnetwork(
     description: str = ISV_RESOURCE_DESCRIPTION,
     enable_flow_logs: bool = False,
     timeout: int = 180,
+    on_accepted: Callable[[], None] | None = None,
+    not_ready_attempts: int = 5,
+    not_ready_backoff_seconds: float = 3.0,
 ) -> None:
     """Create a regional subnetwork and wait for the op to finish.
 
@@ -454,6 +546,26 @@ def insert_subnetwork(
     ``enable_flow_logs`` turns on VPC Flow Logs (a telemetry source for
     the SDN latency/perf step). The proto has no ``labels`` field; only
     the ``description`` marker is used for provenance.
+
+    Dependent-readiness gate: a subnetwork is a dependent of its parent network,
+    and the parent's global insert op reaching DONE does NOT guarantee the
+    network is immediately usable as a subnet-create target. In the brief
+    eventual-consistency window after DONE, ``subnetworks.insert`` can be
+    rejected PRE-ACCEPTANCE with HTTP 400 ``resourceNotReady`` / "resource is not
+    ready". This is the GCP analog of the AWS oracle waiting for ``vpc_available``
+    before creating its subnet. We retry the synchronous insert with bounded
+    backoff ONLY for that specific not-ready response (``is_resource_not_ready``);
+    every other create error — conflict, quota, permission, ambiguous 5xx —
+    raises immediately so we never mask a real failure or spin on an ambiguous
+    response.
+
+    ``on_accepted`` (if supplied) fires EXACTLY ONCE after the synchronous
+    ``insert`` is accepted but BEFORE the async op-wait, mirroring
+    ``insert_network``: the caller stamps the created-subnet ownership there. The
+    not-ready retry wraps only the pre-acceptance insert call, so ``on_accepted``
+    still fires exactly once — after a genuinely accepted insert — and a
+    synchronous conflict cannot claim a foreign subnet while a wait-side failure
+    still records the accepted subnet for cleanup.
     """
     subnet = compute_v1.Subnetwork()
     subnet.name = name
@@ -466,7 +578,16 @@ def insert_subnetwork(
         log_cfg.enable = True
         subnet.log_config = log_cfg
 
-    op = compute_v1.SubnetworksClient().insert(project=project, region=region, subnetwork_resource=subnet)
+    op = _insert_subnetwork_awaiting_parent(
+        project,
+        region,
+        subnet,
+        resource_desc=f"subnetwork {name}",
+        attempts=not_ready_attempts,
+        backoff_seconds=not_ready_backoff_seconds,
+    )
+    if on_accepted is not None:
+        on_accepted()
     op_name = _op_name(op)
     if op_name:
         _wait_or_rollback(
@@ -485,13 +606,28 @@ def insert_subnetwork(
 
 def get_subnetwork(project: str, region: str, name: str) -> compute_v1.Subnetwork:
     """Return the live ``Subnetwork`` resource (raises ``NotFound`` if absent)."""
-    return compute_v1.SubnetworksClient().get(project=project, region=region, subnetwork=name)
+    return retry_idempotent(
+        compute_v1.SubnetworksClient().get,
+        project=project,
+        region=region,
+        subnetwork=name,
+        op_desc=f"subnetworks.get {name}",
+    )
+
+
+def subnetwork_has_isv_ownership(subnet: compute_v1.Subnetwork) -> bool:
+    """Return True iff a subnetwork carries the ISV ownership marker in its description."""
+    return ISV_OWNERSHIP_MARKER in (subnet.description or "").lower()
 
 
 def list_subnetworks_for_network(project: str, region: str, network_name: str) -> list[compute_v1.Subnetwork]:
     """Return subnetworks in ``region`` bound to ``network_name`` (exact tail match)."""
     out: list[compute_v1.Subnetwork] = []
-    for sub in compute_v1.SubnetworksClient().list(project=project, region=region):
+    subnets = retry_idempotent(
+        lambda: list(compute_v1.SubnetworksClient().list(project=project, region=region)),
+        op_desc=f"subnetworks.list {region}",
+    )
+    for sub in subnets:
         if short_name(sub.network) == network_name:
             out.append(sub)
     return out
@@ -506,6 +642,114 @@ def delete_subnetwork(project: str, region: str, name: str, *, timeout: int = 18
     op_name = _op_name(op)
     if op_name:
         wait_for_regional_op(project, region, op_name, timeout=timeout)
+
+
+# Retryable classes for the fingerprint-guarded subnetwork patch: transient 5xx /
+# 429 / timeout AND the stale-fingerprint conflict that occurs when another writer
+# mutated the subnetwork between our read and write. Compute's REST transport maps
+# a stale fingerprint to HTTP 409 -> gax.Conflict (the base 409 class, which also
+# covers the gRPC gax.Aborted / gax.AlreadyExists subclasses) and to HTTP 412 ->
+# gax.PreconditionFailed (the fingerprint precondition). On retry the fingerprint
+# is re-read so the write uses a fresh one.
+_SUBNET_PATCH_RETRY: tuple[type[BaseException], ...] = (
+    gax.ServiceUnavailable,
+    gax.InternalServerError,
+    gax.GatewayTimeout,
+    gax.DeadlineExceeded,
+    gax.TooManyRequests,
+    gax.Conflict,
+    gax.PreconditionFailed,
+)
+
+
+def patch_subnetwork_flow_logs(
+    project: str,
+    region: str,
+    name: str,
+    *,
+    enable: bool,
+    flow_sampling: float = FLOW_LOG_FLOW_SAMPLING,
+    aggregation_interval: str = FLOW_LOG_AGGREGATION_INTERVAL,
+    metadata: str = FLOW_LOG_METADATA,
+    timeout: int = 180,
+    attempts: int = 4,
+    backoff_seconds: float = 3.0,
+    on_accepted: Callable[[], None] | None = None,
+) -> None:
+    """Patch a subnetwork's VPC Flow Logs configuration and wait for the op.
+
+    Compute Engine has no standalone flow-log resource — logging lives on
+    ``Subnetwork.log_config``. ``subnetworks.patch`` is fingerprint-guarded, so
+    each attempt RE-READS the live subnetwork to pick up the current fingerprint
+    before writing (a stale fingerprint surfaces on Compute's REST transport as
+    HTTP 409 -> ``gax.Conflict`` or HTTP 412 -> ``gax.PreconditionFailed``, both
+    retried here rather than surfaced). Only ``fingerprint`` + ``log_config`` are
+    sent so immutable fields (CIDR, network binding) are not touched.
+
+    ``enable=True`` sets ``flow_sampling`` (default 1.0 — retain every record
+    after uncontrollable primary sampling), ``INCLUDE_ALL_METADATA``, and no
+    export filter (``filter_expr`` left empty), covering inbound and outbound
+    sampled flows. ``enable=False`` turns logging off (the teardown path). The
+    op is waited on so the effective state is observable, mirroring the
+    insert/delete helpers' observable-completion contract.
+
+    ``on_accepted`` (if supplied) fires EXACTLY ONCE, after the synchronous
+    ``patch`` is accepted by the API but BEFORE the async op-wait. The caller
+    records flow-log ownership there so a wait-side failure still hands teardown
+    the accepted-but-unconfirmed subnet (the config change was already
+    submitted); a synchronous failure raises before acceptance and records
+    nothing.
+
+    Callers confirm the effective values with a follow-up ``get_subnetwork`` —
+    this helper waits for the op but does not itself re-read (the caller decides
+    which invariants to assert).
+    """
+    last_error: BaseException | None = None
+    accepted_notified = False
+    for attempt in range(1, attempts + 1):
+        try:
+            live = retry_idempotent(
+                compute_v1.SubnetworksClient().get,
+                project=project,
+                region=region,
+                subnetwork=name,
+                op_desc=f"subnetworks.get {name} (flow-log fingerprint)",
+            )
+            patch = compute_v1.Subnetwork()
+            patch.fingerprint = live.fingerprint
+            log_cfg = compute_v1.SubnetworkLogConfig()
+            log_cfg.enable = enable
+            if enable:
+                log_cfg.flow_sampling = flow_sampling
+                log_cfg.aggregation_interval = aggregation_interval
+                log_cfg.metadata = metadata
+            patch.log_config = log_cfg
+            op = compute_v1.SubnetworksClient().patch(
+                project=project,
+                region=region,
+                subnetwork=name,
+                subnetwork_resource=patch,
+            )
+            if on_accepted is not None and not accepted_notified:
+                on_accepted()
+                accepted_notified = True
+            op_name = _op_name(op)
+            if op_name:
+                wait_for_regional_op(project, region, op_name, timeout=timeout)
+            return
+        except _SUBNET_PATCH_RETRY as e:
+            last_error = e
+            if attempt >= attempts:
+                raise
+            delay = backoff_seconds * attempt
+            print(
+                f"  transient patching flow logs on {name} (attempt {attempt}/{attempts}): {e}; "
+                f"re-reading fingerprint and retrying in {delay:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    if last_error is not None:  # pragma: no cover - loop always returns or raises
+        raise last_error
 
 
 def subnet_readiness_state(op_done: bool) -> str:
@@ -648,7 +892,12 @@ def patch_firewall(project: str, name: str, fw: compute_v1.Firewall, *, timeout:
 
 def get_firewall(project: str, name: str) -> compute_v1.Firewall:
     """Return the live ``Firewall`` resource (raises ``NotFound`` if absent)."""
-    return compute_v1.FirewallsClient().get(project=project, firewall=name)
+    return retry_idempotent(
+        compute_v1.FirewallsClient().get,
+        project=project,
+        firewall=name,
+        op_desc=f"firewalls.get {name}",
+    )
 
 
 def delete_firewall(project: str, name: str, *, timeout: int = 120) -> None:
@@ -669,7 +918,11 @@ def list_firewalls_for_network(project: str, network_name: str) -> list[compute_
     Engine — used by isolation / security-blocking checks.
     """
     out: list[compute_v1.Firewall] = []
-    for rule in compute_v1.FirewallsClient().list(project=project):
+    rules = retry_idempotent(
+        lambda: list(compute_v1.FirewallsClient().list(project=project)),
+        op_desc="firewalls.list",
+    )
+    for rule in rules:
         if short_name(rule.network) == network_name:
             out.append(rule)
     return out
@@ -683,7 +936,11 @@ def list_firewalls_for_network(project: str, network_name: str) -> list[compute_
 def list_routes_for_network(project: str, network_name: str) -> list[compute_v1.Route]:
     """Return project routes bound to ``network_name`` (exact tail match)."""
     out: list[compute_v1.Route] = []
-    for route in compute_v1.RoutesClient().list(project=project):
+    routes = retry_idempotent(
+        lambda: list(compute_v1.RoutesClient().list(project=project)),
+        op_desc="routes.list",
+    )
+    for route in routes:
         if short_name(route.network) == network_name:
             out.append(route)
     return out
@@ -866,7 +1123,13 @@ def insert_address(
             ),
             resource_desc=f"address {name}",
         )
-    return compute_v1.AddressesClient().get(project=project, region=region, address=name)
+    return retry_idempotent(
+        compute_v1.AddressesClient().get,
+        project=project,
+        region=region,
+        address=name,
+        op_desc=f"addresses.get {name}",
+    )
 
 
 def delete_address(project: str, region: str, name: str, *, timeout: int = 120) -> None:
@@ -1032,7 +1295,11 @@ def instances_in_network(project: str, network_name: str) -> list[tuple[str, com
     """
     out: list[tuple[str, compute_v1.Instance]] = []
     request = compute_v1.AggregatedListInstancesRequest(project=project)
-    for zone_scope, scoped in compute_v1.InstancesClient().aggregated_list(request=request):
+    scopes = retry_idempotent(
+        lambda: list(compute_v1.InstancesClient().aggregated_list(request=request)),
+        op_desc="instances.aggregatedList",
+    )
+    for zone_scope, scoped in scopes:
         for inst in scoped.instances or ():
             for nic in inst.network_interfaces:
                 if short_name(nic.network) == network_name:

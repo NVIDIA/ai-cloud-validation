@@ -1,0 +1,305 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# GCP Observability Validation Configuration.
+#
+# Imports the provider-agnostic observability contract from
+# suites/observability.yaml and wires every step to a Compute Engine /
+# Cloud Logging / Resource Manager stub under
+# providers/gcp/scripts/observability/.
+#
+# The AWS realism oracle (providers/aws/config/observability.yaml) reuses the
+# network + bare_metal scripts for setup/teardown and adds three
+# observability-specific scripts. GCP authors dedicated observability stubs for
+# every step because the target contract diverges from the generic network/vm
+# scripts (per-subnet flow-log ownership allowlist, region-scoped host zone
+# walk, and the provider-hidden BMC path).
+#
+# Steps mirror the AWS oracle order:
+#   1. create_network       (setup)    - custom-mode VPC + 1 regional subnetwork.
+#   2. enable_vpc_flow_logs (setup)    - patch VPC Flow Logs on the run-created
+#                                        subnetworks (flow_sampling=1.0, no filter).
+#   3. launch_host          (setup)    - launch a CPU host on the subnet, inject
+#                                        an SSH key via metadata, open an SSH
+#                                        firewall, wait for guest readiness.
+#   4. vpc_flow_logs        (test)     - read Subnetwork.log_config + scoped
+#                                        Cloud Logging query for the vpc_flows log.
+#   5. host_syslogs         (test)     - SSH the host, sample journalctl/dmesg.
+#   6. bmc_sel_logs         (test)     - provider-hidden (managed BMC plane).
+#   7. bmc_gpu_telemetry    (test)     - provider-hidden (managed BMC plane).
+#   8. teardown_host        (teardown) - delete host, SSH firewall, local key.
+#   9. teardown_flow_logs   (teardown) - disable flow logs on run-patched subnets.
+#  10. teardown_network     (teardown) - delete run-owned subnets + the VPC.
+#
+# There is no customer-accessible Compute Engine BMC SEL / Redfish GPU telemetry
+# API, so bmc_sel_logs / bmc_gpu_telemetry emit provider-hidden evidence after a
+# real Resource Manager project-identity probe (mirrors the AWS oracle + the GCP
+# security BMC pattern). Google documents guest GPU metrics via Ops Agent / NVML
+# / DCGM only; those are never relabeled as BMC telemetry.
+#
+# Operator env vars (all OPTIONAL overrides with safe public defaults) plus the
+# cross-cutting REQUIRED NETWORK_FIREWALL_TRUST_IP consumed by launch_host's SSH
+# firewall — see docs/references/gcp.md and the domain guide
+# providers/gcp/scripts/observability/docs/gcp-observability.md.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/gcp/config/observability.yaml
+
+import:
+  - ../../../suites/observability.yaml
+
+version: "1.0"
+
+commands:
+  observability:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # 1. Custom-mode VPC + one regional subnetwork (no CIDR on the network;
+      # the subnetwork owns the /24 carved from --cidr). Emits network_id, the
+      # subnets evidence list, the exact created_subnets allowlist, and
+      # network_created. Worst-case internal wait stack is the global VPC insert
+      # op (120s) + the regional subnet insert op (180s) + region lookup +
+      # read-back gets; 420s is margin over that ~300s sum.
+      - name: create_network
+        phase: setup
+        command: "python3 ../scripts/observability/create_network.py"
+        args:
+          - "--name"
+          - "isv-observability-net"
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "{{network_cidr}}"
+        timeout: 420
+
+      # 2. Patch VPC Flow Logs onto ONLY the run-created subnetworks (the
+      # forwarded created_subnets allowlist), flow_sampling=1.0, INCLUDE_ALL
+      # metadata, no filter, then read back the effective config. Emits the exact
+      # patched_flow_log_subnets (the only list teardown disables), the OBSERVED
+      # flow_log_subnets diagnostic list, and flow_logs_created. One regional
+      # patch op + read-back; 300s headroom.
+      - name: enable_vpc_flow_logs
+        phase: setup
+        command: "python3 ../scripts/observability/setup_vpc_flow_logs.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--network-created"
+          - "{{steps.create_network.network_created | default('false')}}"
+          - "--created-subnets"
+          - "{{steps.create_network.created_subnets | join(',') | default('none', true)}}"
+        timeout: 300
+
+      # 3. Launch the syslog-probe host on the run subnet. Injects the local SSH
+      # public key via ssh-keys metadata, opens a tcp/22 firewall sourced ONLY
+      # from NETWORK_FIREWALL_TRUST_IP (no open-internet fallback), walks the
+      # operator region's zones on stockout, and waits for stable SSH. Emits
+      # instance_id, zone, leaked_zones, public_ip, key_file, ssh_user, and the
+      # instance/firewall/key created flags. Worst-case internal wait stack:
+      # firewall op (120s) + per-zone insert op (300s) + RUNNING poll (300s) +
+      # public-IP poll (120s) + SSH readiness (~680s) = ~1520s; internal waits are
+      # deadline-bounded so 1800s is real margin over that sum.
+      - name: launch_host
+        phase: setup
+        command: "python3 ../scripts/observability/launch_host.py"
+        args:
+          - "--name"
+          - "isv-observability-host"
+          - "--instance-type"
+          - "{{instance_type}}"
+          - "--region"
+          - "{{region}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-id"
+          - "{{steps.create_network.subnets[0].subnet_id}}"
+          - "--ami-id"
+          - "{{image}}"
+          - "--image-project"
+          - "{{image_project}}"
+          - "--firewall-name"
+          - "isv-observability-ssh"
+          - "--key-name"
+          - "isv-observability-host-key"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 1800
+
+      # 4. VPC Flow Logs availability. Reads live Subnetwork.log_config for the
+      # target network (flow_logs_configured / traffic_type_all) and runs a
+      # project-scoped Cloud Logging query against the compute vpc_flows log
+      # (flow_log_endpoint_reachable / log_destination_accessible). Subnet reads
+      # + one bounded logging query; 300s headroom.
+      - name: vpc_flow_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--network-id"
+          - "{{steps.create_network.network_id}}"
+          - "--aspect"
+          - "vpc_flow_logs"
+        timeout: 300
+
+      # 5. Guest host syslogs over SSH (journalctl, dmesg fallback). SSH-readiness
+      # poll (~200s internal) + sampling; 600s headroom.
+      - name: host_syslogs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "host_syslogs"
+          - "--host"
+          - "{{steps.launch_host.public_ip}}"
+          - "--key-file"
+          - "{{steps.launch_host.key_file}}"
+          - "--ssh-user"
+          - "{{ssh_user}}"
+        timeout: 600
+
+      # 6. BMC SEL logs — provider-hidden after a real Resource Manager project
+      # identity probe. Single get_project call; 180s API floor.
+      - name: bmc_sel_logs
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "bmc_sel_logs"
+        timeout: 180
+
+      # 7. BMC GPU telemetry — provider-hidden after a real Resource Manager
+      # project identity probe. Single get_project call; 180s API floor.
+      - name: bmc_gpu_telemetry
+        phase: test
+        command: "python3 ../scripts/observability/log_availability_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--aspect"
+          - "bmc_gpu_telemetry"
+        timeout: 180
+
+      # 8. Delete the host, its SSH firewall, and the local key pair. Each id is
+      # forwarded from launch_host with a non-empty default('none', true) sentinel
+      # so a step-isolated slice with an unresolved upstream reference still runs
+      # teardown; firewall/key deletes gate on the forwarded created bits.
+      # Instance delete (180s op) + leaked-zone reclaim + firewall (120s op) +
+      # retries; 900s margin.
+      - name: teardown_host
+        phase: teardown
+        command: "python3 ../scripts/observability/teardown_host.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_host.instance_id | default('none', true)}}"
+          - "--region"
+          - "{{region}}"
+          - "--zone"
+          - "{{steps.launch_host.zone | default('none', true)}}"
+          - "--instance-created"
+          - "{{steps.launch_host.instance_created | default('false')}}"
+          - "--leaked-zones"
+          - "{{steps.launch_host.leaked_zones | join(',') | default('none', true)}}"
+          - "--firewall-name"
+          - "{{steps.launch_host.firewall_name | default('none', true)}}"
+          - "--firewall-created"
+          - "{{steps.launch_host.firewall_created | default('false')}}"
+          - "--key-file"
+          - "{{steps.launch_host.key_file | default('none', true)}}"
+          - "--key-created"
+          - "{{steps.launch_host.key_created | default('false')}}"
+          - "--delete-key-pair"
+          - "--delete-security-group"
+          - "{{teardown_flag}}"
+        timeout: 900
+
+      # 9. Disable VPC Flow Logs on ONLY the exact patched_flow_log_subnets
+      # allowlist forwarded from enable_vpc_flow_logs (never the observed
+      # diagnostic list) so operator-owned / other-run logging is never touched.
+      # Gated on flow_logs_created. One regional patch op per subnet + retries;
+      # 300s margin.
+      - name: teardown_flow_logs
+        phase: teardown
+        command: "python3 ../scripts/observability/teardown_vpc_flow_logs.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--subnet-ids"
+          - "{{steps.enable_vpc_flow_logs.patched_flow_log_subnets | join(',') | default('none', true)}}"
+          - "--flow-logs-created"
+          - "{{steps.enable_vpc_flow_logs.flow_logs_created | default('false')}}"
+          - "{{teardown_flag}}"
+        timeout: 300
+
+      # 10. Delete run-owned dependencies then the VPC. Ownership is EXACT: the
+      # instance only by --launch-instance in --instance-zone (+ any leaked zone),
+      # the firewall only by exact --firewall-name gated on --firewall-created,
+      # subnetworks only from the --created-subnets allowlist, the VPC last gated
+      # on --network-created. teardown_host already removed the host+firewall, so
+      # those deletes are idempotent NotFound no-ops here (defense in depth before
+      # the network delete). Dependency-in-use is retried; 900s margin.
+      - name: teardown_network
+        phase: teardown
+        command: "python3 ../scripts/observability/teardown_network.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id | default('none', true)}}"
+          - "--region"
+          - "{{region}}"
+          - "--network-created"
+          - "{{steps.create_network.network_created | default('false')}}"
+          - "--launch-instance"
+          - "{{steps.launch_host.instance_id | default('none', true)}}"
+          - "--instance-created"
+          - "{{steps.launch_host.instance_created | default('false')}}"
+          - "--instance-zone"
+          - "{{steps.launch_host.zone | default('none', true)}}"
+          - "--leaked-zones"
+          - "{{steps.launch_host.leaked_zones | join(',') | default('none', true)}}"
+          - "--firewall-name"
+          - "{{steps.launch_host.firewall_name | default('none', true)}}"
+          - "--firewall-created"
+          - "{{steps.launch_host.firewall_created | default('false')}}"
+          - "--created-subnets"
+          - "{{steps.create_network.created_subnets | join(',') | default('none', true)}}"
+          - "{{teardown_flag}}"
+        timeout: 900
+
+tests:
+  platform: observability
+  cluster_name: "gcp-observability-validation"
+  description: "GCP Compute Engine VPC Flow Logs + guest syslog observability validation"
+
+  settings:
+    # All GCP_OBSERVABILITY_* vars are OPTIONAL overrides with safe public
+    # defaults (env-Jinja reads so an operator can override without editing
+    # code). NETWORK_FIREWALL_TRUST_IP is the only value an operator MUST set —
+    # it is read inside launch_host.py (no open-internet fallback for SSH).
+    region: "{{env.GCP_OBSERVABILITY_REGION | default('us-central1', true)}}"
+    network_cidr: "{{env.GCP_OBSERVABILITY_NETWORK_CIDR | default('10.240.0.0/16', true)}}"
+    instance_type: "{{env.GCP_OBSERVABILITY_INSTANCE_TYPE | default('e2-standard-2', true)}}"
+    image: "{{env.GCP_OBSERVABILITY_IMAGE | default('ubuntu-2204-lts', true)}}"
+    image_project: "{{env.GCP_OBSERVABILITY_IMAGE_PROJECT | default('ubuntu-os-cloud', true)}}"
+    ssh_user: "{{env.GCP_OBSERVABILITY_SSH_USER | default('ubuntu', true)}}"
+    # OPTIONAL. GCP_OBSERVABILITY_SKIP_TEARDOWN=true -> preserve the host, flow
+    # logs, and network (forwarded as --skip-destroy to all three teardown
+    # steps). Unset -> teardown runs.
+    teardown_flag: "{{(env.GCP_OBSERVABILITY_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"

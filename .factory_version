@@ -13,6 +13,10 @@
         "factory_commit": "c7ace2d3fd207d5563c0a97ad32e128a8203d5a0",
         "isv_commit": "562f594dde6cb3a7ea1b63ddfd5217a9ed5a5467"
       },
+      "observability": {
+        "factory_commit": "56ff4845df3132d8d6ae8f68110a013510c5215c",
+        "isv_commit": "7042c2deafe769e83206906545629152d09f53a6"
+      },
       "security": {
         "factory_commit": "2369f85ec5e7d9bc9d84d42504204178b8e9220d",
         "isv_commit": "7042c2deafe769e83206906545629152d09f53a6"
