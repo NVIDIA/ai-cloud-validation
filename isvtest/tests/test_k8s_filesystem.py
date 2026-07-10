@@ -635,8 +635,9 @@ class TestPosixSkipBehaviour:
         assert check.passed
         assert "Skipped" in check._output
 
-    def test_podsecurity_denial_skips(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_podsecurity_denial_skips(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path)
         check = K8sPosixComplianceCheck(config={"shared_fs_storage_class": "sc-rwx", "bind_timeout_s": 5})
         denial = 'pods "x" is forbidden: violates PodSecurity "restricted:latest": privileged (container ...)'
         with (
