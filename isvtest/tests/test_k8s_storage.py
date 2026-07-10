@@ -38,7 +38,7 @@ from isvtest.validations.k8s_storage import (
     _find_cluster_secret_grants,
     _find_shared_cluster_marker,
     _rule_grants_unrestricted_secrets,
-    _set_mount_pod_fields,
+    _set_fs_pod_fields,
     _set_pv_fields,
     _set_pvc_fields,
     _set_resourcequota_fields,
@@ -1944,7 +1944,8 @@ class TestSetPvFields:
 
 
 class TestSetMountPodFields:
-    """Tests for ``_set_mount_pod_fields`` - the BusyBox mount-pod mutator."""
+    """Tests for ``_set_fs_pod_fields`` - the shared BusyBox probe-pod mutator,
+    exercised here with only the CSI mount-pod fields (name/namespace/pvc)."""
 
     def _base_doc(self) -> dict[str, Any]:
         return {
@@ -1966,7 +1967,7 @@ class TestSetMountPodFields:
         }
 
     def test_sets_name_namespace_and_pvc(self) -> None:
-        out = _set_mount_pod_fields(self._base_doc(), namespace="ns1", name="probe-1", pvc_name="pvc-1")
+        out = _set_fs_pod_fields(self._base_doc(), namespace="ns1", name="probe-1", pvc_name="pvc-1")
         assert out["metadata"]["name"] == "probe-1"
         assert out["metadata"]["namespace"] == "ns1"
         assert out["spec"]["volumes"][0]["persistentVolumeClaim"] == {"claimName": "pvc-1"}
@@ -1976,7 +1977,7 @@ class TestSetMountPodFields:
 
     def test_excludes_test_pool_nodes(self) -> None:
         """Probe pods must avoid transient test-pool nodes via node anti-affinity."""
-        out = _set_mount_pod_fields(self._base_doc(), namespace="ns1", name="probe-1", pvc_name="pvc-1")
+        out = _set_fs_pod_fields(self._base_doc(), namespace="ns1", name="probe-1", pvc_name="pvc-1")
         terms = out["spec"]["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"][
             "nodeSelectorTerms"
         ]

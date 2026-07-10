@@ -341,6 +341,81 @@ tests:
           expand_timeout_s: 180
           namespace_prefix: "isvtest-csi-expand"
 
+    k8s_filesystem:
+      checks:
+        # Shared-filesystem POSIX-semantics checks (multi-pod, RWX PVC).
+        K8sFileLockingCheck:
+          test_id: "N/A"
+          labels: ["kubernetes"]
+          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          release_timeout_s: 60
+          namespace_prefix: "isvtest-fs-lock"
+        K8sCrossNodeWriteVisibilityCheck:
+          test_id: "N/A"
+          labels: ["kubernetes"]
+          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          visibility_window_s: 5.0
+          namespace_prefix: "isvtest-fs-vis"
+        K8sCrossNodeAttrConsistencyCheck:
+          test_id: "N/A"
+          labels: ["kubernetes"]
+          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          attr_cache_window_s: 30.0
+          extend_bytes: 1024
+          namespace_prefix: "isvtest-fs-attr"
+        K8sLargeDirListingFilesCheck:
+          test_id: "N/A"
+          labels: ["kubernetes"]
+          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          files_count: 10000
+          pvc_size: "10Gi"
+          bind_timeout_s: 120
+          namespace_prefix: "isvtest-fs-bigdir"
+          timeout: 3600
+        K8sLargeDirListingDirsCheck:
+          test_id: "N/A"
+          labels: ["kubernetes"]
+          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          dirs_count: 500
+          pvc_size: "10Gi"
+          bind_timeout_s: 120
+          namespace_prefix: "isvtest-fs-bigdir"
+          timeout: 3600
+        K8sPosixComplianceCheck:
+          test_id: "N/A"
+          labels: ["kubernetes", "slow"]
+          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "gcc:12"
+          node_selector: {}
+          pvc_size: "5Gi"
+          bind_timeout_s: 120
+          build_timeout_s: 600
+          # tests_subdir: ""  # optional: scope to a single tests/ subdir (e.g. "chmod")
+          namespace_prefix: "isvtest-fs-posix"
+          timeout: 3600
+
     k8s_identity:
       checks:
         K8sOidcIssuerCheck:

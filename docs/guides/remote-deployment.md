@@ -101,6 +101,8 @@ sudo -E env "PATH=$PATH" isvctl test run -f isvctl/configs/suites/slurm.yaml
 
 Ensure the remote user has `kubectl` access configured (e.g., `~/.kube/config` exists and is valid).
 
+**Filesystem POSIX tests:** The pjdfstest source is downloaded at build time via the make command (`make vendor-pjdfstest`) which must be run on the remote host.
+
 ## Troubleshooting
 
 **Connection refused:**
