@@ -110,7 +110,7 @@ _DEFAULT_NOEXECUTE_TAINT_KEYS: frozenset[str] = frozenset(
 
 
 def _taint_is_tolerated(taint: dict[str, Any], tolerations: list[dict[str, Any]]) -> bool:
-    """Return True when any entry in ``tolerations`` covers ``taint``. """
+    """Return True when any entry in ``tolerations`` covers ``taint``."""
     taint_key = taint.get("key", "")
     taint_value = taint.get("value", "")
     taint_effect = taint.get("effect", "")
@@ -456,7 +456,9 @@ class _K8sSharedFsCheck(BaseValidation):
         return ok, err
 
     def _wait_pvc_bound(self, pvc_name: str, timeout_s: int) -> bool:
-        return _poll_pvc_bound(self.run_command, self._kubectl_base, self._namespace, pvc_name, timeout_s, poll_interval_s=60.0)
+        return _poll_pvc_bound(
+            self.run_command, self._kubectl_base, self._namespace, pvc_name, timeout_s, poll_interval_s=60.0
+        )
 
     def _exec(self, pod_name: str, inner: str, timeout: int | None = None) -> CommandResult:
         cmd = f"{self._kubectl_base} exec -n {self._ns_quoted} {shlex.quote(pod_name)} -- sh -c {shlex.quote(inner)}"
@@ -996,8 +998,7 @@ class _K8sLargeDirListingBase(_K8sSharedFsCheck):
             create = self._exec(pod, self._create_cmd(target_dir, count), timeout=self.timeout)
             if create.exit_code != 0:
                 self.set_failed(
-                    f"Creating {count} {self._ENTRY_KIND} failed: "
-                    f"{_fmt_err(create.stderr or create.stdout)}"
+                    f"Creating {count} {self._ENTRY_KIND} failed: {_fmt_err(create.stderr or create.stdout)}"
                 )
                 return
 
@@ -1112,9 +1113,7 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
         timeout: Per-command timeout, also bounds the prove run (default 3600).
     """
 
-    description: ClassVar[str] = (
-        "Run the pjdfstest POSIX filesystem test suite against the cluster filesystem storage."
-    )
+    description: ClassVar[str] = "Run the pjdfstest POSIX filesystem test suite against the cluster filesystem storage."
     timeout: ClassVar[int] = 3600
 
     _DEFAULT_NS_PREFIX = "isvtest-fs-posix"
@@ -1164,10 +1163,7 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
             self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
             return
         if not _PJDFSTEST_SRC_DIR.is_dir():
-            self.set_failed(
-                f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; "
-                "run `make vendor-pjdfstest`"
-            )
+            self.set_failed(f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; run `make vendor-pjdfstest`")
             return
 
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
@@ -1218,9 +1214,7 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
 
             copied = self._copy_source(pod)
             if copied.exit_code != 0:
-                self.set_failed(
-                    f"Copying pjdfstest source into pod failed: {_fmt_err(copied.stderr or copied.stdout)}"
-                )
+                self.set_failed(f"Copying pjdfstest source into pod failed: {_fmt_err(copied.stderr or copied.stdout)}")
                 return
 
             build = self._exec(
@@ -1257,9 +1251,7 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
                 if fname in failed_map:
                     nfailed = failed_map[fname]
                     message = (
-                        f"{nfailed} POSIX subtest(s) failed"
-                        if nfailed
-                        else "non-zero exit status (crashed / dubious)"
+                        f"{nfailed} POSIX subtest(s) failed" if nfailed else "non-zero exit status (crashed / dubious)"
                     )
                     self.report_subtest(fname, passed=False, message=message)
                 else:
