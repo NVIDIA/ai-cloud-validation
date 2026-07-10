@@ -13,30 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# AWS Storage (EBS Block Volume) Validation Configuration
+# AWS Storage Validation Configuration
 #
-# Storage is the block-volume implementation of the storage suite, so
-# this config imports the provider-agnostic suites/storage.yaml and supplies
-# AWS-specific commands (boto3 + SSH) and settings. The launch_instance /
-# teardown steps reuse the VM reference scripts; the volume steps live in
-# scripts/storage/.
+# Imports suites/storage.yaml and wires AWS implementations for:
+#   - Block volume (EBS): launch/create/snapshot/resize/persistence/teardown
+#   - High-speed storage (FSx for Lustre): provisioning, multiple filesystems,
+#     live expansion, root-squash (other HSS checks excluded — need a mounted
+#     client or are not exposed by managed FSx)
 #
-# Steps:
-#   SETUP
-#     1. launch_instance    - boto3: provision an instance for the fixture
-#     2. create_volume      - boto3 + SSH: create/attach/format/mount/seed an EBS volume
-#   TEST
-#     3. snapshot_lifecycle - DATASVC-XX-02 (#321): snapshot -> restore -> verify data
-#     4. volume_resize      - DATASVC-XX-03 (#322): ModifyVolume + growpart/resize2fs
-#     5. volume_persistence - DATASVC-XX-04 (#323): stop/start -> verify reattach + data
-#   TEARDOWN
-#     6. teardown_volume    - boto3: detach + delete the fixture volume
-#     7. teardown           - boto3: terminate the instance + SG + key pair
+# Block-volume steps reuse the VM scripts for launch/teardown; volume steps
+# live in scripts/storage/. FSx steps are self-contained (create → assert →
+# cleanup) and create real PERSISTENT_2 filesystems (~10-15 min each, cost).
+# HSS checks ship unreleased; run with ISVTEST_INCLUDE_UNRELEASED=1.
 #
 # Usage:
-#   uv run isvctl test run -f isvctl/configs/providers/aws/config/storage.yaml
+#   AWS_REGION=us-west-2 ISVTEST_INCLUDE_UNRELEASED=1 \
+#     uv run isvctl test run -f isvctl/configs/providers/aws/config/storage.yaml
 #
-# Required IAM Permissions:
+# Required IAM Permissions (block volume):
 #   ec2:DescribeInstances, ec2:RunInstances, ec2:TerminateInstances,
 #   ec2:StopInstances, ec2:StartInstances, ec2:DescribeImages, ec2:DescribeSubnets,
 #   ec2:DescribeVpcs, ec2:CreateKeyPair, ec2:DeleteKeyPair, ec2:CreateSecurityGroup,
@@ -44,6 +38,8 @@
 #   ec2:CreateVolume, ec2:DeleteVolume, ec2:DescribeVolumes, ec2:AttachVolume,
 #   ec2:DetachVolume, ec2:ModifyVolume, ec2:DescribeVolumesModifications,
 #   ec2:CreateSnapshot, ec2:DeleteSnapshot, ec2:DescribeSnapshots
+# Plus FSx permissions for the high-speed steps (fsx:CreateFileSystem,
+# fsx:DescribeFileSystems, fsx:UpdateFileSystem, fsx:DeleteFileSystem, etc.).
 
 import:
   - ../../../suites/storage.yaml
@@ -54,7 +50,7 @@ commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
-      # AWS-specific: launch the fixture instance (reuses the VM script)
+      # ─── Block volume (EBS) ────────────────────────────────────────
       - name: launch_instance
         phase: setup
         command: "python3 ../scripts/vm/launch_instance.py"
@@ -67,7 +63,6 @@ commands:
           - "{{region}}"
         timeout: 600
 
-      # AWS-specific: create + attach + format + mount + seed an EBS volume
       - name: create_volume
         phase: setup
         command: "python3 ../scripts/storage/create_volume.py"
@@ -82,7 +77,6 @@ commands:
           - "{{volume_size_gib}}"
         timeout: 600
 
-      # DATASVC-XX-02: snapshot -> restore -> verify data
       - name: snapshot_lifecycle
         phase: test
         command: "python3 ../scripts/storage/snapshot_lifecycle.py"
@@ -99,7 +93,6 @@ commands:
           - "{{steps.create_volume.sentinel_content}}"
         timeout: 900
 
-      # DATASVC-XX-03: ModifyVolume + in-guest growpart/resize2fs
       - name: volume_resize
         phase: test
         command: "python3 ../scripts/storage/volume_resize.py"
@@ -116,8 +109,6 @@ commands:
           - "{{steps.create_volume.mount_point}}"
         timeout: 900
 
-      # DATASVC-XX-04: stop/start -> verify reattach + data
-      # Runs last so the stop/start IP churn does not affect the other tests.
       - name: volume_persistence
         phase: test
         command: "python3 ../scripts/storage/volume_persistence.py"
@@ -136,7 +127,38 @@ commands:
           - "{{steps.create_volume.sentinel_content}}"
         timeout: 900
 
-      # AWS-specific: detach + delete the fixture volume
+      # ─── High-speed storage (FSx for Lustre) ────────────────────────
+      # Timeouts = worst-case waits in scripts/common/fsx.py + slack so the
+      # orchestrator never kills a script mid-cleanup.
+      - name: provision_storage
+        phase: test
+        command: "python ../scripts/storage/provision_storage_test.py"
+        args: ["--region", "{{region}}", "--capacity-gib", "1200"]
+        # 1800 (create) + 900 (delete) + slack.
+        timeout: 3000
+
+      - name: multiple_filesystems
+        phase: test
+        command: "python ../scripts/storage/multiple_filesystems_test.py"
+        args: ["--region", "{{region}}", "--count", "2", "--max-fs-tib", "50"]
+        # 2x1800 (creates) + 2x900 (per-filesystem delete waits) + slack.
+        timeout: 5700
+
+      - name: live_expansion
+        phase: test
+        command: "python ../scripts/storage/live_expansion_test.py"
+        args: ["--region", "{{region}}"]
+        # 1800 (create) + 1800 (capacity scale) + 900 (delete) + slack.
+        timeout: 4800
+
+      - name: root_squash
+        phase: test
+        command: "python ../scripts/storage/root_squash_test.py"
+        args: ["--region", "{{region}}"]
+        # 1800 (create) + 2x600 (squash toggles) + 900 (delete) + slack.
+        timeout: 4200
+
+      # ─── Teardown (block volume fixture) ────────────────────────────
       - name: teardown_volume
         phase: teardown
         command: "python3 ../scripts/storage/teardown_volume.py"
@@ -148,7 +170,6 @@ commands:
           - "{{teardown_flag}}"
         timeout: 300
 
-      # AWS-specific: terminate the instance (reuses the VM script)
       - name: teardown
         phase: teardown
         command: "python3 ../scripts/vm/teardown.py"
@@ -164,10 +185,23 @@ commands:
 
 tests:
   cluster_name: "aws-storage-validation"
-  description: "AWS block storage (EBS) validation tests"
+  description: "AWS storage validation (EBS block volume + FSx for Lustre)"
 
   settings:
-    region: "us-west-2"
+    region: "{{env.AWS_REGION | default('us-west-2', true)}}"
     instance_type: "m6i.large"
     volume_size_gib: "10"
     teardown_flag: "{{(env.BLOCK_STORAGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+
+  exclude:
+    # HSS checks that need a mounted Lustre client or are not exposed by
+    # managed FSx. Wired for my-isv; not yet implemented on AWS.
+    tests:
+      - HssQosThroughputCheck # HSS02-01: IOPS/bandwidth need an fio benchmark on a mounted client
+      - HssNonDisruptiveUpgradeCheck # HSS05-01: FSx maintenance windows do not model deferring maintenance up to 2 weeks
+      - HssRdmaMemoryProtectionCheck # HSS06-01: FSx Lustre EFA/RDMA does not expose per-key memory protection via API
+      - HssParallelFsProvisioningCheck # HSS07-01: mount_successful needs a mounted Lustre client (follow-up)
+      - HssQuotaEnforcementCheck # HSS12-01: needs `lfs setquota`/`lfs quota` on a mounted client
+      - HssFlockMountCheck # HSS14-01: needs a mounted client (mount -o flock)
+      - HssChangelogAuditCheck # HSS15-01: needs Lustre changelog registration on a mounted client
+      - HssMultipathCheck # HSS18-01: needs a mounted client (`lfs check servers`)
