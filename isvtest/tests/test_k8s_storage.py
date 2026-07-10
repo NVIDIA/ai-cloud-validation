@@ -1977,7 +1977,7 @@ class TestSetMountPodFields:
 
     def test_excludes_test_pool_nodes(self) -> None:
         """Probe pods must avoid transient test-pool nodes via node anti-affinity."""
-        out = _set_mount_pod_fields(self._base_doc(), namespace="ns1", name="probe-1", pvc_name="pvc-1")
+        out = _set_fs_pod_fields(self._base_doc(), namespace="ns1", name="probe-1", pvc_name="pvc-1")
         terms = out["spec"]["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"][
             "nodeSelectorTerms"
         ]
