@@ -125,72 +125,96 @@ commands:
       - name: provision_storage
         phase: test
         command: "python ../scripts/storage/provision_storage_test.py"
+        requires_available_validations:
+          - HssStorageProvisioningCheck
         args: ["--region", "{{region}}", "--capacity-gib", "100"]
         timeout: 60
 
       - name: qos_throughput
         phase: test
         command: "python ../scripts/storage/qos_throughput_test.py"
+        requires_available_validations:
+          - HssQosThroughputCheck
         args: ["--region", "{{region}}", "--min-mbps", "1000", "--min-iops", "50000"]
         timeout: 60
 
       - name: non_disruptive_upgrade
         phase: test
         command: "python ../scripts/storage/non_disruptive_upgrade_test.py"
+        requires_available_validations:
+          - HssNonDisruptiveUpgradeCheck
         args: ["--region", "{{region}}", "--min-defer-days", "14"]
         timeout: 60
 
       - name: rdma_memory_protection
         phase: test
         command: "python ../scripts/storage/rdma_memory_protection_test.py"
+        requires_available_validations:
+          - HssRdmaMemoryProtectionCheck
         args: ["--region", "{{region}}"]
         timeout: 60
 
       - name: provision_parallel_fs
         phase: test
         command: "python ../scripts/storage/provision_parallel_fs_test.py"
+        requires_available_validations:
+          - HssParallelFsProvisioningCheck
         args: ["--region", "{{region}}", "--fs-type", "parallel"]
         timeout: 60
 
       - name: multiple_filesystems
         phase: test
         command: "python ../scripts/storage/multiple_filesystems_test.py"
+        requires_available_validations:
+          - HssMultipleFilesystemsCheck
         args: ["--region", "{{region}}", "--count", "2", "--max-fs-tib", "50"]
         timeout: 60
 
       - name: live_expansion
         phase: test
         command: "python ../scripts/storage/live_expansion_test.py"
+        requires_available_validations:
+          - HssLiveExpansionCheck
         args: ["--region", "{{region}}"]
         timeout: 60
 
       - name: quota_enforcement
         phase: test
         command: "python ../scripts/storage/quota_enforcement_test.py"
+        requires_available_validations:
+          - HssQuotaEnforcementCheck
         args: ["--region", "{{region}}"]
         timeout: 60
 
       - name: root_squash
         phase: test
         command: "python ../scripts/storage/root_squash_test.py"
+        requires_available_validations:
+          - HssRootSquashCheck
         args: ["--region", "{{region}}"]
         timeout: 60
 
       - name: flock_mount
         phase: test
         command: "python ../scripts/storage/flock_mount_test.py"
+        requires_available_validations:
+          - HssFlockMountCheck
         args: ["--region", "{{region}}"]
         timeout: 60
 
       - name: changelog_audit
         phase: test
         command: "python ../scripts/storage/changelog_audit_test.py"
+        requires_available_validations:
+          - HssChangelogAuditCheck
         args: ["--region", "{{region}}"]
         timeout: 60
 
       - name: multipath
         phase: test
         command: "python ../scripts/storage/multipath_test.py"
+        requires_available_validations:
+          - HssMultipathCheck
         args: ["--region", "{{region}}", "--servers", "3"]
         timeout: 60
 

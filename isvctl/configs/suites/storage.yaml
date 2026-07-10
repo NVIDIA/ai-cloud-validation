@@ -144,19 +144,19 @@ tests:
       checks:
         HssStorageProvisioningCheck:
           test_id: "HSS01-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: provision_storage
         HssQosThroughputCheck:
           test_id: "HSS02-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: qos_throughput
         HssNonDisruptiveUpgradeCheck:
           test_id: "HSS05-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: non_disruptive_upgrade
         HssRdmaMemoryProtectionCheck:
           test_id: "HSS06-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: rdma_memory_protection
 
     # ─── High-speed storage: parallel file system services ───────────
@@ -164,35 +164,35 @@ tests:
       checks:
         HssParallelFsProvisioningCheck:
           test_id: "HSS07-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: provision_parallel_fs
         HssMultipleFilesystemsCheck:
           test_id: "HSS09-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: multiple_filesystems
         HssLiveExpansionCheck:
           test_id: "HSS10-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: live_expansion
         HssQuotaEnforcementCheck:
           test_id: "HSS12-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: quota_enforcement
         HssRootSquashCheck:
           test_id: "HSS13-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: root_squash
         HssFlockMountCheck:
           test_id: "HSS14-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: flock_mount
         HssChangelogAuditCheck:
           test_id: "HSS15-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: changelog_audit
         HssMultipathCheck:
           test_id: "HSS18-01"
-          labels: ["min_req"]
+          labels: ["min_req", "storage"]
           step: multipath
 
     # ─── Teardown ────────────────────────────────────────────────────

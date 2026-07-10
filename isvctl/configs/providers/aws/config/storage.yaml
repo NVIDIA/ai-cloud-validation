@@ -133,6 +133,8 @@ commands:
       - name: provision_storage
         phase: test
         command: "python ../scripts/storage/provision_storage_test.py"
+        requires_available_validations:
+          - HssStorageProvisioningCheck
         args: ["--region", "{{region}}", "--capacity-gib", "1200"]
         # 1800 (create) + 900 (delete) + slack.
         timeout: 3000
@@ -140,6 +142,8 @@ commands:
       - name: multiple_filesystems
         phase: test
         command: "python ../scripts/storage/multiple_filesystems_test.py"
+        requires_available_validations:
+          - HssMultipleFilesystemsCheck
         args: ["--region", "{{region}}", "--count", "2", "--max-fs-tib", "50"]
         # 2x1800 (creates) + 2x900 (per-filesystem delete waits) + slack.
         timeout: 5700
@@ -147,6 +151,8 @@ commands:
       - name: live_expansion
         phase: test
         command: "python ../scripts/storage/live_expansion_test.py"
+        requires_available_validations:
+          - HssLiveExpansionCheck
         args: ["--region", "{{region}}"]
         # 1800 (create) + 1800 (capacity scale) + 900 (delete) + slack.
         timeout: 4800
@@ -154,6 +160,8 @@ commands:
       - name: root_squash
         phase: test
         command: "python ../scripts/storage/root_squash_test.py"
+        requires_available_validations:
+          - HssRootSquashCheck
         args: ["--region", "{{region}}"]
         # 1800 (create) + 2x600 (squash toggles) + 900 (delete) + slack.
         timeout: 4200
