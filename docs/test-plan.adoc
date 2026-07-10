@@ -2395,7 +2395,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/215[#215]
 | [[HSS01-01]]HSS01-01
 | HSS01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
@@ -2409,7 +2409,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
 | [[HSS02-01]]HSS02-01
 | HSS02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/328[#328]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/328[#328]
@@ -2451,7 +2451,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/330[#330]
 | [[HSS05-01]]HSS05-01
 | HSS05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/331[#331]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/331[#331]
@@ -2657,7 +2657,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
 | [[HSS06-01]]HSS06-01
 | HSS06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/332[#332]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/332[#332]
@@ -2674,7 +2674,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/332[#332]
 | [[HSS07-01]]HSS07-01
 | HSS07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
@@ -2688,7 +2688,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
 | [[HSS09-01]]HSS09-01
 | HSS09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/334[#334]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/334[#334]
@@ -2702,7 +2702,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/334[#334]
 | [[HSS10-01]]HSS10-01
 | HSS10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/335[#335]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/335[#335]
@@ -2716,7 +2716,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/335[#335]
 | [[HSS12-01]]HSS12-01
 | HSS12
 | https://github.com/NVIDIA/ai-cloud-validation/issues/336[#336]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/336[#336]
@@ -2730,7 +2730,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/336[#336]
 | [[HSS13-01]]HSS13-01
 | HSS13
 | https://github.com/NVIDIA/ai-cloud-validation/issues/337[#337]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/337[#337]
@@ -2744,7 +2744,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/337[#337]
 | [[HSS14-01]]HSS14-01
 | HSS14
 | https://github.com/NVIDIA/ai-cloud-validation/issues/338[#338]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/338[#338]
@@ -2758,7 +2758,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/338[#338]
 | [[HSS15-01]]HSS15-01
 | HSS15
 | https://github.com/NVIDIA/ai-cloud-validation/issues/339[#339]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/339[#339]
@@ -2772,7 +2772,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/339[#339]
 | [[HSS18-01]]HSS18-01
 | HSS18
 | https://github.com/NVIDIA/ai-cloud-validation/issues/340[#340]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/340[#340]
@@ -2820,7 +2820,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/272[#272]
 | [[DATASVC02-01]]DATASVC02-01
 | DATASVC02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/321[#321]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/321[#321]
@@ -2834,7 +2834,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/321[#321]
 | [[DATASVC03-01]]DATASVC03-01
 | DATASVC03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/322[#322]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/322[#322]
@@ -2848,7 +2848,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/322[#322]
 | [[DATASVC04-01]]DATASVC04-01
 | DATASVC04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/323[#323]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/323[#323]
@@ -3911,7 +3911,7 @@ a|
 | [[OBS05-01]]OBS05-01
 | OBS05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/342[#342]
-| min_req
+| min_req, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/342[#342]
@@ -3927,7 +3927,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/342[#342]
 | [[OBS06-01]]OBS06-01
 | OBS06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/343[#343]
-| min_req
+| min_req, network, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/343[#343]
@@ -3941,7 +3941,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/343[#343]
 | [[OBS07-01]]OBS07-01
 | OBS07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/344[#344]
-| min_req
+| min_req, network, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/344[#344]
@@ -3955,7 +3955,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/344[#344]
 | [[OBS08-01]]OBS08-01
 | OBS08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/345[#345]
-| min_req
+| min_req, network, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/345[#345]
@@ -3969,7 +3969,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/345[#345]
 | [[OBS09-01]]OBS09-01
 | OBS09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/346[#346]
-| min_req
+| min_req, network, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/346[#346]
@@ -3983,7 +3983,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/346[#346]
 | [[OBS10-01]]OBS10-01
 | OBS10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/347[#347]
-| min_req
+| min_req, network, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/347[#347]
@@ -3999,7 +3999,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/347[#347]
 | [[OBS11-01]]OBS11-01
 | OBS11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/348[#348]
-| min_req
+| min_req, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/348[#348]
@@ -4013,7 +4013,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/348[#348]
 | [[OBS12-01]]OBS12-01
 | OBS12
 | https://github.com/NVIDIA/ai-cloud-validation/issues/349[#349]
-| min_req
+| min_req, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/349[#349]
@@ -4027,7 +4027,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/349[#349]
 | [[OBS13-01]]OBS13-01
 | OBS13
 | https://github.com/NVIDIA/ai-cloud-validation/issues/350[#350]
-| min_req
+| min_req, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/350[#350]
@@ -4041,7 +4041,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/350[#350]
 | [[OBS14-01]]OBS14-01
 | OBS14
 | https://github.com/NVIDIA/ai-cloud-validation/issues/351[#351]
-| min_req
+| min_req, network, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/351[#351]
@@ -4055,7 +4055,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/351[#351]
 | [[OBS15-01]]OBS15-01
 | OBS15
 | https://github.com/NVIDIA/ai-cloud-validation/issues/352[#352]
-| min_req
+| min_req, network, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/352[#352]
@@ -4069,7 +4069,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/352[#352]
 | [[OBS16-01]]OBS16-01
 | OBS16
 | https://github.com/NVIDIA/ai-cloud-validation/issues/353[#353]
-| min_req
+| min_req, network, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/353[#353]

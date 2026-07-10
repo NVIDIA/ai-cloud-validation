@@ -15,26 +15,23 @@
 
 # my-isv Storage Validation Configuration - Living Example
 #
-# Storage is the block-volume implementation of the storage suite, so
-# this config imports the provider-agnostic suites/storage.yaml and wires the
-# commands to the generic template scripts. Those scripts ship with
-# dummy-success values so this example runs end-to-end without any real cloud
-# infrastructure (ISVCTL_DEMO_MODE=1, used by `make demo-test`).
+# Imports suites/storage.yaml (block volume + high-speed storage) and wires
+# commands to the generic template scripts in scripts/storage/*. Those stubs
+# ship with dummy-success values so this example runs end-to-end without any
+# real cloud infrastructure (ISVCTL_DEMO_MODE=1, used by `make demo-test`).
 #
-# The launch_instance / teardown steps reuse the VM scaffold scripts; the
-# volume steps live in scripts/storage/.
+# Block volume (setup/test/teardown fixture):
+#   launch_instance, create_volume, snapshot_lifecycle, volume_resize,
+#   volume_persistence, teardown_volume, teardown
 #
-# Steps:
-#   SETUP
-#     1. launch_instance    - Provision the fixture instance
-#     2. create_volume      - Create + attach + format + mount + seed a volume
-#   TEST
-#     3. snapshot_lifecycle - DATASVC-XX-02 (#321): snapshot -> restore -> verify data
-#     4. volume_resize      - DATASVC-XX-03 (#322): grow volume + growpart/resize2fs
-#     5. volume_persistence - DATASVC-XX-04 (#323): stop/start -> verify reattach + data
-#   TEARDOWN
-#     6. teardown_volume    - Detach + delete the fixture volume
-#     7. teardown           - Terminate the instance
+# High-speed storage (self-contained test-phase steps; HSS checks ship
+# unreleased — run with ISVTEST_INCLUDE_UNRELEASED=1 to exercise them):
+#   HssStorageProvisioningCheck (HSS01-01), HssQosThroughputCheck (HSS02-01),
+#   HssNonDisruptiveUpgradeCheck (HSS05-01), HssRdmaMemoryProtectionCheck (HSS06-01),
+#   HssParallelFsProvisioningCheck (HSS07-01), HssMultipleFilesystemsCheck (HSS09-01),
+#   HssLiveExpansionCheck (HSS10-01), HssQuotaEnforcementCheck (HSS12-01),
+#   HssRootSquashCheck (HSS13-01), HssFlockMountCheck (HSS14-01),
+#   HssChangelogAuditCheck (HSS15-01), HssMultipathCheck (HSS18-01).
 #
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
@@ -124,6 +121,103 @@ commands:
           - "{{steps.create_volume.sentinel_content}}"
         timeout: 60
 
+      # High-speed storage (self-contained; demo stubs)
+      - name: provision_storage
+        phase: test
+        command: "python ../scripts/storage/provision_storage_test.py"
+        requires_available_validations:
+          - HssStorageProvisioningCheck
+        args: ["--region", "{{region}}", "--capacity-gib", "100"]
+        timeout: 60
+
+      - name: qos_throughput
+        phase: test
+        command: "python ../scripts/storage/qos_throughput_test.py"
+        requires_available_validations:
+          - HssQosThroughputCheck
+        args: ["--region", "{{region}}", "--min-mbps", "1000", "--min-iops", "50000"]
+        timeout: 60
+
+      - name: non_disruptive_upgrade
+        phase: test
+        command: "python ../scripts/storage/non_disruptive_upgrade_test.py"
+        requires_available_validations:
+          - HssNonDisruptiveUpgradeCheck
+        args: ["--region", "{{region}}", "--min-defer-days", "14"]
+        timeout: 60
+
+      - name: rdma_memory_protection
+        phase: test
+        command: "python ../scripts/storage/rdma_memory_protection_test.py"
+        requires_available_validations:
+          - HssRdmaMemoryProtectionCheck
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: provision_parallel_fs
+        phase: test
+        command: "python ../scripts/storage/provision_parallel_fs_test.py"
+        requires_available_validations:
+          - HssParallelFsProvisioningCheck
+        args: ["--region", "{{region}}", "--fs-type", "parallel"]
+        timeout: 60
+
+      - name: multiple_filesystems
+        phase: test
+        command: "python ../scripts/storage/multiple_filesystems_test.py"
+        requires_available_validations:
+          - HssMultipleFilesystemsCheck
+        args: ["--region", "{{region}}", "--count", "2", "--max-fs-tib", "50"]
+        timeout: 60
+
+      - name: live_expansion
+        phase: test
+        command: "python ../scripts/storage/live_expansion_test.py"
+        requires_available_validations:
+          - HssLiveExpansionCheck
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: quota_enforcement
+        phase: test
+        command: "python ../scripts/storage/quota_enforcement_test.py"
+        requires_available_validations:
+          - HssQuotaEnforcementCheck
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: root_squash
+        phase: test
+        command: "python ../scripts/storage/root_squash_test.py"
+        requires_available_validations:
+          - HssRootSquashCheck
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: flock_mount
+        phase: test
+        command: "python ../scripts/storage/flock_mount_test.py"
+        requires_available_validations:
+          - HssFlockMountCheck
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: changelog_audit
+        phase: test
+        command: "python ../scripts/storage/changelog_audit_test.py"
+        requires_available_validations:
+          - HssChangelogAuditCheck
+        args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: multipath
+        phase: test
+        command: "python ../scripts/storage/multipath_test.py"
+        requires_available_validations:
+          - HssMultipathCheck
+        args: ["--region", "{{region}}", "--servers", "3"]
+        timeout: 60
+
       - name: teardown_volume
         phase: teardown
         command: "python ../scripts/storage/teardown_volume.py"
@@ -149,7 +243,7 @@ commands:
 
 tests:
   cluster_name: "my-isv-storage-validation"
-  description: "my-isv block storage validation (generic stubs, dummy overrides)"
+  description: "my-isv storage validation (block volume + high-speed stubs, dummy overrides)"
 
   settings:
     region: "my-isv-region-1"

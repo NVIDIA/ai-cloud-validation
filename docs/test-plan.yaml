@@ -2101,6 +2101,7 @@ domains:
               - summary: Verify storage provisioning via vendor/NCP API
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2112,6 +2113,7 @@ domains:
               - summary: Verify QoS — provisioned throughput meets requested minimum bandwidth and IOPS
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2145,6 +2147,7 @@ domains:
               - summary: Verify non-disruptive upgrades (NVIDIA can defer maintenance up to 2 weeks)
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2307,6 +2310,7 @@ domains:
               - summary: Verify storage systems using RDMA enforce memory protection via authorization keys for both local and remote access
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2322,6 +2326,7 @@ domains:
               - summary: Verify that a parallel high-speed filesystem can be provisioned via API
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2333,6 +2338,7 @@ domains:
               - summary: "Verify multiple filesystems can exist within total capacity (minimum FS size <= 50 TiB)"
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2344,6 +2350,7 @@ domains:
               - summary: Verify live filesystem expansion (capacity, inodes, IO, metadata)
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2355,6 +2362,7 @@ domains:
               - summary: Verify uid/gid/project-id soft and hard quotas with enforcement
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2366,6 +2374,7 @@ domains:
               - summary: Verify root-squash can be enabled and disabled at any time
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2377,6 +2386,7 @@ domains:
               - summary: Verify the filesystem can be mounted with flock
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2388,6 +2398,7 @@ domains:
               - summary: Verify changelog/audit data is accessible (tracking by uid/gid, file/dir operations)
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2399,6 +2410,7 @@ domains:
               - summary: Verify client multipathing to all storage servers
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""

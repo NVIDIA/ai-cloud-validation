@@ -54,6 +54,7 @@ ALREADY_GONE_CODES: frozenset[str] = frozenset(
         "InvalidAssociationID.NotFound",
         "NoSuchEntity",
         "NoSuchBucket",
+        "FileSystemNotFound",
     }
 )
 
@@ -107,6 +108,18 @@ def classify_aws_error(e: Exception) -> tuple[str, str]:
     if isinstance(e, BotoCoreError):
         return "aws_error", str(e)
     return "unknown_error", str(e)
+
+
+def stamp_test_errors(result: dict[str, Any], message: str) -> None:
+    """Record ``message`` as the error on every test that has not passed.
+
+    Called from a script's exception handler so per-check consumers (which
+    read ``tests.<name>.error``) see the run-level failure instead of a
+    generic placeholder.
+    """
+    for test in result.get("tests", {}).values():
+        if not test.get("passed"):
+            test.setdefault("error", message)
 
 
 def delete_with_retry(
