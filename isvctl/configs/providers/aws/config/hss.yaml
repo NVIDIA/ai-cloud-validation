@@ -48,30 +48,37 @@ commands:
   storage:
     phases: ["test"]
     steps:
+      # Each timeout is the sum of the script's worst-case internal waits
+      # (defaults in scripts/common/fsx.py) plus slack, so the orchestrator
+      # never kills a script mid-cleanup: create/scale waits are 1800s each,
+      # root-squash waits 600s, delete waits 900s.
       - name: provision_storage
         phase: test
         command: "python ../scripts/storage/provision_storage_test.py"
         args: ["--region", "{{region}}", "--capacity-gib", "1200"]
-        timeout: 2400
+        # 1800 (create) + 900 (delete) + slack.
+        timeout: 3000
 
       - name: multiple_filesystems
         phase: test
         command: "python ../scripts/storage/multiple_filesystems_test.py"
         args: ["--region", "{{region}}", "--count", "2", "--max-fs-tib", "50"]
-        timeout: 2400
+        # 2x1800 (creates) + 900 (concurrent deletes) + slack.
+        timeout: 4800
 
       - name: live_expansion
         phase: test
         command: "python ../scripts/storage/live_expansion_test.py"
         args: ["--region", "{{region}}"]
-        # Create (~15-30m) + capacity scale wait (up to 30m) + delete (~15m).
-        timeout: 4200
+        # 1800 (create) + 1800 (capacity scale) + 900 (delete) + slack.
+        timeout: 4800
 
       - name: root_squash
         phase: test
         command: "python ../scripts/storage/root_squash_test.py"
         args: ["--region", "{{region}}"]
-        timeout: 2400
+        # 1800 (create) + 2x600 (squash toggles) + 900 (delete) + slack.
+        timeout: 4200
 
 tests:
   cluster_name: "aws-hss-validation"

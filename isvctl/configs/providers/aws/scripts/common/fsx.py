@@ -36,12 +36,17 @@ import time
 import uuid
 from typing import Any
 
+from botocore.exceptions import ClientError
+
 from common.errors import delete_with_retry
 from common.vpc import cleanup_vpc_resources, create_test_vpc
 
 # Lustre client<->server ports (LNet). Opened intra-VPC so a mount client in the
 # same network can reach the filesystem; harmless for provisioning-only checks.
 LUSTRE_PORTS: tuple[tuple[int, int], ...] = ((988, 988), (1018, 1023))
+
+# FSx for Lustre PERSISTENT_2/125 minimum StorageCapacity (GiB).
+MIN_LUSTRE_CAPACITY_GIB = 1200
 
 # FSx filesystem lifecycle states.
 LIFECYCLE_AVAILABLE = "AVAILABLE"
@@ -152,8 +157,6 @@ def create_lustre_filesystem(
 
 def describe_filesystem(fsx: Any, fs_id: str) -> dict[str, Any] | None:
     """Return the FSx filesystem description, or None if it no longer exists."""
-    from botocore.exceptions import ClientError
-
     try:
         resp = fsx.describe_file_systems(FileSystemIds=[fs_id])
     except ClientError as e:
@@ -164,6 +167,14 @@ def describe_filesystem(fsx: Any, fs_id: str) -> dict[str, Any] | None:
     return systems[0] if systems else None
 
 
+def _raise_if_terminal(fs: dict[str, Any], fs_id: str, context: str) -> None:
+    """Raise RuntimeError if the filesystem is in a terminal failure lifecycle."""
+    lifecycle = fs.get("Lifecycle")
+    if lifecycle in LIFECYCLE_TERMINAL_BAD:
+        details = fs.get("FailureDetails", {}).get("Message", "")
+        raise RuntimeError(f"Filesystem {fs_id} entered {lifecycle} {context}: {details}")
+
+
 def wait_filesystem_available(fsx: Any, fs_id: str, *, timeout: float = 1800.0, delay: float = 15.0) -> dict[str, Any]:
     """Poll until the filesystem is AVAILABLE; raise on failure or timeout."""
     deadline = time.monotonic() + timeout
@@ -171,12 +182,9 @@ def wait_filesystem_available(fsx: Any, fs_id: str, *, timeout: float = 1800.0, 
         fs = describe_filesystem(fsx, fs_id)
         if fs is None:
             raise RuntimeError(f"Filesystem {fs_id} disappeared while waiting for AVAILABLE")
-        lifecycle = fs.get("Lifecycle")
-        if lifecycle == LIFECYCLE_AVAILABLE:
+        if fs.get("Lifecycle") == LIFECYCLE_AVAILABLE:
             return fs
-        if lifecycle in LIFECYCLE_TERMINAL_BAD:
-            details = fs.get("FailureDetails", {}).get("Message", "")
-            raise RuntimeError(f"Filesystem {fs_id} entered {lifecycle}: {details}")
+        _raise_if_terminal(fs, fs_id, "while waiting for AVAILABLE")
         time.sleep(delay)
     raise TimeoutError(f"Timed out waiting for filesystem {fs_id} to become AVAILABLE")
 
@@ -206,25 +214,32 @@ def wait_storage_capacity(fsx: Any, fs_id: str, at_least: int, *, timeout: float
         TimeoutError: Capacity/AVAILABLE not reached before ``timeout``.
     """
     deadline = time.monotonic() + timeout
-    last_capacity = 0
-    last_lifecycle = "UNKNOWN"
+    capacity = 0
+    lifecycle = "UNKNOWN"
     while time.monotonic() < deadline:
         fs = describe_filesystem(fsx, fs_id)
-        if fs is not None:
-            last_capacity = fs.get("StorageCapacity", 0)
-            last_lifecycle = fs.get("Lifecycle", "UNKNOWN")
-            if last_lifecycle in LIFECYCLE_TERMINAL_BAD:
-                details = fs.get("FailureDetails", {}).get("Message", "")
-                raise RuntimeError(
-                    f"Filesystem {fs_id} entered {last_lifecycle} during capacity increase: {details}"
-                )
-            if last_capacity >= at_least and last_lifecycle == LIFECYCLE_AVAILABLE:
-                return last_capacity
+        if fs is None:
+            raise RuntimeError(f"Filesystem {fs_id} disappeared during capacity increase")
+        _raise_if_terminal(fs, fs_id, "during capacity increase")
+        capacity = fs.get("StorageCapacity", 0)
+        lifecycle = fs.get("Lifecycle", "UNKNOWN")
+        if capacity >= at_least and lifecycle == LIFECYCLE_AVAILABLE:
+            return capacity
         time.sleep(delay)
     raise TimeoutError(
         f"Timed out waiting for filesystem {fs_id} capacity >= {at_least} GiB "
-        f"(last StorageCapacity={last_capacity}, Lifecycle={last_lifecycle})"
+        f"(last StorageCapacity={capacity}, Lifecycle={lifecycle})"
     )
+
+
+def wait_filesystem_deleted(fsx: Any, fs_id: str, *, timeout: float = 900.0, delay: float = 15.0) -> bool:
+    """Poll until the filesystem no longer exists."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if describe_filesystem(fsx, fs_id) is None:
+            return True
+        time.sleep(delay)
+    return False
 
 
 def delete_filesystem(fsx: Any, fs_id: str, *, wait: bool = True, timeout: float = 900.0, delay: float = 15.0) -> bool:
@@ -232,9 +247,28 @@ def delete_filesystem(fsx: Any, fs_id: str, *, wait: bool = True, timeout: float
     ok = delete_with_retry(fsx.delete_file_system, FileSystemId=fs_id, resource_desc=f"FSx filesystem {fs_id}")
     if not ok or not wait:
         return ok
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if describe_filesystem(fsx, fs_id) is None:
-            return True
-        time.sleep(delay)
-    return False
+    return wait_filesystem_deleted(fsx, fs_id, timeout=timeout, delay=delay)
+
+
+def cleanup_fsx_resources(ec2: Any, fsx: Any, fs_ids: list[str], created: dict[str, Any]) -> list[str]:
+    """Best-effort teardown of FSx filesystems and their network; return errors.
+
+    All deletes are issued before any wait so multiple filesystems delete
+    concurrently server-side. The network is torn down last because the
+    security group cannot be removed while a filesystem still uses it.
+    """
+    errors: list[str] = []
+    issued: list[str] = []
+    for fs_id in fs_ids:
+        if delete_filesystem(fsx, fs_id, wait=False):
+            issued.append(fs_id)
+        else:
+            errors.append(f"filesystem {fs_id} cleanup failed")
+    for fs_id in issued:
+        if not wait_filesystem_deleted(fsx, fs_id):
+            errors.append(f"filesystem {fs_id} cleanup failed")
+    try:
+        cleanup_fsx_network(ec2, created)
+    except Exception as e:
+        errors.append(f"network cleanup failed: {e}")
+    return errors

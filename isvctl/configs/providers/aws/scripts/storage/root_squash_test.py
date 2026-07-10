@@ -52,18 +52,17 @@ from typing import Any
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
 import boto3
-from common.errors import handle_aws_errors
+from common.errors import handle_aws_errors, stamp_test_errors
 from common.fsx import (
-    cleanup_fsx_network,
+    MIN_LUSTRE_CAPACITY_GIB,
+    cleanup_fsx_resources,
     create_fsx_network,
     create_lustre_filesystem,
-    delete_filesystem,
     new_suffix,
     wait_filesystem_available,
     wait_root_squash,
 )
 
-MIN_LUSTRE_CAPACITY_GIB = 1200
 SQUASHED = "65534:65534"
 UNSQUASHED = "0:0"
 
@@ -131,15 +130,10 @@ def main() -> int:
         result["success"] = all(t.get("passed", False) for t in result["tests"].values())
     except Exception as e:  # Surface as JSON error for the validation layer.
         result["error"] = str(e)
+        stamp_test_errors(result, str(e))
     finally:
         if not args.skip_cleanup:
-            cleanup_errors: list[str] = []
-            if fs_id and not delete_filesystem(fsx, fs_id):
-                cleanup_errors.append(f"filesystem {fs_id} cleanup failed")
-            try:
-                cleanup_fsx_network(ec2, created)
-            except Exception as e:
-                cleanup_errors.append(f"network cleanup failed: {e}")
+            cleanup_errors = cleanup_fsx_resources(ec2, fsx, [fs_id] if fs_id else [], created)
             result["cleanup"] = not cleanup_errors
             if cleanup_errors:
                 result["cleanup_errors"] = cleanup_errors
