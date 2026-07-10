@@ -55,6 +55,7 @@ SUITE_REQUIRED_LABELS: dict[str, str] = {
     "observability": "observability",
     "security": "security",
     "slurm": "slurm",
+    "storage": "storage",
     "vm": "vm",
 }
 
