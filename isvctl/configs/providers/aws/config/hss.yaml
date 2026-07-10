@@ -63,8 +63,8 @@ commands:
         phase: test
         command: "python ../scripts/storage/multiple_filesystems_test.py"
         args: ["--region", "{{region}}", "--count", "2", "--max-fs-tib", "50"]
-        # 2x1800 (creates) + 900 (concurrent deletes) + slack.
-        timeout: 4800
+        # 2x1800 (creates) + 2x900 (per-filesystem delete waits) + slack.
+        timeout: 5700
 
       - name: live_expansion
         phase: test

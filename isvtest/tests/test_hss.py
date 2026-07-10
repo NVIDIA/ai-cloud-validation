@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from isvtest.validations.hss import (
@@ -37,12 +39,12 @@ from isvtest.validations.hss import (
 pytestmark = pytest.mark.unit
 
 
-def _step_output(tests: dict) -> dict:
+def _step_output(tests: dict[str, Any]) -> dict[str, Any]:
     """Build a step_output config dict for HSS tests."""
     return {"step_output": {"success": True, "platform": "storage", "tests": tests}}
 
 
-def _all_passed(keys: list[str], extra: dict | None = None) -> dict:
+def _all_passed(keys: list[str], extra: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return a tests dict where every required key passed, merged with extras."""
     tests = {key: {"passed": True} for key in keys}
     for key, value in (extra or {}).items():
@@ -135,7 +137,7 @@ _CASES = [
 
 
 @pytest.mark.parametrize(("cls", "required", "extra", "expected"), _CASES, ids=[c[0].__name__ for c in _CASES])
-def test_all_passed(cls: type, required: list[str], extra: dict, expected: str) -> None:
+def test_all_passed(cls: type, required: list[str], extra: dict[str, Any], expected: str) -> None:
     """Each HSS check passes when all required subtests pass, with a rich message."""
     v = cls(config=_step_output(_all_passed(required, extra)))
     result = v.execute()
@@ -144,7 +146,7 @@ def test_all_passed(cls: type, required: list[str], extra: dict, expected: str) 
 
 
 @pytest.mark.parametrize(("cls", "required", "extra", "expected"), _CASES, ids=[c[0].__name__ for c in _CASES])
-def test_first_subtest_failed(cls: type, required: list[str], extra: dict, expected: str) -> None:
+def test_first_subtest_failed(cls: type, required: list[str], extra: dict[str, Any], expected: str) -> None:
     """Each HSS check fails and names the failing subtest when one does not pass."""
     tests = _all_passed(required, extra)
     failing = required[0]

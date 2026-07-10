@@ -41,12 +41,12 @@ Parallel File System Services
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from isvtest.core.validation import BaseValidation, check_required_tests
 
 
-def _tests(validation: BaseValidation) -> dict:
+def _tests(validation: BaseValidation) -> dict[str, Any]:
     """Return the ``tests`` block from a validation's step output."""
     return validation.config.get("step_output", {}).get("tests", {})
 
