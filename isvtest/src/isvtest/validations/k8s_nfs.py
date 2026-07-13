@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import shlex
 import uuid
-from pathlib import Path
 from typing import Any, ClassVar
 
 from isvtest.config.settings import (
@@ -52,15 +51,13 @@ from isvtest.core.validation import BaseValidation
 # Reuse the stable PVC manifest + apply/poll helpers from the CSI checks so
 # the storage modules stay consistent on manifest shape.
 from isvtest.validations.k8s_storage import (
+    _MOUNT_POD_MANIFEST,
     _PVC_MANIFEST,
     _apply_manifest,
     _poll_pvc_bound,
     _set_pvc_fields,
     _wait_pod_ready,
 )
-
-_MANIFEST_DIR = Path(__file__).parent / "manifests" / "k8s"
-_FS_POD_MANIFEST = _MANIFEST_DIR / "fs_test_pod.yaml"
 
 _DATA_DIR = "/data"
 
@@ -281,7 +278,7 @@ class _K8sSharedFsCheck(BaseValidation):
                 command=command,
             )
 
-        return _apply_manifest(self._kubectl_parts, render_k8s_manifest(_FS_POD_MANIFEST, _mutate), self.timeout)
+        return _apply_manifest(self._kubectl_parts, render_k8s_manifest(_MOUNT_POD_MANIFEST, _mutate), self.timeout)
 
     def _wait_ready(self, pod_name: str, timeout_s: int) -> tuple[bool, str]:
         ok, err = _wait_pod_ready(self.run_command, self._kubectl_base, self._namespace, pod_name, timeout_s)
