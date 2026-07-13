@@ -118,10 +118,13 @@ def _ssl_context(
 ) -> ssl.SSLContext:
     """Build an SSL context that optionally presents a client certificate."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_REQUIRED if ca_cert is not None else ssl.CERT_NONE
     if ca_cert is not None:
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
         context.load_verify_locations(cafile=str(ca_cert))
+    else:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
     if client_cert is not None and client_key is not None:
         context.load_cert_chain(certfile=str(client_cert), keyfile=str(client_key))
     return context
@@ -133,7 +136,12 @@ def _handshake(
     context: ssl.SSLContext,
     timeout: float,
 ) -> dict[str, Any]:
-    """Attempt a TLS handshake and return accepted/rejected classification."""
+    """Attempt a TLS handshake and return accepted/rejected classification.
+
+    ``rejection`` is ``tls`` for SSL-layer denials and ``transport`` for DNS,
+    connect, and timeout failures so callers do not treat unreachable hosts as
+    mTLS enforcement.
+    """
     result: dict[str, Any] = {}
     try:
         with socket.create_connection((host, port), timeout=timeout) as raw:
@@ -143,10 +151,10 @@ def _handshake(
                 result["tls_version"] = tls.version()
                 return result
     except ssl.SSLError as exc:
-        result.update(accepted=False, detail=f"SSLError: {exc}")
+        result.update(accepted=False, rejection="tls", detail=f"SSLError: {exc}")
         return result
     except OSError as exc:
-        result.update(accepted=False, detail=f"{type(exc).__name__}: {exc}")
+        result.update(accepted=False, rejection="transport", detail=f"{type(exc).__name__}: {exc}")
         return result
 
 
@@ -162,7 +170,8 @@ def probe_mtls_endpoint(
     """Probe one endpoint: anonymous client rejected, authenticated client accepted."""
     anonymous = _handshake(host, port, anonymous_context, timeout)
     authenticated = _handshake(host, port, authenticated_context, timeout)
-    anonymous_rejected = anonymous.get("accepted") is not True
+    # Only a TLS-layer rejection proves mTLS; connection refused / timeout is not evidence.
+    anonymous_rejected = anonymous.get("rejection") == "tls"
     authenticated_accepted = authenticated.get("accepted") is True
     passed = anonymous_rejected and authenticated_accepted
     return {
@@ -314,8 +323,12 @@ def run_mutual_tls_probe(
                 authenticated_context=authenticated_context,
                 timeout=timeout,
             )
+        elif name == "east_west_mtls_enforced" and east_west_provider_hidden_message:
+            tests[name] = _provider_hidden_plane(plane, east_west_provider_hidden_message)
         else:
-            tests[name] = _provider_hidden_plane(plane, hidden_message)
+            # Missing required plane without an explicit provider exception is a fail,
+            # not a fabricated pass.
+            tests[name] = {"passed": False, "message": hidden_message, "probes": []}
 
     success = all(tests[name].get("passed") is True for name in REQUIRED_TESTS)
     return {

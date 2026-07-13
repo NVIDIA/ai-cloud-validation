@@ -104,6 +104,7 @@ def test_run_with_provider_hidden_east_west_and_probed_north_south(tmp_path: Pat
         timeout: float,
         plane: str,
     ) -> dict[str, Any]:
+        """Return a successful synthetic endpoint probe."""
         return {
             "host": host,
             "port": port,
@@ -135,7 +136,7 @@ def test_run_with_provider_hidden_east_west_and_probed_north_south(tmp_path: Pat
 
 
 def test_handshake_marks_ssl_error_as_rejected() -> None:
-    """SSL errors during wrap_socket classify as not accepted."""
+    """SSL errors during wrap_socket classify as TLS rejection."""
     context = MagicMock()
     raw = MagicMock()
     raw.__enter__ = MagicMock(return_value=raw)
@@ -151,7 +152,106 @@ def test_handshake_marks_ssl_error_as_rejected() -> None:
         result = probe._handshake("edge.example", 443, context, 1.0)
 
     assert result["accepted"] is False
+    assert result["rejection"] == "tls"
     assert "SSLError" in result["detail"]
+
+
+def test_handshake_marks_os_error_as_transport() -> None:
+    """DNS / connect / timeout failures classify as transport, not TLS rejection."""
+    with patch.object(probe.socket, "create_connection", side_effect=ConnectionRefusedError("refused")):
+        result = probe._handshake("edge.example", 443, MagicMock(), 1.0)
+
+    assert result["accepted"] is False
+    assert result["rejection"] == "transport"
+
+
+def test_probe_does_not_treat_transport_failure_as_anonymous_rejection() -> None:
+    """Anonymous connect failure plus authenticated success must not pass."""
+    anonymous_ctx = MagicMock()
+    authenticated_ctx = MagicMock()
+
+    def fake_handshake(
+        host: str,
+        port: int,
+        context: ssl.SSLContext,
+        timeout: float,
+    ) -> dict[str, Any]:
+        if context is anonymous_ctx:
+            return {"accepted": False, "rejection": "transport", "detail": "ConnectionRefusedError"}
+        return {"accepted": True, "tls_version": "TLSv1.3"}
+
+    with patch.object(probe, "_handshake", side_effect=fake_handshake):
+        result = probe.probe_mtls_endpoint(
+            "edge.example",
+            443,
+            anonymous_context=anonymous_ctx,
+            authenticated_context=authenticated_ctx,
+            timeout=1.0,
+            plane="north_south",
+        )
+
+    assert result["anonymous_rejected"] is False
+    assert result["authenticated_accepted"] is True
+    assert result["passed"] is False
+
+
+def test_run_fails_when_north_south_missing_without_provider_exception(tmp_path: Path) -> None:
+    """Only east-west endpoints without north-south must fail, not fabricate a pass."""
+    ca = tmp_path / "ca.pem"
+    cert = tmp_path / "client.pem"
+    key = tmp_path / "client.key"
+    for path in (ca, cert, key):
+        path.write_text("placeholder\n", encoding="utf-8")
+
+    def fake_probe(
+        host: str,
+        port: int,
+        *,
+        anonymous_context: ssl.SSLContext,
+        authenticated_context: ssl.SSLContext,
+        timeout: float,
+        plane: str,
+    ) -> dict[str, Any]:
+        """Return a successful synthetic endpoint probe."""
+        return {
+            "host": host,
+            "port": port,
+            "plane": plane,
+            "anonymous_rejected": True,
+            "authenticated_accepted": True,
+            "passed": True,
+            "detail": {},
+        }
+
+    with (
+        patch.object(probe, "_ssl_context", return_value=MagicMock()),
+        patch.object(probe, "probe_mtls_endpoint", side_effect=fake_probe),
+    ):
+        result = probe.run_mutual_tls_probe(
+            north_south_endpoints=[],
+            east_west_endpoints=[("mesh.internal", 8443)],
+            ca_cert=ca,
+            client_cert=cert,
+            client_key=key,
+            timeout=1.0,
+        )
+
+    assert result["success"] is False
+    assert result["tests"]["north_south_mtls_enforced"]["passed"] is False
+    assert "no north-south endpoints" in result["tests"]["north_south_mtls_enforced"]["message"]
+    assert result["tests"]["east_west_mtls_enforced"]["passed"] is True
+
+
+def test_ssl_context_enables_hostname_check_with_ca(tmp_path: Path) -> None:
+    """CA-backed contexts verify the server hostname."""
+    ca = tmp_path / "ca.pem"
+    # Minimal PEM so load_verify_locations can open a file; OpenSSL may still
+    # reject the contents, so mock load_verify_locations.
+    ca.write_text("placeholder\n", encoding="utf-8")
+    with patch.object(ssl.SSLContext, "load_verify_locations"):
+        context = probe._ssl_context(ca_cert=ca)
+    assert context.check_hostname is True
+    assert context.verify_mode == ssl.CERT_REQUIRED
 
 
 def test_main_demo_mode(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

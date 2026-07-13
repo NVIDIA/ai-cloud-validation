@@ -415,12 +415,12 @@ def _teardown_tenant(
         # of cleanup; the safety-net teardown step picks up leftovers.
         try:
             ec2.terminate_instances(InstanceIds=[tenant.instance_id])
-        except ClientError as e:
+        except (ClientError, BotoCoreError) as e:
             errors.append(f"terminate instance {tenant.instance_id}: {e}")
         else:
             try:
                 _wait_instance_terminated(ec2, tenant.instance_id)
-            except (ClientError, TimeoutError) as e:
+            except (ClientError, BotoCoreError, TimeoutError) as e:
                 errors.append(f"wait terminated {tenant.instance_id}: {e}")
 
     if tenant.created.get("volume") and tenant.volume_id:
