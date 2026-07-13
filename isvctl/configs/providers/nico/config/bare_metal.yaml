@@ -86,6 +86,7 @@ commands:
       # Output includes per-machine status, health, GPU/DPU counts.
       - name: verify_ingestion
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/hardware_ingestion/verify_ingestion.py"
         args:
           - "--org"
@@ -101,6 +102,7 @@ commands:
       # probes, agent heartbeat status, and capability inventory.
       - name: check_dpu_health
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/dpu/check_dpu_health.py"
         args:
           - "--org"
@@ -117,6 +119,7 @@ commands:
       # produced for both nodes and GPUs.
       - name: query_governance_metrics
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/governance/query_metrics.py"
         args:
           - "--org"
@@ -132,6 +135,7 @@ commands:
       # and memory health, plus the freshness of the observation.
       - name: query_host_health
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/health/query_host_health.py"
         args:
           - "--org"
@@ -147,6 +151,7 @@ commands:
       # with per-group healthy/unhealthy counts and an aggregate status.
       - name: query_health_aggregation
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/health/query_health_aggregation.py"
         args:
           - "--org"
@@ -165,6 +170,7 @@ commands:
       # across tenants.
       - name: query_ib_tenant_isolation
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/infiniband/query_ib_tenant_isolation.py"
         args:
           - "--org"
@@ -183,6 +189,7 @@ commands:
       # unverified. IbKeysConfiguredCheck validates the required subset.
       - name: query_ib_keys
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/infiniband/query_ib_keys.py"
         args:
           - "--org"
@@ -256,6 +263,7 @@ commands:
       # NICO_FORGE_ROOT_CA_PATH, NICO_CLIENT_KEY_PATH, NICO_CLIENT_CERT_PATH).
       - name: query_attestation
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/attestation/query_attestation.py"
         args:
           - "--org"
@@ -270,6 +278,7 @@ commands:
       # Lists instances visible to NICo at the configured site.
       - name: list_instances
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/bare_metal/list_instances.py"
         args:
           - "--org"
@@ -285,6 +294,7 @@ commands:
       # Describes NICO_INSTANCE_ID, or the first instance found at the site.
       - name: describe_instance
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/bare_metal/describe_instance.py"
         args:
           - "--org"
