@@ -82,7 +82,7 @@ def _probe_sol_access(ec2: Any, eic: Any, instance_id: str, ssh_public_key: str)
         response = eic.send_serial_console_ssh_public_key(
             InstanceId=instance_id,
             SSHPublicKey=ssh_public_key,
-            SerialPort=1,
+            SerialPort=0,
         )
     except ClientError as exc:
         return {"passed": False, "error": str(exc), "probes": ["send_serial_console_ssh_public_key"]}

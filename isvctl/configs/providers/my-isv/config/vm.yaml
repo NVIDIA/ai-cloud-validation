@@ -46,10 +46,11 @@
 #     7. serial_console   - Confirm serial console access
 #     8. console_rbac     - Verify console access is RBAC-scoped
 #     9. component_key_access - AUTH03 specified-key SOL / network device access
-#    10. deploy_nim       - SKIPPED (needs real SSH)
+#    10. virtual_device_hardening - Confirm unused virtio devices are absent
+#    11. deploy_nim       - SKIPPED (needs real SSH)
 #   TEARDOWN
-#    11. teardown_nim     - SKIPPED (needs real SSH)
-#    12. teardown         - Terminate the VM
+#    12. teardown_nim     - SKIPPED (needs real SSH)
+#    13. teardown         - Terminate the VM
 #
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/vm.yaml

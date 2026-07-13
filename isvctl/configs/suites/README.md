@@ -85,7 +85,7 @@ For the domain / script-count / AWS-reference overview see the
 | `list_instances` | test | `providers/my-isv/scripts/vm/list_instances.py` | `instances`, `total_count` |
 | `verify_tags` | test | `providers/my-isv/scripts/vm/describe_tags.py` | `instance_id`, `tags`, `tag_count` |
 | `serial_console` | test | `providers/my-isv/scripts/vm/serial_console.py` | `console_available`, `serial_access_enabled` |
-| `component_key_access` | test | `providers/my-isv/scripts/vm/component_key_access.py` | `key_name`, `tests.sol_access.passed`, `tests.network_device_access.passed` (`ComponentKeyAccessCheck` / AUTH03-01) |
+| `component_key_access` | test | `providers/my-isv/scripts/vm/component_key_access.py` | `key_name`; for non-skipped results also `tests.sol_access.passed`, `tests.network_device_access.passed` (`ComponentKeyAccessCheck` / AUTH03-01; AWS may emit top-level `skipped` when serial console access is disabled) |
 | `stop_instance` | test | `providers/my-isv/scripts/vm/stop_instance.py` | `instance_id`, `state`, `stop_initiated` |
 | `start_instance` | test | `providers/my-isv/scripts/vm/start_instance.py` | `instance_id`, `state`, `public_ip`, `ssh_ready` |
 | `reboot_instance` | test | `providers/my-isv/scripts/vm/reboot_instance.py` | `reboot_initiated`, `ssh_ready`, `uptime_seconds` |

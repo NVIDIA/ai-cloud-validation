@@ -67,7 +67,11 @@ def test_probe_sol_access_authorizes_key(monkeypatch: pytest.MonkeyPatch) -> Non
     result = module._probe_sol_access(MagicMock(), eic, "i-abc", "ssh-rsa AAAAB3")
 
     assert result["passed"] is True
-    eic.send_serial_console_ssh_public_key.assert_called_once()
+    eic.send_serial_console_ssh_public_key.assert_called_once_with(
+        InstanceId="i-abc",
+        SSHPublicKey="ssh-rsa AAAAB3",
+        SerialPort=0,
+    )
 
 
 def test_probe_sol_access_fails_on_client_error(monkeypatch: pytest.MonkeyPatch) -> None:
