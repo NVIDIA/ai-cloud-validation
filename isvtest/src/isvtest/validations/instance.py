@@ -20,8 +20,6 @@ Validations for EC2 instances, virtual machines, and compute resources.
 
 from typing import ClassVar
 
-import pytest
-
 from isvtest.core.validation import BaseValidation, check_required_tests
 from isvtest.validations.generic import check_operations_passed
 
@@ -128,10 +126,7 @@ class ComponentKeyAccessCheck(BaseValidation):
     def run(self) -> None:
         """Validate key-based SOL and network-device access probes from step output."""
         step_output = self.config.get("step_output", {})
-        if step_output.get("skipped") is True:
-            pytest.skip(step_output.get("skip_reason") or "Component key access validation skipped")
-
-        key_name = step_output.get("key_name") or step_output.get("requested_key_name")
+        key_name = step_output.get("key_name")
         if not key_name:
             self.set_failed("No 'key_name' in step output")
             return
@@ -141,11 +136,7 @@ class ComponentKeyAccessCheck(BaseValidation):
             return
 
         tests = step_output.get("tests", {})
-        hidden = [
-            name
-            for name in required
-            if isinstance(tests.get(name), dict) and tests[name].get("provider_hidden") is True
-        ]
+        hidden = [name for name in required if tests[name].get("provider_hidden") is True]
         hidden_note = f", provider_hidden={','.join(hidden)}" if hidden else ""
         self.set_passed(f"Specified key '{key_name}' accessed required components{hidden_note}")
 

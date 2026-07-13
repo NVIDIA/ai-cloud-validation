@@ -65,7 +65,6 @@ tests:
         IamCredentialAccessCheck:
           test_id: "IAM03-01"
           labels: ["iam"]
-          required_tests: ["identity", "access"]
         StepSuccessCheck:
           test_id: "N/A"
           labels: ["iam"]

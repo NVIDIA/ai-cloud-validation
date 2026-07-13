@@ -129,9 +129,7 @@ def main() -> int:
         else:
             result["tests"]["access"] = {"passed": False, "error": str(e)}
 
-    result["success"] = (
-        result["tests"]["identity"]["passed"] and result["tests"].get("access", {}).get("passed") is True
-    )
+    result["success"] = result["tests"]["identity"]["passed"] and result["tests"]["access"]["passed"]
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
 

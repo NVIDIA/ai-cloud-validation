@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from isvtest.validations.instance import (
     SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED,
     ComponentKeyAccessCheck,
@@ -277,8 +279,6 @@ class TestComponentKeyAccessCheck:
 
     def test_skips_when_step_marked_skipped(self) -> None:
         """Whole-step skip (e.g. serial console disabled) is a pytest skip."""
-        import pytest
-
         with pytest.raises(pytest.skip.Exception, match="serial console"):
             ComponentKeyAccessCheck(
                 config={

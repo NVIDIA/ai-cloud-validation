@@ -27,6 +27,7 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 RETENTION_EVIDENCE_LIMITATION = "EC2 GetConsoleOutput does not prove one-month log retention"
+SERIAL_ACCESS_DISABLED_SKIP_REASON = "EC2 serial console access is disabled for this account or region"
 SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED = 30
 
 

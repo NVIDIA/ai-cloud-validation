@@ -40,34 +40,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import boto3
 from botocore.exceptions import ClientError
 from common.errors import handle_aws_errors
-from common.serial_console import check_serial_access
+from common.serial_console import SERIAL_ACCESS_DISABLED_SKIP_REASON, check_serial_access
 from paramiko import ECDSAKey, Ed25519Key, RSAKey
 from paramiko.ssh_exception import SSHException
-
-SERIAL_ACCESS_DISABLED_SKIP_REASON = "EC2 serial console access is disabled for this account or region"
-NETWORK_DEVICE_HIDDEN_MESSAGE = "AWS does not expose tenant-visible network-device SSH for key-based access"
-REQUIRED_TESTS = ("sol_access", "network_device_access")
-
-
-def _make_test_result(passed: bool, **details: Any) -> dict[str, Any]:
-    """Build a standard test result dictionary."""
-    return {"passed": passed, **details}
-
-
-def _mark_skipped(result: dict[str, Any], reason: str) -> dict[str, Any]:
-    """Mark the whole AUTH03 probe as skipped with skipped subtest evidence."""
-    result["success"] = True
-    result["skipped"] = True
-    result["skip_reason"] = reason
-    result["tests"] = {
-        name: {
-            "passed": True,
-            "skipped": True,
-            "skip_reason": reason,
-        }
-        for name in REQUIRED_TESTS
-    }
-    return result
 
 
 def _load_openssh_public_key(key_file: str) -> str:
@@ -94,14 +69,14 @@ def _probe_sol_access(ec2: Any, eic: Any, instance_id: str, ssh_public_key: str)
     """Authorize the specified public key for EC2 serial-console SSH."""
     serial_access = check_serial_access(ec2)
     if serial_access.get("error"):
-        return _make_test_result(False, error=serial_access["error"], probes=["serial_console_access"])
+        return {"passed": False, "error": serial_access["error"], "probes": ["serial_console_access"]}
     if serial_access.get("enabled") is not True:
-        return _make_test_result(
-            False,
-            skipped=True,
-            skip_reason=SERIAL_ACCESS_DISABLED_SKIP_REASON,
-            probes=["serial_console_access"],
-        )
+        return {
+            "passed": False,
+            "skipped": True,
+            "skip_reason": SERIAL_ACCESS_DISABLED_SKIP_REASON,
+            "probes": ["serial_console_access"],
+        }
 
     try:
         response = eic.send_serial_console_ssh_public_key(
@@ -110,29 +85,23 @@ def _probe_sol_access(ec2: Any, eic: Any, instance_id: str, ssh_public_key: str)
             SerialPort=1,
         )
     except ClientError as exc:
-        return _make_test_result(False, error=str(exc), probes=["send_serial_console_ssh_public_key"])
+        return {"passed": False, "error": str(exc), "probes": ["send_serial_console_ssh_public_key"]}
 
-    success = bool(response.get("Success")) if isinstance(response, dict) else False
-    request_id = ""
-    if isinstance(response, dict):
-        request_id = str(response.get("RequestId") or response.get("ResponseMetadata", {}).get("RequestId", ""))
-
-    return _make_test_result(
-        success,
-        message="Authorized specified key for EC2 serial console SSH",
-        probes=["serial_console_access", "send_serial_console_ssh_public_key"],
-        request_id=request_id or None,
-    )
+    return {
+        "passed": bool(response.get("Success")),
+        "message": "Authorized specified key for EC2 serial console SSH",
+        "probes": ["serial_console_access", "send_serial_console_ssh_public_key"],
+    }
 
 
 def _probe_network_device_access() -> dict[str, Any]:
     """AWS has no tenant-visible network-device key path; mark provider-hidden."""
-    return _make_test_result(
-        True,
-        provider_hidden=True,
-        message=NETWORK_DEVICE_HIDDEN_MESSAGE,
-        probes=["network_device_ssh"],
-    )
+    return {
+        "passed": True,
+        "provider_hidden": True,
+        "message": "AWS does not expose tenant-visible network-device SSH for key-based access",
+        "probes": ["network_device_ssh"],
+    }
 
 
 @handle_aws_errors
@@ -158,8 +127,7 @@ def main() -> int:
         ssh_public_key = _load_openssh_public_key(args.key_file)
     except (OSError, ValueError) as exc:
         result["error"] = str(exc)
-        result["tests"]["sol_access"] = _make_test_result(False, error=str(exc))
-        result["tests"]["network_device_access"] = _probe_network_device_access()
+        result["tests"]["sol_access"] = {"passed": False, "error": str(exc)}
         print(json.dumps(result, indent=2))
         return 1
 
@@ -168,12 +136,15 @@ def main() -> int:
 
     sol = _probe_sol_access(ec2, eic, args.instance_id, ssh_public_key)
     if sol.get("skipped") is True:
-        print(json.dumps(_mark_skipped(result, sol.get("skip_reason") or SERIAL_ACCESS_DISABLED_SKIP_REASON), indent=2))
+        result["success"] = True
+        result["skipped"] = True
+        result["skip_reason"] = sol["skip_reason"]
+        print(json.dumps(result, indent=2))
         return 0
 
     result["tests"]["sol_access"] = sol
     result["tests"]["network_device_access"] = _probe_network_device_access()
-    result["success"] = sol.get("passed") is True and result["tests"]["network_device_access"].get("passed") is True
+    result["success"] = all(test["passed"] for test in result["tests"].values())
     if not result["success"] and sol.get("error"):
         result["error"] = sol["error"]
 
