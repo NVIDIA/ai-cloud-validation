@@ -28,6 +28,11 @@ tests:
   settings:
     region: ""
     network_id: ""
+    # The OBS05 NSRG target is 120s, but major provider metric pipelines do
+    # not surface queryable datapoints that fast; 600s is the portable budget
+    # that still flags a stalled telemetry pipeline. Providers that can meet
+    # a tighter bound may override this in their settings.
+    max_delivery_seconds: 600
 
   validations:
     telemetry_delivery:
@@ -36,13 +41,7 @@ tests:
           test_id: "OBS05-01"
           labels: ["min_req", "observability"]
           step: telemetry_delivery_latency
-          # The OBS05 NSRG target is 120s, but AWS EC2 CloudWatch metrics land
-          # on a 1-minute cadence (detailed monitoring) plus ingestion delay, so
-          # the freshest queryable datapoint is routinely 5-6 minutes old and
-          # sub-120s delivery is not achievable there. 600s is the realistic
-          # provider-neutral budget that still flags a stalled telemetry
-          # pipeline; providers that can meet a tighter bound may override this.
-          max_delivery_seconds: 600
+          max_delivery_seconds: "{{max_delivery_seconds}}"
 
     network_telemetry:
       checks:

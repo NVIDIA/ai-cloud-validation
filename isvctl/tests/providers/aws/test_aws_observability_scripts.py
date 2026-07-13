@@ -675,6 +675,7 @@ class FakeCloudWatchClient:
         self.metrics = metrics
         self.statistics_sequence = list(statistics_sequence)
         self.list_dimensions: list[list[dict[str, str]]] = []
+        self.statistics_calls: list[dict[str, Any]] = []
 
     def list_metrics(self, *, Namespace: str, MetricName: str, Dimensions: list[dict[str, str]]) -> dict[str, Any]:
         """Record the requested dimensions and return the configured metrics."""
@@ -683,6 +684,7 @@ class FakeCloudWatchClient:
 
     def get_metric_statistics(self, **kwargs: Any) -> dict[str, Any]:
         """Return the next scripted datapoint batch, reusing the last when exhausted."""
+        self.statistics_calls.append(kwargs)
         datapoints = self.statistics_sequence.pop(0) if self.statistics_sequence else []
         return {"Datapoints": datapoints}
 
@@ -706,14 +708,13 @@ def test_telemetry_delivery_scopes_to_instance_and_passes() -> None:
         cloudwatch,
         network_id="vpc-123",
         instance_id="i-123",
-        max_delivery_seconds=600,
     )
 
     assert result["success"] is True
     assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
     probes = result["tests"]["delivery_within_threshold"]["probes"]
     assert probes["probe_resource_id"] == "i-123"
-    assert probes["observed_delivery_seconds"] <= 600
+    assert probes["observed_delivery_seconds"] < 60
 
 
 def test_telemetry_delivery_polls_until_datapoint_appears() -> None:
@@ -734,7 +735,6 @@ def test_telemetry_delivery_polls_until_datapoint_appears() -> None:
         cloudwatch,
         network_id="vpc-123",
         instance_id="i-123",
-        max_delivery_seconds=600,
         poll_timeout_seconds=60,
         poll_interval_seconds=1,
         sleep=sleeps.append,
@@ -743,6 +743,35 @@ def test_telemetry_delivery_polls_until_datapoint_appears() -> None:
     assert result["success"] is True
     assert sleeps == [1]
     assert result["tests"]["delivery_sample_present"]["passed"] is True
+
+
+def test_telemetry_delivery_fails_fast_when_latency_exceeds_threshold() -> None:
+    """A stale-but-present datapoint fails the threshold check without polling."""
+    script = _load_script("telemetry_delivery_test.py")
+    metric = {
+        "Namespace": "AWS/EC2",
+        "MetricName": "NetworkPacketsIn",
+        "Dimensions": [{"Name": "InstanceId", "Value": "i-123"}],
+    }
+    cloudwatch = FakeCloudWatchClient(metrics=[metric], statistics_sequence=[[_recent_datapoint(300)]])
+    sleeps: list[float] = []
+
+    result = script.check_telemetry_delivery_latency(
+        cloudwatch,
+        network_id="vpc-123",
+        instance_id="i-123",
+        max_delivery_seconds=60,
+        poll_timeout_seconds=60,
+        poll_interval_seconds=1,
+        sleep=sleeps.append,
+    )
+
+    assert result["success"] is False
+    assert sleeps == []
+    assert result["tests"]["delivery_sample_present"]["passed"] is True
+    assert "exceeds" in result["tests"]["delivery_within_threshold"]["error"]
+    window = cloudwatch.statistics_calls[0]
+    assert (window["EndTime"] - window["StartTime"]).total_seconds() > 60
 
 
 def test_telemetry_delivery_fails_without_datapoints() -> None:
