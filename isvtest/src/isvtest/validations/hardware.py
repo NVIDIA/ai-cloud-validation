@@ -13,10 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Hardware ingestion and DPU health validations.
+"""Hardware ingestion, inventory, and DPU health validations.
 
 Validations for NICo bare metal hardware lifecycle:
 - Hardware ingestion verification (expected vs actual machines)
+- Hardware serial-number inventory (chassis, baseboard, NIC, CPU, GPU)
 - DPU health checks (agent heartbeat, probes, capabilities)
 - DPU network readiness (interfaces, BGP, extension services)
 """
@@ -173,6 +174,100 @@ class HardwareIngestionCheck(BaseValidation):
             )
         else:
             self.set_passed(f"All {matched_count} expected machines ingested and healthy")
+
+
+class HardwareSerialCheck(BaseValidation):
+    """Validate stable hardware serial numbers are queryable (BFX03-01).
+
+    Break/fix workflows must be able to identify the physical hardware installed
+    in a host. This check asserts that, for every machine, a stable identifier
+    is queryable for each configured component class that is present on the host
+    (chassis, baseboard, CPU, GPU, NIC). Per BFX03-01 the identifiers may be
+    obfuscated as long as they are stable, so it only verifies that a non-empty
+    identifier exists -- not that it is globally unique.
+
+    A component that is not present on a host (e.g. GPUs on a CPU-only node) is
+    reported as an informational skipped subtest, never a failure. A component
+    that is present but exposes no queryable identifier fails.
+
+    Config:
+        step_output: The step output containing per-machine serial records.
+        required_components: Component classes to require identifiers for
+            (default: chassis, baseboard, cpu, gpu, nic).
+        min_machines: Minimum number of machines expected (default: 1).
+
+    Step output (from query_serial_numbers.py):
+        success: bool
+        platform: "nico"
+        site_id: str
+        machines_checked: int
+        machines: list[dict]:
+            machine_id: str
+            components: dict[str, dict]:
+                <component>: {present: bool, identifiers: list[str]}
+    """
+
+    description: ClassVar[str] = "Check stable hardware serial numbers are queryable for installed components"
+    timeout: ClassVar[int] = 120
+
+    default_components: ClassVar[tuple[str, ...]] = ("chassis", "baseboard", "cpu", "gpu", "nic")
+
+    def run(self) -> None:
+        """Validate every present component on every machine exposes a stable identifier."""
+        step_output = self.config.get("step_output", {})
+
+        if not step_output.get("success"):
+            self.set_failed(f"Serial-number query step failed: {step_output.get('error', 'Unknown error')}")
+            return
+
+        machines = step_output.get("machines")
+        if not isinstance(machines, list):
+            self.set_failed("Serial-number step output is missing the 'machines' list")
+            return
+
+        min_machines = self.config.get("min_machines", 1)
+        if len(machines) < min_machines:
+            self.set_failed(f"Expected at least {min_machines} machine(s) with hardware inventory, got {len(machines)}")
+            return
+
+        required = self.config.get("required_components") or list(self.default_components)
+
+        failed: dict[str, str] = {}
+        for machine in machines:
+            label = _machine_label(machine)
+            components = machine.get("components") or {}
+            for name in required:
+                component = components.get(name) or {}
+                if not component.get("present"):
+                    self.report_subtest(
+                        f"{name}_{label}",
+                        passed=True,
+                        skipped=True,
+                        message=f"{label}: no {name} present on this host",
+                    )
+                    continue
+
+                identifiers = [i for i in (component.get("identifiers") or []) if i]
+                if identifiers:
+                    self.report_subtest(
+                        f"{name}_{label}",
+                        passed=True,
+                        message=f"{label}: {name} identifier(s) {', '.join(identifiers)}",
+                    )
+                else:
+                    reason = f"{label}: {name} present but no stable identifier is queryable"
+                    self.report_subtest(f"{name}_{label}", passed=False, message=reason)
+                    failed[f"{label}/{name}"] = reason
+
+        total = len(machines)
+        if failed:
+            sample = ", ".join(list(failed)[:3])
+            more = len(failed) - min(len(failed), 3)
+            summary = f"{sample} (+{more} more)" if more else sample
+            self.set_failed(f"Missing hardware identifiers for {len(failed)} component(s): {summary}")
+            return
+
+        self.set_passed(f"Stable hardware identifiers queryable for all present components on {total} machine(s)")
 
 
 class DpuHealthCheck(BaseValidation):

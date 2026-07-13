@@ -572,6 +572,19 @@ tests:
           test_id: "SEC21-02"
           labels: ["bare_metal", "disk", "min_req", "sanitization", "security"]
 
+    # Hardware serial-number inventory (BFX03-01). Asserts a stable identifier
+    # is queryable for every present hardware component (chassis, baseboard, CPU,
+    # GPU, NIC) so break/fix can identify installed hardware. Obfuscated but
+    # stable IDs are accepted. Only runs for providers that implement the
+    # query_serial_numbers step.
+    hardware_serials:
+      step: query_serial_numbers
+      checks:
+        HardwareSerialCheck:
+          test_id: "BFX03-01"
+          labels: ["bare_metal", "breakfix", "min_req"]
+          min_machines: 1
+
     # Hardware/firmware attestation (SEC22 / CNP09). Each check asserts a host
     # establishes a hardware root of trust. Only runs for providers that
     # implement the query_attestation step.

@@ -2060,6 +2060,8 @@ domains:
             tests:
               - summary: Query serial numbers of installed hardware (chassis, baseboard, NICs, CPU, GPU) — obfuscated but stable IDs are OK
                 labels:
+                  - bare_metal
+                  - breakfix
                   - min_req
                 priority: P1
                 milestone: M5

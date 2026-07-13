@@ -23,6 +23,7 @@ from isvtest.validations.hardware import (
     DpuHealthCheck,
     DpuNetworkCheck,
     HardwareIngestionCheck,
+    HardwareSerialCheck,
 )
 
 # ---------------------------------------------------------------------------
@@ -638,5 +639,121 @@ class TestDpuNetworkCheck:
     def test_empty_step_output(self) -> None:
         """Empty step_output should fail."""
         check = DpuNetworkCheck(config={"step_output": {}})
+        check.run()
+        assert check._passed is False
+
+
+# ---------------------------------------------------------------------------
+# HardwareSerialCheck (BFX03-01)
+# ---------------------------------------------------------------------------
+
+
+def _serial_component(present: bool = True, identifiers: list[str] | None = None) -> dict[str, Any]:
+    """Build one per-component serial record."""
+    return {"present": present, "identifiers": identifiers or []}
+
+
+def _serial_machine(
+    *,
+    machine_id: str = "m-001",
+    chassis: list[str] | None = None,
+    baseboard: list[str] | None = None,
+    cpu: list[str] | None = None,
+    gpu_present: bool = True,
+    gpu: list[str] | None = None,
+    nic: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build a per-machine serial record with sensible defaults."""
+    return {
+        "machine_id": machine_id,
+        "components": {
+            "chassis": _serial_component(True, chassis if chassis is not None else ["J1050ACR"]),
+            "baseboard": _serial_component(True, baseboard if baseboard is not None else [".C1KS2CS002G."]),
+            "cpu": _serial_component(True, cpu if cpu is not None else ["Intel Xeon Gold 6354"]),
+            "gpu": _serial_component(gpu_present, gpu if gpu is not None else ["1654422006434"]),
+            "nic": _serial_component(True, nic if nic is not None else ["c8:4b:d6:7b:ac:a8"]),
+        },
+    }
+
+
+def _serial_output(
+    *,
+    success: bool = True,
+    machines: list[dict[str, Any]] | None = None,
+    error: str = "",
+) -> dict[str, Any]:
+    """Build a minimal hardware serial-number step output."""
+    if machines is None:
+        machines = [_serial_machine()]
+    return {
+        "success": success,
+        "platform": "nico",
+        "site_id": "test-site-001",
+        "machines_checked": len(machines),
+        "machines": machines,
+        "error": error,
+    }
+
+
+class TestHardwareSerialCheck:
+    """Tests for HardwareSerialCheck (BFX03-01)."""
+
+    def test_all_identifiers_present_passes(self) -> None:
+        """A fully-populated inventory passes."""
+        check = HardwareSerialCheck(config={"step_output": _serial_output()})
+        check.run()
+        assert check._passed is True
+
+    def test_missing_gpu_is_skipped_not_failed(self) -> None:
+        """A CPU-only host (no GPU present) passes; GPU is skipped, not failed."""
+        machine = _serial_machine(gpu_present=False, gpu=[])
+        check = HardwareSerialCheck(config={"step_output": _serial_output(machines=[machine])})
+        check.run()
+        assert check._passed is True
+
+    def test_present_component_without_identifier_fails(self) -> None:
+        """A present GPU with no queryable serial fails."""
+        machine = _serial_machine(gpu_present=True, gpu=[])
+        check = HardwareSerialCheck(config={"step_output": _serial_output(machines=[machine])})
+        check.run()
+        assert check._passed is False
+        assert "gpu" in check._error
+
+    def test_missing_chassis_serial_fails(self) -> None:
+        """A host with no chassis identifier fails (chassis is always required)."""
+        machine = _serial_machine(chassis=[])
+        check = HardwareSerialCheck(config={"step_output": _serial_output(machines=[machine])})
+        check.run()
+        assert check._passed is False
+        assert "chassis" in check._error
+
+    def test_required_components_scoping(self) -> None:
+        """Restricting required_components ignores an unlisted missing identifier."""
+        machine = _serial_machine(nic=[])  # NIC has no identifier
+        check = HardwareSerialCheck(
+            config={
+                "step_output": _serial_output(machines=[machine]),
+                "required_components": ["chassis", "cpu"],
+            }
+        )
+        check.run()
+        assert check._passed is True
+
+    def test_step_failure_fails(self) -> None:
+        """A failed step output fails the check."""
+        check = HardwareSerialCheck(config={"step_output": _serial_output(success=False, error="boom")})
+        check.run()
+        assert check._passed is False
+        assert "boom" in check._error
+
+    def test_missing_machines_list_fails(self) -> None:
+        """Step output without a machines list fails."""
+        check = HardwareSerialCheck(config={"step_output": {"success": True}})
+        check.run()
+        assert check._passed is False
+
+    def test_min_machines_enforced(self) -> None:
+        """Fewer machines than min_machines fails."""
+        check = HardwareSerialCheck(config={"step_output": _serial_output(machines=[]), "min_machines": 1})
         check.run()
         assert check._passed is False

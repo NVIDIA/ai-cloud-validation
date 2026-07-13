@@ -32,6 +32,7 @@ from urllib.parse import parse_qs
 import pytest
 from isvtest.validations.attestation import FirmwareAttestationCheck, NonceAttestationCheck
 from isvtest.validations.governance import GovernanceMetricsCheck
+from isvtest.validations.hardware import HardwareSerialCheck
 from isvtest.validations.health import HealthAggregationCheck, HostHealthCheck
 from isvtest.validations.infiniband import IbKeysConfiguredCheck, IbTenantIsolationCheck
 from isvtest.validations.sanitization import (
@@ -2591,3 +2592,129 @@ def test_sanitization_script_output_satisfies_disk_check(
     assert "1/1 machine(s)" in bad._error
     sub = next(r for r in bad._subtest_results if r["name"] == "disk_m-1")
     assert "without sanitization" in sub["message"]
+
+
+# ---------------------------------------------------------------------------
+# query_serial_numbers (BFX03-01) script
+# ---------------------------------------------------------------------------
+
+
+def _load_serial_numbers_script() -> ModuleType:
+    """Load the query_serial_numbers script as a module for direct unit testing."""
+    return _load_nico_script("hardware_inventory/query_serial_numbers.py", "test_query_serial_numbers")
+
+
+def _serial_api_machine(
+    *,
+    machine_id: str = "m-1",
+    chassis_serial: str | None = "J1050ACR",
+    board_serial: str | None = ".C1KS2CS002G.",
+    machine_serial: str | None = "J1060ACR.D3KS2CS001G",
+    gpus: list[dict[str, Any]] | None = None,
+    nics: list[dict[str, Any]] | None = None,
+    ib_nics: list[dict[str, Any]] | None = None,
+    capabilities: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a raw NICo machine payload with hardware metadata."""
+    if gpus is None:
+        gpus = [{"name": "NVIDIA H100 PCIe", "serial": "1654422006434"}]
+    if nics is None:
+        nics = [{"macAddress": "c8:4b:d6:7b:ac:a8", "vendor": "Broadcom"}]
+    if ib_nics is None:
+        ib_nics = [{"guid": "1070fd0300bd43ac", "vendor": "Mellanox"}]
+    if capabilities is None:
+        capabilities = [{"type": "CPU", "name": "Intel(R) Xeon(R) Gold 6354", "count": 2}]
+    return {
+        "id": machine_id,
+        "serialNumber": machine_serial,
+        "machineCapabilities": capabilities,
+        "metadata": {
+            "dmiData": {"chassisSerial": chassis_serial, "boardSerial": board_serial},
+            "gpus": gpus,
+            "networkInterfaces": nics,
+            "infinibandInterfaces": ib_nics,
+        },
+    }
+
+
+def _run_serial_numbers(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    machines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Drive the query_serial_numbers script with mocked NICo machines."""
+    module = _load_serial_numbers_script()
+    return _run_script(module, monkeypatch, capsys, script_name="query_serial_numbers.py", machines=machines)
+
+
+def test_serial_numbers_script_maps_all_components(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Every hardware component class is reduced to stable identifiers."""
+    payload = _run_serial_numbers(monkeypatch, capsys, [_serial_api_machine()])
+
+    assert payload["success"] is True
+    assert payload["platform"] == "nico"
+    assert payload["machines_checked"] == 1
+    components = payload["machines"][0]["components"]
+    assert components["chassis"] == {"present": True, "identifiers": ["J1050ACR", "J1060ACR.D3KS2CS001G"]}
+    assert components["baseboard"]["identifiers"] == [".C1KS2CS002G."]
+    assert components["cpu"]["identifiers"] == ["Intel(R) Xeon(R) Gold 6354"]
+    assert components["gpu"] == {"present": True, "identifiers": ["1654422006434"]}
+    assert components["nic"]["identifiers"] == ["c8:4b:d6:7b:ac:a8", "1070fd0300bd43ac"]
+
+
+def test_serial_numbers_script_gpu_absent_on_cpu_node(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A node with no GPUs reports gpu.present=false rather than an empty serial."""
+    machine = _serial_api_machine(gpus=[], capabilities=[{"type": "CPU", "name": "AMD EPYC", "count": 1}])
+    payload = _run_serial_numbers(monkeypatch, capsys, [machine])
+
+    gpu = payload["machines"][0]["components"]["gpu"]
+    assert gpu["present"] is False
+    assert gpu["identifiers"] == []
+
+
+def test_serial_numbers_script_chassis_falls_back_to_machine_serial(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A blank DMI chassis serial falls back to the provider-visible machine serial."""
+    machine = _serial_api_machine(chassis_serial=None, machine_serial="FALLBACK-123")
+    payload = _run_serial_numbers(monkeypatch, capsys, [machine])
+
+    assert payload["machines"][0]["components"]["chassis"]["identifiers"] == ["FALLBACK-123"]
+
+
+def test_serial_numbers_script_empty_site_skips(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A site with no machines emits a structured skip."""
+    payload = _run_serial_numbers(monkeypatch, capsys, [])
+
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert "No machines found" in payload["skip_reason"]
+
+
+def test_serial_numbers_script_output_satisfies_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: fully-populated inventory passes; a present GPU with no serial fails."""
+    good = _run_serial_numbers(monkeypatch, capsys, [_serial_api_machine()])
+    check = HardwareSerialCheck(config={"step_output": good})
+    check.run()
+    assert check._passed is True, check._error
+
+    # A GPU host whose GPU exposes no serial fails.
+    gpu_no_serial = _serial_api_machine(gpus=[{"name": "NVIDIA H100 PCIe", "serial": None}])
+    bad_payload = _run_serial_numbers(monkeypatch, capsys, [gpu_no_serial])
+    bad = HardwareSerialCheck(config={"step_output": bad_payload})
+    bad.run()
+    assert bad._passed is False
+    assert "gpu" in bad._error
