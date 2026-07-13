@@ -2157,6 +2157,28 @@ domains:
                 req_id: HSS01
                 test_id: HSS01-01
                 status: published
+              - summary: Verify authentication to the storage management API with the configured credential (basic auth or bearer token)
+                labels:
+                  - storage
+                priority: P1
+                milestone: M8
+                notes: ""
+                github_issues:
+                  - "#505"
+                req_id: HSS01
+                test_id: HSS01-02
+                status: pending
+              - summary: Verify the volume provisioning API provisions a volume of the requested size within NVIDIA's tenant
+                labels:
+                  - storage
+                priority: P1
+                milestone: M8
+                notes: ""
+                github_issues:
+                  - "#506"
+                req_id: HSS01
+                test_id: HSS01-03
+                status: pending
               - summary: Verify QoS — provisioned throughput meets requested minimum bandwidth and IOPS
                 labels:
                   - min_req
@@ -2180,6 +2202,83 @@ domains:
                 req_id: HSS03, K8S23
                 test_id: HSS03-01
                 status: published
+              - summary: Verify the CSI controller Deployment and node DaemonSet pods are running and healthy
+                labels:
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: "Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #486 remains open and should be closed to match #489-#493."
+                github_issues:
+                  - "#486"
+                req_id: HSS03
+                test_id: HSS03-02
+                status: published
+              - summary: Verify the CSIDriver object is registered for the NCP provisioner
+                labels:
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: "Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #487 remains open and should be closed to match #489-#493."
+                github_issues:
+                  - "#487"
+                req_id: HSS03
+                test_id: HSS03-03
+                status: published
+              - summary: Verify at least one StorageClass references the NCP CSI provisioner
+                labels:
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: "Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #488 remains open and should be closed to match #489-#493."
+                github_issues:
+                  - "#488"
+                req_id: HSS03
+                test_id: HSS03-04
+                status: published
+              - summary: Verify a PVC against the NCP StorageClass reaches Bound and creates a PV
+                labels:
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#489"
+                req_id: HSS03, K8S23
+                test_id: HSS03-05
+                status: published
+              - summary: Verify the provisioned PV capacity is >= the PVC request
+                labels:
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#490"
+                req_id: HSS03, K8S23
+                test_id: HSS03-06
+                status: published
+              - summary: Verify a pod can mount the PVC and read back data it wrote
+                labels:
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#491"
+                req_id: HSS03, K8S23
+                test_id: HSS03-07
+                status: published
+              - summary: Verify multiple concurrent PVCs bind to distinct PVs
+                labels:
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#492"
+                req_id: HSS03, K8S23
+                test_id: HSS03-08
+                status: published
               - summary: Verify quota limits can be set on user workloads/volumes
                 labels:
                   - min_req
@@ -2191,6 +2290,50 @@ domains:
                 req_id: HSS04
                 test_id: HSS04-01
                 status: published
+              - summary: Verify a functional API reports tenant-level storage utilization and quota
+                labels:
+                  - storage
+                priority: P1
+                milestone: M8
+                notes: ""
+                github_issues:
+                  - "#507"
+                req_id: HSS04
+                test_id: HSS04-02
+                status: pending
+              - summary: Verify a functional API lists the quotas configured within the NVIDIA tenancy
+                labels:
+                  - storage
+                priority: P1
+                milestone: M8
+                notes: ""
+                github_issues:
+                  - "#508"
+                req_id: HSS04
+                test_id: HSS04-03
+                status: pending
+              - summary: Verify a functional API returns utilization against a given quota by ID
+                labels:
+                  - storage
+                priority: P1
+                milestone: M8
+                notes: ""
+                github_issues:
+                  - "#509"
+                req_id: HSS04
+                test_id: HSS04-04
+                status: pending
+              - summary: Verify reported quota consumption reflects data written to the filesystem
+                labels:
+                  - storage
+                priority: P1
+                milestone: M8
+                notes: ""
+                github_issues:
+                  - "#510"
+                req_id: HSS04
+                test_id: HSS04-05
+                status: pending
               - summary: Verify non-disruptive upgrades (NVIDIA can defer maintenance up to 2 weeks)
                 labels:
                   - min_req
@@ -2225,6 +2368,19 @@ domains:
                 req_id: DIR02
                 test_id: DIR02-01
                 status: pending
+              - summary: Verify POSIX filesystem compliance via the applicable pjdfstest suites
+                labels:
+                  - kubernetes
+                  - slow
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#494"
+                req_id: DIR02
+                test_id: DIR02-02
+                status: published
               - summary: Verify configurable filesystem-wide quota limits
                 labels:
                   - min_req
@@ -2368,6 +2524,18 @@ domains:
                 req_id: SEC04
                 test_id: SEC04-01
                 status: published
+              - summary: Verify multi-tenant isolation — quota listings contain only paths within the tenant's namespace
+                labels:
+                  - security
+                  - storage
+                priority: P1
+                milestone: M8
+                notes: ""
+                github_issues:
+                  - "#511"
+                req_id: SEC04
+                test_id: SEC04-03
+                status: pending
           - description: RDMA Memory Protection
             tests:
               - summary: Verify storage systems using RDMA enforce memory protection via authorization keys for both local and remote access
@@ -2398,6 +2566,19 @@ domains:
                 req_id: HSS07
                 test_id: HSS07-01
                 status: published
+              - summary: Verify large-directory listing of 1,000,000 files and 500,000 subdirectories without error or truncation
+                labels:
+                  - kubernetes
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#498"
+                  - "#499"
+                req_id: HSS07
+                test_id: HSS07-02
+                status: published
               - summary: "Verify multiple filesystems can exist within total capacity (minimum FS size <= 50 TiB)"
                 labels:
                   - min_req
@@ -2421,6 +2602,17 @@ domains:
                   - "#335"
                 req_id: HSS10
                 test_id: HSS10-01
+                status: published
+              - summary: Verify PVC expansion grows PV capacity and pod-visible size (if supported)
+                labels:
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: "Platform/context-sensitive (platform: kubernetes). Overlaps HSS10-01 (platform-agnostic whole-filesystem expansion). Candidate for consolidation/deprecation before v1.0; two implementations of one behavior must not both ship to customers."
+                github_issues:
+                  - "#493"
+                req_id: HSS10
+                test_id: HSS10-02
                 status: published
               - summary: Verify uid/gid/project-id soft and hard quotas with enforcement
                 labels:
@@ -2458,6 +2650,18 @@ domains:
                 req_id: HSS14
                 test_id: HSS14-01
                 status: published
+              - summary: Verify flock() locking behavior is correct across pods on the same PVC
+                labels:
+                  - kubernetes
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: "Platform/context-sensitive (platform: kubernetes). Overlaps HSS14-01 (platform-agnostic provider-evidence flock check). Candidate for consolidation/deprecation before v1.0; two implementations of one behavior must not both ship to customers."
+                github_issues:
+                  - "#495"
+                req_id: HSS14
+                test_id: HSS14-02
+                status: published
               - summary: Verify changelog/audit data is accessible (tracking by uid/gid, file/dir operations)
                 labels:
                   - min_req
@@ -2481,6 +2685,57 @@ domains:
                   - "#340"
                 req_id: HSS18
                 test_id: HSS18-01
+                status: published
+              - summary: Verify a file written on one node is visible with correct content on another node within 1 second
+                labels:
+                  - kubernetes
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#496"
+                req_id: HSS17
+                test_id: HSS17-01
+                status: published
+              - summary: Verify file size and mtime changes on one node are reflected on another within the attribute-cache window
+                labels:
+                  - kubernetes
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#497"
+                req_id: HSS17
+                test_id: HSS17-02
+                status: published
+              - summary: Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
+                labels:
+                  - kubernetes
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#500"
+                  - "#501"
+                  - "#502"
+                  - "#503"
+                req_id: HSS11
+                test_id: HSS11-01
+                status: published
+              - summary: Verify required vendor/DKMS kernel modules are installed on all GPU and CPU nodes
+                labels:
+                  - kubernetes
+                  - storage
+                priority: P1
+                milestone: M7
+                notes: ""
+                github_issues:
+                  - "#504"
+                req_id: HSS11
+                test_id: HSS11-04
                 status: published
       - name: Object Storage Service
         capabilities:

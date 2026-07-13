@@ -341,16 +341,16 @@ tests:
           expand_timeout_s: 180
           namespace_prefix: "isvtest-csi-expand"
         K8sNodeKernelModulesCheck:
-          test_id: "N/A"
-          labels: ["kubernetes", "min_req"]
+          test_id: "HSS11-04"
+          labels: ["kubernetes", "storage"]
           kernel_modules: []
           node_selector: {}
           image: "busybox:1.36"
           bind_timeout_s: 60
           namespace_prefix: "isvtest-kmod"
         K8sNfsMountOptionsCheck:
-          test_id: "N/A"
-          labels: ["kubernetes", "min_req"]
+          test_id: "HSS11-01"
+          labels: ["kubernetes", "storage"]
           # Env overrides: K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
           shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
@@ -369,8 +369,8 @@ tests:
       checks:
         # Shared-filesystem POSIX-semantics checks (multi-pod, RWX PVC).
         K8sFileLockingCheck:
-          test_id: "N/A"
-          labels: ["kubernetes"]
+          test_id: "HSS14-02"
+          labels: ["kubernetes", "storage"]
           shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
@@ -380,8 +380,8 @@ tests:
           release_timeout_s: 60
           namespace_prefix: "isvtest-fs-lock"
         K8sCrossNodeWriteVisibilityCheck:
-          test_id: "N/A"
-          labels: ["kubernetes"]
+          test_id: "HSS17-01"
+          labels: ["kubernetes", "storage"]
           shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
@@ -391,8 +391,8 @@ tests:
           visibility_window_s: 5.0
           namespace_prefix: "isvtest-fs-vis"
         K8sCrossNodeAttrConsistencyCheck:
-          test_id: "N/A"
-          labels: ["kubernetes"]
+          test_id: "HSS17-02"
+          labels: ["kubernetes", "storage"]
           shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
@@ -403,8 +403,8 @@ tests:
           extend_bytes: 1024
           namespace_prefix: "isvtest-fs-attr"
         K8sLargeDirListingFilesCheck:
-          test_id: "N/A"
-          labels: ["kubernetes"]
+          test_id: "HSS07-02"
+          labels: ["kubernetes", "storage"]
           shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
@@ -415,8 +415,8 @@ tests:
           namespace_prefix: "isvtest-fs-bigdir"
           timeout: 3600
         K8sLargeDirListingDirsCheck:
-          test_id: "N/A"
-          labels: ["kubernetes"]
+          test_id: "HSS07-02"
+          labels: ["kubernetes", "storage"]
           shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
@@ -427,8 +427,8 @@ tests:
           namespace_prefix: "isvtest-fs-bigdir"
           timeout: 3600
         K8sPosixComplianceCheck:
-          test_id: "N/A"
-          labels: ["kubernetes", "slow"]
+          test_id: "DIR02-02"
+          labels: ["kubernetes", "slow", "storage"]
           shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
           image: "gcc:12"

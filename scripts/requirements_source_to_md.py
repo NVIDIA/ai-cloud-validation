@@ -34,7 +34,11 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REQ_DIR = REPO_ROOT / "docs" / "requirements"
-DEFAULT_SOURCES = [REQ_DIR / "offtake-requirements.yaml", REQ_DIR / "software-reference-requirements.yaml"]
+DEFAULT_SOURCES = [
+    REQ_DIR / "offtake-requirements.yaml",
+    REQ_DIR / "software-reference-requirements.yaml",
+    REQ_DIR / "storage-acceptance-requirements.yaml",
+]
 
 GENERATED_BANNER = "<!-- GENERATED FILE - DO NOT EDIT BY HAND. Source: {src}. Run `make plan`. -->"
 
@@ -109,7 +113,41 @@ def render_reference(doc: dict[str, Any], src_name: str) -> str:
     return "\n".join(out) + "\n"
 
 
-RENDERERS = {"offtake": render_offtake, "reference": render_reference}
+def render_storage(doc: dict[str, Any], src_name: str) -> str:
+    """Render the storage-acceptance listing, grouped by section -> subsection."""
+    out = [
+        GENERATED_BANNER.format(src=src_name),
+        "",
+        f"# {doc.get('title', 'Storage Acceptance Requirements')}",
+        "",
+        f"> Structured source of record: `{src_name}` (version {doc.get('version', 'n/a')}).",
+        "> Requirement IDs mirror the upstream DGXC Storage Acceptance Test 'PRD Ref'",
+        "> column - a distinct namespace from the offtake HSS/DIR requirements.",
+        "> Edit the YAML, not this file.",
+        "",
+    ]
+    section = subsection = None
+    for r in doc.get("requirements", []):
+        if r.get("section") != section:
+            section = r.get("section")
+            heading(out, f"## {section}")
+            subsection = None
+        if r.get("subsection") != subsection:
+            subsection = r.get("subsection")
+            if subsection:
+                heading(out, f"### {subsection}")
+            out += [
+                "| Req ID | Requirement Area | Description | Status |",
+                "| :----- | :--------------- | :---------- | :----- |",
+            ]
+        out.append(
+            f"| {cell(r.get('req_id'))} | {cell(r.get('area'))} | {cell(r.get('description'))} "
+            f"| {cell(r.get('status', 'active'))} |"
+        )
+    return "\n".join(out) + "\n"
+
+
+RENDERERS = {"offtake": render_offtake, "reference": render_reference, "storage": render_storage}
 
 
 def render(path: Path) -> None:

@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# DGXC Storage Acceptance requirements - structured source of record (in-repo).
+# Requirement IDs are the acceptance-test document's own native identifiers
+# (N-001..N-033), which are the stable, complete labels for that source.
+# Cross-references (e.g. the document's upstream "PRD Ref" pointers such as
+# HSS-007/HomeDir-003) are intentionally NOT recorded here: cross-referencing
+# belongs in the traceability matrix, not the source of record. To make the PRD
+# linkage queryable later, onboard the PRD as its own source and add matrix
+# edges rather than denormalizing a proxy field into this file. Scope:
+# acceptance tests N-001..N-025; the quota enforcement / access-control tests
+# (N-026..N-033) will be added when onboarded.
+
+source: storage
+title: NVIDIA DGXC Storage Acceptance Test for NCPs and CSPs
+version: google-docs-snapshot-2026-07
+requirements:
+  - req_id: N-001
+    section: CSI Driver Presence
+    area: CSI driver pods running
+    description: CSI controller Deployment and node DaemonSet pods are running and healthy (all pods Running; desired == available for the DaemonSet).
+  - req_id: N-002
+    section: CSI Driver Presence
+    area: CSIDriver object registered
+    description: The CSIDriver object exists in the cluster for the NCP provisioner.
+  - req_id: N-003
+    section: CSI Driver Presence
+    area: StorageClass exists
+    description: At least one StorageClass references the NCP CSI provisioner.
+  - req_id: N-004
+    section: Dynamic Provisioning Lifecycle
+    area: PVC create + bind
+    description: A PVC against the NCP StorageClass reaches Bound and a PV is created (within 10 minutes).
+  - req_id: N-005
+    section: Dynamic Provisioning Lifecycle
+    area: PV capacity matches request
+    description: The provisioned PV capacity is >= the PVC request.
+  - req_id: N-006
+    section: Dynamic Provisioning Lifecycle
+    area: Pod mount + read/write
+    description: A pod can mount the PVC, write a file, and read it back with matching content and no I/O errors.
+  - req_id: N-007
+    section: Dynamic Provisioning Lifecycle
+    area: Multiple concurrent PVCs
+    description: Multiple PVCs created in parallel against the same StorageClass all reach Bound and are backed by distinct PVs.
+  - req_id: N-008
+    section: Dynamic Provisioning Lifecycle
+    area: PVC expand (if supported)
+    description: Patching a PVC to a larger size grows the PV capacity and the pod-visible size (where expansion is supported).
+  - req_id: N-009
+    section: Filesystem Semantics
+    area: POSIX compliance (pjdfstest)
+    description: The applicable pjdfstest suites run and the export/results are provided.
+  - req_id: N-010
+    section: Filesystem Semantics
+    area: File locking (flock)
+    description: flock() acquired from one pod causes another pod to block or receive EAGAIN - locking behaves correctly across pods on the same PVC.
+  - req_id: N-011
+    section: Filesystem Semantics
+    area: Cross-node write visibility
+    description: A file written from a pod on node A is visible with correct content from a pod on node B within one second.
+  - req_id: N-012
+    section: Filesystem Semantics
+    area: Cross-node attribute consistency
+    description: After extending a file on node A, a stat from node B reflects the updated size and mtime within the vendor-documented attribute-cache window.
+  - req_id: N-013a
+    section: Filesystem Semantics
+    area: Large directory listing, files
+    description: A directory containing 1,000,000 files lists without error or truncation.
+  - req_id: N-013b
+    section: Filesystem Semantics
+    area: Large directory listing, subdirectories
+    description: A directory containing 500,000 subdirectories lists without error or truncation.
+  - req_id: N-014
+    section: NFS Mount Configuration
+    area: NFS version
+    description: NFS mounts use the expected NFS version (for example, vers=4.1), verified from mount output on the worker node.
+  - req_id: N-015
+    section: NFS Mount Configuration
+    area: nconnect parameter
+    description: NFS mounts use the configured nconnect value (mount -t nfs4 output shows nconnect=<expected>).
+  - req_id: N-016
+    section: NFS Mount Configuration
+    area: Transport protocol
+    description: NFS mounts use the expected transport protocol (proto=rdma or proto=tcp).
+  - req_id: N-017
+    section: NFS Mount Configuration
+    area: Readahead tuning
+    description: Where a vendor kernel module is required it is loaded and readahead is configured (lsmod shows the module; /sys/class/bdi/*/read_ahead_kb matches expected).
+  - req_id: N-018
+    section: NFS Mount Configuration
+    area: Vendor kernel module present
+    description: Any required DKMS or vendor kernel modules are installed and loaded on all GPU and CPU worker nodes.
+  - req_id: N-019
+    section: Storage Management APIs
+    area: API authentication
+    description: Authentication to the storage management API succeeds using the configured credential (basic auth or bearer token) - HTTP 200 on an authenticated request.
+  - req_id: N-020
+    section: Storage Management APIs
+    area: Volume Provisioning API
+    description: An API provisions a volume of a requested size within NVIDIA's tenant, accessible from cluster nodes using the specified credentials.
+  - req_id: N-021
+    section: Storage Management APIs
+    area: Tenant-level quota exists
+    description: A functional API reports overall storage utilization within the tenant and usage against the tenant quota.
+  - req_id: N-022
+    section: Storage Management APIs
+    area: List quotas
+    description: A functional API returns the list of quotas configured within the NVIDIA tenancy.
+  - req_id: N-023
+    section: Storage Management APIs
+    area: Get quota by ID
+    description: A functional API returns utilization against a given quota.
+  - req_id: N-024
+    section: Storage Management APIs
+    area: Quota reflects consumed capacity
+    description: After writing data, re-querying the quota shows increased reported consumption within the vendor-documented timeframe.
+  - req_id: N-025
+    section: Storage Management APIs
+    area: Multi-tenant isolation
+    description: Quota listings contain only paths within the tenant's namespace - no visibility of quotas outside the NVIDIA tenancy.

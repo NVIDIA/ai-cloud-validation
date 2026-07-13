@@ -2388,10 +2388,10 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/215[#215]
 | pending
 |
 
-.35+| Data Services
-.19+| SDS Controller
-.6+| Manages software-defined storage services and policies. Orchestrates provisioning, tiers, and resiliency.
-.6+| AWS: EBS + FSx backend control planes
+.57+| Data Services
+.34+| SDS Controller
+.19+| Manages software-defined storage services and policies. Orchestrates provisioning, tiers, and resiliency.
+.19+| AWS: EBS + FSx backend control planes
 | [[HSS01-01]]HSS01-01
 | HSS01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
@@ -2404,6 +2404,34 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
 |
 | Verify storage provisioning via vendor/NCP API
 | published
+|
+
+| [[HSS01-02]]HSS01-02
+| HSS01
+| https://github.com/NVIDIA/ai-cloud-validation/issues/505[#505]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/505[#505]
+|
+| M8
+|
+| Verify authentication to the storage management API with the configured credential (basic auth or bearer token)
+| pending
+|
+
+| [[HSS01-03]]HSS01-03
+| HSS01
+| https://github.com/NVIDIA/ai-cloud-validation/issues/506[#506]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/506[#506]
+|
+| M8
+|
+| Verify the volume provisioning API provisions a volume of the requested size within NVIDIA's tenant
+| pending
 |
 
 | [[HSS02-01]]HSS02-01
@@ -2434,6 +2462,104 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/329[#329]
 | published
 |
 
+| [[HSS03-02]]HSS03-02
+| HSS03
+| https://github.com/NVIDIA/ai-cloud-validation/issues/486[#486]
+| storage
+| Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #486 remains open and should be closed to match #489-#493.
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/486[#486]
+|
+| M7
+|
+| Verify the CSI controller Deployment and node DaemonSet pods are running and healthy
+| published
+|
+
+| [[HSS03-03]]HSS03-03
+| HSS03
+| https://github.com/NVIDIA/ai-cloud-validation/issues/487[#487]
+| storage
+| Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #487 remains open and should be closed to match #489-#493.
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/487[#487]
+|
+| M7
+|
+| Verify the CSIDriver object is registered for the NCP provisioner
+| published
+|
+
+| [[HSS03-04]]HSS03-04
+| HSS03
+| https://github.com/NVIDIA/ai-cloud-validation/issues/488[#488]
+| storage
+| Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #488 remains open and should be closed to match #489-#493.
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/488[#488]
+|
+| M7
+|
+| Verify at least one StorageClass references the NCP CSI provisioner
+| published
+|
+
+| [[HSS03-05]]HSS03-05
+| HSS03, K8S23
+| https://github.com/NVIDIA/ai-cloud-validation/issues/489[#489]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/489[#489]
+|
+| M7
+|
+| Verify a PVC against the NCP StorageClass reaches Bound and creates a PV
+| published
+|
+
+| [[HSS03-06]]HSS03-06
+| HSS03, K8S23
+| https://github.com/NVIDIA/ai-cloud-validation/issues/490[#490]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/490[#490]
+|
+| M7
+|
+| Verify the provisioned PV capacity is >= the PVC request
+| published
+|
+
+| [[HSS03-07]]HSS03-07
+| HSS03, K8S23
+| https://github.com/NVIDIA/ai-cloud-validation/issues/491[#491]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/491[#491]
+|
+| M7
+|
+| Verify a pod can mount the PVC and read back data it wrote
+| published
+|
+
+| [[HSS03-08]]HSS03-08
+| HSS03, K8S23
+| https://github.com/NVIDIA/ai-cloud-validation/issues/492[#492]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/492[#492]
+|
+| M7
+|
+| Verify multiple concurrent PVCs bind to distinct PVs
+| published
+|
+
 | [[HSS04-01]]HSS04-01
 | HSS04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/330[#330]
@@ -2446,6 +2572,62 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/330[#330]
 |
 | Verify quota limits can be set on user workloads/volumes
 | published
+|
+
+| [[HSS04-02]]HSS04-02
+| HSS04
+| https://github.com/NVIDIA/ai-cloud-validation/issues/507[#507]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/507[#507]
+|
+| M8
+|
+| Verify a functional API reports tenant-level storage utilization and quota
+| pending
+|
+
+| [[HSS04-03]]HSS04-03
+| HSS04
+| https://github.com/NVIDIA/ai-cloud-validation/issues/508[#508]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/508[#508]
+|
+| M8
+|
+| Verify a functional API lists the quotas configured within the NVIDIA tenancy
+| pending
+|
+
+| [[HSS04-04]]HSS04-04
+| HSS04
+| https://github.com/NVIDIA/ai-cloud-validation/issues/509[#509]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/509[#509]
+|
+| M8
+|
+| Verify a functional API returns utilization against a given quota by ID
+| pending
+|
+
+| [[HSS04-05]]HSS04-05
+| HSS04
+| https://github.com/NVIDIA/ai-cloud-validation/issues/510[#510]
+| storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/510[#510]
+|
+| M8
+|
+| Verify reported quota consumption reflects data written to the filesystem
+| pending
 |
 
 | [[HSS05-01]]HSS05-01
@@ -2476,8 +2658,8 @@ a|
 | pending
 |
 
-.3+| Home Directory Storage
-.3+|
+.4+| Home Directory Storage
+.4+|
 | [[DIR02-01]]DIR02-01
 | DIR02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
@@ -2490,6 +2672,20 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
 |
 | Verify NFS protocol shared storage is available
 | pending
+|
+
+| [[DIR02-02]]DIR02-02
+| DIR02
+| https://github.com/NVIDIA/ai-cloud-validation/issues/494[#494]
+| kubernetes, slow, storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/494[#494]
+|
+| M7
+|
+| Verify POSIX filesystem compliance via the applicable pjdfstest suites
+| published
 |
 
 | [[DIR01-01]]DIR01-01
@@ -2636,8 +2832,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/361[#361]
 | pending
 |
 
-| Storage Security
-|
+.2+| Storage Security
+.2+|
 | [[SEC04-01]]SEC04-01
 | SEC04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
@@ -2650,6 +2846,20 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
 |
 | Verify least-privilege access policies (resource-based, user-based, network-based)
 | published
+|
+
+| [[SEC04-03]]SEC04-03
+| SEC04
+| https://github.com/NVIDIA/ai-cloud-validation/issues/511[#511]
+| security, storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/511[#511]
+|
+| M8
+|
+| Verify multi-tenant isolation — quota listings contain only paths within the tenant's namespace
+| pending
 |
 
 | RDMA Memory Protection
@@ -2668,9 +2878,9 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/332[#332]
 | published
 |
 
-.8+| Parallel File System Services
-.8+| high performance file system optimized for AI and HPC workloads
-.8+|
+.15+| Parallel File System Services
+.15+| high performance file system optimized for AI and HPC workloads
+.15+|
 | [[HSS07-01]]HSS07-01
 | HSS07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
@@ -2682,6 +2892,21 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
 | M7
 |
 | Verify that a parallel high-speed filesystem can be provisioned via API
+| published
+|
+
+| [[HSS07-02]]HSS07-02
+| HSS07
+| https://github.com/NVIDIA/ai-cloud-validation/issues/498[#498]
+| kubernetes, storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/498[#498] +
+https://github.com/NVIDIA/ai-cloud-validation/issues/499[#499]
+|
+| M7
+|
+| Verify large-directory listing of 1,000,000 files and 500,000 subdirectories without error or truncation
 | published
 |
 
@@ -2710,6 +2935,20 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/335[#335]
 | M7
 |
 | Verify live filesystem expansion (capacity, inodes, IO, metadata)
+| published
+|
+
+| [[HSS10-02]]HSS10-02
+| HSS10
+| https://github.com/NVIDIA/ai-cloud-validation/issues/493[#493]
+| storage
+| Platform/context-sensitive (platform: kubernetes). Overlaps HSS10-01 (platform-agnostic whole-filesystem expansion). Candidate for consolidation/deprecation before v1.0; two implementations of one behavior must not both ship to customers.
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/493[#493]
+|
+| M7
+|
+| Verify PVC expansion grows PV capacity and pod-visible size (if supported)
 | published
 |
 
@@ -2755,6 +2994,20 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/338[#338]
 | published
 |
 
+| [[HSS14-02]]HSS14-02
+| HSS14
+| https://github.com/NVIDIA/ai-cloud-validation/issues/495[#495]
+| kubernetes, storage
+| Platform/context-sensitive (platform: kubernetes). Overlaps HSS14-01 (platform-agnostic provider-evidence flock check). Candidate for consolidation/deprecation before v1.0; two implementations of one behavior must not both ship to customers.
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/495[#495]
+|
+| M7
+|
+| Verify flock() locking behavior is correct across pods on the same PVC
+| published
+|
+
 | [[HSS15-01]]HSS15-01
 | HSS15
 | https://github.com/NVIDIA/ai-cloud-validation/issues/339[#339]
@@ -2780,6 +3033,65 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/340[#340]
 | M7
 |
 | Verify client multipathing to all storage servers
+| published
+|
+
+| [[HSS17-01]]HSS17-01
+| HSS17
+| https://github.com/NVIDIA/ai-cloud-validation/issues/496[#496]
+| kubernetes, storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/496[#496]
+|
+| M7
+|
+| Verify a file written on one node is visible with correct content on another node within 1 second
+| published
+|
+
+| [[HSS17-02]]HSS17-02
+| HSS17
+| https://github.com/NVIDIA/ai-cloud-validation/issues/497[#497]
+| kubernetes, storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/497[#497]
+|
+| M7
+|
+| Verify file size and mtime changes on one node are reflected on another within the attribute-cache window
+| published
+|
+
+| [[HSS11-01]]HSS11-01
+| HSS11
+| https://github.com/NVIDIA/ai-cloud-validation/issues/500[#500]
+| kubernetes, storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/500[#500] +
+https://github.com/NVIDIA/ai-cloud-validation/issues/501[#501] +
+https://github.com/NVIDIA/ai-cloud-validation/issues/502[#502] +
+https://github.com/NVIDIA/ai-cloud-validation/issues/503[#503]
+|
+| M7
+|
+| Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
+| published
+|
+
+| [[HSS11-04]]HSS11-04
+| HSS11
+| https://github.com/NVIDIA/ai-cloud-validation/issues/504[#504]
+| kubernetes, storage
+|
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/504[#504]
+|
+| M7
+|
+| Verify required vendor/DKMS kernel modules are installed on all GPU and CPU nodes
 | published
 |
 

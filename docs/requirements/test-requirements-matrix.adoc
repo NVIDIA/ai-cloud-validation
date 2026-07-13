@@ -1785,6 +1785,483 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[HSS01-02]]HSS01-02
+| Data Services
+| SDS Controller
+| Verify authentication to the storage management API with the configured credential (basic auth or bearer token)
+| HSS01
+| offtake
+| partial
+|
+
+| HSS01-02
+| Data Services
+| SDS Controller
+| Verify authentication to the storage management API with the configured credential (basic auth or bearer token)
+| N-019
+| storage
+| partial
+|
+
+| [[HSS01-03]]HSS01-03
+| Data Services
+| SDS Controller
+| Verify the volume provisioning API provisions a volume of the requested size within NVIDIA's tenant
+| HSS01
+| offtake
+| partial
+|
+
+| HSS01-03
+| Data Services
+| SDS Controller
+| Verify the volume provisioning API provisions a volume of the requested size within NVIDIA's tenant
+| N-020
+| storage
+| partial
+|
+
+| [[HSS03-02]]HSS03-02
+| Data Services
+| SDS Controller
+| Verify the CSI controller Deployment and node DaemonSet pods are running and healthy
+| HSS03
+| offtake
+| partial
+|
+
+| HSS03-02
+| Data Services
+| SDS Controller
+| Verify the CSI controller Deployment and node DaemonSet pods are running and healthy
+| N-001
+| storage
+| partial
+|
+
+| [[HSS03-03]]HSS03-03
+| Data Services
+| SDS Controller
+| Verify the CSIDriver object is registered for the NCP provisioner
+| HSS03
+| offtake
+| partial
+|
+
+| HSS03-03
+| Data Services
+| SDS Controller
+| Verify the CSIDriver object is registered for the NCP provisioner
+| N-002
+| storage
+| partial
+|
+
+| [[HSS03-04]]HSS03-04
+| Data Services
+| SDS Controller
+| Verify at least one StorageClass references the NCP CSI provisioner
+| HSS03
+| offtake
+| partial
+|
+
+| HSS03-04
+| Data Services
+| SDS Controller
+| Verify at least one StorageClass references the NCP CSI provisioner
+| N-003
+| storage
+| partial
+|
+
+| [[HSS03-05]]HSS03-05
+| Data Services
+| SDS Controller
+| Verify a PVC against the NCP StorageClass reaches Bound and creates a PV
+| HSS03
+| offtake
+| partial
+|
+
+| HSS03-05
+| Data Services
+| SDS Controller
+| Verify a PVC against the NCP StorageClass reaches Bound and creates a PV
+| K8S23
+| offtake
+| partial
+|
+
+| HSS03-05
+| Data Services
+| SDS Controller
+| Verify a PVC against the NCP StorageClass reaches Bound and creates a PV
+| N-004
+| storage
+| partial
+|
+
+| [[HSS03-06]]HSS03-06
+| Data Services
+| SDS Controller
+| Verify the provisioned PV capacity is >= the PVC request
+| HSS03
+| offtake
+| partial
+|
+
+| HSS03-06
+| Data Services
+| SDS Controller
+| Verify the provisioned PV capacity is >= the PVC request
+| K8S23
+| offtake
+| partial
+|
+
+| HSS03-06
+| Data Services
+| SDS Controller
+| Verify the provisioned PV capacity is >= the PVC request
+| N-005
+| storage
+| partial
+|
+
+| [[HSS03-07]]HSS03-07
+| Data Services
+| SDS Controller
+| Verify a pod can mount the PVC and read back data it wrote
+| HSS03
+| offtake
+| partial
+|
+
+| HSS03-07
+| Data Services
+| SDS Controller
+| Verify a pod can mount the PVC and read back data it wrote
+| K8S23
+| offtake
+| partial
+|
+
+| HSS03-07
+| Data Services
+| SDS Controller
+| Verify a pod can mount the PVC and read back data it wrote
+| N-006
+| storage
+| partial
+|
+
+| [[HSS03-08]]HSS03-08
+| Data Services
+| SDS Controller
+| Verify multiple concurrent PVCs bind to distinct PVs
+| HSS03
+| offtake
+| partial
+|
+
+| HSS03-08
+| Data Services
+| SDS Controller
+| Verify multiple concurrent PVCs bind to distinct PVs
+| K8S23
+| offtake
+| partial
+|
+
+| HSS03-08
+| Data Services
+| SDS Controller
+| Verify multiple concurrent PVCs bind to distinct PVs
+| N-007
+| storage
+| partial
+|
+
+| [[HSS10-02]]HSS10-02
+| Data Services
+| Parallel File System Services
+| Verify PVC expansion grows PV capacity and pod-visible size (if supported)
+| HSS10
+| offtake
+| partial
+|
+
+| HSS10-02
+| Data Services
+| Parallel File System Services
+| Verify PVC expansion grows PV capacity and pod-visible size (if supported)
+| N-008
+| storage
+| partial
+|
+
+| [[DIR02-02]]DIR02-02
+| Data Services
+| SDS Controller
+| Verify POSIX filesystem compliance via the applicable pjdfstest suites
+| DIR02
+| offtake
+| partial
+|
+
+| DIR02-02
+| Data Services
+| SDS Controller
+| Verify POSIX filesystem compliance via the applicable pjdfstest suites
+| N-009
+| storage
+| partial
+|
+
+| [[HSS14-02]]HSS14-02
+| Data Services
+| Parallel File System Services
+| Verify flock() locking behavior is correct across pods on the same PVC
+| HSS14
+| offtake
+| partial
+|
+
+| HSS14-02
+| Data Services
+| Parallel File System Services
+| Verify flock() locking behavior is correct across pods on the same PVC
+| N-010
+| storage
+| partial
+|
+
+| [[HSS17-01]]HSS17-01
+| Data Services
+| Parallel File System Services
+| Verify a file written on one node is visible with correct content on another node within 1 second
+| HSS17
+| offtake
+| partial
+|
+
+| HSS17-01
+| Data Services
+| Parallel File System Services
+| Verify a file written on one node is visible with correct content on another node within 1 second
+| N-011
+| storage
+| partial
+|
+
+| [[HSS17-02]]HSS17-02
+| Data Services
+| Parallel File System Services
+| Verify file size and mtime changes on one node are reflected on another within the attribute-cache window
+| HSS17
+| offtake
+| partial
+|
+
+| HSS17-02
+| Data Services
+| Parallel File System Services
+| Verify file size and mtime changes on one node are reflected on another within the attribute-cache window
+| N-012
+| storage
+| partial
+|
+
+| [[HSS07-02]]HSS07-02
+| Data Services
+| Parallel File System Services
+| Verify large-directory listing of 1,000,000 files and 500,000 subdirectories without error or truncation
+| HSS07
+| offtake
+| partial
+|
+
+| HSS07-02
+| Data Services
+| Parallel File System Services
+| Verify large-directory listing of 1,000,000 files and 500,000 subdirectories without error or truncation
+| N-013a
+| storage
+| partial
+|
+
+| HSS07-02
+| Data Services
+| Parallel File System Services
+| Verify large-directory listing of 1,000,000 files and 500,000 subdirectories without error or truncation
+| N-013b
+| storage
+| partial
+|
+
+| [[HSS11-01]]HSS11-01
+| Data Services
+| Parallel File System Services
+| Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
+| HSS11
+| offtake
+| partial
+|
+
+| HSS11-01
+| Data Services
+| Parallel File System Services
+| Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
+| DIR02
+| offtake
+| partial
+|
+
+| HSS11-01
+| Data Services
+| Parallel File System Services
+| Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
+| N-014
+| storage
+| partial
+|
+
+| HSS11-01
+| Data Services
+| Parallel File System Services
+| Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
+| N-015
+| storage
+| partial
+|
+
+| HSS11-01
+| Data Services
+| Parallel File System Services
+| Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
+| N-016
+| storage
+| partial
+|
+
+| HSS11-01
+| Data Services
+| Parallel File System Services
+| Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
+| N-017
+| storage
+| partial
+|
+
+| [[HSS11-04]]HSS11-04
+| Data Services
+| Parallel File System Services
+| Verify required vendor/DKMS kernel modules are installed on all GPU and CPU nodes
+| HSS11
+| offtake
+| partial
+|
+
+| HSS11-04
+| Data Services
+| Parallel File System Services
+| Verify required vendor/DKMS kernel modules are installed on all GPU and CPU nodes
+| N-018
+| storage
+| partial
+|
+
+| [[HSS04-02]]HSS04-02
+| Data Services
+| SDS Controller
+| Verify a functional API reports tenant-level storage utilization and quota
+| HSS04
+| offtake
+| partial
+|
+
+| HSS04-02
+| Data Services
+| SDS Controller
+| Verify a functional API reports tenant-level storage utilization and quota
+| N-021
+| storage
+| partial
+|
+
+| [[HSS04-03]]HSS04-03
+| Data Services
+| SDS Controller
+| Verify a functional API lists the quotas configured within the NVIDIA tenancy
+| HSS04
+| offtake
+| partial
+|
+
+| HSS04-03
+| Data Services
+| SDS Controller
+| Verify a functional API lists the quotas configured within the NVIDIA tenancy
+| N-022
+| storage
+| partial
+|
+
+| [[HSS04-04]]HSS04-04
+| Data Services
+| SDS Controller
+| Verify a functional API returns utilization against a given quota by ID
+| HSS04
+| offtake
+| partial
+|
+
+| HSS04-04
+| Data Services
+| SDS Controller
+| Verify a functional API returns utilization against a given quota by ID
+| N-023
+| storage
+| partial
+|
+
+| [[HSS04-05]]HSS04-05
+| Data Services
+| SDS Controller
+| Verify reported quota consumption reflects data written to the filesystem
+| HSS04
+| offtake
+| partial
+|
+
+| HSS04-05
+| Data Services
+| SDS Controller
+| Verify reported quota consumption reflects data written to the filesystem
+| N-024
+| storage
+| partial
+|
+
+| [[SEC04-03]]SEC04-03
+| Data Services
+| SDS Controller
+| Verify multi-tenant isolation — quota listings contain only paths within the tenant's namespace
+| SEC04
+| offtake
+| partial
+|
+
+| SEC04-03
+| Data Services
+| SDS Controller
+| Verify multi-tenant isolation — quota listings contain only paths within the tenant's namespace
+| N-025
+| storage
+| partial
+|
+
 | [[DATASVC01-01]]DATASVC01-01
 | Data Services
 | Object Storage Service

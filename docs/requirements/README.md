@@ -13,6 +13,8 @@ reconciles all of these different goals.
 | `offtake-requirements.md` | Generated, publishable rendering of the offtake YAML (`make plan`). |
 | `software-reference-requirements.yaml` | **Source of record** for the NSRG-derived reference requirements. |
 | `software-reference-requirements.md` | Generated rendering of the reference YAML (`make plan`); one contributing requirements doc among several. |
+| `storage-acceptance-requirements.yaml` | **Source of record** for the DGXC Storage Acceptance Test requirements (PRD-ref namespace). |
+| `storage-acceptance-requirements.md` | Generated rendering of the storage YAML (`make plan`). |
 | `test-requirements-matrix.yaml` | The **traceability matrix (index)**: which requirement(s) each test relates to, across documents (`source`). |
 | `test-requirements-matrix.adoc` | Generated and committed traceability matrix, viewable in github (or renderable to html) |
 | `../../scripts/reqtrace.py` | Integrity checks (`reqtrace validate`; `make reqcheck`). |
@@ -93,6 +95,7 @@ record.
 | `OBS` `TELEM` | reference | observability collectors / data lakes |
 | `BFX` (04+) | reference | break-fix health (continues offtake `BFX`) |
 | `BENCH` | reference | exemplar benchmarking |
+| `N-*` | storage | Storage Acceptance test IDs |
 
 ## 3. `legacy_ids`
 

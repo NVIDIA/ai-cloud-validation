@@ -1363,6 +1363,253 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: HSS01-02
+    requirements:
+      - req_id: HSS01
+        source: offtake
+        coverage: partial
+      - req_id: N-019
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS01-03
+    requirements:
+      - req_id: HSS01
+        source: offtake
+        coverage: partial
+      - req_id: N-020
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS03-02
+    requirements:
+      - req_id: HSS03
+        source: offtake
+        coverage: partial
+      - req_id: N-001
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS03-03
+    requirements:
+      - req_id: HSS03
+        source: offtake
+        coverage: partial
+      - req_id: N-002
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS03-04
+    requirements:
+      - req_id: HSS03
+        source: offtake
+        coverage: partial
+      - req_id: N-003
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS03-05
+    requirements:
+      - req_id: HSS03
+        source: offtake
+        coverage: partial
+      - req_id: K8S23
+        source: offtake
+        coverage: partial
+      - req_id: N-004
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS03-06
+    requirements:
+      - req_id: HSS03
+        source: offtake
+        coverage: partial
+      - req_id: K8S23
+        source: offtake
+        coverage: partial
+      - req_id: N-005
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS03-07
+    requirements:
+      - req_id: HSS03
+        source: offtake
+        coverage: partial
+      - req_id: K8S23
+        source: offtake
+        coverage: partial
+      - req_id: N-006
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS03-08
+    requirements:
+      - req_id: HSS03
+        source: offtake
+        coverage: partial
+      - req_id: K8S23
+        source: offtake
+        coverage: partial
+      - req_id: N-007
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS10-02
+    requirements:
+      - req_id: HSS10
+        source: offtake
+        coverage: partial
+      - req_id: N-008
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: DIR02-02
+    requirements:
+      - req_id: DIR02
+        source: offtake
+        coverage: partial
+      - req_id: N-009
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS14-02
+    requirements:
+      - req_id: HSS14
+        source: offtake
+        coverage: partial
+      - req_id: N-010
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS17-01
+    requirements:
+      - req_id: HSS17
+        source: offtake
+        coverage: partial
+      - req_id: N-011
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS17-02
+    requirements:
+      - req_id: HSS17
+        source: offtake
+        coverage: partial
+      - req_id: N-012
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS07-02
+    requirements:
+      - req_id: HSS07
+        source: offtake
+        coverage: partial
+      - req_id: N-013a
+        source: storage
+        coverage: partial
+      - req_id: N-013b
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS11-01
+    requirements:
+      - req_id: HSS11
+        source: offtake
+        coverage: partial
+      - req_id: DIR02
+        source: offtake
+        coverage: partial
+      - req_id: N-014
+        source: storage
+        coverage: partial
+      - req_id: N-015
+        source: storage
+        coverage: partial
+      - req_id: N-016
+        source: storage
+        coverage: partial
+      - req_id: N-017
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS11-04
+    requirements:
+      - req_id: HSS11
+        source: offtake
+        coverage: partial
+      - req_id: N-018
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS04-02
+    requirements:
+      - req_id: HSS04
+        source: offtake
+        coverage: partial
+      - req_id: N-021
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS04-03
+    requirements:
+      - req_id: HSS04
+        source: offtake
+        coverage: partial
+      - req_id: N-022
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS04-04
+    requirements:
+      - req_id: HSS04
+        source: offtake
+        coverage: partial
+      - req_id: N-023
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: HSS04-05
+    requirements:
+      - req_id: HSS04
+        source: offtake
+        coverage: partial
+      - req_id: N-024
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: SEC04-03
+    requirements:
+      - req_id: SEC04
+        source: offtake
+        coverage: partial
+      - req_id: N-025
+        source: storage
+        coverage: partial
+    annotations: ''
+    notes: ''
   - test_id: DATASVC01-01
     requirements:
       - req_id: DATASVC01
