@@ -106,12 +106,14 @@ from common.nico_client import NicoAuthError, forge_get_all, resolve_auth
 IN_USE = "in_use"
 SANITIZING = "sanitizing"
 AVAILABLE = "available"
+MAINTENANCE = "maintenance"
 
 # NICo MachineStatus -> neutral token. Statuses not listed are lowercased.
 STATUS_TOKENS: dict[str, str] = {
     "InUse": IN_USE,
     "Reset": SANITIZING,
     "Ready": AVAILABLE,
+    "Maintenance": MAINTENANCE,
 }
 
 # Cap the diagnostic transitions list so a long-lived host does not bloat output.
@@ -142,6 +144,32 @@ def ordered_history_statuses(machine: dict[str, Any]) -> list[str]:
     if current and (not statuses or statuses[-1] != current):
         statuses.append(str(current))
     return statuses
+
+
+def breakfix_skip_observed(tokens: list[str]) -> bool:
+    """Return whether the lifecycle shows a tenancy-preserving maintenance skip.
+
+    A valid break/fix skip is ``in_use -> maintenance -> in_use`` with no
+    intervening ``sanitizing`` stage. Pool maintenance (``maintenance`` while
+    the host was never ``in_use``) does not count.
+    """
+    active_tenancy = False
+    maintenance_after_tenancy = False
+    for token in tokens:
+        if token == IN_USE:
+            if maintenance_after_tenancy:
+                return True
+            active_tenancy = True
+            maintenance_after_tenancy = False
+        elif token == MAINTENANCE and active_tenancy:
+            maintenance_after_tenancy = True
+        elif token == SANITIZING:
+            active_tenancy = False
+            maintenance_after_tenancy = False
+        elif token == AVAILABLE:
+            active_tenancy = False
+            maintenance_after_tenancy = False
+    return False
 
 
 def evaluate_transitions(tokens: list[str]) -> tuple[bool, bool]:
@@ -183,14 +211,23 @@ def machine_record(machine: dict[str, Any]) -> dict[str, Any]:
 
     dmi = (machine.get("metadata") or {}).get("dmiData") or {}
 
+    skip_observed = breakfix_skip_observed(tokens)
+    instance_bound = bool(machine.get("instanceId")) or bool(machine.get("tenantId"))
+    # Tenancy is preserved when the host is still (or again) bound after a
+    # maintenance skip, or is actively in Maintenance while assigned.
+    tenancy_preserved = not skip_observed or instance_bound or current in {"InUse", "Maintenance"}
+
     return {
         "machine_id": machine.get("id", ""),
         "status": status_token(current),
         "available": is_ready and usable and not assigned,
         "in_use": current == "InUse",
+        "instance_bound": instance_bound,
         "has_gpu": has_gpu(machine),
         "served_tenant": served,
         "sanitized": sanitized,
+        "breakfix_skip_observed": skip_observed,
+        "tenancy_preserved": tenancy_preserved,
         # Offered to new tenants (Ready + usable) while still bound to a prior
         # tenant's instance -- a hard sanitization failure if it ever occurs.
         "stale_tenant_binding": is_ready and usable and assigned,

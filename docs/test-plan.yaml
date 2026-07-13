@@ -2248,7 +2248,10 @@ domains:
             tests:
               - summary: Verify optional skip-sanitization flag during break/fix where tenancy doesn't change
                 labels:
+                  - bare_metal
                   - min_req
+                  - sanitization
+                  - sds_controller
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2259,7 +2262,10 @@ domains:
                 status: pending
               - summary: Verify stable IP assignment for storage nodes across lifecycle operations
                 labels:
+                  - bare_metal
                   - min_req
+                  - network
+                  - sds_controller
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2270,7 +2276,10 @@ domains:
                 status: pending
               - summary: Verify out-of-band failure detection (device, network, memory, drive)
                 labels:
+                  - bare_metal
+                  - health
                   - min_req
+                  - sds_controller
                 priority: P1
                 milestone: M5
                 notes: ""
