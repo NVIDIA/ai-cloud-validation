@@ -14,10 +14,11 @@ This page covers the operator setup needed to run `isvctl` tests against GCP.
 | **Security** | [`providers/gcp/config/security.yaml`](../../isvctl/configs/providers/gcp/config/security.yaml) | [`providers/gcp/scripts/security/`](../../isvctl/configs/providers/gcp/scripts/security/) | [`suites/security.yaml`](../../isvctl/configs/suites/security.yaml) |
 | **Image Registry** ([guide](../../isvctl/configs/providers/gcp/scripts/image-registry/docs/gcp-image-registry.md)) | [`providers/gcp/config/image-registry.yaml`](../../isvctl/configs/providers/gcp/config/image-registry.yaml) | [`providers/gcp/scripts/image-registry/`](../../isvctl/configs/providers/gcp/scripts/image-registry/) | [`suites/image-registry.yaml`](../../isvctl/configs/suites/image-registry.yaml) |
 | **Observability** ([guide](../../isvctl/configs/providers/gcp/scripts/observability/docs/gcp-observability.md)) | [`providers/gcp/config/observability.yaml`](../../isvctl/configs/providers/gcp/config/observability.yaml) | [`providers/gcp/scripts/observability/`](../../isvctl/configs/providers/gcp/scripts/observability/) | [`suites/observability.yaml`](../../isvctl/configs/suites/observability.yaml) |
+| **Control Plane** ([guide](../../isvctl/configs/providers/gcp/scripts/control-plane/docs/gcp-control-plane.md)) | [`providers/gcp/config/control-plane.yaml`](../../isvctl/configs/providers/gcp/config/control-plane.yaml) | [`providers/gcp/scripts/control-plane/`](../../isvctl/configs/providers/gcp/scripts/control-plane/) | [`suites/control-plane.yaml`](../../isvctl/configs/suites/control-plane.yaml) |
 
 Shared GCP utilities (compute helpers, SSH wrappers, retry envelopes, error classifiers) are in [`providers/gcp/scripts/common/`](../../isvctl/configs/providers/gcp/scripts/common/).
 
-Other domains (Bare Metal, EKS, Control Plane) are not yet implemented for GCP.
+Other domains (Bare Metal, EKS) are not yet implemented for GCP.
 
 ## Prerequisites
 

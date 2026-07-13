@@ -1,0 +1,182 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# GCP Control Plane Validation Configuration
+#
+# Imports validations from the provider-agnostic control-plane canonical config
+# and wires GCP-specific commands. The GCP scripts translate the AWS reference
+# contract (providers/aws/config/control-plane.yaml + scripts/control-plane/)
+# onto Google Cloud's API surface:
+#
+#   - API health          -> google.auth.default() + Cloud Storage / IAM Admin /
+#                            Resource Manager read-only probes (check_api).
+#   - Tenant lifecycle    -> Resource Manager project-scoped TagKey/TagValue
+#                            create/list/get/delete (create_tenant, list_tenants,
+#                            get_tenant, delete_tenant).
+#   - Object data path    -> Cloud Storage create-bucket / put / get (byte
+#                            compare) / delete (s3_object_lifecycle,
+#                            DATASVC-XX-01 / issue #262).
+#
+# Access-key lifecycle (create/test/disable/reject/delete) is NOT wired here.
+# Those steps require additional service-account administration, HMAC-key
+# administration, and organization-policy prerequisites beyond the enabled
+# lifecycle's baseline permission contract. Their validations are excluded
+# below; re-enable them only after a preflight proves create/get/update/
+# deactivate/delete control over a disposable HMAC key in its owning project.
+# See docs/references/gcp.md and the domain guide.
+#
+# Auth / project: GCP control-plane services are project-scoped and globally
+# addressed. `--region` selects only the Cloud Storage bucket location; it does
+# not route the global IAM / Resource Manager / tag APIs. Project ID resolves
+# centrally via `resolve_project()`: explicit --project (unwired here), then the
+# forwarded GOOGLE_CLOUD_PROJECT / GCLOUD_PROJECT env vars, then
+# google.auth.default() (ADC).
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/gcp/config/control-plane.yaml
+
+import:
+  - ../../../suites/control-plane.yaml
+
+version: "1.0"
+
+commands:
+  control_plane:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # =======================================================================
+      # SETUP: API Health Check
+      # =======================================================================
+      # Worst-case wait: three sequential read-only service probes, each with the
+      # idempotent transient retry envelope (3 retries * escalating backoff). 180s
+      # covers the probe stack with margin (GCP API-only step floor).
+      - name: check_api
+        phase: setup
+        command: "python3 ../scripts/control-plane/check_api.py"
+        args: ["--region", "{{region}}", "--services", "{{services}}"]
+        timeout: 180
+
+      # =======================================================================
+      # SETUP: Create Tenant (Resource Manager TagKey + TagValue)
+      # =======================================================================
+      # Worst-case wait: two sequential async Resource Manager operations
+      # (create_tag_key.result() + create_tag_value.result(), 90s cap each) plus a
+      # conflict-recovery list scan. 300s covers the two-op create stack + margin.
+      - name: create_tenant
+        phase: setup
+        command: "python3 ../scripts/control-plane/create_tenant.py"
+        args: ["--region", "{{region}}"]
+        timeout: 300
+
+      # =======================================================================
+      # TEST: Tenant Lifecycle
+      # =======================================================================
+      # Every consumer of create_tenant.tenant_name renders a NON-EMPTY sentinel
+      # ("__no_tenant__") via `default(..., true)` when setup produced no name
+      # (create_tenant failed/skipped or emitted an empty name). This keeps the
+      # orchestrator from raising MissingStepRefError and silently skipping the
+      # consumer -- most importantly the teardown delete_tenant. Each consumer
+      # stub recognizes the sentinel and handles it explicitly (delete_tenant
+      # no-ops as idempotent success; list_tenants/get_tenant fail with a clear
+      # "no tenant from setup" diagnostic).
+      - name: list_tenants
+        phase: test
+        command: "python3 ../scripts/control-plane/list_tenants.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--group-name"
+          - "{{ steps.create_tenant.tenant_name | default('__no_tenant__', true) }}"
+        timeout: 180
+
+      - name: get_tenant
+        phase: test
+        command: "python3 ../scripts/control-plane/get_tenant.py"
+        args:
+          - "--group-name"
+          - "{{ steps.create_tenant.tenant_name | default('__no_tenant__', true) }}"
+          - "--region"
+          - "{{region}}"
+        timeout: 180
+
+      # =======================================================================
+      # TEST: Object Data Path (DATASVC-XX-01)
+      # =======================================================================
+      # Worst-case wait: create bucket + put + get + delete object + delete bucket,
+      # each idempotent op wrapped in the transient retry envelope. 300s covers the
+      # object lifecycle plus the finally-block bucket teardown with margin.
+      - name: s3_object_lifecycle
+        phase: test
+        command: "python3 ../scripts/control-plane/s3_object_lifecycle.py"
+        args: ["--region", "{{region}}"]
+        timeout: 300
+
+      # =======================================================================
+      # TEARDOWN: Delete Tenant (TagValue then parent TagKey)
+      # =======================================================================
+      # Worst-case wait: two sequential async delete operations (delete_tag_value
+      # then delete_tag_key, 60s cap each) each under the bounded delete retry
+      # envelope. 300s covers the two-op teardown stack + margin.
+      - name: delete_tenant
+        phase: teardown
+        command: "python3 ../scripts/control-plane/delete_tenant.py"
+        args:
+          - "--group-name"
+          - "{{ steps.create_tenant.tenant_name | default('__no_tenant__', true) }}"
+          # Forward the exact backend-assigned permanent ids so teardown proves
+          # ownership by an unforgeable id match, not the recomputable run marker
+          # (a same-run foreign resource can carry that marker and squat our short
+          # name). Render a NON-EMPTY sentinel ("none") when create_tenant produced
+          # no confirmed id (an ambiguous create failure). An empty render is
+          # DROPPED by the orchestrator's _render_args (it strips a rendered value
+          # whose arg carries a default() filter), which would leave a bare
+          # "--tenant-id --tenant-key-id" and make argparse exit before
+          # delete_tenant can emit JSON or clean anything. delete_tenant maps the
+          # "none" sentinel to "permanent id unavailable": it then retains the
+          # resource and fails visibly rather than deleting by weaker (recomputable,
+          # forgeable) run-marker or short-name evidence.
+          - "--tenant-id"
+          - "{{ steps.create_tenant.tenant_id | default('none', true) }}"
+          - "--tenant-key-id"
+          - "{{ steps.create_tenant.tenant_key_id | default('none', true) }}"
+          - "--region"
+          - "{{region}}"
+        timeout: 300
+        output_schema: teardown
+
+tests:
+  cluster_name: "gcp-control-plane-validation"
+  description: "GCP control plane: API health, tenant lifecycle, object data path"
+
+  settings:
+    # Cloud Storage bucket location for s3_object_lifecycle. Does NOT route the
+    # global IAM / Resource Manager / tag APIs (accepted for contract parity).
+    region: "us-central1"
+    # GCP control-plane services check_api probes with a read-only API call each.
+    services: "storage,iam,resourcemanager"
+
+  # The optional access-key HMAC lifecycle requires service-account and HMAC-key
+  # administration plus organization policies that permit disposable keys. The
+  # five HMAC steps are left unwired above, so exclude their validations by name.
+  # StepSuccessCheck-delete_tenant (teardown) and the tenant + object-path
+  # validations stay active. Mirrors the gcp/security MfaEnforcedCheck exclusion
+  # pattern.
+  exclude:
+    tests:
+      - AccessKeyCreatedCheck
+      - AccessKeyAuthenticatedCheck
+      - AccessKeyDisabledCheck
+      - AccessKeyRejectedCheck
+      - StepSuccessCheck-delete_access_key

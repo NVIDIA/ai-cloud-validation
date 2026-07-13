@@ -1,6 +1,10 @@
 {
   "ncps": {
     "gcp": {
+      "control-plane": {
+        "factory_commit": "29646a295f41a01b0d8e6c7aac58d642db062879",
+        "isv_commit": "7042c2deafe769e83206906545629152d09f53a6"
+      },
       "iam": {
         "factory_commit": "37618f4d33f7af3efdcc2a0940c1a2e906bdde9c",
         "isv_commit": "562f594dde6cb3a7ea1b63ddfd5217a9ed5a5467"

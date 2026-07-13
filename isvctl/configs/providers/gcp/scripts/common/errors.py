@@ -212,13 +212,13 @@ def _bucket_and_detail(e: Exception) -> tuple[str, str]:
 
 # Raw transport disconnects (NOT google.api_core exceptions)
 # ---------------------------------------------------------------------
-# The Compute Engine HTTP transport occasionally drops the TCP connection
-# mid-call (~14% of runs per the staged GCP contract), surfacing a low-level
+# The Compute Engine HTTP transport can drop the TCP connection
+# mid-call, surfacing a low-level
 # ``http.client.RemoteDisconnected`` / urllib3 ``ProtocolError`` — either
 # unwrapped, or re-wrapped in a ``requests`` ``ConnectionError``. These are NOT
 # ``google.api_core`` types, so ``TRANSIENT_EXCEPTIONS`` and the disposition
 # classifier never see them; an idempotent read/list/delete/poll would then fail
-# on the first drop. The contract requires a single 2-second-delayed retry on
+# on the first drop. This helper applies a single 2-second-delayed retry on
 # IDEMPOTENT operations only (describe/list/delete/poll); NON-idempotent creates
 # must NOT be retried here because a re-issued create can double-provision.
 _TRANSPORT_DISCONNECT_CLASS_NAMES: frozenset[str] = frozenset({"RemoteDisconnected", "ProtocolError"})
@@ -269,10 +269,10 @@ def retry_idempotent(
     """Call an IDEMPOTENT get/list/delete/poll ``fn``, retrying transient failures.
 
     Wraps a single provider read/list/delete/poll call and retries TWO
-    independent retryable classes, per the staged GCP contract:
+    independent retryable classes:
 
-      * The typed transient disposition bucket (``TRANSIENT_EXCEPTIONS`` — the
-        ``[bucket=transient]`` 429 / 5xx / timeout classes such as
+      * The typed transient exceptions (``TRANSIENT_EXCEPTIONS`` — the
+        429 / 5xx / timeout classes such as
         ``ResourceExhausted``, ``ServiceUnavailable``, ``InternalServerError``,
         and ``DeadlineExceeded``). Retried ``transient_retries`` times (default
         3) with escalating ``backoff_seconds * attempt`` backoff, matching
@@ -325,6 +325,27 @@ def retry_idempotent(
                 backoff_seconds,
             )
             time.sleep(backoff_seconds)
+
+
+def retry_idempotent_list(list_fn: Callable[..., Any], *, op_desc: str = "list", **kwargs: Any) -> list[Any]:
+    """Materialize a FULL paginated listing under the idempotent-retry envelope.
+
+    The installed Compute / Resource Manager ``list_*`` RPCs return a LAZY pager:
+    only the initial request is issued eagerly, and iterating the pager fetches
+    each later page on demand. If ``retry_idempotent(list_fn, ...)`` is called and
+    its returned pager is iterated afterward, every later-page request is issued
+    OUTSIDE the retry envelope -- so only the first page gets the full
+    set of transient errors (429 / ServiceUnavailable / InternalServerError /
+    DeadlineExceeded / transport disconnect) retried, and the deferred page
+    fetches fall back to the SDK's partial default policy (ServiceUnavailable
+    only). Forcing the complete ``list(...)`` materialization INSIDE the callable
+    passed to ``retry_idempotent`` retries the full taxonomy on EVERY page fetch
+    (a transient re-lists from the first page, which is safe for idempotent
+    reads), then returns the materialized list so callers match over a plain list
+    rather than a lazy pager. Mirrors the sister helper in
+    ``common/service_account._list_service_account_emails``.
+    """
+    return retry_idempotent(lambda: list(list_fn(**kwargs)), op_desc=op_desc)
 
 
 def delete_with_retry(
@@ -417,9 +438,9 @@ def delete_with_retry(
         except Exception as e:
             # A raw transport disconnect (RemoteDisconnected / urllib3
             # ProtocolError, possibly re-wrapped) during this idempotent delete
-            # is retryable per the staged GCP contract — re-issuing the delete is
-            # safe (NotFound on the retry counts as success), so retry after the
-            # flat 2s ``backoff_seconds`` delay.
+            # is retryable — re-issuing the delete is safe (NotFound on the
+            # retry counts as success), so retry after the flat 2s
+            # ``backoff_seconds`` delay.
             if is_transport_disconnect(e) and attempt < attempts:
                 last_error = e
                 logger.warning(

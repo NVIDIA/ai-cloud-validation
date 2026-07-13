@@ -18,8 +18,8 @@
 This module is the canonical home for Compute Engine divergences from
 the AWS provider:
 
-  * ``resolve_project`` — env / ADC project resolution because the
-    harness does NOT forward GOOGLE_CLOUD_PROJECT to spawned stubs.
+  * ``resolve_project`` — explicit ``--project``, then the forwarded
+    ``GOOGLE_CLOUD_PROJECT`` / ``GCLOUD_PROJECT`` env vars, then ADC.
   * ``narrow_region_to_zone`` / ``zone_to_region`` — Compute Engine
     instance APIs are zone-scoped; provider configs may supply either.
   * ``canonical_state`` — translate Compute Engine raw status to the
@@ -61,11 +61,11 @@ from common.errors import retry_idempotent
 # Auth / project resolution                                             #
 # --------------------------------------------------------------------- #
 
-# The harness does NOT forward GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT to
-# spawned stubs. Fall back to
-# Application Default Credentials' bundled project_id when neither --project
-# nor an env var is set so operators with `gcloud auth application-default
-# login` don't have to thread the project through every call.
+# The orchestrator forwards the full shell environment to spawned stubs, so
+# GOOGLE_CLOUD_PROJECT / GCLOUD_PROJECT take precedence over ADC when set. Fall
+# back to Application Default Credentials' bundled project_id when neither
+# --project nor an env var is set so operators with `gcloud auth
+# application-default login` don't have to thread the project through every call.
 _PROJECT_ENV_VARS: tuple[str, ...] = ("GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT")
 
 
