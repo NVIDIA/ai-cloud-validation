@@ -1046,6 +1046,46 @@ def test_storage_performance_telemetry_fails_without_attached_volumes() -> None:
     assert "No EBS volumes" in result["error"]
 
 
+def test_storage_performance_telemetry_discovers_metrics_after_empty_list() -> None:
+    """Metrics appearing only after poll refresh still satisfy performance_metrics_present."""
+    script = _load_script("storage_telemetry_test.py")
+    dimensions = [{"Name": "VolumeId", "Value": "vol-123"}]
+    delayed_metrics = [
+        {"Namespace": "AWS/EBS", "MetricName": "VolumeReadBytes", "Dimensions": dimensions},
+        {"Namespace": "AWS/EBS", "MetricName": "VolumeReadOps", "Dimensions": dimensions},
+        {"Namespace": "AWS/EBS", "MetricName": "VolumeTotalReadTime", "Dimensions": dimensions},
+    ]
+    cloudwatch = FakeCloudWatchClient(
+        metrics=[],
+        statistics_sequence=[[_recent_datapoint(30)], [_recent_datapoint(30)], [_recent_datapoint(30)]],
+    )
+    sleeps: list[float] = []
+
+    def sleep_and_publish(seconds: float) -> None:
+        sleeps.append(seconds)
+        cloudwatch.metrics = delayed_metrics
+
+    result = script._check_storage_performance_telemetry(
+        cloudwatch,
+        FakeDescribeInstancesWithVolumesEc2(volume_ids=["vol-123"]),
+        instance_id="i-123",
+        poll_timeout_seconds=60,
+        poll_interval_seconds=1,
+        sleep=sleep_and_publish,
+    )
+
+    assert result["success"] is True
+    assert sleeps == [1]
+    probes = result["tests"]["performance_metrics_present"]["probes"]
+    assert probes["metric_names"] == [
+        "VolumeReadBytes",
+        "VolumeReadOps",
+        "VolumeTotalReadTime",
+    ]
+    assert probes["performance_kinds"] == ["bandwidth", "iops", "latency"]
+    assert result["tests"]["samples_recent"]["passed"] is True
+
+
 @pytest.mark.parametrize(
     ("aspect", "expected_tests", "probe_field"),
     [

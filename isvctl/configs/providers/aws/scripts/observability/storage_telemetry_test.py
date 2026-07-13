@@ -241,7 +241,16 @@ def _check_storage_performance_telemetry(
         poll_interval_seconds=poll_interval_seconds,
         sleep=sleep,
     )
-    probes = {**probes, "sample_count": sample_count, "latest_timestamp": latest_timestamp}
+    # Recompute after poll: freshly launched hosts may discover metrics only on refresh.
+    discovered_names = sorted({metric["MetricName"] for metric in metrics})
+    performance_kinds = _performance_kinds(discovered_names)
+    probes = {
+        **probes,
+        "metric_names": discovered_names,
+        "performance_kinds": performance_kinds,
+        "sample_count": sample_count,
+        "latest_timestamp": latest_timestamp,
+    }
 
     required_kinds = {"bandwidth", "iops", "latency"}
     if discovered_names and required_kinds.issubset(set(performance_kinds)):

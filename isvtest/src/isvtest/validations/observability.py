@@ -251,6 +251,7 @@ class _StorageTelemetryCheck(BaseValidation):
     _plane_label: ClassVar[str] = "storage capacity telemetry"
     _kind_field: ClassVar[str] = "capacity_kinds"
     _required_kinds: ClassVar[list[str]] = ["used", "free", "total"]
+    _kind_label: ClassVar[str] = "capacity"
 
     def run(self) -> None:
         """Validate storage telemetry results and evidence."""
@@ -278,7 +279,7 @@ class _StorageTelemetryCheck(BaseValidation):
         self.set_passed(
             f"{self._plane_label} available for {probes['volumes_checked']} volume(s) "
             f"via {probes['telemetry_source']} ({len(metric_names)} metrics, "
-            f"{len(kinds)} capacity kinds, {probes['sample_count']} samples)"
+            f"{len(kinds)} {self._kind_label} kinds, {probes['sample_count']} samples)"
         )
 
 
@@ -303,6 +304,7 @@ class StoragePerformanceTelemetryCheck(_StorageTelemetryCheck):
     _plane_label: ClassVar[str] = "storage performance telemetry"
     _kind_field: ClassVar[str] = "performance_kinds"
     _required_kinds: ClassVar[list[str]] = ["bandwidth", "iops", "latency"]
+    _kind_label: ClassVar[str] = "performance"
 
 
 class _NvlinkTelemetryCheck(BaseValidation):
@@ -317,6 +319,7 @@ class _NvlinkTelemetryCheck(BaseValidation):
     _metrics_present_test: ClassVar[str] = "link_metrics_present"
     _plane_label: ClassVar[str] = "GPU NVLink telemetry"
     _count_field: ClassVar[str] = "links_checked"
+    _unit_label: ClassVar[str] = "link"
 
     def run(self) -> None:
         """Validate NVLink telemetry results and evidence."""
@@ -339,7 +342,7 @@ class _NvlinkTelemetryCheck(BaseValidation):
 
         metric_names = probes["metric_names"]
         self.set_passed(
-            f"{self._plane_label} available from {probes[self._count_field]} link(s) "
+            f"{self._plane_label} available from {probes[self._count_field]} {self._unit_label}(s) "
             f"via {probes['telemetry_source']} ({len(metric_names)} metrics, {probes['sample_count']} samples)"
         )
 
@@ -364,6 +367,7 @@ class SwitchNvlinkTelemetryCheck(_NvlinkTelemetryCheck):
     _metrics_present_test: ClassVar[str] = "port_metrics_present"
     _plane_label: ClassVar[str] = "switch NVLink telemetry"
     _count_field: ClassVar[str] = "ports_checked"
+    _unit_label: ClassVar[str] = "port"
 
 
 class BmcGpuTelemetryCheck(BaseValidation):
