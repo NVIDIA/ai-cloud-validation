@@ -261,6 +261,46 @@ def _launch_instance(ec2: Any, tenant: Tenant, ami_id: str) -> None:
     )
     tenant.instance_id = response["Instances"][0]["InstanceId"]
     tenant.created["instance"] = True
+    # Wait until running before returning. Teardown may terminate immediately
+    # after probes; boto3's InstanceTerminated waiter treats ``pending`` as a
+    # terminal failure, so leaving the instance booting races cleanup.
+    ec2.get_waiter("instance_running").wait(
+        InstanceIds=[tenant.instance_id],
+        WaiterConfig={"Delay": 5, "MaxAttempts": 60},
+    )
+
+
+def _wait_instance_terminated(
+    ec2: Any,
+    instance_id: str,
+    *,
+    delay: float = 5.0,
+    max_attempts: int = 60,
+) -> None:
+    """Poll until ``instance_id`` is terminated (or already gone).
+
+    Unlike boto3's ``instance_terminated`` waiter, treat ``pending`` as
+    in-progress. Terminating a still-booting instance briefly stays
+    ``pending`` before ``shutting-down``; the stock waiter fails that race
+    immediately and leaves ENIs holding the SG/subnet/VPC.
+    """
+    for _ in range(max_attempts):
+        try:
+            response = ec2.describe_instances(InstanceIds=[instance_id])
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "InvalidInstanceID.NotFound":
+                return
+            raise
+        states = [
+            instance.get("State", {}).get("Name")
+            for reservation in response.get("Reservations", [])
+            for instance in reservation.get("Instances", [])
+        ]
+        if not states or all(state == "terminated" for state in states):
+            return
+        time.sleep(delay)
+    msg = f"instance {instance_id} did not reach terminated within {delay * max_attempts:.0f}s"
+    raise TimeoutError(msg)
 
 
 def _create_volume(ec2: Any, tenant: Tenant) -> None:
@@ -377,22 +417,16 @@ def _teardown_tenant(
     errors: list[str] = []
 
     if tenant.created.get("instance") and tenant.instance_id:
-        # NB: catch WaiterError too -- the InstanceTerminated waiter treats
-        # "pending" as a terminal failure, which fires when setup raised
-        # before the instance reached running. Letting it propagate would
-        # mask the original error (and skip the rest of cleanup); the
-        # safety-net teardown step picks up any leftover instance.
+        # Catch wait failures too so a stuck terminate does not skip the rest
+        # of cleanup; the safety-net teardown step picks up leftovers.
         try:
             ec2.terminate_instances(InstanceIds=[tenant.instance_id])
         except ClientError as e:
             errors.append(f"terminate instance {tenant.instance_id}: {e}")
         else:
             try:
-                ec2.get_waiter("instance_terminated").wait(
-                    InstanceIds=[tenant.instance_id],
-                    WaiterConfig={"Delay": 5, "MaxAttempts": 60},
-                )
-            except (ClientError, WaiterError) as e:
+                _wait_instance_terminated(ec2, tenant.instance_id)
+            except (ClientError, TimeoutError) as e:
                 errors.append(f"wait terminated {tenant.instance_id}: {e}")
 
     if tenant.created.get("volume") and tenant.volume_id:
