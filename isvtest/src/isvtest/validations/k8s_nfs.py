@@ -767,6 +767,8 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
                 self.report_subtest(
                     "read-ahead-kb", passed=True, message="expected_read_ahead_kb not configured; skipped", skipped=True
                 )
+            elif not_nfs:
+                self.report_subtest("read-ahead-kb", passed=True, message=f"fstype={fstype!r}; not NFS", skipped=True)
             else:
                 ra_passed, ra_message = self._check_read_ahead(pod_name, options)
                 self.report_subtest("read-ahead-kb", passed=ra_passed, message=ra_message)
