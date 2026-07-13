@@ -225,6 +225,24 @@ commands:
           - "{{nico_api_base}}"
         timeout: 120
 
+      # ─── Query Failure-Domain Topology (STG05-01) ──────────────────
+      # Reads each machine's rack label and reduces it to a per-host
+      # failure-domain identifier plus the distinct set of failure domains at
+      # the site. FailureDomainObservabilityCheck asserts the topology is
+      # observable (every host maps to a named failure domain) so physical
+      # diversity across racks/enclosures can be reasoned about.
+      - name: query_topology
+        phase: test
+        command: "python ../scripts/topology/query_topology.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
       # ─── Query Attestation (SEC22-01 / CNP09-02) ────────────────────
       # Enumerates site machines via tenant REST, then reads SPDM attestation
       # and measured-boot status from the Forge control-plane API via

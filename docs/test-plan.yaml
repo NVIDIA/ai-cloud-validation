@@ -2283,7 +2283,9 @@ domains:
                 status: pending
               - summary: Verify topology observability — visibility into failure domains for physical diversity
                 labels:
+                  - bare_metal
                   - min_req
+                  - sds_controller
                 priority: P1
                 milestone: M5
                 notes: ""

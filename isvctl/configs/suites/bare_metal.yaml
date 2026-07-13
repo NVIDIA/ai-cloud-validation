@@ -585,6 +585,20 @@ tests:
           labels: ["bare_metal", "breakfix", "min_req"]
           min_machines: 1
 
+    # Failure-domain topology observability (STG05-01). Asserts every host
+    # reports the physical failure domain (rack/enclosure) it belongs to, so a
+    # tenant can spread storage/compute across independent domains for physical
+    # diversity. Raise min_failure_domains above 1 to enforce that a site spans
+    # multiple domains. Only runs for providers that implement the query_topology
+    # step.
+    failure_domain_observability:
+      step: query_topology
+      checks:
+        FailureDomainObservabilityCheck:
+          test_id: "STG05-01"
+          labels: ["bare_metal", "sds_controller", "min_req"]
+          min_failure_domains: 1
+
     # Hardware/firmware attestation (SEC22 / CNP09). Each check asserts a host
     # establishes a hardware root of trust. Only runs for providers that
     # implement the query_attestation step.

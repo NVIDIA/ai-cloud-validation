@@ -40,6 +40,7 @@ from isvtest.validations.sanitization import (
     GpuMemorySanitizationCheck,
     MemorySanitizationCheck,
 )
+from isvtest.validations.topology import FailureDomainObservabilityCheck
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
@@ -2718,3 +2719,92 @@ def test_serial_numbers_script_output_satisfies_check(
     bad.run()
     assert bad._passed is False
     assert "gpu" in bad._error
+
+
+# ---------------------------------------------------------------------------
+# query_topology (STG05-01) script
+# ---------------------------------------------------------------------------
+
+
+def _load_topology_script() -> ModuleType:
+    """Load the query_topology script as a module for direct unit testing."""
+    return _load_nico_script("topology/query_topology.py", "test_query_topology")
+
+
+def _topology_api_machine(machine_id: str = "m-1", labels: dict[str, str] | None = None) -> dict[str, Any]:
+    """Build a raw NICo machine payload carrying rack labels."""
+    return {"id": machine_id, "labels": labels if labels is not None else {"RackIdentifier": "GVX11F01C02"}}
+
+
+def _run_topology(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    machines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Drive the query_topology script with mocked NICo machines."""
+    module = _load_topology_script()
+    return _run_script(module, monkeypatch, capsys, script_name="query_topology.py", machines=machines)
+
+
+def test_topology_script_extracts_rack_identifier(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The RackIdentifier label becomes the per-host failure domain."""
+    machines = [
+        _topology_api_machine("m-1", {"RackIdentifier": "rack-A"}),
+        _topology_api_machine("m-2", {"rack": "rack-B"}),
+    ]
+    payload = _run_topology(monkeypatch, capsys, machines)
+
+    assert payload["success"] is True
+    assert payload["hosts_checked"] == 2
+    assert payload["failure_domains"] == ["rack-A", "rack-B"]
+    assert payload["hosts"][0] == {"host_id": "m-1", "failure_domain": "rack-A", "observed": True}
+
+
+def test_topology_script_unlabeled_host_is_unobserved(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A machine with no rack label reports observed=false."""
+    machines = [_topology_api_machine("m-1", {})]
+    payload = _run_topology(monkeypatch, capsys, machines)
+
+    host = payload["hosts"][0]
+    assert host["observed"] is False
+    assert host["failure_domain"] == ""
+    assert payload["failure_domains"] == []
+
+
+def test_topology_script_empty_site_skips(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A site with no machines emits a structured skip."""
+    payload = _run_topology(monkeypatch, capsys, [])
+
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert "No machines found" in payload["skip_reason"]
+
+
+def test_topology_script_output_satisfies_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: mapped hosts pass; an unlabeled host flows through to a failure."""
+    good = _run_topology(
+        monkeypatch,
+        capsys,
+        [_topology_api_machine("m-1", {"RackIdentifier": "rack-A"})],
+    )
+    check = FailureDomainObservabilityCheck(config={"step_output": good})
+    check.run()
+    assert check._passed is True, check._error
+
+    bad_payload = _run_topology(monkeypatch, capsys, [_topology_api_machine("m-1", {})])
+    bad = FailureDomainObservabilityCheck(config={"step_output": bad_payload})
+    bad.run()
+    assert bad._passed is False
+    assert "m-1" in bad._error
