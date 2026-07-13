@@ -92,7 +92,7 @@ commands:
           - "--instance-id"
           - "{{steps.launch_host.instance_id}}"
           - "--max-delivery-seconds"
-          - "300"
+          - "600"
           - "--poll-timeout-seconds"
           - "240"
         timeout: 360

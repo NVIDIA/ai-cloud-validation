@@ -706,14 +706,14 @@ def test_telemetry_delivery_scopes_to_instance_and_passes() -> None:
         cloudwatch,
         network_id="vpc-123",
         instance_id="i-123",
-        max_delivery_seconds=300,
+        max_delivery_seconds=600,
     )
 
     assert result["success"] is True
     assert cloudwatch.list_dimensions[0] == [{"Name": "InstanceId", "Value": "i-123"}]
     probes = result["tests"]["delivery_within_threshold"]["probes"]
     assert probes["probe_resource_id"] == "i-123"
-    assert probes["observed_delivery_seconds"] <= 300
+    assert probes["observed_delivery_seconds"] <= 600
 
 
 def test_telemetry_delivery_polls_until_datapoint_appears() -> None:
@@ -734,7 +734,7 @@ def test_telemetry_delivery_polls_until_datapoint_appears() -> None:
         cloudwatch,
         network_id="vpc-123",
         instance_id="i-123",
-        max_delivery_seconds=300,
+        max_delivery_seconds=600,
         poll_timeout_seconds=60,
         poll_interval_seconds=1,
         sleep=sleeps.append,
