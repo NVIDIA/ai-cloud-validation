@@ -20,7 +20,9 @@ Validations for EC2 instances, virtual machines, and compute resources.
 
 from typing import ClassVar
 
-from isvtest.core.validation import BaseValidation
+import pytest
+
+from isvtest.core.validation import BaseValidation, check_required_tests
 from isvtest.validations.generic import check_operations_passed
 
 SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED = 30
@@ -98,6 +100,54 @@ class InstanceSpecifiedKeyCheck(BaseValidation):
             return
 
         self.set_passed(f"Instance {instance_id} launched with specified key '{requested_key_name}'")
+
+
+class ComponentKeyAccessCheck(BaseValidation):
+    """Validate a specified key can access other components (SOL, network devices).
+
+    Proves AUTH03-01 after AUTH02 launches an instance with a requested key.
+    Scripts emit provider-neutral ``tests.sol_access`` and
+    ``tests.network_device_access`` probes. Network-device access may be marked
+    ``provider_hidden`` when the platform does not expose tenant-visible device
+    SSH (for example AWS).
+
+    Config:
+        step_output: The component_key_access step output to check
+        required_tests: Optional override of required subtest names
+            (default: sol_access, network_device_access)
+
+    Step output:
+        key_name: Key used for component access (links to AUTH02)
+        tests.sol_access.passed: True when SOL/serial console accepts the key
+        tests.network_device_access.passed: True when network-device key access
+            succeeds, or is affirmatively provider-hidden
+    """
+
+    description: ClassVar[str] = "Check specified key accesses SOL and network devices"
+
+    def run(self) -> None:
+        """Validate key-based SOL and network-device access probes from step output."""
+        step_output = self.config.get("step_output", {})
+        if step_output.get("skipped") is True:
+            pytest.skip(step_output.get("skip_reason") or "Component key access validation skipped")
+
+        key_name = step_output.get("key_name") or step_output.get("requested_key_name")
+        if not key_name:
+            self.set_failed("No 'key_name' in step output")
+            return
+
+        required = self.config.get("required_tests", ["sol_access", "network_device_access"])
+        if not check_required_tests(self, required, "Component key access tests failed"):
+            return
+
+        tests = step_output.get("tests", {})
+        hidden = [
+            name
+            for name in required
+            if isinstance(tests.get(name), dict) and tests[name].get("provider_hidden") is True
+        ]
+        hidden_note = f", provider_hidden={','.join(hidden)}" if hidden else ""
+        self.set_passed(f"Specified key '{key_name}' accessed required components{hidden_note}")
 
 
 class InstanceRebootCheck(BaseValidation):

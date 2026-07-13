@@ -31,7 +31,7 @@ For the domain / script-count / AWS-reference overview see the
 | Step | Phase | Script | Key JSON Fields |
 |------|-------|--------|-----------------|
 | `create_user` | setup | `providers/my-isv/scripts/iam/create_user.py` | `username`, `user_id`, `access_key_id`, `secret_access_key` |
-| `test_credentials` | test | `providers/my-isv/scripts/iam/test_credentials.py` | `account_id`, `tests.identity.passed`, `tests.access.passed` |
+| `test_credentials` | test | `providers/my-isv/scripts/iam/test_credentials.py` | `account_id`, `tests.identity.passed`, `tests.access.passed` (`IamCredentialAccessCheck` / IAM03-01) |
 | `teardown` | teardown | `providers/my-isv/scripts/iam/delete_user.py` | `resources_deleted`, `message` |
 
 ### Network (`network.yaml`)
@@ -81,10 +81,11 @@ For the domain / script-count / AWS-reference overview see the
 
 | Step | Phase | Script | Key JSON Fields |
 |------|-------|--------|-----------------|
-| `launch_instance` | setup | `providers/my-isv/scripts/vm/launch_instance.py` | `instance_id`, `public_ip`, `key_file`, `vpc_id` |
+| `launch_instance` | setup | `providers/my-isv/scripts/vm/launch_instance.py` | `instance_id`, `public_ip`, `key_file`, `vpc_id`, `requested_key_name`, `key_name` |
 | `list_instances` | test | `providers/my-isv/scripts/vm/list_instances.py` | `instances`, `total_count` |
 | `verify_tags` | test | `providers/my-isv/scripts/vm/describe_tags.py` | `instance_id`, `tags`, `tag_count` |
 | `serial_console` | test | `providers/my-isv/scripts/vm/serial_console.py` | `console_available`, `serial_access_enabled` |
+| `component_key_access` | test | `providers/my-isv/scripts/vm/component_key_access.py` | `key_name`, `tests.sol_access.passed`, `tests.network_device_access.passed` (`ComponentKeyAccessCheck` / AUTH03-01) |
 | `stop_instance` | test | `providers/my-isv/scripts/vm/stop_instance.py` | `instance_id`, `state`, `stop_initiated` |
 | `start_instance` | test | `providers/my-isv/scripts/vm/start_instance.py` | `instance_id`, `state`, `public_ip`, `ssh_ready` |
 | `reboot_instance` | test | `providers/my-isv/scripts/vm/reboot_instance.py` | `reboot_initiated`, `ssh_ready`, `uptime_seconds` |

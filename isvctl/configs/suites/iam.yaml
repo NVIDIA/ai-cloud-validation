@@ -62,10 +62,10 @@ tests:
     credentials:
       step: test_credentials
       checks:
-        FieldExistsCheck:
+        IamCredentialAccessCheck:
           test_id: "IAM03-01"
           labels: ["iam"]
-          field: "account_id"
+          required_tests: ["identity", "access"]
         StepSuccessCheck:
           test_id: "N/A"
           labels: ["iam"]

@@ -21,11 +21,41 @@ and tenant/resource groups.
 
 from typing import ClassVar
 
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, check_required_tests
 
 # =============================================================================
 # Access Key Validations
 # =============================================================================
+
+
+class IamCredentialAccessCheck(BaseValidation):
+    """Validate created IAM credentials authenticate and reach authorized resources.
+
+    Proves IAM03-01: a user created earlier can access the API (identity) and at
+    least one authorized resource (access). Scripts emit provider-neutral
+    ``tests.identity`` / ``tests.access`` subtests.
+
+    Config:
+        step_output: The test_credentials step output to check
+        required_tests: Optional override of required subtest names
+            (default: identity, access)
+
+    Step output:
+        tests.identity.passed: True when credentials authenticate to the API
+        tests.access.passed: True when at least one authorized resource is reachable
+    """
+
+    description: ClassVar[str] = "Check IAM credentials authenticate with authorized resource access"
+
+    def run(self) -> None:
+        """Validate identity and authorized-resource access probes from step output."""
+        required = self.config.get("required_tests", ["identity", "access"])
+        if not check_required_tests(self, required, "IAM credential access tests failed"):
+            return
+
+        step_output = self.config.get("step_output", {})
+        account_id = step_output.get("account_id") or "unknown"
+        self.set_passed(f"IAM credentials authenticated with authorized resource access (account={account_id})")
 
 
 class AccessKeyCreatedCheck(BaseValidation):

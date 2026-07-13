@@ -49,7 +49,8 @@ tests:
   # These are PROVIDER-AGNOSTIC. They only check JSON field names/values.
   #
   # Layout mirrors bare_metal.yaml:
-  #   launch checks -> list -> tags -> serial_console -> console_rbac -> cloud_init
+  #   launch checks -> list -> tags -> serial_console -> console_rbac
+  #   -> component_key_access (AUTH03) -> cloud_init
   #   -> describe_instance (SSH / GPU / host anchor, post-reboot)
   #   -> lifecycle (stop / start / reboot)
   #   -> NIM -> teardown
@@ -68,6 +69,14 @@ tests:
         InstanceSpecifiedKeyCheck:
           test_id: "AUTH02-01"
           labels: ["vm"]
+
+    component_key_access:
+      step: component_key_access
+      checks:
+        ComponentKeyAccessCheck:
+          test_id: "AUTH03-01"
+          labels: ["vm"]
+          required_tests: ["sol_access", "network_device_access"]
 
     instance_created:
       step: launch_instance
