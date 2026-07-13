@@ -22,11 +22,12 @@
 #     PVC and exec in to write/read a canary file - they override only
 #     metadata.{name,namespace} and the persistentVolumeClaim.claimName (the
 #     mutator supplies the default busybox:1.36 image).
-#   * Shared-filesystem checks (k8s_filesystem) that additionally override the
-#     container image (default busybox:1.36, so air-gapped clusters can point at
-#     a mirror), the container command (e.g. to hold a flock or a write loop)
-#     and optionally spec.nodeName / spec.nodeSelector so two pods can be pinned
-#     to distinct nodes for cross-node tests.
+#   * Shared-filesystem and NFS checks (k8s_filesystem, k8s_nfs) that
+#     additionally override the container image (default busybox:1.36, so
+#     air-gapped clusters can point at a mirror), the container command (e.g. to
+#     hold a flock or a write loop) and optionally spec.nodeName /
+#     spec.nodeSelector so two pods can be pinned to distinct nodes for
+#     cross-node tests. (k8s_nfs applies its own _set_fs_pod_fields variant.)
 # The placeholder metadata/image/claimName values below exist only to keep the
 # file valid YAML; they are always overridden before apply.
 #

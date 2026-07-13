@@ -340,6 +340,30 @@ tests:
           bind_timeout_s: 120
           expand_timeout_s: 180
           namespace_prefix: "isvtest-csi-expand"
+        K8sNodeKernelModulesCheck:
+          test_id: "N/A"
+          labels: ["kubernetes", "min_req"]
+          kernel_modules: []
+          node_selector: {}
+          image: "busybox:1.36"
+          bind_timeout_s: 60
+          namespace_prefix: "isvtest-kmod"
+        K8sNfsMountOptionsCheck:
+          test_id: "N/A"
+          labels: ["kubernetes", "min_req"]
+          # Env overrides: K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
+          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          pvc_size: "1Gi"
+          bind_timeout_s: 180
+          namespace_prefix: "isvtest-fs-nfs"
+          # if expected values are not set, the check will be skipped
+          expected_version: ""
+          expected_nconnect: ""
+          expected_proto: ""
+          expected_read_ahead_kb: ""
 
     k8s_filesystem:
       checks:
