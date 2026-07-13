@@ -32,6 +32,7 @@ from isvtest.validations.security import (
     InsecureProtocolsCheck,
     KmsEncryptionOptionCheck,
     MfaEnforcedCheck,
+    MutualTlsCheck,
     OidcUserAuthCheck,
     ShortLivedCredentialsCheck,
     TenantIsolationCheck,
@@ -1046,3 +1047,91 @@ class TestInsecureProtocolsCheck:
 
         assert result["passed"] is False
         assert "tests" in result["error"].lower()
+
+
+REQUIRED_MUTUAL_TLS_TESTS = [
+    "north_south_mtls_enforced",
+    "east_west_mtls_enforced",
+]
+
+
+def _mutual_tls_config(
+    tests: dict[str, dict[str, Any]] | None = None,
+    *,
+    endpoints_tested: int = 2,
+) -> dict[str, Any]:
+    """Build a MutualTlsCheck validation config."""
+    default_tests = {name: {"passed": True, "message": f"{name} confirmed"} for name in REQUIRED_MUTUAL_TLS_TESTS}
+    return {
+        "step_output": {
+            "success": True,
+            "platform": "security",
+            "test_name": "mutual_tls",
+            "endpoints_tested": endpoints_tested,
+            "tests": tests if tests is not None else default_tests,
+        },
+    }
+
+
+class TestMutualTlsCheck:
+    """Tests for SEC13-01 mutual TLS validation."""
+
+    def test_all_required_tests_pass(self) -> None:
+        """Pass when both traffic-plane probes report mTLS enforced."""
+        result = MutualTlsCheck(config=_mutual_tls_config()).execute()
+
+        assert result["passed"] is True
+        assert "mTLS enforced (2 endpoints tested)" in result["output"]
+
+    def test_failed_step_without_error_fails_with_default_message(self) -> None:
+        """Fail when the step reports success=False without an error message."""
+        config = _mutual_tls_config()
+        config["step_output"]["success"] = False
+        result = MutualTlsCheck(config=config).execute()
+
+        assert result["passed"] is False
+        assert "mTLS step failed: no error message provided" in result["error"]
+
+    def test_failed_probe_reports_contract_key(self) -> None:
+        """Fail when one plane reports passed=False."""
+        tests = {name: {"passed": True} for name in REQUIRED_MUTUAL_TLS_TESTS}
+        tests["north_south_mtls_enforced"] = {
+            "passed": False,
+            "error": "anonymous client accepted on edge.example.com:443",
+        }
+        result = MutualTlsCheck(config=_mutual_tls_config(tests)).execute()
+
+        assert result["passed"] is False
+        assert "north_south_mtls_enforced" in result["error"]
+
+    def test_provider_hidden_east_west_noted_in_pass_message(self) -> None:
+        """Pass notes provider-hidden planes when present."""
+        tests = {
+            "north_south_mtls_enforced": {"passed": True},
+            "east_west_mtls_enforced": {
+                "passed": True,
+                "provider_hidden": True,
+                "message": "no tenant east-west mTLS surface",
+            },
+        }
+        result = MutualTlsCheck(config=_mutual_tls_config(tests, endpoints_tested=1)).execute()
+
+        assert result["passed"] is True
+        assert "provider_hidden=east_west_mtls_enforced" in result["output"]
+
+    def test_zero_endpoints_tested_fails(self) -> None:
+        """Fail when endpoints_tested is non-positive."""
+        result = MutualTlsCheck(config=_mutual_tls_config(endpoints_tested=0)).execute()
+
+        assert result["passed"] is False
+        assert "endpoints_tested" in result["error"]
+
+    def test_skips_when_step_marks_skipped(self) -> None:
+        """pytest.skip when the step emits a structured skip."""
+        step_output = {
+            "success": True,
+            "skipped": True,
+            "skip_reason": "No SEC13-01 endpoints configured",
+        }
+        with pytest.raises(pytest.skip.Exception, match="No SEC13-01 endpoints configured"):
+            MutualTlsCheck(config={"step_output": step_output}).execute()

@@ -91,6 +91,17 @@ commands:
         args: ["--region", "{{region}}"]
         timeout: 60
 
+      - name: mutual_tls_test
+        phase: test
+        command: "python ../../shared/mutual_tls_test.py"
+        args:
+          - "--north-south-endpoints={{mutual_tls_north_south_endpoints}}"
+          - "--east-west-endpoints={{mutual_tls_east_west_endpoints}}"
+          - "--ca-cert={{mutual_tls_ca_cert}}"
+          - "--client-cert={{mutual_tls_client_cert}}"
+          - "--client-key={{mutual_tls_client_key}}"
+        timeout: 60
+
       - name: insecure_protocols_test
         phase: test
         command: "python ../../shared/insecure_protocols_test.py"
@@ -208,6 +219,11 @@ tests:
   settings:
     region: "my-isv-region-1"
     insecure_protocols_endpoints: "{{env.EDGE_ENDPOINTS | default('', true)}}"
+    mutual_tls_north_south_endpoints: "{{env.EDGE_ENDPOINTS | default('', true)}}"
+    mutual_tls_east_west_endpoints: "{{env.EAST_WEST_ENDPOINTS | default('', true)}}"
+    mutual_tls_ca_cert: "{{env.MTLS_CA_CERT_PATH | default('', true)}}"
+    mutual_tls_client_cert: "{{env.MTLS_CLIENT_CERT_PATH | default('', true)}}"
+    mutual_tls_client_key: "{{env.MTLS_CLIENT_KEY_PATH | default('', true)}}"
     tenant_id: "{{env.MY_ISV_TENANT_ID | default('demo-tenant', true)}}"
     reservation_id: "demo-capacity-reservation"
     reservation_count: 2

@@ -195,6 +195,8 @@ Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job schedul
 | `bmc_protocol_security` | test | `providers/my-isv/scripts/security/bmc_protocol_security_test.py` | CNP10-01: IPMI disabled; Redfish over TLS with AAA |
 | `bmc_bastion_access` | test | `providers/my-isv/scripts/security/bmc_bastion_access_test.py` | SEC12-03: BMC reachable only through a hardened bastion |
 | `api_endpoint_isolation` | test | `providers/my-isv/scripts/security/api_endpoint_test.py` | API endpoints not publicly accessible |
+| `mutual_tls_test` | test | `providers/shared/mutual_tls_test.py` | SEC13-01: mTLS (or equivalent) for north-south and east-west traffic |
+| `insecure_protocols_test` | test | `providers/shared/insecure_protocols_test.py` | SEC13-02: insecure protocols (HTTP, SSLv3, TLSv1) disabled |
 | `mfa_enforcement` | test | `providers/my-isv/scripts/security/mfa_enforcement_test.py` | Administrative UI, CLI, and API access require MFA |
 | `cert_rotation_test` | test | `providers/my-isv/scripts/security/cert_rotation_test.py` | SEC09-01: TLS certificate rotation cycle or auto-renewal |
 | `kms_encryption_options_test` | test | `providers/my-isv/scripts/security/kms_encryption_options_test.py` | SEC09-02: Provider-managed and customer-managed KMS options |

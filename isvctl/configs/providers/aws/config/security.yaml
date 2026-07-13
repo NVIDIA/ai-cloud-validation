@@ -31,13 +31,14 @@
 #   3. BMC Protocol Security   - Verify CNP10-01 BMC protocol posture
 #   4. BMC Bastion Access      - Verify BMC reachable only via hardened bastion
 #   5. API Endpoint Isolation  - Verify management APIs are not publicly exposed
-#   6. Insecure Protocols     - Verify SSLv3/TLS1.0/TLS1.1/plain HTTP disabled (SEC13-02)
-#   7. MFA Enforcement         - Verify admin interfaces (UI, CLI, API) require MFA
-#   8. Cert Rotation Cycle     - Verify cert rotation cycle / auto-renewal (SEC09-01)
-#   9. KMS Options             - Verify provider- and customer-managed keys (SEC09-02)
-#  10. Centralized KMS         - Verify encrypted resources resolve to KMS (SEC09-03)
-#  11. Customer Managed Key    - Verify customer-managed key encryption (SEC09-04)
-#  12. Least Privilege         - Verify scoped user/resource/network policies (SEC04-01/02)
+#   6. Mutual TLS              - Verify mTLS north-south/east-west (SEC13-01)
+#   7. Insecure Protocols     - Verify SSLv3/TLS1.0/TLS1.1/plain HTTP disabled (SEC13-02)
+#   8. MFA Enforcement         - Verify admin interfaces (UI, CLI, API) require MFA
+#   9. Cert Rotation Cycle     - Verify cert rotation cycle / auto-renewal (SEC09-01)
+#  10. KMS Options             - Verify provider- and customer-managed keys (SEC09-02)
+#  11. Centralized KMS         - Verify encrypted resources resolve to KMS (SEC09-03)
+#  12. Customer Managed Key    - Verify customer-managed key encryption (SEC09-04)
+#  13. Least Privilege         - Verify scoped user/resource/network policies (SEC04-01/02)
 #  13. Audit Logging           - Verify management-event logging and retention (SEC08-01/02)
 #  14. SA Credential Auth      - Verify IAM user + long-lived access key auth
 #  15. OIDC User Auth          - Probe configured OIDC-protected platform endpoint (SEC01-01)
@@ -105,7 +106,17 @@ commands:
         args: ["--region", "{{region}}"]
         timeout: 60
 
-      # Test 6: Insecure Protocols (SEC13-02)
+      # Test 6a: Mutual TLS (SEC13-01)
+      # Probes EDGE_ENDPOINTS / EAST_WEST_ENDPOINTS with MTLS_* cert material.
+      # Without endpoints the script emits a structured skip. East-west is
+      # provider-hidden on AWS unless EAST_WEST_ENDPOINTS is set.
+      - name: mutual_tls_test
+        phase: test
+        command: "python3 ../scripts/security/mutual_tls_test.py"
+        args: ["--region", "{{region}}"]
+        timeout: 120
+
+      # Test 6b: Insecure Protocols (SEC13-02)
       # Provisions a temporary TLS-only ALB fixture, probes it for legacy
       # protocol refusal, then tears it down. When the orchestrator principal
       # lacks fixture permissions the script emits a structured skip.
