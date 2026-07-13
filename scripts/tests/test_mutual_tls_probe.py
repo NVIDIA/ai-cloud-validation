@@ -45,12 +45,8 @@ def test_parse_endpoints_accepts_host_port_list() -> None:
 
 def test_parse_endpoints_rejects_missing_port() -> None:
     """Endpoints without a port raise ValueError."""
-    try:
+    with pytest.raises(ValueError, match="host:port"):
         probe._parse_endpoints("edge.example")
-    except ValueError as exc:
-        assert "host:port" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
 
 
 def test_demo_result_emits_both_planes() -> None:
@@ -103,9 +99,8 @@ def test_run_with_provider_hidden_east_west_and_probed_north_south(tmp_path: Pat
         host: str,
         port: int,
         *,
-        ca_cert: Path,
-        client_cert: Path,
-        client_key: Path,
+        anonymous_context: ssl.SSLContext,
+        authenticated_context: ssl.SSLContext,
         timeout: float,
         plane: str,
     ) -> dict[str, Any]:
@@ -119,7 +114,10 @@ def test_run_with_provider_hidden_east_west_and_probed_north_south(tmp_path: Pat
             "detail": {},
         }
 
-    with patch.object(probe, "probe_mtls_endpoint", side_effect=fake_probe):
+    with (
+        patch.object(probe, "_ssl_context", return_value=MagicMock()),
+        patch.object(probe, "probe_mtls_endpoint", side_effect=fake_probe),
+    ):
         result = probe.run_mutual_tls_probe(
             north_south_endpoints=[("edge.example", 443)],
             east_west_endpoints=[],

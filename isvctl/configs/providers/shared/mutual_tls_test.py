@@ -134,7 +134,7 @@ def _handshake(
     timeout: float,
 ) -> dict[str, Any]:
     """Attempt a TLS handshake and return accepted/rejected classification."""
-    result: dict[str, Any] = {"host": host, "port": port}
+    result: dict[str, Any] = {}
     try:
         with socket.create_connection((host, port), timeout=timeout) as raw:
             raw.settimeout(timeout)
@@ -145,7 +145,7 @@ def _handshake(
     except ssl.SSLError as exc:
         result.update(accepted=False, detail=f"SSLError: {exc}")
         return result
-    except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError, TimeoutError, OSError) as exc:
+    except OSError as exc:
         result.update(accepted=False, detail=f"{type(exc).__name__}: {exc}")
         return result
 
@@ -154,20 +154,14 @@ def probe_mtls_endpoint(
     host: str,
     port: int,
     *,
-    ca_cert: Path,
-    client_cert: Path,
-    client_key: Path,
+    anonymous_context: ssl.SSLContext,
+    authenticated_context: ssl.SSLContext,
     timeout: float,
     plane: str,
 ) -> dict[str, Any]:
     """Probe one endpoint: anonymous client rejected, authenticated client accepted."""
-    anonymous = _handshake(host, port, _ssl_context(ca_cert=ca_cert), timeout)
-    authenticated = _handshake(
-        host,
-        port,
-        _ssl_context(ca_cert=ca_cert, client_cert=client_cert, client_key=client_key),
-        timeout,
-    )
+    anonymous = _handshake(host, port, anonymous_context, timeout)
+    authenticated = _handshake(host, port, authenticated_context, timeout)
     anonymous_rejected = anonymous.get("accepted") is not True
     authenticated_accepted = authenticated.get("accepted") is True
     passed = anonymous_rejected and authenticated_accepted
@@ -191,9 +185,8 @@ def _aggregate_plane(
     endpoints: list[tuple[str, int]],
     *,
     plane: str,
-    ca_cert: Path,
-    client_cert: Path,
-    client_key: Path,
+    anonymous_context: ssl.SSLContext,
+    authenticated_context: ssl.SSLContext,
     timeout: float,
 ) -> dict[str, Any]:
     """Probe all endpoints for one traffic plane and aggregate pass/fail."""
@@ -201,9 +194,8 @@ def _aggregate_plane(
         probe_mtls_endpoint(
             host,
             port,
-            ca_cert=ca_cert,
-            client_cert=client_cert,
-            client_key=client_key,
+            anonymous_context=anonymous_context,
+            authenticated_context=authenticated_context,
             timeout=timeout,
             plane=plane,
         )
@@ -226,6 +218,18 @@ def _provider_hidden_plane(plane: str, message: str) -> dict[str, Any]:
         "provider_hidden": True,
         "message": message,
         "probes": [{"plane": plane, "provider_hidden": True}],
+    }
+
+
+def _bad_input_result(error: str) -> dict[str, Any]:
+    """Return the failing bad_input contract with the error on every test."""
+    return {
+        "success": False,
+        "platform": "security",
+        "test_name": "mutual_tls",
+        "error": error,
+        "error_type": "bad_input",
+        "tests": {name: {"passed": False, "error": error} for name in REQUIRED_TESTS},
     }
 
 
@@ -262,7 +266,8 @@ def run_mutual_tls_probe(
     east_west_provider_hidden_message: str | None = None,
 ) -> dict[str, Any]:
     """Build the SEC13-01 JSON contract for the given endpoint/cert inputs."""
-    if not north_south_endpoints and not east_west_endpoints and not east_west_provider_hidden_message:
+    # Pure provider-hidden with nothing probed is not evidence — skip instead.
+    if not north_south_endpoints and not east_west_endpoints:
         return {
             "success": True,
             "platform": "security",
@@ -275,82 +280,49 @@ def run_mutual_tls_probe(
             ),
         }
 
-    if (north_south_endpoints or east_west_endpoints) and not (ca_cert and client_cert and client_key):
-        error = (
+    if not (ca_cert and client_cert and client_key):
+        return _bad_input_result(
             "mTLS probe requires --ca-cert, --client-cert, and --client-key "
             "(or MTLS_CA_CERT_PATH / MTLS_CLIENT_CERT_PATH / MTLS_CLIENT_KEY_PATH)"
         )
-        return {
-            "success": False,
-            "platform": "security",
-            "test_name": "mutual_tls",
-            "error": error,
-            "error_type": "bad_input",
-            "tests": {name: {"passed": False, "error": error} for name in REQUIRED_TESTS},
-        }
 
-    tests: dict[str, Any] = {}
-    endpoints_tested = 0
+    anonymous_context = _ssl_context(ca_cert=ca_cert)
+    authenticated_context = _ssl_context(ca_cert=ca_cert, client_cert=client_cert, client_key=client_key)
 
-    if north_south_endpoints:
-        assert ca_cert and client_cert and client_key
-        tests["north_south_mtls_enforced"] = _aggregate_plane(
-            north_south_endpoints,
-            plane="north_south",
-            ca_cert=ca_cert,
-            client_cert=client_cert,
-            client_key=client_key,
-            timeout=timeout,
-        )
-        endpoints_tested += len(north_south_endpoints)
-    else:
-        tests["north_south_mtls_enforced"] = _provider_hidden_plane(
+    planes = [
+        (
+            "north_south_mtls_enforced",
             "north_south",
+            north_south_endpoints,
             "north_south_mtls_enforced: no north-south endpoints configured for this run",
-        )
-
-    if east_west_endpoints:
-        assert ca_cert and client_cert and client_key
-        tests["east_west_mtls_enforced"] = _aggregate_plane(
+        ),
+        (
+            "east_west_mtls_enforced",
+            "east_west",
             east_west_endpoints,
-            plane="east_west",
-            ca_cert=ca_cert,
-            client_cert=client_cert,
-            client_key=client_key,
-            timeout=timeout,
-        )
-        endpoints_tested += len(east_west_endpoints)
-    elif east_west_provider_hidden_message:
-        tests["east_west_mtls_enforced"] = _provider_hidden_plane(
-            "east_west",
-            east_west_provider_hidden_message,
-        )
-    else:
-        tests["east_west_mtls_enforced"] = _provider_hidden_plane(
-            "east_west",
-            "east_west_mtls_enforced: no east-west endpoints configured for this run",
-        )
-
-    # Pure provider-hidden with nothing probed is not evidence — skip instead.
-    if endpoints_tested < 1:
-        return {
-            "success": True,
-            "platform": "security",
-            "test_name": "mutual_tls",
-            "skipped": True,
-            "skip_reason": (
-                "No SEC13-01 endpoints configured "
-                "(set EDGE_ENDPOINTS and/or EAST_WEST_ENDPOINTS with MTLS_CA_CERT_PATH, "
-                "MTLS_CLIENT_CERT_PATH, MTLS_CLIENT_KEY_PATH)"
-            ),
-        }
+            east_west_provider_hidden_message
+            or "east_west_mtls_enforced: no east-west endpoints configured for this run",
+        ),
+    ]
+    tests: dict[str, Any] = {}
+    for name, plane, endpoints, hidden_message in planes:
+        if endpoints:
+            tests[name] = _aggregate_plane(
+                endpoints,
+                plane=plane,
+                anonymous_context=anonymous_context,
+                authenticated_context=authenticated_context,
+                timeout=timeout,
+            )
+        else:
+            tests[name] = _provider_hidden_plane(plane, hidden_message)
 
     success = all(tests[name].get("passed") is True for name in REQUIRED_TESTS)
     return {
         "success": success,
         "platform": "security",
         "test_name": "mutual_tls",
-        "endpoints_tested": endpoints_tested,
+        "endpoints_tested": len(north_south_endpoints) + len(east_west_endpoints),
         "tests": tests,
     }
 
@@ -404,15 +376,7 @@ def main() -> int:
         client_cert = _require_file(args.client_cert, "Client cert") if args.client_cert else None
         client_key = _require_file(args.client_key, "Client key") if args.client_key else None
     except ValueError as exc:
-        result = {
-            "success": False,
-            "platform": "security",
-            "test_name": "mutual_tls",
-            "error": str(exc),
-            "error_type": "bad_input",
-            "tests": {name: {"passed": False, "error": str(exc)} for name in REQUIRED_TESTS},
-        }
-        print(json.dumps(result, indent=2))
+        print(json.dumps(_bad_input_result(str(exc)), indent=2))
         return 1
 
     result = run_mutual_tls_probe(
@@ -425,8 +389,6 @@ def main() -> int:
         east_west_provider_hidden_message=args.east_west_provider_hidden_message or None,
     )
     print(json.dumps(result, indent=2))
-    if result.get("skipped") is True:
-        return 0
     return 0 if result.get("success") is True else 1
 
 

@@ -261,13 +261,6 @@ def _launch_instance(ec2: Any, tenant: Tenant, ami_id: str) -> None:
     )
     tenant.instance_id = response["Instances"][0]["InstanceId"]
     tenant.created["instance"] = True
-    # Wait until running before returning. Teardown may terminate immediately
-    # after probes; boto3's InstanceTerminated waiter treats ``pending`` as a
-    # terminal failure, so leaving the instance booting races cleanup.
-    ec2.get_waiter("instance_running").wait(
-        InstanceIds=[tenant.instance_id],
-        WaiterConfig={"Delay": 5, "MaxAttempts": 60},
-    )
 
 
 def _wait_instance_terminated(
@@ -296,7 +289,8 @@ def _wait_instance_terminated(
             for reservation in response.get("Reservations", [])
             for instance in reservation.get("Instances", [])
         ]
-        if not states or all(state == "terminated" for state in states):
+        # all() on an empty list is True: no reservations means already gone.
+        if all(state == "terminated" for state in states):
             return
         time.sleep(delay)
     msg = f"instance {instance_id} did not reach terminated within {delay * max_attempts:.0f}s"
@@ -897,8 +891,8 @@ def main() -> int:
             result["success"] = all(t.get("passed") for t in result["tests"].values())
     except (ClientError, WaiterError, BotoCoreError) as exc:
         # Capture the FIRST error before cleanup runs, otherwise a downstream
-        # WaiterError from terminating a still-pending instance would mask
-        # the real cause (IAM limit, VPC limit, ResourceLimitExceeded, ...).
+        # cleanup error would mask the real cause (IAM limit, VPC limit,
+        # ResourceLimitExceeded, ...).
         error_type, error_msg = classify_aws_error(exc)
         result["error"] = f"[{error_type}] {error_msg}"
         result["success"] = False
