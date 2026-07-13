@@ -44,9 +44,15 @@
 #   - query_sanitization.py maps each machine's status + statusHistory into a
 #     neutral lifecycle token sequence; MemorySanitizationCheck (SEC21-04),
 #     GpuMemorySanitizationCheck (SEC21-05), FirmwareResetCheck (SEC21-06/SEC22),
-#     and DiskSanitizationCheck (SEC21-02) assert hosts are sanitized between
-#     tenants. The same Reset stage performs the NVMe/HDD secure erase, so the
-#     disk check gates on the same lifecycle signal as the memory check.
+#     DiskSanitizationCheck (SEC21-02), and SkipSanitizationBreakfixCheck
+#     (STG02-01) assert hosts are sanitized between tenants and that optional
+#     maintenance skips preserve tenancy. The same Reset stage performs the
+#     NVMe/HDD secure erase, so the disk check gates on the same lifecycle signal.
+#   - query_stable_ips.py reads machineInterfaces[].ipAddresses; StableStorageNodeIpCheck
+#     (STG03-01) asserts static admin IPs are queryable per host.
+#   - query_oob_health.py maps BMC health probes into STG04 failure-category
+#     observability; OobFailureDetectionCheck (STG04-01) asserts out-of-band
+#     failure detection is exposed via the per-host health API.
 #   - query_attestation.py maps control-plane SPDM and measured-boot status from
 #     nico-admin-cli into the provider-neutral attestation contract (SEC22-01 /
 #     CNP09-02). It requires operator/admin CLI credentials in addition to the
@@ -244,6 +250,40 @@ commands:
         phase: test
         continue_on_failure: true
         command: "python ../scripts/topology/query_topology.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Query Stable Admin IPs (STG03-01) ─────────────────────────
+      # Reads each machine's machineInterfaces[].ipAddresses (primary
+      # interface first) so StableStorageNodeIpCheck can assert static admin
+      # IPs are queryable across lifecycle operations.
+      - name: query_stable_ips
+        phase: test
+        continue_on_failure: true
+        command: "python ../scripts/storage/query_stable_ips.py"
+        args:
+          - "--org"
+          - "{{org}}"
+          - "--site-id"
+          - "{{site_id}}"
+          - "--api-base"
+          - "{{nico_api_base}}"
+        timeout: 120
+
+      # ─── Query Out-of-Band Failure Detection (STG04-01) ────────────
+      # Maps each machine's BMC health probes into STG04 failure-category
+      # observability (device / network / memory / drive). OobFailureDetectionCheck
+      # asserts the OOB health API is present and exposes BMC sensor coverage.
+      - name: query_oob_health
+        phase: test
+        continue_on_failure: true
+        command: "python ../scripts/health/query_oob_health.py"
         args:
           - "--org"
           - "{{org}}"

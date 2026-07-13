@@ -123,6 +123,7 @@ from isvtest.validations.sanitization import (
     FirmwareResetCheck,
     GpuMemorySanitizationCheck,
     MemorySanitizationCheck,
+    SkipSanitizationBreakfixCheck,
 )
 from isvtest.validations.security import (
     ApiEndpointIsolationCheck,
@@ -146,6 +147,10 @@ from isvtest.validations.security import (
     ShortLivedCredentialsCheck,
     TenantIsolationCheck,
     VirtualDeviceHardeningCheck,
+)
+from isvtest.validations.storage_infra import (
+    OobFailureDetectionCheck,
+    StableStorageNodeIpCheck,
 )
 
 __all__ = [
@@ -212,6 +217,7 @@ __all__ = [
     "NonceAttestationCheck",
     "NvlinkDomainCheck",
     "OidcUserAuthCheck",
+    "OobFailureDetectionCheck",
     "PerformanceCheck",
     "SchemaValidation",
     "SdnFilterAuditTrailCheck",
@@ -227,8 +233,10 @@ __all__ = [
     "SgSubnetScopingCheck",
     "SgWorkloadScopingCheck",
     "ShortLivedCredentialsCheck",
+    "SkipSanitizationBreakfixCheck",
     "StableIdentifierCheck",
     "StablePrivateIpCheck",
+    "StableStorageNodeIpCheck",
     "StepSuccessCheck",
     "StorageL3RoutingCheck",
     "SubnetConfigCheck",

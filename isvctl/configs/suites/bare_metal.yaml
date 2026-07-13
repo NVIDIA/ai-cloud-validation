@@ -599,6 +599,39 @@ tests:
           labels: ["bare_metal", "sds_controller", "min_req"]
           min_failure_domains: 1
 
+    # Break/fix skip-sanitization policy (STG02-01). Extends the SEC21
+    # tenant-transition audit: a host may skip the sanitizing (Reset) stage when
+    # it enters maintenance while still serving the same tenant. Tenant releases
+    # must still pass through sanitizing before returning to the pool. Only runs
+    # for providers that implement the query_sanitization step.
+    breakfix_skip_sanitization:
+      step: query_sanitization
+      checks:
+        SkipSanitizationBreakfixCheck:
+          test_id: "STG02-01"
+          labels: ["bare_metal", "min_req", "sanitization", "sds_controller"]
+
+    # Stable admin IP observability (STG03-01). Asserts each host reports at
+    # least one IP on its primary machineInterfaces entry so storage nodes have
+    # queryable static addressing across lifecycle operations. Only runs for
+    # providers that implement the query_stable_ips step.
+    stable_storage_ips:
+      step: query_stable_ips
+      checks:
+        StableStorageNodeIpCheck:
+          test_id: "STG03-01"
+          labels: ["bare_metal", "min_req", "network", "sds_controller"]
+
+    # Out-of-band failure detection (STG04-01). Asserts the per-host health API
+    # exposes BMC/out-of-band probes covering device failures at minimum. Only
+    # runs for providers that implement the query_oob_health step.
+    oob_failure_detection:
+      step: query_oob_health
+      checks:
+        OobFailureDetectionCheck:
+          test_id: "STG04-01"
+          labels: ["bare_metal", "health", "min_req", "sds_controller"]
+
     # Hardware/firmware attestation (SEC22 / CNP09). Each check asserts a host
     # establishes a hardware root of trust. Only runs for providers that
     # implement the query_attestation step.

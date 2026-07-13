@@ -39,8 +39,10 @@ from isvtest.validations.sanitization import (
     DiskSanitizationCheck,
     GpuMemorySanitizationCheck,
     MemorySanitizationCheck,
+    SkipSanitizationBreakfixCheck,
 )
 from isvtest.validations.topology import FailureDomainObservabilityCheck
+from isvtest.validations.storage_infra import OobFailureDetectionCheck, StableStorageNodeIpCheck
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
@@ -354,6 +356,8 @@ def test_forge_get_uses_configured_api_name(
         "query_ib_tenant_isolation",
         "query_ib_keys",
         "query_sanitization",
+        "query_stable_ips",
+        "query_oob_health",
     ],
 )
 def test_nico_bare_metal_config_exposes_api_base_setting(step_name: str) -> None:
@@ -1003,6 +1007,8 @@ def test_nico_network_inventory_scripts_skip_when_site_has_no_network_inventory(
         ("query_ib_tenant_isolation.py", _load_ib_tenant_isolation_script),
         ("query_ib_keys.py", _load_ib_keys_script),
         ("query_sanitization.py", _load_sanitization_script),
+        ("query_stable_ips.py", lambda: _load_nico_script("storage/query_stable_ips.py", "test_query_stable_ips_api")),
+        ("query_oob_health.py", lambda: _load_nico_script("health/query_oob_health.py", "test_query_oob_health_api")),
     ],
 )
 def test_nico_scripts_require_api_base(
@@ -2595,6 +2601,225 @@ def test_sanitization_script_output_satisfies_disk_check(
     assert "without sanitization" in sub["message"]
 
 
+def test_sanitization_breakfix_skip_detection(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """InUse -> Maintenance -> InUse without Reset is a tenancy-preserving skip."""
+    machine = _sanitization_machine(
+        status="InUse",
+        history_statuses=["Ready", "InUse", "Maintenance", "InUse"],
+        instance_id="59bdaaff-3998-4fd9-a140-8749beeb605e",
+        is_usable=False,
+    )
+    payload = _run_sanitization(monkeypatch, capsys, [machine])
+
+    record = payload["machines"][0]
+    assert record["breakfix_skip_observed"] is True
+    assert record["tenancy_preserved"] is True
+    assert record["instance_bound"] is True
+
+
+def test_sanitization_breakfix_skip_output_satisfies_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: valid maintenance skip passes; unsanitized tenant release fails."""
+    good = _run_sanitization(
+        monkeypatch,
+        capsys,
+        [
+            _sanitization_machine(
+                status="InUse",
+                history_statuses=["Ready", "InUse", "Maintenance", "InUse"],
+                instance_id="59bdaaff-3998-4fd9-a140-8749beeb605e",
+                is_usable=False,
+            )
+        ],
+    )
+    check = SkipSanitizationBreakfixCheck(config={"step_output": good})
+    check.run()
+    assert check._passed is True, check._error
+    assert "maintenance skip" in check._output
+
+    dirty = _run_sanitization(monkeypatch, capsys, [_sanitization_machine(history_statuses=["InUse", "Ready"])])
+    bad = SkipSanitizationBreakfixCheck(config={"step_output": dirty})
+    bad.run()
+    assert bad._passed is False
+
+
+# ---------------------------------------------------------------------------
+# query_stable_ips (STG03-01) script
+# ---------------------------------------------------------------------------
+
+
+def _load_stable_ips_script() -> ModuleType:
+    """Load the query_stable_ips script as a module for direct unit testing."""
+    return _load_nico_script("storage/query_stable_ips.py", "test_query_stable_ips")
+
+
+def _stable_ip_machine(
+    machine_id: str = "m-1",
+    *,
+    hw_sku_device_type: str = "storage",
+    interfaces: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a raw NICo machine payload with admin interface IPs."""
+    if interfaces is None:
+        interfaces = [
+            {
+                "id": "iface-1",
+                "isPrimary": True,
+                "ipAddresses": ["192.156.7.23", "202.88.37.112"],
+                "macAddress": "00:00:5e:00:53:af",
+            }
+        ]
+    return {
+        "id": machine_id,
+        "hwSkuDeviceType": hw_sku_device_type,
+        "machineInterfaces": interfaces,
+    }
+
+
+def _run_stable_ips(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    machines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Drive the stable IP script with mocked auth/API and return its JSON output."""
+    module = _load_stable_ips_script()
+    return _run_script(module, monkeypatch, capsys, script_name="query_stable_ips.py", machines=machines)
+
+
+def test_stable_ips_script_reports_primary_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Primary interface IPs are emitted in provider-neutral form."""
+    payload = _run_stable_ips(monkeypatch, capsys, [_stable_ip_machine()])
+
+    assert payload["success"] is True
+    host = payload["hosts"][0]
+    assert host["has_stable_ip"] is True
+    assert host["primary_ip_addresses"] == ["192.156.7.23", "202.88.37.112"]
+
+
+def test_stable_ips_script_empty_site_skips(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A site with no machines emits a structured skip."""
+    payload = _run_stable_ips(monkeypatch, capsys, [])
+
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert "No machines found" in payload["skip_reason"]
+
+
+def test_stable_ips_script_output_satisfies_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: hosts with IPs pass; a host with no IPs fails."""
+    good = _run_stable_ips(monkeypatch, capsys, [_stable_ip_machine()])
+    check = StableStorageNodeIpCheck(config={"step_output": good})
+    check.run()
+    assert check._passed is True, check._error
+
+    no_ip = _stable_ip_machine(interfaces=[{"id": "iface-1", "isPrimary": True, "ipAddresses": []}])
+    bad_payload = _run_stable_ips(monkeypatch, capsys, [no_ip])
+    bad = StableStorageNodeIpCheck(config={"step_output": bad_payload})
+    bad.run()
+    assert bad._passed is False
+    assert "m-1" in bad._error
+
+
+# ---------------------------------------------------------------------------
+# query_oob_health (STG04-01) script
+# ---------------------------------------------------------------------------
+
+
+def _load_oob_health_script() -> ModuleType:
+    """Load the query_oob_health script as a module for direct unit testing."""
+    return _load_nico_script("health/query_oob_health.py", "test_query_oob_health")
+
+
+def _oob_machine(
+    machine_id: str = "m-1",
+    *,
+    successes: list[dict[str, Any]] | None = None,
+    alerts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a raw NICo machine payload with BMC health probes."""
+    if successes is None:
+        successes = [
+            {"id": "BmcSensor", "target": "CPU1 Temp", "message": "temperature"},
+            {"id": "BmcSensor", "target": "PS1 Status", "message": "power_supply"},
+        ]
+    return {
+        "id": machine_id,
+        "health": {
+            "source": "aggregate-host-health",
+            "observedAt": "2026-07-13T12:00:00Z",
+            "successes": successes,
+            "alerts": alerts or [],
+        },
+    }
+
+
+def _run_oob_health(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    machines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Drive the OOB health script with mocked auth/API and return its JSON output."""
+    module = _load_oob_health_script()
+    return _run_script(module, monkeypatch, capsys, script_name="query_oob_health.py", machines=machines)
+
+
+def test_oob_health_script_maps_bmc_categories(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """BMC sensor probes surface device-category observability."""
+    payload = _run_oob_health(monkeypatch, capsys, [_oob_machine()])
+
+    host = payload["hosts"][0]
+    assert host["oob_health_present"] is True
+    assert "BmcSensor" in host["bmc_probe_ids"]
+    assert host["failure_categories"]["device"]["observable"] is True
+
+
+def test_oob_health_script_empty_site_skips(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A site with no machines emits a structured skip."""
+    payload = _run_oob_health(monkeypatch, capsys, [])
+
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert "No machines found" in payload["skip_reason"]
+
+
+def test_oob_health_script_output_satisfies_check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: BMC coverage passes; missing BmcSensor fails."""
+    good = _run_oob_health(monkeypatch, capsys, [_oob_machine()])
+    check = OobFailureDetectionCheck(config={"step_output": good})
+    check.run()
+    assert check._passed is True, check._error
+
+    no_bmc = _oob_machine(successes=[{"id": "BgpDaemonEnabled", "target": None}])
+    bad_payload = _run_oob_health(monkeypatch, capsys, [no_bmc])
+    bad = OobFailureDetectionCheck(config={"step_output": bad_payload})
+    bad.run()
+    assert bad._passed is False
+    assert "BmcSensor" in bad._error
+
+
 # ---------------------------------------------------------------------------
 # query_serial_numbers (BFX03-01) script
 # ---------------------------------------------------------------------------
@@ -2805,3 +3030,4 @@ def test_topology_script_output_satisfies_check(
     bad.run()
     assert bad._passed is False
     assert "m-1" in bad._error
+
