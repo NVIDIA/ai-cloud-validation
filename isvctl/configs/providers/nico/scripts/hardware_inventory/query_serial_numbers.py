@@ -97,22 +97,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common.nico_client import NicoAuthError, forge_get_all, resolve_auth
 
-# The component classes BFX03-01 enumerates, in a stable report order.
-COMPONENT_ORDER = ("chassis", "baseboard", "cpu", "gpu", "nic")
-
-
-def _clean(value: Any) -> str:
-    """Return a stripped string identifier, or an empty string for null/blank."""
-    if not isinstance(value, str):
-        return ""
-    return value.strip()
-
 
 def _dedupe(identifiers: list[str]) -> list[str]:
-    """Drop blanks and duplicates while preserving first-seen order."""
+    """Drop non-string/blank values and duplicates while preserving first-seen order."""
     seen: dict[str, None] = {}
     for identifier in identifiers:
-        cleaned = _clean(identifier)
+        cleaned = identifier.strip() if isinstance(identifier, str) else ""
         if cleaned and cleaned not in seen:
             seen[cleaned] = None
     return list(seen)
@@ -140,8 +130,9 @@ def machine_serials(machine: dict[str, Any]) -> dict[str, Any]:
     ib_nics = metadata.get("infinibandInterfaces") or []
     capabilities = [c for c in (machine.get("machineCapabilities") or []) if isinstance(c, dict)]
 
-    # Chassis: DMI chassis serial, falling back to the provider-visible machine
-    # serial number when DMI did not populate a distinct chassis serial.
+    # Chassis: both the DMI chassis serial and the provider-visible machine
+    # serial number are stable chassis identifiers; reporting both keeps the
+    # component queryable when DMI leaves chassisSerial blank.
     chassis_ids = [dmi.get("chassisSerial"), machine.get("serialNumber")]
 
     cpu_ids = [c.get("name") for c in capabilities if c.get("type") == "CPU"]
@@ -158,17 +149,15 @@ def machine_serials(machine: dict[str, Any]) -> dict[str, Any]:
     # Chassis, baseboard, CPU, and NIC exist on every physical host, so they are
     # always present: the check then requires each to expose a stable identifier.
     # GPU presence is conditional on the host actually having accelerators.
-    components = {
-        "chassis": _component(present=True, identifiers=chassis_ids),
-        "baseboard": _component(present=True, identifiers=[dmi.get("boardSerial")]),
-        "cpu": _component(present=True, identifiers=cpu_ids),
-        "gpu": _component(present=gpu_present, identifiers=gpu_ids),
-        "nic": _component(present=True, identifiers=nic_ids),
-    }
-
     return {
         "machine_id": machine.get("id", ""),
-        "components": {name: components[name] for name in COMPONENT_ORDER},
+        "components": {
+            "chassis": _component(present=True, identifiers=chassis_ids),
+            "baseboard": _component(present=True, identifiers=[dmi.get("boardSerial")]),
+            "cpu": _component(present=True, identifiers=cpu_ids),
+            "gpu": _component(present=gpu_present, identifiers=gpu_ids),
+            "nic": _component(present=True, identifiers=nic_ids),
+        },
     }
 
 

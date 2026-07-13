@@ -225,7 +225,10 @@ class HardwareSerialCheck(BaseValidation):
             self.set_failed("Serial-number step output is missing the 'machines' list")
             return
 
-        min_machines = self.config.get("min_machines", 1)
+        min_machines = self._parse_positive_int("min_machines", default=1)
+        if min_machines is None:
+            return
+
         if len(machines) < min_machines:
             self.set_failed(f"Expected at least {min_machines} machine(s) with hardware inventory, got {len(machines)}")
             return

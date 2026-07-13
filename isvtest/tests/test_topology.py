@@ -24,7 +24,7 @@ from isvtest.validations.topology import FailureDomainObservabilityCheck
 
 def _host(host_id: str, failure_domain: str) -> dict[str, Any]:
     """Build one per-host topology record."""
-    return {"host_id": host_id, "failure_domain": failure_domain, "observed": bool(failure_domain)}
+    return {"host_id": host_id, "failure_domain": failure_domain}
 
 
 def _topology_output(
@@ -41,7 +41,6 @@ def _topology_output(
         "platform": "nico",
         "site_id": "test-site-001",
         "hosts_checked": len(hosts),
-        "failure_domains": sorted({h["failure_domain"] for h in hosts if h["failure_domain"]}),
         "hosts": hosts,
         "error": error,
     }

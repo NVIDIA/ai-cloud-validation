@@ -2759,22 +2759,19 @@ def test_topology_script_extracts_rack_identifier(
 
     assert payload["success"] is True
     assert payload["hosts_checked"] == 2
-    assert payload["failure_domains"] == ["rack-A", "rack-B"]
-    assert payload["hosts"][0] == {"host_id": "m-1", "failure_domain": "rack-A", "observed": True}
+    assert payload["hosts"][0] == {"host_id": "m-1", "failure_domain": "rack-A"}
+    assert payload["hosts"][1] == {"host_id": "m-2", "failure_domain": "rack-B"}
 
 
-def test_topology_script_unlabeled_host_is_unobserved(
+def test_topology_script_unlabeled_host_has_no_domain(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A machine with no rack label reports observed=false."""
+    """A machine with no rack label reports an empty failure domain."""
     machines = [_topology_api_machine("m-1", {})]
     payload = _run_topology(monkeypatch, capsys, machines)
 
-    host = payload["hosts"][0]
-    assert host["observed"] is False
-    assert host["failure_domain"] == ""
-    assert payload["failure_domains"] == []
+    assert payload["hosts"][0]["failure_domain"] == ""
 
 
 def test_topology_script_empty_site_skips(

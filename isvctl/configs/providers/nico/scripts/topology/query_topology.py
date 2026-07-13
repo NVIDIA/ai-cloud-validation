@@ -24,10 +24,10 @@ each ingested Machine carries its rack identity as a well-known label. That rack
 identifier is the provider-neutral failure domain.
 
 This script reads each machine's labels, extracts the rack/failure-domain
-identifier, and emits a provider-neutral per-host record plus the distinct set
-of failure domains at the site. ``FailureDomainObservabilityCheck`` then asserts
-the topology is observable (every host maps to a named failure domain) and that
-the site exposes enough distinct domains for the configured diversity floor.
+identifier, and emits a provider-neutral per-host record.
+``FailureDomainObservabilityCheck`` then asserts the topology is observable
+(every host maps to a named failure domain) and that the site exposes enough
+distinct domains for the configured diversity floor.
 
 NICo API endpoints used:
   GET /v2/org/{org}/carbide/machine?siteId={site_id}
@@ -43,9 +43,8 @@ Required JSON output fields:
     "platform": "nico",
     "site_id": "...",
     "hosts_checked": 2,
-    "failure_domains": ["GVX11F01C02", "GVX11F01C03"],
     "hosts": [
-      {"host_id": "...", "failure_domain": "GVX11F01C02", "observed": true}
+      {"host_id": "...", "failure_domain": "GVX11F01C02"}
     ]
   }
 
@@ -74,12 +73,13 @@ from typing import Any
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from common.inventory import first_string
 from common.nico_client import NicoAuthError, forge_get_all, resolve_auth
 
 # Machine label keys that carry the rack (failure-domain) identity, in priority
 # order. NICo populates ``RackIdentifier`` on ingested machines; expected-machine
-# manifests and some sites use the shorter ``rack`` label.
-RACK_LABEL_KEYS = ("RackIdentifier", "rack", "Rack", "rackId")
+# manifests use the shorter ``rack`` label.
+RACK_LABEL_KEYS = ("RackIdentifier", "rack")
 
 
 def failure_domain(machine: dict[str, Any]) -> str:
@@ -87,20 +87,14 @@ def failure_domain(machine: dict[str, Any]) -> str:
     labels = machine.get("labels") or {}
     if not isinstance(labels, dict):
         return ""
-    for key in RACK_LABEL_KEYS:
-        value = labels.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
+    return first_string(labels, *RACK_LABEL_KEYS)
 
 
 def host_record(machine: dict[str, Any]) -> dict[str, Any]:
     """Build the provider-neutral topology record for one NICo machine."""
-    domain = failure_domain(machine)
     return {
         "host_id": machine.get("id", ""),
-        "failure_domain": domain,
-        "observed": bool(domain),
+        "failure_domain": failure_domain(machine),
     }
 
 
@@ -117,7 +111,6 @@ def main() -> int:
         "platform": "nico",
         "site_id": args.site_id,
         "hosts_checked": 0,
-        "failure_domains": [],
         "hosts": [],
     }
 
@@ -140,10 +133,8 @@ def main() -> int:
             print(json.dumps(result, indent=2))
             return 0
 
-        hosts = [host_record(machine) for machine in machines]
-        result["hosts"] = hosts
-        result["hosts_checked"] = len(hosts)
-        result["failure_domains"] = sorted({h["failure_domain"] for h in hosts if h["failure_domain"]})
+        result["hosts"] = [host_record(machine) for machine in machines]
+        result["hosts_checked"] = len(result["hosts"])
         result["success"] = True
 
     except NicoAuthError as e:

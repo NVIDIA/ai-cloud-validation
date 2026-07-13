@@ -126,7 +126,7 @@ For the domain / script-count / AWS-reference overview see the
 | `query_sanitization` | test | `providers/nico/scripts/sanitization/query_sanitization.py` | `machines_checked`, `machines[].{available,in_use,has_gpu,served_tenant,sanitized,stale_tenant_binding,vendor,product_name,bios_version,transitions}` |
 | `query_attestation` | test | `providers/nico/scripts/attestation/query_attestation.py` | `machines_checked`, `machines[].{attestation_supported,nonce_verified,attestation_signature_valid,secure_boot_enabled,boot_measurements_attested,measured_boot_state}` |
 | `query_serial_numbers` | test | `providers/nico/scripts/hardware_inventory/query_serial_numbers.py` | `machines_checked`, `machines[].components.{chassis,baseboard,cpu,gpu,nic}.{present,identifiers}` |
-| `query_topology` | test | `providers/nico/scripts/topology/query_topology.py` | `hosts_checked`, `failure_domains`, `hosts[].{host_id,failure_domain,observed}` |
+| `query_topology` | test | `providers/nico/scripts/topology/query_topology.py` | `hosts_checked`, `hosts[].{host_id,failure_domain}` |
 
 ### Storage (`storage.yaml`)
 

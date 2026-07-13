@@ -55,11 +55,9 @@ class FailureDomainObservabilityCheck(BaseValidation):
         platform: str
         site_id: str
         hosts_checked: int
-        failure_domains: list[str] -- distinct domains observed
         hosts: list[dict]:
             host_id: str
             failure_domain: str -- rack/enclosure identifier ("" if unknown)
-            observed: bool -- a failure domain was reported for this host
     """
 
     description: ClassVar[str] = "Check failure-domain topology is observable for physical diversity"
@@ -78,21 +76,23 @@ class FailureDomainObservabilityCheck(BaseValidation):
             self.set_failed("Topology step output is missing the 'hosts' list")
             return
 
-        min_hosts = self.config.get("min_hosts", 1)
+        min_hosts = self._parse_positive_int("min_hosts", default=1)
+        min_failure_domains = self._parse_positive_int("min_failure_domains", default=1)
+        if min_hosts is None or min_failure_domains is None:
+            return
+
         if len(hosts) < min_hosts:
             self.set_failed(f"Expected at least {min_hosts} host(s) with topology data, got {len(hosts)}")
             return
 
         require_all_mapped = self.config.get("require_all_hosts_mapped", True)
-        min_failure_domains = self.config.get("min_failure_domains", 1)
 
         unmapped: list[str] = []
         domains: set[str] = set()
         for host in hosts:
             label = _host_label(host)
             domain = host.get("failure_domain") or ""
-            observed = bool(host.get("observed") and domain)
-            if observed:
+            if domain:
                 domains.add(domain)
                 self.report_subtest(f"failure_domain_{label}", passed=True, message=f"{label}: failure domain {domain}")
             else:
