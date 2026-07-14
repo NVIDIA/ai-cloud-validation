@@ -27,8 +27,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
-from urllib.parse import parse_qs
 from urllib.error import HTTPError
+from urllib.parse import parse_qs
 
 import pytest
 from isvtest.validations.attestation import FirmwareAttestationCheck, NonceAttestationCheck
