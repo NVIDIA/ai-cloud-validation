@@ -67,8 +67,6 @@ def _output(
         "platform": "nico",
         "site_id": "test-site-001",
         "specified_keys": specified_keys,
-        "key_groups": 1,
-        "keys_synced_to_site": True,
         "access_targets": targets,
         "error": error,
     }

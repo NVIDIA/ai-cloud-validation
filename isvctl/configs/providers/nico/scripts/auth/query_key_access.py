@@ -58,8 +58,6 @@ Required JSON output fields:
     "platform": "nico",
     "site_id": "...",
     "specified_keys": 1,
-    "key_groups": 1,
-    "keys_synced_to_site": true,
     "access_targets": [
       {
         "type": "serial_console",
@@ -98,11 +96,13 @@ from typing import Any
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.nico_client import NicoAuthError, forge_get, forge_get_all, resolve_auth
-
-# SSH Key Group / site-association status that means the key has fully
-# propagated to the site and is therefore usable for access.
-SYNCED_STATUS = "Synced"
+from common.nico_client import (
+    NicoAuthError,
+    forge_get,
+    forge_get_all,
+    resolve_auth,
+    sshkeygroup_synced_to_site,
+)
 
 
 def _count_specified_keys(groups: list[dict[str, Any]]) -> int:
@@ -120,28 +120,16 @@ def _count_specified_keys(groups: list[dict[str, Any]]) -> int:
 
 
 def _keys_synced_to_site(groups: list[dict[str, Any]], site_id: str) -> bool:
-    """Return whether a key group with at least one key is synced to the site.
+    """Return whether a key group with at least one key is synced to the site."""
+    return any((group.get("sshKeys") or []) and sshkeygroup_synced_to_site(group, site_id) for group in groups)
 
-    A key is usable on the site once its group's association reaches ``Synced``.
-    The group is accepted when either its own status is ``Synced`` or the
-    association for this specific site is ``Synced``.
+
+def _serial_console_target(site: dict[str, Any]) -> dict[str, Any]:
+    """Build the serial-console (SOL) access target from the site config.
+
+    Only called once a specified key is synced to the site, so reachability
+    reduces to the console endpoint being present.
     """
-    for group in groups:
-        if not (group.get("sshKeys") or []):
-            continue
-        if group.get("status") == SYNCED_STATUS:
-            return True
-        for assoc in group.get("siteAssociations") or []:
-            if not isinstance(assoc, dict):
-                continue
-            assoc_site = (assoc.get("site") or {}).get("id")
-            if assoc_site == site_id and assoc.get("status") == SYNCED_STATUS:
-                return True
-    return False
-
-
-def _serial_console_target(site: dict[str, Any], keys_synced: bool) -> dict[str, Any]:
-    """Build the serial-console (SOL) access target from the site config."""
     name = f"{site.get('name') or site.get('id') or 'site'} serial console (SOL)"
 
     if not site.get("isSerialConsoleEnabled"):
@@ -155,14 +143,11 @@ def _serial_console_target(site: dict[str, Any], keys_synced: bool) -> dict[str,
 
     key_access_enabled = bool(site.get("isSerialConsoleSSHKeysEnabled"))
     hostname = (site.get("serialConsoleHostname") or "").strip()
-    reachable = bool(hostname) and keys_synced
 
     if not key_access_enabled:
         detail = "Serial console is enabled but SSH-key access is disabled (isSerialConsoleSSHKeysEnabled is false)"
     elif not hostname:
         detail = "Serial console SSH-key access is enabled but no serial console hostname is configured"
-    elif not keys_synced:
-        detail = "Serial console SSH-key access is enabled but no specified key is synced to this site"
     else:
         detail = "Specified key can access the serial console (SOL): provider-enabled, SSH-key auth on, key synced"
 
@@ -170,7 +155,7 @@ def _serial_console_target(site: dict[str, Any], keys_synced: bool) -> dict[str,
         "type": "serial_console",
         "name": name,
         "key_access_enabled": key_access_enabled,
-        "reachable": reachable,
+        "reachable": bool(hostname),
         "detail": detail,
     }
 
@@ -209,15 +194,11 @@ def main() -> int:
         "platform": "nico",
         "site_id": args.site_id,
         "specified_keys": 0,
-        "key_groups": 0,
-        "keys_synced_to_site": False,
         "access_targets": [],
     }
 
     try:
         auth = resolve_auth()
-
-        site = forge_get(args.org, f"site/{args.site_id}", auth.token, base_url=args.api_base)
 
         groups = forge_get_all(
             args.org,
@@ -228,13 +209,9 @@ def main() -> int:
             result_key="sshKeyGroups",
         )
 
-        keys_synced = _keys_synced_to_site(groups, args.site_id)
-
         result["specified_keys"] = _count_specified_keys(groups)
-        result["key_groups"] = len(groups)
-        result["keys_synced_to_site"] = keys_synced
 
-        if not keys_synced:
+        if not _keys_synced_to_site(groups, args.site_id):
             # Nothing to evidence access with on this site. Query the org-wide
             # key groups (no siteId filter) so the skip reason can distinguish
             # "no key groups exist at all" from "key groups exist but none are
@@ -258,14 +235,13 @@ def main() -> int:
                     "No SSH key groups exist for the org; create one with an SSH key and sync it to the site "
                     "to enable key-based SOL access"
                 )
-            result["success"] = True
-            print(json.dumps(result, indent=2))
-            return 0
+        else:
+            site = forge_get(args.org, f"site/{args.site_id}", auth.token, base_url=args.api_base)
+            result["access_targets"] = [
+                _serial_console_target(site),
+                _network_device_target(),
+            ]
 
-        result["access_targets"] = [
-            _serial_console_target(site, keys_synced),
-            _network_device_target(),
-        ]
         result["success"] = True
 
     except NicoAuthError as e:

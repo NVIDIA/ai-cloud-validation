@@ -70,8 +70,6 @@ class SpecifiedKeyAccessCheck(BaseValidation):
         platform: str
         site_id: str
         specified_keys: int -- distinct tenant-specified keys synced to the site
-        key_groups: int
-        keys_synced_to_site: bool
         access_targets: list[dict]:
             type: str -- e.g. "serial_console", "network_device"
             name: str
@@ -82,7 +80,6 @@ class SpecifiedKeyAccessCheck(BaseValidation):
 
     description: ClassVar[str] = "Check a tenant-specified key can access out-of-band components (SOL, network devices)"
     timeout: ClassVar[int] = 120
-    labels: ClassVar[tuple[str, ...]] = ("bare_metal", "security", "iam")
 
     def run(self) -> None:
         """Validate that a specified key can access at least one reported component."""

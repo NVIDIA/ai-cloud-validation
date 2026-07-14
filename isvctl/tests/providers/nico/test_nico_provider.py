@@ -228,37 +228,21 @@ def _load_stable_ips_script() -> ModuleType:
 def _load_oob_health_script() -> ModuleType:
     """Load the query_oob_health script as a module for direct unit testing."""
     return _load_nico_script("health/query_oob_health.py", "test_query_oob_health")
+
+
 def _load_query_key_access_script() -> ModuleType:
     """Load the query_key_access script as a module for direct unit testing."""
-    script_path = NICO_SCRIPTS / "auth" / "query_key_access.py"
-    spec = importlib.util.spec_from_file_location("test_query_key_access", script_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    with _isolated_common_imports():
-        spec.loader.exec_module(module)
-    return module
+    return _load_nico_script("auth/query_key_access.py", "test_query_key_access")
 
 
 def _load_setup_key_access_script() -> ModuleType:
     """Load the setup_key_access script as a module for direct unit testing."""
-    script_path = NICO_SCRIPTS / "auth" / "setup_key_access.py"
-    spec = importlib.util.spec_from_file_location("test_setup_key_access", script_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    with _isolated_common_imports():
-        spec.loader.exec_module(module)
-    return module
+    return _load_nico_script("auth/setup_key_access.py", "test_setup_key_access")
 
 
 def _load_teardown_key_access_script() -> ModuleType:
     """Load the teardown_key_access script as a module for direct unit testing."""
-    script_path = NICO_SCRIPTS / "auth" / "teardown_key_access.py"
-    spec = importlib.util.spec_from_file_location("test_teardown_key_access", script_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    with _isolated_common_imports():
-        spec.loader.exec_module(module)
-    return module
+    return _load_nico_script("auth/teardown_key_access.py", "test_teardown_key_access")
 
 
 def test_nico_auth_prefers_explicit_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3080,6 +3064,8 @@ def test_topology_script_output_satisfies_check(
     bad.run()
     assert bad._passed is False
     assert "m-1" in bad._error
+
+
 # ===========================================================================
 # Specified-key access scripts (AUTH-XX-03): query / setup / teardown
 # ===========================================================================
@@ -3134,7 +3120,7 @@ def test_query_key_access_reports_serial_console_accessible(
 
     assert code == 0
     assert out["success"] is True
-    assert out["keys_synced_to_site"] is True
+    assert out["specified_keys"] == 1
     sol = next(t for t in out["access_targets"] if t["type"] == "serial_console")
     assert sol["key_access_enabled"] is True
     assert sol["reachable"] is True

@@ -66,9 +66,15 @@ from typing import Any
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.nico_client import NicoAuthError, forge_get, forge_patch, forge_post, resolve_auth
+from common.nico_client import (
+    NicoAuthError,
+    forge_get,
+    forge_patch,
+    forge_post,
+    resolve_auth,
+    sshkeygroup_synced_to_site,
+)
 
-SYNCED_STATUS = "Synced"
 SYNC_POLL_TIMEOUT_SECONDS = 180
 SYNC_POLL_INTERVAL_SECONDS = 5
 
@@ -89,24 +95,15 @@ def _generate_public_key(comment: str) -> str:
         return Path(f"{key_path}.pub").read_text().strip()
 
 
-def _group_synced_to_site(group: dict[str, Any], site_id: str) -> bool:
-    """Return whether the key group has reached Synced for the site."""
-    if group.get("status") == SYNCED_STATUS:
-        return True
-    for assoc in group.get("siteAssociations") or []:
-        if not isinstance(assoc, dict):
-            continue
-        if (assoc.get("site") or {}).get("id") == site_id and assoc.get("status") == SYNCED_STATUS:
-            return True
-    return False
-
-
 def _wait_for_sync(org: str, group_id: str, site_id: str, token: str, *, base_url: str) -> bool:
     """Poll the key group until it is synced to the site or the timeout elapses."""
+    if not group_id:
+        # No group id means nothing to poll (the create response had no id).
+        return False
     deadline = time.monotonic() + SYNC_POLL_TIMEOUT_SECONDS
     while True:
         group = forge_get(org, f"sshkeygroup/{group_id}", token, base_url=base_url)
-        if _group_synced_to_site(group, site_id):
+        if sshkeygroup_synced_to_site(group, site_id):
             return True
         if time.monotonic() >= deadline:
             return False
@@ -173,7 +170,7 @@ def main() -> int:
                 result["restore_ssh_keys_enabled"] = False
             except Exception:
                 # Deprecated/derived on this API version; nothing to restore.
-                result["restore_ssh_keys_enabled"] = None
+                pass
 
         result["success"] = True
 

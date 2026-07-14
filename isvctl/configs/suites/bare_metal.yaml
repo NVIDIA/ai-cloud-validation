@@ -665,7 +665,6 @@ tests:
         SpecifiedKeyAccessCheck:
           test_id: "AUTH03-01"
           labels: ["bare_metal", "iam", "security", "vm"]
-          min_accessible_targets: 1
 
   exclude:
     labels: []

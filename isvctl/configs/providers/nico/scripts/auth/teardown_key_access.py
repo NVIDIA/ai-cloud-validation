@@ -19,8 +19,8 @@
 Deletes the SSH Key Group and SSH Key created by setup_key_access.py and, when
 setup flipped it, restores the site's serial-console SSH-key flag. The IDs are
 passed in from the setup step output via Jinja; empty IDs mean setup created
-nothing, so this is a no-op. Cleanup is best-effort: a failure on one resource
-does not stop the others, and errors are reported in ``cleanup_errors``.
+nothing, so this is a no-op. A failure on one resource does not stop the
+others; errors are reported in ``cleanup_errors`` and fail the step.
 
 NICo API endpoints used (``/carbide/`` segment, like the other NICo scripts):
   DELETE /{org}/carbide/sshkeygroup/{id}
@@ -46,12 +46,7 @@ from common.nico_client import NicoAuthError, forge_delete, forge_patch, resolve
 
 def _as_bool(value: str) -> bool | None:
     """Parse a Jinja-rendered flag into True/False, or None when unset."""
-    text = (value or "").strip().lower()
-    if text in ("true", "1", "yes", "on"):
-        return True
-    if text in ("false", "0", "no", "off"):
-        return False
-    return None
+    return {"true": True, "false": False}.get((value or "").strip().lower())
 
 
 def main() -> int:
@@ -109,9 +104,10 @@ def main() -> int:
             except Exception as e:
                 result["cleanup_errors"].append(f"restore site flag: {type(e).__name__}: {e}")
 
-        # Best-effort: teardown succeeds as long as it ran; individual failures
-        # are surfaced in cleanup_errors without blocking the others.
-        result["success"] = True
+        # A failure on one resource does not stop the others (the framework
+        # already runs teardown steps best-effort), but any failed deletion
+        # fails the step so a leaked key/group is visible.
+        result["success"] = not result["cleanup_errors"]
 
     except NicoAuthError as e:
         result["error_type"] = "auth"
