@@ -230,6 +230,57 @@ class InsecureProtocolsCheck(BaseValidation):
         self.set_passed(f"Insecure protocols disabled ({endpoints_tested} endpoints tested)")
 
 
+class MutualTlsCheck(BaseValidation):
+    """Validate mTLS (or equivalent) for north-south and east-west traffic (SEC13-01).
+
+    Verifies that configured endpoints reject anonymous TLS clients and accept
+    authenticated client certificates on both traffic planes. Providers may mark
+    a plane ``provider_hidden`` when it is not customer-probeable (for example
+    AWS east-west mesh).
+
+    Config:
+        step_output: The mutual_tls_test step output to check
+
+    Step output:
+        endpoints_tested: Positive integer of endpoints actually probed
+        tests: dict with north_south_mtls_enforced, east_west_mtls_enforced
+    """
+
+    description: ClassVar[str] = "Check mTLS (or equivalent) for north-south and east-west traffic"
+
+    def run(self) -> None:
+        """Validate required mTLS plane probe results from step output."""
+        step_output = self.config.get("step_output", {})
+        if step_output.get("skipped") is True:
+            pytest.skip(step_output.get("skip_reason") or "mTLS validation skipped (not configured)")
+
+        if step_output.get("success") is False:
+            step_error = step_output.get("error") or step_output.get("message")
+            self.set_failed(step_error or "mTLS step failed: no error message provided")
+            return
+
+        required = [
+            "north_south_mtls_enforced",
+            "east_west_mtls_enforced",
+        ]
+        if not check_required_tests(self, required, "mTLS enforcement tests failed"):
+            return
+
+        endpoints_tested = step_output.get("endpoints_tested")
+        if type(endpoints_tested) is not int or endpoints_tested < 1:
+            self.set_failed("mTLS output missing positive int 'endpoints_tested'")
+            return
+
+        tests = step_output.get("tests", {})
+        hidden = [
+            name
+            for name in required
+            if isinstance(tests.get(name), dict) and tests[name].get("provider_hidden") is True
+        ]
+        hidden_note = f", provider_hidden={','.join(hidden)}" if hidden else ""
+        self.set_passed(f"mTLS enforced ({endpoints_tested} endpoints tested{hidden_note})")
+
+
 class BmcBastionAccessCheck(BaseValidation):
     """Validate BMC is only accessible via a hardened bastion.
 

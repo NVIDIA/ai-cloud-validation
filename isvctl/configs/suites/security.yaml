@@ -85,6 +85,13 @@ tests:
           labels: ["min_req", "network", "security"]
           step: api_endpoint_isolation
 
+    mutual_tls:
+      checks:
+        MutualTlsCheck:
+          test_id: "SEC13-01"
+          labels: ["min_req", "network", "security"]
+          step: mutual_tls_test
+
     insecure_protocols:
       checks:
         InsecureProtocolsCheck:

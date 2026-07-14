@@ -3641,6 +3641,73 @@ def test_tenant_isolation_main_cleans_partial_provision_failure(
     assert cleanup_calls == [("isv-sec11-test-aaaa1111", {"vpc": True}, "vpc-partial")]
 
 
+def test_wait_instance_terminated_tolerates_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    tenant_isolation_module: ModuleType,
+) -> None:
+    """Terminating a still-booting instance must not fail on ``pending``.
+
+    boto3's InstanceTerminated waiter treats pending as terminal failure;
+    our poller must keep waiting until the instance reaches terminated.
+    """
+    states = iter(["pending", "pending", "shutting-down", "terminated"])
+    calls: list[str] = []
+
+    class FakeEc2:
+        def describe_instances(self, InstanceIds: list[str]) -> dict[str, Any]:
+            calls.append(InstanceIds[0])
+            return {"Reservations": [{"Instances": [{"State": {"Name": next(states)}}]}]}
+
+    monkeypatch.setattr(tenant_isolation_module.time, "sleep", lambda _seconds: None)
+    tenant_isolation_module._wait_instance_terminated(FakeEc2(), "i-pending123", delay=0.0, max_attempts=10)
+    assert calls == ["i-pending123", "i-pending123", "i-pending123", "i-pending123"]
+
+
+def test_teardown_tenant_terminates_pending_instance_then_deletes_network(
+    monkeypatch: pytest.MonkeyPatch,
+    tenant_isolation_module: ModuleType,
+) -> None:
+    """Cleanup must succeed when terminate is issued while the instance is pending."""
+    states = iter(["pending", "shutting-down", "terminated"])
+    deleted: list[tuple[str, str]] = []
+
+    class FakeEc2:
+        def terminate_instances(self, InstanceIds: list[str]) -> None:
+            deleted.append(("terminate", InstanceIds[0]))
+
+        def describe_instances(self, InstanceIds: list[str]) -> dict[str, Any]:
+            return {"Reservations": [{"Instances": [{"State": {"Name": next(states)}}]}]}
+
+        def delete_security_group(self, GroupId: str) -> None:
+            deleted.append(("sg", GroupId))
+
+        def delete_subnet(self, SubnetId: str) -> None:
+            deleted.append(("subnet", SubnetId))
+
+        def delete_vpc(self, VpcId: str) -> None:
+            deleted.append(("vpc", VpcId))
+
+    monkeypatch.setattr(tenant_isolation_module.time, "sleep", lambda _seconds: None)
+    tenant = _make_tenant(tenant_isolation_module, "cccc3333", "10.96.0.0/24")
+    tenant.created = {"instance": True, "sg": True, "subnet": True, "vpc": True}
+
+    errors = tenant_isolation_module._teardown_tenant(
+        ec2=FakeEc2(),
+        iam=object(),
+        kms=object(),
+        s3=object(),
+        tenant=tenant,
+    )
+
+    assert errors == []
+    assert deleted == [
+        ("terminate", "i-cccc3333"),
+        ("sg", "sg-cccc3333"),
+        ("subnet", "subnet-cccc3333"),
+        ("vpc", "vpc-cccc3333"),
+    ]
+
+
 # --- teardown SEC11 sweep helpers ----------------------------------------
 
 
