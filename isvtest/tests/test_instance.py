@@ -19,8 +19,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from isvtest.validations.instance import (
     SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED,
+    ComponentKeyAccessCheck,
     InstanceRebootCheck,
     InstanceSpecifiedKeyCheck,
     SerialConsoleRetentionCheck,
@@ -201,6 +204,90 @@ class TestInstanceSpecifiedKeyCheck:
 
         assert result["passed"] is False
         assert "expected key 'isv-test-key', got 'other-key'" in result["error"]
+
+
+class TestComponentKeyAccessCheck:
+    """Tests for AUTH03-01 specified-key SOL / network-device access."""
+
+    def _output(self, **overrides: Any) -> dict[str, Any]:
+        """Build a minimal passing component_key_access step_output."""
+        base: dict[str, Any] = {
+            "success": True,
+            "platform": "vm",
+            "instance_id": "i-abc123",
+            "key_name": "isv-test-key",
+            "tests": {
+                "sol_access": {"passed": True},
+                "network_device_access": {"passed": True},
+            },
+        }
+        base.update(overrides)
+        return base
+
+    def test_passes_with_sol_and_network_access(self) -> None:
+        """Happy path: both required component probes pass."""
+        result = ComponentKeyAccessCheck(config={"step_output": self._output()}).execute()
+
+        assert result["passed"] is True
+        assert "isv-test-key" in result["output"]
+
+    def test_passes_with_provider_hidden_network_devices(self) -> None:
+        """Network-device access may be provider-hidden when not tenant-visible."""
+        result = ComponentKeyAccessCheck(
+            config={
+                "step_output": self._output(
+                    tests={
+                        "sol_access": {"passed": True},
+                        "network_device_access": {
+                            "passed": True,
+                            "provider_hidden": True,
+                            "message": "no tenant network-device SSH",
+                        },
+                    }
+                )
+            }
+        ).execute()
+
+        assert result["passed"] is True
+        assert "provider_hidden=network_device_access" in result["output"]
+
+    def test_fails_when_key_name_missing(self) -> None:
+        """The provider must report which key was used."""
+        out = self._output()
+        del out["key_name"]
+
+        result = ComponentKeyAccessCheck(config={"step_output": out}).execute()
+
+        assert result["passed"] is False
+        assert "key_name" in result["error"]
+
+    def test_fails_when_sol_access_fails(self) -> None:
+        """SOL access failure fails AUTH03."""
+        result = ComponentKeyAccessCheck(
+            config={
+                "step_output": self._output(
+                    tests={
+                        "sol_access": {"passed": False, "error": "serial disabled"},
+                        "network_device_access": {"passed": True},
+                    }
+                )
+            }
+        ).execute()
+
+        assert result["passed"] is False
+        assert "sol_access" in result["error"]
+
+    def test_skips_when_step_marked_skipped(self) -> None:
+        """Whole-step skip (e.g. serial console disabled) is a pytest skip."""
+        with pytest.raises(pytest.skip.Exception, match="serial console"):
+            ComponentKeyAccessCheck(
+                config={
+                    "step_output": self._output(
+                        skipped=True,
+                        skip_reason="EC2 serial console access is disabled for this account or region",
+                    )
+                }
+            ).execute()
 
 
 class TestSerialConsoleRetentionCheck:

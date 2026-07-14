@@ -28,8 +28,8 @@ Output JSON:
     "account_id": "123456789",
     "arn": "arn:aws:iam::...",
     "tests": {
-        "sts_identity": {"passed": true},
-        "iam_access": {"passed": true}
+        "identity": {"passed": true},
+        "access": {"passed": true}
     }
 }
 """
@@ -69,9 +69,9 @@ def test_sts_identity(session: boto3.Session, result: dict) -> bool:
             result["account_id"] = identity["Account"]
             result["arn"] = identity["Arn"]
             result["user_id"] = identity["UserId"]
-            result["tests"]["sts_identity"] = {"passed": True}
+            result["tests"]["identity"] = {"passed": True}
             if attempt > 0:
-                result["tests"]["sts_identity"]["retries"] = attempt
+                result["tests"]["identity"]["retries"] = attempt
             return True
         except ClientError as e:
             last_error = e
@@ -88,7 +88,7 @@ def test_sts_identity(session: boto3.Session, result: dict) -> bool:
         error_type, error_msg = classify_aws_error(last_error)
         result["error_type"] = error_type
         result["error"] = error_msg
-        result["tests"]["sts_identity"] = {"passed": False, "error": error_msg}
+        result["tests"]["identity"] = {"passed": False, "error": error_msg}
     return False
 
 
@@ -117,19 +117,19 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         return 1
 
-    # Test IAM access
+    # Test authorized resource access (IAM GetUser, or AccessDenied proving authz)
     try:
         iam = session.client("iam")
         iam.get_user()
-        result["tests"]["iam_access"] = {"passed": True}
+        result["tests"]["access"] = {"passed": True}
     except ClientError as e:
         if e.response["Error"]["Code"] == "AccessDenied":
             # Access denied means credentials work but limited permissions
-            result["tests"]["iam_access"] = {"passed": True, "note": "Access denied (expected)"}
+            result["tests"]["access"] = {"passed": True, "note": "Access denied (expected)"}
         else:
-            result["tests"]["iam_access"] = {"passed": False, "error": str(e)}
+            result["tests"]["access"] = {"passed": False, "error": str(e)}
 
-    result["success"] = result["tests"]["sts_identity"]["passed"]
+    result["success"] = result["tests"]["identity"]["passed"] and result["tests"]["access"]["passed"]
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
 

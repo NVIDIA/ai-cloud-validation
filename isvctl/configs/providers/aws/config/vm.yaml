@@ -24,14 +24,16 @@
 #   3. verify_tags        - boto3: Verifies user-defined tags (test)
 #   4. serial_console     - boto3: Retrieves serial console output (test)
 #   5. console_rbac       - boto3: Simulates EC2 serial console IAM access (test)
-#   6. stop_instance      - boto3: Stops EC2, verifies stopped state (test)
-#   7. start_instance     - boto3: Starts stopped EC2, verifies recovery (test)
-#   8. reboot_instance    - boto3: Reboots EC2, validates recovery (test)
-#   9. describe_instance  - boto3: Describes current state, passes SSH info (test)
+#   6. component_key_access - boto3: AUTH03 specified-key SOL access (test)
+#   7. virtual_device_hardening - guest/hypervisor device hardening (test)
+#   8. stop_instance      - boto3: Stops EC2, verifies stopped state (test)
+#   9. start_instance     - boto3: Starts stopped EC2, verifies recovery (test)
+#  10. reboot_instance    - boto3: Reboots EC2, validates recovery (test)
+#  11. describe_instance  - boto3: Describes current state, passes SSH info (test)
 #                           (runs after reboot so IP is current; validation anchor)
-#  10. deploy_nim         - paramiko: Deploys NIM container via SSH (test)
-#  11. teardown_nim       - paramiko: Stops NIM container via SSH (teardown)
-#  12. teardown           - boto3: Terminates EC2 (teardown)
+#  12. deploy_nim         - paramiko: Deploys NIM container via SSH (test)
+#  13. teardown_nim       - paramiko: Stops NIM container via SSH (teardown)
+#  14. teardown           - boto3: Terminates EC2 (teardown)
 #
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/aws/config/vm.yaml
@@ -101,6 +103,21 @@ commands:
         args:
           - "--instance-id"
           - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+        timeout: 120
+
+      # AWS-specific: Specified key access to SOL (AUTH03); network devices provider-hidden
+      - name: component_key_access
+        phase: test
+        command: "python3 ../scripts/vm/component_key_access.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--key-name"
+          - "{{steps.launch_instance.key_name}}"
           - "--region"
           - "{{region}}"
         timeout: 120

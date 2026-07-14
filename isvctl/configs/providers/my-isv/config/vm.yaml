@@ -25,7 +25,7 @@
 #   (InstanceStateCheck, InstanceCreatedCheck, InstanceListCheck,
 #    InstanceTagCheck, InstanceStopCheck, InstanceStartCheck,
 #    StableIdentifierCheck, InstanceRebootCheck, SerialConsoleCheck,
-#    ConsoleRbacCheck, StepSuccessCheck). SSH-based host checks (ConnectivityCheck,
+#    ConsoleRbacCheck, ComponentKeyAccessCheck, StepSuccessCheck). SSH-based host checks (ConnectivityCheck,
 #    GpuCheck, DriverCheck, CpuInfoCheck, NIM checks, etc.) are excluded
 #    via `exclude.labels: [ssh]` because a dummy-success stub cannot
 #    spin up a real host to SSH into. The deploy_nim / teardown_nim
@@ -45,10 +45,12 @@
 #     6. reboot_instance  - Reboot it
 #     7. serial_console   - Confirm serial console access
 #     8. console_rbac     - Verify console access is RBAC-scoped
-#     9. deploy_nim       - SKIPPED (needs real SSH)
+#     9. component_key_access - AUTH03 specified-key SOL / network device access
+#    10. virtual_device_hardening - Confirm unused virtio devices are absent
+#    11. deploy_nim       - SKIPPED (needs real SSH)
 #   TEARDOWN
-#    10. teardown_nim     - SKIPPED (needs real SSH)
-#    11. teardown         - Terminate the VM
+#    12. teardown_nim     - SKIPPED (needs real SSH)
+#    13. teardown         - Terminate the VM
 #
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/vm.yaml
@@ -150,6 +152,20 @@ commands:
         args:
           - "--instance-id"
           - "{{steps.launch_instance.instance_id}}"
+          - "--region"
+          - "{{region}}"
+        timeout: 60
+
+      - name: component_key_access
+        phase: test
+        command: "python ../scripts/vm/component_key_access.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--key-name"
+          - "{{steps.launch_instance.key_name}}"
           - "--region"
           - "{{region}}"
         timeout: 60

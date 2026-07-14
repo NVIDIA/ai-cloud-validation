@@ -179,6 +179,8 @@ domains:
                 notes: ""
                 github_issues:
                   - "#248"
+                labels:
+                  - vm
       - name: Identity and Asset Mgmt (IAM)
         capabilities:
           - description: Manages users, service identities, roles, and permissions across tenants and services. Forms the security foundation of the platform.

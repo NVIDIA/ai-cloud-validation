@@ -41,13 +41,12 @@ import boto3
 import botocore.session
 from botocore.exceptions import ClientError
 from common.errors import handle_aws_errors
-from common.serial_console import check_serial_access
+from common.serial_console import SERIAL_ACCESS_DISABLED_SKIP_REASON, check_serial_access
 
 CONSOLE_ACTION = "ec2-instance-connect:SendSerialConsoleSSHPublicKey"
 TEST_USER_PREFIX = "isv-console-rbac-test-"
 ALLOW_POLICY_NAME = "IsvConsoleRbacScopedAccess"
 OWNER_TAG = {"Key": "CreatedBy", "Value": "isvtest"}
-SERIAL_ACCESS_DISABLED_SKIP_REASON = "EC2 serial console access is disabled for this account or region"
 REQUIRED_TESTS = (
     "serial_console_access_enabled",
     "denied_principal_cannot_access_console",
