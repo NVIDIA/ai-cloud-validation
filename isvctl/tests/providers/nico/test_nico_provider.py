@@ -41,8 +41,8 @@ from isvtest.validations.sanitization import (
     MemorySanitizationCheck,
     SkipSanitizationBreakfixCheck,
 )
-from isvtest.validations.topology import FailureDomainObservabilityCheck
 from isvtest.validations.storage_infra import OobFailureDetectionCheck, StableStorageNodeIpCheck
+from isvtest.validations.topology import FailureDomainObservabilityCheck
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
@@ -3047,4 +3047,3 @@ def test_topology_script_output_satisfies_check(
     bad.run()
     assert bad._passed is False
     assert "m-1" in bad._error
-
