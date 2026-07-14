@@ -60,8 +60,8 @@
 #   - query_key_access.py reads the site's SSH Key Groups and serial-console
 #     configuration and reports whether a tenant-specified key can access
 #     out-of-band components; SpecifiedKeyAccessCheck validates it (AUTH-XX-03).
-#     setup_key_access.py / teardown_key_access.py optionally provision and
-#     remove a throwaway key so the check can pass without manual key setup.
+#     This is a read-only step (like the other checks here); the auto-provisioning
+#     variant that mints a throwaway key lives in the dedicated key_access.yaml.
 #   - list_instances.py / describe_instance.py query existing instances;
 #     InstanceListCheck and InstanceStateCheck validate the JSON contract.
 #
@@ -84,26 +84,8 @@ version: "1.0"
 
 commands:
   bare_metal:
-    phases: ["setup", "test", "teardown"]
+    phases: ["test"]
     steps:
-      # ─── Provision a Throwaway Specified Key (AUTH-XX-03 setup) ──────
-      # Creates an ephemeral SSH key and a key group that syncs it to the
-      # site. Emits sshkey_id / sshkeygroup_id / restore_ssh_keys_enabled for
-      # teardown to consume.
-      - name: setup_key_access
-        phase: setup
-        command: "python ../scripts/auth/setup_key_access.py"
-        requires_available_validations:
-          - SpecifiedKeyAccessCheck
-        args:
-          - "--org"
-          - "{{org}}"
-          - "--site-id"
-          - "{{site_id}}"
-          - "--api-base"
-          - "{{nico_api_base}}"
-        timeout: 240
-
       # ─── Verify Hardware Ingestion ─────────────────────────────────
       # Compares expected-machine manifest against discovered machines.
       # Output includes per-machine status, health, GPU/DPU counts.
@@ -344,9 +326,8 @@ commands:
       # and reported as unverified. SpecifiedKeyAccessCheck validates it.
       - name: query_key_access
         phase: test
+        continue_on_failure: true
         command: "python ../scripts/auth/query_key_access.py"
-        requires_available_validations:
-          - SpecifiedKeyAccessCheck
         args:
           - "--org"
           - "{{org}}"
@@ -386,29 +367,6 @@ commands:
           - "--api-base"
           - "{{nico_api_base}}"
           - "--instance-id={{instance_id}}"
-        timeout: 120
-
-      # ─── Remove the Throwaway Specified Key (AUTH-XX-03 teardown) ────
-      # Best-effort cleanup of the key group + key created in setup, and
-      # restores the site's SSH-key SOL flag when setup flipped it.
-      - name: teardown_key_access
-        phase: teardown
-        command: "python ../scripts/auth/teardown_key_access.py"
-        requires_available_validations:
-          - SpecifiedKeyAccessCheck
-        args:
-          - "--org"
-          - "{{org}}"
-          - "--site-id"
-          - "{{site_id}}"
-          - "--api-base"
-          - "{{nico_api_base}}"
-          - "--sshkeygroup-id"
-          - "{{steps.setup_key_access.sshkeygroup_id}}"
-          - "--sshkey-id"
-          - "{{steps.setup_key_access.sshkey_id}}"
-          - "--restore-ssh-keys-enabled"
-          - "{{steps.setup_key_access.restore_ssh_keys_enabled}}"
         timeout: 120
 
 tests:
