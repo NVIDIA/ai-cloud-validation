@@ -124,6 +124,22 @@ class TestSpecifiedKeyAccessCheck:
         assert check._passed is False
         assert "not reachable" in check._error
 
+    def test_string_reachable_false_does_not_count_as_accessible(self) -> None:
+        """Malformed provider output must not coerce the string 'false' to reachable."""
+        targets = [
+            {
+                "type": "serial_console",
+                "name": "sjc-1 serial console (SOL)",
+                "key_access_enabled": True,
+                "reachable": "false",
+                "detail": "bad type",
+            }
+        ]
+        check = SpecifiedKeyAccessCheck(config={"step_output": _output(targets=targets)})
+        check.run()
+        assert check._passed is False
+        assert "not reachable" in check._error
+
     def test_only_unverified_targets_skips(self) -> None:
         """When the only targets are unverifiable, the check skips."""
         check = SpecifiedKeyAccessCheck(config={"step_output": _output(targets=[_network_target()])})

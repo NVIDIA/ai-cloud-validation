@@ -118,7 +118,7 @@ class SpecifiedKeyAccessCheck(BaseValidation):
             label = target.get("name") or target.get("type") or f"target_{idx}"
             subtest_name = f"target_{target.get('type') or idx}"
             enabled = target.get("key_access_enabled")
-            reachable = bool(target.get("reachable"))
+            reachable = target.get("reachable") is True
             detail = target.get("detail") or ""
 
             if enabled is True and reachable:

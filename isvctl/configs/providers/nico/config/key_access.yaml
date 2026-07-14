@@ -72,7 +72,7 @@ commands:
           - "{{site_id}}"
           - "--api-base"
           - "{{nico_api_base}}"
-        timeout: 240
+        timeout: 360
 
       # ─── Specified-Key Access (AUTH-XX-03, test) ────────────────────
       # Same step the bare_metal suite validates with SpecifiedKeyAccessCheck.

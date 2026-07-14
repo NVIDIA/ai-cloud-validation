@@ -153,26 +153,29 @@ def main() -> int:
             args.org, result["sshkeygroup_id"], args.site_id, auth.token, base_url=args.api_base
         )
 
-        # Older clusters gate SSH-key SOL access on a tenant-settable site flag;
-        # newer ones derive it from key-group sync (the flag is deprecated and
-        # the PATCH may be rejected). Enabling it is therefore best-effort: only
-        # record a restore value when we actually flipped it off->on.
-        site = forge_get(args.org, f"site/{args.site_id}", auth.token, base_url=args.api_base)
-        if not site.get("isSerialConsoleSSHKeysEnabled"):
-            try:
-                forge_patch(
-                    args.org,
-                    f"site/{args.site_id}",
-                    auth.token,
-                    base_url=args.api_base,
-                    body={"isSerialConsoleSSHKeysEnabled": True},
-                )
-                result["restore_ssh_keys_enabled"] = False
-            except Exception:
-                # Deprecated/derived on this API version; nothing to restore.
-                pass
+        if not result["synced"]:
+            result["error"] = "SSH key group did not sync to the site before timeout"
+        else:
+            # Older clusters gate SSH-key SOL access on a tenant-settable site flag;
+            # newer ones derive it from key-group sync (the flag is deprecated and
+            # the PATCH may be rejected). Enabling it is therefore best-effort: only
+            # record a restore value when we actually flipped it off->on.
+            site = forge_get(args.org, f"site/{args.site_id}", auth.token, base_url=args.api_base)
+            if not site.get("isSerialConsoleSSHKeysEnabled"):
+                try:
+                    forge_patch(
+                        args.org,
+                        f"site/{args.site_id}",
+                        auth.token,
+                        base_url=args.api_base,
+                        body={"isSerialConsoleSSHKeysEnabled": True},
+                    )
+                    result["restore_ssh_keys_enabled"] = False
+                except Exception:
+                    # Deprecated/derived on this API version; nothing to restore.
+                    pass
 
-        result["success"] = True
+            result["success"] = True
 
     except NicoAuthError as e:
         result["error_type"] = "auth"

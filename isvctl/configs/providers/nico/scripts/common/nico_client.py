@@ -209,9 +209,10 @@ def forge_request(
         timeout: Request timeout in seconds.
 
     Returns:
-        Parsed JSON response, or ``{}`` when the response body is empty or not
-        JSON (e.g. a ``200 OK`` / ``202`` / ``204`` from DELETE, which NICo
-        answers with a bare ``OK`` string rather than a JSON document).
+        Parsed JSON response, or ``{}`` when the response body is empty. DELETE
+        also returns ``{}`` for a non-JSON body (legacy carbide answers with a
+        bare ``OK`` string); other methods raise ``JSONDecodeError`` on a
+        non-JSON body.
 
     Raises:
         HTTPError: On non-2xx response.
@@ -233,9 +234,10 @@ def forge_request(
             try:
                 return json.loads(raw)
             except json.JSONDecodeError:
-                # A successful response with a non-JSON body (e.g. DELETE
-                # returning a bare "OK") carries no structured data to return.
-                return {}
+                if method.upper() == "DELETE":
+                    # Legacy carbide DELETE may return a bare "OK" string.
+                    return {}
+                raise
     except HTTPError as e:
         err_body = ""
         if e.fp:

@@ -28,6 +28,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs
+from urllib.error import HTTPError
 
 import pytest
 from isvtest.validations.attestation import FirmwareAttestationCheck, NonceAttestationCheck
@@ -370,11 +371,13 @@ def test_forge_get_uses_configured_api_name(
 
 
 @pytest.mark.parametrize("body", ["OK", "", "   "])
-def test_forge_request_tolerates_non_json_success_body(monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+def test_forge_delete_tolerates_non_json_success_body(monkeypatch: pytest.MonkeyPatch, body: str) -> None:
     """NICo DELETE answers with a bare ``OK`` (not JSON); a 2xx body must not raise."""
     module = _load_nico_client()
 
     class _RawResponse:
+        """Context-managed byte response for mocked HTTP calls."""
+
         def __enter__(self) -> _RawResponse:
             return self
 
@@ -389,6 +392,28 @@ def test_forge_request_tolerates_non_json_success_body(monkeypatch: pytest.Monke
     result = module.forge_delete("ncx", "sshkey/key-1", "tok", base_url="http://x")
 
     assert result == {}
+
+
+def test_forge_post_rejects_non_json_success_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST responses must be JSON so resource IDs are not silently dropped."""
+
+    class _RawResponse:
+        """Context-managed byte response for mocked HTTP calls."""
+
+        def __enter__(self) -> _RawResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"OK"
+
+    module = _load_nico_client()
+    monkeypatch.setattr(module, "urlopen", lambda request, timeout=30: _RawResponse())
+
+    with pytest.raises(json.JSONDecodeError):
+        module.forge_post("ncx", "sshkey", "tok", base_url="http://x", body={"name": "k"})
 
 
 @pytest.mark.parametrize(
@@ -3242,6 +3267,35 @@ def test_setup_key_access_provisions_and_records_restore(
     assert patched == {"isSerialConsoleSSHKeysEnabled": True}
 
 
+def test_setup_key_access_fails_when_group_does_not_sync(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Setup fails when the key group never syncs, but still emits IDs for teardown."""
+    module = _load_setup_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "_generate_public_key", lambda comment: "ssh-ed25519 AAAAtest")
+    monkeypatch.setattr(module, "_wait_for_sync", lambda *a, **k: False)
+    monkeypatch.setattr(
+        module,
+        "forge_post",
+        lambda org, path, token, *, base_url, body, **kw: {"id": "key-1"} if path == "sshkey" else {"id": "kg-1"},
+    )
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        ["setup_key_access.py", "--org", "o", "--site-id", "site-1", "--api-base", "http://x"],
+    )
+
+    assert code == 1
+    assert out["success"] is False
+    assert out["synced"] is False
+    assert out["sshkey_id"] == "key-1"
+    assert out["sshkeygroup_id"] == "kg-1"
+    assert "did not sync" in out["error"]
+
+
 def test_setup_key_access_emits_key_id_on_group_failure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -3315,8 +3369,6 @@ def test_teardown_key_access_treats_404_delete_as_success(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """DELETE 404 means the resource is already gone; teardown should still succeed."""
-    from urllib.error import HTTPError
-
     module = _load_teardown_key_access_script()
     monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
     monkeypatch.setattr(
