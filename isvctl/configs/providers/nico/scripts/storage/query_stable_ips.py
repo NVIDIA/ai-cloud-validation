@@ -25,7 +25,7 @@ admin interface) and emits a provider-neutral record so
 admin IP.
 
 NICo API endpoints used:
-  GET /v2/org/{org}/carbide/machine?siteId={site_id}
+  GET /v2/org/{org}/carbide/machine?siteId={site_id}&includeMetadata=true
 
 Auth:
   - NICO_BEARER_TOKEN, or
@@ -126,7 +126,7 @@ def main() -> int:
             "machine",
             auth.token,
             base_url=args.api_base,
-            params={"siteId": args.site_id},
+            params={"siteId": args.site_id, "includeMetadata": "true"},
             result_key="machines",
         )
 

@@ -2786,6 +2786,25 @@ def test_oob_health_script_maps_bmc_categories(
     assert host["failure_categories"]["device"]["observable"] is True
 
 
+def test_oob_health_script_ignores_non_bmc_probes_for_categories(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Non-BMC probes must not inflate STG04 failure-category observability."""
+    machine = _oob_machine(
+        successes=[
+            {"id": "BmcSensor", "target": "CPU1 Temp", "message": "temperature"},
+            {"id": "BgpDaemonEnabled", "target": "mlx5_0", "message": "network link up"},
+        ],
+    )
+    payload = _run_oob_health(monkeypatch, capsys, [machine])
+
+    categories = payload["hosts"][0]["failure_categories"]
+    assert categories["device"]["observable"] is True
+    assert categories["network"]["observable"] is False
+    assert categories["network"]["probe_ids"] == []
+
+
 def test_oob_health_script_empty_site_skips(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

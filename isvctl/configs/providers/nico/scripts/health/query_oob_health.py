@@ -125,14 +125,15 @@ def host_record(machine: dict[str, Any]) -> dict[str, Any]:
     health = machine.get("health") or {}
     probes = [p for p in (*(health.get("successes") or []), *(health.get("alerts") or [])) if isinstance(p, dict)]
 
-    bmc_probe_ids = sorted({str(p.get("id") or "") for p in probes if p.get("id") and _is_bmc_probe(p)})
+    bmc_probes = [p for p in probes if _is_bmc_probe(p)]
+    bmc_probe_ids = sorted({str(p.get("id") or "") for p in bmc_probes if p.get("id")})
     oob_present = bool(bmc_probe_ids or health.get("observedAt"))
 
     return {
         "host_id": machine.get("id", ""),
         "oob_health_present": oob_present,
         "bmc_probe_ids": bmc_probe_ids,
-        "failure_categories": _category_observability(probes),
+        "failure_categories": _category_observability(bmc_probes),
     }
 
 
