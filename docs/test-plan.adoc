@@ -2349,7 +2349,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/213[#213]
 | [[BFX03-01]]BFX03-01
 | BFX03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/320[#320]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/320[#320]
@@ -2481,7 +2481,7 @@ a|
 | [[DIR02-01]]DIR02-01
 | DIR02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
@@ -2495,7 +2495,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
 | [[DIR01-01]]DIR01-01
 | DIR01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/324[#324]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/324[#324]
@@ -2509,7 +2509,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/324[#324]
 | [[DIR01-02]]DIR01-02
 | DIR01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/325[#325]
-| min_req
+| min_req, storage
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/325[#325]
@@ -2583,7 +2583,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/266[#266]
 | [[STG02-01]]STG02-01
 | STG02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
-| min_req
+| bare_metal, min_req, sanitization, sds_controller
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
@@ -2597,7 +2597,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
 | [[STG03-01]]STG03-01
 | STG03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
-| min_req
+| bare_metal, min_req, network, sds_controller
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
@@ -2611,7 +2611,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
 | [[STG04-01]]STG04-01
 | STG04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
-| min_req
+| bare_metal, health, min_req, sds_controller
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
@@ -2625,7 +2625,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
 | [[STG05-01]]STG05-01
 | STG05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/361[#361]
-| min_req
+| bare_metal, min_req, sds_controller
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/361[#361]
@@ -4188,7 +4188,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/362[#362]
 | [[TELEM05-01]]TELEM05-01
 | TELEM05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/363[#363]
-| min_req
+| min_req, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/363[#363]
@@ -4196,13 +4196,13 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/363[#363]
 | M5
 |
 | Verify storage resource capacity metrics are available (used/free/total)
-| pending
+| approved
 |
 
 | [[TELEM06-01]]TELEM06-01
 | TELEM06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/364[#364]
-| min_req
+| min_req, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/364[#364]
@@ -4210,7 +4210,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/364[#364]
 | M5
 |
 | Verify storage performance metrics are available (bandwidth, IOPS, latency)
-| pending
+| approved
 |
 
 .2+| NVLink Switch Telemetry
@@ -4218,7 +4218,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/364[#364]
 | [[TELEM07-01]]TELEM07-01
 | TELEM07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/365[#365]
-| min_req
+| min_req, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/365[#365]
@@ -4226,13 +4226,13 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/365[#365]
 | M5
 |
 | Verify NVLink metrics are available from the GPU perspective (per-link counters, bandwidth utilization)
-| pending
+| approved
 |
 
 | [[TELEM08-01]]TELEM08-01
 | TELEM08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
-| min_req
+| min_req, observability
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
@@ -4240,7 +4240,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | M5
 |
 | Verify NVLink metrics are available from the switch perspective (port-level counters, error rates)
-| pending
+| approved
 |
 
 .23+| Security & Identity
@@ -4308,7 +4308,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/308[#308]
 | [[SEC13-01]]SEC13-01
 | SEC13
 | https://github.com/NVIDIA/ai-cloud-validation/issues/309[#309]
-| min_req
+| min_req, network, security
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/309[#309]

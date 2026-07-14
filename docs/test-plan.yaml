@@ -2174,6 +2174,7 @@ domains:
               - summary: Verify NFS protocol shared storage is available
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2185,6 +2186,7 @@ domains:
               - summary: Verify configurable filesystem-wide quota limits
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2196,6 +2198,7 @@ domains:
               - summary: Verify usage accounting for uid/gids
                 labels:
                   - min_req
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""

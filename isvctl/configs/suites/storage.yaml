@@ -22,9 +22,9 @@
 # only inspects JSON output fields. As long as your scripts output the
 # right fields, the validations pass regardless of which cloud you use.
 #
-# Scope: persistent block storage (EBS-style volumes) and high-speed
-# storage (SDS controller + parallel file system). Object storage and
-# other storage checks can land here later without a new suite file.
+# Scope: persistent block storage (EBS-style volumes), home-directory
+# NFS storage, and high-speed storage (SDS controller + parallel file
+# system). Object storage and other checks can land here later.
 # High-speed check classes / test_ids keep the HSS* / HSS## naming from
 # the offtake High-Speed Storage requirement family
 # (docs/requirements/offtake-requirements.md).
@@ -138,6 +138,20 @@ tests:
           test_id: "DATASVC04-01"
           labels: ["min_req", "storage"]
           operations: ["stop", "start", "verify_attached", "verify_data"]
+
+    # ─── Home directory storage ──────────────────────────────────────
+    home_directory:
+      step: home_directory_storage
+      checks:
+        DirectoryFilesystemQuotaCheck:
+          test_id: "DIR01-01"
+          labels: ["min_req", "storage"]
+        DirectoryUsageAccountingCheck:
+          test_id: "DIR01-02"
+          labels: ["min_req", "storage"]
+        DirectoryNfsAvailabilityCheck:
+          test_id: "DIR02-01"
+          labels: ["min_req", "storage"]
 
     # ─── High-speed storage: SDS controller ──────────────────────────
     sds_controller:

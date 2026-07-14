@@ -17,6 +17,7 @@
 #
 # Imports suites/storage.yaml and wires AWS implementations for:
 #   - Block volume (EBS): launch/create/snapshot/resize/persistence/teardown
+#   - Home directory (FSx for OpenZFS): NFSv4, volume quota, uid/gid accounting
 #   - High-speed storage (FSx for Lustre): provisioning, multiple filesystems,
 #     live expansion, root-squash (other HSS checks excluded — need a mounted
 #     client or are not exposed by managed FSx)
@@ -126,6 +127,26 @@ commands:
           - "--expected-content"
           - "{{steps.create_volume.sentinel_content}}"
         timeout: 900
+
+      # ─── Home directory storage (FSx for OpenZFS) ──────────────────
+      # Reuses the block fixture's EC2 client. The script creates one minimum
+      # Single-AZ filesystem, runs all DIR01/DIR02 probes, then deletes it.
+      - name: home_directory_storage
+        phase: test
+        command: "python3 ../scripts/storage/home_directory_storage_test.py"
+        requires_available_validations:
+          - DirectoryFilesystemQuotaCheck
+          - DirectoryUsageAccountingCheck
+          - DirectoryNfsAvailabilityCheck
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+        # 1800 (create) + 900 (volume) + 600 (mount) + 900 (delete) + slack.
+        timeout: 4500
 
       # ─── High-speed storage (FSx for Lustre) ────────────────────────
       # Timeouts = worst-case waits in scripts/common/fsx.py + slack so the

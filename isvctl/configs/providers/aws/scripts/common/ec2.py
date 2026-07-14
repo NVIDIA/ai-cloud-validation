@@ -41,6 +41,7 @@ from botocore.exceptions import (
     ReadTimeoutError,
 )
 
+from common.ebs import describe_instance
 from common.errors import TRANSIENT_AWS_CODES
 
 # Conservative key-name pattern - letters, digits, dash, underscore, dot.
@@ -133,6 +134,27 @@ def wait_for_public_ip(
         if time.monotonic() >= deadline:
             return None
         time.sleep(interval)
+
+
+def instance_network(ec2: Any, instance_id: str) -> dict[str, str]:
+    """Return network and SSH fields for an existing EC2 instance."""
+    instance = describe_instance(ec2, instance_id)
+    security_groups = instance.get("SecurityGroups") or []
+    if not security_groups:
+        raise RuntimeError(f"Instance {instance_id} has no security group")
+    public_ip = instance.get("PublicIpAddress")
+    private_ip = instance.get("PrivateIpAddress")
+    subnet_id = instance.get("SubnetId")
+    vpc_id = instance.get("VpcId")
+    if not all((public_ip, private_ip, subnet_id, vpc_id)):
+        raise RuntimeError(f"Instance {instance_id} is missing required network fields")
+    return {
+        "public_ip": str(public_ip),
+        "private_ip": str(private_ip),
+        "subnet_id": str(subnet_id),
+        "vpc_id": str(vpc_id),
+        "security_group_id": str(security_groups[0]["GroupId"]),
+    }
 
 
 def get_supported_azs(ec2: Any, instance_type: str) -> set[str]:

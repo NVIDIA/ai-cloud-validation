@@ -24,6 +24,10 @@
 #   launch_instance, create_volume, snapshot_lifecycle, volume_resize,
 #   volume_persistence, teardown_volume, teardown
 #
+# Home directory (self-contained test-phase step):
+#   DirectoryFilesystemQuotaCheck, DirectoryUsageAccountingCheck,
+#   DirectoryNfsAvailabilityCheck
+#
 # High-speed storage (self-contained test-phase steps; HSS checks ship
 # unreleased — run with ISVTEST_INCLUDE_UNRELEASED=1 to exercise them):
 #   HssStorageProvisioningCheck (HSS01-01), HssQosThroughputCheck (HSS02-01),
@@ -119,6 +123,16 @@ commands:
           - "{{steps.create_volume.mount_point}}"
           - "--expected-content"
           - "{{steps.create_volume.sentinel_content}}"
+        timeout: 60
+
+      - name: home_directory_storage
+        phase: test
+        command: "python ../scripts/storage/home_directory_storage_test.py"
+        requires_available_validations:
+          - DirectoryFilesystemQuotaCheck
+          - DirectoryUsageAccountingCheck
+          - DirectoryNfsAvailabilityCheck
+        args: ["--region", "{{region}}"]
         timeout: 60
 
       # High-speed storage (self-contained; demo stubs)

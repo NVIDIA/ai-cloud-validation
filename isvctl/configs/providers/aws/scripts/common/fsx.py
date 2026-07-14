@@ -242,9 +242,23 @@ def wait_filesystem_deleted(fsx: Any, fs_id: str, *, timeout: float = 900.0, del
     return False
 
 
-def delete_filesystem(fsx: Any, fs_id: str, *, wait: bool = True, timeout: float = 900.0, delay: float = 15.0) -> bool:
-    """Best-effort delete of an FSx filesystem, optionally waiting for removal."""
-    ok = delete_with_retry(fsx.delete_file_system, FileSystemId=fs_id, resource_desc=f"FSx filesystem {fs_id}")
+def delete_filesystem(
+    fsx: Any,
+    fs_id: str,
+    *,
+    wait: bool = True,
+    timeout: float = 900.0,
+    delay: float = 15.0,
+    **delete_kwargs: Any,
+) -> bool:
+    """Best-effort delete of an FSx filesystem, optionally waiting for removal.
+
+    Extra keyword args (e.g. ``OpenZFSConfiguration``) are forwarded to
+    ``delete_file_system``.
+    """
+    ok = delete_with_retry(
+        fsx.delete_file_system, FileSystemId=fs_id, resource_desc=f"FSx filesystem {fs_id}", **delete_kwargs
+    )
     if not ok or not wait:
         return ok
     return wait_filesystem_deleted(fsx, fs_id, timeout=timeout, delay=delay)
