@@ -369,6 +369,28 @@ def test_forge_get_uses_configured_api_name(
     assert seen["url"] == f"http://127.0.0.1:8080/v2/org/ncx/{segment}/site/site-1"
 
 
+@pytest.mark.parametrize("body", ["OK", "", "   "])
+def test_forge_request_tolerates_non_json_success_body(monkeypatch: pytest.MonkeyPatch, body: str) -> None:
+    """NICo DELETE answers with a bare ``OK`` (not JSON); a 2xx body must not raise."""
+    module = _load_nico_client()
+
+    class _RawResponse:
+        def __enter__(self) -> _RawResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return body.encode()
+
+    monkeypatch.setattr(module, "urlopen", lambda request, timeout=30: _RawResponse())
+
+    result = module.forge_delete("ncx", "sshkey/key-1", "tok", base_url="http://x")
+
+    assert result == {}
+
+
 @pytest.mark.parametrize(
     "step_name",
     [
@@ -3287,6 +3309,86 @@ def test_teardown_key_access_deletes_resources_and_restores_flag(
     assert deletes == ["sshkeygroup/kg-1", "sshkey/key-1"]
     assert patched == {"isSerialConsoleSSHKeysEnabled": False}
     assert out["cleanup_errors"] == []
+
+
+def test_teardown_key_access_treats_404_delete_as_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """DELETE 404 means the resource is already gone; teardown should still succeed."""
+    from urllib.error import HTTPError
+
+    module = _load_teardown_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(
+        module,
+        "forge_delete",
+        lambda *a, **k: (_ for _ in ()).throw(HTTPError("http://x", 404, "Not Found", None, None)),
+    )
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        [
+            "teardown_key_access.py",
+            "--org",
+            "o",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://x",
+            "--sshkeygroup-id",
+            "kg-1",
+            "--sshkey-id",
+            "key-1",
+            "--restore-ssh-keys-enabled",
+            "",
+        ],
+    )
+
+    assert code == 0
+    assert out["success"] is True
+    assert out["cleanup_errors"] == []
+
+
+def test_teardown_key_access_treats_none_restore_flag_as_unset(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Jinja renders Python None as the literal string 'None'; do not PATCH the site."""
+    module = _load_teardown_key_access_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(module, "forge_delete", lambda *a, **k: {})
+    monkeypatch.setattr(
+        module,
+        "forge_patch",
+        lambda org, path, token, *, base_url, body, **kw: patches.append(body) or {},
+    )
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        [
+            "teardown_key_access.py",
+            "--org",
+            "o",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "http://x",
+            "--sshkeygroup-id",
+            "kg-1",
+            "--sshkey-id",
+            "key-1",
+            "--restore-ssh-keys-enabled",
+            "None",
+        ],
+    )
+
+    assert code == 0
+    assert out["success"] is True
+    assert patches == []
 
 
 def test_teardown_key_access_is_noop_without_ids(

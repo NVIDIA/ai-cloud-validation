@@ -19,8 +19,9 @@
 Deletes the SSH Key Group and SSH Key created by setup_key_access.py and, when
 setup flipped it, restores the site's serial-console SSH-key flag. The IDs are
 passed in from the setup step output via Jinja; empty IDs mean setup created
-nothing, so this is a no-op. A failure on one resource does not stop the
-others; errors are reported in ``cleanup_errors`` and fail the step.
+nothing, so this is a no-op. DELETE 404 is treated as already removed
+(idempotent teardown). Other failures on one resource do not stop the others;
+errors are reported in ``cleanup_errors`` and fail the step.
 
 NICo API endpoints used (``/carbide/`` segment, like the other NICo scripts):
   DELETE /{org}/carbide/sshkeygroup/{id}
@@ -37,6 +38,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -44,9 +46,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common.nico_client import NicoAuthError, forge_delete, forge_patch, resolve_auth
 
 
+def _delete_if_present(org: str, path: str, token: str, *, base_url: str) -> None:
+    """DELETE a NICo resource; treat 404 as already removed."""
+    try:
+        forge_delete(org, path, token, base_url=base_url)
+    except HTTPError as e:
+        if e.code == 404:
+            return
+        raise
+
+
 def _as_bool(value: str) -> bool | None:
     """Parse a Jinja-rendered flag into True/False, or None when unset."""
-    return {"true": True, "false": False}.get((value or "").strip().lower())
+    normalized = (value or "").strip().lower()
+    if normalized in ("", "none", "null"):
+        return None
+    return {"true": True, "false": False}.get(normalized)
 
 
 def main() -> int:
@@ -78,17 +93,17 @@ def main() -> int:
     try:
         auth = resolve_auth()
 
-        # Delete the group before the key: a key cannot be removed while it is
-        # still attached to a group.
+        # Delete the group before the key: deleting the group removes the key's
+        # group membership, so the key can then be deleted on its own.
         if group_id:
             try:
-                forge_delete(args.org, f"sshkeygroup/{group_id}", auth.token, base_url=args.api_base)
+                _delete_if_present(args.org, f"sshkeygroup/{group_id}", auth.token, base_url=args.api_base)
             except Exception as e:
                 result["cleanup_errors"].append(f"sshkeygroup {group_id}: {type(e).__name__}: {e}")
 
         if key_id:
             try:
-                forge_delete(args.org, f"sshkey/{key_id}", auth.token, base_url=args.api_base)
+                _delete_if_present(args.org, f"sshkey/{key_id}", auth.token, base_url=args.api_base)
             except Exception as e:
                 result["cleanup_errors"].append(f"sshkey {key_id}: {type(e).__name__}: {e}")
 
@@ -108,6 +123,8 @@ def main() -> int:
         # already runs teardown steps best-effort), but any failed deletion
         # fails the step so a leaked key/group is visible.
         result["success"] = not result["cleanup_errors"]
+        if result["cleanup_errors"]:
+            result["error"] = "; ".join(result["cleanup_errors"])
 
     except NicoAuthError as e:
         result["error_type"] = "auth"
