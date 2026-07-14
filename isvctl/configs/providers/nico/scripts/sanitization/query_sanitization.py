@@ -160,13 +160,9 @@ def breakfix_skip_observed(tokens: list[str]) -> bool:
             if maintenance_after_tenancy:
                 return True
             active_tenancy = True
-            maintenance_after_tenancy = False
         elif token == MAINTENANCE and active_tenancy:
             maintenance_after_tenancy = True
-        elif token == SANITIZING:
-            active_tenancy = False
-            maintenance_after_tenancy = False
-        elif token == AVAILABLE:
+        elif token in (SANITIZING, AVAILABLE):
             active_tenancy = False
             maintenance_after_tenancy = False
     return False
@@ -212,17 +208,15 @@ def machine_record(machine: dict[str, Any]) -> dict[str, Any]:
     dmi = (machine.get("metadata") or {}).get("dmiData") or {}
 
     skip_observed = breakfix_skip_observed(tokens)
-    instance_bound = bool(machine.get("instanceId")) or bool(machine.get("tenantId"))
     # Tenancy is preserved when the host is still (or again) bound after a
     # maintenance skip, or is actively in Maintenance while assigned.
-    tenancy_preserved = not skip_observed or instance_bound or current in {"InUse", "Maintenance"}
+    tenancy_preserved = not skip_observed or assigned or current in {"InUse", "Maintenance"}
 
     return {
         "machine_id": machine.get("id", ""),
         "status": status_token(current),
         "available": is_ready and usable and not assigned,
         "in_use": current == "InUse",
-        "instance_bound": instance_bound,
         "has_gpu": has_gpu(machine),
         "served_tenant": served,
         "sanitized": sanitized,

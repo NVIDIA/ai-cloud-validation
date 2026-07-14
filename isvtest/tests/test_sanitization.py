@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the tenant-transition sanitization validations (SEC21-02/04/05/06)."""
+"""Tests for the tenant-transition sanitization validations (SEC21-02/04/05/06, STG02-01)."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from isvtest.validations.sanitization import (
     FirmwareResetCheck,
     GpuMemorySanitizationCheck,
     MemorySanitizationCheck,
+    SkipSanitizationBreakfixCheck,
 )
 
 
@@ -36,6 +37,8 @@ def _machine(
     has_gpu: bool = True,
     served_tenant: bool = True,
     sanitized: bool = True,
+    breakfix_skip_observed: bool = False,
+    tenancy_preserved: bool = True,
     stale_tenant_binding: bool = False,
     vendor: str = "Lenovo",
     product_name: str = "ThinkSystem SR670 V2",
@@ -51,6 +54,8 @@ def _machine(
         "has_gpu": has_gpu,
         "served_tenant": served_tenant,
         "sanitized": sanitized,
+        "breakfix_skip_observed": breakfix_skip_observed,
+        "tenancy_preserved": tenancy_preserved,
         "stale_tenant_binding": stale_tenant_binding,
         "vendor": vendor,
         "product_name": product_name,
@@ -289,3 +294,47 @@ class TestDiskSanitizationCheck:
         check.run()
         assert check._passed is False
         assert "API timeout" in check._error
+
+
+# ===========================================================================
+# SkipSanitizationBreakfixCheck (STG02-01)
+# ===========================================================================
+
+
+class TestSkipSanitizationBreakfixCheck:
+    """Tests for SkipSanitizationBreakfixCheck validation (STG02-01)."""
+
+    def test_valid_breakfix_skip_passes(self) -> None:
+        """A tenancy-preserving maintenance skip passes."""
+        machine = _machine(breakfix_skip_observed=True, transitions=["in_use", "maintenance", "in_use"])
+        check = SkipSanitizationBreakfixCheck(config={"step_output": _output(machines=[machine])})
+        check.run()
+        assert check._passed is True, check._error
+        assert "1 tenancy-preserving maintenance skip(s) observed" in check._output
+
+    def test_no_breakfix_history_passes(self) -> None:
+        """Sites with no maintenance skips still pass as auditable."""
+        check = SkipSanitizationBreakfixCheck(config={"step_output": _output()})
+        check.run()
+        assert check._passed is True, check._error
+        assert "no tenancy-preserving maintenance skips" in check._output
+
+    def test_unsanitized_tenant_release_fails(self) -> None:
+        """Tenant release without sanitizing still fails."""
+        machine = _machine(sanitized=False, transitions=["in_use", "available"])
+        check = SkipSanitizationBreakfixCheck(config={"step_output": _output(machines=[machine])})
+        check.run()
+        assert check._passed is False
+
+    def test_breakfix_without_tenancy_preservation_fails(self) -> None:
+        """A maintenance skip that drops tenant binding fails."""
+        machine = _machine(
+            breakfix_skip_observed=True,
+            tenancy_preserved=False,
+            transitions=["in_use", "maintenance", "in_use"],
+        )
+        check = SkipSanitizationBreakfixCheck(config={"step_output": _output(machines=[machine])})
+        check.run()
+        assert check._passed is False
+        sub = next(r for r in check._subtest_results if r["name"] == "breakfix_skip_m-001")
+        assert "tenancy was not preserved" in sub["message"]

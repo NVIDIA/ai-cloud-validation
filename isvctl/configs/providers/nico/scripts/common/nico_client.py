@@ -285,6 +285,17 @@ def classify_health(health: dict[str, Any]) -> str:
     return "unhealthy" if alerts else "healthy"
 
 
+def probe_text(probe: dict[str, Any]) -> str:
+    """Return the lowercased ``id`` + ``target`` + ``message`` text for matching.
+
+    NICo reports BMC sensors under a single ``BmcSensor`` probe id and carries
+    the sensor identity in ``target`` and the entity type in ``message`` (e.g.
+    ``power_supply``, ``temperature``), so all three fields are searched.
+    """
+    parts = [probe.get("id"), probe.get("target"), probe.get("message")]
+    return " ".join(p for p in parts if isinstance(p, str)).lower()
+
+
 def sum_capabilities(capabilities: list[dict[str, Any]], cap_type: str) -> int:
     """Sum the count field for capabilities of a given type.
 

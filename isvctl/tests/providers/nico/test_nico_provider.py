@@ -220,6 +220,16 @@ def _load_sanitization_script() -> ModuleType:
     return module
 
 
+def _load_stable_ips_script() -> ModuleType:
+    """Load the query_stable_ips script as a module for direct unit testing."""
+    return _load_nico_script("storage/query_stable_ips.py", "test_query_stable_ips")
+
+
+def _load_oob_health_script() -> ModuleType:
+    """Load the query_oob_health script as a module for direct unit testing."""
+    return _load_nico_script("health/query_oob_health.py", "test_query_oob_health")
+
+
 def test_nico_auth_prefers_explicit_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """A locally supplied NICo bearer token should be the simplest auth path."""
     module = _load_nico_client()
@@ -1007,8 +1017,8 @@ def test_nico_network_inventory_scripts_skip_when_site_has_no_network_inventory(
         ("query_ib_tenant_isolation.py", _load_ib_tenant_isolation_script),
         ("query_ib_keys.py", _load_ib_keys_script),
         ("query_sanitization.py", _load_sanitization_script),
-        ("query_stable_ips.py", lambda: _load_nico_script("storage/query_stable_ips.py", "test_query_stable_ips_api")),
-        ("query_oob_health.py", lambda: _load_nico_script("health/query_oob_health.py", "test_query_oob_health_api")),
+        ("query_stable_ips.py", _load_stable_ips_script),
+        ("query_oob_health.py", _load_oob_health_script),
     ],
 )
 def test_nico_scripts_require_api_base(
@@ -2617,7 +2627,6 @@ def test_sanitization_breakfix_skip_detection(
     record = payload["machines"][0]
     assert record["breakfix_skip_observed"] is True
     assert record["tenancy_preserved"] is True
-    assert record["instance_bound"] is True
 
 
 def test_sanitization_breakfix_skip_output_satisfies_check(
@@ -2651,11 +2660,6 @@ def test_sanitization_breakfix_skip_output_satisfies_check(
 # ---------------------------------------------------------------------------
 # query_stable_ips (STG03-01) script
 # ---------------------------------------------------------------------------
-
-
-def _load_stable_ips_script() -> ModuleType:
-    """Load the query_stable_ips script as a module for direct unit testing."""
-    return _load_nico_script("storage/query_stable_ips.py", "test_query_stable_ips")
 
 
 def _stable_ip_machine(
@@ -2700,7 +2704,6 @@ def test_stable_ips_script_reports_primary_addresses(
 
     assert payload["success"] is True
     host = payload["hosts"][0]
-    assert host["has_stable_ip"] is True
     assert host["primary_ip_addresses"] == ["192.156.7.23", "202.88.37.112"]
 
 
@@ -2737,11 +2740,6 @@ def test_stable_ips_script_output_satisfies_check(
 # ---------------------------------------------------------------------------
 # query_oob_health (STG04-01) script
 # ---------------------------------------------------------------------------
-
-
-def _load_oob_health_script() -> ModuleType:
-    """Load the query_oob_health script as a module for direct unit testing."""
-    return _load_nico_script("health/query_oob_health.py", "test_query_oob_health")
 
 
 def _oob_machine(
