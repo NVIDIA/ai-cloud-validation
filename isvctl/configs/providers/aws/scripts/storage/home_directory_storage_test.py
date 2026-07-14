@@ -241,16 +241,31 @@ def main() -> int:
         result["error"] = str(error)
         stamp_test_errors(result, str(error))
     finally:
+        cleanup_errors: list[str] = []
         if host:
-            _run_remote(
-                host,
-                args.key_file,
-                f"sudo umount -l {_MOUNT_B} 2>/dev/null || true; sudo umount -l {_MOUNT_A} 2>/dev/null || true",
-            )
-        cleanup_errors = cleanup_resources(ec2, fsx, fs_id, created.get("sg_id"))
+            try:
+                rc, _, stderr = _run_remote(
+                    host,
+                    args.key_file,
+                    (
+                        "rc=0; "
+                        f"for mount in {_MOUNT_B} {_MOUNT_A}; do "
+                        'if mountpoint -q "$mount"; then sudo umount -l "$mount" || rc=1; fi; '
+                        "done; exit $rc"
+                    ),
+                )
+                if rc != 0:
+                    cleanup_errors.append(f"unmount cleanup failed: {stderr.strip()[:200] or f'exit code {rc}'}")
+            except Exception as error:
+                cleanup_errors.append(f"unmount cleanup failed: {error}")
+        try:
+            cleanup_errors.extend(cleanup_resources(ec2, fsx, fs_id, created.get("sg_id")))
+        except Exception as error:
+            cleanup_errors.append(f"AWS cleanup failed: {error}")
         result["cleanup"] = not cleanup_errors
         if cleanup_errors:
             result["cleanup_errors"] = cleanup_errors
+            result["success"] = False
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1

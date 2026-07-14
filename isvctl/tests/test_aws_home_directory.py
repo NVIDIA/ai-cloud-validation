@@ -90,6 +90,37 @@ def _patch_provisioning(
     return cleanup_calls
 
 
+def _patch_successful_run(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+) -> list[tuple[str | None, str | None]]:
+    """Install a complete successful-run fixture and return cleanup calls."""
+    cleanup_calls = _patch_provisioning(monkeypatch, module)
+    quota = {"value": 2}
+    monkeypatch.setattr(module, "create_filesystem", lambda *args: "fs-1")
+    monkeypatch.setattr(
+        module,
+        "wait_filesystem_available",
+        lambda *args: {"DNSName": "fs.example", "OpenZFSConfiguration": {"RootVolumeId": "vol-root"}},
+    )
+    monkeypatch.setattr(module, "create_test_volume", lambda *args: "vol-child")
+    monkeypatch.setattr(module, "wait_volume", lambda *args, **kwargs: _volume(quota["value"]))
+    monkeypatch.setattr(module, "set_volume_quota", lambda *args: quota.update(value=args[2]))
+    monkeypatch.setattr(module, "_mount_volume", lambda *args: None)
+    monkeypatch.setattr(
+        module,
+        "_probe_nfs",
+        lambda *args: _passed(("nfsv4_mounted", "nfs_read_write", "nfs_shared_visibility")),
+    )
+    monkeypatch.setattr(
+        module,
+        "_probe_accounting",
+        lambda *args: _passed(("uid_usage_accounted", "gid_usage_accounted", "identity_usage_isolated")),
+    )
+    monkeypatch.setattr(module, "_probe_quota_enforcement", lambda *args: {"passed": True})
+    return cleanup_calls
+
+
 def test_quota_config_requires_volume_and_identity_quotas() -> None:
     """Quota configuration matching checks both volume and UID/GID limits."""
     module = _load_script()
@@ -137,36 +168,38 @@ def test_wait_volume_ignores_stale_available_response(monkeypatch: pytest.Monkey
 def test_main_happy_path(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """One shared filesystem run can satisfy all three DIR validations."""
     module = _load_script()
-    quota = {"value": 2}
-    cleanup_calls = _patch_provisioning(monkeypatch, module)
-
-    monkeypatch.setattr(module, "create_filesystem", lambda *args: "fs-1")
-    monkeypatch.setattr(
-        module,
-        "wait_filesystem_available",
-        lambda *args: {"DNSName": "fs.example", "OpenZFSConfiguration": {"RootVolumeId": "vol-root"}},
-    )
-    monkeypatch.setattr(module, "create_test_volume", lambda *args: "vol-child")
-    monkeypatch.setattr(module, "wait_volume", lambda *args, **kwargs: _volume(quota["value"]))
-    monkeypatch.setattr(module, "set_volume_quota", lambda *args: quota.update(value=args[2]))
-    monkeypatch.setattr(module, "_mount_volume", lambda *args: None)
-    monkeypatch.setattr(
-        module,
-        "_probe_nfs",
-        lambda *args: _passed(("nfsv4_mounted", "nfs_read_write", "nfs_shared_visibility")),
-    )
-    monkeypatch.setattr(
-        module,
-        "_probe_accounting",
-        lambda *args: _passed(("uid_usage_accounted", "gid_usage_accounted", "identity_usage_isolated")),
-    )
-    monkeypatch.setattr(module, "_probe_quota_enforcement", lambda *args: {"passed": True})
+    cleanup_calls = _patch_successful_run(monkeypatch, module)
 
     assert module.main() == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["success"] is True
     assert all(test["passed"] for test in payload["tests"].values())
     assert cleanup_calls == [("fs-1", "sg-nfs")]
+
+
+def test_main_combines_unmount_and_aws_cleanup_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Teardown errors fail the run without preventing AWS cleanup."""
+    module = _load_script()
+    cleanup_calls = _patch_successful_run(monkeypatch, module)
+    monkeypatch.setattr(module, "_run_remote", lambda *args, **kwargs: (1, "", "device busy"))
+    monkeypatch.setattr(
+        module,
+        "cleanup_resources",
+        lambda ec2, fsx, fs_id, sg_id: cleanup_calls.append((fs_id, sg_id)) or ["filesystem cleanup failed"],
+    )
+
+    assert module.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is False
+    assert payload["cleanup"] is False
+    assert payload["cleanup_errors"] == [
+        "unmount cleanup failed: device busy",
+        "filesystem cleanup failed",
+    ]
+    assert cleanup_calls[-1] == ("fs-1", "sg-nfs")
 
 
 def test_main_cleans_partial_resources_on_failure(
