@@ -90,7 +90,7 @@ from typing import Any
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.nico_client import NicoAuthError, forge_get_all, resolve_auth
+from common.nico_client import NicoAuthError, forge_get_all, probe_text, resolve_auth
 
 # Substring keywords that map a NICo health probe (by id/target/message) into an
 # informational hardware component bucket. NICo does not model GPU/thermal/memory
@@ -104,17 +104,6 @@ COMPONENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "memory": ("memory", "ecc", "dimm", "rowremap", "row_remap", "hbm", "sram"),
     "cooling": ("leak", "coolant", "cooling", "cdu", "liquid", "water"),
 }
-
-
-def _probe_text(probe: dict[str, Any]) -> str:
-    """Return the lowercased ``id`` + ``target`` + ``message`` text for matching.
-
-    NICo reports BMC sensors under a single ``BmcSensor`` probe id and carries
-    the sensor identity in ``target`` and the entity type in ``message`` (e.g.
-    ``power_supply``, ``temperature``), so all three fields are searched.
-    """
-    parts = [probe.get("id"), probe.get("target"), probe.get("message")]
-    return " ".join(p for p in parts if isinstance(p, str)).lower()
 
 
 def _matches_keywords(text: str, keywords: tuple[str, ...]) -> bool:
@@ -144,8 +133,8 @@ def component_breakdown(health: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
     # Compute each probe's match text once, then reuse it across every component
     # rather than rebuilding the lowercased string per (probe, component) pair.
-    success_texts = [(s, _probe_text(s)) for s in successes]
-    alert_texts = [(a, _probe_text(a)) for a in alerts]
+    success_texts = [(s, probe_text(s)) for s in successes]
+    alert_texts = [(a, probe_text(a)) for a in alerts]
 
     components: dict[str, dict[str, Any]] = {}
     for component, keywords in COMPONENT_KEYWORDS.items():

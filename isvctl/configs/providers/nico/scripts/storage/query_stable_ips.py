@@ -42,8 +42,7 @@ Required JSON output fields:
       {
         "host_id": "...",
         "hw_sku_device_type": "storage",
-        "primary_ip_addresses": ["192.156.7.23"],
-        "has_stable_ip": true
+        "primary_ip_addresses": ["192.156.7.23"]
       }
     ]
   }
@@ -88,27 +87,18 @@ def _dedupe_ips(addresses: list[str]) -> list[str]:
     return list(seen)
 
 
-def _interface_ips(iface: dict[str, Any]) -> list[str]:
-    """Return non-empty IP addresses reported on one machine interface."""
-    return _dedupe_ips([ip for ip in (iface.get("ipAddresses") or []) if isinstance(ip, str)])
-
-
 def host_record(machine: dict[str, Any]) -> dict[str, Any]:
     """Build the provider-neutral stable-IP record for one NICo machine."""
     interfaces = [iface for iface in (machine.get("machineInterfaces") or []) if isinstance(iface, dict)]
     primary = [iface for iface in interfaces if iface.get("isPrimary")]
     targets = primary or interfaces
 
-    primary_ips: list[str] = []
-    for iface in targets:
-        primary_ips.extend(_interface_ips(iface))
-    primary_ips = _dedupe_ips(primary_ips)
+    primary_ips = _dedupe_ips([ip for iface in targets for ip in (iface.get("ipAddresses") or [])])
 
     return {
         "host_id": machine.get("id", ""),
         "hw_sku_device_type": machine.get("hwSkuDeviceType") or "",
         "primary_ip_addresses": primary_ips,
-        "has_stable_ip": bool(primary_ips),
     }
 
 

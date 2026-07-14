@@ -115,6 +115,18 @@ class _TenantSanitizationCheck(BaseValidation):
             return [m for m in machines if m.get("has_gpu")]
         return machines
 
+    def _extra_machine_failure(self, machine: dict[str, Any], label: str) -> str | None:
+        """Hook: extra per-machine checks, run only when the sanitization gate passed.
+
+        Subclasses may report their own subtests here; a returned reason marks
+        the machine failed in the summary, ``None`` leaves it passing.
+        """
+        return None
+
+    def _passed_summary(self, total: int, served: int) -> str:
+        """Hook: summary message when every in-scope machine passed."""
+        return f"{self.subject} verified on {total} machine(s) ({served} with a prior tenancy audited)"
+
     def run(self) -> None:
         """Validate that every in-scope machine was sanitized between tenancies."""
         step_output = self.config.get("step_output", {})
@@ -139,10 +151,15 @@ class _TenantSanitizationCheck(BaseValidation):
         for machine in scoped:
             if machine.get("served_tenant"):
                 served += 1
+            label = _machine_label(machine)
             passed, message = evaluate_sanitization(machine)
-            self.report_subtest(f"{self.subtest_prefix}_{_machine_label(machine)}", passed=passed, message=message)
+            self.report_subtest(f"{self.subtest_prefix}_{label}", passed=passed, message=message)
             if not passed:
-                failed[_machine_label(machine)] = message
+                failed[label] = message
+                continue
+            reason = self._extra_machine_failure(machine, label)
+            if reason:
+                failed[label] = reason
 
         total = len(scoped)
         if failed:
@@ -154,7 +171,7 @@ class _TenantSanitizationCheck(BaseValidation):
             self.set_failed(f"{self.subject} failed for {len(failed)}/{total} machine(s): {summary}")
             return
 
-        self.set_passed(f"{self.subject} verified on {total} machine(s) ({served} with a prior tenancy audited)")
+        self.set_passed(self._passed_summary(total, served))
 
 
 class SkipSanitizationBreakfixCheck(_TenantSanitizationCheck):
@@ -168,81 +185,49 @@ class SkipSanitizationBreakfixCheck(_TenantSanitizationCheck):
 
     Config:
         step_output: Step output containing per-machine sanitization records
-            (see ``MemorySanitizationCheck``), plus ``breakfix_skip_observed``,
-            ``tenancy_preserved``, and ``instance_bound``.
+            (see ``MemorySanitizationCheck``), plus ``breakfix_skip_observed``
+            and ``tenancy_preserved``.
 
     Step output (from query_sanitization.py):
         machines[].breakfix_skip_observed: bool -- maintenance skip without Reset
         machines[].tenancy_preserved: bool -- tenant binding intact after skip
-        machines[].instance_bound: bool -- host currently bound to an instance
     """
 
     catalog_exclude: ClassVar[bool] = False
     description: ClassVar[str] = "Check optional skip-sanitization during break/fix preserves tenancy"
     subject: ClassVar[str] = "Break/fix skip-sanitization policy"
-    subtest_prefix: ClassVar[str] = "breakfix"
+    subtest_prefix: ClassVar[str] = "tenant_transition"
 
-    def run(self) -> None:
-        """Audit tenant-transition sanitization and any tenancy-preserving maintenance skips."""
-        step_output = self.config.get("step_output", {})
+    # Per-run counter; incrementing on the instance shadows this class default.
+    _breakfix_events: int = 0
 
-        if not step_output.get("success"):
-            self.set_failed(f"Sanitization step failed: {step_output.get('error', 'Unknown error')}")
-            return
+    def _extra_machine_failure(self, machine: dict[str, Any], label: str) -> str | None:
+        """Audit any tenancy-preserving maintenance skip on a sanitized machine."""
+        if not machine.get("breakfix_skip_observed"):
+            return None
+        self._breakfix_events += 1
+        if machine.get("tenancy_preserved"):
+            self.report_subtest(
+                f"breakfix_skip_{label}",
+                passed=True,
+                message=f"{label}: tenancy-preserving maintenance skip observed",
+            )
+            return None
+        reason = f"{label}: maintenance skip observed but tenancy was not preserved"
+        self.report_subtest(f"breakfix_skip_{label}", passed=False, message=reason)
+        return reason
 
-        machines = step_output.get("machines")
-        if not isinstance(machines, list):
-            self.set_failed("Sanitization step output is missing the 'machines' list")
-            return
-
-        if not machines:
-            self.set_failed("No machines found in step output")
-            return
-
-        failed: dict[str, str] = {}
-        breakfix_events = 0
-
-        for machine in machines:
-            label = _machine_label(machine)
-
-            passed, message = evaluate_sanitization(machine)
-            self.report_subtest(f"tenant_transition_{label}", passed=passed, message=message)
-            if not passed:
-                failed[label] = message
-                continue
-
-            if machine.get("breakfix_skip_observed"):
-                breakfix_events += 1
-                if machine.get("tenancy_preserved"):
-                    self.report_subtest(
-                        f"breakfix_skip_{label}",
-                        passed=True,
-                        message=f"{label}: tenancy-preserving maintenance skip observed",
-                    )
-                else:
-                    reason = f"{label}: maintenance skip observed but tenancy was not preserved"
-                    self.report_subtest(f"breakfix_skip_{label}", passed=False, message=reason)
-                    failed[label] = reason
-
-        total = len(machines)
-        if failed:
-            sample = ", ".join(list(failed)[:3])
-            more = len(failed) - min(len(failed), 3)
-            summary = f"{sample} (+{more} more)" if more else sample
-            self.set_failed(f"Break/fix sanitization policy failed for {len(failed)}/{total} machine(s): {summary}")
-            return
-
-        if breakfix_events:
-            summary = (
+    def _passed_summary(self, total: int, served: int) -> str:
+        """Summarize how many tenancy-preserving maintenance skips were audited."""
+        if self._breakfix_events:
+            return (
                 f"Break/fix skip-sanitization policy verified on {total} machine(s) "
-                f"({breakfix_events} tenancy-preserving maintenance skip(s) observed)"
+                f"({self._breakfix_events} tenancy-preserving maintenance skip(s) observed)"
             )
-        else:
-            summary = (
-                f"Break/fix skip-sanitization policy auditable on {total} machine(s) "
-                "(no tenancy-preserving maintenance skips in history yet)"
-            )
-        self.set_passed(summary)
+        return (
+            f"Break/fix skip-sanitization policy auditable on {total} machine(s) "
+            "(no tenancy-preserving maintenance skips in history yet)"
+        )
 
 
 class MemorySanitizationCheck(_TenantSanitizationCheck):

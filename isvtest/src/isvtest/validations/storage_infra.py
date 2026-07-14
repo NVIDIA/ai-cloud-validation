@@ -55,7 +55,6 @@ class StableStorageNodeIpCheck(BaseValidation):
             host_id: str
             hw_sku_device_type: str
             primary_ip_addresses: list[str]
-            has_stable_ip: bool
     """
 
     description: ClassVar[str] = "Check stable admin IP assignment is queryable for storage nodes"
@@ -80,20 +79,16 @@ class StableStorageNodeIpCheck(BaseValidation):
 
         storage_only = self.config.get("storage_only", False)
         scoped = [h for h in hosts if not storage_only or (h.get("hw_sku_device_type") or "").lower() == "storage"]
-        if not scoped:
-            scope = "storage " if storage_only else ""
-            self.set_failed(f"No {scope}hosts found in step output")
-            return
-
         if len(scoped) < min_hosts:
-            self.set_failed(f"Expected at least {min_hosts} host(s) with stable IP data, got {len(scoped)}")
+            scope = "storage " if storage_only else ""
+            self.set_failed(f"Expected at least {min_hosts} {scope}host(s) with stable IP data, got {len(scoped)}")
             return
 
         missing: list[str] = []
         for host in scoped:
             label = _host_label(host)
             ips = [ip for ip in (host.get("primary_ip_addresses") or []) if ip]
-            if host.get("has_stable_ip") and ips:
+            if ips:
                 self.report_subtest(
                     f"stable_ip_{label}",
                     passed=True,
@@ -123,7 +118,7 @@ class OobFailureDetectionCheck(BaseValidation):
     Asserts the per-host health API exposes BMC/out-of-band probes and that the
     STG04 failure classes (device, network, memory, drive) are observable through
     those probes. By default the check requires ``BmcSensor`` (the baseline BMC
-    path) and at least ``min_failure_categories`` observable categories.
+    path) and the ``device`` category to be observable.
 
     Config:
         step_output: Step output containing per-host OOB health records.
@@ -134,8 +129,6 @@ class OobFailureDetectionCheck(BaseValidation):
             ``["BmcSensor"]``).
         require_failure_categories: Categories that must be observable per host
             (default: ``["device"]`` -- the minimum BMC sensor surface).
-        min_failure_categories: Minimum count of observable categories when
-            ``require_failure_categories`` is omitted (default: 1).
 
     Step output (from query_oob_health.py):
         success: bool
@@ -176,10 +169,7 @@ class OobFailureDetectionCheck(BaseValidation):
 
         require_report = self.config.get("require_oob_report", True)
         require_bmc_probes = self.config.get("require_bmc_probes", ["BmcSensor"])
-        required_categories = self.config.get("require_failure_categories")
-        min_categories = self._parse_positive_int("min_failure_categories", default=1)
-        if min_categories is None:
-            return
+        required_categories = self.config.get("require_failure_categories", ["device"])
 
         failed: dict[str, str] = {}
 
@@ -220,28 +210,14 @@ class OobFailureDetectionCheck(BaseValidation):
             observable = [
                 name for name, data in categories.items() if isinstance(data, dict) and data.get("observable")
             ]
-            if required_categories is not None:
-                missing_categories = [name for name in required_categories if name not in observable]
-                if missing_categories:
-                    self.report_subtest(
-                        f"oob_categories_{label}",
-                        passed=False,
-                        message=f"{label}: missing observable failure categories: {', '.join(missing_categories)}",
-                    )
-                    failed.setdefault(label, f"missing categories {', '.join(missing_categories)}")
-                else:
-                    self.report_subtest(
-                        f"oob_categories_{label}",
-                        passed=True,
-                        message=f"{label}: categories observable: {', '.join(required_categories)}",
-                    )
-            elif len(observable) < min_categories:
+            missing_categories = [name for name in required_categories if name not in observable]
+            if missing_categories:
                 self.report_subtest(
                     f"oob_categories_{label}",
                     passed=False,
-                    message=f"{label}: {len(observable)} observable categories, requires {min_categories}",
+                    message=f"{label}: missing observable failure categories: {', '.join(missing_categories)}",
                 )
-                failed.setdefault(label, f"only {len(observable)} categories")
+                failed.setdefault(label, f"missing categories {', '.join(missing_categories)}")
             else:
                 self.report_subtest(
                     f"oob_categories_{label}",

@@ -25,17 +25,14 @@ from isvtest.validations.storage_infra import OobFailureDetectionCheck, StableSt
 def _host(
     host_id: str = "m-001",
     *,
-    has_stable_ip: bool = True,
     primary_ip_addresses: list[str] | None = None,
     hw_sku_device_type: str = "storage",
 ) -> dict[str, Any]:
     """Build a provider-neutral stable-IP host record."""
-    ips = primary_ip_addresses if primary_ip_addresses is not None else (["10.0.0.5"] if has_stable_ip else [])
     return {
         "host_id": host_id,
         "hw_sku_device_type": hw_sku_device_type,
-        "primary_ip_addresses": ips,
-        "has_stable_ip": has_stable_ip,
+        "primary_ip_addresses": primary_ip_addresses if primary_ip_addresses is not None else ["10.0.0.5"],
     }
 
 
@@ -64,17 +61,16 @@ def _oob_host(
     }
 
 
-def _output(*, hosts: list[dict[str, Any]] | None = None, success: bool = True, error: str = "") -> dict[str, Any]:
+def _output(*, hosts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Build a step output envelope."""
     if hosts is None:
         hosts = [_host()]
     return {
-        "success": success,
+        "success": True,
         "platform": "nico",
         "site_id": "site-1",
         "hosts_checked": len(hosts),
         "hosts": hosts,
-        "error": error,
     }
 
 
@@ -89,7 +85,7 @@ class TestStableStorageNodeIpCheck:
 
     def test_missing_ip_fails(self) -> None:
         """A host with no admin IPs fails."""
-        host = _host(has_stable_ip=False, primary_ip_addresses=[])
+        host = _host(primary_ip_addresses=[])
         check = StableStorageNodeIpCheck(config={"step_output": _output(hosts=[host])})
         check.run()
         assert check._passed is False

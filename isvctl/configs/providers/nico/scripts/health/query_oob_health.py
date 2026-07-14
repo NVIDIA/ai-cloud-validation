@@ -80,10 +80,10 @@ from typing import Any
 # Allow importing from sibling common/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.nico_client import NicoAuthError, forge_get_all, resolve_auth
+from common.nico_client import NicoAuthError, forge_get_all, probe_text, resolve_auth
 
 # BMC / out-of-band probe identifiers NICo reports on the machine health API.
-BMC_PROBE_PREFIXES = ("bmc",)
+BMC_PROBE_PREFIX = "bmc"
 
 # Failure classes STG04-01 calls out, mapped by probe id/target/message keywords.
 FAILURE_CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -94,22 +94,15 @@ FAILURE_CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _probe_text(probe: dict[str, Any]) -> str:
-    """Return lowercased probe id + target + message for keyword matching."""
-    parts = [probe.get("id"), probe.get("target"), probe.get("message")]
-    return " ".join(p for p in parts if isinstance(p, str)).lower()
-
-
 def _is_bmc_probe(probe: dict[str, Any]) -> bool:
     """Return whether a probe is BMC/out-of-band sourced."""
     probe_id = str(probe.get("id") or "").lower()
-    return probe_id.startswith(BMC_PROBE_PREFIXES)
+    return probe_id.startswith(BMC_PROBE_PREFIX)
 
 
-def _category_observability(health: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _category_observability(probes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Map NICo health probes into STG04 failure-category observability."""
-    probes = [p for p in (*(health.get("successes") or []), *(health.get("alerts") or [])) if isinstance(p, dict)]
-    probe_texts = [(probe, _probe_text(probe)) for probe in probes]
+    probe_texts = [(probe, probe_text(probe)) for probe in probes]
 
     categories: dict[str, dict[str, Any]] = {}
     for category, keywords in FAILURE_CATEGORY_KEYWORDS.items():
@@ -139,7 +132,7 @@ def host_record(machine: dict[str, Any]) -> dict[str, Any]:
         "host_id": machine.get("id", ""),
         "oob_health_present": oob_present,
         "bmc_probe_ids": bmc_probe_ids,
-        "failure_categories": _category_observability(health),
+        "failure_categories": _category_observability(probes),
     }
 
 
