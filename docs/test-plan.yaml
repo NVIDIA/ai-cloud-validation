@@ -2207,7 +2207,7 @@ domains:
                   - storage
                 priority: P1
                 milestone: M7
-                notes: "Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #486 remains open and should be closed to match #489-#493."
+                notes: "Implemented in #523 (K8sCsiDriverHealthCheck)."
                 github_issues:
                   - "#486"
                 req_id: HSS03
@@ -2218,7 +2218,7 @@ domains:
                   - storage
                 priority: P1
                 milestone: M7
-                notes: "Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #487 remains open and should be closed to match #489-#493."
+                notes: "Implemented in #523 (K8sCsiDriverHealthCheck)."
                 github_issues:
                   - "#487"
                 req_id: HSS03
@@ -2229,7 +2229,7 @@ domains:
                   - storage
                 priority: P1
                 milestone: M7
-                notes: "Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #488 remains open and should be closed to match #489-#493."
+                notes: "Implemented in #523 (K8sCsiDriverHealthCheck)."
                 github_issues:
                   - "#488"
                 req_id: HSS03

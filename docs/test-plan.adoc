@@ -2466,7 +2466,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/329[#329]
 | HSS03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/486[#486]
 | storage
-| Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #486 remains open and should be closed to match #489-#493.
+| Implemented in #523 (K8sCsiDriverHealthCheck).
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/486[#486]
 |
@@ -2480,7 +2480,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/486[#486]
 | HSS03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/487[#487]
 | storage
-| Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #487 remains open and should be closed to match #489-#493.
+| Implemented in #523 (K8sCsiDriverHealthCheck).
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/487[#487]
 |
@@ -2494,7 +2494,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/487[#487]
 | HSS03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/488[#488]
 | storage
-| Implemented in #523 (K8sCsiDriverHealthCheck), still test_id N/A + unreleased; GH issue #488 remains open and should be closed to match #489-#493.
+| Implemented in #523 (K8sCsiDriverHealthCheck).
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/488[#488]
 |

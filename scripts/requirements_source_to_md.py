@@ -21,7 +21,7 @@ Google-Docs-friendly view. Handles both the `offtake` and `reference` sources.
 
 Usage:
     python3 scripts/requirements_source_to_md.py docs/requirements/offtake-requirements.yaml
-    python3 scripts/requirements_source_to_md.py            # render both known sources
+    python3 scripts/requirements_source_to_md.py            # render all known sources
 """
 
 from __future__ import annotations
@@ -121,18 +121,20 @@ def render_storage(doc: dict[str, Any], src_name: str) -> str:
         f"# {doc.get('title', 'Storage Acceptance Requirements')}",
         "",
         f"> Structured source of record: `{src_name}` (version {doc.get('version', 'n/a')}).",
-        "> Requirement IDs mirror the upstream DGXC Storage Acceptance Test 'PRD Ref'",
-        "> column - a distinct namespace from the offtake HSS/DIR requirements.",
+        "> Requirement IDs are this document's own native identifiers (N-001..N-033),",
+        "> a distinct namespace from the offtake HSS/DIR requirements. Upstream 'PRD",
+        "> Ref' cross-references are tracked in the traceability matrix, not here.",
         "> Edit the YAML, not this file.",
         "",
     ]
     section = subsection = None
     for r in doc.get("requirements", []):
-        if r.get("section") != section:
+        section_changed = r.get("section") != section
+        if section_changed:
             section = r.get("section")
             heading(out, f"## {section}")
             subsection = None
-        if r.get("subsection") != subsection:
+        if section_changed or r.get("subsection") != subsection:
             subsection = r.get("subsection")
             if subsection:
                 heading(out, f"### {subsection}")
@@ -165,7 +167,7 @@ def render(path: Path) -> None:
 
 
 def main() -> None:
-    """Render the given source YAML(s), or both known sources by default."""
+    """Render the given source YAML(s), or all known default sources by default."""
     targets = [Path(a) for a in sys.argv[1:]] or DEFAULT_SOURCES
     for t in targets:
         if t.exists():
