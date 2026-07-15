@@ -1053,6 +1053,76 @@ def test_least_privilege_dimension_results_require_denied_bucket_and_source_cidr
 
     assert failed_resource_result["passed"] is False
     assert failed_network_result["passed"] is False
+    assert failed_resource_result["error"]
+    assert failed_network_result["error"]
+
+
+class _FakeSec04PropagationClient:
+    """Fail a fixed number of times with a propagation code, then authenticate."""
+
+    def __init__(self, operation: str, code: str, fail_times: int) -> None:
+        """Record the op/code to raise and how many times before succeeding."""
+        self.operation = operation
+        self.code = code
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def _maybe_raise(self) -> None:
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise _client_error(self.operation, self.code)
+
+    def get_caller_identity(self, **_kwargs: Any) -> dict[str, str]:
+        """STS probe used by the propagation gate."""
+        self._maybe_raise()
+        return {"Arn": "arn:aws:iam::123:user/isv-sec04-test"}
+
+    def describe_regions(self, **_kwargs: Any) -> dict[str, Any]:
+        """EC2 probe used by the propagation gate."""
+        self._maybe_raise()
+        raise _client_error("DescribeRegions", "DryRunOperation")
+
+    def list_objects_v2(self, **_kwargs: Any) -> dict[str, Any]:
+        """S3 probe used by the propagation gate."""
+        self._maybe_raise()
+        raise _client_error("ListObjectsV2", "AccessDenied")
+
+
+def test_least_privilege_propagation_gate_waits_out_transient_auth_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate retries AuthFailure/InvalidAccessKeyId until every service accepts the key."""
+    module = _load_security_script("least_privilege_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+
+    clients = {
+        "sts": _FakeSec04PropagationClient("GetCallerIdentity", "InvalidClientTokenId", fail_times=2),
+        "ec2": _FakeSec04PropagationClient("DescribeRegions", "AuthFailure", fail_times=3),
+        "s3": _FakeSec04PropagationClient("ListObjectsV2", "InvalidAccessKeyId", fail_times=1),
+    }
+
+    module._wait_for_iam_propagation(clients, "isv-sec04-test-allowed")
+
+    assert clients["sts"].calls == 3
+    assert clients["ec2"].calls == 4
+    assert clients["s3"].calls == 2
+
+
+def test_least_privilege_propagation_gate_raises_when_service_never_accepts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A service that keeps returning a propagation code surfaces a clear timeout error."""
+    module = _load_security_script("least_privilege_test.py")
+    monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+
+    clients = {
+        "sts": _FakeSec04PropagationClient("GetCallerIdentity", "InvalidClientTokenId", fail_times=0),
+        "ec2": _FakeSec04PropagationClient("DescribeRegions", "AuthFailure", fail_times=999),
+        "s3": _FakeSec04PropagationClient("ListObjectsV2", "InvalidAccessKeyId", fail_times=0),
+    }
+
+    with pytest.raises(RuntimeError, match="did not propagate to ec2"):
+        module._wait_for_iam_propagation(clients, "isv-sec04-test-allowed")
 
 
 class FakeIamTags:
