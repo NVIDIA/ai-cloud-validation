@@ -200,7 +200,12 @@ def main() -> int:
             # emit a structured skip (rc=0): the step must not redden the test
             # phase, and the provider config excludes the validator until a
             # Workspace-admin credential with directory-read access is provisioned.
-            status = getattr(getattr(e, "resp", None), "status", "")
+            status = getattr(getattr(e, "resp", None), "status", None)
+            if status not in {401, 403}:
+                # Bad requests, missing endpoints, quota failures, and service
+                # outages are operational failures, not evidence that the
+                # Directory surface is structurally unavailable.
+                raise
             result["success"] = True
             result["skipped"] = True
             result["skip_reason"] = (

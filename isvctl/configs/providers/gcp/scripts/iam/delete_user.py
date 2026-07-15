@@ -85,7 +85,7 @@ def main() -> int:
     # already absent (NotFound), and False only on a persistent transient
     # failure past the retry budget — fold that bool into success so a genuine
     # leak surfaces rather than being silently swallowed.
-    deleted = delete_service_account(sa_email)
+    deleted = delete_service_account(sa_email, project=args.project or None)
     if deleted:
         result["deleted"]["service_account"] = sa_email
         result["resources_deleted"].append(f"service_account:{sa_email}")

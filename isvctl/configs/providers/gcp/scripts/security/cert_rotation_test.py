@@ -42,6 +42,8 @@ Output JSON:
     "test_name": "cert_rotation_test",
     "rotation_window_days": 60,
     "certs_inspected": 2,
+    "auto_rotated": 1,
+    "short_validity": 1,
     "out_of_policy": 0,
     "tests": {
         "cert_inventory_non_empty": {"passed": true},
@@ -56,7 +58,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +67,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/gcp/sc
 
 from common.compute import resolve_project
 from common.errors import handle_gcp_errors
+from cryptography import x509
 from google.api_core import exceptions as gax
 from google.cloud import certificate_manager_v1
 
@@ -98,15 +102,83 @@ def _is_service_unavailable(e: Exception) -> bool:
     return any(marker in msg for marker in _SERVICE_DISABLED_MARKERS)
 
 
-def _days_until(expire_time: Any) -> int | None:
-    """Return whole days from now until ``expire_time``, or None when absent."""
-    if not expire_time:
+@dataclass(frozen=True)
+class CertificateEvidence:
+    """One certificate's rotation category and evidence verdict."""
+
+    category: str
+    compliant: bool
+    reason: str
+
+
+def _aware(value: datetime) -> datetime:
+    """Normalize a provider datetime to UTC-aware form."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def _certificate_type(cert: Any) -> str | None:
+    """Return the Certificate Manager proto oneof selection."""
+    try:
+        return certificate_manager_v1.Certificate.pb(cert).WhichOneof("type")
+    except (AttributeError, TypeError, ValueError):
         return None
-    # Certificate Manager returns a timezone-aware datetime for expire_time.
-    if expire_time.tzinfo is None:
-        expire_time = expire_time.replace(tzinfo=UTC)
-    delta = expire_time - datetime.now(UTC)
-    return int(delta.total_seconds() // 86400)
+
+
+def _evaluate_certificate(cert: Any, now: datetime) -> CertificateEvidence:
+    """Evaluate provider-managed renewal or self-managed short-validity evidence."""
+    cert_type = _certificate_type(cert)
+    if cert_type == "managed":
+        active = cert.managed.state == certificate_manager_v1.Certificate.ManagedCertificate.State.ACTIVE
+        expire_time = getattr(cert, "expire_time", None)
+        if not active:
+            return CertificateEvidence("out_of_policy", False, "managed certificate is not ACTIVE")
+        if not expire_time:
+            return CertificateEvidence("out_of_policy", False, "ACTIVE managed certificate has no expiry")
+        if _aware(expire_time) <= now:
+            return CertificateEvidence("out_of_policy", False, "managed certificate is expired")
+        return CertificateEvidence("auto_rotated", True, "ACTIVE provider-managed certificate")
+
+    if cert_type == "self_managed":
+        pem = str(getattr(cert, "pem_certificate", "") or "").strip()
+        if not pem:
+            return CertificateEvidence("out_of_policy", False, "self-managed certificate has no PEM readback")
+        try:
+            chain = x509.load_pem_x509_certificates(pem.encode())
+        except ValueError:
+            return CertificateEvidence("out_of_policy", False, "self-managed certificate PEM is malformed")
+        if not chain:
+            return CertificateEvidence("out_of_policy", False, "self-managed certificate PEM is empty")
+        leaf = chain[0]
+        valid_from = leaf.not_valid_before_utc
+        valid_until = leaf.not_valid_after_utc
+        if not valid_from <= now < valid_until:
+            return CertificateEvidence("out_of_policy", False, "self-managed certificate is not currently valid")
+        if valid_until - valid_from > timedelta(days=ROTATION_WINDOW_DAYS):
+            return CertificateEvidence(
+                "out_of_policy",
+                False,
+                f"self-managed certificate validity exceeds {ROTATION_WINDOW_DAYS} days",
+            )
+        return CertificateEvidence("short_validity", True, "self-managed certificate validity is within policy")
+
+    return CertificateEvidence("out_of_policy", False, "certificate type is missing or indeterminate")
+
+
+def _list_certificates(client: Any, parent: str) -> list[Any]:
+    """Return a complete certificate inventory or propagate a partial read.
+
+    A location-level NotFound before the pager yields anything is a genuine
+    empty inventory. Once any certificate has been observed, a later NotFound
+    is an incomplete inventory and must fail rather than erase that evidence.
+    """
+    certificates: list[Any] = []
+    try:
+        for certificate in client.list_certificates(parent=parent):
+            certificates.append(certificate)
+    except gax.NotFound:
+        if certificates:
+            raise
+    return certificates
 
 
 @handle_gcp_errors
@@ -123,6 +195,8 @@ def main() -> int:
         "test_name": "cert_rotation_test",
         "rotation_window_days": ROTATION_WINDOW_DAYS,
         "certs_inspected": 0,
+        "auto_rotated": 0,
+        "short_validity": 0,
         "out_of_policy": 0,
         "tests": {
             "cert_inventory_non_empty": {"passed": False},
@@ -139,23 +213,27 @@ def main() -> int:
         parent = f"projects/{project}/locations/global"
 
         certs_inspected = 0
-        out_of_policy = 0
-        try:
-            for cert in client.list_certificates(parent=parent):
-                certs_inspected += 1
-                # A managed certificate is auto-renewed before expiry. Evidence
-                # of in-policy rotation is a live certificate whose remaining
-                # validity is positive; Certificate Manager renews it before it
-                # lapses. Treat an already-expired certificate as out of policy.
-                # expire_time is a field on the Certificate itself (not on its
-                # managed sub-message), so read it directly.
-                expire_time = getattr(cert, "expire_time", None)
-                remaining_days = _days_until(expire_time)
-                if remaining_days is not None and remaining_days < 0:
-                    out_of_policy += 1
-        except gax.NotFound:
-            # No certificates resource in this location -- empty inventory.
-            certs_inspected = 0
+        counts = {"auto_rotated": 0, "short_validity": 0, "out_of_policy": 0}
+        failures: list[str] = []
+        now = datetime.now(UTC)
+        for cert in _list_certificates(client, parent):
+            certs_inspected += 1
+            # List responses may omit the output-only PEM. Fetch the full
+            # self-managed resource before declaring its evidence absent. A
+            # listed certificate that disappears during readback is retained
+            # as out-of-policy evidence, never collapsed into empty inventory.
+            if _certificate_type(cert) == "self_managed" and not getattr(cert, "pem_certificate", None):
+                listed_name = getattr(cert, "name", "<unnamed>")
+                try:
+                    cert = client.get_certificate(name=cert.name)
+                except gax.NotFound as exc:
+                    counts["out_of_policy"] += 1
+                    failures.append(f"{listed_name}: listed certificate could not be read: {exc}")
+                    continue
+            evidence = _evaluate_certificate(cert, now)
+            counts[evidence.category] += 1
+            if not evidence.compliant:
+                failures.append(f"{getattr(cert, 'name', '<unnamed>')}: {evidence.reason}")
 
         if certs_inspected == 0:
             # Only the provider-hidden GKE control-plane CA (or no customer
@@ -181,28 +259,27 @@ def main() -> int:
             return 0
 
         result["certs_inspected"] = certs_inspected
-        result["out_of_policy"] = out_of_policy
+        result.update(counts)
         result["tests"]["cert_inventory_non_empty"] = {
             "passed": True,
             "message": f"Inspected {certs_inspected} Certificate Manager certificate(s)",
         }
         result["tests"]["no_certs_out_of_policy"] = {
-            "passed": out_of_policy == 0,
-            "message" if out_of_policy == 0 else "error": (
-                f"All {certs_inspected} certificate(s) are within the {ROTATION_WINDOW_DAYS}-day rotation window"
-                if out_of_policy == 0
-                else f"{out_of_policy} certificate(s) are past their validity window"
+            "passed": counts["out_of_policy"] == 0,
+            "message" if counts["out_of_policy"] == 0 else "error": (
+                f"All {certs_inspected} certificate(s) have explicit rotation evidence"
+                if counts["out_of_policy"] == 0
+                else "; ".join(failures)
             ),
         }
-        # Certificate Manager managed certificates are auto-renewed; an
-        # enumerable, non-expired inventory is the customer-visible rotation
-        # evidence (mirrors the AWS auto-rotation reasoning).
+        evidence_count = counts["auto_rotated"] + counts["short_validity"]
         result["tests"]["rotation_evidence_present"] = {
-            "passed": out_of_policy == 0,
-            "message" if out_of_policy == 0 else "error": (
-                "Certificate Manager auto-renews managed certificates before expiry"
-                if out_of_policy == 0
-                else "Out-of-policy certificates indicate rotation evidence is incomplete"
+            "passed": evidence_count == certs_inspected,
+            "message" if evidence_count == certs_inspected else "error": (
+                f"Rotation evidence: {counts['auto_rotated']} managed auto-renewed, "
+                f"{counts['short_validity']} self-managed short-validity"
+                if evidence_count == certs_inspected
+                else f"Only {evidence_count}/{certs_inspected} certificate(s) have rotation evidence"
             ),
         }
         result["success"] = all(t["passed"] for t in result["tests"].values())

@@ -51,18 +51,26 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from typing import Any, cast
 
 import google.auth
 import google.auth.credentials
 import google.auth.transport.requests
 from google.api_core import exceptions as gax
+from google.api_core import retry as gax_retry
 from google.auth import exceptions as auth_exceptions
 from google.cloud import iam_admin_v1
 from google.iam.v1 import iam_policy_pb2, policy_pb2
 
 from common.errors import TRANSIENT_EXCEPTIONS, is_transport_disconnect, retry_idempotent
 from common.network import insert_instance
+from common.ownership import (
+    description_with_invocation,
+    has_invocation_description,
+    new_invocation_id,
+    submit_owned_create,
+)
 
 # IAM propagation budget: a freshly-created serviceAccountUser binding is not
 # effective on instances.insert immediately; GCE returns permission-denied /
@@ -74,10 +82,15 @@ IAM_PROPAGATION_DELAY = 15  # seconds -> 180s budget
 # handling in common.errors.delete_with_retry).
 _SA_DELETE_ATTEMPTS = 5
 _SA_DELETE_BACKOFF = 2.0  # seconds, multiplied by the attempt number
+_SA_ABSENCE_ATTEMPTS = 3
+_SA_ABSENCE_BACKOFF = 1.0
 
 # OAuth2 tokeninfo endpoint used to resolve the ADC principal email when
 # GCP_TEST_SA_EMAIL is not supplied by the operator.
 _TOKENINFO_URL = "https://www.googleapis.com/oauth2/v1/tokeninfo"
+# Disable generated-client create retries: a committed response loss must be
+# reconciled by the invocation marker, not hidden as a final AlreadyExists.
+_NO_CREATE_RETRY = gax_retry.Retry(predicate=lambda _exc: False)
 
 
 def resolve_principal_member() -> str:
@@ -114,27 +127,62 @@ def resolve_principal_member() -> str:
     return f"{prefix}{email}"
 
 
-def create_service_account_resource(project: str, account_id: str, *, display_name: str) -> iam_admin_v1.ServiceAccount:
+def create_service_account_resource(
+    project: str,
+    account_id: str,
+    *,
+    display_name: str,
+    description: str = "",
+    on_accepted: Callable[[], None],
+) -> iam_admin_v1.ServiceAccount:
     """Create a test-owned service account and return the provider ``ServiceAccount``.
 
     Returns the resource the API returns so callers can populate identity fields
     from server-created evidence (``email`` and the resource ``name``) instead of
     reconstructing them locally. Callers that only need the address use
     :func:`create_service_account`, which wraps this and returns ``.email``.
+
+    ``on_accepted`` is intentionally required. It fires after an acknowledged
+    create or after an ambiguous create whose exact invocation marker is read
+    back. Callers must gate cleanup on that handoff so they neither leak the
+    latter nor delete a same-name foreign resource.
     """
     iam = iam_admin_v1.IAMClient()
+    invocation_id = new_invocation_id()
+    email = f"{account_id}@{project}.iam.gserviceaccount.com"
+    resource_name = f"projects/{project}/serviceAccounts/{email}"
     sa = iam_admin_v1.ServiceAccount()
     sa.display_name = display_name
-    return iam.create_service_account(
-        name=f"projects/{project}",
-        account_id=account_id,
-        service_account=sa,
+    sa.description = description_with_invocation(description, invocation_id)
+    return submit_owned_create(
+        lambda: iam.create_service_account(
+            name=f"projects/{project}",
+            account_id=account_id,
+            service_account=sa,
+            retry=_NO_CREATE_RETRY,
+        ),
+        lambda: iam.get_service_account(name=resource_name),
+        lambda resource: has_invocation_description(resource, invocation_id),
+        on_accepted=on_accepted,
     )
 
 
-def create_service_account(project: str, account_id: str, *, display_name: str) -> str:
-    """Create a test-owned service account and return its server-populated email."""
-    return create_service_account_resource(project, account_id, display_name=display_name).email
+def create_service_account(
+    project: str,
+    account_id: str,
+    *,
+    display_name: str,
+    description: str = "",
+    on_accepted: Callable[[], None],
+) -> str:
+    """Create a test-owned service account and require exact cleanup handoff."""
+    return create_service_account_resource(
+        project,
+        account_id,
+        display_name=display_name,
+        description=description,
+        on_accepted=on_accepted,
+    ).email
 
 
 def _list_service_account_emails(project: str) -> list[str]:
@@ -226,23 +274,26 @@ def bind_service_account_user(sa_email: str, member: str) -> None:
     iam.set_iam_policy(request=request)
 
 
-def delete_service_account(sa_email: str) -> bool:
+def _project_from_service_account_email(sa_email: str) -> str:
+    """Return the project id encoded in a user-managed service-account email."""
+    try:
+        domain = sa_email.rsplit("@", 1)[1]
+    except IndexError:
+        return ""
+    suffix = ".iam.gserviceaccount.com"
+    return domain[: -len(suffix)] if domain.endswith(suffix) else ""
+
+
+def delete_service_account(sa_email: str, *, project: str | None = None) -> bool:
     """Delete the test-owned SA with bounded retry; return True iff it is gone.
 
-    Returns True when the SA was deleted now OR is already absent. An absent GCP
-    service account does NOT surface as ``NotFound``: a deleted/absent SA returns
-    ``PermissionDenied`` 403 ("...denied on resource (or it may not exist)") on
-    BOTH get and delete. Because this SA is test-owned — the run created it and so
-    holds ``iam.serviceAccounts.delete`` — that 403 cannot be a real permission
-    loss; it is the existence-hiding shape of the already-gone terminal state (for
-    example a concurrent owner sweep sharing this RUN_ID removed it first), so it
-    is folded into success. Only a documented transient (rate-limit / 5xx /
-    timeout) that persists past the retry budget returns False, so the caller can
-    fold the genuine leak into ``cleanup_errors`` / overall ``success`` rather than
-    silently orphaning a project-level SA. Replaces the generic
-    ``common.errors.delete_with_retry`` envelope, which classifies the
-    existence-hiding 403 as a terminal failure and would report a swept SA as a
-    leak.
+    Returns True when the SA was deleted now OR project inventory proves it is
+    already absent. GCP deliberately returns ``PermissionDenied`` 403 for both an
+    absent account and a caller that lacks delete permission, so a 403 alone is
+    never cleanup evidence. On that shape, poll the fully paginated project
+    inventory for a bounded window and succeed only after the exact email is
+    absent. A still-present account or unreadable inventory fails closed so the
+    caller reports the possible orphan in ``cleanup_errors``.
     """
     iam = iam_admin_v1.IAMClient()
     name = f"projects/-/serviceAccounts/{sa_email}"
@@ -253,8 +304,15 @@ def delete_service_account(sa_email: str) -> bool:
         except gax.NotFound:
             return True
         except (gax.PermissionDenied, gax.Forbidden):
-            # Existence-hiding 403 on a test-owned SA == already gone.
-            return True
+            inventory_project = project or _project_from_service_account_email(sa_email)
+            if not inventory_project:
+                return False
+            for proof_attempt in range(1, _SA_ABSENCE_ATTEMPTS + 1):
+                if service_account_absent(inventory_project, sa_email) is True:
+                    return True
+                if proof_attempt < _SA_ABSENCE_ATTEMPTS:
+                    time.sleep(_SA_ABSENCE_BACKOFF * proof_attempt)
+            return False
         except TRANSIENT_EXCEPTIONS:
             if attempt < _SA_DELETE_ATTEMPTS:
                 time.sleep(_SA_DELETE_BACKOFF * attempt)
@@ -265,7 +323,13 @@ def delete_service_account(sa_email: str) -> bool:
     return False
 
 
-def insert_instance_with_iam_propagation(project: str, zone: str, instance: Any) -> None:
+def insert_instance_with_iam_propagation(
+    project: str,
+    zone: str,
+    instance: Any,
+    *,
+    on_accepted: Callable[[], None] | None = None,
+) -> None:
     """Insert an instance, retrying while a fresh ``actAs`` binding propagates.
 
     A just-created serviceAccountUser binding is not effective on
@@ -276,7 +340,7 @@ def insert_instance_with_iam_propagation(project: str, zone: str, instance: Any)
     last_err: Exception | None = None
     for attempt in range(1, IAM_PROPAGATION_ATTEMPTS + 1):
         try:
-            insert_instance(project, zone, instance)
+            insert_instance(project, zone, instance, on_accepted=on_accepted)
             return
         except gax.PermissionDenied as e:
             last_err = e

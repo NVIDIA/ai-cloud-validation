@@ -65,6 +65,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/gcp/sc
 
 from common.compute import resolve_project
 from common.errors import handle_gcp_errors
+from common.kms import iter_kms_locations
 from google.api_core import exceptions as gax
 from google.cloud import compute_v1, container_v1, kms_v1, storage
 
@@ -83,7 +84,8 @@ def _count_enabled_keys(client: kms_v1.KeyManagementServiceClient, project: str)
     enabled = 0
     enabled_keys: set[str] = set()
     enabled_state = kms_v1.CryptoKeyVersion.CryptoKeyVersionState.ENABLED
-    for location in client.list_locations(request={"name": f"projects/{project}"}).locations:
+    permission_denials: list[tuple[str, gax.PermissionDenied]] = []
+    for location in iter_kms_locations(client, project):
         try:
             for key_ring in client.list_key_rings(parent=location.name):
                 for crypto_key in client.list_crypto_keys(parent=key_ring.name):
@@ -92,9 +94,15 @@ def _count_enabled_keys(client: kms_v1.KeyManagementServiceClient, project: str)
                             enabled += 1
                             enabled_keys.add(crypto_key.name)
                             break
-        except (gax.PermissionDenied, gax.NotFound):
-            # A location the caller cannot enumerate is not fatal -- keep walking.
-            continue
+        except gax.PermissionDenied as exc:
+            # Keep walking so later locations still produce diagnostic evidence,
+            # but never certify an account-wide inventory that was incomplete.
+            permission_denials.append((location.name, exc))
+    if permission_denials:
+        denied_locations = ", ".join(location for location, _exc in permission_denials)
+        raise gax.PermissionDenied(
+            f"Cloud KMS inventory is incomplete because access was denied for location(s): {denied_locations}"
+        ) from permission_denials[0][1]
     return enabled, enabled_keys
 
 

@@ -479,44 +479,86 @@ def delete_with_retry(
 def modify_iam_policy_with_retry(
     read_policy: Callable[[], Any],
     write_policy: Callable[[Any], Any],
-    mutate: Callable[[Any], None],
+    mutate: Callable[[Any], bool | None],
     *,
     resource_desc: str = "resource",
     attempts: int = 5,
     backoff_seconds: float = 2.0,
+    on_change_accepted: Callable[[], None] | None = None,
 ) -> None:
     """Read-modify-write an IAM policy with bounded retry (refresh-GET each attempt).
 
-    A GET-then-SET IAM-policy mutation races two transient conditions: a
-    backend 5xx / 429, and a stale-etag conflict (HTTP 409 -> ``gax.Aborted``)
-    when another writer updated the policy between the read and the write. Both
-    are retryable, and on retry the policy MUST be re-read so the fresh etag is
-    used — so ``read_policy`` is called anew each attempt, ``mutate`` applies
-    the change in place, and ``write_policy`` commits it.
+    A GET-then-SET IAM-policy mutation can hit a backend 5xx / 429, a stale-etag
+    conflict (HTTP 409 -> ``gax.Aborted``), or a raw transport disconnect during
+    either call. Each is retryable, and on retry the policy MUST be re-read so
+    the fresh etag is used — ``read_policy`` is called anew each attempt,
+    ``mutate`` applies the change in place, and ``write_policy`` commits it. A
+    mutator may return ``False`` to
+    prove that the desired state already holds; in that case no write is
+    submitted. ``None`` preserves the historical always-write behavior for
+    existing mutators. ``on_change_accepted`` is called exactly once only when
+    this invocation submitted a change and either the write returned
+    successfully or a later readback proves the desired state. This is the
+    ownership handoff cleanup callers need when a committed write loses its
+    response.
 
     This is the IAM-policy-mutation analog of ``delete_with_retry`` (which only
     covers the delete surface): a single ``get_iam_policy`` -> append binding ->
     ``set_iam_policy`` without this envelope aborts the whole caller on the
-    first transient. Both classify under ``TRANSIENT_EXCEPTIONS`` (which already
-    includes ``gax.Aborted``). Re-raises the last error once the budget is
+    first transient. Typed API failures classify under ``TRANSIENT_EXCEPTIONS``
+    (which already includes ``gax.Aborted``); raw disconnects are admitted only
+    by ``is_transport_disconnect``. Re-raises the last error once the budget is
     exhausted so the caller folds the failure into a structured error rather
     than silently dropping the binding.
     """
+    change_submitted = False
+    change_accepted = False
+
+    def _accept_change() -> None:
+        nonlocal change_accepted
+        if change_accepted:
+            return
+        if on_change_accepted is not None:
+            on_change_accepted()
+        change_accepted = True
+
     for attempt in range(1, attempts + 1):
         try:
             policy = read_policy()
-            mutate(policy)
+            changed = mutate(policy)
+            if changed is False:
+                if change_submitted:
+                    _accept_change()
+                return
+            change_submitted = True
             write_policy(policy)
+            _accept_change()
             return
-        except _TRANSIENT_CANDIDATES as e:
-            if not _is_transient_exception(e):
+        except Exception as e:
+            typed_transient = isinstance(e, _TRANSIENT_CANDIDATES) and _is_transient_exception(e)
+            transport_disconnect = is_transport_disconnect(e)
+            if not typed_transient and not transport_disconnect:
                 raise
             if attempt >= attempts:
+                if change_submitted:
+                    try:
+                        if mutate(read_policy()) is False:
+                            _accept_change()
+                            return
+                    except Exception:
+                        # Readback is evidence-only. Preserve the original
+                        # transient failure when ownership cannot be proved.
+                        logger.debug(
+                            "Unable to confirm IAM policy state on %s after the final write error",
+                            resource_desc,
+                            exc_info=True,
+                        )
                 logger.exception("Failed to modify IAM policy on %s after %d attempts", resource_desc, attempts)
                 raise
             delay = backoff_seconds * attempt
             logger.warning(
-                "Transient error modifying IAM policy on %s (attempt %d/%d): %s; retrying in %.1fs",
+                "%s modifying IAM policy on %s (attempt %d/%d): %s; retrying in %.1fs",
+                "Transport disconnect" if transport_disconnect else "Transient error",
                 resource_desc,
                 attempt,
                 attempts,

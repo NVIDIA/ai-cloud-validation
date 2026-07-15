@@ -53,6 +53,8 @@ Output JSON:
     "encrypted_resource_id": "isv-sec09-disk-...",
     "key_created": true,
     "disk_created": true,
+    "gce_service_agent_grant_added": true,
+    "gce_service_agent_member": "serviceAccount:service-123@compute-system.iam.gserviceaccount.com",
     "tests": {
         "customer_managed_key_available": {"passed": true},
         "key_manager_is_customer": {"passed": true},
@@ -69,10 +71,12 @@ import argparse
 import json
 import sys
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/gcp/scripts/
 
+from common.cmek_policy import compute_service_agent_member, ensure_kms_role_member, remove_kms_role_member
 from common.compute import (
     narrow_region_to_zone,
     resolve_project,
@@ -81,8 +85,18 @@ from common.compute import (
 )
 from common.errors import delete_with_retry, handle_gcp_errors
 from common.network import delete_disk
+from common.ownership import (
+    CREATED_BY_LABEL,
+    CREATED_BY_VALUE,
+    has_invocation_label,
+    labels_with_invocation,
+    new_invocation_id,
+    submit_owned_create,
+)
+from common.result import preserve_success_after_cleanup
 from google.api_core import exceptions as gax
-from google.cloud import compute_v1, kms_v1, resourcemanager_v3
+from google.api_core import retry as gax_retry
+from google.cloud import compute_v1, kms_v1
 
 # A self-created key ring is reused across same-run re-runs (rings/keys are not
 # deletable, so a deterministic per-run ring avoids unbounded accumulation),
@@ -92,19 +106,20 @@ from google.cloud import compute_v1, kms_v1, resourcemanager_v3
 _KEY_RING_BASE = "isv-sec09-cmk-ring"
 _KEY_BASE = "isv-sec09-cmk"
 _DISK_BASE = "isv-sec09-disk"
-
 # Roundtrip payload. Plain marker text, never key material.
 _PLAINTEXT = b"isv-customer-managed-key-validation"
-
-# The Compute Engine service agent that must be allowed to use a self-created
-# CMEK key before a CMEK disk can be inserted.
-_GCE_AGENT_TEMPLATE = "service-{number}@compute-system.iam.gserviceaccount.com"
-_KMS_ENCRYPTER_ROLE = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+_NO_CREATE_RETRY = gax_retry.Retry(predicate=lambda _exc: False)
 
 
 def _normalize_optional(value: str | None) -> str:
     """Return a stripped value, treating empty template strings as absent."""
     return (value or "").strip()
+
+
+def _fresh_crypto_key_id() -> str:
+    """Return a collision-resistant CryptoKey ID with terminal run suffix."""
+    discriminator = uuid.uuid4().hex[:6]
+    return unique_suffix(f"{_KEY_BASE}-{discriminator}")
 
 
 def _get_or_create_key_ring(client: kms_v1.KeyManagementServiceClient, location_parent: str, ring_id: str) -> str:
@@ -122,15 +137,34 @@ def _get_or_create_key_ring(client: kms_v1.KeyManagementServiceClient, location_
     return ring_path
 
 
-def _create_crypto_key(client: kms_v1.KeyManagementServiceClient, ring_path: str, key_id: str) -> str:
-    """Create a symmetric ENCRYPT_DECRYPT CryptoKey and return its resource path."""
+def _create_crypto_key(
+    client: kms_v1.KeyManagementServiceClient,
+    ring_path: str,
+    key_id: str,
+    *,
+    on_accepted: Callable[[], None] | None = None,
+) -> str:
+    """Create a marked CryptoKey and reconcile an ambiguous acknowledgement."""
+    invocation_id = new_invocation_id()
+    key_name = f"{ring_path}/cryptoKeys/{key_id}"
     crypto_key = kms_v1.CryptoKey(
         purpose=kms_v1.CryptoKey.CryptoKeyPurpose.ENCRYPT_DECRYPT,
+        labels=labels_with_invocation({CREATED_BY_LABEL: CREATED_BY_VALUE}, invocation_id),
         version_template=kms_v1.CryptoKeyVersionTemplate(
             algorithm=kms_v1.CryptoKeyVersion.CryptoKeyVersionAlgorithm.GOOGLE_SYMMETRIC_ENCRYPTION,
         ),
     )
-    created = client.create_crypto_key(parent=ring_path, crypto_key_id=key_id, crypto_key=crypto_key)
+    created = submit_owned_create(
+        lambda: client.create_crypto_key(
+            parent=ring_path,
+            crypto_key_id=key_id,
+            crypto_key=crypto_key,
+            retry=_NO_CREATE_RETRY,
+        ),
+        lambda: client.get_crypto_key(name=key_name),
+        lambda resource: has_invocation_label(resource, invocation_id),
+        on_accepted=on_accepted,
+    )
     return created.name
 
 
@@ -153,40 +187,36 @@ def _encrypt_decrypt_roundtrip(client: kms_v1.KeyManagementServiceClient, key_na
     return decrypted.plaintext == _PLAINTEXT
 
 
-def _grant_gce_service_agent(project: str, key_name: str) -> None:
-    """Bind the Compute Engine service agent as encrypter/decrypter on the key.
+def _create_cmek_disk(
+    project: str,
+    zone: str,
+    disk_name: str,
+    key_name: str,
+    *,
+    invocation_id: str,
+    on_accepted: Callable[[], None] | None = None,
+) -> None:
+    """Insert a marked CMEK disk and preserve ownership after ambiguous errors.
 
-    Unlike AWS (where the account root key policy lets EBS use a CMEK by
-    default), GCP grants the Compute Engine service agent no implicit access to a
-    customer key, so a CMEK disk insert fails with a ``cryptoKeyVersions
-    .useToEncrypt`` permission denial until this binding exists. Only ever called
-    for a self-created key; an operator ``--key-id`` is never re-permissioned.
+    A definite conflict never transfers cleanup ownership. A transport/5xx
+    exception may arrive after Compute Engine committed the insert, so reconcile
+    that outcome by exact project/zone/name readback and claim the disk only when
+    it echoes this invocation's marker.
     """
-    proj = resourcemanager_v3.ProjectsClient().get_project(name=f"projects/{project}")
-    project_number = proj.name.split("/", 1)[1]  # "projects/<number>" -> "<number>"
-    agent = _GCE_AGENT_TEMPLATE.format(number=project_number)
-
-    kms_client = kms_v1.KeyManagementServiceClient()
-    policy = kms_client.get_iam_policy(request={"resource": key_name})
-    member = f"serviceAccount:{agent}"
-    for binding in policy.bindings:
-        if binding.role == _KMS_ENCRYPTER_ROLE and member in binding.members:
-            return  # already granted
-    policy.bindings.add(role=_KMS_ENCRYPTER_ROLE, members=[member])
-    kms_client.set_iam_policy(request={"resource": key_name, "policy": policy})
-
-
-def _create_cmek_disk(project: str, zone: str, disk_name: str, key_name: str) -> None:
-    """Insert a CMEK-encrypted Persistent Disk and block until the op is DONE."""
     disk = compute_v1.Disk()
     disk.name = disk_name
     disk.size_gb = 1
     disk.type_ = f"projects/{project}/zones/{zone}/diskTypes/pd-standard"
-    disk.labels = {"created-by": "isvtest"}
+    disk.labels = labels_with_invocation({"created-by": "isvtest"}, invocation_id)
     disk.disk_encryption_key = compute_v1.CustomerEncryptionKey(kms_key_name=key_name)
 
     client = compute_v1.DisksClient()
-    op = client.insert(project=project, zone=zone, disk_resource=disk)
+    op = submit_owned_create(
+        lambda: client.insert(project=project, zone=zone, disk_resource=disk),
+        lambda: client.get(project=project, zone=zone, disk=disk_name),
+        lambda resource: has_invocation_label(resource, invocation_id),
+        on_accepted=on_accepted,
+    )
     op_name = getattr(op, "name", None) or getattr(op, "operation", "")
     if op_name:
         wait_for_zonal_op(project, zone, op_name, timeout=300)
@@ -205,6 +235,19 @@ def _disk_uses_key(project: str, zone: str, disk_name: str, key_name: str) -> bo
     return bool(actual) and (actual == key_name or actual.startswith(f"{key_name}/"))
 
 
+def _cleanup_gce_service_agent_grant(
+    client: kms_v1.KeyManagementServiceClient,
+    key_name: str,
+    member: str,
+) -> str | None:
+    """Remove this invocation's exact CMEK grant and return a cleanup error, if any."""
+    try:
+        remove_kms_role_member(client, key_name, member)
+    except Exception as exc:
+        return f"remove Compute service-agent grant from {key_name}: {exc}"
+    return None
+
+
 @handle_gcp_errors
 def main() -> int:
     """Run the BYOK / customer-managed-key checks and emit JSON result."""
@@ -212,6 +255,7 @@ def main() -> int:
     parser.add_argument("--region", default="")
     parser.add_argument("--project", default="")
     parser.add_argument("--key-id", default="", help="Existing tenant CryptoKey resource path (operator-supplied)")
+    parser.add_argument("--skip-destroy", action="store_true", help="Preserve run-owned fixtures for later teardown")
     args = parser.parse_args()
 
     result: dict = {
@@ -222,6 +266,8 @@ def main() -> int:
         "encrypted_resource_id": "",
         "key_created": False,
         "disk_created": False,
+        "gce_service_agent_grant_added": False,
+        "gce_service_agent_member": "",
         "tests": {
             "customer_managed_key_available": {"passed": False},
             "key_manager_is_customer": {"passed": False},
@@ -253,12 +299,18 @@ def main() -> int:
             key_name = operator_key
         else:
             ring_path = _get_or_create_key_ring(kms_client, location_parent, unique_suffix(_KEY_RING_BASE))
-            # Extra entropy on the key so a prior run that scheduled its key
-            # version for destruction never hands this run a key with no
-            # ENABLED version (rings/keys are not deletable).
-            fresh_key_id = f"{unique_suffix(_KEY_BASE)}-{uuid.uuid4().hex[:6]}"
-            key_name = _create_crypto_key(kms_client, ring_path, fresh_key_id)
-            result["key_created"] = True  # stamp ownership before any wait
+            # Put the per-invocation discriminator before the terminal run
+            # suffix. Run-scoped cleanup matches that suffix exactly,
+            # while the discriminator avoids same-run collisions with a prior
+            # key whose versions were already scheduled for destruction.
+            fresh_key_id = _fresh_crypto_key_id()
+            key_name = f"{ring_path}/cryptoKeys/{fresh_key_id}"
+            key_name = _create_crypto_key(
+                kms_client,
+                ring_path,
+                fresh_key_id,
+                on_accepted=lambda: result.update(key_created=True),
+            )
         result["key_id"] = key_name
 
         # 2. The key must be retrievable as a tenant ENCRYPT_DECRYPT key.
@@ -298,15 +350,27 @@ def main() -> int:
             if not operator_key:
                 # The Compute Engine service agent needs explicit use of a
                 # self-created key before the CMEK disk insert is permitted.
-                _grant_gce_service_agent(project, key_name)
+                # Record ownership before the SET so an ambiguous committed
+                # response still arms exact rollback in finally.
+                service_agent_member = compute_service_agent_member(project)
+                result["gce_service_agent_member"] = service_agent_member
+                result["gce_service_agent_grant_added"] = ensure_kms_role_member(
+                    kms_client,
+                    key_name,
+                    service_agent_member,
+                    on_added=lambda: result.update(gce_service_agent_grant_added=True),
+                )
             disk_name = unique_suffix(_DISK_BASE)
-            # Stamp ownership BEFORE the async insert/wait: if the wait raises
-            # (timeout / DONE-with-errors) the disk may still exist, so the
-            # finally block and the teardown safety-net must both see it. A
-            # delete of a never-created disk is an idempotent NotFound no-op.
-            result["disk_created"] = True
+            disk_invocation_id = new_invocation_id()
             result["encrypted_resource_id"] = disk_name
-            _create_cmek_disk(project, zone, disk_name, key_name)
+            _create_cmek_disk(
+                project,
+                zone,
+                disk_name,
+                key_name,
+                invocation_id=disk_invocation_id,
+                on_accepted=lambda: result.update(disk_created=True),
+            )
 
             disk_ok = _disk_uses_key(project, zone, disk_name, key_name)
             result["tests"]["resource_encrypted_with_customer_key"] = {
@@ -317,15 +381,20 @@ def main() -> int:
                     else f"Persistent Disk {disk_name} does not reference the expected customer-managed key"
                 ),
             }
+        result["success"] = all(t["passed"] for t in result["tests"].values())
     except Exception as e:
         result["error"] = str(e)
+        result["success"] = False
     finally:
         cleanup_errors: list[str] = []
+        cleanup_enabled = not args.skip_destroy
+        if not cleanup_enabled:
+            result["cleanup_skipped"] = True
         # Delete the CMEK disk this run created (best-effort, retry-on-transient).
         # delete_disk waits for the async zonal delete op to reach DONE, so a
         # clean (no cleanup_errors) result means the disk is observably gone, not
         # merely that the delete call was accepted.
-        if result["disk_created"] and project and zone and disk_name:
+        if cleanup_enabled and result["disk_created"] and project and zone and disk_name:
             if not delete_with_retry(
                 delete_disk,
                 project,
@@ -334,6 +403,24 @@ def main() -> int:
                 resource_desc=f"disk {disk_name}",
             ):
                 cleanup_errors.append(f"delete disk {disk_name}")
+        # Revert only the exact service-agent member this invocation added.
+        # Pre-existing grants and every unrelated binding/member are preserved.
+        if (
+            cleanup_enabled
+            and result["gce_service_agent_grant_added"]
+            and result["gce_service_agent_member"]
+            and result["key_created"]
+            and not operator_key
+            and key_name
+        ):
+            policy_client = kms_client or kms_v1.KeyManagementServiceClient()
+            cleanup_error = _cleanup_gce_service_agent_grant(
+                policy_client,
+                key_name,
+                result["gce_service_agent_member"],
+            )
+            if cleanup_error:
+                cleanup_errors.append(cleanup_error)
         # Never destroy an operator-supplied key. A self-created key's resources
         # (ring + key) cannot be hard-deleted, so schedule its primary version
         # for destruction best-effort to stop its material from being usable.
@@ -346,7 +433,7 @@ def main() -> int:
         # the gate red while every subtest passed and the disk was reclaimed, so
         # it is retried (delete_with_retry) and, if still unfinished, only
         # logged. The warm client is reused; only built fresh as a fallback.
-        if result["key_created"] and not operator_key and key_name:
+        if cleanup_enabled and result["key_created"] and not operator_key and key_name:
             destroy_client = kms_client or kms_v1.KeyManagementServiceClient()
             if not delete_with_retry(
                 destroy_client.destroy_crypto_key_version,
@@ -362,10 +449,7 @@ def main() -> int:
         if cleanup_errors:
             result["cleanup_errors"] = cleanup_errors
 
-    # Recompute success only after the try/except/finally completes: the verdict
-    # is grounded in the subtests AND fails when cleanup leaked a resource (the
-    # AWS oracle and this domain's teardown both fold cleanup_errors into it).
-    result["success"] = all(t["passed"] for t in result["tests"].values()) and not result.get("cleanup_errors")
+    preserve_success_after_cleanup(result)
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
 

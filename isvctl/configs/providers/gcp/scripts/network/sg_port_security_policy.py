@@ -154,9 +154,9 @@ def main() -> int:
     # alnum+hyphen, starts with a letter. RUN_ID alone is shared across a run,
     # so a same-run retry after a delayed/failed SA delete would reuse the id
     # and hit ALREADY_EXISTS; fold a fresh per-invocation token in BEFORE the
-    # run suffix ("isv-ps-oth-" 11 + 4 token + "-" + 6 run = 22 chars).
+    # run suffix ("isv-ps-oth-" 11 + 4 token + "-" + 8 run = 24 chars).
     invocation_disc = uuid.uuid4().hex[:4]
-    other_account_id = unique_suffix(f"isv-ps-oth-{invocation_disc}", length=6)[:30]
+    other_account_id = unique_suffix(f"isv-ps-oth-{invocation_disc}")
 
     result: dict[str, Any] = {
         "success": False,
@@ -170,19 +170,50 @@ def main() -> int:
     fw_created = False
     target_created = False
     other_created = False
-    # Email string is set BEFORE create_service_account so the finally block
-    # always attempts SA cleanup (delete is NotFound-idempotent), even on a
-    # partial create. Mirrors sg_service_scoping's SA cleanup discipline.
-    other_sa_email: str | None = None
+    # The deterministic coordinate is available before create, but cleanup is
+    # enabled only by the helper's exact ownership handoff. This covers both an
+    # acknowledged create and an ambiguous response whose marker readback proves
+    # this invocation owns the resource, without deleting a foreign conflict.
+    other_sa_email = f"{other_account_id}@{project}.iam.gserviceaccount.com"
+    other_sa_owned = False
+
+    def _record_other_sa_acceptance() -> None:
+        nonlocal other_sa_owned
+        other_sa_owned = True
+
+    def _record_network_acceptance() -> None:
+        nonlocal network_created
+        network_created = True
+
+    def _record_subnet_acceptance() -> None:
+        nonlocal subnet_created
+        subnet_created = True
+
+    def _record_firewall_acceptance() -> None:
+        nonlocal fw_created
+        fw_created = True
+
+    def _record_target_acceptance() -> None:
+        nonlocal target_created
+        target_created = True
+
+    def _record_other_acceptance() -> None:
+        nonlocal other_created
+        other_created = True
 
     try:
-        # Self-contained custom-mode network + subnet. Stamp each *_created
-        # tracker BEFORE its insert helper (partial-create cleanup gating).
+        # Self-contained custom-mode network + subnet. Each helper transfers
+        # cleanup ownership only after acknowledgement or exact marker readback.
         subnet_cidr = carve_subnet_cidrs(args.cidr, 1)[0]
-        network_created = True
-        insert_network(project, network_name)
-        subnet_created = True
-        insert_subnetwork(project, region, subnet_name, network_name, subnet_cidr)
+        insert_network(project, network_name, on_accepted=_record_network_acceptance)
+        insert_subnetwork(
+            project,
+            region,
+            subnet_name,
+            network_name,
+            subnet_cidr,
+            on_accepted=_record_subnet_acceptance,
+        )
 
         # create_virtual_interface — launch the TARGET VM carrying the policy
         # tag. No external IP / SSH (verification is firewall read-back).
@@ -195,8 +226,7 @@ def main() -> int:
             external_ip=False,
             network_tags=[target_tag],
         )
-        target_created = True
-        insert_instance(project, zone, target_resource)
+        insert_instance(project, zone, target_resource, on_accepted=_record_target_acceptance)
         poll_instance_state(project, zone, target_vm, target_canonical="running", timeout=300)
         result["tests"]["create_virtual_interface"] = {"passed": True}
 
@@ -212,8 +242,7 @@ def main() -> int:
             source_ranges=[subnet_cidr],
             target_tags=[target_tag],
         )
-        fw_created = True
-        insert_firewall(project, policy_fw)
+        insert_firewall(project, policy_fw, on_accepted=_record_firewall_acceptance)
         result["tests"]["apply_port_policy"] = {"passed": True}
 
         # allowed_port_permitted / unlisted_port_blocked — read back the full
@@ -233,10 +262,14 @@ def main() -> int:
         # a DISTINCT, self-created non-empty service account (independent
         # identity evidence; see module docstring). Self-create the SA and bind
         # the operator ADC principal to serviceAccountUser so the VM-attach
-        # succeeds, exactly as sg_service_scoping does. The email string is set
-        # first so cleanup always runs.
+        # succeeds, exactly as sg_service_scoping does.
         other_sa_email = f"{other_account_id}@{project}.iam.gserviceaccount.com"
-        create_service_account(project, other_account_id, display_name="ISV sg_port_security_policy non-target SA")
+        other_sa_email = create_service_account(
+            project,
+            other_account_id,
+            display_name="ISV sg_port_security_policy non-target SA",
+            on_accepted=_record_other_sa_acceptance,
+        )
         bind_service_account_user(other_sa_email, resolve_principal_member())
 
         other_resource = build_probe_instance(
@@ -249,9 +282,13 @@ def main() -> int:
             network_tags=[other_tag],
             service_accounts=[other_sa_email],
         )
-        other_created = True
         # Attaching a fresh SA needs actAs; retry while the binding propagates.
-        insert_instance_with_iam_propagation(project, zone, other_resource)
+        insert_instance_with_iam_propagation(
+            project,
+            zone,
+            other_resource,
+            on_accepted=_record_other_acceptance,
+        )
         poll_instance_state(project, zone, other_vm, target_canonical="running", timeout=300)
 
         # TWO INDEPENDENT read-backs (mirrors AWS reading both ENIs and the
@@ -292,11 +329,10 @@ def main() -> int:
         if fw_created and not delete_with_retry(delete_firewall, project, fw_name, resource_desc=f"firewall {fw_name}"):
             cleanup_errors.append(f"firewall {fw_name}")
         # delete_service_account retries documented transient IAM failures and
-        # returns a bool: NotFound / already-gone counts as success (the
-        # eventual-consistency window is absorbed by the retry), so only a
-        # genuine post-retry leak folds into cleanup_errors. The step must not
-        # report a clean cleanup while a project-level SA is orphaned.
-        if other_sa_email and not delete_service_account(other_sa_email):
+        # returns a bool: NotFound or project-inventory-proven absence counts as
+        # success, while a persistent transient, denied delete with a still-present
+        # account, or unreadable proof inventory folds into cleanup_errors.
+        if other_sa_owned and other_sa_email and not delete_service_account(other_sa_email, project=project):
             cleanup_errors.append(f"service account {other_sa_email}")
         if subnet_created and not delete_with_retry(
             delete_subnetwork, project, region, subnet_name, resource_desc=f"subnetwork {subnet_name}"

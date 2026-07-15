@@ -39,6 +39,8 @@ import argparse
 import importlib.util
 import json
 import os
+import socket
+import ssl
 import sys
 from pathlib import Path
 from typing import Any
@@ -63,6 +65,51 @@ _required_tests: list[str] = list(getattr(_prober, "REQUIRED_TESTS"))
 _demo_mode: bool = bool(getattr(_prober, "DEMO_MODE", False))
 
 
+def _probe_modern_tls_reachability(
+    endpoints: list[tuple[str, int]],
+    timeout: float,
+) -> dict[str, Any]:
+    """Require every target to complete a modern TLS handshake.
+
+    A closed, black-holed, or mistyped endpoint rejects every legacy probe too,
+    so legacy refusal alone is not evidence of secure protocol posture. This
+    positive control verifies the same HTTPS socket is reachable with TLS 1.2+
+    without using certificate trust as a second, unrelated policy check.
+    """
+    probes: list[dict[str, Any]] = []
+    for host, port in endpoints:
+        probe: dict[str, Any] = {"host": host, "port": port}
+        try:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            with socket.create_connection((host, port), timeout=timeout) as raw:
+                raw.settimeout(timeout)
+                with context.wrap_socket(raw, server_hostname=host) as tls_socket:
+                    negotiated = tls_socket.version()
+            if negotiated:
+                probe.update(category="accepted", negotiated_version=negotiated)
+            else:
+                probe.update(category="error", detail="TLS handshake returned no negotiated version")
+        except Exception as exc:
+            probe.update(category="unreachable", detail=f"{type(exc).__name__}: {exc}")
+        probes.append(probe)
+
+    passed = all(probe.get("category") == "accepted" for probe in probes)
+    result: dict[str, Any] = {"passed": passed, "probes": probes}
+    if passed:
+        result["message"] = f"modern TLS reachable on {len(endpoints)} endpoint(s)"
+    else:
+        failed = [
+            f"{probe['host']}:{probe['port']} {probe.get('detail', probe.get('category'))}"
+            for probe in probes
+            if probe.get("category") != "accepted"
+        ]
+        result["error"] = f"modern TLS reachability control failed: {', '.join(failed)}"
+    return result
+
+
 def main() -> int:
     """Probe configured edge endpoints for insecure-protocol acceptance."""
     parser = argparse.ArgumentParser(description="Insecure-protocols probe (GCP edge endpoints)")
@@ -81,6 +128,7 @@ def main() -> int:
         "test_name": "insecure_protocols",
         "endpoints_tested": 0,
         "tests": {
+            "modern_tls_reachable": {"passed": False},
             "sslv3_disabled": {"passed": False},
             "tlsv1_0_disabled": {"passed": False},
             "tlsv1_1_disabled": {"passed": False},
@@ -113,8 +161,11 @@ def main() -> int:
         return 0
 
     result["tests"] = _aggregate(endpoints, http_port, timeout)
+    result["tests"]["modern_tls_reachable"] = _probe_modern_tls_reachability(endpoints, timeout)
     result["endpoints_tested"] = len(endpoints)
-    result["success"] = all(result["tests"][name]["passed"] for name in _required_tests)
+    result["success"] = result["tests"]["modern_tls_reachable"]["passed"] and all(
+        result["tests"][name]["passed"] for name in _required_tests
+    )
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
 

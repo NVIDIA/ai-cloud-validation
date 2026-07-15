@@ -100,7 +100,7 @@ def main() -> int:
     for service_account in iam.list_service_accounts(name=f"projects/{project}"):
         if not service_account.email.split("@", 1)[0].startswith(args.prefix):
             continue
-        if delete_service_account(service_account.email):
+        if delete_service_account(service_account.email, project=project):
             result["resources_deleted"].append(service_account.email)
         else:
             failures += 1

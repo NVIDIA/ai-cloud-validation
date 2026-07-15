@@ -14,92 +14,86 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify the platform issues short-lived credentials to nodes and workloads (SEC02-01).
+"""Verify bounded node- and workload-equivalent credentials without a VM.
 
-Two distinct issuance surfaces are probed, mirroring the node and workload
-identity flows the requirement targets:
+The AWS reference validates two equivalent short-lived issuance paths instead
+of running inside EC2/IRSA. GCP follows the same execution model:
 
-* Node-equivalent: the credential a GCE instance receives from the platform
-  identity service -- the metadata-server token. ``google.auth.default()``
-  resolves to that source (a ``compute_engine.Credentials``) ONLY when running
-  on a GCE node; off-node it resolves a user/impersonation ADC token, which is
-  NOT the node issuance surface. The probe refreshes the credential for its
-  finite ``expiry`` only after confirming it is the metadata-server source, and
-  structured-skips the node surface otherwise rather than relabeling ADC as
-  ``metadata_server_token``.
-* Workload-equivalent: a credential an in-cluster workload acquires through the
-  workload-identity flow. IAM Credentials ``generateAccessToken`` mints a
-  short-lived token whose ``expire_time`` (a Timestamp, NOT an integer seconds
-  field) bounds its lifetime; the TTL is the remaining ``expire_time - now``.
+* Node-equivalent: create a temporary service account, grant the configured
+  runner service account Token Creator on that account, and mint an access
+  token through a delegated IAM Credentials chain. The mint retries fresh-IAM
+  403/404 responses for one 180-second propagation deadline.
+* Workload-equivalent: create a temporary OIDC Workload Identity Federation
+  pool/provider and exchange the configured OIDC fixture token through Google
+  Security Token Service.
 
-Each probe asserts the credential carries a finite expiry whose TTL is within
-``--max-ttl-seconds``. The workload probe impersonates ``--impersonate-sa`` when
-ADC is a user/default principal with no bound service account. When an issuance
-surface cannot be exercised in the environment (vs. returning a token that fails
-the TTL bound), the script emits a structured ``skipped`` payload (exit 0) so the
-validation skips rather than fabricating a pass or a partial fail. Token material
-is never printed.
-
-Usage:
-    python3 short_lived_credentials_test.py --region us-central1 --max-ttl-seconds 43200
-
-Output JSON:
-  {
-    "success": true,
-    "platform": "security",
-    "test_name": "short_lived_credentials_test",
-    "node_credential_method": "metadata_server_token",
-    "workload_credential_method": "iam_credentials_generate_access_token",
-    "node_credential_ttl_seconds": 3599,
-    "workload_credential_ttl_seconds": 3599,
-    "max_ttl_seconds": 43200,
-    "tests": {
-      "node_credential_has_expiry":           {"passed": true},
-      "node_credential_ttl_within_bound":     {"passed": true},
-      "workload_credential_has_expiry":       {"passed": true},
-      "workload_credential_ttl_within_bound": {"passed": true}
-    }
-  }
+Both temporary fixtures are cleaned through guaranteed cleanup paths unless
+the operator explicitly requests preservation for later teardown. Only expiry
+and TTL metadata are emitted; credential material is never printed.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/gcp/scripts/
+from secrets import token_hex
+from typing import Any, cast
 
 import google.auth
-import google.auth.compute_engine
 import google.auth.transport.requests
-from common.compute import resolve_project
-from common.errors import handle_gcp_errors
-from google.cloud import iam_credentials_v1
+from google.auth.transport.requests import AuthorizedSession
+from google.cloud import iam_admin_v1, iam_credentials_v1, resourcemanager_v3
+from google.iam.v1 import iam_policy_pb2, policy_pb2
+from google.oauth2 import sts
 from google.protobuf import duration_pb2
 
-DEFAULT_MAX_TTL_SECONDS = 43200  # 12h - SEC02 upper bound for short-lived creds
-NODE_METHOD = "metadata_server_token"
-WORKLOAD_METHOD = "iam_credentials_generate_access_token"
-# GCP default max SA-token lifetime is 3600s (only longer when org policy
-# iam.allowServiceAccountCredentialLifetimeExtension applies); request a
-# lifetime that fits both the default cap and the configured bound.
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR.parents[0]))  # providers/gcp/scripts/
+
+from common.compute import resolve_project, unique_suffix  # noqa: E402
+from common.errors import handle_gcp_errors  # noqa: E402
+from common.ownership import CREATED_BY_DESCRIPTION  # noqa: E402
+from common.service_account import (  # noqa: E402
+    create_service_account_resource,
+    delete_service_account,
+)
+from short_lived_credentials_support import (  # noqa: E402
+    ACCESS_TOKEN_TYPE,
+    ID_TOKEN_TYPE,
+    STS_TOKEN_ENDPOINT,
+    TOKEN_EXCHANGE_GRANT_TYPE,
+    AuthorizedHttp,
+    WorkloadIdentityRestClient,
+    mint_with_propagation_retry,
+    sts_response_expiry,
+)
+
+DEFAULT_MAX_TTL_SECONDS = 43200
+NODE_METHOD = "iam_credentials_delegated_generate_access_token"
+WORKLOAD_METHOD = "workload_identity_federation_sts_exchange"
 _WORKLOAD_LIFETIME_CAP_SECONDS = 3600
 _WORKLOAD_SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
+_TOKEN_CREATOR_ROLE = "roles/iam.serviceAccountTokenCreator"
+_WIF_PROVIDER_ID = "oidc"
+
+
+class CredentialSurfaceUnavailable(RuntimeError):
+    """The inputs needed to exercise an issuance surface are absent."""
 
 
 def _ttl_seconds(expiry: datetime) -> int:
-    """Return seconds until ``expiry``, treating naive datetimes as UTC."""
     if expiry.tzinfo is None:
         expiry = expiry.replace(tzinfo=UTC)
     return int((expiry - datetime.now(UTC)).total_seconds())
 
 
 def _record_credential(
-    result: dict,
+    result: dict[str, Any],
     *,
     expiry_key: str,
     ttl_key: str,
@@ -107,7 +101,6 @@ def _record_credential(
     expiry: datetime | None,
     max_ttl_seconds: int,
 ) -> None:
-    """Update ``result`` with expiry + TTL probe outcomes for one credential."""
     if expiry is None:
         result["tests"][expiry_key]["error"] = "credential carried no expiry"
         result["tests"][ttl_key]["error"] = "no expiry returned -- TTL bound cannot be evaluated"
@@ -121,89 +114,242 @@ def _record_credential(
         result["tests"][ttl_key]["error"] = f"TTL {ttl}s outside (0, {max_ttl_seconds}s] bound"
 
 
-def _node_credential_expiry() -> datetime | None:
-    """Refresh the node's metadata-server credential and return its expiry.
-
-    SEC02-01 node coverage means the credential a GCE instance receives from
-    the platform identity service: the metadata-server token, surfaced as a
-    ``compute_engine.Credentials``. ``google.auth.default()`` only resolves to
-    that source on a GCE node; off-node it resolves a user/impersonation ADC
-    token. Labeling such a token ``metadata_server_token`` (NODE_METHOD) would
-    assert node-credential coverage that was never exercised, so refuse to
-    relabel a non-node credential: raise when the resolved credential is not a
-    metadata-server source, letting the caller structured-skip the node surface
-    (the GCP analog of the AWS oracle skipping when it cannot exercise its STS
-    issuance surface).
-    """
-    raw_credentials, _ = google.auth.default(scopes=list(_WORKLOAD_SCOPES))
-    if not isinstance(raw_credentials, google.auth.compute_engine.Credentials):
-        raise RuntimeError(
-            "node credential surface unavailable: google.auth.default() resolved a "
-            f"{type(raw_credentials).__name__}, not a metadata-server "
-            "compute_engine.Credentials (not running on a GCE node) -- refusing to "
-            f"label a non-node ADC token {NODE_METHOD!r}"
-        )
-    raw_credentials.refresh(google.auth.transport.requests.Request())
-    return getattr(raw_credentials, "expiry", None)
+def _project_number(project: str) -> str:
+    resource = resourcemanager_v3.ProjectsClient().get_project(name=f"projects/{project}")
+    number = str(resource.name).rsplit("/", 1)[-1]
+    if not number.isdigit():
+        raise RuntimeError(f"project lookup returned an invalid project number: {resource.name!r}")
+    return number
 
 
-def _workload_credential_expiry(target_sa: str, max_ttl_seconds: int) -> datetime | None:
-    """Mint a short-lived workload token via IAM Credentials and return its expiry."""
-    client = iam_credentials_v1.IAMCredentialsClient()
-    lifetime = duration_pb2.Duration(seconds=min(max_ttl_seconds, _WORKLOAD_LIFETIME_CAP_SECONDS))
-    response = client.generate_access_token(
-        name=f"projects/-/serviceAccounts/{target_sa}",
-        scope=list(_WORKLOAD_SCOPES),
-        lifetime=lifetime,
+def _bind_token_creator(node_email: str, runner_email: str) -> None:
+    policy = policy_pb2.Policy(
+        bindings=[
+            policy_pb2.Binding(
+                role=_TOKEN_CREATOR_ROLE,
+                members=[f"serviceAccount:{runner_email}"],
+            )
+        ]
     )
-    return cast(datetime, response.expire_time) if response.expire_time else None
+    iam_admin_v1.IAMClient().set_iam_policy(
+        request=iam_policy_pb2.SetIamPolicyRequest(
+            resource=f"projects/-/serviceAccounts/{node_email}",
+            policy=policy,
+        )
+    )
+
+
+def _node_credential_expiry(
+    project: str,
+    runner_email: str,
+    max_ttl_seconds: int,
+    *,
+    cleanup_enabled: bool,
+) -> datetime | None:
+    """Mint a node-equivalent credential through a temporary delegated SA."""
+    runner_email = runner_email.strip()
+    if not runner_email:
+        raise CredentialSurfaceUnavailable(
+            "node-equivalent issuance requires --impersonate-sa (set GCP_SECURITY_IMPERSONATION_SA)"
+        )
+
+    account_id = unique_suffix(f"isv-sec02-node-{token_hex(2)}")
+    node_email = f"{account_id}@{project}.iam.gserviceaccount.com"
+    node_created = False
+    error: Exception | None = None
+    expiry: datetime | None = None
+
+    def _record_node_acceptance() -> None:
+        nonlocal node_created
+        node_created = True
+
+    try:
+        created = create_service_account_resource(
+            project,
+            account_id,
+            display_name="ISV SEC02 node credential probe",
+            description=f"SEC02 node-equivalent credential fixture ({CREATED_BY_DESCRIPTION}).",
+            on_accepted=_record_node_acceptance,
+        )
+        node_email = created.email
+        _bind_token_creator(node_email, runner_email)
+        client = iam_credentials_v1.IAMCredentialsClient()
+        lifetime = duration_pb2.Duration(seconds=min(max_ttl_seconds, _WORKLOAD_LIFETIME_CAP_SECONDS))
+
+        def _mint() -> Any:
+            return client.generate_access_token(
+                name=f"projects/-/serviceAccounts/{node_email}",
+                delegates=[f"projects/-/serviceAccounts/{runner_email}"],
+                scope=list(_WORKLOAD_SCOPES),
+                lifetime=lifetime,
+            )
+
+        response = mint_with_propagation_retry(_mint)
+        expiry = cast(datetime | None, response.expire_time)
+    except Exception as exc:
+        error = exc
+
+    if cleanup_enabled:
+        cleanup_ok = not node_created or delete_service_account(node_email, project=project)
+        if node_created and not cleanup_ok:
+            cleanup_error = RuntimeError(f"cleanup failed for temporary service account {node_email}")
+            if error:
+                raise RuntimeError(f"{error}; {cleanup_error}") from error
+            raise cleanup_error
+    if error:
+        raise error
+    return expiry
+
+
+def _workload_credential_expiry(
+    project: str,
+    *,
+    issuer_url: str,
+    audience: str,
+    subject_token: str,
+    cleanup_enabled: bool,
+) -> datetime:
+    """Exchange an OIDC fixture through a temporary WIF provider."""
+    missing = [
+        name
+        for name, value in (
+            ("--issuer-url", issuer_url),
+            ("--audience", audience),
+            ("--subject-token/OIDC_VALID_TOKEN", subject_token),
+        )
+        if not value.strip()
+    ]
+    if missing:
+        raise CredentialSurfaceUnavailable("workload-equivalent issuance requires " + ", ".join(missing))
+
+    pool_id = unique_suffix(f"isv-sec02-wif-{token_hex(2)}")
+    ownership_marker = token_hex(12)
+    credentials, _ = google.auth.default(scopes=list(_WORKLOAD_SCOPES))
+    fixture = WorkloadIdentityRestClient(
+        cast(AuthorizedHttp, AuthorizedSession(credentials)),
+        _project_number(project),
+    )
+    error: Exception | None = None
+    expiry: datetime | None = None
+    pool_created = False
+    provider_created = False
+
+    def _record_pool_acceptance() -> None:
+        nonlocal pool_created
+        pool_created = True
+
+    def _record_provider_acceptance() -> None:
+        nonlocal provider_created
+        provider_created = True
+
+    try:
+        fixture.create_pool(
+            pool_id,
+            ownership_marker=ownership_marker,
+            on_accepted=_record_pool_acceptance,
+        )
+        fixture.create_oidc_provider(
+            pool_id,
+            _WIF_PROVIDER_ID,
+            issuer_url=issuer_url.strip(),
+            allowed_audience=audience.strip(),
+            ownership_marker=ownership_marker,
+            on_accepted=_record_provider_acceptance,
+        )
+        response = sts.Client(STS_TOKEN_ENDPOINT).exchange_token(
+            google.auth.transport.requests.Request(),
+            grant_type=TOKEN_EXCHANGE_GRANT_TYPE,
+            subject_token=subject_token.strip(),
+            subject_token_type=ID_TOKEN_TYPE,
+            audience=fixture.provider_audience(pool_id, _WIF_PROVIDER_ID),
+            scopes=list(_WORKLOAD_SCOPES),
+            requested_token_type=ACCESS_TOKEN_TYPE,
+        )
+        expiry = sts_response_expiry(response)
+    except Exception as exc:
+        error = exc
+
+    cleanup_errors: list[str] = []
+    if cleanup_enabled and pool_created:
+        pool_safe_to_delete = False
+        if provider_created:
+            try:
+                fixture.delete_provider(pool_id, _WIF_PROVIDER_ID)
+            except Exception as exc:
+                cleanup_errors.append(f"provider cleanup failed: {exc}")
+            else:
+                pool_safe_to_delete = True
+        else:
+            try:
+                remaining_providers = fixture.list_providers(pool_id)
+            except Exception as exc:
+                cleanup_errors.append(f"provider inventory failed; preserving pool {pool_id}: {exc}")
+            else:
+                if remaining_providers:
+                    cleanup_errors.append(f"provider ownership was not established; preserving pool {pool_id}")
+                else:
+                    pool_safe_to_delete = True
+        if pool_safe_to_delete:
+            try:
+                fixture.delete_pool(pool_id)
+            except Exception as exc:
+                cleanup_errors.append(f"pool cleanup failed: {exc}")
+
+    if cleanup_errors:
+        cleanup_error = "; ".join(cleanup_errors)
+        if error:
+            raise RuntimeError(f"{error}; {cleanup_error}") from error
+        raise RuntimeError(cleanup_error)
+    if error:
+        raise error
+    if expiry is None:
+        raise RuntimeError("workload token exchange produced no expiry")
+    return expiry
 
 
 @handle_gcp_errors
 def main() -> int:
-    """Probe node + workload credential issuance, emit JSON result."""
     parser = argparse.ArgumentParser(description="Short-lived credentials test (SEC02-01)")
     parser.add_argument("--region", default="")
     parser.add_argument("--project", default="")
-    parser.add_argument(
-        "--max-ttl-seconds",
-        default="43200",
-        help=f"Upper bound on credential TTL (default: {DEFAULT_MAX_TTL_SECONDS})",
-    )
+    parser.add_argument("--max-ttl-seconds", default=str(DEFAULT_MAX_TTL_SECONDS))
     parser.add_argument(
         "--impersonate-sa",
-        default="",
-        help=(
-            "Target service account to impersonate for the workload-identity "
-            "probe when ADC is a user/default principal with no bound SA "
-            "(set GCP_SECURITY_IMPERSONATION_SA)"
-        ),
+        default=os.environ.get("GCP_SECURITY_IMPERSONATION_SA", ""),
+        help="Runner service account used as the delegated node-equivalent token minter",
     )
+    parser.add_argument("--issuer-url", default=os.environ.get("OIDC_ISSUER_URL", ""))
+    parser.add_argument("--audience", default=os.environ.get("OIDC_AUDIENCE", ""))
+    parser.add_argument(
+        "--subject-token",
+        default=os.environ.get("OIDC_VALID_TOKEN", ""),
+        help="OIDC subject token fixture (sensitive; defaults to OIDC_VALID_TOKEN)",
+    )
+    parser.add_argument("--skip-destroy", action="store_true", help="Preserve run-owned fixtures for later teardown")
     args = parser.parse_args()
 
     try:
         max_ttl_seconds = int(args.max_ttl_seconds)
+        if max_ttl_seconds < 1:
+            raise ValueError("must be positive")
     except (TypeError, ValueError):
-        max_ttl_seconds = 0
-
-    if max_ttl_seconds < 1:
         print(
             json.dumps(
                 {
-                    "success": True,
+                    "success": False,
                     "platform": "security",
                     "test_name": "short_lived_credentials_test",
-                    "skipped": True,
-                    "skip_reason": "--max-ttl-seconds must be a positive integer",
+                    "error": "--max-ttl-seconds must be a positive integer",
                     "tests": {},
                     "max_ttl_seconds": DEFAULT_MAX_TTL_SECONDS,
                 },
                 indent=2,
             )
         )
-        return 0
+        return 1
 
-    result: dict = {
+    project = resolve_project(args.project)
+    result: dict[str, Any] = {
         "success": False,
         "platform": "security",
         "test_name": "short_lived_credentials_test",
@@ -212,6 +358,7 @@ def main() -> int:
         "node_credential_ttl_seconds": 0,
         "workload_credential_ttl_seconds": 0,
         "max_ttl_seconds": max_ttl_seconds,
+        "cleanup_skipped": args.skip_destroy,
         "tests": {
             "node_credential_has_expiry": {"passed": False},
             "node_credential_ttl_within_bound": {"passed": False},
@@ -219,16 +366,15 @@ def main() -> int:
             "workload_credential_ttl_within_bound": {"passed": False},
         },
     }
-
-    # resolve_project confirms a usable credential/project before either probe
-    # runs (and surfaces a clear error when ADC is unconfigured).
-    project = resolve_project(args.project)
-
-    node_error: str | None = None
-    workload_error: str | None = None
+    unavailable: dict[str, str] = {}
 
     try:
-        node_expiry = _node_credential_expiry()
+        node_expiry = _node_credential_expiry(
+            project,
+            args.impersonate_sa,
+            max_ttl_seconds,
+            cleanup_enabled=not args.skip_destroy,
+        )
         _record_credential(
             result,
             expiry_key="node_credential_has_expiry",
@@ -237,30 +383,22 @@ def main() -> int:
             expiry=node_expiry,
             max_ttl_seconds=max_ttl_seconds,
         )
-    except Exception as e:
-        node_error = str(e)
-        result["tests"]["node_credential_has_expiry"]["error"] = node_error
-        result["tests"]["node_credential_ttl_within_bound"]["error"] = node_error
-
-    # The workload token is minted through the IAM Credentials
-    # generateAccessToken flow (the workload-identity issuance surface). On a
-    # node, ADC is the bound service account and impersonates itself; off-node
-    # (user ADC) there is no service_account_email, so fall back to the
-    # operator-supplied impersonation target. The run credential needs
-    # roles/iam.serviceAccountTokenCreator on the resolved SA.
-    credentials, _ = google.auth.default(scopes=list(_WORKLOAD_SCOPES))
-    target_sa = getattr(credentials, "service_account_email", None) or ""
-    if not target_sa or target_sa == "default":
-        target_sa = args.impersonate_sa.strip()
+    except CredentialSurfaceUnavailable as exc:
+        unavailable["node"] = str(exc)
+        result["tests"]["node_credential_has_expiry"]["error"] = str(exc)
+        result["tests"]["node_credential_ttl_within_bound"]["error"] = str(exc)
+    except Exception as exc:
+        result["tests"]["node_credential_has_expiry"]["error"] = str(exc)
+        result["tests"]["node_credential_ttl_within_bound"]["error"] = str(exc)
 
     try:
-        if not target_sa:
-            raise RuntimeError(
-                "no service account available to mint a workload token "
-                f"(project {project}): ADC is a user/default principal and "
-                "--impersonate-sa is unset (set GCP_SECURITY_IMPERSONATION_SA)"
-            )
-        workload_expiry = _workload_credential_expiry(target_sa, max_ttl_seconds)
+        workload_expiry = _workload_credential_expiry(
+            project,
+            issuer_url=args.issuer_url,
+            audience=args.audience,
+            subject_token=args.subject_token,
+            cleanup_enabled=not args.skip_destroy,
+        )
         _record_credential(
             result,
             expiry_key="workload_credential_has_expiry",
@@ -269,23 +407,15 @@ def main() -> int:
             expiry=workload_expiry,
             max_ttl_seconds=max_ttl_seconds,
         )
-    except Exception as e:
-        workload_error = str(e)
-        result["tests"]["workload_credential_has_expiry"]["error"] = workload_error
-        result["tests"]["workload_credential_ttl_within_bound"]["error"] = workload_error
+    except CredentialSurfaceUnavailable as exc:
+        unavailable["workload"] = str(exc)
+        result["tests"]["workload_credential_has_expiry"]["error"] = str(exc)
+        result["tests"]["workload_credential_ttl_within_bound"]["error"] = str(exc)
+    except Exception as exc:
+        result["tests"]["workload_credential_has_expiry"]["error"] = str(exc)
+        result["tests"]["workload_credential_ttl_within_bound"]["error"] = str(exc)
 
-    # An issuance surface raising (vs. returning a token that fails the TTL
-    # bound) means the environment could not exercise it -- a structured skip,
-    # not a security failure. The validator requires all four node_*/workload_*
-    # subtests, so a partial verdict cannot honestly pass; skip the whole test.
-    # Token-quality failures (no expiry, TTL out of bound) are recorded as
-    # subtest errors without raising, so they survive as real failures below.
-    if node_error or workload_error:
-        unavailable = []
-        if node_error:
-            unavailable.append(f"node ({node_error})")
-        if workload_error:
-            unavailable.append(f"workload ({workload_error})")
+    if set(unavailable) == {"node", "workload"}:
         print(
             json.dumps(
                 {
@@ -293,7 +423,10 @@ def main() -> int:
                     "platform": "security",
                     "test_name": "short_lived_credentials_test",
                     "skipped": True,
-                    "skip_reason": ("credential issuance surface could not be exercised: " + "; ".join(unavailable)),
+                    "skip_reason": (
+                        "credential issuance surfaces are unavailable: "
+                        f"node ({unavailable['node']}); workload ({unavailable['workload']})"
+                    ),
                     "tests": {},
                     "max_ttl_seconds": max_ttl_seconds,
                 },

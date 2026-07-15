@@ -25,21 +25,23 @@ shared route).
 
 The GCP port keeps the same shape: two scoped service accounts in ONE operator
 project, each owning its own VPC, Cloud KMS CryptoKey, Cloud Storage bucket, and
-Compute Engine instance. The run credential impersonates service account A and
-runs four cross-tenant probes against tenant B's resources:
+Compute Engine instance. Each identity receives resource-level access only to
+its own key, bucket, and VM. Positive control probes must first prove that own
+access works; symmetric cross-tenant probes then prove the same permission is
+denied on the other tenant's resource. This prevents a powerless principal's
+default-deny posture from masquerading as tenant isolation.
 
   * network_isolated: each tenant's VPC carries no cross-tenant peering and no
     custom route toward the other tenant's primary range (config-plane
     inspection, mirrors the AWS orchestrator no-peering / no-shared-route check).
     Two custom-mode VPCs in the same project are mutually unreachable unless a
     peering or an explicit cross-tenant route is wired in.
-  * data_isolated: SA-A is denied ``get_crypto_key`` on tenant B's CryptoKey
-    (Cloud KMS raises PermissionDenied / 403).
-  * compute_isolated: SA-A is denied ``instances.get`` and ``instances.stop`` on
-    tenant B's instance.
-  * storage_isolated: SA-A is denied ``get_bucket`` on tenant B's bucket. Cloud
-    Storage hides a bucket's existence from a zero-grant principal as a 404, so a
-    NotFound is accepted as an isolation pass alongside the 403.
+  * data_isolated: each SA can read its own CryptoKey metadata and is denied the
+    other tenant's CryptoKey.
+  * compute_isolated: each SA can read and stop its disposable own VM, then is
+    denied ``instances.get`` and ``instances.stop`` on the other tenant's VM.
+  * storage_isolated: each SA can read its own bucket metadata and is denied the
+    other tenant's bucket. Cloud Storage may hide the foreign bucket as a 404.
 
 GCP Cloud KMS key rings and crypto keys cannot be hard-deleted; a self-created
 key is cleaned up best-effort by scheduling its version for destruction. Every
@@ -97,7 +99,8 @@ from common.compute import (
     unique_suffix,
     zone_to_region,
 )
-from common.errors import delete_with_retry, handle_gcp_errors
+from common.errors import delete_with_retry, handle_gcp_errors, modify_iam_policy_with_retry
+from common.iam_policy import ensure_unconditional_binding_member, remove_binding_members
 from common.network import (
     build_probe_instance,
     delete_instance,
@@ -112,21 +115,40 @@ from common.network import (
     list_routes_for_network,
     network_peerings,
 )
+from common.ownership import (
+    CREATED_BY_DESCRIPTION,
+    CREATED_BY_LABEL,
+    CREATED_BY_VALUE,
+    has_invocation_label,
+    labels_with_invocation,
+    new_invocation_id,
+    submit_owned_create,
+)
+from common.result import preserve_success_after_cleanup
 from common.service_account import (
     IAM_PROPAGATION_ATTEMPTS,
     IAM_PROPAGATION_DELAY,
     create_service_account,
     delete_service_account,
     resolve_principal_member,
+    service_account_absent,
 )
 from google.api_core import exceptions as gax
+from google.api_core import retry as gax_retry
 from google.cloud import compute_v1, iam_admin_v1, kms_v1, storage
-from google.iam.v1 import iam_policy_pb2, policy_pb2
+from google.iam.v1 import iam_policy_pb2, options_pb2
 
 # Role the run principal needs on tenant A's service account to impersonate it
 # (mint short-lived tokens). Bound explicitly so the deny probes are
 # self-contained rather than relying on an implicit project-level grant.
 _TOKEN_CREATOR_ROLE = "roles/iam.serviceAccountTokenCreator"
+_TENANT_KMS_ROLE = "roles/cloudkms.viewer"
+_TENANT_BUCKET_ROLE = "roles/storage.legacyBucketReader"
+_TENANT_INSTANCE_ROLE = "roles/compute.instanceAdmin.v1"
+_IAM_PROPAGATION_BUDGET_SECONDS = IAM_PROPAGATION_ATTEMPTS * IAM_PROPAGATION_DELAY
+_OWN_STOP_BUDGET_SECONDS = 180
+_OWN_STOP_POLL_SECONDS = 2.0
+
 
 # Per-tenant resource name bases. The service-account local part is capped at 30
 # chars, so the SA prefix is deliberately short (unique_suffix appends an 8-char
@@ -162,17 +184,24 @@ _IMPERSONATION_SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
 
 # The created-by marker stamped on every label-supporting resource so an
 # operator ownership sweep can attribute orphans.
-_CREATED_BY_LABEL = {"created-by": "isvtest"}
+_CREATED_BY_LABEL = {CREATED_BY_LABEL: CREATED_BY_VALUE}
+# Stable, collision-specific provenance used only for intentional same-run KMS
+# reuse. Unlike ``created-by``, this proves the existing key belongs to this
+# exact deterministic fixture name.
+_FIXTURE_ID_LABEL = "isv-fixture"
 
 # Display name stamped on every tenant service account.
 _SA_DISPLAY_NAME = "ISV SEC11-01 tenant isolation fixture"
 
-# A concurrent owner sweep (a sibling security worker sharing this RUN_ID) can
+# A concurrent cleanup invocation using the same RUN_ID can
 # delete tenant A's service account inside the grant/propagation window before its
 # impersonation token is minted. The token is minted from a freshly created SA, so
 # if the SA is swept mid-window it is re-created with a new name and the mint is
 # retried, bounded to this many identity generations.
 _MAX_SA_GENERATIONS = 3
+# Preserve the original create exception for invocation-marker reconciliation;
+# the storage client's default policy would otherwise retry into a final 409.
+_NO_CREATE_RETRY = gax_retry.Retry(predicate=lambda _exc: False)
 
 
 @dataclass
@@ -194,13 +223,17 @@ class Tenant:
     instance_name: str = ""
     zone: str = ""
     created: dict[str, bool] = field(default_factory=dict)
+    owned_sa_emails: set[str] = field(default_factory=set)
+    own_grants_added: set[str] = field(default_factory=set)
+    token_creator_member: str = ""
+    token_creator_grant_added: bool = False
 
 
 def _sa_account_id(base: str) -> str:
-    """Return a <=30-char SA local part: base + run-id suffix + 4-hex discriminator."""
-    # unique_suffix already truncates the run-id to 8 chars; the extra
-    # token_hex(2) keeps two same-run-id invocations from colliding on the SA id.
-    return f"{unique_suffix(base, length=6)}-{secrets.token_hex(2)}"
+    """Return a <=30-char SA local part: base + discriminator + run suffix."""
+    # The discriminator prevents same-run retries from colliding, and placing
+    # it before unique_suffix preserves the terminal run-id cleanup contract.
+    return unique_suffix(f"{base}-{secrets.token_hex(2)}")
 
 
 def _key_ring_path(project: str, location: str, ring_id: str) -> str:
@@ -215,32 +248,86 @@ def _key_ring_path(project: str, location: str, ring_id: str) -> str:
     return ring_path
 
 
-def _create_crypto_key(ring_path: str, key_id: str) -> str:
-    """Create a symmetric ENCRYPT_DECRYPT CryptoKey and return its resource path.
+def _create_crypto_key(
+    ring_path: str,
+    key_id: str,
+    *,
+    on_accepted: Callable[[], None] | None = None,
+) -> tuple[str, bool]:
+    """Return a verified symmetric CryptoKey and whether this call created it.
 
     Cloud KMS keys cannot be hard-deleted, so on a same-run re-run an
-    AlreadyExists falls back to a get so the existing key is reused.
+    AlreadyExists falls back to a verified get so the existing key is reused
+    without transferring cleanup ownership to this invocation.
     """
     client = kms_v1.KeyManagementServiceClient()
+    stable_labels = {**_CREATED_BY_LABEL, _FIXTURE_ID_LABEL: key_id}
+    invocation_id = new_invocation_id()
     crypto_key = kms_v1.CryptoKey(
         purpose=kms_v1.CryptoKey.CryptoKeyPurpose.ENCRYPT_DECRYPT,
+        labels=labels_with_invocation(stable_labels, invocation_id),
         version_template=kms_v1.CryptoKeyVersionTemplate(
             algorithm=kms_v1.CryptoKeyVersion.CryptoKeyVersionAlgorithm.GOOGLE_SYMMETRIC_ENCRYPTION,
         ),
     )
+    key_name = f"{ring_path}/cryptoKeys/{key_id}"
     try:
-        created = client.create_crypto_key(parent=ring_path, crypto_key_id=key_id, crypto_key=crypto_key)
-        return created.name
+        created = submit_owned_create(
+            lambda: client.create_crypto_key(
+                parent=ring_path,
+                crypto_key_id=key_id,
+                crypto_key=crypto_key,
+                retry=_NO_CREATE_RETRY,
+            ),
+            lambda: client.get_crypto_key(name=key_name),
+            lambda resource: has_invocation_label(resource, invocation_id),
+            on_accepted=on_accepted,
+        )
+        return created.name, True
     except gax.AlreadyExists:
-        return client.get_crypto_key(name=f"{ring_path}/cryptoKeys/{key_id}").name
+        # A definite conflict never transfers this invocation's ownership. The
+        # permanently undeletable key may be reused only when its stable
+        # fixture-id provenance and cryptographic shape exactly match.
+        existing = client.get_crypto_key(name=key_name)
+        expected_purpose = kms_v1.CryptoKey.CryptoKeyPurpose.ENCRYPT_DECRYPT
+        expected_algorithm = kms_v1.CryptoKeyVersion.CryptoKeyVersionAlgorithm.GOOGLE_SYMMETRIC_ENCRYPTION
+        actual_algorithm = getattr(getattr(existing, "version_template", None), "algorithm", None)
+        if (
+            existing.purpose != expected_purpose
+            or actual_algorithm != expected_algorithm
+            or any(
+                dict(getattr(existing, "labels", None) or {}).get(label) != value
+                for label, value in stable_labels.items()
+            )
+        ):
+            raise RuntimeError(f"existing CryptoKey {existing.name} does not match the tenant fixture shape")
+        return existing.name, False
 
 
-def _create_bucket(client: storage.Client, project: str, location: str, bucket_name: str) -> None:
-    """Create a labelled, uniform-access Cloud Storage bucket for a tenant."""
+def _create_bucket(
+    client: storage.Client,
+    project: str,
+    location: str,
+    bucket_name: str,
+    *,
+    on_accepted: Callable[[], None] | None = None,
+) -> None:
+    """Create a marked tenant bucket with ambiguous-ack ownership reconciliation."""
+    invocation_id = new_invocation_id()
     bucket = client.bucket(bucket_name)
-    bucket.labels = dict(_CREATED_BY_LABEL)
+    bucket.labels = labels_with_invocation(_CREATED_BY_LABEL, invocation_id)
     bucket.iam_configuration.uniform_bucket_level_access_enabled = True
-    client.create_bucket(bucket, project=project, location=location)
+    submit_owned_create(
+        lambda: client.create_bucket(
+            bucket,
+            project=project,
+            location=location,
+            retry=_NO_CREATE_RETRY,
+        ),
+        lambda: client.get_bucket(bucket_name),
+        lambda resource: has_invocation_label(resource, invocation_id),
+        on_accepted=on_accepted,
+    )
 
 
 def _create_tenant_sa(project: str, tenant: Tenant) -> None:
@@ -251,8 +338,22 @@ def _create_tenant_sa(project: str, tenant: Tenant) -> None:
     sweep can delete an in-use SA is as small as possible.
     """
     account_id = _sa_account_id(tenant.sa_base)
-    tenant.sa_email = create_service_account(project, account_id, display_name=_SA_DISPLAY_NAME)
-    tenant.created["sa"] = True
+    candidate_email = f"{account_id}@{project}.iam.gserviceaccount.com"
+    tenant.sa_email = candidate_email
+    tenant.token_creator_member = ""
+    tenant.token_creator_grant_added = False
+
+    def _record_acceptance() -> None:
+        tenant.created["sa"] = True
+        tenant.owned_sa_emails.add(candidate_email)
+
+    tenant.sa_email = create_service_account(
+        project,
+        account_id,
+        display_name=_SA_DISPLAY_NAME,
+        description=CREATED_BY_DESCRIPTION,
+        on_accepted=_record_acceptance,
+    )
 
 
 def _provision_tenant_resources(
@@ -267,37 +368,52 @@ def _provision_tenant_resources(
 
     The service account is created separately (``_create_tenant_sa``) AFTER these
     fixtures so its sweep-exposed lifetime overlaps only the brief impersonation
-    step. Each created flag is stamped on ``tenant.created`` immediately after (or,
-    for the async insert+wait resources, before) each create so a crash
-    mid-provision still hands teardown the ownership signal.
+    step. Each created flag is stamped after synchronous API acceptance and
+    before any async wait, so conflicts preserve foreign resources while wait
+    failures still hand teardown the ownership signal.
     """
     # VPC + subnet: insert_network creates a custom-mode network (no auto
     # subnets) and stamps the description ownership marker (the Network proto
     # carries no labels field). A custom-mode NIC needs an explicit regional
     # subnetwork, so each tenant gets its own subnet on a distinct primary range.
     region = zone_to_region(tenant.zone)
-    # Stamp the VPC/subnet/instance trackers BEFORE each async insert: those
-    # route through _wait_or_rollback, which can raise (wait-fail + rollback-fail)
-    # before a stamp-after would run, orphaning the resource from both this
-    # finally block and the teardown safety-net. The synchronous KMS-key / bucket
-    # creates below return only on success, so they stamp after.
     tenant.vpc_name = unique_suffix(tenant.vpc_base)
-    tenant.created["vpc"] = True
-    insert_network(project, tenant.vpc_name)
+    insert_network(
+        project,
+        tenant.vpc_name,
+        on_accepted=lambda: tenant.created.update(vpc=True),
+    )
 
     tenant.subnet_name = unique_suffix(tenant.subnet_base)
-    tenant.created["subnet"] = True
-    insert_subnetwork(project, region, tenant.subnet_name, tenant.vpc_name, tenant.subnet_cidr)
+    insert_subnetwork(
+        project,
+        region,
+        tenant.subnet_name,
+        tenant.vpc_name,
+        tenant.subnet_cidr,
+        on_accepted=lambda: tenant.created.update(subnet=True),
+    )
 
     # Cloud KMS CryptoKey in the shared per-run ring.
     key_id = unique_suffix(tenant.key_base)
-    tenant.key_name = _create_crypto_key(ring_path, key_id)
-    tenant.created["kms_key"] = True
+    tenant.key_name = f"{ring_path}/cryptoKeys/{key_id}"
+    tenant.created["kms_key"] = False
+    _returned_key_name, _created = _create_crypto_key(
+        ring_path,
+        key_id,
+        on_accepted=lambda: tenant.created.update(kms_key=True),
+    )
+    tenant.key_name = _returned_key_name
 
     # Cloud Storage bucket.
     tenant.bucket_name = unique_suffix(tenant.bucket_base)
-    _create_bucket(storage_client, project, location, tenant.bucket_name)
-    tenant.created["bucket"] = True
+    _create_bucket(
+        storage_client,
+        project,
+        location,
+        tenant.bucket_name,
+        on_accepted=lambda: tenant.created.update(bucket=True),
+    )
 
     # Compute instance on the tenant's own subnet, no external IP — it is never
     # logged into, only used as the target identity of the cross-tenant probe.
@@ -315,9 +431,12 @@ def _provision_tenant_resources(
     # leaked probe VM after a hard crash (the Instance proto supports labels; the
     # same-step finally block is the primary cleanup path).
     instance.labels = dict(_CREATED_BY_LABEL)
-    # Stamp before the async insert/wait (see the VPC/subnet note above).
-    tenant.created["instance"] = True
-    insert_instance(project, tenant.zone, instance)
+    insert_instance(
+        project,
+        tenant.zone,
+        instance,
+        on_accepted=lambda: tenant.created.update(instance=True),
+    )
 
 
 def _delete_compute_idempotent(
@@ -329,8 +448,8 @@ def _delete_compute_idempotent(
     """Delete an owned Compute resource, folding an already-gone resource into success.
 
     ``delete_fn`` (``delete_instance`` / ``delete_subnetwork`` / ``delete_network``)
-    catches a synchronous ``NotFound``, but a concurrent owner sweep (a sibling
-    security worker sharing this RUN_ID) can delete the resource so its delete-op
+    catches a synchronous ``NotFound``, but a concurrent cleanup invocation using
+    the same RUN_ID can delete the resource so its delete-op
     completes with ``RESOURCE_NOT_FOUND`` — re-raised as a ``RuntimeError`` by the
     op-waiter, which ``delete_with_retry`` then surfaces as a generic failure
     (``False``). The resource is owned by this run, so confirm absence with a
@@ -352,6 +471,19 @@ def _delete_compute_idempotent(
 def _teardown_tenant(*, project: str, tenant: Tenant) -> list[str]:
     """Best-effort teardown of every resource the setup created for ``tenant``."""
     errors: list[str] = []
+
+    # Remove temporary access before deleting its resource. This is essential
+    # for undeletable KMS keys and makes cleanup exact even when a later delete
+    # fails. Only bindings this invocation proved it added are touched.
+    errors.extend(_remove_tenant_own_access(project, tenant))
+    if tenant.token_creator_grant_added and tenant.token_creator_member and tenant.sa_email:
+        try:
+            _remove_token_creator(tenant.sa_email, tenant.token_creator_member)
+            tenant.token_creator_grant_added = False
+        except gax.NotFound:
+            tenant.token_creator_grant_added = False
+        except Exception as exc:
+            errors.append(f"remove token-creator grant from {tenant.sa_email}: {exc}")
 
     if tenant.created.get("instance") and tenant.instance_name and tenant.zone:
         err = _delete_compute_idempotent(
@@ -415,30 +547,318 @@ def _teardown_tenant(*, project: str, tenant: Tenant) -> list[str]:
         except Exception as e:  # best-effort sweep: never let one delete abort the rest
             errors.append(f"destroy key version for {tenant.key_name}: {e}")
 
-    if tenant.created.get("sa") and tenant.sa_email:
-        # delete_service_account folds an already-gone SA (a concurrent owner sweep
-        # removed it — existence-hiding 403, never NotFound) into success, so a
-        # False return is a genuine, persistent teardown failure.
-        if not delete_service_account(tenant.sa_email):
-            errors.append(f"delete service account {tenant.sa_email}")
+    for sa_email in sorted(tenant.owned_sa_emails):
+        if not delete_service_account(sa_email, project=project):
+            errors.append(f"delete service account {sa_email}")
 
     return errors
 
 
-def _grant_token_creator(sa_email: str, member: str) -> None:
+def _grant_token_creator(sa_email: str, member: str, *, on_accepted: Callable[[], None]) -> None:
     """Grant ``member`` ``serviceAccountTokenCreator`` on ``sa_email`` so it can be impersonated."""
     iam = iam_admin_v1.IAMClient()
     resource = f"projects/-/serviceAccounts/{sa_email}"
-    policy = iam.get_iam_policy(request=iam_policy_pb2.GetIamPolicyRequest(resource=resource))
+
+    def _read() -> Any:
+        return iam.get_iam_policy(request=iam_policy_pb2.GetIamPolicyRequest(resource=resource))
+
+    def _write(policy: Any) -> Any:
+        return iam.set_iam_policy(request=iam_policy_pb2.SetIamPolicyRequest(resource=resource, policy=policy))
+
+    def _ensure(policy: Any) -> bool:
+        return ensure_unconditional_binding_member(policy, _TOKEN_CREATOR_ROLE, member)
+
+    modify_iam_policy_with_retry(
+        _read,
+        _write,
+        _ensure,
+        resource_desc=f"service account {sa_email}",
+        on_change_accepted=on_accepted,
+    )
+
+
+def _remove_token_creator(sa_email: str, member: str) -> None:
+    """Remove only this run principal's unconditional token-creator grant."""
+    iam = iam_admin_v1.IAMClient()
+    resource = f"projects/-/serviceAccounts/{sa_email}"
+
+    def _read() -> Any:
+        return iam.get_iam_policy(request=iam_policy_pb2.GetIamPolicyRequest(resource=resource))
+
+    def _write(policy: Any) -> Any:
+        return iam.set_iam_policy(request=iam_policy_pb2.SetIamPolicyRequest(resource=resource, policy=policy))
+
+    def _remove(policy: Any) -> bool:
+        return bool(
+            remove_binding_members(
+                policy,
+                binding_matches=lambda binding: (
+                    binding.role == _TOKEN_CREATOR_ROLE and not _binding_is_conditioned(binding)
+                ),
+                member_matches=lambda candidate: candidate == member,
+            )
+        )
+
+    modify_iam_policy_with_retry(_read, _write, _remove, resource_desc=f"service account {sa_email}")
+
+
+def _binding_is_conditioned(binding: Any) -> bool:
+    """Return True when an IAM binding carries any condition field."""
+    condition = getattr(binding, "condition", None)
+    if isinstance(binding, dict):
+        condition = binding.get("condition")
+    if isinstance(condition, dict):
+        return any(condition.get(field) for field in ("title", "description", "expression"))
+    return bool(
+        getattr(condition, "title", "") or getattr(condition, "description", "") or getattr(condition, "expression", "")
+    )
+
+
+def _ensure_kms_own_access(tenant: Tenant, *, on_accepted: Callable[[], None]) -> None:
+    """Grant the tenant identity read access on exactly its own CryptoKey."""
+    client = kms_v1.KeyManagementServiceClient()
+    member = f"serviceAccount:{tenant.sa_email}"
+
+    def _read() -> Any:
+        return client.get_iam_policy(
+            request=iam_policy_pb2.GetIamPolicyRequest(
+                resource=tenant.key_name,
+                options=options_pb2.GetPolicyOptions(requested_policy_version=3),
+            )
+        )
+
+    def _write(policy: Any) -> Any:
+        policy.version = 3
+        return client.set_iam_policy(
+            request=iam_policy_pb2.SetIamPolicyRequest(resource=tenant.key_name, policy=policy)
+        )
+
+    def _ensure(policy: Any) -> bool:
+        return ensure_unconditional_binding_member(policy, _TENANT_KMS_ROLE, member)
+
+    modify_iam_policy_with_retry(
+        _read,
+        _write,
+        _ensure,
+        resource_desc=f"CryptoKey {tenant.key_name}",
+        on_change_accepted=on_accepted,
+    )
+
+
+def _remove_kms_own_access(tenant: Tenant) -> None:
+    """Remove the tenant identity's exact own-key viewer grant."""
+    client = kms_v1.KeyManagementServiceClient()
+    member = f"serviceAccount:{tenant.sa_email}"
+
+    def _read() -> Any:
+        return client.get_iam_policy(
+            request=iam_policy_pb2.GetIamPolicyRequest(
+                resource=tenant.key_name,
+                options=options_pb2.GetPolicyOptions(requested_policy_version=3),
+            )
+        )
+
+    def _write(policy: Any) -> Any:
+        policy.version = 3
+        return client.set_iam_policy(
+            request=iam_policy_pb2.SetIamPolicyRequest(resource=tenant.key_name, policy=policy)
+        )
+
+    def _remove(policy: Any) -> bool:
+        return bool(
+            remove_binding_members(
+                policy,
+                binding_matches=lambda binding: (
+                    binding.role == _TENANT_KMS_ROLE and not _binding_is_conditioned(binding)
+                ),
+                member_matches=lambda candidate: candidate == member,
+            )
+        )
+
+    modify_iam_policy_with_retry(_read, _write, _remove, resource_desc=f"CryptoKey {tenant.key_name}")
+
+
+def _ensure_storage_binding_member(policy: Any, role: str, member: str) -> bool:
+    """Ensure one unconditional member in a Cloud Storage IAM policy."""
     for binding in policy.bindings:
-        if binding.role == _TOKEN_CREATOR_ROLE and member in binding.members:
-            return  # already granted
-    policy.bindings.append(policy_pb2.Binding(role=_TOKEN_CREATOR_ROLE, members=[member]))
-    iam.set_iam_policy(request=iam_policy_pb2.SetIamPolicyRequest(resource=resource, policy=policy))
+        if binding.get("role") != role or _binding_is_conditioned(binding):
+            continue
+        members: set[str] = set(binding.get("members") or ())
+        if member in members:
+            return False
+        members.add(member)
+        binding["members"] = members
+        return True
+    policy.bindings = [*policy.bindings, {"role": role, "members": {member}}]
+    return True
 
 
-def _build_tenant_a_credentials(source_credentials: Any, sa_email: str) -> Any:
-    """Return impersonated credentials for tenant A's service account.
+def _remove_storage_binding_member(policy: Any, role: str, member: str) -> bool:
+    """Remove one exact member while preserving foreign Storage bindings."""
+    changed = False
+    retained: list[dict[str, Any]] = []
+    for binding in policy.bindings:
+        clone = dict(binding)
+        members: set[str] = set(binding.get("members") or ())
+        if binding.get("role") == role and not _binding_is_conditioned(binding) and member in members:
+            members.remove(member)
+            changed = True
+        if members:
+            clone["members"] = members
+            retained.append(clone)
+    if changed:
+        policy.bindings = retained
+    return changed
+
+
+def _ensure_bucket_own_access(project: str, tenant: Tenant, *, on_accepted: Callable[[], None]) -> None:
+    """Grant the tenant identity metadata read on exactly its own bucket."""
+    bucket = storage.Client(project=project).bucket(tenant.bucket_name)
+    member = f"serviceAccount:{tenant.sa_email}"
+
+    def _read() -> Any:
+        return bucket.get_iam_policy(requested_policy_version=3)
+
+    def _write(policy: Any) -> Any:
+        return bucket.set_iam_policy(policy)
+
+    def _ensure(policy: Any) -> bool:
+        return _ensure_storage_binding_member(policy, _TENANT_BUCKET_ROLE, member)
+
+    modify_iam_policy_with_retry(
+        _read,
+        _write,
+        _ensure,
+        resource_desc=f"bucket {tenant.bucket_name}",
+        on_change_accepted=on_accepted,
+    )
+
+
+def _remove_bucket_own_access(project: str, tenant: Tenant) -> None:
+    """Remove the tenant identity's exact own-bucket reader grant."""
+    bucket = storage.Client(project=project).bucket(tenant.bucket_name)
+    member = f"serviceAccount:{tenant.sa_email}"
+    modify_iam_policy_with_retry(
+        lambda: bucket.get_iam_policy(requested_policy_version=3),
+        bucket.set_iam_policy,
+        lambda policy: _remove_storage_binding_member(policy, _TENANT_BUCKET_ROLE, member),
+        resource_desc=f"bucket {tenant.bucket_name}",
+    )
+
+
+def _ensure_compute_binding_member(policy: Any, role: str, member: str) -> bool:
+    """Ensure one unconditional member in a Compute resource IAM policy."""
+    for binding in policy.bindings:
+        if binding.role != role or _binding_is_conditioned(binding):
+            continue
+        if member in binding.members:
+            return False
+        binding.members.append(member)
+        return True
+    policy.bindings.append(compute_v1.Binding(role=role, members=[member]))
+    return True
+
+
+def _remove_compute_binding_member(policy: Any, role: str, member: str) -> bool:
+    """Remove one exact member while preserving foreign Compute bindings."""
+    changed = False
+    retained: list[Any] = []
+    for binding in policy.bindings:
+        clone_fields: dict[str, Any] = {
+            "role": binding.role,
+            "members": list(binding.members),
+        }
+        condition = getattr(binding, "condition", None)
+        if condition:
+            clone_fields["condition"] = condition
+        clone = compute_v1.Binding(**clone_fields)
+        if binding.role == role and not _binding_is_conditioned(binding) and member in binding.members:
+            clone.members = [candidate for candidate in binding.members if candidate != member]
+            changed = True
+        if clone.members:
+            retained.append(clone)
+    if changed:
+        policy.bindings = retained
+    return changed
+
+
+def _ensure_instance_own_access(project: str, tenant: Tenant, *, on_accepted: Callable[[], None]) -> None:
+    """Grant the tenant identity admin access on exactly its own VM."""
+    client = compute_v1.InstancesClient()
+    member = f"serviceAccount:{tenant.sa_email}"
+
+    def _read() -> Any:
+        return client.get_iam_policy(project=project, zone=tenant.zone, resource=tenant.instance_name)
+
+    def _write(policy: Any) -> Any:
+        return client.set_iam_policy(
+            project=project,
+            zone=tenant.zone,
+            resource=tenant.instance_name,
+            zone_set_policy_request_resource=compute_v1.ZoneSetPolicyRequest(policy=policy),
+        )
+
+    def _ensure(policy: Any) -> bool:
+        return _ensure_compute_binding_member(policy, _TENANT_INSTANCE_ROLE, member)
+
+    modify_iam_policy_with_retry(
+        _read,
+        _write,
+        _ensure,
+        resource_desc=f"instance {tenant.instance_name}",
+        on_change_accepted=on_accepted,
+    )
+
+
+def _remove_instance_own_access(project: str, tenant: Tenant) -> None:
+    """Remove the tenant identity's exact own-instance admin grant."""
+    client = compute_v1.InstancesClient()
+    member = f"serviceAccount:{tenant.sa_email}"
+
+    def _write(policy: Any) -> Any:
+        return client.set_iam_policy(
+            project=project,
+            zone=tenant.zone,
+            resource=tenant.instance_name,
+            zone_set_policy_request_resource=compute_v1.ZoneSetPolicyRequest(policy=policy),
+        )
+
+    modify_iam_policy_with_retry(
+        lambda: client.get_iam_policy(project=project, zone=tenant.zone, resource=tenant.instance_name),
+        _write,
+        lambda policy: _remove_compute_binding_member(policy, _TENANT_INSTANCE_ROLE, member),
+        resource_desc=f"instance {tenant.instance_name}",
+    )
+
+
+def _grant_tenant_own_access(project: str, tenant: Tenant) -> None:
+    """Install and track the three exact own-resource grants for one tenant."""
+    _ensure_kms_own_access(tenant, on_accepted=lambda: tenant.own_grants_added.add("kms"))
+    _ensure_bucket_own_access(project, tenant, on_accepted=lambda: tenant.own_grants_added.add("bucket"))
+    _ensure_instance_own_access(project, tenant, on_accepted=lambda: tenant.own_grants_added.add("instance"))
+
+
+def _remove_tenant_own_access(project: str, tenant: Tenant) -> list[str]:
+    """Best-effort exact removal of every own-resource grant this run added."""
+    errors: list[str] = []
+    removers = {
+        "kms": lambda: _remove_kms_own_access(tenant),
+        "bucket": lambda: _remove_bucket_own_access(project, tenant),
+        "instance": lambda: _remove_instance_own_access(project, tenant),
+    }
+    for grant_name in sorted(tenant.own_grants_added):
+        try:
+            removers[grant_name]()
+            tenant.own_grants_added.discard(grant_name)
+        except gax.NotFound:
+            tenant.own_grants_added.discard(grant_name)
+        except Exception as exc:
+            errors.append(f"remove {grant_name} own-access grant for {tenant.sa_email}: {exc}")
+    return errors
+
+
+def _build_tenant_credentials(source_credentials: Any, sa_email: str) -> Any:
+    """Return impersonated credentials for one tenant service account.
 
     The run principal is granted ``roles/iam.serviceAccountTokenCreator`` on the
     self-created SA before this call, so it can impersonate it to drive the
@@ -513,80 +933,247 @@ def _probe_network_isolation(project: str, tenant_a: Tenant, tenant_b: Tenant) -
     }
 
 
-def _probe_data_isolation(credentials_a: Any, tenant_b: Tenant) -> dict[str, Any]:
-    """Tenant A must be denied ``get_crypto_key`` on tenant B's CryptoKey."""
-    client = kms_v1.KeyManagementServiceClient(credentials=credentials_a)
-    probe: dict[str, Any] = {"name": "kms_get_crypto_key_denied"}
+def _shared_propagation_deadline(propagation_deadline: float | None) -> float:
+    """Return the caller's shared deadline or start one bounded budget."""
+    if propagation_deadline is not None:
+        return propagation_deadline
+    return time.monotonic() + _IAM_PROPAGATION_BUDGET_SECONDS
+
+
+def _wait_for_propagation(*, attempt: int, deadline: float) -> bool:
+    """Sleep for one retry only while both the attempt and shared budgets allow."""
+    if attempt >= IAM_PROPAGATION_ATTEMPTS:
+        return False
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return False
+    time.sleep(min(IAM_PROPAGATION_DELAY, remaining))
+    return True
+
+
+def _positive_access_probe(
+    name: str,
+    call: Callable[[], Any],
+    *,
+    propagation_deadline: float | None = None,
+) -> dict[str, Any]:
+    """Require an own-resource call to succeed, allowing IAM propagation time."""
+    probe: dict[str, Any] = {"name": name}
+    deadline = _shared_propagation_deadline(propagation_deadline)
+    for attempt in range(1, IAM_PROPAGATION_ATTEMPTS + 1):
+        try:
+            call()
+        except (gax.PermissionDenied, gax.Forbidden, gax.NotFound) as exc:
+            if _wait_for_propagation(attempt=attempt, deadline=deadline):
+                continue
+            probe.update(passed=False, code=type(exc).__name__, error=str(exc))
+        except Exception as exc:
+            probe.update(passed=False, code=type(exc).__name__, error=str(exc))
+        else:
+            probe["passed"] = True
+        return probe
+    raise AssertionError("positive access retry loop exhausted without a verdict")
+
+
+def _denied_probe(name: str, call: Callable[[], Any], *, accept_not_found: bool = False) -> dict[str, Any]:
+    """Require one cross-tenant call to fail specifically as authorization deny."""
+    probe: dict[str, Any] = {"name": name}
     try:
-        client.get_crypto_key(name=tenant_b.key_name)
-    except Exception as exc:  # any access error is the deny signal under test
-        probe["passed"] = _is_denied(exc)
+        call()
+    except Exception as exc:
+        probe["passed"] = _is_denied(exc) or (accept_not_found and _looks_like_404(exc))
         probe["code"] = type(exc).__name__
         if not probe["passed"]:
             probe["error"] = str(exc)
     else:
         probe["passed"] = False
-        probe["error"] = "get_crypto_key on tenant B key unexpectedly succeeded"
-    return {"passed": probe["passed"], "probes": [probe]}
+        probe["error"] = f"{name} unexpectedly succeeded"
+    return probe
 
 
-def _probe_compute_isolation(credentials_a: Any, project: str, tenant_b: Tenant) -> dict[str, Any]:
-    """Tenant A must be denied ``instances.get`` and ``instances.stop`` on tenant B's instance."""
-    client = compute_v1.InstancesClient(credentials=credentials_a)
-    probes: list[dict[str, Any]] = []
+def _probe_data_isolation(
+    credentials_a: Any,
+    credentials_b: Any,
+    tenant_a: Tenant,
+    tenant_b: Tenant,
+    *,
+    propagation_deadline: float | None = None,
+) -> dict[str, Any]:
+    """Require own-key access and symmetric cross-key denials."""
+    client_a = kms_v1.KeyManagementServiceClient(credentials=credentials_a)
+    client_b = kms_v1.KeyManagementServiceClient(credentials=credentials_b)
+    probes = [
+        _positive_access_probe(
+            "tenant_a_kms_own_access_allowed",
+            lambda: client_a.get_crypto_key(name=tenant_a.key_name),
+            propagation_deadline=propagation_deadline,
+        ),
+        _positive_access_probe(
+            "tenant_b_kms_own_access_allowed",
+            lambda: client_b.get_crypto_key(name=tenant_b.key_name),
+            propagation_deadline=propagation_deadline,
+        ),
+        _denied_probe(
+            "tenant_a_to_b_kms_access_denied",
+            lambda: client_a.get_crypto_key(name=tenant_b.key_name),
+        ),
+        _denied_probe(
+            "tenant_b_to_a_kms_access_denied",
+            lambda: client_b.get_crypto_key(name=tenant_a.key_name),
+        ),
+    ]
+    return {"passed": all(probe["passed"] for probe in probes), "probes": probes}
 
-    get_probe: dict[str, Any] = {"name": "instances_get_denied"}
-    try:
-        client.get(project=project, zone=tenant_b.zone, instance=tenant_b.instance_name)
-    except Exception as exc:  # any access error is the deny signal under test
-        get_probe["passed"] = _is_denied(exc)
-        get_probe["code"] = type(exc).__name__
-        if not get_probe["passed"]:
-            get_probe["error"] = str(exc)
-    else:
-        get_probe["passed"] = False
-        get_probe["error"] = "instances.get on tenant B instance unexpectedly succeeded"
-    probes.append(get_probe)
 
-    stop_probe: dict[str, Any] = {"name": "instances_stop_denied"}
-    try:
-        client.stop(project=project, zone=tenant_b.zone, instance=tenant_b.instance_name)
-    except Exception as exc:  # any access error is the deny signal under test
-        stop_probe["passed"] = _is_denied(exc)
-        stop_probe["code"] = type(exc).__name__
-        if not stop_probe["passed"]:
-            stop_probe["error"] = str(exc)
-    else:
-        stop_probe["passed"] = False
-        stop_probe["error"] = "instances.stop on tenant B instance unexpectedly succeeded"
-    probes.append(stop_probe)
+def _submit_own_stop(
+    client: compute_v1.InstancesClient,
+    project: str,
+    tenant: Tenant,
+) -> None:
+    """Submit a stop for the disposable own VM using the tenant identity.
 
-    return {"passed": all(p["passed"] for p in probes), "probes": probes}
-
-
-def _probe_storage_isolation(credentials_a: Any, project: str, tenant_b: Tenant) -> dict[str, Any]:
-    """Tenant A must be denied ``get_bucket`` on tenant B's bucket.
-
-    Cloud Storage hides a bucket's existence from a zero-grant principal as a
-    404, so a NotFound is accepted as an isolation pass alongside the 403.
+    GCP's instance ``testIamPermissions`` endpoint requires project-level
+    ``compute.instances.list`` merely to invoke it. Granting that permission to
+    a resource-scoped tenant would broaden this fixture, so the positive control
+    performs the real operation instead.
     """
-    client = storage.Client(project=project, credentials=credentials_a)
-    probe: dict[str, Any] = {"name": "storage_get_bucket_denied"}
-    try:
-        client.get_bucket(tenant_b.bucket_name)
-    except gax.NotFound:
-        # Bucket existence hidden from a zero-grant principal — isolation holds.
-        probe["passed"] = True
-        probe["code"] = "NotFound"
-    except Exception as exc:  # any access error is the deny signal under test
-        probe["passed"] = _is_denied(exc) or _looks_like_404(exc)
-        probe["code"] = type(exc).__name__
-        if not probe["passed"]:
-            probe["error"] = str(exc)
-    else:
-        probe["passed"] = False
-        probe["error"] = "get_bucket on tenant B bucket unexpectedly succeeded"
-    return {"passed": probe["passed"], "probes": [probe]}
+    client.stop(project=project, zone=tenant.zone, instance=tenant.instance_name)
+
+
+def _wait_for_own_stops(
+    project: str,
+    pending: list[tuple[compute_v1.InstancesClient, Tenant, dict[str, Any]]],
+) -> None:
+    """Observe every accepted own stop concurrently under one total budget."""
+    waiting = [(client, tenant, probe) for client, tenant, probe in pending if probe["passed"]]
+    deadline = time.monotonic() + _OWN_STOP_BUDGET_SECONDS
+    while waiting:
+        still_waiting: list[tuple[compute_v1.InstancesClient, Tenant, dict[str, Any]]] = []
+        for client, tenant, probe in waiting:
+            try:
+                instance = client.get(project=project, zone=tenant.zone, instance=tenant.instance_name)
+            except Exception as exc:
+                probe.update(passed=False, code=type(exc).__name__, error=str(exc))
+                continue
+            if str(getattr(instance, "status", "")).upper() != "TERMINATED":
+                still_waiting.append((client, tenant, probe))
+        if not still_waiting:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            for _client, tenant, probe in still_waiting:
+                probe.update(
+                    passed=False,
+                    code="TimeoutError",
+                    error=f"own instance {tenant.instance_name} did not reach TERMINATED",
+                )
+            return
+        time.sleep(min(_OWN_STOP_POLL_SECONDS, remaining))
+        waiting = still_waiting
+
+
+def _probe_compute_isolation(
+    credentials_a: Any,
+    credentials_b: Any,
+    project: str,
+    tenant_a: Tenant,
+    tenant_b: Tenant,
+    *,
+    propagation_deadline: float | None = None,
+) -> dict[str, Any]:
+    """Require own-VM reads and symmetric cross-VM get/stop denials."""
+    client_a = compute_v1.InstancesClient(credentials=credentials_a)
+    client_b = compute_v1.InstancesClient(credentials=credentials_b)
+    probes = [
+        _positive_access_probe(
+            "tenant_a_compute_own_access_allowed",
+            lambda: client_a.get(project=project, zone=tenant_a.zone, instance=tenant_a.instance_name),
+            propagation_deadline=propagation_deadline,
+        ),
+        _positive_access_probe(
+            "tenant_b_compute_own_access_allowed",
+            lambda: client_b.get(project=project, zone=tenant_b.zone, instance=tenant_b.instance_name),
+            propagation_deadline=propagation_deadline,
+        ),
+    ]
+    stop_probes = [
+        _positive_access_probe(
+            "tenant_a_compute_own_stop_allowed",
+            lambda: _submit_own_stop(client_a, project, tenant_a),
+            propagation_deadline=propagation_deadline,
+        ),
+        _positive_access_probe(
+            "tenant_b_compute_own_stop_allowed",
+            lambda: _submit_own_stop(client_b, project, tenant_b),
+            propagation_deadline=propagation_deadline,
+        ),
+    ]
+    probes.extend(stop_probes)
+    _wait_for_own_stops(
+        project,
+        [
+            (client_a, tenant_a, stop_probes[0]),
+            (client_b, tenant_b, stop_probes[1]),
+        ],
+    )
+    probes.extend(
+        [
+            _denied_probe(
+                "tenant_a_to_b_instances_get_denied",
+                lambda: client_a.get(project=project, zone=tenant_b.zone, instance=tenant_b.instance_name),
+            ),
+            _denied_probe(
+                "tenant_a_to_b_instances_stop_denied",
+                lambda: client_a.stop(project=project, zone=tenant_b.zone, instance=tenant_b.instance_name),
+            ),
+            _denied_probe(
+                "tenant_b_to_a_instances_get_denied",
+                lambda: client_b.get(project=project, zone=tenant_a.zone, instance=tenant_a.instance_name),
+            ),
+            _denied_probe(
+                "tenant_b_to_a_instances_stop_denied",
+                lambda: client_b.stop(project=project, zone=tenant_a.zone, instance=tenant_a.instance_name),
+            ),
+        ]
+    )
+    return {"passed": all(probe["passed"] for probe in probes), "probes": probes}
+
+
+def _probe_storage_isolation(
+    credentials_a: Any,
+    credentials_b: Any,
+    project: str,
+    tenant_a: Tenant,
+    tenant_b: Tenant,
+    *,
+    propagation_deadline: float | None = None,
+) -> dict[str, Any]:
+    """Require own-bucket reads and symmetric cross-bucket denials."""
+    client_a = storage.Client(project=project, credentials=credentials_a)
+    client_b = storage.Client(project=project, credentials=credentials_b)
+    probes = [
+        _positive_access_probe(
+            "tenant_a_storage_own_access_allowed",
+            lambda: client_a.get_bucket(tenant_a.bucket_name),
+            propagation_deadline=propagation_deadline,
+        ),
+        _positive_access_probe(
+            "tenant_b_storage_own_access_allowed",
+            lambda: client_b.get_bucket(tenant_b.bucket_name),
+            propagation_deadline=propagation_deadline,
+        ),
+        _denied_probe(
+            "tenant_a_to_b_storage_access_denied",
+            lambda: client_a.get_bucket(tenant_b.bucket_name),
+            accept_not_found=True,
+        ),
+        _denied_probe(
+            "tenant_b_to_a_storage_access_denied",
+            lambda: client_b.get_bucket(tenant_a.bucket_name),
+            accept_not_found=True,
+        ),
+    ]
+    return {"passed": all(probe["passed"] for probe in probes), "probes": probes}
 
 
 def _looks_like_404(exc: Exception) -> bool:
@@ -632,6 +1219,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Tenant isolation test (SEC11-01)")
     parser.add_argument("--region", default="")
     parser.add_argument("--project", default="")
+    parser.add_argument("--skip-destroy", action="store_true", help="Preserve run-owned fixtures for later teardown")
     args = parser.parse_args()
 
     result: dict = {
@@ -673,12 +1261,12 @@ def main() -> int:
         storage_client = storage.Client(project=project, credentials=source_credentials)
 
         try:
-            ring_path = _key_ring_path(project, location, unique_suffix(_KEY_RING_BASE, length=6))
+            ring_path = _key_ring_path(project, location, unique_suffix(_KEY_RING_BASE))
             # Provision the heavy fixtures (VPC/subnet/KMS/bucket/instance) FIRST so
             # each tenant's probe targets exist, then create the service accounts
             # LAST — just before they are impersonated — to minimize the window in
-            # which a concurrent owner sweep (a sibling security worker sharing this
-            # RUN_ID) can delete an in-use SA.
+            # which a concurrent cleanup invocation using the same RUN_ID can
+            # delete an in-use SA.
             _provision_tenant_resources(
                 project=project,
                 location=location,
@@ -715,24 +1303,65 @@ def main() -> int:
         result["instance_created"] = any(t.created.get("instance") for t in (tenant_a, tenant_b))
 
         if skip_payload is None:
-            # Grant token-creator on SA-A and mint its impersonation token,
-            # re-creating SA-A if a concurrent owner sweep deletes it inside the
-            # propagation window. tenant_a.sa_email points at the surviving SA
-            # afterward, so the contract ids are recorded after this call.
-            credentials_a = _establish_impersonation(source_credentials, project, tenant_a, resolve_principal_member())
+            # Mint each tenant's identity first, then install resource-level
+            # grants only on its own key/bucket/VM. Positive controls prove those
+            # grants work before symmetric cross-tenant denials can pass.
+            operator_member = resolve_principal_member()
+            propagation_deadline = time.monotonic() + _IAM_PROPAGATION_BUDGET_SECONDS
+            credentials_a = _establish_impersonation(
+                source_credentials,
+                project,
+                tenant_a,
+                operator_member,
+                propagation_deadline=propagation_deadline,
+            )
+            credentials_b = _establish_impersonation(
+                source_credentials,
+                project,
+                tenant_b,
+                operator_member,
+                propagation_deadline=propagation_deadline,
+            )
+            _grant_tenant_own_access(project, tenant_a)
+            _grant_tenant_own_access(project, tenant_b)
             result["tenant_a_id"] = tenant_a.sa_email
             result["tenant_b_id"] = tenant_b.sa_email
 
             result["tests"]["network_isolated"] = _probe_network_isolation(project, tenant_a, tenant_b)
-            result["tests"]["data_isolated"] = _probe_data_isolation(credentials_a, tenant_b)
-            result["tests"]["compute_isolated"] = _probe_compute_isolation(credentials_a, project, tenant_b)
-            result["tests"]["storage_isolated"] = _probe_storage_isolation(credentials_a, project, tenant_b)
+            result["tests"]["data_isolated"] = _probe_data_isolation(
+                credentials_a,
+                credentials_b,
+                tenant_a,
+                tenant_b,
+                propagation_deadline=propagation_deadline,
+            )
+            result["tests"]["compute_isolated"] = _probe_compute_isolation(
+                credentials_a,
+                credentials_b,
+                project,
+                tenant_a,
+                tenant_b,
+                propagation_deadline=propagation_deadline,
+            )
+            result["tests"]["storage_isolated"] = _probe_storage_isolation(
+                credentials_a,
+                credentials_b,
+                project,
+                tenant_a,
+                tenant_b,
+                propagation_deadline=propagation_deadline,
+            )
+            result["success"] = all(t.get("passed") for t in result["tests"].values())
     except Exception as e:
         result["error"] = str(e)
+        result["success"] = False
     finally:
         cleanup_errors: list[str] = []
-        for tenant in (tenant_a, tenant_b):
-            cleanup_errors.extend(_teardown_tenant(project=project, tenant=tenant))
+        if args.skip_destroy:
+            result["cleanup_skipped"] = True
+        else:
+            for tenant in (tenant_a, tenant_b):
+                cleanup_errors.extend(_teardown_tenant(project=project, tenant=tenant))
         if cleanup_errors:
             result["cleanup_errors"] = cleanup_errors
 
@@ -742,76 +1371,102 @@ def main() -> int:
         print(json.dumps(skip_payload, indent=2))
         return 0
 
-    # Recompute success after the try/except/finally completes: grounded in the
-    # four subtests AND failed when cleanup leaked a fixture (unless the run was
-    # a clean skip, handled above). Mirrors the AWS oracle + teardown safety-net.
-    result["success"] = all(t.get("passed") for t in result["tests"].values()) and not result.get("cleanup_errors")
+    preserve_success_after_cleanup(result)
     print(json.dumps(result, indent=2, default=str))
     return 0 if result["success"] else 1
 
 
-def _account_was_swept(exc: Exception) -> bool:
-    """Return True iff ``exc`` shows tenant A's service account no longer exists.
-
-    A concurrent owner sweep (a sibling security worker sharing this RUN_ID) can
-    delete the SA before its token is minted. Cloud IAM reports a deleted SA as
-    ``404 NOT_FOUND`` / "Account deleted: <id>" from ``generateAccessToken`` and as
-    ``NotFound`` from the IAM-policy surface. A grant-not-yet-propagated error is a
-    ``403`` (absorbed by the propagation retry, not here), so it is deliberately
-    NOT matched — only a missing-account signal triggers a re-create.
-    """
+def _missing_account_signal(exc: Exception) -> bool:
+    """Return whether ``exc`` can represent a missing service account."""
     if isinstance(exc, gax.NotFound):
         return True
     msg = str(exc).lower()
     return "account deleted" in msg or "not_found" in msg
 
 
+def _account_was_swept(project: str, sa_email: str, exc: Exception) -> bool:
+    """Return True only when full project inventory proves exact SA absence.
+
+    Cloud IAM can emit ``NotFound`` while a freshly created identity or binding
+    is still propagating. Treat that response as an absence candidate, then use
+    the fully paginated project inventory as the deciding signal. Present or
+    unreadable inventory keeps the accepted email owned and inside the shared
+    propagation retry budget.
+    """
+    return _missing_account_signal(exc) and service_account_absent(project, sa_email) is True
+
+
 def _establish_impersonation(
     source_credentials: Any,
     project: str,
-    tenant_a: Tenant,
+    tenant: Tenant,
     member: str,
+    *,
+    propagation_deadline: float | None = None,
 ) -> Any:
-    """Grant tokenCreator on SA-A and mint its impersonation token (sweep-resilient).
+    """Grant tokenCreator on one tenant SA and mint its token (sweep-resilient).
 
     The run principal is granted ``serviceAccountTokenCreator`` on the self-created
     SA, then an impersonated credential is refreshed (minting a short-lived token)
     within the shared IAM-propagation budget — the just-created self-grant is
     eventually consistent, so the first refresh can 403 for a few minutes. If a
-    concurrent owner sweep deletes SA-A inside that window (surfaced as a missing
+    concurrent owner sweep deletes the SA inside that window (surfaced as a missing
     account), a fresh identity is minted and the grant+refresh retried, bounded to
-    ``_MAX_SA_GENERATIONS`` generations. ``tenant_a.sa_email`` is left pointing at
+    ``_MAX_SA_GENERATIONS`` generations. ``tenant.sa_email`` is left pointing at
     the surviving SA. The minted token is what the deny probes use; once minted it
     stays valid for the brief probe window even if the SA is later swept.
     """
     request = google.auth.transport.requests.Request()
+    deadline = _shared_propagation_deadline(propagation_deadline)
     last_err: Exception | None = None
     for generation in range(1, _MAX_SA_GENERATIONS + 1):
         swept = False
-        try:
-            _grant_token_creator(tenant_a.sa_email, member)
-            credentials_a = _build_tenant_a_credentials(source_credentials, tenant_a.sa_email)
+        grant_ready = False
+        for grant_attempt in range(1, IAM_PROPAGATION_ATTEMPTS + 1):
+            try:
+
+                def _record_token_creator_acceptance() -> None:
+                    tenant.token_creator_grant_added = True
+                    tenant.token_creator_member = member
+
+                _grant_token_creator(
+                    tenant.sa_email,
+                    member,
+                    on_accepted=_record_token_creator_acceptance,
+                )
+                grant_ready = True
+                break
+            except Exception as e:
+                last_err = e
+                if _account_was_swept(project, tenant.sa_email, e):
+                    swept = True
+                    break
+                if not _missing_account_signal(e) or not _wait_for_propagation(
+                    attempt=grant_attempt,
+                    deadline=deadline,
+                ):
+                    break
+        if grant_ready:
+            credentials = _build_tenant_credentials(source_credentials, tenant.sa_email)
             for attempt in range(1, IAM_PROPAGATION_ATTEMPTS + 1):
                 try:
-                    credentials_a.refresh(request)
-                    return credentials_a
+                    credentials.refresh(request=request)
+                    return credentials
                 except Exception as e:  # propagation hedge + sweep detection
                     last_err = e
-                    if _account_was_swept(e):
+                    if _account_was_swept(project, tenant.sa_email, e):
                         swept = True
                         break
-                    if attempt < IAM_PROPAGATION_ATTEMPTS:
-                        time.sleep(IAM_PROPAGATION_DELAY)
-        except Exception as e:  # grant on an already-swept SA surfaces here
-            last_err = e
-            swept = _account_was_swept(e)
+                    if _wait_for_propagation(attempt=attempt, deadline=deadline):
+                        continue
+                    break
         if not swept:
             break  # a non-sweep failure will not be fixed by a fresh identity
         if generation < _MAX_SA_GENERATIONS:
-            _create_tenant_sa(project, tenant_a)
+            _create_tenant_sa(project, tenant)
     raise RuntimeError(
-        f"impersonation token for tenant A did not become usable within "
-        f"{IAM_PROPAGATION_ATTEMPTS * IAM_PROPAGATION_DELAY}s: {last_err}"
+        f"impersonation token for {tenant.sa_email} did not become usable within the shared "
+        f"{_IAM_PROPAGATION_BUDGET_SECONDS}s IAM propagation budget: {last_err}"
     )
 
 

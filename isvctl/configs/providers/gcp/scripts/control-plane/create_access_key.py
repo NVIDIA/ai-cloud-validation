@@ -71,13 +71,12 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/gcp/scripts/
 
 from common.compute import resolve_project, unique_suffix
-from common.errors import classify_gcp_error, handle_gcp_errors, is_transport_disconnect
+from common.errors import classify_gcp_error, handle_gcp_errors
 from common.service_account import (
     create_service_account_resource,
     delete_service_account,
     service_account_absent,
 )
-from google.api_core import exceptions as gax
 from google.cloud import storage
 
 
@@ -110,45 +109,18 @@ def _predicted_sa_email(project: str, account_id: str) -> str:
     return f"{account_id}@{project}.iam.gserviceaccount.com"
 
 
-def _create_may_have_committed(error: Exception) -> bool:
-    """Return whether a failed service-account create may still have committed.
-
-    Separates a DEFINITE rejection from an AMBIGUOUS outcome so the rollback never
-    drops a possibly-committed service account, and never invents cleanup for one
-    provably not created:
-
-      * A genuine 409 ``Conflict`` (AlreadyExists / Aborted) proves the
-        deterministic account id was taken by another actor -- this invocation
-        committed nothing and the colliding SA is foreign (never adopted/deleted).
-      * A definite pre-commit client rejection (permission-denied 403, not-found
-        404, invalid-argument, credentials) is applied before any mutation, so
-        nothing was created.
-      * Everything else -- a raw transport disconnect, or a 5xx / 429 / timeout
-        transient (and any uncategorized call error) -- is AMBIGUOUS: the backend
-        may have created the SA before the response was lost, so absence must be
-        PROVEN by a project-scoped readback and never assumed.
-    """
-    if isinstance(error, gax.Conflict):
-        return False
-    if is_transport_disconnect(error):
-        return True
-    return classify_gcp_error(error)[0] in {"transient", "api_error", "unknown_error"}
-
-
 def _rollback_service_account(project: str, sa_email: str) -> list[str]:
     """Best-effort delete the SA this invocation created and confirm it is gone.
 
     Returns a list of rollback errors (empty only on a CONFIRMED-absent rollback).
-    ``delete_service_account`` folds an existence-hiding 403 into success, so a
-    real permission denial would report a clean rollback while the SA survives;
-    the project-scoped ``service_account_absent`` readback is the trustworthy
-    proof. ONLY a definitive True proves the SA is gone. False (still present) and
-    None (list unreadable) both leave a run-owned SA unproven -> rollback error, so
-    the caller preserves the identity as the teardown handoff instead of silently
-    orphaning a project-level service account.
+    ``delete_service_account`` fails closed on an existence-hiding 403 unless
+    project inventory proves absence. This second project-scoped readback also
+    confirms an acknowledged delete has converged: only True proves the SA is
+    gone. False (still present) and None (list unreadable) preserve the identity
+    as a teardown handoff instead of silently orphaning a project-level account.
     """
     rollback_errors: list[str] = []
-    if delete_service_account(sa_email):
+    if delete_service_account(sa_email, project=project):
         absent = service_account_absent(project, sa_email)
         if absent is False:
             rollback_errors.append(f"rollback service account {sa_email} still present after delete")
@@ -178,6 +150,11 @@ def main() -> int:
         "access_key_id": "",
         "secret_access_key": "",
     }
+    sa_owned = False
+
+    def _record_sa_acceptance() -> None:
+        nonlocal sa_owned
+        sa_owned = True
 
     # 1. Create the run-owned service account that will own the HMAC key. The
     #    create is non-idempotent, so separate a DEFINITE rejection from an
@@ -186,18 +163,18 @@ def main() -> int:
     #    server-returned ServiceAccount rather than reconstructing them, so the
     #    output is creation evidence, not a prediction.
     try:
-        sa = create_service_account_resource(project, account_id, display_name="ISV control-plane HMAC test SA")
+        sa = create_service_account_resource(
+            project,
+            account_id,
+            display_name="ISV control-plane HMAC test SA",
+            on_accepted=_record_sa_acceptance,
+        )
     except Exception as e:
-        # A genuine 409 conflict means our deterministic account id was taken by
-        # another actor: this invocation committed nothing and the colliding SA is
-        # foreign -- never adopt, read back, or delete it, and hand teardown no
-        # identity. A definite pre-commit rejection (permission / not-found /
-        # invalid-argument) likewise created nothing. Only an AMBIGUOUS
-        # transport/5xx may have committed the SA behind a lost response: reconcile
-        # against the deterministic, invocation-specific account email -- roll the
-        # possibly-committed SA back and confirm absence, else preserve the identity
-        # so delete_access_key removes a project-level SA rather than orphaning it.
-        if _create_may_have_committed(e):
+        # The shared helper transfers ownership only after acknowledgement or an
+        # ambiguous create whose exact invocation marker is read back. Roll back
+        # that proven-owned coordinate; a conflict, definite rejection, or foreign
+        # ambiguous readback leaves sa_owned false and must never be deleted.
+        if sa_owned:
             predicted_email = _predicted_sa_email(project, account_id)
             rollback_errors = _rollback_service_account(project, predicted_email)
             if rollback_errors:

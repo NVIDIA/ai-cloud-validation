@@ -61,6 +61,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/gcp/sc
 
 from common.compute import resolve_project
 from common.errors import handle_gcp_errors
+from common.kms import iter_kms_locations
 from google.api_core import exceptions as gax
 from google.cloud import kms_v1
 
@@ -73,18 +74,26 @@ def _first_customer_managed_key(client: kms_v1.KeyManagementServiceClient, proje
     tenant's own key rings IS the customer-managed key. The first enumerable key
     is sufficient evidence that customer-managed encryption is available.
 
-    Returns an empty string when no key is enumerable anywhere.
+    Returns an empty string only after every enumerable location was read and
+    no key exists. A permission-denied location makes a keyless inventory
+    inconclusive, so its denial is retained while other locations are checked
+    and re-raised if no positive key evidence is found.
     """
-    locations_parent = f"projects/{project}"
-    for location in client.list_locations(request={"name": locations_parent}).locations:
+    permission_denials: list[tuple[str, gax.PermissionDenied]] = []
+    for location in iter_kms_locations(client, project):
         key_rings_parent = location.name  # projects/<p>/locations/<loc>
         try:
             for key_ring in client.list_key_rings(parent=key_rings_parent):
                 for crypto_key in client.list_crypto_keys(parent=key_ring.name):
                     return crypto_key.name
-        except (gax.PermissionDenied, gax.NotFound):
-            # A location the caller cannot enumerate is not fatal -- keep walking.
-            continue
+        except gax.PermissionDenied as exc:
+            permission_denials.append((location.name, exc))
+
+    if permission_denials:
+        denied_locations = ", ".join(location for location, _exc in permission_denials)
+        raise gax.PermissionDenied(
+            f"Cloud KMS inventory is incomplete because access was denied for location(s): {denied_locations}"
+        ) from permission_denials[0][1]
     return ""
 
 
@@ -157,6 +166,11 @@ def main() -> int:
             "message": "Provider-managed and customer-managed encryption options are both available",
         }
         result["success"] = all(t["passed"] for t in result["tests"].values())
+    except gax.PermissionDenied:
+        # Preserve the typed error so the shared GCP error boundary reports
+        # access_denied rather than allowing an inconclusive inventory to look
+        # like a clean no-key skip.
+        raise
     except Exception as e:
         result["error"] = str(e)
 

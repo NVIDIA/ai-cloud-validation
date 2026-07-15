@@ -49,7 +49,7 @@ import ipaddress
 import os
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from google.api_core import exceptions as gax
@@ -57,6 +57,14 @@ from google.cloud import compute_v1
 
 from common.compute import short_name, zone_to_region
 from common.errors import delete_with_retry, is_resource_not_ready, retry_idempotent
+from common.ownership import (
+    description_with_invocation,
+    has_invocation_description,
+    has_invocation_label,
+    labels_with_invocation,
+    new_invocation_id,
+    submit_owned_create,
+)
 
 # --------------------------------------------------------------------- #
 # Provenance markers                                                    #
@@ -425,24 +433,31 @@ def insert_network(
     so no route table / IGW resource is created — those have no Compute
     Engine analog. Returns the network short name.
 
-    ``on_accepted`` (if supplied) fires EXACTLY ONCE, after the synchronous
-    ``insert`` is accepted by the API but BEFORE the async op-wait. Callers
-    stamp their ``*_created`` ownership tracker there so (a) a synchronous
-    conflict — which raises before acceptance — never claims a foreign
-    resource, and (b) a wait-side failure still hands teardown a truthful
-    created=True for the accepted-but-unconfirmed resource.
+    ``on_accepted`` (if supplied) fires EXACTLY ONCE after either a normal
+    create acknowledgement or an ambiguous-error exact readback that echoes
+    this invocation's description marker. Definite conflicts never transfer
+    ownership. The callback runs before the async op-wait so every accepted or
+    reconciled resource remains visible to the caller's cleanup path.
     """
     net = compute_v1.Network()
     net.name = name
     net.auto_create_subnetworks = False
-    net.description = description
+    invocation_id = new_invocation_id() if on_accepted is not None else ""
+    net.description = description_with_invocation(description, invocation_id) if invocation_id else description
     routing = compute_v1.NetworkRoutingConfig()
     routing.routing_mode = routing_mode
     net.routing_config = routing
 
-    op = compute_v1.NetworksClient().insert(project=project, network_resource=net)
-    if on_accepted is not None:
-        on_accepted()
+    client = compute_v1.NetworksClient()
+    if invocation_id:
+        op = submit_owned_create(
+            lambda: client.insert(project=project, network_resource=net),
+            lambda: client.get(project=project, network=name),
+            lambda resource: has_invocation_description(resource, invocation_id),
+            on_accepted=on_accepted,
+        )
+    else:
+        op = client.insert(project=project, network_resource=net)
     op_name = _op_name(op)
     if op_name:
         _wait_or_rollback(
@@ -476,7 +491,7 @@ def delete_network(project: str, name: str, *, timeout: int = 120) -> None:
 
 def network_has_isv_ownership(net: compute_v1.Network) -> bool:
     """Return True iff a network carries the ISV ownership marker in its description."""
-    return ISV_OWNERSHIP_MARKER in (net.description or "").lower()
+    return f"({ISV_OWNERSHIP_MARKER})" in (net.description or "").lower()
 
 
 # --------------------------------------------------------------------- #
@@ -489,6 +504,7 @@ def _insert_subnetwork_awaiting_parent(
     region: str,
     subnet: compute_v1.Subnetwork,
     *,
+    client: Any | None = None,
     resource_desc: str,
     attempts: int = 5,
     backoff_seconds: float = 3.0,
@@ -507,10 +523,11 @@ def _insert_subnetwork_awaiting_parent(
     no ownership is stamped on a rejected attempt — the caller's ``on_accepted``
     hook runs only once this returns the accepted op.
     """
+    subnetworks = client or compute_v1.SubnetworksClient()
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
-            return compute_v1.SubnetworksClient().insert(project=project, region=region, subnetwork_resource=subnet)
+            return subnetworks.insert(project=project, region=region, subnetwork_resource=subnet)
         except gax.BadRequest as e:  # HTTP 400 (covers gax.FailedPrecondition)
             if not is_resource_not_ready(e) or attempt >= attempts:
                 raise
@@ -559,35 +576,47 @@ def insert_subnetwork(
     raises immediately so we never mask a real failure or spin on an ambiguous
     response.
 
-    ``on_accepted`` (if supplied) fires EXACTLY ONCE after the synchronous
-    ``insert`` is accepted but BEFORE the async op-wait, mirroring
-    ``insert_network``: the caller stamps the created-subnet ownership there. The
-    not-ready retry wraps only the pre-acceptance insert call, so ``on_accepted``
-    still fires exactly once — after a genuinely accepted insert — and a
-    synchronous conflict cannot claim a foreign subnet while a wait-side failure
-    still records the accepted subnet for cleanup.
+    ``on_accepted`` (if supplied) fires EXACTLY ONCE after a normal create
+    acknowledgement or an ambiguous-error exact readback that echoes this
+    invocation's description marker. The not-ready retry wraps only the
+    pre-acceptance insert call; definite conflicts never transfer ownership, and
+    the callback still runs before the async op-wait so wait-side failures remain
+    visible to cleanup.
     """
     subnet = compute_v1.Subnetwork()
     subnet.name = name
     subnet.ip_cidr_range = cidr
     subnet.network = network_url(project, network_name)
     subnet.region = region
-    subnet.description = description
+    invocation_id = new_invocation_id() if on_accepted is not None else ""
+    subnet.description = description_with_invocation(description, invocation_id) if invocation_id else description
     if enable_flow_logs:
         log_cfg = compute_v1.SubnetworkLogConfig()
         log_cfg.enable = True
         subnet.log_config = log_cfg
 
-    op = _insert_subnetwork_awaiting_parent(
-        project,
-        region,
-        subnet,
-        resource_desc=f"subnetwork {name}",
-        attempts=not_ready_attempts,
-        backoff_seconds=not_ready_backoff_seconds,
-    )
-    if on_accepted is not None:
-        on_accepted()
+    client = compute_v1.SubnetworksClient()
+
+    def submit() -> Any:
+        return _insert_subnetwork_awaiting_parent(
+            project,
+            region,
+            subnet,
+            client=client,
+            resource_desc=f"subnetwork {name}",
+            attempts=not_ready_attempts,
+            backoff_seconds=not_ready_backoff_seconds,
+        )
+
+    if invocation_id:
+        op = submit_owned_create(
+            submit,
+            lambda: client.get(project=project, region=region, subnetwork=name),
+            lambda resource: has_invocation_description(resource, invocation_id),
+            on_accepted=on_accepted,
+        )
+    else:
+        op = submit()
     op_name = _op_name(op)
     if op_name:
         _wait_or_rollback(
@@ -617,7 +646,7 @@ def get_subnetwork(project: str, region: str, name: str) -> compute_v1.Subnetwor
 
 def subnetwork_has_isv_ownership(subnet: compute_v1.Subnetwork) -> bool:
     """Return True iff a subnetwork carries the ISV ownership marker in its description."""
-    return ISV_OWNERSHIP_MARKER in (subnet.description or "").lower()
+    return f"({ISV_OWNERSHIP_MARKER})" in (subnet.description or "").lower()
 
 
 def list_subnetworks_for_network(project: str, region: str, network_name: str) -> list[compute_v1.Subnetwork]:
@@ -864,9 +893,36 @@ def build_firewall(
     return fw
 
 
-def insert_firewall(project: str, fw: compute_v1.Firewall, *, timeout: int = 120) -> None:
-    """Insert a firewall and wait for the global op to finish."""
-    op = compute_v1.FirewallsClient().insert(project=project, firewall_resource=fw)
+def insert_firewall(
+    project: str,
+    fw: compute_v1.Firewall,
+    *,
+    timeout: int = 120,
+    on_accepted: Callable[[], None] | None = None,
+) -> None:
+    """Insert a firewall, transfer exact ownership, and wait for completion.
+
+    ``on_accepted`` follows the network/subnetwork lifecycle contract: it fires
+    after a normal acknowledgement or exact invocation-description readback,
+    before the asynchronous operation wait. Definite conflicts never transfer
+    cleanup ownership.
+    """
+    invocation_id = new_invocation_id() if on_accepted is not None else ""
+    if invocation_id:
+        fw.description = description_with_invocation(
+            fw.description or ISV_RESOURCE_DESCRIPTION,
+            invocation_id,
+        )
+    client = compute_v1.FirewallsClient()
+    if invocation_id:
+        op = submit_owned_create(
+            lambda: client.insert(project=project, firewall_resource=fw),
+            lambda: client.get(project=project, firewall=fw.name),
+            lambda resource: has_invocation_description(resource, invocation_id),
+            on_accepted=on_accepted,
+        )
+    else:
+        op = client.insert(project=project, firewall_resource=fw)
     op_name = _op_name(op)
     if op_name:
         _wait_or_rollback(
@@ -1237,9 +1293,38 @@ def build_probe_instance(
     return instance
 
 
-def insert_instance(project: str, zone: str, instance: compute_v1.Instance, *, timeout: int = 300) -> None:
-    """Insert an instance and wait for the zonal op to finish."""
-    op = compute_v1.InstancesClient().insert(project=project, zone=zone, instance_resource=instance)
+def insert_instance(
+    project: str,
+    zone: str,
+    instance: compute_v1.Instance,
+    *,
+    timeout: int = 300,
+    on_accepted: Callable[[], None] | None = None,
+) -> None:
+    """Insert an instance, record API acceptance, and wait for completion.
+
+    ``on_accepted`` fires after a normal acknowledgement or an exact readback
+    that proves an ambiguously acknowledged instance carries this invocation's
+    label. It runs before the operation wait; definite conflicts never claim a
+    foreign instance.
+    """
+    invocation_id = new_invocation_id() if on_accepted is not None else ""
+    if invocation_id:
+        current_labels = getattr(instance, "labels", None)
+        instance.labels = labels_with_invocation(
+            dict(current_labels) if isinstance(current_labels, Mapping) else {},
+            invocation_id,
+        )
+    client = compute_v1.InstancesClient()
+    if invocation_id:
+        op = submit_owned_create(
+            lambda: client.insert(project=project, zone=zone, instance_resource=instance),
+            lambda: client.get(project=project, zone=zone, instance=instance.name),
+            lambda resource: has_invocation_label(resource, invocation_id),
+            on_accepted=on_accepted,
+        )
+    else:
+        op = client.insert(project=project, zone=zone, instance_resource=instance)
     op_name = _op_name(op)
     if op_name:
         _wait_or_rollback(

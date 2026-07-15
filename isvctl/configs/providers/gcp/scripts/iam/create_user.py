@@ -248,7 +248,7 @@ def main() -> int:
         # Delete the partially-created identity so a mint/bind failure does not
         # leak a project-level service account.
         if sa_email:
-            result["cleanup"] = {"service_account_deleted": delete_service_account(sa_email)}
+            result["cleanup"] = {"service_account_deleted": delete_service_account(sa_email, project=project)}
         result["success"] = False
         print(json.dumps(result, indent=2))
         return 1

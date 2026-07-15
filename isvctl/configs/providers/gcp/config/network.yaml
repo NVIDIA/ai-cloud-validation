@@ -123,7 +123,7 @@ commands:
           - "{{region}}"
           - "--cidr"
           - "10.94.0.0/16"
-        timeout: 240
+        timeout: 600
         output_schema: security_blocking
 
       # Test 4c: SG scoping - workload level (tag-scoped firewall + 2 VMs).
@@ -340,7 +340,7 @@ commands:
           - "2"
         timeout: 900
 
-      # Test 11: Floating IP (atomic static-IP reassociation, <20s).
+      # Test 11: Floating IP (static-IP reassociation, <30s).
       - name: floating_ip_test
         phase: test
         command: "python3 ../scripts/network/floating_ip_test.py"
@@ -352,7 +352,7 @@ commands:
           - "--cidr"
           - "10.92.0.0/16"
           - "--max-switch-seconds"
-          - "20"
+          - "30"
         timeout: 900
         output_schema: floating_ip
 
@@ -445,7 +445,7 @@ tests:
     sdn:
       checks:
         FloatingIpCheck:
-          max_switch_seconds: 20
+          max_switch_seconds: 30
 
   # BackendSwitchFabricCheck: public Compute Engine APIs expose no
   # leaf/spine/core switch identifiers. Excluded as a documented

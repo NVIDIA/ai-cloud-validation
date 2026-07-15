@@ -175,13 +175,11 @@ def main() -> int:
 
     # Delete the owning service account only after the HMAC key is gone.
     if hmac_ok:
-        if delete_service_account(username):
-            # delete_service_account folds an existence-hiding 403 into success, so
-            # a real permission denial would otherwise be reported as a clean
-            # delete. Confirm genuine absence with a trustworthy project-scoped
-            # list: ONLY a definitive True proves the SA is gone. False (still
-            # present) and None (list unreadable) are both unconfirmed and count as
-            # a cleanup failure rather than a claimed deletion.
+        if delete_service_account(username, project=project):
+            # The helper already fails closed on an existence-hiding 403. This
+            # second project-scoped readback also confirms an acknowledged delete
+            # has converged: only True proves the account is gone; False or None
+            # remains a cleanup failure rather than a claimed deletion.
             absent = service_account_absent(project, username)
             if absent is True:
                 resources_deleted.append(username)

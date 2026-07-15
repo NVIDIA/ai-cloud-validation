@@ -71,6 +71,7 @@ import argparse
 import json
 import sys
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from secrets import token_hex
@@ -107,19 +108,28 @@ _RETENTION_TEST_KEYS = (
 # wait — the entry half skips, not fails, if it never surfaces.
 _ENTRY_POLL_ATTEMPTS = 6
 _ENTRY_POLL_DELAY_SECONDS = 10
-# Look back slightly before the call to absorb clock skew.
-_ENTRY_WINDOW_MINUTES = 30
+# Both event-time bounds use the same small skew allowance. Polling may wait for
+# ingestion, but must never expand the timestamp window of acceptable evidence.
+_ENTRY_CLOCK_SKEW = timedelta(minutes=5)
 _MIN_RETENTION_DAYS = 30
+_RETENTION_READ_ATTEMPTS = 4
+_RETENTION_READ_DELAY_SECONDS = 2
+_TRANSIENT_LOGGING_ERRORS = (
+    gax.DeadlineExceeded,
+    gax.InternalServerError,
+    gax.ServiceUnavailable,
+    gax.TooManyRequests,
+)
 
 
 def _filter_payload(payload: Any) -> dict[str, Any]:
     """Return the protoPayload of a log entry as a plain dict (or {})."""
-    if isinstance(payload, dict):
-        return payload
+    if isinstance(payload, Mapping):
+        return dict(payload)
     # The high-level ProtobufEntry exposes the AuditLog as payload_json / payload.
     as_dict = getattr(payload, "payload_json", None)
-    if isinstance(as_dict, dict):
-        return as_dict
+    if isinstance(as_dict, Mapping):
+        return dict(as_dict)
     return {}
 
 
@@ -128,15 +138,21 @@ def _find_marked_entry(
     project: str,
     marker: str,
     started_at: datetime,
+    completed_at: datetime,
+    bucket_name: str,
 ) -> Any | None:
-    """Poll Admin Activity audit logs for the entry carrying our user-agent marker."""
-    window_start = (started_at - timedelta(minutes=_ENTRY_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """Poll for the marked Admin Activity entry on the exact log bucket."""
+    window_start = (started_at - _ENTRY_CLOCK_SKEW).strftime("%Y-%m-%dT%H:%M:%SZ")
+    window_end = (completed_at + _ENTRY_CLOCK_SKEW).strftime("%Y-%m-%dT%H:%M:%SZ")
     log_name = f"projects/{project}/logs/cloudaudit.googleapis.com%2Factivity"
     filter_ = (
         f'logName="{log_name}" '
         f'AND timestamp>="{window_start}" '
+        f'AND timestamp<="{window_end}" '
+        f'AND protoPayload.resourceName="{bucket_name}" '
         f'AND protoPayload.requestMetadata.callerSuppliedUserAgent:"{marker}"'
     )
+    last_transient_error: Exception | None = None
     for attempt in range(_ENTRY_POLL_ATTEMPTS):
         try:
             for entry in client.list_entries(
@@ -146,12 +162,21 @@ def _find_marked_entry(
                 max_results=5,
             ):
                 return entry
-        except gax.GoogleAPICallError:
-            # A transient query error is retried within the budget; a persistent
-            # failure leaves the entry half to honest-skip below.
-            pass
+            # A completed empty query is valid evidence that the entry has not
+            # ingested yet. Clear an earlier transient so a later successful
+            # final poll can still produce the bounded ingestion-lag skip.
+            last_transient_error = None
+        except _TRANSIENT_LOGGING_ERRORS as exc:
+            # Only retry errors that can converge. Authorization and other
+            # permanent failures must reach the outer fail-closed boundary,
+            # never masquerade as eventual-consistency ingestion lag.
+            last_transient_error = exc
         if attempt < _ENTRY_POLL_ATTEMPTS - 1:
             time.sleep(_ENTRY_POLL_DELAY_SECONDS)
+    if last_transient_error is not None:
+        # The final observation was not an empty successful query; it was an
+        # unavailable Logging API. That cannot prove ingestion lag.
+        raise last_transient_error
     return None
 
 
@@ -163,6 +188,8 @@ def _check_entry_subtests(
     expected_service: str,
     region: str,
     started_at: datetime,
+    completed_at: datetime,
+    bucket_name: str,
     result: dict[str, Any],
 ) -> None:
     """Populate the 8 entry subtests from the matched audit log entry."""
@@ -170,9 +197,10 @@ def _check_entry_subtests(
     request_metadata = payload.get("requestMetadata", {}) if isinstance(payload, dict) else {}
     auth_info = payload.get("authenticationInfo", {}) if isinstance(payload, dict) else {}
 
+    resource_name = str(payload.get("resourceName", ""))
     result["tests"]["audit_log_entry_found"] = {
-        "passed": True,
-        "message": "marked audit log entry located in the Admin Activity stream",
+        "passed": resource_name == bucket_name,
+        "message": f"protoPayload.resourceName={resource_name!r}",
     }
 
     method_name = str(payload.get("methodName", ""))
@@ -182,7 +210,7 @@ def _check_entry_subtests(
     }
 
     timestamp = getattr(entry, "timestamp", None)
-    in_window = bool(timestamp) and timestamp >= (started_at - timedelta(minutes=_ENTRY_WINDOW_MINUTES))
+    in_window = bool(timestamp) and (started_at - _ENTRY_CLOCK_SKEW) <= timestamp <= (completed_at + _ENTRY_CLOCK_SKEW)
     result["tests"]["audit_log_event_time_in_window"] = {
         "passed": in_window,
         "message": "entry timestamp falls within the correlation window",
@@ -219,7 +247,7 @@ def _check_entry_subtests(
         }
     else:
         result["tests"]["audit_log_region_matches"] = {
-            "passed": location in region or region in location or region == "",
+            "passed": bool(region) and (location == region or location.startswith(f"{region}-")),
             "message": f"resource.labels.location={location!r}",
         }
 
@@ -242,15 +270,17 @@ def _evaluate_retention(project: str, result: dict[str, Any]) -> None:
     """Read the _Default log bucket retention and populate the 2 retention subtests."""
     config_client = ConfigServiceV2Client()
     bucket_name = f"projects/{project}/locations/global/buckets/_Default"
-    try:
-        bucket = config_client.get_bucket(request={"name": bucket_name})
-    except gax.GoogleAPICallError as exc:
-        reason = f"could not read _Default log bucket retention: {type(exc).__name__}"
-        result["audit_log_retention_skipped"] = True
-        result["audit_log_retention_skip_reason"] = reason
-        for key in _RETENTION_TEST_KEYS:
-            result["tests"][key] = {"passed": True, "skipped": True, "skip_reason": reason}
-        return
+    bucket = None
+    for attempt in range(1, _RETENTION_READ_ATTEMPTS + 1):
+        try:
+            bucket = config_client.get_bucket(request={"name": bucket_name})
+            break
+        except _TRANSIENT_LOGGING_ERRORS:
+            if attempt >= _RETENTION_READ_ATTEMPTS:
+                raise
+            time.sleep(_RETENTION_READ_DELAY_SECONDS * attempt)
+    if bucket is None:  # defensive: every loop path returns or raises
+        raise RuntimeError(f"retention inventory returned no bucket for {bucket_name}")
 
     retention_days = int(getattr(bucket, "retention_days", 0) or 0)
     # Admin Activity audit logging is always-on for every GCP project; reading
@@ -325,11 +355,19 @@ def main() -> int:
                     "update_mask": {"paths": ["retention_days"]},
                 }
             )
-        except gax.GoogleAPICallError as exc:
+            completed_at = datetime.now(UTC)
+        except (gax.PermissionDenied, gax.Forbidden) as exc:
             _skip_entry_half(result, f"management write denied or failed: {type(exc).__name__}")
         else:
             logging_client = logging_v2.Client(project=project)
-            entry = _find_marked_entry(logging_client, project, marker, started_at)
+            entry = _find_marked_entry(
+                logging_client,
+                project,
+                marker,
+                started_at,
+                completed_at,
+                bucket_name,
+            )
             if entry is None:
                 _skip_entry_half(
                     result,
@@ -344,14 +382,20 @@ def main() -> int:
                     expected_service=expected_service,
                     region=region,
                     started_at=started_at,
+                    completed_at=completed_at,
+                    bucket_name=bucket_name,
                     result=result,
                 )
+        # Compute success only on the protected normal path. Exception paths
+        # must retain the initial false verdict even if existing subtest values
+        # are accidentally or adversarially all truthy.
+        result["success"] = all(t.get("passed") for t in result["tests"].values())
     except Exception as e:
         result["error"] = str(e)
+        result["success"] = False
 
     # Success requires every subtest to pass; a skipped half emits passing,
     # skip-marked subtests so its validator skips rather than fails.
-    result["success"] = all(t.get("passed") for t in result["tests"].values())
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
 

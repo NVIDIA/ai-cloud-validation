@@ -94,9 +94,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # providers/gcp/sc
 import google.auth
 import google.auth.impersonated_credentials
 from common.compute import resolve_project, unique_suffix
-from common.errors import delete_with_retry, handle_gcp_errors
+from common.errors import delete_with_retry, handle_gcp_errors, modify_iam_policy_with_retry
+from common.iam_policy import (
+    ensure_unconditional_binding_member,
+    remove_binding_members,
+    service_account_member_email,
+)
+from common.ownership import (
+    CREATED_BY_DESCRIPTION,
+    CREATED_BY_LABEL,
+    CREATED_BY_VALUE,
+    description_with_invocation,
+    has_invocation_description,
+    has_invocation_label,
+    labels_with_invocation,
+    new_invocation_id,
+    submit_owned_create,
+)
+from common.result import preserve_success_after_cleanup
 from common.service_account import create_service_account, delete_service_account, resolve_principal_member
 from google.api_core import exceptions as gax
+from google.api_core import retry as gax_retry
 from google.cloud import compute_v1, iam_admin_v1, storage
 from google.cloud.iam_admin_v1 import types as iam_types
 
@@ -107,6 +125,9 @@ _PROBE_SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
 # short while to become effective. Bounded retry inside the step timeout.
 _PROPAGATION_ATTEMPTS = 8
 _PROPAGATION_DELAY_SECONDS = 10
+# Cloud Storage's create helper defaults to retrying 5xx/transport failures,
+# which can turn commit-then-error into a final 409 and hide ownership recovery.
+_NO_CREATE_RETRY = gax_retry.Retry(predicate=lambda _exc: False)
 
 TEST_NAME = "least_privilege_test"
 
@@ -115,6 +136,9 @@ TEST_NAME = "least_privilege_test"
 _ROLE_ID_PREFIX = "isv_sec04_"
 _SA_BASE = "isv-sec04-lp"
 _BUCKET_BASE = "isv-sec04-lp"
+_BINDING_CONDITION_TITLE = "isv-sec04-least-privilege"
+_BINDING_CONDITION_DESCRIPTION = f"SEC04 least-privilege scoped grant ({CREATED_BY_DESCRIPTION})."
+_CUSTOM_ROLE_DESCRIPTION = f"Scoped role for SEC04 least-privilege validation ({CREATED_BY_DESCRIPTION})."
 
 # The minimal permission set the allowed probe (Cloud Storage list) needs. The
 # role is deliberately narrow so it cannot satisfy any out-of-scope probe.
@@ -132,6 +156,11 @@ def _run_id_hex() -> str:
     return cleaned[:8] if cleaned else token_hex(4)
 
 
+def _service_account_id() -> str:
+    """Return a <=30-char fixture ID with discriminator then run suffix."""
+    return unique_suffix(f"{_SA_BASE}-{token_hex(2)}")
+
+
 def _skipped_result(reason: str) -> dict[str, Any]:
     """Return a structured top-level skip payload honored by both validators."""
     return {
@@ -147,16 +176,23 @@ def _skipped_result(reason: str) -> dict[str, Any]:
     }
 
 
-def _label_bucket(storage_client: storage.Client, name: str) -> None:
-    """Stamp the created-by ownership label so the teardown safety-net can dual-gate it.
-
-    Called immediately after each ``create_bucket`` so a partial-create-then-skip
-    leaves every created bucket labelled (the safety-net gates on name AND label,
-    so an unlabelled bucket would be declined and leak).
-    """
+def _create_bucket(
+    storage_client: storage.Client,
+    name: str,
+    location: str,
+    *,
+    on_accepted: Callable[[], None] | None = None,
+) -> None:
+    """Create a pre-labelled bucket and reconcile an ambiguous acknowledgement."""
+    invocation_id = new_invocation_id()
     bucket = storage_client.bucket(name)
-    bucket.labels = {"created-by": "isvtest"}
-    bucket.patch()
+    bucket.labels = labels_with_invocation({CREATED_BY_LABEL: CREATED_BY_VALUE}, invocation_id)
+    submit_owned_create(
+        lambda: storage_client.create_bucket(bucket, location=location, retry=_NO_CREATE_RETRY),
+        lambda: storage_client.get_bucket(name),
+        lambda resource: has_invocation_label(resource, invocation_id),
+        on_accepted=on_accepted,
+    )
 
 
 def _condition_expression(allowed_bucket: str, access_level: str) -> str:
@@ -184,16 +220,29 @@ def _condition_has_dimensions(expression: str, allowed_bucket: str, access_level
     return resource_scoped, network_scoped
 
 
-def _create_custom_role(iam_client: iam_admin_v1.IAMClient, project: str, role_id: str) -> str:
-    """Create the scoped custom role and return its resource name."""
+def _create_custom_role(
+    iam_client: iam_admin_v1.IAMClient,
+    project: str,
+    role_id: str,
+    *,
+    on_accepted: Callable[[], None] | None = None,
+) -> str:
+    """Create the scoped custom role with exact ambiguous-ack reconciliation."""
+    invocation_id = new_invocation_id()
+    role_name = f"projects/{project}/roles/{role_id}"
     role = iam_types.Role(
         title="ISV SEC04 least-privilege probe role",
-        description="Scoped role for SEC04 least-privilege validation (created-by isvtest).",
+        description=description_with_invocation(_CUSTOM_ROLE_DESCRIPTION, invocation_id),
         included_permissions=list(_ROLE_PERMISSIONS),
         stage=iam_types.Role.RoleLaunchStage.GA,
     )
     request = iam_types.CreateRoleRequest(parent=f"projects/{project}", role_id=role_id, role=role)
-    created = iam_client.create_role(request=request)
+    created = submit_owned_create(
+        lambda: iam_client.create_role(request=request, retry=_NO_CREATE_RETRY),
+        lambda: iam_client.get_role(request=iam_types.GetRoleRequest(name=role_name)),
+        lambda resource: has_invocation_description(resource, invocation_id),
+        on_accepted=on_accepted,
+    )
     return created.name
 
 
@@ -202,6 +251,8 @@ def _bind_role_with_condition(
     sa_email: str,
     role_name: str,
     expression: str,
+    *,
+    on_write_attempt: Callable[[], None] | None = None,
 ) -> None:
     """Bind the scoped role to the test SA on the allowed bucket with an IAM Condition.
 
@@ -213,25 +264,95 @@ def _bind_role_with_condition(
     # Imported lazily so the module import stays valid in environments that
     # vendor resource-manager separately from the rest of the google.cloud SDK.
     from google.cloud import resourcemanager_v3
-    from google.iam.v1 import iam_policy_pb2, policy_pb2
+    from google.iam.v1 import iam_policy_pb2, options_pb2, policy_pb2
     from google.type import expr_pb2
 
-    projects = resourcemanager_v3.ProjectsClient()
     resource = f"projects/{project}"
-    policy = projects.get_iam_policy(request=iam_policy_pb2.GetIamPolicyRequest(resource=resource))
-    # A custom role's resource name (projects/<p>/roles/<id>) is also its role
-    # id in an IAM binding.
     binding = policy_pb2.Binding(
         role=role_name,
         members=[f"serviceAccount:{sa_email}"],
         condition=expr_pb2.Expr(
-            title="isv-sec04-least-privilege",
-            description="SEC04 least-privilege scoped grant.",
+            title=_BINDING_CONDITION_TITLE,
+            description=_BINDING_CONDITION_DESCRIPTION,
             expression=expression,
         ),
     )
-    policy.bindings.append(binding)
-    projects.set_iam_policy(request=iam_policy_pb2.SetIamPolicyRequest(resource=resource, policy=policy))
+    projects = resourcemanager_v3.ProjectsClient()
+
+    def _read() -> Any:
+        return projects.get_iam_policy(
+            request=iam_policy_pb2.GetIamPolicyRequest(
+                resource=resource,
+                options=options_pb2.GetPolicyOptions(requested_policy_version=3),
+            )
+        )
+
+    def _write(policy: Any) -> Any:
+        policy.version = 3
+        if on_write_attempt is not None:
+            on_write_attempt()
+        return projects.set_iam_policy(request=iam_policy_pb2.SetIamPolicyRequest(resource=resource, policy=policy))
+
+    def _append_once(policy: Any) -> bool:
+        if any(_binding_matches(item, sa_email, role_name, expression) for item in policy.bindings):
+            return False
+        policy.bindings.append(binding)
+        return True
+
+    modify_iam_policy_with_retry(
+        _read,
+        _write,
+        _append_once,
+        resource_desc=f"project {project}",
+    )
+
+
+def _binding_matches(binding: Any, sa_email: str, role_name: str, expression: str) -> bool:
+    """Return whether a project binding is exactly the SEC04 fixture grant."""
+    condition = getattr(binding, "condition", None)
+    return (
+        binding.role == role_name
+        and f"serviceAccount:{sa_email}" in binding.members
+        and getattr(condition, "title", "") == _BINDING_CONDITION_TITLE
+        and getattr(condition, "description", "") == _BINDING_CONDITION_DESCRIPTION
+        and getattr(condition, "expression", "") == expression
+    )
+
+
+def _remove_role_binding(project: str, sa_email: str, role_name: str, expression: str) -> None:
+    """Remove only this fixture's project binding using fresh etags on retry."""
+    from google.cloud import resourcemanager_v3
+    from google.iam.v1 import iam_policy_pb2, options_pb2
+
+    projects = resourcemanager_v3.ProjectsClient()
+    resource = f"projects/{project}"
+
+    def _read() -> Any:
+        return projects.get_iam_policy(
+            request=iam_policy_pb2.GetIamPolicyRequest(
+                resource=resource,
+                options=options_pb2.GetPolicyOptions(requested_policy_version=3),
+            )
+        )
+
+    def _write(policy: Any) -> Any:
+        policy.version = 3
+        return projects.set_iam_policy(request=iam_policy_pb2.SetIamPolicyRequest(resource=resource, policy=policy))
+
+    def _remove(policy: Any) -> bool:
+        removed = remove_binding_members(
+            policy,
+            binding_matches=lambda binding: _binding_matches(binding, sa_email, role_name, expression),
+            member_matches=lambda candidate: service_account_member_email(candidate) == sa_email,
+        )
+        return removed > 0
+
+    modify_iam_policy_with_retry(
+        _read,
+        _write,
+        _remove,
+        resource_desc=f"project {project}",
+    )
 
 
 def _grant_token_creator(sa_email: str, member: str) -> None:
@@ -241,13 +362,21 @@ def _grant_token_creator(sa_email: str, member: str) -> None:
     so the out-of-scope probes can run AS that least-privileged identity (the
     orchestrator credential is broadly privileged and would not be denied).
     """
-    from google.iam.v1 import iam_policy_pb2, policy_pb2
+    from google.iam.v1 import iam_policy_pb2
 
     iam_client = iam_admin_v1.IAMClient()
     resource = f"projects/-/serviceAccounts/{sa_email}"
-    policy = iam_client.get_iam_policy(request=iam_policy_pb2.GetIamPolicyRequest(resource=resource))
-    policy.bindings.append(policy_pb2.Binding(role="roles/iam.serviceAccountTokenCreator", members=[member]))
-    iam_client.set_iam_policy(request=iam_policy_pb2.SetIamPolicyRequest(resource=resource, policy=policy))
+
+    def _read() -> Any:
+        return iam_client.get_iam_policy(request=iam_policy_pb2.GetIamPolicyRequest(resource=resource))
+
+    def _write(policy: Any) -> Any:
+        return iam_client.set_iam_policy(request=iam_policy_pb2.SetIamPolicyRequest(resource=resource, policy=policy))
+
+    def _ensure(policy: Any) -> bool:
+        return ensure_unconditional_binding_member(policy, "roles/iam.serviceAccountTokenCreator", member)
+
+    modify_iam_policy_with_retry(_read, _write, _ensure, resource_desc=f"service account {sa_email}")
 
 
 def _impersonated_credentials(sa_email: str) -> Any:
@@ -334,10 +463,18 @@ def _cleanup(
     role_name: str,
     sa_email: str,
     buckets_created: list[str],
+    binding_expression: str,
+    binding_write_attempted: bool,
     result: dict[str, Any],
 ) -> None:
-    """Best-effort delete of the role, service account, and probe buckets."""
+    """Best-effort delete of the project binding and fixture resources."""
     cleanup_errors: list[str] = []
+
+    if project and role_name and sa_email and binding_expression and binding_write_attempted:
+        try:
+            _remove_role_binding(project, sa_email, role_name, binding_expression)
+        except Exception as exc:
+            cleanup_errors.append(f"remove project binding {role_name}: {type(exc).__name__}")
 
     if (
         result.get("role_created")
@@ -350,7 +487,7 @@ def _cleanup(
     ):
         cleanup_errors.append(f"delete role {role_name}")
 
-    if result.get("sa_created") and sa_email and not delete_service_account(sa_email):
+    if result.get("sa_created") and sa_email and not delete_service_account(sa_email, project=project):
         cleanup_errors.append(f"delete service account {sa_email}")
 
     if buckets_created and project:
@@ -373,6 +510,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Least-privilege policy and minimal-role enforcement test")
     parser.add_argument("--region", default="")
     parser.add_argument("--project", default="")
+    parser.add_argument("--skip-destroy", action="store_true", help="Preserve run-owned fixtures for later teardown")
     parser.add_argument(
         "--access-level",
         default="",
@@ -395,9 +533,10 @@ def main() -> int:
 
     run_hex = _run_id_hex()
     role_id = f"{_ROLE_ID_PREFIX}{run_hex}"
-    # The SA local-part is capped at 30 chars: a short prefix + per-invocation
-    # discriminator keeps parallel runs distinct without overflowing.
-    sa_account_id = f"{unique_suffix(_SA_BASE, length=6)}{token_hex(2)}"[:30].rstrip("-")
+    # The SA local-part is capped at 30 chars.  Keep the per-invocation
+    # discriminator before the canonical run suffix so both same-run retries
+    # and the suite's terminal-suffix cleanup remain reliable.
+    sa_account_id = _service_account_id()
     allowed_bucket = unique_suffix(_BUCKET_BASE)
     denied_bucket = unique_suffix(f"{_BUCKET_BASE}-deny")
 
@@ -409,6 +548,7 @@ def main() -> int:
         "allowed_resource": allowed_bucket,
         "allowed_source_cidr": access_level,
         "role_created": False,
+        "binding_created": False,
         "sa_created": False,
         "bucket_created": False,
         "tests": {
@@ -426,6 +566,8 @@ def main() -> int:
     role_name = ""
     sa_email = ""
     buckets_created: list[str] = []
+    binding_expression = ""
+    binding_write_attempted = False
     skip_payload: dict[str, Any] | None = None
 
     try:
@@ -435,27 +577,65 @@ def main() -> int:
         storage_client = storage.Client(project=project)
 
         try:
-            role_name = _create_custom_role(iam_client, project, role_id)
-            result["role_created"] = True  # stamp ownership before any further work
+            role_name = f"projects/{project}/roles/{role_id}"
+            role_name = _create_custom_role(
+                iam_client,
+                project,
+                role_id,
+                on_accepted=lambda: result.update(role_created=True),
+            )
 
+            sa_email = f"{sa_account_id}@{project}.iam.gserviceaccount.com"
             sa_email = create_service_account(
                 project,
                 sa_account_id,
                 display_name="ISV SEC04 least-privilege probe",
+                description=CREATED_BY_DESCRIPTION,
+                on_accepted=lambda: result.update(sa_created=True),
             )
-            result["sa_created"] = True
             result["test_identity"] = sa_email
 
-            # Label each bucket immediately after its create (not in a trailing
-            # loop) so a partial-create-then-skip still leaves every created
-            # bucket teardown-reclaimable.
-            storage_client.create_bucket(allowed_bucket, location=location)
-            buckets_created.append(allowed_bucket)
-            result["bucket_created"] = True
-            _label_bucket(storage_client, allowed_bucket)
-            storage_client.create_bucket(denied_bucket, location=location)
-            buckets_created.append(denied_bucket)
-            _label_bucket(storage_client, denied_bucket)
+            # Labels are part of each create request.  The callback records the
+            # bucket after a normal acknowledgement or invocation-marker
+            # readback, so the finally block can clean up commit-then-error
+            # outcomes without adopting a same-name foreign bucket.
+            def _record_bucket(name: str) -> None:
+                buckets_created.append(name)
+                result["bucket_created"] = True
+
+            _create_bucket(
+                storage_client,
+                allowed_bucket,
+                location,
+                on_accepted=lambda: _record_bucket(allowed_bucket),
+            )
+            _create_bucket(
+                storage_client,
+                denied_bucket,
+                location,
+                on_accepted=lambda: _record_bucket(denied_bucket),
+            )
+
+            # Complete fixture provisioning inside the setup permission
+            # boundary. Track the transition into SET separately from building
+            # the expression: a denied GET cannot have created a binding, while
+            # any attempted SET needs exact readback during cleanup because its
+            # acknowledgement may be ambiguous.
+            binding_expression = _condition_expression(allowed_bucket, access_level)
+
+            def _record_binding_write_attempt() -> None:
+                nonlocal binding_write_attempted
+                binding_write_attempted = True
+
+            _bind_role_with_condition(
+                project,
+                sa_email,
+                role_name,
+                binding_expression,
+                on_write_attempt=_record_binding_write_attempt,
+            )
+            result["binding_created"] = True
+            _grant_token_creator(sa_email, resolve_principal_member())
         except _SKIPPABLE_SETUP as exc:
             # Defer the skip emit: anything created so far is cleaned up in the
             # finally block first, and the skip is only honored when that cleanup
@@ -464,15 +644,7 @@ def main() -> int:
             skip_payload = _skipped_result(f"cannot provision SEC04 fixture: {exc}")
             raise _SkipSignal from exc
 
-        # Attach the scoped, conditional grant, then allow the run principal to
-        # mint tokens for the test SA so every probe runs AS the least-privileged
-        # identity (a broadly-privileged orchestrator credential would never be
-        # denied).
-        expression = _condition_expression(allowed_bucket, access_level)
-        _bind_role_with_condition(project, sa_email, role_name, expression)
-        _grant_token_creator(sa_email, resolve_principal_member())
-
-        resource_scoped, network_scoped = _condition_has_dimensions(expression, allowed_bucket, access_level)
+        resource_scoped, network_scoped = _condition_has_dimensions(binding_expression, allowed_bucket, access_level)
 
         # Build clients authenticated as the scoped test SA.
         sa_creds = _impersonated_credentials(sa_email)
@@ -551,14 +723,27 @@ def main() -> int:
                 {"name": "condition_access_level_present", "passed": network_scoped, "access_level": access_level},
             ],
         }
+        result["success"] = all(t.get("passed") for t in result["tests"].values())
     except _SkipSignal:
         # The skip payload is emitted after the finally block, gated on cleanup
         # leaving nothing behind (see the post-finally check).
         pass
     except Exception as e:
         result["error"] = str(e)
+        result["success"] = False
     finally:
-        _cleanup(project, role_name, sa_email, buckets_created, result)
+        if args.skip_destroy:
+            result["cleanup_skipped"] = True
+        else:
+            _cleanup(
+                project,
+                role_name,
+                sa_email,
+                buckets_created,
+                binding_expression,
+                binding_write_attempted,
+                result,
+            )
 
     # A structured skip wins only when cleanup left nothing behind, so a cleanup
     # failure on the skip path surfaces as a real failure (carrying
@@ -567,10 +752,7 @@ def main() -> int:
         print(json.dumps(skip_payload, indent=2))
         return 0
 
-    # Recompute success only after the try/except/finally completes: grounded in
-    # the subtests AND failed when cleanup leaked a resource (the AWS oracle and
-    # this domain's teardown both fold cleanup_errors into the verdict).
-    result["success"] = all(t.get("passed") for t in result["tests"].values()) and not result.get("cleanup_errors")
+    preserve_success_after_cleanup(result)
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
 
