@@ -1,6 +1,6 @@
 [project]
 name = "ai-cloud-validation"
-version = "0.8.1"
+version = "0.9.0"
 description = "NVIDIA AI Cloud Validation Suite"
 readme = "README.md"
 license = "Apache-2.0"

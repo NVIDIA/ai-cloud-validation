@@ -30,6 +30,55 @@ Workflow:
 > attached to a milestone. The file you are reading now is the canonical
 > per-tag changelog.
 
+## [0.9.0] - 2026-07-15
+
+### Added
+
+- **Kubernetes storage health and filesystem semantics validations** ([#523](https://github.com/NVIDIA/ai-cloud-validation/pull/523), [#528](https://github.com/NVIDIA/ai-cloud-validation/pull/528), [#535](https://github.com/NVIDIA/ai-cloud-validation/pull/535), [#536](https://github.com/NVIDIA/ai-cloud-validation/pull/536))
+  Adds CSI driver health, concurrent provisioning, volume expansion, NFS configuration, cross-node consistency, file locking, large-directory, and POSIX compliance checks for Kubernetes storage.
+- **Configurable NICo API route name** ([#531](https://github.com/NVIDIA/ai-cloud-validation/pull/531))
+  Adds `NICO_API_NAME` so `isvctl doctor` and NICo provider scripts can target updated `/nico/` API routes while retaining `/carbide/` as the default for legacy sites.
+- **M7 observability and telemetry validations** ([#529](https://github.com/NVIDIA/ai-cloud-validation/pull/529), [#534](https://github.com/NVIDIA/ai-cloud-validation/pull/534))
+  Adds OBS05-16 and TELEM05-08 checks for telemetry delivery, network planes, fabric and switch logs, storage capacity and performance, and NVLink GPU and switch telemetry across the supported provider implementations.
+- **EKS node-pool deletion validation (K8S06-03)** ([#474](https://github.com/NVIDIA/ai-cloud-validation/pull/474))
+  Extends the AWS EKS reference flow to create and delete a disposable CPU node pool and verify that its node count converges to zero.
+- **Persistent block-storage lifecycle validations (DATASVC-XX-02/03/04)** ([#439](https://github.com/NVIDIA/ai-cloud-validation/pull/439))
+  Adds provider-neutral checks for snapshot restore integrity, in-place volume and filesystem expansion, and data persistence across instance restarts, with AWS EBS reference and `my-isv` scaffold coverage.
+- **High-Speed Storage validations (HSS01-HSS18)** ([#532](https://github.com/NVIDIA/ai-cloud-validation/pull/532))
+  Adds 12 checks for storage provisioning, throughput QoS, non-disruptive upgrades, RDMA protection, parallel filesystems, live expansion, quotas, root squash, file locking, audit changelogs, and multipath behavior, including AWS FSx for Lustre coverage where supported.
+- **Credential and component-key access validations (IAM03-01/AUTH03-01)** ([#537](https://github.com/NVIDIA/ai-cloud-validation/pull/537))
+  Verifies that credentials expose the expected identity and authorized resources and that a requested SSH key can access supported out-of-band components such as serial consoles.
+- **Mutual TLS validation (SEC13-01)** ([#538](https://github.com/NVIDIA/ai-cloud-validation/pull/538))
+  Adds north-south and east-west checks that require authenticated clients to establish TLS connections while anonymous clients are rejected, or record provider-hidden planes explicitly.
+- **NICo hardware and storage-infrastructure observability validations** ([#539](https://github.com/NVIDIA/ai-cloud-validation/pull/539), [#540](https://github.com/NVIDIA/ai-cloud-validation/pull/540))
+  Adds BFX03-01 and STG02/03/04/05 checks for component serial inventory, tenancy-preserving maintenance skips, stable storage-node administration IPs, out-of-band failure detection, and failure-domain visibility.
+- **NICo specified-key access validation (AUTH-XX-03)** ([#469](https://github.com/NVIDIA/ai-cloud-validation/pull/469))
+  Verifies that a tenant-specified SSH key can reach at least one supported out-of-band component, with both read-only discovery and an opt-in ephemeral key provisioning flow that cleans up afterward.
+- **Home-directory storage validations (DIR01/DIR02)** ([#541](https://github.com/NVIDIA/ai-cloud-validation/pull/541))
+  Adds provider-neutral checks for filesystem quotas, identity-scoped usage accounting, and NFS availability, with an AWS FSx for OpenZFS reference implementation and a `my-isv` scaffold.
+
+### Changed
+
+- **Provider-neutral Kubernetes workload and conformance controls** ([#522](https://github.com/NVIDIA/ai-cloud-validation/pull/522))
+  Adds runtime class, memory, kubeconfig, and launcher-affinity controls to Kubernetes workloads, improves conformance JUnit retrieval, and recognizes non-standard GPU product names when counting devices.
+- **Versioned catalog schema and platform axis** ([#533](https://github.com/NVIDIA/ai-cloud-validation/pull/533))
+  The catalog JSON now includes a `schemaVersion` and top-level `platforms` list, and `isvreporter` preserves both fields when uploading the catalog.
+
+### Fixed
+
+- **Suite-owned label attribution for NICo configs** ([#526](https://github.com/NVIDIA/ai-cloud-validation/pull/526))
+  Removes duplicated provider-level labels so catalog attribution and label discovery reflect the suite contracts that own each check; standalone NICo configs without suite imports remain available through direct `-f` selection.
+- **EKS CSI probes on transient test pools** ([#474](https://github.com/NVIDIA/ai-cloud-validation/pull/474))
+  Pins static EBS volumes to their availability zone and keeps CSI probe pods off disposable node-pool test nodes whose storage plugins may not yet be ready.
+- **SEC04 least-privilege propagation handling** ([#543](https://github.com/NVIDIA/ai-cloud-validation/pull/543))
+  Waits for newly created AWS credentials to propagate before testing denied operations, preventing authentication races from being misreported as least-privilege results and improving failed-subtest diagnostics.
+- **FSx for Lustre live-expansion wait budget** ([#544](https://github.com/NVIDIA/ai-cloud-validation/pull/544))
+  Extends the capacity-change wait to accommodate real FSx updates that can remain in progress beyond 30 minutes, avoiding false `HssLiveExpansionCheck` failures.
+
+### Internal
+
+- Add requirements-to-test traceability and storage acceptance coverage to the generated planning artifacts ([#482](https://github.com/NVIDIA/ai-cloud-validation/pull/482), [#542](https://github.com/NVIDIA/ai-cloud-validation/pull/542)).
+
 ## [0.8.1] - 2026-06-30
 
 ### Added
