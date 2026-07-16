@@ -33,6 +33,7 @@ SECURITY = "SECURITY"
 VM = "VM"
 IMAGE_REGISTRY = "IMAGE_REGISTRY"
 OBSERVABILITY = "OBSERVABILITY"
+STORAGE = "STORAGE"
 
 ALL_PLATFORMS = {
     KUBERNETES,
@@ -45,6 +46,7 @@ ALL_PLATFORMS = {
     VM,
     IMAGE_REGISTRY,
     OBSERVABILITY,
+    STORAGE,
 }
 
 # Platform aliases (normalized to canonical uppercase names)
@@ -61,6 +63,7 @@ PLATFORM_ALIASES: dict[str, str] = {
     "vm": VM,
     "image_registry": IMAGE_REGISTRY,
     "observability": OBSERVABILITY,
+    "storage": STORAGE,
 }
 
 DEFAULT_PLATFORM = KUBERNETES

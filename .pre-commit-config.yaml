@@ -49,8 +49,8 @@ repos:
         files: ^(docs/test-plan\.yaml|isvctl/configs/suites/.*\.yaml|scripts/test_plan_coverage\.py)$
 
       - id: validate-suites
-        name: check tests suites (test_id + labels)
+        name: check tests suites (test_id + labels + platform)
         entry: uv run python scripts/validate_suite_wiring.py --check
         language: system
         pass_filenames: false
-        files: ^isvctl/configs/suites/.*\.yaml$
+        files: ^(isvctl/configs/suites/.*\.yaml|isvtest/src/isvtest/catalog\.py|scripts/validate_suite_wiring\.py)$

@@ -25,6 +25,13 @@ validation metadata on this branch. Each wired check must declare:
   Each canonical suite check must include its suite label, for example checks in
   ``bare_metal.yaml`` must include ``bare_metal``.
 
+Every suite file must also be registered in
+``isvtest.catalog_platforms.PLATFORM_CONFIGS``: an unregistered suite is
+silently dropped from the pushed catalog's platform axis and its tests carry no
+platform, so the capability never shows up in the catalog UI. Registered
+platforms must in turn be recognized by ``isvreporter.platform`` — an unknown
+platform is silently reported as the default on test-run upload.
+
 Usage:
     python3 scripts/validate_suite_wiring.py
     python3 scripts/validate_suite_wiring.py --check   # exit 1 on violations
@@ -41,22 +48,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from isvreporter.platform import normalize_platform
+from isvtest.catalog_platforms import PLATFORM_CONFIGS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
 _NEXT_CATEGORY_LINE = re.compile(r"^    \S")
+# The label every check in a canonical suite must carry, derived from the
+# platform registry: suite file stem -> lowercase platform name.
 SUITE_REQUIRED_LABELS: dict[str, str] = {
-    "bare_metal": "bare_metal",
-    "control-plane": "control_plane",
-    "iam": "iam",
-    "image-registry": "image_registry",
-    "k8s": "kubernetes",
-    "network": "network",
-    "observability": "observability",
-    "security": "security",
-    "slurm": "slurm",
-    "storage": "storage",
-    "vm": "vm",
+    Path(config).stem: platform.lower() for platform, configs in PLATFORM_CONFIGS.items() for config in configs
 }
 
 
@@ -180,17 +181,46 @@ def wiring_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
     return errors
 
 
+def platform_registration_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
+    """Return errors for suite files not registered in the catalog platform axis."""
+    registered = {config for configs in PLATFORM_CONFIGS.values() for config in configs}
+    return [
+        f"{suite}: not registered in isvtest.catalog_platforms.PLATFORM_CONFIGS (catalog platform axis)"
+        for suite in (f"suites/{path.name}" for path in sorted(suites_dir.glob("*.yaml")))
+        if suite not in registered
+    ]
+
+
+def registry_consistency_errors() -> list[str]:
+    """Return errors for catalog platforms that isvreporter cannot round-trip.
+
+    Suite configs declare ``tests.platform`` as the lowercase platform name;
+    ``normalize_platform`` silently coerces unknown values to the default
+    platform when reporting test runs, so a platform registered in the catalog
+    but missing from isvreporter's constants misattributes every test run.
+    """
+    return [
+        f"platform {platform}: not recognized by isvreporter.platform.normalize_platform "
+        "(add it to ALL_PLATFORMS and PLATFORM_ALIASES)"
+        for platform in sorted(PLATFORM_CONFIGS)
+        if normalize_platform(platform.lower()) != platform
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Returns a process exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Exit 1 when any suite check is missing test_id or labels.",
+        help=(
+            "Exit 1 on wiring violations (missing test_id/labels, unregistered suites, "
+            "or isvreporter platform mismatches)."
+        ),
     )
     args = parser.parse_args(argv)
 
-    errors = wiring_errors()
+    errors = wiring_errors() + platform_registration_errors() + registry_consistency_errors()
     if errors:
         header = f"suite wiring validation failed ({len(errors)} issue(s)):"
         message = header + "\n  " + "\n  ".join(errors)
@@ -200,7 +230,10 @@ def main(argv: list[str] | None = None) -> int:
         print(message)
         return 0
 
-    ok = f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare test_id, labels, and suite labels."
+    ok = (
+        f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare test_id, labels, "
+        "and suite labels, and every suite is registered as a catalog platform."
+    )
     print(ok)
     return 0
 

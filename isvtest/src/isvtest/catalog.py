@@ -36,42 +36,11 @@ from typing import Any
 import yaml
 from isvreporter.version import get_version
 
+from isvtest.catalog_platforms import LABEL_TO_PLATFORM, PLATFORM_CONFIGS
 from isvtest.core.discovery import discover_all_tests
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 logger = logging.getLogger(__name__)
-
-# Configs that define the canonical test list per platform.
-# Relative to the isvctl/configs/ directory.
-PLATFORM_CONFIGS: dict[str, list[str]] = {
-    "BARE_METAL": ["suites/bare_metal.yaml"],
-    "CONTROL_PLANE": ["suites/control-plane.yaml"],
-    "IAM": ["suites/iam.yaml"],
-    "IMAGE_REGISTRY": ["suites/image-registry.yaml"],
-    "KUBERNETES": ["suites/k8s.yaml"],
-    "NETWORK": ["suites/network.yaml"],
-    "OBSERVABILITY": ["suites/observability.yaml"],
-    "SECURITY": ["suites/security.yaml"],
-    "SLURM": ["suites/slurm.yaml"],
-    "VM": ["suites/vm.yaml"],
-}
-
-# Maps wiring labels to platform strings so a check's platform can be inferred
-# from its labels when it isn't otherwise tied to a platform.
-# Only platform-identifying labels are included; trait labels like "gpu",
-# "ssh", "workload", and "slow" are intentionally omitted.
-LABEL_TO_PLATFORM: dict[str, str] = {
-    "bare_metal": "BARE_METAL",
-    "control_plane": "CONTROL_PLANE",
-    "iam": "IAM",
-    "image_registry": "IMAGE_REGISTRY",
-    "kubernetes": "KUBERNETES",
-    "network": "NETWORK",
-    "observability": "OBSERVABILITY",
-    "security": "SECURITY",
-    "slurm": "SLURM",
-    "vm": "VM",
-}
 
 # Version of the catalog document envelope (schemaVersion field), bumped only
 # when the top-level shape changes - independent of the isvtest package version

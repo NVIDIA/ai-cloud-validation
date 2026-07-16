@@ -52,6 +52,7 @@ class TestCatalogDocument:
             "OBSERVABILITY",
             "SECURITY",
             "SLURM",
+            "STORAGE",
             "VM",
         ]
 
