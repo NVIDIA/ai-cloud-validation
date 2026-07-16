@@ -53,6 +53,7 @@ PLATFORM_CONFIGS: dict[str, list[str]] = {
     "OBSERVABILITY": ["suites/observability.yaml"],
     "SECURITY": ["suites/security.yaml"],
     "SLURM": ["suites/slurm.yaml"],
+    "STORAGE": ["suites/storage.yaml"],
     "VM": ["suites/vm.yaml"],
 }
 
@@ -70,6 +71,7 @@ LABEL_TO_PLATFORM: dict[str, str] = {
     "observability": "OBSERVABILITY",
     "security": "SECURITY",
     "slurm": "SLURM",
+    "storage": "STORAGE",
     "vm": "VM",
 }
 

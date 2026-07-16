@@ -360,7 +360,7 @@ class ValidationConfig(BaseModel):
     description: str | None = Field(default=None, description="Test run description")
     platform: str | None = Field(
         default=None,
-        description="Platform type: KUBERNETES, SLURM, BARE_METAL, CONTROL_PLANE, IAM, NETWORK, SECURITY, VM, IMAGE_REGISTRY, OBSERVABILITY",
+        description="Platform type: KUBERNETES, SLURM, BARE_METAL, CONTROL_PLANE, IAM, NETWORK, SECURITY, VM, IMAGE_REGISTRY, OBSERVABILITY, STORAGE",
     )
     settings: dict[str, Any] = Field(default_factory=dict, description="Test settings")
     validations: dict[str, list[dict[str, Any]] | dict[str, Any]] = Field(

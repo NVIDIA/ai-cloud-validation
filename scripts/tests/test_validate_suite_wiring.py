@@ -109,3 +109,15 @@ def test_repo_suites_declare_test_id_and_labels() -> None:
     """Guardrail: every check in isvctl/configs/suites declares wiring metadata."""
     errors = validate_suite_wiring.wiring_errors()
     assert not errors, "suite wiring validation failed:\n  " + "\n  ".join(errors)
+
+
+def test_platform_registration_errors_flags_unregistered_suite(tmp_path: Path) -> None:
+    """A suite file not present in PLATFORM_CONFIGS is reported.
+
+    Enforced against the real repo only by the validate-suites pre-commit
+    hook, not by a repo-level pytest guard, so untracked scratch suites
+    don't break `make test`.
+    """
+    (tmp_path / "newcap.yaml").write_text("tests:\n  validations: {}\n")
+    errors = validate_suite_wiring.platform_registration_errors(tmp_path)
+    assert errors == ["suites/newcap.yaml: not registered in isvtest.catalog.PLATFORM_CONFIGS (catalog platform axis)"]

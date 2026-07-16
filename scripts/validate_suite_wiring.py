@@ -25,6 +25,11 @@ validation metadata on this branch. Each wired check must declare:
   Each canonical suite check must include its suite label, for example checks in
   ``bare_metal.yaml`` must include ``bare_metal``.
 
+Every suite file must also be registered in ``isvtest.catalog.PLATFORM_CONFIGS``:
+an unregistered suite is silently dropped from the pushed catalog's platform
+axis and its tests carry no platform, so the capability never shows up in the
+catalog UI.
+
 Usage:
     python3 scripts/validate_suite_wiring.py
     python3 scripts/validate_suite_wiring.py --check   # exit 1 on violations
@@ -41,6 +46,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from isvtest.catalog import PLATFORM_CONFIGS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
@@ -180,6 +186,21 @@ def wiring_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
     return errors
 
 
+def platform_registration_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
+    """Return errors for suite files not registered in the catalog platform axis.
+
+    A suite missing from ``isvtest.catalog.PLATFORM_CONFIGS`` is silently
+    dropped from the pushed catalog's platform axis and its tests carry no
+    platform, so the capability never shows up in the catalog UI.
+    """
+    registered = {config for configs in PLATFORM_CONFIGS.values() for config in configs}
+    return [
+        f"suites/{path.name}: not registered in isvtest.catalog.PLATFORM_CONFIGS (catalog platform axis)"
+        for path in sorted(suites_dir.glob("*.yaml"))
+        if f"suites/{path.name}" not in registered
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Returns a process exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -190,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    errors = wiring_errors()
+    errors = wiring_errors() + platform_registration_errors()
     if errors:
         header = f"suite wiring validation failed ({len(errors)} issue(s)):"
         message = header + "\n  " + "\n  ".join(errors)
@@ -200,7 +221,10 @@ def main(argv: list[str] | None = None) -> int:
         print(message)
         return 0
 
-    ok = f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare test_id, labels, and suite labels."
+    ok = (
+        f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare test_id, labels, "
+        "and suite labels, and every suite is registered as a catalog platform."
+    )
     print(ok)
     return 0
 
