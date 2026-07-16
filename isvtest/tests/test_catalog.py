@@ -51,6 +51,7 @@ class TestAxisTaxonomy:
             "network",
             "observability",
             "security",
+            "storage",
         ]
 
     def test_catalog_document_wraps_entries_with_metadata(self) -> None:

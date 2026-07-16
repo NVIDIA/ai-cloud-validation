@@ -79,14 +79,14 @@ tests:
     fixture_volume:
       step: create_volume
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_fixture_volume:
           test_id: "N/A"
           labels: ["storage"]
-        FieldExistsCheck:
+        FieldExistsCheck-storage_fixture_volume:
           test_id: "N/A"
           labels: ["storage"]
           fields: ["volume_id", "mount_point", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-storage_fixture_volume:
           test_id: "N/A"
           labels: ["storage"]
           operations: ["create", "attach", "format", "mount", "write_sentinel"]
@@ -95,14 +95,14 @@ tests:
     snapshot_lifecycle:
       step: snapshot_lifecycle
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_snapshot_lifecycle:
           test_id: "N/A"
           labels: ["storage"]
-        FieldExistsCheck:
+        FieldExistsCheck-storage_snapshot_lifecycle:
           test_id: "N/A"
           labels: ["storage"]
           fields: ["volume_id", "snapshot_id", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-storage_snapshot_lifecycle:
           test_id: "DATASVC02-01"
           labels: ["min_req", "storage"]
           operations: ["create_snapshot", "restore_volume", "verify_data"]
@@ -111,14 +111,14 @@ tests:
     volume_resize:
       step: volume_resize
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_volume_resize:
           test_id: "N/A"
           labels: ["storage"]
-        FieldExistsCheck:
+        FieldExistsCheck-storage_volume_resize:
           test_id: "N/A"
           labels: ["storage"]
           fields: ["volume_id", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-storage_volume_resize:
           test_id: "DATASVC03-01"
           labels: ["min_req", "storage"]
           operations: ["modify_volume", "grow_partition", "resize_filesystem", "verify_size"]
@@ -127,14 +127,14 @@ tests:
     volume_persistence:
       step: volume_persistence
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_volume_persistence:
           test_id: "N/A"
           labels: ["storage"]
-        FieldExistsCheck:
+        FieldExistsCheck-storage_volume_persistence:
           test_id: "N/A"
           labels: ["storage"]
           fields: ["volume_id", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-storage_volume_persistence:
           test_id: "DATASVC04-01"
           labels: ["min_req", "storage"]
           operations: ["stop", "start", "verify_attached", "verify_data"]
@@ -213,7 +213,7 @@ tests:
     teardown_checks:
       step: teardown_volume
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_teardown:
           test_id: "N/A"
           labels: ["storage"]
 
