@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""GKE cluster setup (setup phase) — the GCP analog of the AWS EKS oracle setup.
+
+Provisions the primary GKE cluster via Terraform (official hashicorp/google
+provider), installs the kubeconfig with `gcloud container clusters
+get-credentials` (ambient kubectl), gates on the GPU driver finishing (two-gate
+preflight), then emits the `cluster` inventory observed live via kubectl.
+
+Cluster shape (see terraform/main.tf):
+  * remove_default_node_pool + a separately-named system (CPU) node pool.
+  * a baseline GPU node pool whose zone is chosen by a capacity preflight probe
+    (a standalone size-1 MIG mirroring the GPU shape — a GKE node-pool CREATE op
+    cannot be cancelled, so the pool is never created in an unprobed zone).
+  * Dataplane V2 so Kubernetes NetworkPolicy is enforced natively.
+  * control-plane logging enabled (Cloud Logging) + managed Prometheus DISABLED.
+
+Post-provision bootstrap before inventory:
+  * apply a passthrough `nvidia` RuntimeClass (handler `runc`) so the released
+    GPU-workload manifests that pin `runtimeClassName: nvidia` schedule on the
+    managed-driver GPU path without installing the GPU Operator.
+  * label GKE GPU nodes nvidia.com/gpu.present=true (what the released GPU checks
+    select on).
+  * two-gate preflight: a GPU node Ready + allocatable nvidia.com/gpu AND a
+    responding nvidia-smi driver, BEFORE emitting inventory.
+
+AWS reference: ../../aws/scripts/eks/setup.sh
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import k8s_lib as k8s
+
+PLATFORM = "kubernetes"
+
+# Internal wait budgets (all bounded; the config step timeout is headroom over
+# their worst-case SUM, not their product):
+#   preflight probe (~3 zones * ~270s)     ~= 810s
+#   cluster + baseline GPU pool apply       <= 2000s
+#   kubeconfig install                      <=  180s
+#   RuntimeClass apply                      <=   60s
+#   two-gate GPU ready                      <=  900s
+#   inventory (nvidia-smi pod + reads)      <=  300s
+_APPLY_TIMEOUT = 2000
+_TWO_GATE_TIMEOUT = 900
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Provision the primary GKE cluster and emit inventory.")
+    parser.add_argument("--cluster-name", default="isv-gke", help="Cluster name base (RUN_ID-suffixed by the stub).")
+    parser.add_argument("--location", required=True, help="GKE location (region or zone).")
+    parser.add_argument("--kube-version", default="", help="min_master_version pin; empty -> REGULAR channel default.")
+    parser.add_argument("--cpu-machine-type", required=True, help="Machine type for the system (CPU) node pool.")
+    parser.add_argument("--gpu-machine-type", required=True, help="Machine type for the baseline GPU node pool.")
+    parser.add_argument(
+        "--gpu-accelerator-type", required=True, help="guest_accelerator.type for the baseline GPU pool."
+    )
+    parser.add_argument("--gpu-accelerator-count", type=int, default=1, help="GPUs per node.")
+    parser.add_argument("--gpu-node-count", type=int, default=1, help="Baseline GPU pool node count.")
+    parser.add_argument(
+        "--gpu-node-locations",
+        default="",
+        help="Ordered comma-separated candidate zones for the GPU capacity preflight (empty -> the location zone).",
+    )
+    parser.add_argument("--system-node-count", type=int, default=1, help="System (CPU) pool node count.")
+    args = parser.parse_args()
+
+    result: dict = {"success": False, "platform": PLATFORM}
+    try:
+        project = k8s.resolve_project_id()
+        cluster_name = k8s.scoped_name(args.cluster_name)
+
+        # 1) Pick the GPU zone with a capacity preflight BEFORE the cluster apply
+        #    (a GKE node-pool CREATE op cannot be cancelled).
+        candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, args.location)
+        gpu_zone = k8s.select_gpu_zone(
+            project,
+            candidates,
+            args.gpu_machine_type,
+            args.gpu_accelerator_type,
+            args.gpu_accelerator_count,
+        )
+
+        # 2) terraform apply the cluster + system pool + baseline GPU pool. Pin the
+        #    system pool to ONE zone derived from the location (like the GPU pool)
+        #    so a REGIONAL cluster does not multiply system node_count across every
+        #    region zone (node_count is PER-ZONE); a zonal location is unchanged.
+        k8s.terraform_init(k8s.CLUSTER_TF_DIR)
+        tf_vars = {
+            "project": project,
+            "cluster_name": cluster_name,
+            "location": args.location,
+            "kube_version": args.kube_version,
+            "system_machine_type": args.cpu_machine_type,
+            "system_node_count": args.system_node_count,
+            "system_node_locations": [k8s.zone_for_location(args.location)],
+            "gpu_machine_type": args.gpu_machine_type,
+            "gpu_accelerator_type": args.gpu_accelerator_type,
+            "gpu_accelerator_count": args.gpu_accelerator_count,
+            "gpu_node_count": args.gpu_node_count,
+            "gpu_node_locations": [gpu_zone],
+        }
+        k8s.terraform_apply(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), tf_vars, timeout=_APPLY_TIMEOUT)
+
+        # 3) Install the kubeconfig for ambient kubectl.
+        k8s.install_kubeconfig(cluster_name, args.location, project)
+
+        # 3a) Resolve the reviewed cluster's API server URL and bind the ACL
+        #     probe to it. K8sApiNetworkAclCheck only runs its target-origin and
+        #     kubeconfig-consistency guards when api_endpoint is set; without it
+        #     an enabled unauthorized_probe that trivially fails against a typo,
+        #     stale, or unrelated host would be misread as "ACL enforced". When
+        #     the operator has enabled the probe (GCP_K8S_UNAUTHORIZED_PROBE_CMD),
+        #     fail CLOSED if the endpoint cannot be resolved rather than emit a
+        #     security PASS that never probed this cluster.
+        api_endpoint = k8s.resolve_api_endpoint(cluster_name, args.location, project)
+        if os.environ.get("GCP_K8S_UNAUTHORIZED_PROBE_CMD", "").strip() and not api_endpoint:
+            raise k8s.LifecycleError(
+                "config_error",
+                "[bucket=config_error] GCP_K8S_UNAUTHORIZED_PROBE_CMD is set but the "
+                "cluster API endpoint could not be resolved from the installed "
+                "kubeconfig or the GKE API. Refusing to emit an unbound ACL probe: "
+                "an unauthorized probe scored without a verified target endpoint "
+                "could report a false security PASS. Verify kubectl/gcloud access "
+                "to the cluster and retry.",
+            )
+
+        # 4) Honest passthrough RuntimeClass + GPU node labeling bridges.
+        k8s.apply_nvidia_runtimeclass()
+
+        # 5) Two-gate GPU preflight BEFORE emitting inventory (returns the real
+        #    nvidia-smi driver version, or None to leave it unset).
+        driver_version = k8s.wait_two_gate_gpu_ready(timeout=_TWO_GATE_TIMEOUT)
+
+        # 6) Observe inventory live via kubectl. Required node/GPU reads raise on
+        #    failure, so setup can never emit synthetic 'success' inventory.
+        inventory = k8s.gather_inventory(
+            cluster_name,
+            driver_version=driver_version,
+            api_endpoint=api_endpoint,
+        )
+
+        k8s_block = inventory["kubernetes"]
+        result.update(
+            {
+                "success": True,
+                "cluster_name": cluster_name,
+                # The canonically-resolved project (explicit -> GOOGLE_CLOUD_PROJECT
+                # / GCLOUD_PROJECT -> google.auth.default() ADC, via resolve_project).
+                # Downstream telemetry checks (K8sControlPlaneLogsCheck) bind their
+                # gcloud-logging --project to {{steps.setup.project}} so every query
+                # scopes to the SAME project the cluster was provisioned in, instead
+                # of re-deriving it from a partial GOOGLE_CLOUD_PROJECT/gcloud-config
+                # chain that omits GCLOUD_PROJECT + ADC.
+                "project": project,
+                "gpu_zone": gpu_zone,
+                # Top-level cluster-schema fields (mirror the EKS oracle): the
+                # `cluster` output schema requires a top-level integer node_count.
+                "node_count": k8s_block["node_count"],
+                "gpu_count": k8s_block["total_gpus"],
+                "gpu_per_node": k8s_block["gpu_per_node"],
+                "driver_version": k8s_block["driver_version"],
+                "kubernetes": k8s_block,
+                "csi": inventory["csi"],
+            }
+        )
+    except BaseException as exc:  # always emit structured JSON, never crash without output
+        result = k8s.error_result(PLATFORM, exc)
+
+    return k8s.emit(result)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -13,6 +13,10 @@
         "factory_commit": "ce15399ec2a2e98babee60c2826d0f4fac258313",
         "isv_commit": "7042c2deafe769e83206906545629152d09f53a6"
       },
+      "k8s": {
+        "factory_commit": "caedca6e13051bfa375dcbcd6df18cd976e5d549",
+        "isv_commit": "7042c2deafe769e83206906545629152d09f53a6"
+      },
       "network": {
         "factory_commit": "c7ace2d3fd207d5563c0a97ad32e128a8203d5a0",
         "isv_commit": "562f594dde6cb3a7ea1b63ddfd5217a9ed5a5467"

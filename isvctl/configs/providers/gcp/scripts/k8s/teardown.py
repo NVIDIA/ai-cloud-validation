@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Destroy the primary GKE cluster (teardown phase).
+
+Exact-ownership destroy via the threaded cluster state (the RUN_ID-suffixed
+cluster setup created); a var-less `terraform destroy` re-derives the same
+required inputs from env/state so it never aborts "No value for required
+variable". Idempotent: an already-gone cluster is success. Honors the
+--skip-destroy flag (GCP_K8S_SKIP_TEARDOWN=true) so an operator can keep the
+cluster for debugging.
+
+Two GKE-specific teardown steps beyond the EKS oracle:
+  1. Reclaim run-created PVC-backed Persistent Disks BEFORE the cluster is
+     destroyed — a GKE cluster delete does NOT reclaim them, so they orphan as
+     standalone Compute disks (the released NIM/CSI checks create such PVCs).
+  2. `terraform init` runs UNCONDITIONALLY (never gated on `.terraform`) so a
+     teardown-on-failure after setup bailed early (stale/absent lock) still
+     reconciles the lock and no-ops cleanly instead of aborting "Inconsistent
+     dependency lock file".
+  3. BACKSTOP: after the cluster is gone, delete Compute disks in ANY zone whose
+     goog-k8s-cluster-name label == THIS run's cluster (exact ownership, never a
+     name-pattern sweep). A failed disk listing or a surviving disk is surfaced
+     as `cleanup_errors` with `success=False` — a leaked billable disk never
+     presents as a clean teardown.
+  4. BACKSTOP: reclaim any GPU capacity-preflight probe MIG / instance-template
+     this run left behind (setup + create_test_gpu_node_pool each probe), scoped
+     to THIS run's probe-name prefix. A probe MIG is a standalone billable size-1
+     GPU resource outside Terraform state and without the cluster label, so a
+     failed inline probe delete would otherwise leak silently; an unconfirmed
+     reclaim is surfaced as `cleanup_errors` with `success=False` too. This probe
+     backstop is scoped purely to the run id (independent of any cluster state), so
+     it runs on EVERY non-preservation path — including when no cluster state
+     exists (a setup GPU-preflight bail can leave a probe MIG without ever writing
+     cluster state) and after a failed `terraform destroy` (each backstop runs in
+     its own guarded block, so a destroy raise no longer skips the reclaim).
+
+AWS reference: ../../aws/scripts/eks/teardown.sh
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import k8s_lib as k8s
+
+PLATFORM = "kubernetes"
+_DESTROY_TIMEOUT = 2400
+_PLACEHOLDER = "placeholder"
+_PLACEHOLDER_ZONE = "us-central1-a"
+
+
+def _pd_reclaim_errors(reclaim: dict[str, Any], cluster_name: str) -> list[str]:
+    """Cleanup-error strings for any run-owned Persistent Disk that could not be
+    confirmed reclaimed (a failed listing or a surviving disk). Empty when the
+    backstop confirmed every run-owned disk is gone."""
+    errors: list[str] = []
+    if reclaim["list_error"]:
+        errors.append(
+            "could not list run-owned Persistent Disks (label "
+            f"goog-k8s-cluster-name={cluster_name}); orphaned disks may remain: {reclaim['list_error']}"
+        )
+    if reclaim["failed"]:
+        errors.append(f"failed to delete run-owned Persistent Disk(s): {', '.join(reclaim['failed'])}")
+    return errors
+
+
+def _probe_reclaim_errors(probe_reclaim: dict[str, Any]) -> list[str]:
+    """Cleanup-error strings for any run-owned GPU capacity-preflight probe that
+    could not be confirmed reclaimed. A retained probe MIG is a standalone billable
+    size-1 GPU resource, so an unconfirmed reclaim must never present as clean."""
+    errors: list[str] = []
+    if probe_reclaim["list_error"]:
+        errors.append(
+            "could not list run-owned GPU-preflight probe resources; a billable "
+            f"probe MIG may remain: {probe_reclaim['list_error']}"
+        )
+    if probe_reclaim["failed"]:
+        errors.append(
+            f"failed to delete run-owned GPU-preflight probe resource(s): {', '.join(probe_reclaim['failed'])}"
+        )
+    return errors
+
+
+def _reclaim_orphan_pds(project: str, cluster_name: str) -> tuple[dict[str, Any], list[str]]:
+    """Run the run-scoped orphan-PD backstop in its own guarded block so it never
+    raises past teardown (an unexpected failure becomes a cleanup-error string
+    instead of masking the primary result)."""
+    try:
+        reclaim = k8s.delete_orphan_pds(project, cluster_name)
+    except BaseException as exc:  # a backstop must never crash the teardown
+        reclaim = {"deleted": [], "failed": [], "list_error": f"disk reclaim raised: {exc}"}
+    return reclaim, _pd_reclaim_errors(reclaim, cluster_name)
+
+
+def _reclaim_gpu_probes(project: str) -> tuple[dict[str, Any], list[str]]:
+    """Run the run-scoped GPU capacity-probe backstop in its own guarded block. The
+    backstop is derived purely from this run's id, independent of any cluster
+    Terraform state, so it is the one reclaim that must run even when no cluster
+    state exists. Never raises past teardown."""
+    try:
+        probe_reclaim = k8s.delete_orphan_gpu_probes(project)
+    except BaseException as exc:  # a backstop must never crash the teardown
+        probe_reclaim = {"deleted": [], "failed": [], "list_error": f"probe reclaim raised: {exc}"}
+    return probe_reclaim, _probe_reclaim_errors(probe_reclaim)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Destroy the primary GKE cluster via Terraform.")
+    parser.add_argument("--cluster-name", default="isv-gke", help="Cluster name base (RUN_ID-suffixed by the stub).")
+    parser.add_argument(
+        "--skip-destroy",
+        action="store_true",
+        help="Preserve the cluster for debugging (GCP_K8S_SKIP_TEARDOWN=true).",
+    )
+    args = parser.parse_args()
+
+    if args.skip_destroy:
+        return k8s.emit(
+            {
+                "success": True,
+                "platform": PLATFORM,
+                "skipped": True,
+                "message": "Teardown skipped (GCP_K8S_SKIP_TEARDOWN=true); GKE cluster preserved.",
+            }
+        )
+
+    result: dict[str, Any] = {"success": False, "platform": PLATFORM}
+    try:
+        project = k8s.resolve_project_id()
+        cluster_name = k8s.scoped_name(args.cluster_name)
+        state_file = k8s.cluster_state_file()
+
+        if not k8s.state_exists(k8s.CLUSTER_TF_DIR, state_file):
+            # No cluster Terraform state: setup bailed before `terraform apply`
+            # wrote it (e.g. the GPU capacity preflight raised in select_gpu_zone).
+            # The cluster and its PVC-backed disks never existed, but a standalone
+            # size-1 GPU capacity-probe MIG can still be orphaned — its backstop is
+            # scoped purely to THIS run's id, independent of cluster state, so it
+            # MUST run here too. A retained billable probe MIG can never present as
+            # a clean "nothing to destroy".
+            probe_reclaim, cleanup_errors = _reclaim_gpu_probes(project)
+            if cleanup_errors:
+                result.update(
+                    {
+                        "success": False,
+                        "error_type": "cleanup_incomplete",
+                        "error": (
+                            "[bucket=cleanup_incomplete] No cluster state to destroy, but "
+                            "run-owned GPU capacity-preflight probe reclaim is UNCONFIRMED: "
+                            + "; ".join(cleanup_errors)
+                        ),
+                        "resources_deleted": [],
+                        "cleanup_errors": cleanup_errors,
+                    }
+                )
+            else:
+                result.update(
+                    {
+                        "success": True,
+                        "message": (
+                            f"Cluster state {state_file} absent - nothing to destroy; "
+                            f"{len(probe_reclaim['deleted'])} orphaned GPU-preflight probe "
+                            "resource(s) reclaimed."
+                        ),
+                        "resources_deleted": [],
+                    }
+                )
+            return k8s.emit(result)
+
+        # Recover the create-time location + GPU zone from state for the destroy
+        # vars and the PD backstop.
+        try:
+            location = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, state_file, "location")
+        except k8s.LifecycleError:
+            location = _PLACEHOLDER_ZONE
+        try:
+            gpu_zone = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, state_file, "gpu_zone")
+        except k8s.LifecycleError:
+            gpu_zone = _PLACEHOLDER_ZONE
+
+        # 1) Reclaim run PVCs while the cluster still lives (best-effort).
+        try:
+            k8s.install_kubeconfig(cluster_name, location, project)
+            k8s.reclaim_run_pvcs()
+        except k8s.LifecycleError as exc:
+            k8s.log(f"warning: PVC reclaim skipped (cluster may be unreachable): {exc.detail}")
+
+        # 2) terraform destroy the cluster (init unconditionally first). Capture a
+        #    destroy failure instead of letting it jump straight to the outer
+        #    handler: the run-scoped PD + GPU-probe backstops below reclaim
+        #    standalone billable resources terraform never owns, so they MUST run on
+        #    every exit — including a failed destroy. The destroy error stays the
+        #    primary reported failure; the backstops never mask it.
+        destroy_error: BaseException | None = None
+        resources_deleted: list[str] = []
+        try:
+            k8s.terraform_init(k8s.CLUSTER_TF_DIR)
+            tf_vars = {
+                "project": project,
+                "cluster_name": cluster_name,
+                "location": location,
+                # Delete-irrelevant vars (targeted by state) take benign placeholders.
+                "system_machine_type": _PLACEHOLDER,
+                "gpu_machine_type": _PLACEHOLDER,
+                "gpu_accelerator_type": _PLACEHOLDER,
+                "gpu_node_locations": [gpu_zone],
+            }
+            k8s.terraform_destroy(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
+            resources_deleted = ["google_container_cluster", "google_container_node_pool"]
+        except BaseException as exc:
+            destroy_error = exc
+
+        # 3) Backstop: reclaim any PVC-backed PD whose CSI delete raced teardown, by
+        #    THIS run's cluster label across every zone a run-owned pool may have
+        #    selected (baseline + test GPU pool pick zones independently).
+        # 4) Backstop: reclaim any GPU capacity-preflight probe MIG / template this
+        #    run left behind (setup + create_test_gpu_node_pool each probe). A probe
+        #    MIG is a standalone billable size-1 GPU resource outside Terraform state
+        #    and without the cluster label, so nothing else reclaims it.
+        # Each backstop runs in its OWN guarded block, independent of the destroy
+        # outcome, so a destroy raise no longer skips the destroy-independent reclaim.
+        reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
+        probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
+        cleanup_errors = pd_errors + probe_errors
+
+        if destroy_error is not None:
+            # The destroy failure is the primary, UNMASKED error (teardown fails
+            # visibly and a rerun recovers). Attach any backstop status so a retained
+            # billable resource is still reported alongside it.
+            result = k8s.error_result(PLATFORM, destroy_error)
+            if cleanup_errors:
+                result["cleanup_errors"] = cleanup_errors
+            return k8s.emit(result)
+
+        # A failed disk/probe LISTING or any surviving resource means run-owned
+        # (billable) resources cannot be confirmed reclaimed — never present that as
+        # a clean teardown.
+        if cleanup_errors:
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "cleanup_incomplete",
+                    "error": (
+                        "[bucket=cleanup_incomplete] GKE cluster destroyed, but run-owned "
+                        "billable resource reclaim is UNCONFIRMED: " + "; ".join(cleanup_errors)
+                    ),
+                    "resources_deleted": resources_deleted,
+                    "cleanup_errors": cleanup_errors,
+                }
+            )
+        else:
+            result.update(
+                {
+                    "success": True,
+                    "message": (
+                        f"GKE cluster {cluster_name} destroyed; {len(reclaim['deleted'])} orphaned PD(s) "
+                        f"and {len(probe_reclaim['deleted'])} GPU-preflight probe resource(s) reclaimed."
+                    ),
+                    "resources_deleted": resources_deleted,
+                }
+            )
+    except BaseException as exc:  # always emit structured JSON, never crash without output
+        result = k8s.error_result(PLATFORM, exc)
+
+    return k8s.emit(result)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
