@@ -234,7 +234,7 @@
             }
           ],
           "default": null,
-          "description": "Service-line platform (the commands[...] group to run and the upload/report key): vm, bare_metal, kubernetes, slurm. A suite that declares 'platform' is a platform suite; one that declares 'module' is an operational concern.",
+          "description": "Service-line platform (the commands[...] group to run; reported as the run's capability): vm, bare_metal, kubernetes, slurm. A suite that declares 'platform' is a platform suite; one that declares 'module' is an operational concern.",
           "title": "Platform"
         },
         "module": {
@@ -272,7 +272,7 @@
               }
             ]
           },
-          "description": "Validation checks by category. Supports list format or group defaults with 'checks' key.",
+          "description": "Validation checks by category. Supports list format or group defaults with 'checks' key. Each check wiring may declare 'test_id', 'labels', 'step', 'phase', and 'platforms' (a subset of the platform axis; omitted/empty = compatible with every platform, non-empty = the check runs only under those --platform columns).",
           "title": "Validations",
           "type": "object"
         },

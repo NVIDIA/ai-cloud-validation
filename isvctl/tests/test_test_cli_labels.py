@@ -298,7 +298,7 @@ def test_provider_label_discovery_dry_run_text_default(monkeypatch: pytest.Monke
 
 
 def test_platform_dispatches_platform_then_modules(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """`--platform vm` runs the vm config first, then each module with platform excludes."""
+    """`--platform vm` runs the vm config first, then each module under the column."""
     configs_root = tmp_path / "configs"
     _build_platform_provider(configs_root)
     _FakeOrchestrator.calls = []
@@ -309,12 +309,10 @@ def test_platform_dispatches_platform_then_modules(monkeypatch: pytest.MonkeyPat
 
     assert result.exit_code == 0, result.output
     assert [call["platform"] for call in _FakeOrchestrator.calls] == ["vm", "iam", "network"]
-    # platform run has no excludes; modules exclude the other platform labels
-    assert [call["run_kwargs"].get("exclude_labels") for call in _FakeOrchestrator.calls] == [
-        None,
-        ["bare_metal"],
-        ["bare_metal"],
-    ]
+    # no auto-derived exclude labels; every run carries the column platform so
+    # platforms: restrictions are applied at resolution time
+    assert [call["run_kwargs"].get("exclude_labels") for call in _FakeOrchestrator.calls] == [None, None, None]
+    assert [call["run_kwargs"].get("column_platform") for call in _FakeOrchestrator.calls] == ["vm", "vm", "vm"]
 
 
 def test_platform_composes_include_labels(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -353,8 +351,9 @@ def test_platform_dry_run_prints_plan(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert plan["provider"] == "acme"
     assert plan["platform"] == "vm"
     assert [r["platform"] for r in plan["runs"]] == ["vm", "iam", "network"]
-    assert plan["runs"][0]["exclude_labels"] == []
-    assert plan["runs"][1]["exclude_labels"] == ["bare_metal"]
+    # the auto-derived exclude_labels are gone; the plan shows the column instead
+    assert [r["column_platform"] for r in plan["runs"]] == ["vm", "vm", "vm"]
+    assert all("exclude_labels" not in r for r in plan["runs"])
     # every run in the column uploads the column capability; module runs add their module
     assert [r["upload"] for r in plan["runs"]] == [
         {"capability": "vm", "module": None},
@@ -386,7 +385,7 @@ def test_platform_dry_run_text_default(monkeypatch: pytest.MonkeyPatch, tmp_path
 
 
 def test_module_dispatches_single_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """`--module iam` runs only the iam module config, no platform excludes."""
+    """`--module iam` runs only the iam module config, no platform column."""
     configs_root = tmp_path / "configs"
     _build_platform_provider(configs_root)
     _FakeOrchestrator.calls = []
@@ -398,6 +397,8 @@ def test_module_dispatches_single_config(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert result.exit_code == 0, result.output
     assert [call["platform"] for call in _FakeOrchestrator.calls] == ["iam"]
     assert _FakeOrchestrator.calls[0]["run_kwargs"].get("exclude_labels") is None
+    # standalone module runs have no column, hence no platform filtering
+    assert _FakeOrchestrator.calls[0]["run_kwargs"].get("column_platform") is None
 
 
 def _patch_upload(monkeypatch: pytest.MonkeyPatch, upload_calls: list[dict[str, Any]]) -> None:

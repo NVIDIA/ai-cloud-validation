@@ -135,7 +135,7 @@ def _planned_run_plan(provider: str, selection: dict[str, Any], runs: list[Plann
                 "config": str(run.config_path),
                 "role": run.role,
                 "platform": run.platform,
-                "exclude_labels": list(run.exclude_labels),
+                "column_platform": run.column_platform,
                 "upload": {
                     "capability": run.column_platform,
                     "module": run.platform if run.role == "module" else None,
@@ -210,6 +210,7 @@ def _planned_validations_by_category(
     exclude_labels: list[str] | None,
     requested_phase: Phase,
     extra_pytest_args: list[str],
+    column_platform: str | None = None,
 ) -> ValidationPlan:
     """Return validations that would run, plus any that would be skipped."""
     if not config.tests or not config.tests.validations:
@@ -261,6 +262,7 @@ def _planned_validations_by_category(
             exclude_tests=set(exclude_tests),
             released_tests=released_tests,
             render_context=render_context,
+            column_platform=column_platform,
         )
 
     ready_by_category: dict[str, list[str]] = {}
@@ -293,13 +295,13 @@ def _validation_plan_for_run(
     """Load one planned config and resolve which validations would run."""
     merged_config = merge_yaml_files([str(run.config_path)])
     config = RunConfig.model_validate(merged_config)
-    combined_excludes = list(dict.fromkeys([*run.exclude_labels, *(user_exclude_labels or [])]))
     return _planned_validations_by_category(
         config,
         include_labels=include_labels,
-        exclude_labels=combined_excludes or None,
+        exclude_labels=user_exclude_labels,
         requested_phase=requested_phase,
         extra_pytest_args=extra_pytest_args,
+        column_platform=run.column_platform,
     )
 
 
@@ -355,10 +357,6 @@ def _render_planned_run_text(
         lines.append(f"  Tests:    {total_ready} validation(s) ({total_skipped} skipped) across {len(runs)} config(s)")
     else:
         lines.append(f"  Tests:    {total_ready} validation(s) across {len(runs)} config(s)")
-
-    module_excludes = sorted({label for run in runs if run.role == "module" for label in run.exclude_labels})
-    if module_excludes:
-        lines.extend(_wrap_field("  Module runs exclude: ", ", ".join(module_excludes)))
 
     lines.append(f"  Runs ({len(runs)}):")
     for run, plan in run_summaries:
@@ -442,15 +440,15 @@ def _execute_planned_runs(
 ) -> None:
     """Run each planned config as its own orchestration, continuing past failures.
 
-    Each config's platform-scoped excludes are unioned with any user
-    ``--exclude-label`` values. A combined pass/fail summary is printed and the
-    process exits 1 if any config failed. ``forward_kwargs`` are the remaining
+    Each run carries its column platform so checks declaring a ``platforms:``
+    restriction are filtered against it; user ``--exclude-label`` values pass
+    through unchanged. A combined pass/fail summary is printed and the process
+    exits 1 if any config failed. ``forward_kwargs`` are the remaining
     ``run()`` options, passed through unchanged.
     """
     total = len(runs)
     outcomes: list[tuple[Path, bool]] = []
     for planned in runs:
-        combined_excludes = list(dict.fromkeys([*planned.exclude_labels, *(user_exclude_labels or [])]))
         print_progress(f"\n--- Running {planned.config_path} ({planned.role}) ---")
         try:
             run(
@@ -458,7 +456,7 @@ def _execute_planned_runs(
                 config_files=[planned.config_path],
                 provider=None,
                 labels=labels,
-                exclude_labels=combined_excludes or None,
+                exclude_labels=user_exclude_labels,
                 dry_run=False,
                 junitxml=_junitxml_for_config(junitxml, planned.config_path, total),
                 column_platform=planned.column_platform,
@@ -632,7 +630,8 @@ def run(
             hidden=True,
             help=(
                 "Internal: the platform column a module config runs under "
-                "(set by --platform fan-out so upload reports the capability)."
+                "(set by --platform fan-out so upload reports the capability "
+                "and per-check platforms: restrictions are applied)."
             ),
         ),
     ] = None,
@@ -925,6 +924,7 @@ def run(
                 extra_pytest_args=extra_pytest_args,
                 include_labels=labels,
                 exclude_labels=exclude_labels,
+                column_platform=column_platform,
                 verbose=verbose,
                 junitxml=str(junitxml),
             )

@@ -708,7 +708,7 @@ class TestLabelFiltering:
         assert check["message"] == "excluded by pytest -k/-m filter"
 
     def test_cli_exclude_labels_skip_validation(self) -> None:
-        """A CLI ``exclude_labels`` (e.g. platform-scoping) skips a matching check."""
+        """A CLI ``exclude_labels`` (``--exclude-label``) skips a matching check."""
         config = self._config()
 
         result = Orchestrator(config).run(phases=[Phase.TEST], exclude_labels=["kubernetes"])
@@ -746,6 +746,74 @@ class TestLabelFiltering:
         # both the config exclude (gpu) and the CLI exclude (kubernetes) matched
         assert "gpu" in check["message"]
         assert "kubernetes" in check["message"]
+
+
+class TestColumnPlatformFiltering:
+    """Tests for the per-check ``platforms:`` restriction under a --platform column.
+
+    The column platform flows from ``--platform`` fan-out (``--column-platform``)
+    through ``Orchestrator.run`` into resolution; a check whose wiring declares a
+    non-empty ``platforms`` list runs only under those columns.
+    """
+
+    @staticmethod
+    def _config(platforms: list[str] | None = None) -> RunConfig:
+        """Build a minimal module-style config with one optionally restricted check.
+
+        The runtime platform is set directly (a module suite's derived
+        ``tests.platform`` is its module name).
+        """
+        params: dict = {"labels": ["security"]}
+        if platforms is not None:
+            params["platforms"] = platforms
+        return RunConfig(
+            commands={
+                "security": PlatformCommands(
+                    phases=["test"],
+                    steps=[StepConfig(name="probe", command="true", phase="test")],
+                )
+            },
+            tests=ValidationConfig(
+                platform="security",
+                validations={"cluster": {"checks": {"K8sNodeCountCheck": params}}},
+            ),
+        )
+
+    def test_platforms_restriction_skips_under_other_column(self) -> None:
+        """A check restricted to bare_metal is skipped under the vm column."""
+        config = self._config(platforms=["bare_metal"])
+
+        result = Orchestrator(config).run(phases=[Phase.TEST], column_platform="vm")
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        assert "platforms restriction [bare_metal]" in check["message"]
+        assert "does not include column 'vm'" in check["message"]
+
+    def test_platforms_subset_runs_under_each_declared_column(self) -> None:
+        """A vm+bare_metal subset runs under both declared columns."""
+        config = self._config(platforms=["vm", "bare_metal"])
+
+        for column in ("vm", "bare_metal"):
+            result = Orchestrator(config).run(phases=[Phase.TEST], column_platform=column)
+            check = result.phases[0].details["validations"][0]
+            assert check["state"] == "passed", check
+
+    def test_no_column_applies_no_platform_filtering(self) -> None:
+        """Standalone module runs (no column) run restricted checks unfiltered."""
+        config = self._config(platforms=["bare_metal"])
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "passed", check
+
+    def test_unrestricted_check_runs_under_any_column(self) -> None:
+        """Omitted platforms means the check runs under every column."""
+        config = self._config()
+
+        result = Orchestrator(config).run(phases=[Phase.TEST], column_platform="slurm")
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "passed", check
 
 
 class TestTeardownOnlyPhase:

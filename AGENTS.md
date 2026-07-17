@@ -31,8 +31,9 @@ uv run isvctl test run --provider aws --label storage             # cross-file l
 ```
 
 Selection: `--platform <env>` runs the environment's config plus every module
-config (module checks tagged for a different platform are auto-excluded);
-`--module <mod>` runs one module suite; `--label` filters within a run or drives
+config (module checks whose `platforms:` declaration excludes the column are
+skipped); `--module <mod>` runs one module suite (no platform filtering);
+`--label` filters within a run or drives
 cross-file discovery with `--provider`. `-f` is the override escape hatch. All
 are mutually exclusive with `-f`; `--platform`/`--module` require `--provider`.
 
@@ -128,10 +129,14 @@ capability: platform runs report `(platform, -)`, module runs inside a
 `--platform` column report `(column, module)`, and standalone module runs
 report `(-, module)` (no capability).
 `scripts/validate_suite_wiring.py` governs labels: every suite declares exactly
-one axis key, every suite check carries that declared axis label, and a check
-may carry at most one platform label (platform-scoped exclusion is
-any-intersection). Labels are otherwise free-form (they originate in the wiring
-YAML, so there is no external allowlist). Wiring names are globally unique
+one axis key, every suite check carries that declared axis label, and platform
+names are banned from module-suite check `labels:`. A module-suite check that
+applies only to some platforms declares `platforms: [...]` (a subset of the
+platform axis; omitted = compatible with every platform, subsets like
+`[vm, bare_metal]` are supported). `platforms:` is rejected on platform-suite
+checks (their column is fixed by file placement), and standalone `--module`
+runs apply no platform filtering. Labels are otherwise free-form (they
+originate in the wiring YAML, so there is no external allowlist). Wiring names are globally unique
 across suites: a generic class wired in several places uses a distinct variant
 name per wiring (`StepSuccessCheck-iam_teardown`, `GpuCheck-bm_gpu`), so
 catalog entries, JUnit case names, and matrix cells stay 1:1 with wirings.

@@ -77,14 +77,18 @@ check follows infra need.
 ### A concern that spans platforms
 
 A cross-platform concern (e.g. `storage` covering K8s CSI *and*, later, BM block
-devices) is modelled as **one check-set per platform, each carrying its own
-single platform label plus the shared concern label** - never one check with two
-platform labels:
+devices) that needs the platform's live host is modelled as **one check-set per
+platform, each carrying its own platform label plus the shared concern label**:
 
 ```yaml
 # k8s.yaml           labels: ["kubernetes", "storage"]   reads {{steps.setup.csi.*}}
 # bare_metal.yaml    labels: ["bare_metal", "storage"]   reads {{steps.launch_instance.*}}
 ```
+
+A **module-suite** check that only applies to some platforms instead declares
+`platforms: [...]` on its wiring (e.g. `platforms: ["vm", "bare_metal"]`) -
+subsets are supported, and platform names never appear in a module-suite
+check's `labels:`.
 
 The inline K8s side exists today (the `storage`-labeled CSI checks in
 `k8s.yaml`). Since `suites/storage.yaml` (`module: storage`) landed, `storage`
@@ -102,9 +106,14 @@ use one validation-only fragment per platform.
 
 - every suite declares exactly one of `platform:` / `module:`;
 - every suite check carries the suite's declared `platform:` or `module:` label;
-- a check carries **at most one platform label** (platform-scoped exclusion
-  is any-intersection, so two platform labels would skip the check under every
-  column);
+- **platform names are banned from module-suite `labels:`** - the positive
+  `platforms: [...]` declaration is the only capability-compatibility
+  mechanism. Omitted/empty = the check runs under every `--platform` column;
+  non-empty = it runs only under those columns (subsets like
+  `platforms: ["vm", "bare_metal"]` are supported). Every value must be a
+  member of the platform axis, `platforms:` is rejected on platform-suite
+  checks (their column is fixed by file placement), and standalone `--module`
+  runs apply no platform filtering;
 - every **wiring name is globally unique** across suites. A generic check
   class wired in several places uses a distinct variant name per wiring
   (`StepSuccessCheck-iam_teardown`, `GpuCheck-bm_gpu`), typically
@@ -133,8 +142,9 @@ are not retro-carved.
 ```bash
 # Run the whole VMaaS column: the vm platform config + every module config.
 # Each runs as its own orchestration (own JUnit); a combined summary prints and
-# the process exits 1 if any config failed. Module checks tagged for a different
-# platform (e.g. security's bare_metal-only CAP04 checks) are auto-excluded.
+# the process exits 1 if any config failed. Module checks whose platforms:
+# declaration excludes the column (e.g. security's bare_metal-only CAP04
+# checks) are skipped.
 isvctl test run --provider aws --platform vm
 
 # Min Req preset is just a label filter on the column.
@@ -169,8 +179,8 @@ An `aws/config/eks.yaml` importing `k8s.yaml` is the `kubernetes` platform.
 
 - **Host is VM, run everything:** `--provider aws --platform vm` runs
   `vm.yaml` (platform) then `network`/`iam`/`security`/`control-plane`/
-  `image-registry`/`observability` (modules), each with `exclude_labels =
-  {bare_metal, kubernetes, slurm}` so a differently-scoped module check skips.
+  `image-registry`/`observability` (modules), each under the `vm` column so a
+  module check declaring `platforms:` without `vm` skips.
 - **Storage is a label, not a module (yet):** the `storage`-labeled K8s CSI
   checks in `k8s.yaml` are selectable via `--label storage`, but `storage` is
   not a module *axis* (no matrix row) - labels are orthogonal to modules. It

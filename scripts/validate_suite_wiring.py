@@ -29,11 +29,13 @@ validation metadata on this branch. This validator enforces:
 * ``labels`` - a non-empty list used for pytest selection and catalog reporting.
   Each suite check must include its declared axis label, for example checks in
   a suite with ``tests.platform: bare_metal`` must include ``bare_metal``.
-* label governance - a check may carry at most one platform-axis label
-  (platform-scoped exclusion is any-intersection, so two platform labels would
-  skip the check under every column). Labels are otherwise free-form: they
-  originate in the wiring YAML itself, so there is no external allowlist to
-  validate them against.
+* ``platforms`` - the positive capability-compatibility declaration on
+  module-suite checks. Every value must be a member of the platform axis, and
+  the field is rejected inside platform suites (their column is fixed by file
+  placement). Platform-axis names must not appear in a module-suite check's
+  ``labels`` - ``platforms:`` is the only capability-compatibility mechanism.
+  Labels are otherwise free-form: they originate in the wiring YAML itself, so
+  there is no external allowlist to validate them against.
 * name uniqueness - a wiring name may appear only once within each suite file
   and within each provider config file. Suite files are also checked against each
   other. Reusing a name in the same file (or across suite files) unions unrelated
@@ -45,7 +47,7 @@ validation metadata on this branch. This validator enforces:
 
 Provider configs under ``isvctl/configs/providers/`` inherit suite ``test_id`` /
 ``labels`` via ``import:`` where applicable; they are still scanned for
-within-file name uniqueness, variant-name rules, and label governance.
+within-file name uniqueness, variant-name rules, and ``platforms`` values.
 
 Usage:
     python3 scripts/validate_suite_wiring.py
@@ -69,18 +71,6 @@ from isvtest.core.validation import validate_wiring_name
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
 _NEXT_CATEGORY_LINE = re.compile(r"^    \S")
-
-# TODO(AUTH03-01): stopgap after rebasing this branch onto v0.9.0. Upstream #469
-# models AUTH03-01 as a single requirement spanning both vm and bare_metal - two
-# distinct check classes (ComponentKeyAccessCheck, SpecifiedKeyAccessCheck) share
-# the test_id and are union-labeled [bare_metal, iam, security, vm] per
-# docs/test-plan.yaml. That collides with this branch's "one platform label per
-# wiring" rule: trimming the labels to satisfy this validator breaks
-# test_plan_coverage's label_sync (which requires the union per test_id), and vice
-# versa. Exempting the shared test_id here keeps both validators green without
-# touching the plan. Revisit properly: either split into per-platform test_ids
-# (AUTH03-01 vm / AUTH03-02 bare_metal) or reconcile the two rules.
-_CROSS_PLATFORM_TEST_ID_EXEMPTIONS: frozenset[str] = frozenset({"AUTH03-01"})
 
 
 def _check_line_patterns(check_name: str) -> tuple[re.Pattern[str], ...]:
@@ -206,16 +196,51 @@ def _iter_provider_configs(providers_dir: Path) -> Iterator[Path]:
     yield from sorted(providers_dir.glob("*.yaml"))
 
 
-def _multiple_platform_labels_error(
+def _module_platform_label_error(
     location: str,
     labels: list[str],
     platform_labels: frozenset[str],
 ) -> str | None:
-    """Return the multiple-platform-label error for one check, or None."""
+    """Return the platform-label-in-module-suite error for one check, or None."""
     platform_hits = sorted({label for label in labels if label in platform_labels})
-    if len(platform_hits) > 1:
-        return f"{location}: multiple platform labels ({', '.join(platform_hits)}); at most one is allowed"
+    if platform_hits:
+        return (
+            f"{location}: platform label(s) ({', '.join(platform_hits)}) are not allowed on "
+            f"module-suite checks; declare platform compatibility with 'platforms: [...]' instead"
+        )
     return None
+
+
+def _platforms_declaration_errors(
+    location: str,
+    params: dict[str, Any],
+    platform_labels: frozenset[str],
+    *,
+    suite_kind: str | None,
+) -> list[str]:
+    """Return errors for a check's ``platforms:`` declaration, or [] when absent/valid.
+
+    ``suite_kind`` is ``"platform"``/``"module"`` for suite files, or None for
+    provider configs (their kind is inherited via ``import:`` and not resolved
+    here, so only the values are validated).
+    """
+    if "platforms" not in params:
+        return []
+    if suite_kind == "platform":
+        return [
+            f"{location}: 'platforms' is not allowed on platform-suite checks "
+            f"(the column is fixed by the suite file placement)"
+        ]
+    declared = params.get("platforms")
+    if not isinstance(declared, list) or not all(isinstance(p, str) and p.strip() for p in declared):
+        return [f"{location}: 'platforms' must be a list of platform names"]
+    unknown = sorted(set(declared) - platform_labels)
+    if unknown:
+        return [
+            f"{location}: unknown platform(s) in 'platforms': {', '.join(unknown)} "
+            f"(platform axis: {', '.join(sorted(platform_labels))})"
+        ]
+    return []
 
 
 def _format_location(config_path: Path, category: str, check_name: str, line_number: int | None) -> str:
@@ -258,10 +283,10 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
     """Return human-readable errors for incomplete/ungoverned suite check wiring.
 
     Validates suite files under ``suites_dir`` (kind, test_id, labels, suite
-    label, and label governance) and provider configs under ``providers_dir``
-    (defaults to the ``providers`` directory beside ``suites_dir``) for name
-    uniqueness, variant-name rules, and label governance. The platform/module
-    label axes are derived from ``suites_dir``.
+    label, and ``platforms`` governance) and provider configs under
+    ``providers_dir`` (defaults to the ``providers`` directory beside
+    ``suites_dir``) for name uniqueness, variant-name rules, and ``platforms``
+    values. The platform/module label axes are derived from ``suites_dir``.
     """
     if providers_dir is None:
         providers_dir = suites_dir.parent / "providers"
@@ -308,6 +333,7 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
             errors.append(f"{_relative(path)}: missing axis key (declare tests.platform or tests.module)")
 
         required_label = required_suite_label(platform, module)
+        suite_kind = "module" if has_module else "platform" if has_platform else None
         _record_suite_names(path, data)
         for location, name, params in _located_checks(path, lines, data):
             _check_variant_required(location, name)
@@ -319,9 +345,11 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
                 errors.append(f"{location}: missing labels (non-empty list required)")
             elif required_label and required_label not in labels:
                 errors.append(f"{location}: missing suite label {required_label!r}")
-            governance_error = _multiple_platform_labels_error(location, labels, platform_labels)
-            if governance_error and test_id not in _CROSS_PLATFORM_TEST_ID_EXEMPTIONS:
-                errors.append(governance_error)
+            if suite_kind == "module":
+                governance_error = _module_platform_label_error(location, labels, platform_labels)
+                if governance_error:
+                    errors.append(governance_error)
+            errors.extend(_platforms_declaration_errors(location, params, platform_labels, suite_kind=suite_kind))
 
     for path in _iter_provider_configs(providers_dir):
         try:
@@ -336,10 +364,7 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
             )
         for location, name, params in _located_checks(path, lines, data):
             _check_variant_required(location, name)
-            labels = _normalize_labels(params.get("labels"))
-            governance_error = _multiple_platform_labels_error(location, labels, platform_labels)
-            if governance_error:
-                errors.append(governance_error)
+            errors.extend(_platforms_declaration_errors(location, params, platform_labels, suite_kind=None))
 
     for name, files in sorted(suite_name_files.items()):
         if len(files) > 1:

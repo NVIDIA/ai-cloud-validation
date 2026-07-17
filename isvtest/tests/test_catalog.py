@@ -250,6 +250,42 @@ tests:
         assert entry["modules"] == ["control_plane"]
         assert entry["platforms"] == []
 
+    def test_module_suite_platforms_declaration_sets_platform_axis(self, tmp_path) -> None:
+        """A module-suite check's platforms: declaration is its platform placement."""
+        from isvtest.catalog import _build_axis_maps
+
+        suite = tmp_path / "security.yaml"
+        suite.write_text(
+            """\
+tests:
+  module: security
+  validations:
+    capacity:
+      checks:
+        RestrictedCheck:
+          labels: ["security"]
+          platforms: ["vm", "bare_metal"]
+        UnrestrictedCheck:
+          labels: ["security"]
+""",
+            encoding="utf-8",
+        )
+
+        platform_map, module_map = _build_axis_maps(tmp_path)
+
+        assert platform_map == {"RestrictedCheck": {"bare_metal", "vm"}}
+        assert module_map == {"RestrictedCheck": {"security"}, "UnrestrictedCheck": {"security"}}
+
+    def test_declared_platforms_reach_catalog_entries(self) -> None:
+        """The migrated CAP04 checks carry their declared platforms, not a label."""
+        catalog = build_catalog(released_only=False)
+        by_name = {e["name"]: e for e in catalog}
+        for name in ("CapacityReservationGroupingCheck", "CapacityTopologyBlockAtomicAllocationCheck"):
+            entry = by_name[name]
+            assert entry["platforms"] == ["bare_metal"]
+            assert entry["modules"] == ["security"]
+            assert "bare_metal" not in entry["labels"]
+
     def test_platform_suite_checks_use_platforms_axis(self) -> None:
         """Checks wired in a platform suite land on platforms, not modules."""
         catalog = build_catalog(released_only=False)
@@ -341,6 +377,38 @@ tests:
                 "modules": ["observability"],
             }
         ]
+
+    def test_platform_labels_do_not_infer_platform_axis(self) -> None:
+        """Platform-axis labels on an unwired check imply no platform placement.
+
+        Platform placement comes only from platform-suite placement or a
+        declared ``platforms:`` field, never from labels.
+        """
+
+        class BareMetalLabelledCheck(BaseValidation):
+            description = "Check labelled bare_metal but not in any suite"
+
+            def run(self) -> None:
+                self.set_passed()
+
+        BareMetalLabelledCheck.__module__ = "isvtest.validations.fake"
+
+        with (
+            patch("isvtest.catalog.discover_all_tests", return_value=[BareMetalLabelledCheck]),
+            patch("isvtest.catalog._build_axis_maps", return_value=({}, {})),
+            patch("isvtest.catalog._all_wired_names", return_value=set()),
+            patch(
+                "isvtest.catalog.build_label_map",
+                return_value={"BareMetalLabelledCheck": {"bare_metal", "gpu"}},
+            ),
+            patch("isvtest.catalog.build_test_id_map", return_value={}),
+            patch("isvtest.catalog.load_released_test_filter", return_value=None),
+        ):
+            catalog = build_catalog()
+
+        (entry,) = catalog
+        assert entry["platforms"] == []
+        assert entry["modules"] == []
 
 
 class TestGetCatalogVersion:

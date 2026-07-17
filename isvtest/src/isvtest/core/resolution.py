@@ -74,6 +74,8 @@ class ValidationEntry:
     step: str | None = None
     phase: str | None = None
     labels: tuple[str, ...] = ()
+    # Platform columns the check is compatible with; empty = every platform.
+    platforms: tuple[str, ...] = ()
 
 
 @dataclass
@@ -94,21 +96,39 @@ class ResolvedEntry:
         return self.state is None and self.skip_reason is None and self.error_reason is None
 
 
+def _wiring_string_tuple(params_template: Any, key: str) -> tuple[str, ...]:
+    """Return the deduplicated string values under ``key`` on a check's YAML wiring.
+
+    Accepts a single string or a list/tuple of strings.
+    """
+    values: list[str] = []
+    cfg_values = params_template.get(key) if isinstance(params_template, dict) else None
+    if isinstance(cfg_values, str):
+        cfg_values = [cfg_values]
+    if isinstance(cfg_values, list | tuple):
+        for value in cfg_values:
+            if isinstance(value, str) and value and value not in values:
+                values.append(value)
+    return tuple(values)
+
+
 def _wiring_labels(params_template: Any) -> tuple[str, ...]:
     """Return the per-wiring ``labels`` declared on a check's YAML config.
 
     Labels live on the per-check YAML wiring and drive include/exclude-label
-    filtering. Accepts a single string or a list/tuple of strings.
+    filtering.
     """
-    labels: list[str] = []
-    cfg_labels = params_template.get("labels") if isinstance(params_template, dict) else None
-    if isinstance(cfg_labels, str):
-        cfg_labels = [cfg_labels]
-    if isinstance(cfg_labels, list | tuple):
-        for label in cfg_labels:
-            if isinstance(label, str) and label and label not in labels:
-                labels.append(label)
-    return tuple(labels)
+    return _wiring_string_tuple(params_template, "labels")
+
+
+def _wiring_platforms(params_template: Any) -> tuple[str, ...]:
+    """Return the per-wiring ``platforms`` declared on a check's YAML config.
+
+    A non-empty ``platforms`` restricts the check to those platform columns
+    during a ``--platform`` run; empty/omitted means compatible with every
+    platform.
+    """
+    return _wiring_string_tuple(params_template, "platforms")
 
 
 def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
@@ -145,6 +165,7 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
                 params_template = copy.deepcopy(params_template)
 
             labels = _wiring_labels(params_template)
+            platforms = _wiring_platforms(params_template)
             entries.append(
                 ValidationEntry(
                     name=name,
@@ -153,6 +174,7 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
                     step=entry_step if isinstance(entry_step, str) else None,
                     phase=entry_phase if isinstance(entry_phase, str) else None,
                     labels=labels,
+                    platforms=platforms,
                 )
             )
 
@@ -170,6 +192,7 @@ def resolve_entries(
     exclude_tests: AbstractSet[str],
     released_tests: AbstractSet[str] | None,
     render_context: Mapping[str, Any],
+    column_platform: str | None = None,
 ) -> list[ResolvedEntry]:
     """Resolve validation entries into ready or terminal outcomes.
 
@@ -183,6 +206,10 @@ def resolve_entries(
         exclude_tests: Validation names excluded by config.
         released_tests: Released test manifest, or None when unreleased checks are included.
         render_context: Jinja context for validation parameter rendering.
+        column_platform: Platform column the run executes under (``--platform``
+            fan-out), or None when there is no column (standalone ``--module``
+            or plain ``-f`` runs). An entry with a non-empty ``platforms``
+            declaration is skipped when the column is not in it.
 
     Returns:
         A resolved entry for every input entry, in input order.
@@ -233,6 +260,18 @@ def resolve_entries(
                     entry,
                     SkipReason.EXCLUDED,
                     f"validation '{entry.name}' is excluded by label: {label_list}",
+                )
+            )
+            continue
+
+        if column_platform and entry.platforms and column_platform not in entry.platforms:
+            platform_list = ", ".join(entry.platforms)
+            resolved.append(
+                _skip(
+                    entry,
+                    SkipReason.EXCLUDED,
+                    f"validation '{entry.name}' platforms restriction [{platform_list}] "
+                    f"does not include column '{column_platform}'",
                 )
             )
             continue

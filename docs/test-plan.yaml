@@ -4477,7 +4477,6 @@ domains:
             tests:
               - summary: Verify a set of resources can be logically grouped and pinned to an account
                 labels:
-                  - bare_metal
                   - capacity
                   - min_req
                   - security
@@ -4491,7 +4490,6 @@ domains:
                 status: published
               - summary: Verify atomic allocation of a topology block as a single unit
                 labels:
-                  - bare_metal
                   - capacity
                   - min_req
                   - security

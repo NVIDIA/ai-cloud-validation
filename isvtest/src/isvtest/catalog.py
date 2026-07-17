@@ -19,16 +19,17 @@ Builds a structured catalog of all available validation tests by calling
 discover_all_tests() and serializing each BaseValidation subclass's metadata.
 The catalog is version-keyed by the installed isvtest package version.
 
-Per-entry axis placement uses two sources (union of both):
+Per-entry axis placement uses these sources (union):
   1. Canonical suite files - which checks appear in each
      ``isvctl/configs/suites/*.yaml`` and that suite's declared
-     ``tests.platform`` / ``tests.module`` axis key
-  2. Wiring labels - when a check is not wired in any suite file, axis labels
-     on its ``labels:`` list are matched against the derived platform/module
-     axes (e.g. ``labels: [bare_metal]`` implies the ``bare_metal`` platform)
-
-This ensures checks get axis badges in the UI even when they only appear in
-provider configs (e.g. Bm* checks that run on-host, not via SSH).
+     ``tests.platform`` / ``tests.module`` axis key. A module-suite check's
+     declared ``platforms:`` list contributes its platform placement (a
+     platform-suite check's placement is its suite's platform).
+  2. Wiring labels (modules only) - when a check is not wired in any suite
+     file, module-axis labels on its ``labels:`` list contribute module
+     placement (e.g. ``labels: [observability]`` implies the ``observability``
+     module). Platform placement is never inferred from labels - it comes
+     from platform-suite placement or a declared ``platforms:`` field.
 """
 
 import logging
@@ -209,7 +210,9 @@ def _build_axis_maps(suites_dir: Path | None = None) -> tuple[dict[str, set[str]
     """Map check name -> platform/module axis labels from canonical suite wiring.
 
     Each suite file contributes its declared ``tests.platform`` or
-    ``tests.module`` value to every check wired in that file.
+    ``tests.module`` value to every check wired in that file. A module-suite
+    check additionally contributes its declared ``platforms:`` list as its
+    platform placement (the positive capability-compatibility declaration).
     """
     configs_dir = _find_configs_dir()
     if suites_dir is None:
@@ -231,31 +234,35 @@ def _build_axis_maps(suites_dir: Path | None = None) -> tuple[dict[str, set[str]
         mod = tests.get("module")
         platform = tests.get("platform")
         if isinstance(mod, str) and mod:
-            target, axis_value = module_map, mod
+            for check_name, params in iter_config_checks(path):
+                module_map.setdefault(check_name, set()).add(mod)
+                declared = params.get("platforms")
+                if isinstance(declared, list):
+                    valid = {p for p in declared if isinstance(p, str) and p}
+                    if valid:
+                        platform_map.setdefault(check_name, set()).update(valid)
         elif isinstance(platform, str) and platform:
-            target, axis_value = platform_map, platform
-        else:
-            continue
-        for check_name in _extract_checks_from_config(path):
-            target.setdefault(check_name, set()).add(axis_value)
+            for check_name in _extract_checks_from_config(path):
+                platform_map.setdefault(check_name, set()).add(platform)
     return platform_map, module_map
 
 
-def _infer_axis_from_labels(
+def _infer_module_axis_from_labels(
     name: str,
     labels: list[str],
     platform_map: dict[str, set[str]],
     module_map: dict[str, set[str]],
-    platform_axis: frozenset[str],
     module_axis: frozenset[str],
 ) -> None:
-    """Fill axis maps from wiring labels when a check is not in any suite file."""
+    """Fill the module axis map from wiring labels when a check is not in any suite file.
+
+    Only module placement is inferred from labels; platform placement comes
+    exclusively from platform-suite placement or a declared ``platforms:`` field.
+    """
     if name in platform_map or name in module_map:
         return
     for label in labels:
-        if label in platform_axis:
-            platform_map.setdefault(name, set()).add(label)
-        elif label in module_axis:
+        if label in module_axis:
             module_map.setdefault(name, set()).add(label)
 
 
@@ -263,9 +270,11 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
     """Discover all validation tests and return structured catalog entries.
 
     Each entry includes ``platforms`` and ``modules`` fields derived from
-    canonical suite wiring (and label inference when a check is not in any
-    suite file). Variant entries from configs (e.g. K8sNimHelmWorkload-1b)
-    are included as separate entries inheriting metadata from their base class.
+    canonical suite wiring: platform-suite placement or a declared
+    ``platforms:`` field for platforms, module-suite placement (plus module
+    label inference when a check is not in any suite file) for modules.
+    Variant entries from configs (e.g. K8sNimHelmWorkload-1b) are included as
+    separate entries inheriting metadata from their base class.
 
     Args:
         released_only: When True, omit tests that are not in the committed
@@ -284,8 +293,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
     platform_map, module_map = _build_axis_maps()
     label_map = build_label_map()
     test_id_map = build_test_id_map()
-    platform_axis, module_axis = build_axis_taxonomy()
-    platform_axis_set = frozenset(platform_axis)
+    _platform_axis, module_axis = build_axis_taxonomy()
     module_axis_set = frozenset(module_axis)
 
     wired_names = _all_wired_names()
@@ -302,7 +310,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             "description": getattr(cls, "description", "") or "",
             "labels": labels,
         }
-        _infer_axis_from_labels(cls.__name__, labels, platform_map, module_map, platform_axis_set, module_axis_set)
+        _infer_module_axis_from_labels(cls.__name__, labels, platform_map, module_map, module_axis_set)
 
     catalog: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -349,7 +357,7 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         desc = meta.get("description", "")
         desc = f"{desc} ({variant_suffix.lstrip('-')})" if desc else variant_suffix.lstrip("-")
         labels = sorted(label_map.get(name, set()))
-        _infer_axis_from_labels(name, labels, platform_map, module_map, platform_axis_set, module_axis_set)
+        _infer_module_axis_from_labels(name, labels, platform_map, module_map, module_axis_set)
         platforms, modules = _entry_axes(name)
         catalog.append(
             {

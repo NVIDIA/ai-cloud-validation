@@ -70,23 +70,21 @@ def test_classify_errors_on_missing_kind(tmp_path: Path) -> None:
     assert "tests.module" in str(exc.value)
 
 
-def test_plan_platform_run_orders_and_excludes(tmp_path: Path) -> None:
-    """A platform plan runs the platform first, then modules with other-platform excludes."""
+def test_plan_platform_run_orders_and_sets_column(tmp_path: Path) -> None:
+    """A platform plan runs the platform first, then modules, all under the column."""
     _standard_provider(tmp_path)
     runs = plan_platform_run("acme", "vm", configs_root=tmp_path)
 
     assert runs[0].role == "platform"
     assert runs[0].platform == "vm"
-    assert runs[0].exclude_labels == ()
     assert runs[0].column_platform == "vm"
 
     module_runs = runs[1:]
     assert [r.platform for r in module_runs] == ["iam", "network"]
     for module_run in module_runs:
         assert module_run.role == "module"
-        # every platform label except the selected one
-        assert module_run.exclude_labels == ("bare_metal", "kubernetes", "slurm")
-        # module runs report the column they ran under as their capability
+        # module runs execute under the column; checks declaring a platforms:
+        # restriction that excludes it are skipped at resolution time
         assert module_run.column_platform == "vm"
 
 
@@ -122,14 +120,14 @@ def test_plan_platform_run_duplicate_platform_errors(tmp_path: Path) -> None:
 
 
 def test_resolve_module_configs_returns_single(tmp_path: Path) -> None:
-    """`--module iam` resolves the one iam module config, no platform excludes."""
+    """`--module iam` resolves the one iam module config, no platform column."""
     _standard_provider(tmp_path)
     (run,) = resolve_module_configs("acme", ["iam"], configs_root=tmp_path)
     assert run.role == "module"
     assert run.platform == "iam"
-    assert run.exclude_labels == ()
     assert run.config_path.name == "iam.yaml"
     # standalone module runs have no platform column, hence no capability
+    # and no platform filtering
     assert run.column_platform is None
 
 

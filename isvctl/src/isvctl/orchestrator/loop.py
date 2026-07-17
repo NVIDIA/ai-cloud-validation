@@ -362,6 +362,7 @@ class Orchestrator:
         self._extra_pytest_args: list[str] | None = None
         self._include_labels: list[str] = []
         self._exclude_labels: list[str] = []
+        self._column_platform: str | None = None
         self._verbose: bool = False
         self._junitxml: str | None = None
 
@@ -372,6 +373,7 @@ class Orchestrator:
         extra_pytest_args: list[str] | None = None,
         include_labels: list[str] | None = None,
         exclude_labels: list[str] | None = None,
+        column_platform: str | None = None,
         verbose: bool = False,
         junitxml: str | None = None,
     ) -> OrchestratorResult:
@@ -386,9 +388,13 @@ class Orchestrator:
                   (labels are mirrored as pytest marks)
             include_labels: Labels that selected validations must all contain.
             exclude_labels: Labels that exclude a validation (any intersection).
-                These come from the CLI (e.g. platform-scoped exclusion) and are
-                always applied, unlike config `tests.exclude.labels` which is
-                bypassed when include/pytest selection is present.
+                These come from the CLI and are always applied, unlike config
+                `tests.exclude.labels` which is bypassed when include/pytest
+                selection is present.
+            column_platform: Platform column this run executes under
+                (``--platform`` fan-out), or None when there is no column. A
+                check whose wiring declares a non-empty ``platforms`` list is
+                skipped when the column is not in it.
             verbose: Enable verbose output for validations
             junitxml: Path to write JUnit XML report for validations
 
@@ -402,6 +408,7 @@ class Orchestrator:
         self._extra_pytest_args = extra_pytest_args
         self._include_labels = include_labels or []
         self._exclude_labels = exclude_labels or []
+        self._column_platform = column_platform
         self._verbose = verbose
         self._junitxml = junitxml
 
@@ -525,8 +532,8 @@ class Orchestrator:
             self._extra_pytest_args
         )
         # Config `tests.exclude.labels` is bypassed when the user narrows selection
-        # (include labels or pytest -k/-m). CLI excludes (e.g. platform-scoping)
-        # are authoritative and always union in after that gate.
+        # (include labels or pytest -k/-m). CLI --exclude-label values are
+        # authoritative and always union in after that gate.
         config_exclude_labels = [] if skip_config_label_exclusions else exclude_labels
         resolution_exclude_labels = list(dict.fromkeys([*config_exclude_labels, *self._exclude_labels]))
 
@@ -803,6 +810,7 @@ class Orchestrator:
             exclude_tests=exclude_tests,
             released_tests=released_tests,
             render_context=self.context.get_accumulated_context(),
+            column_platform=self._column_platform,
         )
 
     def _resolve_remaining_validation_entries(

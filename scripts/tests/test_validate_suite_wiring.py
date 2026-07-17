@@ -115,66 +115,114 @@ tests:
     assert any("both_axes.yaml" in err and "both tests.platform and tests.module" in err for err in errors)
 
 
-def test_wiring_errors_flags_multiple_platform_labels(tmp_path: Path) -> None:
-    """A check may carry at most one platform-axis label."""
-    (tmp_path / "bare_metal.yaml").write_text(
-        """\
+def _write_platform_axis_suites(suites_dir: Path) -> None:
+    """Write vm + bare_metal platform suites so the derived platform axis is non-empty."""
+    suites_dir.mkdir(parents=True, exist_ok=True)
+    for platform in ("vm", "bare_metal"):
+        (suites_dir / f"{platform}.yaml").write_text(
+            f"""\
 tests:
-  platform: bare_metal
+  platform: {platform}
   validations:
     example:
       checks:
-        BmOnly:
-          test_id: "BM01-01"
-          labels: ["bare_metal"]
+        {platform.title().replace("_", "")}Check:
+          test_id: "N/A"
+          labels: ["{platform}"]
 """
-    )
-    (tmp_path / "vm.yaml").write_text(
+        )
+
+
+def test_wiring_errors_flags_platform_labels_on_module_suite_checks(tmp_path: Path) -> None:
+    """Platform-axis names are banned from module-suite labels; platforms: is the mechanism."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "security.yaml").write_text(
         """\
 tests:
-  platform: vm
+  module: security
   validations:
     example:
       checks:
-        DualCapability:
-          test_id: "VM01-01"
-          labels: ["vm", "bare_metal"]
+        LabelledCheck:
+          test_id: "SEC01-01"
+          labels: ["bare_metal", "security"]
+        DeclaredCheck:
+          test_id: "SEC01-02"
+          labels: ["security"]
+          platforms: ["bare_metal"]
 """
     )
     errors = validate_suite_wiring.wiring_errors(tmp_path)
     assert any(
-        "DualCapability" in err and "multiple platform labels" in err and "bare_metal, vm" in err for err in errors
+        "LabelledCheck" in err and "platform label(s) (bare_metal)" in err and "'platforms: [...]'" in err
+        for err in errors
     )
+    assert not any("DeclaredCheck" in err for err in errors)
 
 
-def test_wiring_errors_flags_provider_config_multiple_platform_labels(tmp_path: Path) -> None:
-    """Provider configs are governed for labels even though they inherit the axis key."""
+def test_wiring_errors_accepts_platforms_subset_on_module_suite_checks(tmp_path: Path) -> None:
+    """A multi-value platforms subset is legal on module-suite checks."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "security.yaml").write_text(
+        """\
+tests:
+  module: security
+  validations:
+    example:
+      checks:
+        SubsetCheck:
+          test_id: "SEC01-01"
+          labels: ["security"]
+          platforms: ["vm", "bare_metal"]
+"""
+    )
+    assert validate_suite_wiring.wiring_errors(tmp_path) == []
+
+
+def test_wiring_errors_flags_unknown_platforms_value(tmp_path: Path) -> None:
+    """Every platforms: value must be a member of the derived platform axis."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "security.yaml").write_text(
+        """\
+tests:
+  module: security
+  validations:
+    example:
+      checks:
+        TypoCheck:
+          test_id: "SEC01-01"
+          labels: ["security"]
+          platforms: ["bare-metal"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("TypoCheck" in err and "unknown platform(s) in 'platforms': bare-metal" in err for err in errors)
+
+
+def test_wiring_errors_flags_platforms_on_platform_suite_checks(tmp_path: Path) -> None:
+    """platforms: is rejected in platform suites - the column is fixed by placement."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "k8s.yaml").write_text(
+        """\
+tests:
+  platform: kubernetes
+  validations:
+    example:
+      checks:
+        PinnedCheck:
+          test_id: "K8S01-01"
+          labels: ["kubernetes"]
+          platforms: ["kubernetes"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("PinnedCheck" in err and "'platforms' is not allowed on platform-suite checks" in err for err in errors)
+
+
+def test_wiring_errors_flags_unknown_platforms_value_in_provider_config(tmp_path: Path) -> None:
+    """Provider config platforms: values are validated against the derived axis."""
     suites_dir = tmp_path / "suites"
-    suites_dir.mkdir()
-    (suites_dir / "vm.yaml").write_text(
-        """\
-tests:
-  platform: vm
-  validations:
-    example:
-      checks:
-        GoodCheck:
-          test_id: "VM01-01"
-          labels: ["vm"]
-"""
-    )
-    (suites_dir / "bare_metal.yaml").write_text(
-        """\
-tests:
-  platform: bare_metal
-  validations:
-    example:
-      checks:
-        GoodCheck:
-          test_id: "BM01-01"
-          labels: ["bare_metal"]
-"""
-    )
+    _write_platform_axis_suites(suites_dir)
     provider_config = tmp_path / "providers" / "acme" / "config" / "vm.yaml"
     provider_config.parent.mkdir(parents=True)
     provider_config.write_text(
@@ -185,11 +233,11 @@ tests:
       checks:
         ProviderCheck:
           test_id: "VM01-02"
-          labels: ["vm", "bare_metal"]
+          platforms: ["not_a_platform"]
 """
     )
     errors = validate_suite_wiring.wiring_errors(suites_dir, tmp_path / "providers")
-    assert any("ProviderCheck" in err and "multiple platform labels" in err for err in errors)
+    assert any("ProviderCheck" in err and "unknown platform(s) in 'platforms': not_a_platform" in err for err in errors)
 
 
 def test_derive_axis_labels_match_catalog_taxonomy() -> None:

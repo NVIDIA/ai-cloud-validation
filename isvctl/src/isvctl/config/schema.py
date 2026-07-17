@@ -394,7 +394,12 @@ class ValidationConfig(BaseModel):
     settings: dict[str, Any] = Field(default_factory=dict, description="Test settings")
     validations: dict[str, list[dict[str, Any]] | dict[str, Any]] = Field(
         default_factory=dict,
-        description="Validation checks by category. Supports list format or group defaults with 'checks' key.",
+        description=(
+            "Validation checks by category. Supports list format or group defaults with 'checks' key. "
+            "Each check wiring may declare 'test_id', 'labels', 'step', 'phase', and 'platforms' "
+            "(a subset of the platform axis; omitted/empty = compatible with every platform, "
+            "non-empty = the check runs only under those --platform columns)."
+        ),
     )
     exclude: dict[str, Any] = Field(
         default_factory=dict,

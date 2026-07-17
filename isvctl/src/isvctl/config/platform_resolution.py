@@ -10,8 +10,8 @@ marks a platform suite (service line). Plans which configs to run:
 
 * ``--platform <platform>`` runs the whole matrix column: the one config whose
   ``platform`` is ``<platform>`` (and which declares no ``module``) first, then
-  every ``module:`` config, each with platform-scoped exclude labels so checks
-  tagged with a *different* platform are skipped.
+  every ``module:`` config. Each run carries the column platform so module
+  checks declaring a ``platforms:`` restriction that excludes it are skipped.
 * ``--module <mod>`` runs a single config declaring ``module: <mod>``.
 
 Classification is by the axis key, never by filename: an ``aws/config/eks.yaml``
@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Literal
 
 from isvreporter.platform import PLATFORM_ALIASES as _CANONICAL_ALIASES
-from isvtest.catalog import build_axis_taxonomy
 
 from isvctl.config.label_discovery import provider_config_dir
 from isvctl.config.merger import merge_yaml_files
@@ -59,11 +58,12 @@ class PlannedRun:
     config_path: Path
     role: AxisKind
     platform: str
-    exclude_labels: tuple[str, ...] = ()
     # The platform column this run executes under (the --platform value). Set for
     # every run in a column plan - including module runs, whose own ``platform``
     # is their module name - so result upload can report the capability the
-    # module was exercised under. None for standalone --module runs (no column).
+    # module was exercised under and so checks declaring a ``platforms:``
+    # restriction are filtered against it. None for standalone --module runs
+    # (no column, hence no platform filtering).
     column_platform: str | None = None
 
 
@@ -106,16 +106,6 @@ def effective_axes(config_path: Path) -> tuple[str | None, str | None]:
     if kind == "module":
         return None, value
     return None, None
-
-
-def platform_label_universe(configs_root: Path) -> frozenset[str]:
-    """Return every platform label defined by the shipped platform suites.
-
-    Derived from ``configs_root/suites`` (not the provider's configs) so exclusion
-    is stable even when a provider is missing a platform config.
-    """
-    platforms, _modules = build_axis_taxonomy(configs_root / "suites")
-    return frozenset(platforms)
 
 
 def classify_provider_configs(provider: str, *, configs_root: Path) -> list[ClassifiedConfig]:
@@ -165,9 +155,9 @@ def _single_config(classified: list[ClassifiedConfig], kind: AxisKind, value: st
 def plan_platform_run(provider: str, platform: str, *, configs_root: Path) -> list[PlannedRun]:
     """Plan the configs to run for ``--platform <platform>``.
 
-    The platform config runs first (no excludes); each module config follows
-    with ``exclude_labels`` = every *other* platform label, so module checks
-    tagged for a different platform are skipped under this column.
+    The platform config runs first; each module config follows. Every run
+    carries the column platform, so module checks whose ``platforms:``
+    declaration excludes it are skipped under this column.
 
     Raises:
         PlatformResolutionError: On unknown/duplicate platform configs.
@@ -175,9 +165,6 @@ def plan_platform_run(provider: str, platform: str, *, configs_root: Path) -> li
     normalized = PLATFORM_ALIASES.get(platform, platform)
     classified = classify_provider_configs(provider, configs_root=configs_root)
     platform_config = _single_config(classified, "platform", normalized, provider)
-
-    universe = platform_label_universe(configs_root)
-    exclude_labels = tuple(sorted(universe - {normalized}))
 
     runs: list[PlannedRun] = [
         PlannedRun(
@@ -193,7 +180,6 @@ def plan_platform_run(provider: str, platform: str, *, configs_root: Path) -> li
                 config_path=module_config.config_path,
                 role="module",
                 platform=module_config.platform,
-                exclude_labels=exclude_labels,
                 column_platform=normalized,
             )
         )
@@ -203,8 +189,8 @@ def plan_platform_run(provider: str, platform: str, *, configs_root: Path) -> li
 def resolve_module_configs(provider: str, modules: list[str], *, configs_root: Path) -> list[PlannedRun]:
     """Resolve the single ``kind: module`` config for each ``--module <module>``.
 
-    Module runs are standalone (no platform context), so no platform excludes
-    apply. The provider is classified once for the whole selection.
+    Module runs are standalone (no platform column), so no platform filtering
+    applies. The provider is classified once for the whole selection.
 
     Raises:
         PlatformResolutionError: On unknown/duplicate module configs.
