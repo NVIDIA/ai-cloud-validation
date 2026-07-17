@@ -70,6 +70,13 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
+            # The agnhost image declares no USER, so it defaults to root. With
+            # runAsNonRoot but no runAsUser the kubelet refuses to start the
+            # container ("container has runAsNonRoot and image will run as
+            # root"), so the Deployment never becomes Available. Pin a non-root
+            # UID (as the sibling network_policy_test_pods.yaml already does)
+            # so the webhook server runs and passes its readiness probe.
+            runAsUser: 1000
             readOnlyRootFilesystem: true
             capabilities:
               drop:
