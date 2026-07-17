@@ -379,9 +379,29 @@ def test_platform_dry_run_text_default(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert _FakeOrchestrator.calls == []
     assert "Dry run: platform column" in result.output
     assert "Platform: vm" in result.output
-    assert "Runs (3):" in result.output
+    assert "Steps:" in result.output
     with pytest.raises(json.JSONDecodeError):
         json.loads(result.output)
+
+
+def test_module_dry_run_shows_config_details() -> None:
+    """Standalone --module dry-run expands each config like -f --dry-run."""
+    security_config = Path(__file__).resolve().parents[1] / "configs" / "providers" / "aws" / "config" / "security.yaml"
+    result = runner.invoke(
+        test_cli.app,
+        ["run", "--provider", "aws", "--module", "security", "--dry-run", "--no-upload"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Dry run: module selection" in result.output
+    assert "security.yaml [security]" in result.output
+    assert "Steps:" in result.output
+    assert "Validations (22):" in result.output
+    assert "BmcManagementNetworkCheck" in result.output
+
+    direct = runner.invoke(test_cli.app, ["run", "-f", str(security_config), "--dry-run", "--no-upload"])
+    assert direct.exit_code == 0, direct.output
+    assert direct.stdout.count("BmcManagementNetworkCheck") == result.stdout.count("BmcManagementNetworkCheck")
 
 
 def test_module_dispatches_single_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

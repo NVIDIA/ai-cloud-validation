@@ -291,11 +291,11 @@ def _validation_plan_for_run(
     user_exclude_labels: list[str] | None,
     requested_phase: Phase,
     extra_pytest_args: list[str],
-) -> ValidationPlan:
+) -> tuple[RunConfig, ValidationPlan]:
     """Load one planned config and resolve which validations would run."""
     merged_config = merge_yaml_files([str(run.config_path)])
     config = RunConfig.model_validate(merged_config)
-    return _planned_validations_by_category(
+    plan = _planned_validations_by_category(
         config,
         include_labels=include_labels,
         exclude_labels=user_exclude_labels,
@@ -303,6 +303,7 @@ def _validation_plan_for_run(
         extra_pytest_args=extra_pytest_args,
         column_platform=run.column_platform,
     )
+    return config, plan
 
 
 def _format_validation_count(plan: ValidationPlan) -> str:
@@ -311,6 +312,56 @@ def _format_validation_count(plan: ValidationPlan) -> str:
     if plan.skipped:
         return f"{ready} validation(s) ({len(plan.skipped)} skipped)"
     return f"{ready} validation(s)"
+
+
+def _render_config_body_lines(
+    config: RunConfig,
+    planned: ValidationPlan,
+    *,
+    indent: str = "  ",
+) -> list[str]:
+    """Render the per-config dry-run body: summary, steps, validations, and skipped checks."""
+    platform = config.tests.platform if config.tests else None
+    module = config.tests.module if config.tests else None
+    total_tests = sum(len(names) for names in planned.ready_by_category.values())
+    detail_indent = indent + "  "
+    lines = [f"{indent}Platform: {platform or 'not specified'}"]
+    if module:
+        lines.append(f"{indent}Module:   {module}")
+    if planned.skipped:
+        lines.append(f"{indent}Tests:    {total_tests} validation(s) ({len(planned.skipped)} skipped)")
+    else:
+        lines.append(f"{indent}Tests:    {total_tests} validation(s)")
+
+    platform_cmds = config.commands.get(platform) if platform else None
+    if platform_cmds:
+        lines.append(f"{indent}Phases:   {', '.join(platform_cmds.phases)}")
+        steps_by_phase: dict[str, list[str]] = {}
+        for step in platform_cmds.steps:
+            label = f"{step.name}: {step.command}" + (" (skipped)" if step.skip else "")
+            steps_by_phase.setdefault(step.phase, []).append(label)
+        if steps_by_phase:
+            lines.append(f"{indent}Steps:")
+            for phase in platform_cmds.phases:
+                for label in steps_by_phase.get(phase, []):
+                    lines.append(f"{detail_indent}[{phase}] {label}")
+
+    validations = config.tests.validations if config.tests else {}
+    if planned.ready_by_category:
+        lines.append(f"{indent}Validations ({total_tests}):")
+        for category in validations:
+            names = planned.ready_by_category.get(category, [])
+            if names:
+                lines.extend(_wrap_field(f"{detail_indent}{category} ({len(names)}): ", ", ".join(names)))
+
+    if planned.skipped:
+        lines.append(f"{indent}Skipped ({len(planned.skipped)}):")
+        skipped_by_reason: dict[str, list[str]] = {}
+        for name, reason in planned.skipped:
+            skipped_by_reason.setdefault(reason, []).append(name)
+        for reason, names in skipped_by_reason.items():
+            lines.extend(_wrap_field(f"{detail_indent}{reason}: ", ", ".join(names)))
+    return lines
 
 
 def _render_planned_run_text(
@@ -339,7 +390,7 @@ def _render_planned_run_text(
     run_summaries = [
         (
             run,
-            _validation_plan_for_run(
+            *_validation_plan_for_run(
                 run,
                 include_labels=include_labels,
                 user_exclude_labels=exclude_labels,
@@ -349,8 +400,8 @@ def _render_planned_run_text(
         )
         for run in runs
     ]
-    total_ready = sum(sum(len(names) for names in plan.ready_by_category.values()) for _, plan in run_summaries)
-    total_skipped = sum(len(plan.skipped) for _, plan in run_summaries)
+    total_ready = sum(sum(len(names) for names in plan.ready_by_category.values()) for _, _, plan in run_summaries)
+    total_skipped = sum(len(plan.skipped) for _, _, plan in run_summaries)
 
     lines = [title, f"  Provider: {provider}", header]
     if total_skipped:
@@ -358,9 +409,12 @@ def _render_planned_run_text(
     else:
         lines.append(f"  Tests:    {total_ready} validation(s) across {len(runs)} config(s)")
 
-    lines.append(f"  Runs ({len(runs)}):")
-    for run, plan in run_summaries:
-        lines.append(f"    {_short_config_path(run.config_path)} [{run.platform}] — {_format_validation_count(plan)}")
+    for run, config, plan in run_summaries:
+        lines.append("")
+        lines.append(
+            f"  --- {_short_config_path(run.config_path)} [{run.platform}] — {_format_validation_count(plan)} ---"
+        )
+        lines.extend(_render_config_body_lines(config, plan, indent="    "))
 
     if pytest_args:
         lines.append(f"  Extra pytest args: {' '.join(pytest_args)}")
@@ -376,8 +430,6 @@ def _render_config_text(
     requested_phase: Phase = Phase.ALL,
 ) -> str:
     """Render a merged config dry-run as a human-readable summary of what would run."""
-    platform = config.tests.platform if config.tests else None
-    module = config.tests.module if config.tests else None
     planned = _planned_validations_by_category(
         config,
         include_labels=include_labels,
@@ -385,44 +437,8 @@ def _render_config_text(
         requested_phase=requested_phase,
         extra_pytest_args=extra_pytest_args,
     )
-    total_tests = sum(len(names) for names in planned.ready_by_category.values())
     lines = ["Dry run: configuration (nothing will be executed)"]
-    lines.append(f"  Platform: {platform or 'not specified'}")
-    if module:
-        lines.append(f"  Module:   {module}")
-    if planned.skipped:
-        lines.append(f"  Tests:    {total_tests} validation(s) ({len(planned.skipped)} skipped)")
-    else:
-        lines.append(f"  Tests:    {total_tests} validation(s)")
-
-    platform_cmds = config.commands.get(platform) if platform else None
-    if platform_cmds:
-        lines.append(f"  Phases:   {', '.join(platform_cmds.phases)}")
-        steps_by_phase: dict[str, list[str]] = {}
-        for step in platform_cmds.steps:
-            label = f"{step.name}: {step.command}" + (" (skipped)" if step.skip else "")
-            steps_by_phase.setdefault(step.phase, []).append(label)
-        if steps_by_phase:
-            lines.append("  Steps:")
-            for phase in platform_cmds.phases:
-                for label in steps_by_phase.get(phase, []):
-                    lines.append(f"    [{phase}] {label}")
-
-    validations = config.tests.validations if config.tests else {}
-    if planned.ready_by_category:
-        lines.append(f"  Validations ({total_tests}):")
-        for category in validations:
-            names = planned.ready_by_category.get(category, [])
-            if names:
-                lines.extend(_wrap_field(f"    {category} ({len(names)}): ", ", ".join(names)))
-
-    if planned.skipped:
-        lines.append(f"  Skipped ({len(planned.skipped)}):")
-        skipped_by_reason: dict[str, list[str]] = {}
-        for name, reason in planned.skipped:
-            skipped_by_reason.setdefault(reason, []).append(name)
-        for reason, names in skipped_by_reason.items():
-            lines.extend(_wrap_field(f"    {reason}: ", ", ".join(names)))
+    lines.extend(_render_config_body_lines(config, planned, indent="  "))
 
     if extra_pytest_args:
         lines.append(f"  Extra pytest args: {' '.join(extra_pytest_args)}")
