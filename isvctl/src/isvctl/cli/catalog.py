@@ -172,9 +172,13 @@ def push(
         bool,
         typer.Option("--verbose", "-v", help="Enable verbose logging"),
     ] = False,
-    no_upload: Annotated[
+    dry_run: Annotated[
         bool,
-        typer.Option("--no-upload", help="Build and save locally without uploading"),
+        typer.Option(
+            "--dry-run",
+            "--no-upload",
+            help="Build and save locally without uploading",
+        ),
     ] = False,
 ) -> None:
     """Build the test catalog and upload it to ISV Lab Service.
@@ -186,7 +190,7 @@ def push(
 
     Examples:
         isvctl catalog push
-        isvctl catalog push --no-upload
+        isvctl catalog push --dry-run
     """
     setup_logging(verbose)
 
@@ -201,8 +205,8 @@ def push(
     catalog_path.write_text(json.dumps(document, indent=2))
     print_progress(f"  Saved to: {catalog_path}")
 
-    if no_upload:
-        print_progress("Skipping upload (--no-upload)")
+    if dry_run:
+        print_progress("Dry run: saved catalog locally (upload skipped)")
         return
 
     from isvctl.reporting import check_upload_credentials, get_environment_config
