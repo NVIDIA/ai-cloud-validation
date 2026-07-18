@@ -33,6 +33,7 @@ argparse of its own.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -537,6 +538,142 @@ def resolve_api_endpoint(cluster_name: str, location: str, project: str, *, time
 
 
 # --------------------------------------------------------------------------- #
+# Operator network / API-ACL capability inputs                                #
+# --------------------------------------------------------------------------- #
+
+
+def normalize_sentinel(value: str) -> str:
+    """Map the provider-config `none` sentinel (used so the arg renderer never
+    drops an empty value token) back to absence. Returns the stripped value, or
+    "" when it is empty or the literal `none` (case-insensitive)."""
+    v = (value or "").strip()
+    return "" if v.lower() == "none" else v
+
+
+def normalize_network(value: str) -> str:
+    """Resolve the operator-selected VPC network: the `none` sentinel or a blank
+    value falls back to `default` (projects that retain the auto-created default
+    VPC). A non-blank value (name or self-link) is used verbatim."""
+    v = normalize_sentinel(value)
+    return v or "default"
+
+
+def _net_identity(value: str) -> str:
+    """Reduce a network/subnetwork name or self-link to a comparable identity:
+    the last path segment, lower-cased (so `default` and
+    `projects/p/global/networks/default` compare equal)."""
+    v = (value or "").strip().rstrip("/")
+    return v.rsplit("/", 1)[-1].lower() if v else ""
+
+
+def normalize_authorized_cidrs(raw: str) -> list[str]:
+    """Parse the comma-separated control-plane authorized CIDR list.
+
+    The `none` sentinel or a blank value returns [] (authorized networks left
+    unconfigured). A bare IPv4 normalizes to /32. Every entry must be a valid
+    CIDR and MUST NOT be world-open (0.0.0.0/0 or ::/0) — a world-open entry
+    defeats the ACL, so it is a hard config_error, never a silent pass."""
+    v = normalize_sentinel(raw)
+    if not v:
+        return []
+    out: list[str] = []
+    for token in v.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        candidate = token if "/" in token else f"{token}/32"
+        try:
+            net = ipaddress.ip_network(candidate, strict=False)
+        except ValueError as exc:
+            raise LifecycleError(
+                "config_error",
+                f"[bucket=config_error] GCP_K8S_AUTHORIZED_CIDRS entry '{token}' is not a valid IP CIDR: {exc}.",
+            ) from exc
+        if net.prefixlen == 0:
+            raise LifecycleError(
+                "config_error",
+                "[bucket=config_error] GCP_K8S_AUTHORIZED_CIDRS may not contain a world-open "
+                f"range ('{token}' normalizes to {net}); authorized networks must name the "
+                "runner's actual egress CIDR, never 0.0.0.0/0 or ::/0.",
+            )
+        out.append(str(net))
+    return out
+
+
+def render_unauthorized_probe(template: str, api_endpoint: str) -> str:
+    """Substitute the run's resolved API URL into the outside-vantage probe
+    template. The template MUST contain the literal ``{api_endpoint}`` — without
+    it the probe would target a fixed host and could report a false ACL PASS, so
+    a missing placeholder is a config_error."""
+    t = normalize_sentinel(template)
+    if not t:
+        return ""
+    if "{api_endpoint}" not in t:
+        raise LifecycleError(
+            "config_error",
+            "[bucket=config_error] GCP_K8S_UNAUTHORIZED_PROBE_CMD must contain the literal "
+            "{api_endpoint} so setup can bind the probe to THIS run's resolved GKE API URL; "
+            "a fixed-host probe could report a false API-ACL PASS.",
+        )
+    return t.replace("{api_endpoint}", api_endpoint)
+
+
+def verify_and_read_network(
+    cluster_name: str,
+    location: str,
+    project: str,
+    expected_network: str,
+    *,
+    timeout: int = 120,
+) -> tuple[str, str]:
+    """Read the live GKE cluster's network + subnetwork and verify the network
+    matches the operator-selected value (normalized name/self-link identity).
+
+    Returns ``(network, subnetwork)`` observed from the live cluster so setup's
+    success is derived from real state, not only the Terraform input. A describe
+    failure or a network mismatch RAISES so setup never emits a cluster attached
+    to an unexpected VPC."""
+    rc, out = gcloud(
+        [
+            "container",
+            "clusters",
+            "describe",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=json",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not describe cluster {cluster_name} to verify its network: {fold_tail(out)}",
+        )
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError as exc:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] cluster describe returned unparseable JSON while verifying the network: {exc}",
+        ) from exc
+    observed_network = str(data.get("network", "") or "")
+    observed_subnetwork = str(data.get("subnetwork", "") or "")
+    if _net_identity(observed_network) != _net_identity(expected_network):
+        raise LifecycleError(
+            "config_error",
+            "[bucket=config_error] GKE cluster network mismatch: operator selected "
+            f"'{expected_network}' but the live cluster attached to '{observed_network}'. "
+            "Refusing to emit inventory for a cluster on an unexpected VPC.",
+        )
+    return observed_network, observed_subnetwork
+
+
+# --------------------------------------------------------------------------- #
 # GPU-zone capacity preflight probe                                           #
 # --------------------------------------------------------------------------- #
 
@@ -627,6 +764,7 @@ def select_gpu_zone(
     accelerator_type: str,
     accelerator_count: int,
     *,
+    network: str = "default",
     probe_timeout: int = 90,
     poll_interval: int = 12,
 ) -> str:
@@ -678,8 +816,11 @@ def select_gpu_zone(
             "--maintenance-policy",
             "TERMINATE",
             "--no-address",
+            # The operator-selected VPC (same network the cluster attaches to);
+            # a probe on another network would not prove the pool's GPU shape is
+            # placeable in the cluster's actual substrate.
             "--network",
-            "default",
+            network or "default",
             "--image-family",
             "debian-12",
             "--image-project",
@@ -985,44 +1126,95 @@ def _kubectl_json_required(args: list[str], what: str, *, timeout: int = 60) -> 
         ) from exc
 
 
+# GKE installs the NVIDIA driver + device plugin via Google-managed DaemonSets in
+# kube-system (no NVIDIA GPU Operator). The device-plugin pod reports Ready only
+# AFTER the managed driver install completes on its node, so its Ready condition
+# is the provider-native, NO-IMAGE-PULL driver-ready signal. (The mandatory GPU
+# readiness gate MUST NOT depend on pulling a public-registry CUDA image.)
+_GPU_DEVICE_PLUGIN_NS = "kube-system"
+_GPU_DEVICE_PLUGIN_SELECTOR = "k8s-app=nvidia-gpu-device-plugin"
+# nvidia-smi paths inside the managed device-plugin container (the host driver
+# install dir is mounted in); tried in order for the OPTIONAL version read.
+_MANAGED_NVIDIA_SMI_PATHS = (
+    "/usr/local/nvidia/bin/nvidia-smi",
+    "/home/kubernetes/bin/nvidia/bin/nvidia-smi",
+    "nvidia-smi",
+)
+
+
+def _gpu_device_plugin_pod_ready_on_node(node_name: str, *, timeout: int = 30) -> str | None:
+    """Return the name of a READY GKE-managed GPU device-plugin DaemonSet pod on
+    ``node_name`` (kube-system, ``k8s-app=nvidia-gpu-device-plugin``), or None.
+
+    This is the provider-native driver-ready signal — the plugin only reports
+    Ready after the managed NVIDIA driver install finishes on the node — so the
+    readiness gate confirms the driver is up WITHOUT scheduling a probe pod that
+    pulls any workload/CUDA image."""
+    pods = _kubectl_json(
+        [
+            "get",
+            "pods",
+            "-n",
+            _GPU_DEVICE_PLUGIN_NS,
+            "-l",
+            _GPU_DEVICE_PLUGIN_SELECTOR,
+            "--field-selector",
+            f"spec.nodeName={node_name}",
+            "-o",
+            "json",
+        ],
+        timeout=timeout,
+    )
+    items = (pods or {}).get("items", []) if isinstance(pods, dict) else []
+    for pod in items:
+        conditions = (pod.get("status", {}) or {}).get("conditions", []) or []
+        if any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions):
+            name = (pod.get("metadata", {}) or {}).get("name")
+            if name:
+                return name
+    return None
+
+
 def wait_two_gate_gpu_ready(*, timeout: int = 900, poll_interval: int = 15) -> str | None:
-    """Block until a GPU node is READY with allocatable nvidia.com/gpu AND a
-    working driver (two-gate preflight). Returns the real nvidia-smi driver
-    version string, or None when it could not be parsed (GKE manages the version,
-    so an unresolved version is honestly left UNSET rather than a placeholder).
-    Never returns while the driver is still unresolved.
+    """Block until a GPU node reaches the provider-native GPU-ready state, using
+    NO-image-pull signals only: the node is Ready, advertises nonzero allocatable
+    ``nvidia.com/gpu``, AND hosts a Ready GKE-managed GPU device-plugin DaemonSet
+    pod (which reports Ready only after the managed driver install completes).
+
+    Returns the driver version read best-effort from that already-running managed
+    pod (``kubectl exec nvidia-smi``, no new pull), or None when it cannot be read
+    — driver_version is OPTIONAL inventory (K8sDriverVersionCheck skips on empty),
+    and readiness NEVER depends on reading it. Never returns while no GPU node has
+    reached the provider-native ready state.
     """
     deadline = time.time() + timeout
     label_gpu_nodes()
     while time.time() < deadline:
         nodes = _kubectl_json(["get", "nodes", "-l", "nvidia.com/gpu.present=true", "-o", "json"])
         items = (nodes or {}).get("items", []) if isinstance(nodes, dict) else []
-        ready_gpu_node = None
         for node in items:
-            status = node.get("status", {})
+            node_name = (node.get("metadata", {}) or {}).get("name")
+            status = node.get("status", {}) or {}
             allocatable = status.get("allocatable", {}) or {}
             gpu = allocatable.get("nvidia.com/gpu")
             conditions = status.get("conditions", []) or []
             is_ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
-            if is_ready and gpu and str(gpu) not in ("", "0"):
-                ready_gpu_node = node
-                break
-        if ready_gpu_node is not None:
-            driver = _probe_driver_version()
-            if driver is not None:
-                return driver
-            # GPU node Ready + allocatable but nvidia-smi not yet answering:
-            # keep waiting for the managed driver DaemonSet to finish.
-            log("  GPU node Ready + allocatable; waiting for the managed driver to answer nvidia-smi...")
-        else:
-            log("  waiting for a Ready GPU node with allocatable nvidia.com/gpu...")
+            if node_name and is_ready and gpu and str(gpu) not in ("", "0"):
+                if _gpu_device_plugin_pod_ready_on_node(node_name):
+                    # Provider-native GPU readiness satisfied. Read the driver
+                    # version best-effort from the managed pod (no image pull).
+                    return _probe_driver_version()
+        log(
+            "  waiting for a Ready GPU node with allocatable nvidia.com/gpu and a Ready "
+            "GKE-managed device-plugin pod..."
+        )
         label_gpu_nodes()
         time.sleep(poll_interval)
     raise LifecycleError(
         "transient",
-        "[bucket=transient] GPU two-gate preflight timed out: no GPU node reached "
-        "Ready with allocatable nvidia.com/gpu and a responding driver within "
-        f"{timeout}s.",
+        "[bucket=transient] GPU readiness preflight timed out: no GPU node reached "
+        "Ready with allocatable nvidia.com/gpu and a Ready GKE-managed device-plugin "
+        f"pod within {timeout}s.",
     )
 
 
@@ -1032,12 +1224,14 @@ def wait_two_gate_gpu_ready(*, timeout: int = 900, poll_interval: int = 15) -> s
 
 
 def _ready_gpu_node_names(label_selector: str) -> list[str]:
-    """Names of nodes matching ``label_selector`` that are Ready AND advertise
-    nonzero allocatable ``nvidia.com/gpu``.
+    """Names of nodes matching ``label_selector`` that satisfy all three
+    provider-native GPU-ready signals: Ready=True, nonzero allocatable
+    ``nvidia.com/gpu``, AND a Ready GKE-managed GPU device-plugin DaemonSet pod
+    on the node (the no-image-pull driver-ready signal).
 
     Scoped to ONE pool's own selector (``cloud.google.com/gke-nodepool=<pool>``),
     so the setup baseline GPU pool's nodes never satisfy THIS pool's readiness
-    count — the exact distinction the cluster-wide two-gate helper cannot make.
+    count — the exact distinction the cluster-wide readiness helper cannot make.
     """
     nodes = _kubectl_json(["get", "nodes", "-l", label_selector, "-o", "json"])
     items = (nodes or {}).get("items", []) if isinstance(nodes, dict) else []
@@ -1049,7 +1243,7 @@ def _ready_gpu_node_names(label_selector: str) -> list[str]:
         gpu = allocatable.get("nvidia.com/gpu")
         conditions = status.get("conditions", []) or []
         is_ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
-        if name and is_ready and gpu and str(gpu) not in ("", "0"):
+        if name and is_ready and gpu and str(gpu) not in ("", "0") and _gpu_device_plugin_pod_ready_on_node(name):
             ready.append(name)
     return ready
 
@@ -1110,9 +1304,10 @@ def wait_gpu_pool_ready_and_bridge(
     GPU pool could already satisfy a cluster-wide gate while THIS test pool is
     still unregistered or driver-less, so a cluster-wide gate would let the create
     step emit success before the new nodes are Ready or discoverable — the exact
-    false-success the review flagged. Any timeout, labeling error, missing node,
-    or readback mismatch RAISES so the create step's success stays false and the
-    released GPU checks never run against an unready or undiscoverable test pool.
+    false-success this pool-scoped gate prevents. A timeout, labeling error,
+    missing node, or readback mismatch RAISES so the create step's success stays
+    false and the released GPU checks never run against an unready or
+    undiscoverable test pool.
     """
     if expected_count <= 0:
         raise LifecycleError(
@@ -1146,54 +1341,48 @@ def wait_gpu_pool_ready_and_bridge(
     return ready_names
 
 
-_DRIVER_PROBE_IMAGE = "nvidia/cuda:12.4.1-base-ubuntu22.04"
+def _probe_driver_version(*, timeout: int = 45) -> str | None:
+    """Best-effort read of the GPU driver version from the ALREADY-RUNNING
+    GKE-managed GPU device-plugin DaemonSet pod (``kubectl exec nvidia-smi``).
 
-
-def _probe_driver_version(*, timeout: int = 180) -> str | None:
-    """Run nvidia-smi in a short-lived GPU pod; return the driver version string,
-    or None if it can't be parsed. Same nvidia-smi signal K8sDriverVersionCheck
-    uses — never a label install-mode literal. A plain nvidia.com/gpu pod under
-    GKE's default runtime already gets GPU access (no runtimeClassName needed).
-    The full pod spec (GPU limit + command) is authoritative via --overrides.
+    This is provider-native and pulls NO new image: it execs into the managed
+    driver container (the host driver install dir is mounted in), reading the
+    SAME nvidia-smi ``driver_version`` signal K8sDriverVersionCheck uses — never a
+    label install-mode literal. Returns the version string, or None when it
+    cannot be read. driver_version is OPTIONAL inventory (K8sDriverVersionCheck
+    skips on empty), so a failed read leaves it unset rather than blocking
+    anything — the mandatory readiness gate never depends on it or on a
+    public-registry CUDA image pull.
     """
-    pod = f"isv-drvprobe-{run_scope_id()}-{secrets.token_hex(2)}"
-    overrides = json.dumps(
-        {
-            "apiVersion": "v1",
-            "spec": {
-                "restartPolicy": "Never",
-                "containers": [
-                    {
-                        "name": pod,
-                        "image": _DRIVER_PROBE_IMAGE,
-                        "command": ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
-                        "resources": {"limits": {"nvidia.com/gpu": "1"}},
-                    }
+    gpu_nodes = _kubectl_json(["get", "nodes", "-l", "nvidia.com/gpu.present=true", "-o", "json"])
+    items = (gpu_nodes or {}).get("items", []) if isinstance(gpu_nodes, dict) else []
+    for node in items:
+        node_name = (node.get("metadata", {}) or {}).get("name")
+        if not node_name:
+            continue
+        pod = _gpu_device_plugin_pod_ready_on_node(node_name)
+        if not pod:
+            continue
+        for smi in _MANAGED_NVIDIA_SMI_PATHS:
+            rc, out = kubectl(
+                [
+                    "exec",
+                    pod,
+                    "-n",
+                    _GPU_DEVICE_PLUGIN_NS,
+                    "--",
+                    smi,
+                    "--query-gpu=driver_version",
+                    "--format=csv,noheader",
                 ],
-            },
-        }
-    )
-    rc, out = kubectl(
-        [
-            "run",
-            pod,
-            "--restart=Never",
-            "--rm",
-            "-i",
-            "--image=" + _DRIVER_PROBE_IMAGE,
-            f"--overrides={overrides}",
-        ],
-        timeout=timeout,
-        echo=False,
-    )
-    # Best-effort cleanup in case --rm did not fire (e.g. attach timed out).
-    kubectl(["delete", "pod", pod, "--ignore-not-found", "--force", "--grace-period=0"], timeout=60, echo=False)
-    if rc != 0:
-        return None
-    for line in out.splitlines():
-        line = line.strip()
-        if re.match(r"^\d+\.\d+", line):
-            return line
+                timeout=timeout,
+                echo=False,
+            )
+            if rc == 0:
+                for line in out.splitlines():
+                    line = line.strip()
+                    if re.match(r"^\d+\.\d+", line):
+                        return line
     return None
 
 
@@ -1202,6 +1391,7 @@ def gather_inventory(
     *,
     driver_version: str | None = None,
     api_endpoint: str | None = None,
+    unauthorized_probe_cmd: str = "",
 ) -> dict[str, Any]:
     """Observe the live cluster via kubectl and build the kubernetes/csi blocks.
 
@@ -1264,12 +1454,13 @@ def gather_inventory(
         "gpu_resource_name": "nvidia.com/gpu",
         "cluster_autoscaler_namespace": "kube-system",
         "cluster_autoscaler_deployment": "cluster-autoscaler",
-        # Operator override for the outside-vantage API-ACL probe: when
-        # GCP_K8S_UNAUTHORIZED_PROBE_CMD is set, the suite feeds it into
-        # K8sApiNetworkAclCheck.commands.unauthorized_probe and the check
-        # enforces. Empty (the default) keeps the check on its safe
-        # structured-skip — the override activates the probe, never weakens it.
-        "unauthorized_probe_cmd": os.environ.get("GCP_K8S_UNAUTHORIZED_PROBE_CMD", ""),
+        # Outside-vantage API-ACL probe, already RENDERED against this run's
+        # resolved api_endpoint by setup (from --unauthorized-probe-template).
+        # The suite feeds it into K8sApiNetworkAclCheck.commands.unauthorized_probe
+        # and the check enforces the block. Empty (the default sentinel normalized
+        # to absence) keeps the check on its safe structured-skip — the probe is
+        # only ever ACTIVATED, never weakened.
+        "unauthorized_probe_cmd": unauthorized_probe_cmd,
         # The reviewed cluster's normalized API server URL (resolve_api_endpoint,
         # from the installed kubeconfig or the GKE API). The suite binds it to
         # K8sApiNetworkAclCheck.api_endpoint so an enabled unauthorized_probe is
@@ -1280,16 +1471,59 @@ def gather_inventory(
         "api_endpoint": api_endpoint or "",
     }
 
-    # CSI: empty unless the operator names a StorageClass via K8S_CSI_* env; the
-    # CSI checks structured-skip on empty strings rather than fail.
+    # CSI: block_storage_class is the explicit operator choice (K8S_CSI_BLOCK_SC)
+    # when set, otherwise a deterministically-discovered live pd.csi.storage.gke.io
+    # StorageClass so the block-storage checks execute against a real GKE class.
+    # shared_fs / nfs / static fields stay explicit K8S_CSI_* capability inputs;
+    # an empty value makes those checks structured-skip rather than fail.
     csi = {
-        "block_storage_class": os.environ.get("K8S_CSI_BLOCK_SC", ""),
+        "block_storage_class": _resolve_block_storage_class(),
         "shared_fs_storage_class": os.environ.get("K8S_CSI_SHARED_FS_SC", ""),
         "nfs_storage_class": os.environ.get("K8S_CSI_NFS_SC", ""),
         "static_volume_handle": "",
         "static_driver_name": "",
     }
     return {"kubernetes": kubernetes, "csi": csi}
+
+
+# GKE Persistent Disk CSI provisioner — the StorageClass provisioner the block
+# checks (storage-types / quota / dynamic-provisioning) exercise on GKE.
+_GKE_PD_CSI_PROVISIONER = "pd.csi.storage.gke.io"
+
+
+def _resolve_block_storage_class() -> str:
+    """Resolve the CSI block StorageClass for the block-storage checks.
+
+    A non-empty K8S_CSI_BLOCK_SC is the explicit operator choice and wins. Else
+    query the live cluster for pd.csi.storage.gke.io StorageClasses and choose
+    deterministically: prefer the default-annotated class, then `standard-rwo`,
+    then the lexicographically first match. A successful query with no matching
+    class returns "" (the block checks then honestly structured-skip); only a
+    failed query is an inventory error (RAISES), never a silent empty that would
+    masquerade as "no class exists"."""
+    explicit = os.environ.get("K8S_CSI_BLOCK_SC", "").strip()
+    if explicit:
+        return explicit
+    data = _kubectl_json_required(["get", "storageclass", "-o", "json"], "StorageClass inventory")
+    items = data.get("items", []) if isinstance(data, dict) else []
+    candidates: list[str] = []
+    default_names: list[str] = []
+    for sc in items:
+        if sc.get("provisioner") != _GKE_PD_CSI_PROVISIONER:
+            continue
+        meta = sc.get("metadata", {}) or {}
+        name = meta.get("name")
+        if not name:
+            continue
+        candidates.append(name)
+        annotations = meta.get("annotations", {}) or {}
+        if annotations.get("storageclass.kubernetes.io/is-default-class") == "true":
+            default_names.append(name)
+    if default_names:
+        return sorted(default_names)[0]
+    if "standard-rwo" in candidates:
+        return "standard-rwo"
+    return sorted(candidates)[0] if candidates else ""
 
 
 # --------------------------------------------------------------------------- #

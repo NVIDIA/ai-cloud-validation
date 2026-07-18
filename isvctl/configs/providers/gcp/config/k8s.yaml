@@ -50,13 +50,15 @@ commands:
     phases: ["setup", "test", "teardown"]
     steps:
       # Provision the primary cluster (google_container_cluster + system pool +
-      # baseline GPU pool), install the kubeconfig, bridge the nvidia
-      # RuntimeClass + GPU node labels, gate on the two-gate GPU preflight, then
-      # emit inventory observed live via kubectl. Worst-case internal wait stack:
-      # GPU capacity preflight (~3 zones * ~270s = 810s) + cluster+GPU-pool
-      # terraform apply (<=2000s) + kubeconfig (<=180s) + RuntimeClass (<=60s) +
-      # two-gate GPU ready (<=900s) + inventory nvidia-smi pod + reads (<=300s)
-      # ~= 4250s; 4500s is margin over that sum.
+      # baseline GPU pool), install the kubeconfig, verify the live VPC, bridge
+      # the nvidia RuntimeClass + GPU node labels, gate on the provider-native
+      # GPU readiness signals, then emit inventory observed live via kubectl.
+      # Worst-case internal wait stack: GPU capacity preflight (~3 zones *
+      # ~270s = 810s) + cluster+GPU-pool terraform apply (<=3600s, must exceed
+      # the google provider's 40m/30m create timeouts) + kubeconfig (<=180s) +
+      # network verify + RuntimeClass (<=180s) + GPU readiness gate (<=900s) +
+      # inventory reads (<=300s) ~= 5970s; 6000s is margin over that sum, and it
+      # exceeds the inner apply budget (never outer < inner).
       - name: setup
         phase: setup
         command: "python3 ../scripts/k8s/setup.py"
@@ -79,7 +81,16 @@ commands:
           - "{{gpu_node_count}}"
           - "--gpu-node-locations"
           - "{{gpu_node_locations}}"
-        timeout: 4500
+          # VPC shared by the cluster + the baseline GPU capacity-preflight MIG.
+          - "--network"
+          - "{{network}}"
+          # API-ACL capability pair (sentinel "none" -> absence in setup): enable
+          # master_authorized_networks and bind the rendered outside-vantage probe.
+          - "--authorized-cidrs"
+          - "{{authorized_cidrs}}"
+          - "--unauthorized-probe-template"
+          - "{{unauthorized_probe_template}}"
+        timeout: 6000
 
       # K8S26-01: prove a second GKE cluster coexists in the SAME VPC network as
       # the primary (native on GKE). Gated by requires_available_validations, so
@@ -126,8 +137,10 @@ commands:
       # completion gate waits for THIS pool's nodes to be Ready with allocatable
       # nvidia.com/gpu, then bridges + reads back nvidia.com/gpu.present=true on
       # them (any timeout/labeling error/readback miss fails the step). Worst-case:
-      # GPU capacity preflight (~810s) + terraform apply (<=1500s) + kubeconfig
-      # (<=180s) + pool readiness+bridge gate (<=360s) ~= 2850s; 3000s is margin.
+      # GPU capacity preflight (~810s) + terraform apply (<=3000s, must exceed the
+      # google provider's 30m node-pool create timeout) + kubeconfig (<=180s) +
+      # pool readiness+bridge gate (<=360s) ~= 4350s; 4500s is margin and exceeds
+      # the inner apply budget (never outer < inner).
       - name: create_test_gpu_node_pool
         phase: setup
         command: "python3 ../scripts/k8s/create_node_pool.py"
@@ -147,7 +160,31 @@ commands:
           - "{{gpu_node_locations}}"
           - "--labels-json"
           - '{"isv.ncp.validation/workload":"gpu-compute"}'
-        timeout: 3000
+        timeout: 4500
+
+      # Throwaway CPU pool that exists ONLY for the delete proof (K8S06-03):
+      # created here in setup, removed in the test phase by delete_test_node_pool,
+      # with a teardown safety net (destroy_test_delete_node_pool). Its own
+      # name-derived tfstate isolates it from the CPU/GPU validation pools, so no
+      # other check depends on it. Stamped with the stable isv.ncp.validation/pool=test
+      # marker so K8sNodeCountCheck's exclude_label_selector keeps it out of the
+      # baseline count. Worst-case: terraform apply (<=1500s) + output reads ~= 1550s.
+      - name: create_test_delete_node_pool
+        phase: setup
+        command: "python3 ../scripts/k8s/create_node_pool.py"
+        output_schema: node_pool
+        args:
+          - "--pool-name"
+          - "isv-test-delete-pool"
+          - "--node-count"
+          - "1"
+          - "--machine-type"
+          - "{{cpu_machine_type}}"
+          - "--labels-json"
+          - '{"isv.ncp.validation/pool":"test"}'
+          - "--taints-json"
+          - "[]"
+        timeout: 1800
 
       # Scale the SAME CPU pool (same pool name -> same tfstate) to a higher
       # count; terraform updates the node pool in place. Runs in the test phase
@@ -169,6 +206,19 @@ commands:
           - "--taints-json"
           - '[{"key":"isv.ncp.validation/dedicated","value":"test","effect":"NoSchedule"}]'
         timeout: 1800
+
+      # Delete the throwaway pool (K8S06-03) in the TEST phase so the matching
+      # K8sNodePoolCheck observes its selector reach zero nodes after the create
+      # check asserted it. NO {{teardown_flag}} here: this is a functional test
+      # action that must run even when GCP_K8S_SKIP_TEARDOWN=true, not a teardown
+      # cleanup. Worst-case: terraform destroy (<=1200s).
+      - name: delete_test_node_pool
+        phase: test
+        command: "python3 ../scripts/k8s/destroy_node_pool.py"
+        args:
+          - "--pool-name"
+          - "isv-test-delete-pool"
+        timeout: 1500
 
       # Teardown order: destroy both test node pools before the cluster teardown.
       # Exact-ownership via the tfstate derived from the run-scoped pool name.
@@ -206,6 +256,19 @@ commands:
           - "isv-gke-secondary"
           - "{{teardown_flag}}"
         timeout: 1800
+
+      # Idempotent safety net for the throwaway delete-proof pool in case the
+      # test-phase delete_test_node_pool did not run (already-absent state is
+      # success). {{teardown_flag}} forwards a preservation request in lockstep
+      # with the other destroys. Worst-case: terraform destroy (<=1200s).
+      - name: destroy_test_delete_node_pool
+        phase: teardown
+        command: "python3 ../scripts/k8s/destroy_node_pool.py"
+        args:
+          - "--pool-name"
+          - "isv-test-delete-pool"
+          - "{{teardown_flag}}"
+        timeout: 1500
 
       # Reclaim run PVC-backed PDs, destroy the primary cluster, backstop any
       # raced PD by this run's cluster label AND any leftover GPU-preflight probe
@@ -247,6 +310,25 @@ tests:
     # to the GCP_K8S_LOCATION value (never empty in a live run, since location is
     # required) so the `--gpu-node-locations` value token is never dropped.
     gpu_node_locations: "{{ env.GCP_K8S_GPU_ZONES | default(env.GCP_K8S_LOCATION | default('', true), true) }}"
+
+    # OPTIONAL VPC name or self-link shared by the GKE cluster and every standalone
+    # GPU capacity-preflight MIG. Unset/blank -> `default` (projects that retain the
+    # auto-created default VPC). Custom-VPC-only projects MUST set GCP_K8S_NETWORK;
+    # the test GPU pool reads the primary cluster's Terraform network output so its
+    # capacity probe never drifts to another VPC. Blank-sensitive default.
+    network: "{{env.GCP_K8S_NETWORK | default('default', true)}}"
+
+    # OPTIONAL API-ACL capability pair. authorized_cidrs is a comma-separated list of
+    # operator-approved CIDRs allowed to reach the GKE control-plane public endpoint;
+    # unauthorized_probe_template is an outside-vantage command template that MUST
+    # contain the literal {api_endpoint}. Each renders the non-empty sentinel "none"
+    # when its env var is unset/blank (the arg renderer drops empty value tokens);
+    # setup normalizes "none" back to absence. When authorized_cidrs is set, setup
+    # enables master_authorized_networks_config and rejects world-open 0.0.0.0/0 / ::/0.
+    # K8sApiNetworkAclCheck is substantive only when BOTH are configured; otherwise it
+    # honestly structured-skips.
+    authorized_cidrs: "{{env.GCP_K8S_AUTHORIZED_CIDRS | default('none', true)}}"
+    unauthorized_probe_template: "{{env.GCP_K8S_UNAUTHORIZED_PROBE_CMD | default('none', true)}}"
 
     # OPTIONAL. GCP_K8S_SKIP_TEARDOWN=true -> preserve the WHOLE run (primary
     # cluster + both test node pools + secondary cluster): --skip-destroy is
@@ -311,15 +393,19 @@ tests:
         # (300s) — so bump to 900s so a cold image pull completes.
         K8sGpuStressWorkload:
           timeout: 900
-
-  # STOPGAP exclusion (NOT a GKE gap — GKE runs NIM fine): the released NIM
-  # workloads never cap max_model_len, so llama-3.2-3b's default 128K context
-  # overflows a <=24GB GPU (the L4 default) and the vLLM engine fails to start.
-  # This is an upstream NIM-workload limitation seen on every NCP, not a GKE
-  # defect. The 1B sibling K8sNimHelmWorkload-1b is KEPT (its KV cache fits
-  # 24GB). REMOVE once the NIM workloads cap max_model_len, or on a >24GB GPU
-  # (a2/A100).
-  exclude:
-    tests:
-      - K8sNimHelmWorkload-3b
-      - K8sNimInferenceWorkload
+        # The baseline + validation GPU test pools provide two GPU nodes. The
+        # suite otherwise derives this from only the baseline pool (normally 1);
+        # pin it to 2 so the MPIJob spans both. (The released multi-node NCCL
+        # workload structured-skips gracefully when the Kubeflow MPI Operator CRD
+        # is absent — GKE does not install it by default.)
+        K8sNcclMultiNodeWorkload:
+          nodes: 2
+        # Both 3B NIM paths cap the vLLM KV-cache token budget so llama-3.2-3b's
+        # default 128K context fits the 24 GB L4 profile (the shared workloads
+        # forward nim_max_model_len as NIM_MAX_MODEL_LEN). A2/A100 memory is not
+        # required solely for this bounded-context check; the 1B sibling
+        # K8sNimHelmWorkload-1b needs no cap.
+        K8sNimInferenceWorkload:
+          nim_max_model_len: 8192
+        K8sNimHelmWorkload-3b:
+          nim_max_model_len: 8192

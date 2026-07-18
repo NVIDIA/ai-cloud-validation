@@ -57,6 +57,18 @@ variable "subnetwork" {
   default     = ""
 }
 
+variable "master_authorized_cidrs" {
+  description = <<-EOT
+    Operator-approved CIDRs allowed to reach the GKE control-plane public
+    endpoint (GKE authorized networks). Empty list -> the
+    master_authorized_networks_config block is omitted (endpoint open). The stub
+    validates every entry as a non-world-open CIDR before threading it here, so a
+    var-less destroy defaults it safely.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "system_machine_type" {
   description = "node_config.machine_type for the small system (CPU) node pool."
   type        = string

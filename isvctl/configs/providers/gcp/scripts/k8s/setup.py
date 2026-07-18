@@ -44,7 +44,6 @@ AWS reference: ../../aws/scripts/eks/setup.sh
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -55,14 +54,18 @@ import k8s_lib as k8s
 PLATFORM = "kubernetes"
 
 # Internal wait budgets (all bounded; the config step timeout is headroom over
-# their worst-case SUM, not their product):
-#   preflight probe (~3 zones * ~270s)     ~= 810s
-#   cluster + baseline GPU pool apply       <= 2000s
+# their worst-case SUM, not their product). The apply budget MUST exceed the
+# google provider's own cluster/node-pool create timeouts (40m cluster / 30m
+# pool) so a definitive GKE terminal error surfaces instead of the wrapper
+# killing a still-running create — see the knowledge TIMEOUT LAYERING rule.
+#   preflight probe (~3 zones * ~270s)     ~=  810s
+#   cluster + baseline GPU pool apply       <= 3600s
 #   kubeconfig install                      <=  180s
-#   RuntimeClass apply                      <=   60s
-#   two-gate GPU ready                      <=  900s
-#   inventory (nvidia-smi pod + reads)      <=  300s
-_APPLY_TIMEOUT = 2000
+#   network verify + RuntimeClass apply     <=  180s
+#   GPU readiness gate (provider-native)    <=  900s
+#   inventory (kubectl reads + pod exec)    <=  300s
+# Worst-case serial sum ~= 5970s -> config setup step timeout 6000s.
+_APPLY_TIMEOUT = 3600
 _TWO_GATE_TIMEOUT = 900
 
 
@@ -83,6 +86,21 @@ def main() -> int:
         default="",
         help="Ordered comma-separated candidate zones for the GPU capacity preflight (empty -> the location zone).",
     )
+    parser.add_argument(
+        "--network",
+        default="default",
+        help="VPC network shared by the cluster and the GPU capacity-preflight MIG (blank/'none' -> default).",
+    )
+    parser.add_argument(
+        "--authorized-cidrs",
+        default="",
+        help="Comma-separated GKE control-plane authorized CIDRs; blank/'none' sentinel -> disabled.",
+    )
+    parser.add_argument(
+        "--unauthorized-probe-template",
+        default="",
+        help="Outside-vantage probe template containing {api_endpoint}; blank/'none' sentinel -> disabled.",
+    )
     parser.add_argument("--system-node-count", type=int, default=1, help="System (CPU) pool node count.")
     args = parser.parse_args()
 
@@ -91,8 +109,19 @@ def main() -> int:
         project = k8s.resolve_project_id()
         cluster_name = k8s.scoped_name(args.cluster_name)
 
+        # Resolve the operator network / API-ACL capability inputs. The provider
+        # config renders the non-empty "none" sentinel (so the arg renderer never
+        # drops an empty value token) for the two optional API-ACL inputs; setup
+        # normalizes each back to absence. authorized_cidrs rejects world-open
+        # ranges (fail closed, never a silent ACL bypass).
+        network = k8s.normalize_network(args.network)
+        authorized_cidrs = k8s.normalize_authorized_cidrs(args.authorized_cidrs)
+        probe_template = k8s.normalize_sentinel(args.unauthorized_probe_template)
+
         # 1) Pick the GPU zone with a capacity preflight BEFORE the cluster apply
-        #    (a GKE node-pool CREATE op cannot be cancelled).
+        #    (a GKE node-pool CREATE op cannot be cancelled). The probe runs on the
+        #    operator-selected VPC so it proves the shape is placeable in the
+        #    cluster's actual substrate.
         candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, args.location)
         gpu_zone = k8s.select_gpu_zone(
             project,
@@ -100,18 +129,23 @@ def main() -> int:
             args.gpu_machine_type,
             args.gpu_accelerator_type,
             args.gpu_accelerator_count,
+            network=network,
         )
 
         # 2) terraform apply the cluster + system pool + baseline GPU pool. Pin the
         #    system pool to ONE zone derived from the location (like the GPU pool)
         #    so a REGIONAL cluster does not multiply system node_count across every
         #    region zone (node_count is PER-ZONE); a zonal location is unchanged.
+        #    network attaches the cluster; master_authorized_cidrs enables GKE
+        #    authorized networks (empty -> block omitted, public endpoint open).
         k8s.terraform_init(k8s.CLUSTER_TF_DIR)
         tf_vars = {
             "project": project,
             "cluster_name": cluster_name,
             "location": args.location,
             "kube_version": args.kube_version,
+            "network": network,
+            "master_authorized_cidrs": authorized_cidrs,
             "system_machine_type": args.cpu_machine_type,
             "system_node_count": args.system_node_count,
             "system_node_locations": [k8s.zone_for_location(args.location)],
@@ -126,16 +160,23 @@ def main() -> int:
         # 3) Install the kubeconfig for ambient kubectl.
         k8s.install_kubeconfig(cluster_name, args.location, project)
 
-        # 3a) Resolve the reviewed cluster's API server URL and bind the ACL
-        #     probe to it. K8sApiNetworkAclCheck only runs its target-origin and
-        #     kubeconfig-consistency guards when api_endpoint is set; without it
-        #     an enabled unauthorized_probe that trivially fails against a typo,
-        #     stale, or unrelated host would be misread as "ACL enforced". When
-        #     the operator has enabled the probe (GCP_K8S_UNAUTHORIZED_PROBE_CMD),
-        #     fail CLOSED if the endpoint cannot be resolved rather than emit a
-        #     security PASS that never probed this cluster.
+        # 3a) Read + verify the live cluster network/subnetwork (fail if it does
+        #     not match the operator-selected VPC), so success is derived from real
+        #     state, not just the Terraform input.
+        observed_network, observed_subnetwork = k8s.verify_and_read_network(
+            cluster_name, args.location, project, network
+        )
+
+        # 3b) Resolve the reviewed cluster's API server URL and bind the ACL probe
+        #     to it. K8sApiNetworkAclCheck only runs its target-origin and
+        #     kubeconfig-consistency guards when api_endpoint is set; without it an
+        #     enabled unauthorized_probe that trivially fails against a typo, stale,
+        #     or unrelated host would be misread as "ACL enforced". When the
+        #     operator has enabled the probe, fail CLOSED if the endpoint cannot be
+        #     resolved rather than emit a security PASS that never probed this
+        #     cluster. render_unauthorized_probe substitutes {api_endpoint}.
         api_endpoint = k8s.resolve_api_endpoint(cluster_name, args.location, project)
-        if os.environ.get("GCP_K8S_UNAUTHORIZED_PROBE_CMD", "").strip() and not api_endpoint:
+        if probe_template and not api_endpoint:
             raise k8s.LifecycleError(
                 "config_error",
                 "[bucket=config_error] GCP_K8S_UNAUTHORIZED_PROBE_CMD is set but the "
@@ -145,12 +186,15 @@ def main() -> int:
                 "could report a false security PASS. Verify kubectl/gcloud access "
                 "to the cluster and retry.",
             )
+        unauthorized_probe_cmd = k8s.render_unauthorized_probe(probe_template, api_endpoint or "")
 
         # 4) Honest passthrough RuntimeClass + GPU node labeling bridges.
         k8s.apply_nvidia_runtimeclass()
 
-        # 5) Two-gate GPU preflight BEFORE emitting inventory (returns the real
-        #    nvidia-smi driver version, or None to leave it unset).
+        # 5) Provider-native GPU readiness gate BEFORE emitting inventory (node
+        #    Ready + allocatable nvidia.com/gpu + Ready managed device-plugin pod;
+        #    no image pull). Returns the real nvidia-smi driver version read from
+        #    the managed pod, or None to leave it unset.
         driver_version = k8s.wait_two_gate_gpu_ready(timeout=_TWO_GATE_TIMEOUT)
 
         # 6) Observe inventory live via kubectl. Required node/GPU reads raise on
@@ -159,6 +203,7 @@ def main() -> int:
             cluster_name,
             driver_version=driver_version,
             api_endpoint=api_endpoint,
+            unauthorized_probe_cmd=unauthorized_probe_cmd,
         )
 
         k8s_block = inventory["kubernetes"]
@@ -174,6 +219,11 @@ def main() -> int:
                 # of re-deriving it from a partial GOOGLE_CLOUD_PROJECT/gcloud-config
                 # chain that omits GCLOUD_PROJECT + ADC.
                 "project": project,
+                # Live cluster network/subnetwork observed + verified against the
+                # operator-selected VPC (top-level outputs; the shared-VPC step also
+                # derives its network from the primary Terraform state).
+                "network": observed_network,
+                "subnetwork": observed_subnetwork,
                 "gpu_zone": gpu_zone,
                 # Top-level cluster-schema fields (mirror the EKS oracle): the
                 # `cluster` output schema requires a top-level integer node_count.

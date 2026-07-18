@@ -100,6 +100,22 @@ resource "google_container_cluster" "primary" {
   # network_policy block, which conflicts with ADVANCED_DATAPATH).
   datapath_provider = "ADVANCED_DATAPATH"
 
+  # GKE authorized networks: restrict the control-plane PUBLIC endpoint to the
+  # operator-approved CIDRs when supplied (K8sApiNetworkAclCheck capability).
+  # Empty list -> block omitted (endpoint open); the stub rejects world-open
+  # 0.0.0.0/0 before a value ever reaches here.
+  dynamic "master_authorized_networks_config" {
+    for_each = length(var.master_authorized_cidrs) > 0 ? [1] : []
+    content {
+      dynamic "cidr_blocks" {
+        for_each = var.master_authorized_cidrs
+        content {
+          cidr_block = cidr_blocks.value
+        }
+      }
+    }
+  }
+
   # Control-plane logs to Cloud Logging (K8sControlPlaneLogsCheck reads these
   # per-component via `gcloud logging read`).
   logging_config {
