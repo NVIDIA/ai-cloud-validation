@@ -57,7 +57,8 @@ PLATFORM = "kubernetes"
 # their worst-case SUM, not their product). The apply budget MUST exceed the
 # google provider's own cluster/node-pool create timeouts (40m cluster / 30m
 # pool) so a definitive GKE terminal error surfaces instead of the wrapper
-# killing a still-running create — see the knowledge TIMEOUT LAYERING rule.
+# killing a still-running create; the config step timeout is in turn larger than
+# this inner apply budget (never an outer step timeout shorter than the inner).
 #   preflight probe (~3 zones * ~270s)     ~=  810s
 #   cluster + baseline GPU pool apply       <= 3600s
 #   kubeconfig install                      <=  180s

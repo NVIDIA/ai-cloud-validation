@@ -59,8 +59,9 @@ PLATFORM = "kubernetes"
 # preflight (GPU only) + apply + kubeconfig + pool readiness+bridge worst-case sum.
 # A CPU pool applies quickly. A GPU pool's apply MUST exceed the google provider's
 # own node-pool create timeout (30m default) so a definitive GKE terminal error
-# surfaces instead of the wrapper killing a still-running create — see the
-# knowledge TIMEOUT LAYERING rule. Both stay under their config step timeout.
+# surfaces instead of the wrapper killing a still-running create. Both stay under
+# their config step timeout (never an outer step timeout shorter than this inner
+# apply timeout).
 _APPLY_TIMEOUT = 1500
 _GPU_APPLY_TIMEOUT = 3000
 
