@@ -119,26 +119,61 @@ def main() -> int:
         authorized_cidrs = k8s.normalize_authorized_cidrs(args.authorized_cidrs)
         probe_template = k8s.normalize_sentinel(args.unauthorized_probe_template)
 
-        # 1) Pick the GPU zone with a capacity preflight BEFORE the cluster apply
-        #    (a GKE node-pool CREATE op cannot be cancelled). The probe runs on the
-        #    operator-selected VPC so it proves the shape is placeable in the
-        #    cluster's actual substrate.
-        candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, args.location)
-        gpu_zone = k8s.select_gpu_zone(
-            project,
-            candidates,
-            args.gpu_machine_type,
-            args.gpu_accelerator_type,
-            args.gpu_accelerator_count,
-            network=network,
-        )
+        # The harness preserves every run-scoped resource (GCP_K8S_SKIP_TEARDOWN),
+        # so an earlier per-step worker in THIS run may already have provisioned the
+        # run-scoped cluster. A fresh worktree's local state is empty, so a blind
+        # `terraform apply` would re-CREATE it and collide on 409 "already exists".
+        # Detect the existing cluster and ADOPT it below instead.
+        state_file = k8s.cluster_state_file()
+        cluster_in_state = k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary")
+        cluster_exists = cluster_in_state or k8s.gke_cluster_exists(cluster_name, args.location, project)
 
-        # 2) terraform apply the cluster + system pool + baseline GPU pool. Pin the
-        #    system pool to ONE zone derived from the location (like the GPU pool)
-        #    so a REGIONAL cluster does not multiply system node_count across every
-        #    region zone (node_count is PER-ZONE); a zonal location is unchanged.
-        #    network attaches the cluster; master_authorized_cidrs enables GKE
-        #    authorized networks (empty -> block omitted, public endpoint open).
+        # 1) GPU zone. A FRESH create runs the capacity preflight BEFORE the cluster
+        #    apply (a GKE node-pool CREATE op cannot be cancelled). An ALREADY
+        #    provisioned cluster reuses its baseline GPU pool's ACTUAL zone so the
+        #    adopt/reconcile never drifts the pool onto a different zone (the probe
+        #    is non-deterministic). The probe runs on the operator-selected VPC so a
+        #    fresh create proves the shape is placeable in the cluster's substrate.
+        if cluster_exists:
+            gpu_zone = ""
+            if cluster_in_state:
+                try:
+                    gpu_zone = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, state_file, "gpu_zone")
+                except k8s.LifecycleError:
+                    gpu_zone = ""
+            if not gpu_zone:
+                gpu_zone = k8s.gke_node_pool_zone(cluster_name, f"{cluster_name}-gpu", args.location, project) or ""
+            if not gpu_zone:
+                # Cluster exists but its baseline GPU pool zone is unreadable (e.g. a
+                # partial prior create); fall back to the preflight so a genuine
+                # reconcile apply can still place the pool.
+                candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, args.location)
+                gpu_zone = k8s.select_gpu_zone(
+                    project,
+                    candidates,
+                    args.gpu_machine_type,
+                    args.gpu_accelerator_type,
+                    args.gpu_accelerator_count,
+                    network=network,
+                )
+        else:
+            candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, args.location)
+            gpu_zone = k8s.select_gpu_zone(
+                project,
+                candidates,
+                args.gpu_machine_type,
+                args.gpu_accelerator_type,
+                args.gpu_accelerator_count,
+                network=network,
+            )
+
+        # 2) Provision (fresh) or adopt (existing) the cluster + system pool +
+        #    baseline GPU pool. Pin the system pool to ONE zone derived from the
+        #    location (like the GPU pool) so a REGIONAL cluster does not multiply
+        #    system node_count across every region zone (node_count is PER-ZONE); a
+        #    zonal location is unchanged. network attaches the cluster;
+        #    master_authorized_cidrs enables GKE authorized networks (empty -> block
+        #    omitted, public endpoint open).
         k8s.terraform_init(k8s.CLUSTER_TF_DIR)
         tf_vars = {
             "project": project,
@@ -156,7 +191,42 @@ def main() -> int:
             "gpu_node_count": args.gpu_node_count,
             "gpu_node_locations": [gpu_zone],
         }
-        k8s.terraform_apply(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), tf_vars, timeout=_APPLY_TIMEOUT)
+        if cluster_exists:
+            # ADOPT the preserved run-scoped cluster AND its baseline system/GPU
+            # node pools. The harness keeps every run resource alive
+            # (GCP_K8S_SKIP_TEARDOWN), so a fresh worktree's empty local state — or a
+            # PARTIAL prior import that captured only the cluster — makes a normal
+            # `terraform apply` try to re-CREATE the already-live cluster/pools and
+            # collide on 409 "already exists". Import every managed resource the
+            # cloud has but local state lacks, then refresh-only to populate outputs
+            # WITHOUT a create/replace: a normal apply is unsafe on an imported
+            # cluster because the provider reads initial_node_count back as 0 after
+            # remove_default_node_pool and would force a full cluster REPLACE.
+            cluster_id = f"projects/{project}/locations/{args.location}/clusters/{cluster_name}"
+            if not cluster_in_state:
+                k8s.terraform_import(
+                    k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary", cluster_id, tf_vars
+                )
+            # The baseline pools are declared INSIDE the cluster module (no separate
+            # tfstate), so importing the cluster alone leaves them untracked and a
+            # later reconcile apply tries to CREATE the already-live pools (the
+            # observed 409). Import each pool the cloud has but local state lacks, by
+            # its terraform-derived name.
+            system_pool_name, gpu_pool_name = k8s.baseline_pool_names(cluster_name)
+            for address, pool_name in (
+                ("google_container_node_pool.system", system_pool_name),
+                ("google_container_node_pool.gpu", gpu_pool_name),
+            ):
+                if k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, address):
+                    continue
+                if not k8s.gke_node_pool_exists(cluster_name, pool_name, args.location, project):
+                    continue
+                pool_id = f"{cluster_id}/nodePools/{pool_name}"
+                k8s.terraform_import(k8s.CLUSTER_TF_DIR, state_file, address, pool_id, tf_vars)
+            k8s.terraform_refresh_only(k8s.CLUSTER_TF_DIR, state_file, tf_vars)
+        else:
+            # Fresh create (the cluster does not exist yet — nothing to adopt).
+            k8s.terraform_apply(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
 
         # 3) Install the kubeconfig for ambient kubectl.
         k8s.install_kubeconfig(cluster_name, args.location, project)
@@ -191,6 +261,14 @@ def main() -> int:
 
         # 4) Honest passthrough RuntimeClass + GPU node labeling bridges.
         k8s.apply_nvidia_runtimeclass()
+
+        # Strip the reserved isv.ncp.validation/pool marker from the baseline
+        # system / GPU nodes. terraform no longer sets it, but an ADOPTED
+        # (preserved) cluster still carries the old label on its live baseline
+        # nodes (adopt uses refresh-only). isvtest's CSI probe pods require that
+        # key to NOT exist on their target node, so a lingering baseline marker
+        # would make every CSI check unschedulable. No-op on a fresh cluster.
+        k8s.strip_baseline_pool_markers()
 
         # 5) Provider-native GPU readiness gate BEFORE emitting inventory (node
         #    Ready + allocatable nvidia.com/gpu + Ready managed device-plugin pod;

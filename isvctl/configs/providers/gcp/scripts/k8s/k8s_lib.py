@@ -149,6 +149,40 @@ def scoped_name(base: str) -> str:
     return f"{prefix}-{sid}"
 
 
+def _scoped_pool_name(cluster_name: str, role: str) -> str:
+    """RFC-1035 name of a node pool declared INSIDE a cluster terraform module.
+
+    Mirrors the ``locals`` derivation in terraform/main.tf and
+    terraform-shared-vpc-cluster/main.tf EXACTLY so the adopt paths can import
+    the pools that carry no separate tfstate. The common short-name case keeps
+    the familiar ``<cluster>-<role>`` spelling; an over-long cluster name (a long
+    direct --cluster-name override) falls back to the same trimmed
+    ``<base>-<role>-<sid>`` the terraform locals produce (both the run-id tail and
+    the role discriminator always survive), so the imported resource ids always
+    match the names terraform manages. The terraform ``_*_base_keep`` reserves
+    ``len(role) + 2`` chars for the ``-<role>-<sid>`` suffix — 5 for a 3-char role
+    (sys/gpu), 4 for a 2-char role (np) — which this single formula reproduces.
+    """
+    np_max = 40
+    sid = cluster_name.rsplit("-", 1)[-1] if "-" in cluster_name else cluster_name
+    suffix = f"-{sid}"
+    base = cluster_name[: -len(suffix)] if cluster_name.endswith(suffix) else cluster_name
+    keep = max(1, np_max - len(sid) - (len(role) + 2))
+    pool_base = base[: min(len(base), keep)]
+    short = f"{cluster_name}-{role}"
+    return short if len(short) <= np_max else f"{pool_base}-{role}-{sid}"
+
+
+def baseline_pool_names(cluster_name: str) -> tuple[str, str]:
+    """(system, gpu) baseline node-pool names for the primary cluster module."""
+    return _scoped_pool_name(cluster_name, "sys"), _scoped_pool_name(cluster_name, "gpu")
+
+
+def secondary_pool_name(cluster_name: str) -> str:
+    """Node-pool name for the secondary shared-VPC cluster module (role "np")."""
+    return _scoped_pool_name(cluster_name, "np")
+
+
 def state_file_for_pool(pool_name_scoped: str) -> str:
     """Local tfstate filename for a node pool, derived from its scoped name.
 
@@ -379,6 +413,94 @@ def terraform_destroy(
         )
 
 
+def terraform_state_has(module_dir: Path, state_file: str, address: str, *, timeout: int = 60) -> bool:
+    """True when ``address`` is already tracked in ``state_file``.
+
+    Decides whether a resource must be ADOPTED (imported) before apply. A fresh
+    per-step worktree starts with an EMPTY local state even though the harness may
+    have preserved the run-scoped resource that an earlier per-step worker in the
+    same run provisioned (GCP_K8S_SKIP_TEARDOWN keeps every run resource alive);
+    without adoption the apply re-CREATEs and collides on a 409 "already exists".
+    """
+    if not state_exists(module_dir, state_file):
+        return False
+    rc, out = _run(
+        ["terraform", "state", "list", f"-state={state_file}", address],
+        cwd=module_dir,
+        timeout=timeout,
+        echo=False,
+    )
+    return rc == 0 and address in out
+
+
+def terraform_import(
+    module_dir: Path,
+    state_file: str,
+    address: str,
+    resource_id: str,
+    tf_vars: dict[str, Any],
+    *,
+    timeout: int = 600,
+) -> bool:
+    """Import an EXISTING cloud resource into ``state_file`` so a later apply
+    reconciles it in place instead of colliding on a 409 "already exists".
+
+    Returns True on a successful import and False when the resource is genuinely
+    absent (a clean not-found), so the caller lets apply CREATE it. Any other
+    failure (auth / permission) RAISES a classified LifecycleError — a present but
+    unimportable resource must never be silently treated as absent.
+    """
+    env = _tf_env(tf_vars)
+    rc, out = _run(
+        ["terraform", "import", "-input=false", f"-state={state_file}", address, resource_id],
+        cwd=module_dir,
+        env=env,
+        timeout=timeout,
+    )
+    if rc == 0:
+        return True
+    bucket = _classify_cli_output(out)
+    if bucket == "not_found":
+        return False
+    raise LifecycleError(
+        bucket,
+        f"[bucket={bucket}] terraform import {address} <- {resource_id} failed in {module_dir.name}: {fold_tail(out)}",
+    )
+
+
+def terraform_refresh_only(
+    module_dir: Path,
+    state_file: str,
+    tf_vars: dict[str, Any],
+    *,
+    timeout: int = 600,
+) -> None:
+    """Reconcile state + recompute root-module outputs from live infrastructure
+    WITHOUT any create/modify/replace (`terraform apply -refresh-only`).
+
+    The adopt path uses this instead of a full apply for a freshly-imported
+    ``google_container_cluster``: the provider reads ``initial_node_count`` back
+    from the API as 0 (the default pool was removed at create), which differs from
+    the config's create-time value and would force a full cluster REPLACE under a
+    normal apply. refresh-only can only update state, never destroy/recreate the
+    live cluster, and it still populates the outputs the node-pool / shared-VPC
+    modules read via terraform_remote_state.
+    """
+    env = _tf_env(tf_vars)
+    rc, out = _run(
+        ["terraform", "apply", "-refresh-only", "-auto-approve", "-input=false", f"-state={state_file}"],
+        cwd=module_dir,
+        env=env,
+        timeout=timeout,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] terraform apply -refresh-only failed in {module_dir.name} (state={state_file}): {fold_tail(out)}",
+        )
+
+
 def terraform_output_raw(module_dir: Path, state_file: str, name: str) -> str:
     rc, out = _run(
         ["terraform", "output", f"-state={state_file}", "-raw", name],
@@ -449,6 +571,110 @@ def install_kubeconfig(cluster_name: str, location: str, project: str, *, timeou
             f"[bucket={bucket}] `gcloud container clusters get-credentials` failed "
             f"for {cluster_name} in {location}: {fold_tail(out)}",
         )
+
+
+def gke_cluster_exists(cluster_name: str, location: str, project: str, *, timeout: int = 120) -> bool:
+    """True when a GKE cluster with this run-scoped name already exists.
+
+    The run-scoped name uniquely identifies THIS run's cluster, so an existing one
+    is the cluster an earlier per-step worker in the run provisioned and the
+    harness preserved (GCP_K8S_SKIP_TEARDOWN); setup ADOPTS it instead of colliding
+    on create. A describe failure that is NOT a clean not-found RAISES — an
+    auth/permission error must never be misread as "absent, safe to create".
+    """
+    rc, out = gcloud(
+        [
+            "container",
+            "clusters",
+            "describe",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=value(name)",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc == 0:
+        return True
+    bucket = _classify_cli_output(out)
+    if bucket == "not_found":
+        return False
+    raise LifecycleError(
+        bucket,
+        f"[bucket={bucket}] could not determine whether GKE cluster {cluster_name} exists in {location}: {fold_tail(out)}",
+    )
+
+
+def gke_node_pool_exists(cluster_name: str, pool_name: str, location: str, project: str, *, timeout: int = 120) -> bool:
+    """True when the run-scoped node pool already exists on the cluster (adopt gate)."""
+    rc, out = gcloud(
+        [
+            "container",
+            "node-pools",
+            "describe",
+            pool_name,
+            "--cluster",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=value(name)",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc == 0:
+        return True
+    bucket = _classify_cli_output(out)
+    if bucket == "not_found":
+        return False
+    raise LifecycleError(
+        bucket,
+        f"[bucket={bucket}] could not determine whether node pool {pool_name} exists on {cluster_name}: {fold_tail(out)}",
+    )
+
+
+def gke_node_pool_zone(
+    cluster_name: str, pool_name: str, location: str, project: str, *, timeout: int = 120
+) -> str | None:
+    """Return the first zone an existing node pool runs in, or None if unreadable.
+
+    When ADOPTING an existing GPU pool the stub reuses its ACTUAL zone rather than
+    re-running the non-deterministic capacity preflight: handing a reconcile apply
+    a different node_locations would drift (potentially replace) the pool.
+    Best-effort — returns None so the caller can fall back; never raises.
+    """
+    rc, out = gcloud(
+        [
+            "container",
+            "node-pools",
+            "describe",
+            pool_name,
+            "--cluster",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=value(locations)",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        return None
+    # `value(locations)` renders the zone list joined by ';' (gcloud may also
+    # prepend a WARNING line); return the first zone-shaped token found.
+    for line in out.splitlines():
+        for token in re.split(r"[;,]", line):
+            token = token.strip()
+            if re.fullmatch(r"[a-z]+-[a-z0-9]+-[a-z]", token):
+                return token
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -1082,6 +1308,37 @@ def label_gpu_nodes(*, timeout: int = 120) -> None:
         log(f"warning: labeling GPU nodes returned rc={rc}: {fold_tail(out, limit=400)}")
 
 
+def strip_baseline_pool_markers(*, timeout: int = 60) -> None:
+    """Remove the reserved isv.ncp.validation/pool marker from BASELINE nodes.
+
+    isvtest's CSI probe pods pin (required nodeAffinity) to nodes where
+    ``isv.ncp.validation/pool`` DoesNotExist — they must stay off transient test
+    pools whose CSI node-plugin DaemonSet may not be Ready on a freshly joined
+    node. The baseline system / GPU pools must therefore NOT carry that key. The
+    terraform config no longer sets it, but a PRESERVED/adopted cluster still has
+    the old label baked into its live baseline nodes (setup adopts via
+    refresh-only, which never pushes the config change), which would leave every
+    CSI probe pod unschedulable (0/N nodes: node affinity mismatch). Strip it here
+    on every setup: select nodes that HAVE the marker with a NON-test value
+    (baseline) and drop it. Test pools (value=test) are untouched — the
+    K8sNodeCountCheck exclusion still depends on their marker — and a fresh
+    cluster (no baseline marker) matches nothing. Best-effort: a transient kubectl
+    error must not fail setup.
+    """
+    rc, out = kubectl(
+        [
+            "label",
+            "nodes",
+            "-l",
+            "isv.ncp.validation/pool,isv.ncp.validation/pool!=test",
+            "isv.ncp.validation/pool-",
+        ],
+        timeout=timeout,
+    )
+    if rc != 0:
+        log(f"warning: stripping baseline pool marker returned rc={rc}: {fold_tail(out, limit=400)}")
+
+
 # --------------------------------------------------------------------------- #
 # Two-gate GPU preflight + inventory                                          #
 # --------------------------------------------------------------------------- #
@@ -1407,13 +1664,23 @@ def gather_inventory(
     if driver_version is None:
         driver_version = _probe_driver_version()
 
-    nodes = _kubectl_json_required(["get", "nodes", "-o", "json"], "node inventory")
+    # Count only BASELINE nodes (exclude the transient test pools marked
+    # isv.ncp.validation/pool=test). The harness preserves run-scoped resources,
+    # so an ADOPTED cluster already carries THIS run's test-pool nodes at setup
+    # time; counting them would inflate node_count / GPU totals past what the
+    # released checks expect (they exclude pool=test on the LIVE side, so the
+    # setup baseline they compare against must exclude it too). The `!=test`
+    # selector also matches nodes with no pool marker, so a fresh cluster's
+    # baseline nodes are unaffected.
+    baseline_selector = "isv.ncp.validation/pool!=test"
+    nodes = _kubectl_json_required(["get", "nodes", "-l", baseline_selector, "-o", "json"], "node inventory")
     node_items = nodes.get("items", []) if isinstance(nodes, dict) else []
     node_count = len(node_items)
     node_names = [n.get("metadata", {}).get("name") for n in node_items]
 
     gpu_nodes = _kubectl_json_required(
-        ["get", "nodes", "-l", "nvidia.com/gpu.present=true", "-o", "json"], "GPU node inventory"
+        ["get", "nodes", "-l", f"nvidia.com/gpu.present=true,{baseline_selector}", "-o", "json"],
+        "GPU node inventory",
     )
     gpu_items = gpu_nodes.get("items", []) if isinstance(gpu_nodes, dict) else []
     gpu_node_count = len(gpu_items)
