@@ -160,9 +160,13 @@ resource "google_container_node_pool" "system" {
     machine_type = var.system_machine_type
     oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 
-    labels = {
-      "isv.ncp.validation/pool" = "system"
-    }
+    # NO isv.ncp.validation/pool label: that key is RESERVED by isvtest for
+    # transient test pools. Its CSI probe pods pin to nodes where the key
+    # DoesNotExist (to stay off freshly-joined test-pool nodes whose CSI
+    # node-plugin may not be Ready yet), so a baseline node carrying it would
+    # leave the probe pods unschedulable. Baseline pools need no marker — the
+    # only selector over this key is the K8sNodeCountCheck `pool=test` exclusion,
+    # which counts baseline nodes precisely because they lack it.
   }
 }
 
@@ -193,8 +197,8 @@ resource "google_container_node_pool" "gpu" {
       }
     }
 
-    labels = {
-      "isv.ncp.validation/pool" = "baseline-gpu"
-    }
+    # NO isv.ncp.validation/pool label (see the system pool): the key is reserved
+    # by isvtest for transient test pools, so the baseline GPU pool must not
+    # carry it.
   }
 }

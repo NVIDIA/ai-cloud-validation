@@ -149,6 +149,40 @@ def scoped_name(base: str) -> str:
     return f"{prefix}-{sid}"
 
 
+def _scoped_pool_name(cluster_name: str, role: str) -> str:
+    """RFC-1035 name of a node pool declared INSIDE a cluster terraform module.
+
+    Mirrors the ``locals`` derivation in terraform/main.tf and
+    terraform-shared-vpc-cluster/main.tf EXACTLY so the adopt paths can import
+    the pools that carry no separate tfstate. The common short-name case keeps
+    the familiar ``<cluster>-<role>`` spelling; an over-long cluster name (a long
+    direct --cluster-name override) falls back to the same trimmed
+    ``<base>-<role>-<sid>`` the terraform locals produce (both the run-id tail and
+    the role discriminator always survive), so the imported resource ids always
+    match the names terraform manages. The terraform ``_*_base_keep`` reserves
+    ``len(role) + 2`` chars for the ``-<role>-<sid>`` suffix — 5 for a 3-char role
+    (sys/gpu), 4 for a 2-char role (np) — which this single formula reproduces.
+    """
+    np_max = 40
+    sid = cluster_name.rsplit("-", 1)[-1] if "-" in cluster_name else cluster_name
+    suffix = f"-{sid}"
+    base = cluster_name[: -len(suffix)] if cluster_name.endswith(suffix) else cluster_name
+    keep = max(1, np_max - len(sid) - (len(role) + 2))
+    pool_base = base[: min(len(base), keep)]
+    short = f"{cluster_name}-{role}"
+    return short if len(short) <= np_max else f"{pool_base}-{role}-{sid}"
+
+
+def baseline_pool_names(cluster_name: str) -> tuple[str, str]:
+    """(system, gpu) baseline node-pool names for the primary cluster module."""
+    return _scoped_pool_name(cluster_name, "sys"), _scoped_pool_name(cluster_name, "gpu")
+
+
+def secondary_pool_name(cluster_name: str) -> str:
+    """Node-pool name for the secondary shared-VPC cluster module (role "np")."""
+    return _scoped_pool_name(cluster_name, "np")
+
+
 def state_file_for_pool(pool_name_scoped: str) -> str:
     """Local tfstate filename for a node pool, derived from its scoped name.
 
@@ -1274,6 +1308,37 @@ def label_gpu_nodes(*, timeout: int = 120) -> None:
         log(f"warning: labeling GPU nodes returned rc={rc}: {fold_tail(out, limit=400)}")
 
 
+def strip_baseline_pool_markers(*, timeout: int = 60) -> None:
+    """Remove the reserved isv.ncp.validation/pool marker from BASELINE nodes.
+
+    isvtest's CSI probe pods pin (required nodeAffinity) to nodes where
+    ``isv.ncp.validation/pool`` DoesNotExist — they must stay off transient test
+    pools whose CSI node-plugin DaemonSet may not be Ready on a freshly joined
+    node. The baseline system / GPU pools must therefore NOT carry that key. The
+    terraform config no longer sets it, but a PRESERVED/adopted cluster still has
+    the old label baked into its live baseline nodes (setup adopts via
+    refresh-only, which never pushes the config change), which would leave every
+    CSI probe pod unschedulable (0/N nodes: node affinity mismatch). Strip it here
+    on every setup: select nodes that HAVE the marker with a NON-test value
+    (baseline) and drop it. Test pools (value=test) are untouched — the
+    K8sNodeCountCheck exclusion still depends on their marker — and a fresh
+    cluster (no baseline marker) matches nothing. Best-effort: a transient kubectl
+    error must not fail setup.
+    """
+    rc, out = kubectl(
+        [
+            "label",
+            "nodes",
+            "-l",
+            "isv.ncp.validation/pool,isv.ncp.validation/pool!=test",
+            "isv.ncp.validation/pool-",
+        ],
+        timeout=timeout,
+    )
+    if rc != 0:
+        log(f"warning: stripping baseline pool marker returned rc={rc}: {fold_tail(out, limit=400)}")
+
+
 # --------------------------------------------------------------------------- #
 # Two-gate GPU preflight + inventory                                          #
 # --------------------------------------------------------------------------- #
@@ -1599,13 +1664,23 @@ def gather_inventory(
     if driver_version is None:
         driver_version = _probe_driver_version()
 
-    nodes = _kubectl_json_required(["get", "nodes", "-o", "json"], "node inventory")
+    # Count only BASELINE nodes (exclude the transient test pools marked
+    # isv.ncp.validation/pool=test). The harness preserves run-scoped resources,
+    # so an ADOPTED cluster already carries THIS run's test-pool nodes at setup
+    # time; counting them would inflate node_count / GPU totals past what the
+    # released checks expect (they exclude pool=test on the LIVE side, so the
+    # setup baseline they compare against must exclude it too). The `!=test`
+    # selector also matches nodes with no pool marker, so a fresh cluster's
+    # baseline nodes are unaffected.
+    baseline_selector = "isv.ncp.validation/pool!=test"
+    nodes = _kubectl_json_required(["get", "nodes", "-l", baseline_selector, "-o", "json"], "node inventory")
     node_items = nodes.get("items", []) if isinstance(nodes, dict) else []
     node_count = len(node_items)
     node_names = [n.get("metadata", {}).get("name") for n in node_items]
 
     gpu_nodes = _kubectl_json_required(
-        ["get", "nodes", "-l", "nvidia.com/gpu.present=true", "-o", "json"], "GPU node inventory"
+        ["get", "nodes", "-l", f"nvidia.com/gpu.present=true,{baseline_selector}", "-o", "json"],
+        "GPU node inventory",
     )
     gpu_items = gpu_nodes.get("items", []) if isinstance(gpu_nodes, dict) else []
     gpu_node_count = len(gpu_items)
