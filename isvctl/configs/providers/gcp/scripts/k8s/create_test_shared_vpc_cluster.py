@@ -19,12 +19,16 @@
 Proves multiple clusters coexist in ONE VPC network natively on GKE (the GCP
 analog of the EKS oracle's create_shared_vpc_cluster.sh). The secondary attaches
 to the SAME network/subnetwork as the primary (read from the primary state via
-terraform_remote_state), waits for >=1 Ready node using an ISOLATED kubeconfig
-(so the ambient context stays on the primary), then emits the `multi_cluster`
-payload K8sMultiClusterSameVpcCheck consumes.
+terraform_remote_state). After apply, both clusters are DESCRIBED live through
+the GKE API and their shared network/subnetwork membership + active state are
+verified BEFORE the secondary kubeconfig is installed and its node readiness is
+waited on — control-plane membership is the prerequisite for interpreting
+secondary-node readiness. Each cluster's OBSERVED network is then emitted in the
+`multi_cluster` payload K8sMultiClusterSameVpcCheck consumes (never the primary's
+state value echoed to both).
 
-Gated by requires_available_validations: [K8sMultiClusterSameVpcCheck] — the
-check is UNRELEASED, so this step only runs under ISVTEST_INCLUDE_UNRELEASED=1.
+Gated by requires_available_validations: [K8sMultiClusterSameVpcCheck], so this
+step runs whenever the released check is selected.
 
 The GKE up-state 'RUNNING' is mapped to the contract sentinel 'ACTIVE' (the
 check exact-matches 'ACTIVE'); the raw GKE value is never passed through.
@@ -126,32 +130,70 @@ def main() -> int:
         else:
             k8s.terraform_apply(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
 
-        # Wait for the secondary to report a Ready node (isolated kubeconfig).
-        secondary_ready_nodes = k8s.wait_secondary_ready(secondary_name, args.location, project, timeout=_READY_TIMEOUT)
+        # Describe BOTH clusters LIVE and verify shared membership + active state
+        # BEFORE installing/waiting on the secondary kubeconfig. The GKE up-state
+        # 'RUNNING' is mapped to the contract sentinel 'ACTIVE' by
+        # read_cluster_membership. A refresh-only ADOPTED secondary is never
+        # trusted from Terraform state alone — its live network/subnetwork must
+        # actually match the primary's, or a preserved same-name cluster attached
+        # to a DIFFERENT VPC could be reported as sharing the primary's network.
+        primary_net, primary_subnet, primary_status = k8s.read_cluster_membership(
+            primary_name, primary_location, project
+        )
+        secondary_net, secondary_subnet, secondary_status = k8s.read_cluster_membership(
+            secondary_name, args.location, project
+        )
+        if primary_status != "ACTIVE":
+            raise k8s.LifecycleError(
+                "transient",
+                f"[bucket=transient] primary cluster {primary_name} is not active "
+                f"(live status={primary_status}); cannot assert shared-VPC coexistence.",
+            )
+        if secondary_status != "ACTIVE":
+            raise k8s.LifecycleError(
+                "transient",
+                f"[bucket=transient] secondary cluster {secondary_name} is not active "
+                f"(live status={secondary_status}); cannot assert shared-VPC coexistence.",
+            )
+        if not k8s.same_network(primary_net, secondary_net):
+            raise k8s.LifecycleError(
+                "config_error",
+                f"[bucket=config_error] secondary cluster {secondary_name} attached to "
+                f"network '{secondary_net}', not the primary's shared VPC '{primary_net}'. "
+                "Refusing to report same-VPC coexistence for clusters on different networks.",
+            )
+        if not k8s.same_network(primary_subnet, secondary_subnet):
+            raise k8s.LifecycleError(
+                "config_error",
+                f"[bucket=config_error] secondary cluster {secondary_name} subnetwork "
+                f"'{secondary_subnet}' differs from the primary's '{primary_subnet}'.",
+            )
 
-        # Map the GKE RUNNING up-state to the contract sentinel 'ACTIVE'.
-        primary_status = k8s.gke_cluster_status_active(primary_name, primary_location, project)
-        secondary_status = k8s.gke_cluster_status_active(secondary_name, args.location, project)
+        # Membership proven — NOW wait for the secondary to report a Ready node
+        # (isolated kubeconfig; the ambient context stays on the primary).
+        secondary_ready_nodes = k8s.wait_secondary_ready(secondary_name, args.location, project, timeout=_READY_TIMEOUT)
 
         result.update(
             {
                 "success": True,
                 "test_id": "K8S26-01",
                 "tenancy_id": project,
-                "network_id": network_id,
+                # OBSERVED shared network (verified equal for both clusters).
+                "network_id": primary_net,
                 "clusters": [
                     {
                         "name": primary_name,
                         "role": "primary",
                         "tenancy_id": project,
-                        "network_id": network_id,
+                        "network_id": primary_net,
                         "status": primary_status,
                     },
                     {
                         "name": secondary_name,
                         "role": "secondary",
                         "tenancy_id": project,
-                        "network_id": network_id,
+                        # The secondary's OWN observed network (proven to match).
+                        "network_id": secondary_net,
                         "status": secondary_status,
                         "ready_node_count": secondary_ready_nodes,
                     },

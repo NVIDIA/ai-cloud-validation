@@ -201,9 +201,13 @@ teardown safety net in case the test-phase delete did not run.
 
 `create_test_shared_vpc_cluster` provisions a SECOND cluster on the SAME VPC
 network as the primary (native on GKE) and emits the `multi_cluster` payload.
-It is gated by `requires_available_validations: [K8sMultiClusterSameVpcCheck]`,
-so it only runs under `ISVTEST_INCLUDE_UNRELEASED=1` (the check is unreleased).
-The GKE `RUNNING` up-state is mapped to the contract sentinel `ACTIVE`.
+It is gated by `requires_available_validations: [K8sMultiClusterSameVpcCheck]`;
+that check is RELEASED, so the step runs whenever the check is selected (the
+default). After apply, BOTH clusters are described live through the GKE API and
+their shared network/subnetwork membership + active state are verified BEFORE the
+secondary kubeconfig install and node-readiness wait; each cluster's OBSERVED
+network is emitted (never the primary's echoed to both). The GKE `RUNNING`
+up-state is mapped to the contract sentinel `ACTIVE`.
 
 ## Subtests exercised
 
@@ -211,19 +215,33 @@ The full `suites/k8s.yaml` contract runs against the GKE cluster: node
 count/readiness, GPU driver + nvidia-smi + capacity + pod-access + labels, GPU
 Operator namespace/pods (satisfied by the managed DaemonSets in `kube-system`),
 pod health / no-pending / no-error, MIG (self-skips on non-MIG GPUs), dual-stack
-(auto), cluster-autoscaler (self-skips), NetworkPolicy (Dataplane V2), CSI
-storage types / quota / tenant-scoping / provisioning modes (self-skip until a
-StorageClass is named via `K8S_CSI_*`), OIDC issuer, conformance (`quick`),
-control-plane metrics + logs (Cloud Logging), API network ACL (self-skips until
-an outside-vantage probe is supplied), and the node-pool CRUD checks. GPU
-workloads (NCCL, GPU-stress, NIM-1b) run when `NGC_API_KEY` is set.
+(auto), cluster-autoscaler, NetworkPolicy (Dataplane V2), CSI storage types /
+quota / tenant-scoping / provisioning modes, OIDC issuer, conformance (`quick`),
+control-plane metrics + logs (Cloud Logging), API network ACL, the multi-cluster
+same-VPC check, and the node-pool CRUD checks. GPU workloads (NCCL single- and
+multi-node, GPU-stress, NIM) run when `NGC_API_KEY` is set.
 
-**Excluded (STOPGAP, not a GKE gap):** `K8sNimHelmWorkload-3b` and
-`K8sNimInferenceWorkload` — the released NIM workloads never cap `max_model_len`,
-so llama-3.2-3b's 128K KV cache overflows a ≤24GB GPU (L4) and the vLLM engine
-fails to start. This is an upstream NIM-workload limitation seen on every NCP,
-not a GKE defect. The 1B sibling is KEPT. Remove the exclusion once the NIM
-workloads cap `max_model_len`, or run on a >24GB GPU.
+Provider-specific behavior worth calling out:
+
+- **cluster-autoscaler:** setup enables GKE-managed autoscaling on the CPU/system
+  pool (bounded min/max, read back and verified live) and emits provider-native
+  evidence. GKE runs the autoscaler in its managed control plane, so there is no
+  in-cluster `cluster-autoscaler` Deployment; the released `K8sClusterAutoscalerCheck`
+  therefore stays on its structured-skip until it grows a provider-native mode.
+- **CSI block storage:** setup discovers a live `pd.csi.storage.gke.io` block
+  `StorageClass`, so the block-storage checks (types / quota / dynamic
+  provisioning) run against a real class without an explicit `K8S_CSI_*` override.
+  The shared-fs / NFS types still self-skip until a class is named.
+- **API network ACL:** self-skips until BOTH `GCP_K8S_AUTHORIZED_CIDRS` and an
+  outside-vantage `GCP_K8S_UNAUTHORIZED_PROBE_CMD` are supplied; when configured,
+  setup enables `master_authorized_networks`, reads the live allow-list back, and
+  fails closed unless it equals the requested CIDRs.
+- **multi-node NCCL:** setup installs the pinned Kubeflow MPI Operator
+  (`manifests/mpi-operator-v0.8.2.yaml`) and gates on its CRD + controller
+  readiness, so `K8sNcclMultiNodeWorkload` runs its MPIJob (no MPI-Operator skip).
+- **NIM 3B workloads:** `K8sNimHelmWorkload-3b` and `K8sNimInferenceWorkload` are
+  ENABLED — each caps `nim_max_model_len` (8192) so llama-3.2-3b's KV cache fits a
+  ≤24GB GPU (L4), instead of overflowing at the default 128K context.
 
 ## Running
 
@@ -234,8 +252,8 @@ uv run isvctl test run -f isvctl/configs/providers/gcp/config/k8s.yaml
 # Preserve the cluster for debugging (teardown skipped).
 GCP_K8S_SKIP_TEARDOWN=true uv run isvctl test run -f isvctl/configs/providers/gcp/config/k8s.yaml
 
-# Include the unreleased multi-cluster check + its shared-VPC setup step.
-ISVTEST_INCLUDE_UNRELEASED=1 uv run isvctl test run -f isvctl/configs/providers/gcp/config/k8s.yaml
+# The multi-cluster same-VPC check is RELEASED, so its shared-VPC setup step runs
+# by default; ISVTEST_INCLUDE_UNRELEASED=1 is only needed for still-unreleased checks.
 ```
 
 Wall-clock is roughly 30–60 minutes on a clean environment; a GPU-zone stockout

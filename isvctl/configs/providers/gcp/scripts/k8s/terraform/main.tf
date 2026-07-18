@@ -145,16 +145,37 @@ resource "google_container_cluster" "primary" {
 # System (CPU) node pool — hosts kube-system / DaemonSet workloads. Untainted
 # so system pods schedule freely. PINNED to a single zone (like the GPU pools):
 # node_count is PER-ZONE, so on a REGIONAL cluster an unpinned system pool would
-# spread node_count across every region zone (node_count x #zones), tripling cost
-# and breaking the "CPU/system pool stays single-zone" invariant. Empty ->
-# inherit the cluster's node locations (a zonal cluster is already single-zone).
+# spread capacity across every region zone (per-zone x #zones), tripling cost and
+# breaking the "CPU/system pool stays single-zone" invariant. Empty -> inherit the
+# cluster's node locations (a zonal cluster is already single-zone).
+#
+# GKE-MANAGED autoscaling is enabled here with explicit min/max bounds: GKE runs
+# the Cluster Autoscaler in its managed control plane (there is NO upstream
+# cluster-autoscaler Deployment in kube-system to install), so this node-pool
+# autoscaling block IS the real autoscaling integration K8sClusterAutoscalerCheck
+# validates through the provider-native evidence setup emits. The GPU pools stay
+# FIXED (node_count) because their capacity-preflight contract needs eager nodes;
+# only the CPU/system pool autoscales. `node_count` is mutually exclusive with the
+# autoscaling block, so the pool is seeded with initial_node_count and the live
+# count then floats between min and max under the managed autoscaler.
 resource "google_container_node_pool" "system" {
   name           = local.system_pool_name
   cluster        = google_container_cluster.primary.name
   location       = google_container_cluster.primary.location
   node_locations = length(var.system_node_locations) > 0 ? var.system_node_locations : null
 
-  node_count = var.system_node_count
+  initial_node_count = var.system_node_count
+
+  autoscaling {
+    min_node_count = var.system_min_nodes
+    max_node_count = var.system_max_nodes
+  }
+
+  # The managed autoscaler owns the live node count after creation, so ignore
+  # post-create drift on the seed count (never force a REPLACE on reconcile).
+  lifecycle {
+    ignore_changes = [initial_node_count]
+  }
 
   node_config {
     machine_type = var.system_machine_type

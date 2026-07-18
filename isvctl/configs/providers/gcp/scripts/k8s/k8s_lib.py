@@ -899,6 +899,276 @@ def verify_and_read_network(
     return observed_network, observed_subnetwork
 
 
+def same_network(a: str, b: str) -> bool:
+    """True when two network/subnetwork names or self-links denote the same VPC
+    resource (compares the last path segment, case-insensitive)."""
+    return _net_identity(a) == _net_identity(b)
+
+
+def _normalize_cidr_set(cidrs: list[str]) -> set[str]:
+    """Normalize a list of CIDR strings into a comparable set (bare IPv4 -> /32,
+    canonical network form). Unparseable tokens are kept lower-cased so a genuine
+    mismatch never silently compares equal."""
+    out: set[str] = set()
+    for token in cidrs:
+        token = (token or "").strip()
+        if not token:
+            continue
+        candidate = token if "/" in token else f"{token}/32"
+        try:
+            out.add(str(ipaddress.ip_network(candidate, strict=False)))
+        except ValueError:
+            out.add(token.lower())
+    return out
+
+
+def verify_authorized_networks(
+    cluster_name: str,
+    location: str,
+    project: str,
+    expected_cidrs: list[str],
+    *,
+    timeout: int = 120,
+) -> list[str]:
+    """Read the live GKE master_authorized_networks source set and require it to
+    equal the operator-requested authorized CIDRs (normalized, order-independent).
+
+    K8sApiNetworkAclCheck's outside-vantage probe only proves ENFORCEMENT when the
+    live allow-list is exactly the policy the operator asked for. A fresh create
+    could omit the block (empty var), and a reused/adopted cluster could carry a
+    DIFFERENT live allow-list than the requested CIDRs — in either case a failing
+    remote command would misread as ACL enforcement. Fail CLOSED (config_error) on
+    a missing or mismatched policy; return the observed CIDRs on success."""
+    rc, out = gcloud(
+        [
+            "container",
+            "clusters",
+            "describe",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=json",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not describe cluster {cluster_name} to verify its "
+            f"authorized networks: {fold_tail(out)}",
+        )
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError as exc:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] cluster describe returned unparseable JSON while "
+            f"verifying authorized networks: {exc}",
+        ) from exc
+    config = data.get("masterAuthorizedNetworksConfig") or {}
+    observed_blocks = config.get("cidrBlocks") or []
+    observed = [
+        str(block.get("cidrBlock", "")).strip()
+        for block in observed_blocks
+        if isinstance(block, dict) and str(block.get("cidrBlock", "")).strip()
+    ]
+    expected_set = _normalize_cidr_set(expected_cidrs)
+    observed_set = _normalize_cidr_set(observed)
+    if not observed_set or observed_set != expected_set:
+        raise LifecycleError(
+            "config_error",
+            "[bucket=config_error] GKE master_authorized_networks mismatch on "
+            f"{cluster_name}: requested {sorted(expected_set)} but the live cluster "
+            f"enforces {sorted(observed_set) or '[]'}. Refusing to emit an API-ACL probe "
+            "against a cluster whose live allow-list differs from the requested policy — "
+            "a failing probe would misread as ACL enforcement.",
+        )
+    return sorted(observed_set)
+
+
+def read_cluster_membership(
+    cluster_name: str,
+    location: str,
+    project: str,
+    *,
+    timeout: int = 120,
+) -> tuple[str, str, str]:
+    """Describe the live GKE cluster and return ``(network, subnetwork, status)``.
+
+    ``status`` maps the GKE up-state 'RUNNING' to the contract sentinel 'ACTIVE'
+    (see gke_cluster_status_active); any other reachable state is surfaced
+    verbatim. A failed describe RAISES a classified LifecycleError so a
+    membership check never reads an unknown cluster as valid."""
+    rc, out = gcloud(
+        [
+            "container",
+            "clusters",
+            "describe",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=json",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not describe cluster {cluster_name} to read its "
+            f"network membership: {fold_tail(out)}",
+        )
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError as exc:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] cluster describe returned unparseable JSON while "
+            f"reading network membership: {exc}",
+        ) from exc
+    network = str(data.get("network", "") or "")
+    subnetwork = str(data.get("subnetwork", "") or "")
+    raw_status = str(data.get("status", "") or "").strip().upper()
+    status = "ACTIVE" if raw_status == "RUNNING" else (raw_status or "UNKNOWN")
+    return network, subnetwork, status
+
+
+# --------------------------------------------------------------------------- #
+# Managed (GKE) node-pool autoscaling readback + reconcile                    #
+# --------------------------------------------------------------------------- #
+
+
+def _read_node_pool_autoscaling(
+    cluster_name: str, pool_name: str, location: str, project: str, *, timeout: int = 120
+) -> dict[str, Any]:
+    """Return the live node pool's autoscaling config: ``{enabled, min, max}``."""
+    rc, out = gcloud(
+        [
+            "container",
+            "node-pools",
+            "describe",
+            pool_name,
+            "--cluster",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=json",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not describe node pool {pool_name} on {cluster_name} "
+            f"to read its autoscaling config: {fold_tail(out)}",
+        )
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError as exc:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] node-pool describe returned unparseable JSON while reading autoscaling: {exc}",
+        ) from exc
+    autoscaling = data.get("autoscaling") or {}
+    return {
+        "enabled": bool(autoscaling.get("enabled")),
+        "min": autoscaling.get("minNodeCount"),
+        "max": autoscaling.get("maxNodeCount"),
+    }
+
+
+def _enable_node_pool_autoscaling(
+    cluster_name: str,
+    pool_name: str,
+    location: str,
+    project: str,
+    min_nodes: int,
+    max_nodes: int,
+    *,
+    timeout: int = 600,
+) -> None:
+    """Reconcile GKE-managed autoscaling on an existing node pool (adopt path)."""
+    rc, out = gcloud(
+        [
+            "container",
+            "clusters",
+            "update",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--enable-autoscaling",
+            "--node-pool",
+            pool_name,
+            "--min-nodes",
+            str(min_nodes),
+            "--max-nodes",
+            str(max_nodes),
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not enable managed autoscaling on {pool_name} "
+            f"({min_nodes}..{max_nodes}): {fold_tail(out)}",
+        )
+
+
+def verify_system_autoscaling(
+    cluster_name: str,
+    pool_name: str,
+    location: str,
+    project: str,
+    expected_min: int,
+    expected_max: int,
+    *,
+    timeout: int = 600,
+) -> dict[str, Any]:
+    """Read back GKE-managed autoscaling on the system pool and require it to be
+    enabled with the requested min/max bounds; return provider-native evidence.
+
+    A fresh terraform create already carries the autoscaling block, so the first
+    readback matches. An ADOPTED pool (refresh-only, no apply) may predate the
+    bounds, so reconcile it via ``gcloud container clusters update`` and re-read.
+    Fail CLOSED (config_error) when the live pool still does not match — setup
+    never emits managed-autoscaler evidence for a pool that is not autoscaling."""
+    live = _read_node_pool_autoscaling(cluster_name, pool_name, location, project)
+    if not (live["enabled"] and live["min"] == expected_min and live["max"] == expected_max):
+        _enable_node_pool_autoscaling(
+            cluster_name, pool_name, location, project, expected_min, expected_max, timeout=timeout
+        )
+        live = _read_node_pool_autoscaling(cluster_name, pool_name, location, project)
+    if not (live["enabled"] and live["min"] == expected_min and live["max"] == expected_max):
+        raise LifecycleError(
+            "config_error",
+            f"[bucket=config_error] system pool {pool_name} managed autoscaling mismatch: "
+            f"requested enabled min={expected_min} max={expected_max} but the live pool is "
+            f"enabled={live['enabled']} min={live['min']} max={live['max']}.",
+        )
+    return {
+        "provider": "managed",
+        "node_pool": pool_name,
+        "enabled": True,
+        "min_nodes": expected_min,
+        "max_nodes": expected_max,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # GPU-zone capacity preflight probe                                           #
 # --------------------------------------------------------------------------- #
@@ -1340,6 +1610,77 @@ def strip_baseline_pool_markers(*, timeout: int = 60) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Kubeflow MPI Operator prerequisite (multi-node NCCL MPIJob controller)      #
+# --------------------------------------------------------------------------- #
+
+# The pinned, provider-owned Kubeflow MPI Operator v0.8.2 (v2beta1) release
+# manifest, vendored locally so setup never downloads a GitHub/raw-URL manifest
+# at runtime. K8sNcclMultiNodeWorkload requires the mpijobs.kubeflow.org CRD +
+# controller to run; without it the released workload structured-skips and the
+# multi-node GPU communication path goes uncovered.
+MPI_OPERATOR_MANIFEST = SCRIPT_DIR / "manifests" / "mpi-operator-v0.8.2.yaml"
+_MPI_OPERATOR_NAMESPACE = "mpi-operator"
+_MPI_OPERATOR_DEPLOYMENT = "mpi-operator"
+_MPI_OPERATOR_CRD = "mpijobs.kubeflow.org"
+
+
+def install_mpi_operator(*, timeout: int = 300) -> None:
+    """Apply the vendored, pinned Kubeflow MPI Operator manifest and gate on its
+    readiness so the released multi-node NCCL workload has its MPIJob controller.
+
+    The manifest is a LOCAL provider-owned asset (never fetched at runtime); a
+    missing asset, a failed apply, or a CRD/controller that never becomes ready
+    RAISES a classified LifecycleError so setup fails loudly rather than shipping
+    a cluster whose multi-node NCCL coverage would silently skip."""
+    if not MPI_OPERATOR_MANIFEST.is_file():
+        raise LifecycleError(
+            "config_error",
+            f"[bucket=config_error] the vendored MPI Operator manifest {MPI_OPERATOR_MANIFEST} "
+            "is missing; the multi-node NCCL MPIJob prerequisite cannot be installed.",
+        )
+    # Server-side apply: the MPIJob CRD schema exceeds the client-side
+    # last-applied annotation size limit. force-conflicts keeps re-apply (adopt
+    # path re-runs setup) idempotent.
+    rc, out = kubectl(
+        ["apply", "--server-side", "--force-conflicts", "-f", str(MPI_OPERATOR_MANIFEST)],
+        timeout=timeout,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] failed to apply the vendored MPI Operator manifest: {fold_tail(out)}",
+        )
+    rc, out = kubectl(
+        ["wait", "--for=condition=Established", f"crd/{_MPI_OPERATOR_CRD}", f"--timeout={timeout}s"],
+        timeout=timeout + 30,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] the {_MPI_OPERATOR_CRD} CRD did not become Established: {fold_tail(out)}",
+        )
+    rc, out = kubectl(
+        [
+            "-n",
+            _MPI_OPERATOR_NAMESPACE,
+            "wait",
+            "--for=condition=Available",
+            f"deployment/{_MPI_OPERATOR_DEPLOYMENT}",
+            f"--timeout={timeout}s",
+        ],
+        timeout=timeout + 30,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] the MPI Operator controller Deployment did not become Available: {fold_tail(out)}",
+        )
+
+
+# --------------------------------------------------------------------------- #
 # Two-gate GPU preflight + inventory                                          #
 # --------------------------------------------------------------------------- #
 
@@ -1649,6 +1990,7 @@ def gather_inventory(
     driver_version: str | None = None,
     api_endpoint: str | None = None,
     unauthorized_probe_cmd: str = "",
+    autoscaler: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Observe the live cluster via kubectl and build the kubernetes/csi blocks.
 
@@ -1719,8 +2061,15 @@ def gather_inventory(
         "control_plane_namespace": "kube-system",
         "runtime_class": runtime_class,
         "gpu_resource_name": "nvidia.com/gpu",
-        "cluster_autoscaler_namespace": "kube-system",
-        "cluster_autoscaler_deployment": "cluster-autoscaler",
+        # GKE runs the Cluster Autoscaler in its MANAGED control plane — there is
+        # NO in-cluster cluster-autoscaler Deployment to name (emitting one would
+        # point the released Deployment-shaped check at a nonexistent object).
+        # Instead emit PROVIDER-NATIVE autoscaler evidence (provider=managed,
+        # node_pool, enabled, min/max) read back + verified live off the system
+        # node pool, so a future provider-aware validator mode can consume it. The
+        # released K8sClusterAutoscalerCheck stays on its structured-skip (its
+        # default in-cluster Deployment probe finds nothing) until that mode ships.
+        "autoscaler": autoscaler or {},
         # Outside-vantage API-ACL probe, already RENDERED against this run's
         # resolved api_endpoint by setup (from --unauthorized-probe-template).
         # The suite feeds it into K8sApiNetworkAclCheck.commands.unauthorized_probe

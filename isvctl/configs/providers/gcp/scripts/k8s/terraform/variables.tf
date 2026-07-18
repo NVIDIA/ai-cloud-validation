@@ -84,6 +84,26 @@ variable "system_node_count" {
   }
 }
 
+variable "system_min_nodes" {
+  description = "Lower bound (per zone) for the GKE-managed autoscaler on the system pool."
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.system_min_nodes >= 1 && var.system_min_nodes <= 10 && floor(var.system_min_nodes) == var.system_min_nodes
+    error_message = "system_min_nodes must be an integer in [1, 10]."
+  }
+}
+
+variable "system_max_nodes" {
+  description = "Upper bound (per zone) for the GKE-managed autoscaler on the system pool (>= system_min_nodes)."
+  type        = number
+  default     = 3
+  validation {
+    condition     = var.system_max_nodes >= var.system_min_nodes && var.system_max_nodes <= 20 && floor(var.system_max_nodes) == var.system_max_nodes
+    error_message = "system_max_nodes must be an integer in [system_min_nodes, 20]."
+  }
+}
+
 variable "system_node_locations" {
   description = <<-EOT
     Single zone (as a one-element list) the system pool's nodes run in, derived by

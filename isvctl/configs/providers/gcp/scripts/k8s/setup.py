@@ -59,15 +59,19 @@ PLATFORM = "kubernetes"
 # pool) so a definitive GKE terminal error surfaces instead of the wrapper
 # killing a still-running create; the config step timeout is in turn larger than
 # this inner apply budget (never an outer step timeout shorter than the inner).
-#   preflight probe (~3 zones * ~270s)     ~=  810s
-#   cluster + baseline GPU pool apply       <= 3600s
-#   kubeconfig install                      <=  180s
-#   network verify + RuntimeClass apply     <=  180s
-#   GPU readiness gate (provider-native)    <=  900s
-#   inventory (kubectl reads + pod exec)    <=  300s
-# Worst-case serial sum ~= 5970s -> config setup step timeout 6000s.
+#   preflight probe (~3 zones * ~270s)      ~=  810s
+#   cluster + baseline GPU pool apply        <= 3600s
+#   kubeconfig install                       <=  180s
+#   network verify + RuntimeClass apply      <=  180s
+#   system-pool autoscaling readback/reconcile <=  600s
+#   GPU readiness gate (provider-native)     <=  900s
+#   MPI Operator apply + readiness gate      <=  300s
+#   inventory (kubectl reads + pod exec)     <=  300s
+# Worst-case serial sum ~= 6870s -> config setup step timeout 7200s.
 _APPLY_TIMEOUT = 3600
 _TWO_GATE_TIMEOUT = 900
+_AUTOSCALING_TIMEOUT = 600
+_MPI_OPERATOR_TIMEOUT = 300
 
 
 def main() -> int:
@@ -102,13 +106,26 @@ def main() -> int:
         default="",
         help="Outside-vantage probe template containing {api_endpoint}; blank/'none' sentinel -> disabled.",
     )
-    parser.add_argument("--system-node-count", type=int, default=1, help="System (CPU) pool node count.")
+    parser.add_argument("--system-node-count", type=int, default=1, help="System (CPU) pool seed node count.")
+    parser.add_argument(
+        "--system-min-nodes", type=int, default=1, help="Lower bound for the managed autoscaler on the system pool."
+    )
+    parser.add_argument(
+        "--system-max-nodes", type=int, default=3, help="Upper bound for the managed autoscaler on the system pool."
+    )
     args = parser.parse_args()
 
     result: dict = {"success": False, "platform": PLATFORM}
     try:
         project = k8s.resolve_project_id()
         cluster_name = k8s.scoped_name(args.cluster_name)
+
+        # Resolve the canonical baseline pool names ONCE (the same trimmed/capped
+        # spelling terraform's locals produce) and reuse them for the GPU-zone
+        # lookup, the adopt import, and the autoscaling readback — never a raw
+        # f"{cluster_name}-gpu", which diverges from the canonical name when an
+        # operator-supplied cluster base hits the GKE 40-char pool-name cap.
+        system_pool_name, gpu_pool_name = k8s.baseline_pool_names(cluster_name)
 
         # Resolve the operator network / API-ACL capability inputs. The provider
         # config renders the non-empty "none" sentinel (so the arg renderer never
@@ -118,6 +135,19 @@ def main() -> int:
         network = k8s.normalize_network(args.network)
         authorized_cidrs = k8s.normalize_authorized_cidrs(args.authorized_cidrs)
         probe_template = k8s.normalize_sentinel(args.unauthorized_probe_template)
+
+        # The outside-vantage probe only proves ACL ENFORCEMENT against a real
+        # authorized-network policy. Requiring the probe template WITHOUT any
+        # authorized CIDRs would leave the endpoint open (no block rendered), so a
+        # failing probe would prove nothing. Fail CLOSED on that pairing gap.
+        if probe_template and not authorized_cidrs:
+            raise k8s.LifecycleError(
+                "config_error",
+                "[bucket=config_error] GCP_K8S_UNAUTHORIZED_PROBE_CMD is set but "
+                "GCP_K8S_AUTHORIZED_CIDRS is empty. An unauthorized probe cannot prove "
+                "API-ACL enforcement when the control-plane endpoint has no authorized "
+                "networks configured; supply the runner's egress CIDR(s) or unset the probe.",
+            )
 
         # The harness preserves every run-scoped resource (GCP_K8S_SKIP_TEARDOWN),
         # so an earlier per-step worker in THIS run may already have provisioned the
@@ -142,7 +172,7 @@ def main() -> int:
                 except k8s.LifecycleError:
                     gpu_zone = ""
             if not gpu_zone:
-                gpu_zone = k8s.gke_node_pool_zone(cluster_name, f"{cluster_name}-gpu", args.location, project) or ""
+                gpu_zone = k8s.gke_node_pool_zone(cluster_name, gpu_pool_name, args.location, project) or ""
             if not gpu_zone:
                 # Cluster exists but its baseline GPU pool zone is unreadable (e.g. a
                 # partial prior create); fall back to the preflight so a genuine
@@ -184,6 +214,10 @@ def main() -> int:
             "master_authorized_cidrs": authorized_cidrs,
             "system_machine_type": args.cpu_machine_type,
             "system_node_count": args.system_node_count,
+            # GKE-managed autoscaling bounds for the CPU/system pool (GPU pools
+            # stay fixed). Read back + verified live after apply/adopt below.
+            "system_min_nodes": args.system_min_nodes,
+            "system_max_nodes": args.system_max_nodes,
             "system_node_locations": [k8s.zone_for_location(args.location)],
             "gpu_machine_type": args.gpu_machine_type,
             "gpu_accelerator_type": args.gpu_accelerator_type,
@@ -211,8 +245,7 @@ def main() -> int:
             # tfstate), so importing the cluster alone leaves them untracked and a
             # later reconcile apply tries to CREATE the already-live pools (the
             # observed 409). Import each pool the cloud has but local state lacks, by
-            # its terraform-derived name.
-            system_pool_name, gpu_pool_name = k8s.baseline_pool_names(cluster_name)
+            # its terraform-derived name (resolved once at the top of setup).
             for address, pool_name in (
                 ("google_container_node_pool.system", system_pool_name),
                 ("google_container_node_pool.gpu", gpu_pool_name),
@@ -236,6 +269,29 @@ def main() -> int:
         #     state, not just the Terraform input.
         observed_network, observed_subnetwork = k8s.verify_and_read_network(
             cluster_name, args.location, project, network
+        )
+
+        # 3a-i) When the operator configured an API-ACL policy, read back the LIVE
+        #     master_authorized_networks source set and require it to equal the
+        #     requested CIDRs (fresh create AND adopt). A fresh apply could omit the
+        #     block, and a reused/adopted cluster could enforce a DIFFERENT allow-
+        #     list — either way an unrelated probe failure would misread as ACL
+        #     enforcement. Fail CLOSED on a missing/mismatched policy.
+        if authorized_cidrs:
+            k8s.verify_authorized_networks(cluster_name, args.location, project, authorized_cidrs)
+
+        # 3a-ii) Read back + verify GKE-managed autoscaling on the system pool
+        #     (enable/reconcile it on the adopt path) and capture the provider-
+        #     native evidence for inventory. Fails CLOSED unless the live pool is
+        #     autoscaling with the requested min/max bounds.
+        autoscaler_evidence = k8s.verify_system_autoscaling(
+            cluster_name,
+            system_pool_name,
+            args.location,
+            project,
+            args.system_min_nodes,
+            args.system_max_nodes,
+            timeout=_AUTOSCALING_TIMEOUT,
         )
 
         # 3b) Resolve the reviewed cluster's API server URL and bind the ACL probe
@@ -276,6 +332,13 @@ def main() -> int:
         #    the managed pod, or None to leave it unset.
         driver_version = k8s.wait_two_gate_gpu_ready(timeout=_TWO_GATE_TIMEOUT)
 
+        # 5a) Install the pinned, vendored Kubeflow MPI Operator (v2beta1) and gate
+        #     on its CRD + controller readiness so the released multi-node NCCL
+        #     workload (K8sNcclMultiNodeWorkload) has its MPIJob controller instead
+        #     of silently structured-skipping. GKE does not install it by default;
+        #     the manifest is a local provider asset (never fetched at runtime).
+        k8s.install_mpi_operator(timeout=_MPI_OPERATOR_TIMEOUT)
+
         # 6) Observe inventory live via kubectl. Required node/GPU reads raise on
         #    failure, so setup can never emit synthetic 'success' inventory.
         inventory = k8s.gather_inventory(
@@ -283,6 +346,7 @@ def main() -> int:
             driver_version=driver_version,
             api_endpoint=api_endpoint,
             unauthorized_probe_cmd=unauthorized_probe_cmd,
+            autoscaler=autoscaler_evidence,
         )
 
         k8s_block = inventory["kubernetes"]
