@@ -117,6 +117,21 @@ def main() -> int:
 
     result: dict = {"success": False, "platform": PLATFORM}
     try:
+        # Managed-autoscaler bound relationship is enforced HERE (not in a
+        # Terraform variable validation): a cross-variable `condition` referencing
+        # var.system_min_nodes from var.system_max_nodes's validation is a
+        # Terraform 1.9+ language feature, but the module advertises a >=1.5 floor.
+        # Keep the module self-contained on 1.5 by checking the relationship in the
+        # stub before apply.
+        if args.system_max_nodes < args.system_min_nodes:
+            raise k8s.LifecycleError(
+                "config_error",
+                "[bucket=config_error] GCP_K8S_SYSTEM_MAX_NODES "
+                f"({args.system_max_nodes}) must be >= GCP_K8S_SYSTEM_MIN_NODES "
+                f"({args.system_min_nodes}); the GKE-managed autoscaler upper bound cannot "
+                "be below its lower bound.",
+            )
+
         project = k8s.resolve_project_id()
         cluster_name = k8s.scoped_name(args.cluster_name)
 
@@ -238,6 +253,25 @@ def main() -> int:
             # remove_default_node_pool and would force a full cluster REPLACE.
             cluster_id = f"projects/{project}/locations/{args.location}/clusters/{cluster_name}"
             if not cluster_in_state:
+                # FAIL CLOSED before importing a cluster this worktree's state does
+                # not yet track: prove exact ownership by the FULL run identity via
+                # the cloud-side marker, and verify the contract-relevant network
+                # BEFORE the import makes the cluster eligible for teardown's
+                # destroy. A bare run-scoped name match must never authorize import —
+                # a stale, colliding, or operator-precreated same-name cluster would
+                # otherwise be adopted and later destroyed as though this run owned it.
+                k8s.verify_cluster_ownership(cluster_name, args.location, project)
+                observed_net, _observed_subnet, _status = k8s.read_cluster_membership(
+                    cluster_name, args.location, project
+                )
+                if not k8s.same_network(observed_net, network):
+                    raise k8s.LifecycleError(
+                        "config_error",
+                        f"[bucket=config_error] refusing to adopt cluster {cluster_name}: it is "
+                        f"attached to network '{observed_net}', not the operator-selected VPC "
+                        f"'{network}'. An adopted cluster on an unexpected network would be "
+                        "imported (and later destroyed) with a mismatched substrate.",
+                    )
                 k8s.terraform_import(
                     k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary", cluster_id, tf_vars
                 )
@@ -260,6 +294,13 @@ def main() -> int:
         else:
             # Fresh create (the cluster does not exist yet — nothing to adopt).
             k8s.terraform_apply(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
+
+        # 2a) Stamp (or confirm) the cloud-side ownership marker carrying the FULL
+        #     run identity. This is the proof a later cross-worker adopt verifies
+        #     before importing the cluster: a fresh create gets it here, and an
+        #     in-state (already-owned) cluster is backfilled so it, too, can prove
+        #     ownership. Idempotent — a no-op read when the marker already matches.
+        k8s.ensure_cluster_ownership_label(cluster_name, args.location, project)
 
         # 3) Install the kubeconfig for ambient kubectl.
         k8s.install_kubeconfig(cluster_name, args.location, project)

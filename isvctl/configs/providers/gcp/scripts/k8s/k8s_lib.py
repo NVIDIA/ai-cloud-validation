@@ -124,6 +124,33 @@ def run_scope_id() -> str:
     return sid[:_RUN_ID_LEN]
 
 
+# Cloud-side ownership marker key. scoped_name() truncates the run id to
+# _RUN_ID_LEN chars for the RFC-1035 GKE name cap, so a run-scoped NAME alone
+# cannot prove ownership (two runs whose ids share the first 8 chars collide on
+# the same cluster name). The adopt paths therefore require this label, carrying
+# the FULL run identity, before importing a same-named cluster into state.
+OWNERSHIP_LABEL_KEY = "isv-ncp-run-id"
+
+
+def full_run_scope_id() -> str:
+    """Return the FULL, untruncated run identity as a GCE-label-safe value.
+
+    Unlike ``run_scope_id`` (truncated to 8 chars for the GKE name cap), this is
+    the WHOLE ``RUN_ID`` / ``LS_RUN_ID`` normalized to a GCP resource-label value
+    (lowercase letters, digits, ``-`` and ``_``, capped at 63). It is the exact
+    ownership proof the adopt paths require: a run-scoped name match is NOT enough
+    to authorize importing (and later destroying) a pre-existing cluster, so the
+    owning run stamps this full identity as a cloud-side label at create and every
+    adopt verifies it before import.
+    """
+    raw = (os.environ.get("RUN_ID") or os.environ.get("LS_RUN_ID") or "").strip()
+    if not raw:
+        # Reuse the run_scope_id guard so an unset id fails identically everywhere.
+        run_scope_id()
+    value = re.sub(r"[^a-z0-9_-]", "-", raw.lower()).strip("-_")
+    return value[:63] or run_scope_id()
+
+
 def normalize_gke_name(base: str) -> str:
     """Lowercase + RFC-1035-normalize a base name (no run-id suffix)."""
     name = base.strip().lower()
@@ -677,6 +704,109 @@ def gke_node_pool_zone(
     return None
 
 
+_GKE_EFFECT_TO_K8S = {
+    "NO_SCHEDULE": "NoSchedule",
+    "PREFER_NO_SCHEDULE": "PreferNoSchedule",
+    "NO_EXECUTE": "NoExecute",
+}
+
+
+def verify_adopted_node_pool_shape(
+    cluster_name: str,
+    pool_name: str,
+    location: str,
+    project: str,
+    expected_machine_type: str,
+    expected_labels: dict[str, Any],
+    expected_taints: list[dict[str, Any]],
+    *,
+    timeout: int = 120,
+) -> None:
+    """Prove an ADOPTED node pool actually has the shape this step would emit.
+
+    On the adopt (import + refresh-only) path the emitted ``expected_*`` outputs
+    are derived from Terraform INPUT variables, not from the live pool, so a
+    preserved same-name pool with a different machine type / labels / taints would
+    be reported with a fabricated shape the released K8sNodePoolCheck then asserts.
+    Read the live pool's node_config and fail CLOSED unless its machine type
+    matches exactly and every expected label / taint is actually present (GKE may
+    add its own labels, so expectations must be a SUBSET of the live set, never
+    exact-equal). A describe failure RAISES — an unverifiable adopted pool is never
+    emitted with an assumed shape."""
+    rc, out = gcloud(
+        [
+            "container",
+            "node-pools",
+            "describe",
+            pool_name,
+            "--cluster",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=json",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not describe adopted node pool {pool_name} on "
+            f"{cluster_name} to verify its shape before emitting it: {fold_tail(out)}",
+        )
+    try:
+        config = (json.loads(out) or {}).get("config") or {}
+    except json.JSONDecodeError as exc:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] node-pool describe returned unparseable JSON while "
+            f"verifying adopted pool {pool_name} shape: {exc}",
+        ) from exc
+
+    observed_machine = str(config.get("machineType", "") or "")
+    if expected_machine_type and observed_machine != expected_machine_type:
+        raise LifecycleError(
+            "config_error",
+            f"[bucket=config_error] adopted node pool {pool_name} machine type mismatch: "
+            f"expected '{expected_machine_type}' but the live pool runs '{observed_machine}'. "
+            "Refusing to emit a fabricated pool shape for a preserved pool that does not "
+            "match the contract inputs.",
+        )
+
+    observed_labels = config.get("labels") or {}
+    observed_labels = {str(k): str(v) for k, v in observed_labels.items()} if isinstance(observed_labels, dict) else {}
+    for key, value in (expected_labels or {}).items():
+        if observed_labels.get(str(key)) != str(value):
+            raise LifecycleError(
+                "config_error",
+                f"[bucket=config_error] adopted node pool {pool_name} is missing expected "
+                f"node label {key}={value} (live labels: {sorted(observed_labels)}). Refusing "
+                "to emit a pool shape the live pool does not actually carry.",
+            )
+
+    observed_taints = {
+        (
+            str(t.get("key", "")),
+            str(t.get("value", "")),
+            _GKE_EFFECT_TO_K8S.get(str(t.get("effect", "")), str(t.get("effect", ""))),
+        )
+        for t in (config.get("taints") or [])
+        if isinstance(t, dict)
+    }
+    for taint in expected_taints or []:
+        want = (str(taint.get("key", "")), str(taint.get("value", "")), str(taint.get("effect", "")))
+        if want not in observed_taints:
+            raise LifecycleError(
+                "config_error",
+                f"[bucket=config_error] adopted node pool {pool_name} is missing expected "
+                f"taint {want[0]}={want[1]}:{want[2]} (live taints: {sorted(observed_taints)}). "
+                "Refusing to emit a pool shape the live pool does not actually enforce.",
+            )
+
+
 # --------------------------------------------------------------------------- #
 # API-server endpoint resolution (binds the ACL probe to the reviewed cluster)#
 # --------------------------------------------------------------------------- #
@@ -1041,6 +1171,121 @@ def read_cluster_membership(
 
 
 # --------------------------------------------------------------------------- #
+# Cloud-side ownership marker (adopt-safety)                                   #
+# --------------------------------------------------------------------------- #
+
+
+def _read_cluster_labels(
+    cluster_name: str, location: str, project: str, *, timeout: int = 120
+) -> dict[str, str] | None:
+    """Return the live cluster's resource labels, or None when it is a clean
+    not-found. Any other describe failure RAISES so an unreadable cluster is never
+    silently treated as un-owned (which would defeat the fail-closed adopt gate)."""
+    rc, out = gcloud(
+        [
+            "container",
+            "clusters",
+            "describe",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=json",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        if bucket == "not_found":
+            return None
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not describe cluster {cluster_name} to read its "
+            f"ownership marker: {fold_tail(out)}",
+        )
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError as exc:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] cluster describe returned unparseable JSON while "
+            f"reading the ownership marker: {exc}",
+        ) from exc
+    labels = data.get("resourceLabels") or {}
+    return {str(k): str(v) for k, v in labels.items()} if isinstance(labels, dict) else {}
+
+
+def verify_cluster_ownership(cluster_name: str, location: str, project: str, *, timeout: int = 120) -> None:
+    """Fail CLOSED unless the live cluster carries THIS run's exact ownership marker.
+
+    Adoption imports an EXISTING cloud cluster into Terraform state, making it
+    eligible for a later ``terraform destroy``. A bare run-scoped NAME match must
+    never authorize that import: a stale cluster from another run whose id shares
+    this run's 8-char prefix, or an operator-precreated cluster that collides on the
+    name, would otherwise be adopted and destroyed as though this run owned it — a
+    destructive reuse-safety failure. Require the full-run-identity label
+    (``OWNERSHIP_LABEL_KEY``) the owning run stamped at create."""
+    labels = _read_cluster_labels(cluster_name, location, project, timeout=timeout)
+    if labels is None:
+        raise LifecycleError(
+            "not_found",
+            f"[bucket=not_found] cluster {cluster_name} vanished before its ownership marker "
+            "could be verified for adoption; retry.",
+        )
+    expected = full_run_scope_id()
+    observed = labels.get(OWNERSHIP_LABEL_KEY)
+    if observed != expected:
+        raise LifecycleError(
+            "config_error",
+            f"[bucket=config_error] refusing to adopt GKE cluster {cluster_name}: its "
+            f"cloud-side ownership marker {OWNERSHIP_LABEL_KEY}='{observed or '<absent>'}' does "
+            f"not match this run's identity '{expected}'. A run-scoped name match alone does not "
+            "prove ownership; a stale, colliding, or operator-precreated same-name cluster must "
+            "not be imported into Terraform state (and later destroyed) as though this run owned "
+            "it. Tear down the pre-existing cluster or use a fresh RUN_ID.",
+        )
+
+
+def ensure_cluster_ownership_label(cluster_name: str, location: str, project: str, *, timeout: int = 300) -> None:
+    """Idempotently stamp THIS run's ownership marker on a cluster this run OWNS
+    (a fresh create, or a cluster already tracked in this worktree's state).
+
+    This is the cloud-side proof a later cross-worker adopt verifies before it will
+    import the cluster. Reads first and skips the update when the marker is already
+    present, so it is a cheap no-op on the common in-state path and only issues the
+    control-plane label update on a freshly created (or legacy unlabeled) owned
+    cluster."""
+    labels = _read_cluster_labels(cluster_name, location, project)
+    expected = full_run_scope_id()
+    if labels is not None and labels.get(OWNERSHIP_LABEL_KEY) == expected:
+        return
+    rc, out = gcloud(
+        [
+            "container",
+            "clusters",
+            "update",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            f"--update-labels={OWNERSHIP_LABEL_KEY}={expected}",
+        ],
+        timeout=timeout,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not stamp the ownership marker "
+            f"{OWNERSHIP_LABEL_KEY}={expected} on {cluster_name}; refusing to leave an owned "
+            f"cluster unprovable for a later cross-worker adopt: {fold_tail(out)}",
+        )
+
+
+# --------------------------------------------------------------------------- #
 # Managed (GKE) node-pool autoscaling readback + reconcile                    #
 # --------------------------------------------------------------------------- #
 
@@ -1238,19 +1483,69 @@ def _delete_probe_resource(args: list[str], *, kind: str, name: str, retries: in
     return False
 
 
+def _retained_probes_marker_path() -> Path:
+    """Durable per-run signal file recording that a GPU capacity-preflight probe
+    delete was left unconfirmed. Lives beside the primary tfstate so it persists
+    across the separate setup and teardown lifecycle-step processes in the run's
+    worktree (git-ignored, see terraform/.gitignore)."""
+    return CLUSTER_TF_DIR / f"retained-probes-{run_scope_id()}.marker"
+
+
+def record_retained_probes(retained: list[str]) -> None:
+    """Persist that an inline probe delete could not be confirmed this run.
+
+    ``select_gpu_zone`` stays best-effort (it must not fail a found capacity zone
+    on a transient cleanup hiccup), but a retained probe MIG is a standalone
+    billable size-1 GPU resource. Recording it lets teardown's preservation
+    (``--skip-destroy``) path know a probe-only reclaim is PENDING and run the
+    backstop even though it never touches the cluster — while keeping its fast
+    no-auth short-circuit when nothing is pending. Best-effort: a marker write
+    failure only downgrades the preservation-path backstop, never the run."""
+    if not retained:
+        return
+    try:
+        with _retained_probes_marker_path().open("a", encoding="utf-8") as fh:
+            for name in retained:
+                fh.write(f"{name}\n")
+    except OSError as exc:
+        log(f"warning: could not record retained GPU-probe marker: {exc}")
+
+
+def retained_probes_pending() -> bool:
+    """True when an inline GPU-probe delete was left unconfirmed this run (the
+    marker file exists and is non-empty). Swallows every error so the preservation
+    short-circuit never fails on a missing RUN_ID or an unreadable marker."""
+    try:
+        path = _retained_probes_marker_path()
+        return path.is_file() and path.stat().st_size > 0
+    except Exception:  # a marker read must never break the preservation path
+        return False
+
+
+def clear_retained_probes_marker() -> None:
+    """Remove the retained-probe marker once the backstop confirmed reclaim."""
+    try:
+        _retained_probes_marker_path().unlink(missing_ok=True)
+    except Exception:  # best-effort cleanup of a local signal file
+        pass
+
+
 def _note_retained_probes(retained: list[str]) -> None:
     """Surface any probe resource whose inline delete was not confirmed.
 
     The names are run-scoped (``isv-gpumig-<run_id>-*`` / ``isv-gpuprobe-<run_id>-*``),
     so teardown's delete_orphan_gpu_probes backstop reclaims them deterministically
     even though select_gpu_zone stays best-effort here (it must not fail a found
-    capacity zone on a transient cleanup hiccup)."""
+    capacity zone on a transient cleanup hiccup). A durable marker is ALSO recorded
+    so the preservation (``--skip-destroy``) teardown path runs that backstop
+    instead of short-circuiting past a leaked billable MIG."""
     if retained:
         log(
             f"note: GPU capacity preflight left {len(retained)} probe resource(s) "
             f"unconfirmed-deleted ({'; '.join(retained)}); teardown's run-scoped probe "
             "backstop will reclaim them."
         )
+        record_retained_probes(retained)
 
 
 def _zone_region(zone: str) -> str:

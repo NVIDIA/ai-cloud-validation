@@ -123,6 +123,68 @@ def _reclaim_gpu_probes(project: str) -> tuple[dict[str, Any], list[str]]:
     return probe_reclaim, _probe_reclaim_errors(probe_reclaim)
 
 
+def _emit_preserved_teardown() -> int:
+    """Preservation path (--skip-destroy): keep the cluster + node pools, but still
+    reclaim a leaked GPU capacity-preflight probe MIG.
+
+    A probe MIG is a STANDALONE billable size-1 GPU resource OUTSIDE the cluster,
+    so preserving the cluster does not preserve it. If an inline probe delete was
+    left unconfirmed during setup, a plain skip-teardown would present a
+    success-shaped result while that MIG bills forever. Run the probe-ONLY backstop
+    (never touching the cluster or node pools) when a reclaim is PENDING, and make
+    its outcome part of the structured result. When nothing is pending, keep the
+    fast no-auth short-circuit so the common preservation case stays cheap."""
+    if not k8s.retained_probes_pending():
+        return k8s.emit(
+            {
+                "success": True,
+                "platform": PLATFORM,
+                "skipped": True,
+                "message": (
+                    "Teardown skipped (GCP_K8S_SKIP_TEARDOWN=true); GKE cluster preserved; "
+                    "no GPU capacity-preflight probe cleanup pending."
+                ),
+            }
+        )
+
+    result: dict[str, Any] = {"success": False, "platform": PLATFORM, "skipped": True}
+    try:
+        project = k8s.resolve_project_id()
+        probe_reclaim, cleanup_errors = _reclaim_gpu_probes(project)
+        if cleanup_errors:
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "cleanup_incomplete",
+                    "error": (
+                        "[bucket=cleanup_incomplete] Cluster preserved (GCP_K8S_SKIP_TEARDOWN=true), "
+                        "but run-owned GPU capacity-preflight probe reclaim is UNCONFIRMED: "
+                        + "; ".join(cleanup_errors)
+                    ),
+                    "resources_deleted": [],
+                    "cleanup_errors": cleanup_errors,
+                }
+            )
+        else:
+            # Marker cleared only once every retained probe is confirmed gone, so a
+            # rerun re-attempts the backstop while any leak remains.
+            k8s.clear_retained_probes_marker()
+            result.update(
+                {
+                    "success": True,
+                    "message": (
+                        "Teardown skipped (GCP_K8S_SKIP_TEARDOWN=true); GKE cluster + node pools "
+                        f"preserved; {len(probe_reclaim['deleted'])} retained GPU capacity-preflight "
+                        "probe resource(s) reclaimed."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+    except BaseException as exc:  # always emit structured JSON, never crash without output
+        result = k8s.error_result(PLATFORM, exc, skipped=True)
+    return k8s.emit(result)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Destroy the primary GKE cluster via Terraform.")
     parser.add_argument("--cluster-name", default="isv-gke", help="Cluster name base (RUN_ID-suffixed by the stub).")
@@ -134,14 +196,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.skip_destroy:
-        return k8s.emit(
-            {
-                "success": True,
-                "platform": PLATFORM,
-                "skipped": True,
-                "message": "Teardown skipped (GCP_K8S_SKIP_TEARDOWN=true); GKE cluster preserved.",
-            }
-        )
+        return _emit_preserved_teardown()
 
     result: dict[str, Any] = {"success": False, "platform": PLATFORM}
     try:
@@ -210,6 +265,11 @@ def main() -> int:
         #    standalone billable resources terraform never owns, so they MUST run on
         #    every exit — including a failed destroy. The destroy error stays the
         #    primary reported failure; the backstops never mask it.
+        #    OWNERSHIP: destroy is state-targeted, and the state only ever holds
+        #    resources this run CREATED or adopted with PROVEN full-identity
+        #    ownership (setup/create_node_pool verify the cloud-side marker before
+        #    importing), so a same-name cluster this run does not own is never in
+        #    state and thus never destroyed here.
         destroy_error: BaseException | None = None
         resources_deleted: list[str] = []
         try:
@@ -268,6 +328,9 @@ def main() -> int:
                 }
             )
         else:
+            # Every run-owned billable resource confirmed reclaimed — drop the
+            # retained-probe marker so a later preservation rerun short-circuits.
+            k8s.clear_retained_probes_marker()
             result.update(
                 {
                     "success": True,

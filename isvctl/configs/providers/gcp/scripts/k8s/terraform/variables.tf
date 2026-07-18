@@ -95,12 +95,19 @@ variable "system_min_nodes" {
 }
 
 variable "system_max_nodes" {
-  description = "Upper bound (per zone) for the GKE-managed autoscaler on the system pool (>= system_min_nodes)."
+  description = <<-EOT
+    Upper bound (per zone) for the GKE-managed autoscaler on the system pool. Must
+    be >= system_min_nodes, but that RELATIONSHIP is enforced in the setup stub, not
+    here: a validation `condition` that references another variable
+    (var.system_min_nodes) is a Terraform 1.9+ feature, and this module advertises a
+    >=1.5 floor (see main.tf required_version). Keep this validation self-contained
+    so the 1.5 floor stays honest; setup.py rejects max < min before apply.
+  EOT
   type        = number
   default     = 3
   validation {
-    condition     = var.system_max_nodes >= var.system_min_nodes && var.system_max_nodes <= 20 && floor(var.system_max_nodes) == var.system_max_nodes
-    error_message = "system_max_nodes must be an integer in [system_min_nodes, 20]."
+    condition     = var.system_max_nodes >= 1 && var.system_max_nodes <= 20 && floor(var.system_max_nodes) == var.system_max_nodes
+    error_message = "system_max_nodes must be an integer in [1, 20] (max >= min is enforced in setup.py to keep the Terraform >=1.5 floor)."
   }
 }
 

@@ -112,6 +112,12 @@ def main() -> int:
             # wait_secondary_ready below.
             secondary_id = f"projects/{project}/locations/{args.location}/clusters/{secondary_name}"
             if not secondary_in_state:
+                # FAIL CLOSED before importing a secondary this worktree's state does
+                # not track: require the full-run-identity ownership marker so a
+                # stale/colliding same-name cluster is never adopted (and later
+                # destroyed) as though this run owned it. Its shared-VPC membership
+                # is additionally verified live below before any success is emitted.
+                k8s.verify_cluster_ownership(secondary_name, args.location, project)
                 k8s.terraform_import(
                     k8s.SHARED_VPC_TF_DIR, state_file, "google_container_cluster.secondary", secondary_id, tf_vars
                 )
@@ -129,6 +135,11 @@ def main() -> int:
             k8s.terraform_refresh_only(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars)
         else:
             k8s.terraform_apply(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
+
+        # Stamp (or confirm) the cloud-side ownership marker carrying the FULL run
+        # identity on the secondary, so a later cross-worker adopt can prove it owns
+        # this cluster before importing it. Idempotent (no-op when already present).
+        k8s.ensure_cluster_ownership_label(secondary_name, args.location, project)
 
         # Describe BOTH clusters LIVE and verify shared membership + active state
         # BEFORE installing/waiting on the secondary kubeconfig. The GKE up-state

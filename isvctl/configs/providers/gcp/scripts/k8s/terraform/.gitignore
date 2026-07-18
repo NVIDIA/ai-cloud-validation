@@ -3,6 +3,10 @@
 *.tfstate.backup
 *.tfstate.lock.info
 
+# Runtime signal: a leaked GPU capacity-preflight probe pending reclaim
+# (written by setup, consumed by teardown's preservation path).
+retained-probes-*.marker
+
 # Terraform cache
 .terraform/
 .terraform.lock.hcl

@@ -199,6 +199,13 @@ def main() -> int:
             # scale/replace it here). A later same-worktree step that must change it
             # (update_test_node_pool scaling the CPU pool) then sees it in-state and
             # reconciles in place via the apply branch below.
+            #
+            # FAIL CLOSED before importing: the pool lives INSIDE the primary
+            # cluster, so prove that cluster carries THIS run's full-identity
+            # ownership marker first. Importing a pool under a cluster this run does
+            # not own would make the pool eligible for teardown's destroy on a bare
+            # name match.
+            k8s.verify_cluster_ownership(cluster_name, cluster_location, project)
             pool_id = f"projects/{project}/locations/{cluster_location}/clusters/{cluster_name}/nodePools/{pool_name}"
             k8s.terraform_import(k8s.NODE_POOL_TF_DIR, state_file, "google_container_node_pool.this", pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.NODE_POOL_TF_DIR, state_file, tf_vars)
@@ -214,6 +221,22 @@ def main() -> int:
         expected_labels = k8s.terraform_output_json(k8s.NODE_POOL_TF_DIR, state_file, "expected_labels")
         expected_taints = k8s.terraform_output_json(k8s.NODE_POOL_TF_DIR, state_file, "expected_taints")
         expected_instance_types = k8s.terraform_output_json(k8s.NODE_POOL_TF_DIR, state_file, "expected_instance_types")
+
+        if adopt:
+            # The expected_* outputs above are derived from Terraform INPUT vars, not
+            # the live pool. Prove the ADOPTED pool actually has that shape (machine
+            # type + every expected label/taint) before emitting it, so a preserved
+            # same-name pool with a different shape can never be reported with a
+            # fabricated contract the released K8sNodePoolCheck then asserts against.
+            k8s.verify_adopted_node_pool_shape(
+                cluster_name,
+                pool_name,
+                cluster_location,
+                project,
+                args.machine_type,
+                expected_labels,
+                expected_taints,
+            )
 
         if is_gpu:
             # Ensure kubectl reaches the cluster (reusing the wiring read above),

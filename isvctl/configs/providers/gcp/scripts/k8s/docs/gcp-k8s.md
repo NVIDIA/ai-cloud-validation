@@ -152,9 +152,14 @@ throwaway **standalone size-1 Managed Instance Group** (a plain Compute MIG, not
 a node pool — it deletes in seconds) mirroring the GPU shape is stood up, its
 capacity signal read (`ZONE_RESOURCE_POOL_EXHAUSTED` in `list-errors` → no
 capacity → next zone; instance reaching `STAGING`/`RUNNING` → capacity → use this
-zone), then deleted on every exit path. The real GPU pool is created directly in
-the first zone that showed capacity. A non-stockout probe failure (org policy,
-quota, permission) is surfaced and fails the step — never misread as no-capacity.
+zone), then deleted **best-effort** on every exit path. An inline delete that
+cannot be confirmed does not fail a found capacity zone (a transient cleanup
+hiccup must not mask real GPU capacity); instead the retained MIG is recorded and
+reclaimed by teardown's run-scoped probe backstop — which runs even on the
+`--skip-destroy` preservation path (see [Teardown](#teardown)). The real GPU pool
+is created directly in the first zone that showed capacity. A non-stockout probe
+failure (org policy, quota, permission) is surfaced and fails the step — never
+misread as no-capacity.
 
 ### GKE-specific bridges (setup)
 
@@ -266,10 +271,22 @@ Teardown runs by default (even after failures). It reclaims run-created PVCs so
 the `pd.csi.storage.gke.io` driver deletes their backing Persistent Disks BEFORE
 the cluster is destroyed (a GKE cluster delete does NOT reclaim PVC-backed PDs —
 they orphan as standalone Compute disks), then `terraform destroy`s the cluster,
-then backstops any raced PD by THIS run's `goog-k8s-cluster-name` label. Node
-pools are destroyed by their own steps first. `terraform init` runs
+then backstops any raced PD by THIS run's `goog-k8s-cluster-name` label AND any
+leftover GPU capacity-preflight probe MIG/template by this run's probe-name
+prefix. Node pools are destroyed by their own steps first. `terraform init` runs
 unconditionally before every destroy so a teardown-on-failure after setup bailed
-early still reconciles a stale lock and no-ops cleanly.
+early still reconciles a stale lock and no-ops cleanly. `terraform destroy` is
+state-targeted, and the cluster only enters that state via a fresh create or an
+adopt that first proved this run's exact ownership (a cloud-side full-run-id
+label), so teardown never destroys a same-name cluster this run does not own.
+
+`GCP_K8S_SKIP_TEARDOWN=true` preserves the cluster and node pools for debugging.
+Preservation still reclaims a **standalone** GPU capacity-preflight probe MIG (a
+billable size-1 GPU resource that lives OUTSIDE the cluster) when an earlier
+inline delete was left unconfirmed: the skip-teardown path runs the probe-ONLY
+backstop, leaves the cluster and node pools untouched, and reports the reclaim —
+so a preserved run can never hide a leaked probe MIG behind a success-shaped
+result. When no probe cleanup is pending it short-circuits with no cloud calls.
 
 ```bash
 # Standalone teardown for a previously-preserved run (re-use the SAME RUN_ID):
