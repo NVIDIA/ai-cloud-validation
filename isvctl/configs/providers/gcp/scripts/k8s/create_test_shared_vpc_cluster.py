@@ -83,13 +83,28 @@ def main() -> int:
         secondary_in_state = k8s.terraform_state_has(
             k8s.SHARED_VPC_TF_DIR, state_file, "google_container_cluster.secondary"
         )
-        secondary_exists = secondary_in_state or k8s.gke_cluster_exists(secondary_name, args.location, project)
+        # Query cloud existence INDEPENDENTLY of local state (as the primary does): a
+        # secondary tracked in stale state but genuinely absent from the cloud must be
+        # RECREATED, not refreshed into a phantom. Discard the stale state so the
+        # fresh-create path below rebuilds the state-owned secondary + its node pool.
+        secondary_on_cloud = k8s.gke_cluster_exists(secondary_name, args.location, project)
+        if secondary_in_state and not secondary_on_cloud:
+            k8s.log(
+                f"note: Terraform state tracks secondary {secondary_name} but it is absent from "
+                "the cloud; discarding stale state and recreating the state-owned secondary."
+            )
+            k8s.discard_cluster_state(k8s.SHARED_VPC_TF_DIR, state_file)
+            secondary_in_state = False
+        secondary_exists = secondary_on_cloud
 
         k8s.terraform_init(k8s.SHARED_VPC_TF_DIR)
         tf_vars = {
             "project": project,
             "cluster_name": secondary_name,
             "cluster_state_path": k8s.cluster_state_path_for_node_pool(),
+            # Stamp the full-run-identity ownership marker on the secondary ATOMICALLY
+            # at creation so adopt/relabel/destroy can fail closed on a foreign marker.
+            "ownership_labels": {k8s.OWNERSHIP_LABEL_KEY: k8s.full_run_scope_id()},
             "location": args.location,
             # Persist the shared network/subnetwork into the secondary's OWN state
             # (fallback vars) so a var-less destroy resolves after the primary
@@ -127,19 +142,34 @@ def main() -> int:
             # state lacks it, by its terraform-derived name.
             pool_address = "google_container_node_pool.secondary"
             pool_name = k8s.secondary_pool_name(secondary_name)
-            if not k8s.terraform_state_has(
-                k8s.SHARED_VPC_TF_DIR, state_file, pool_address
-            ) and k8s.gke_node_pool_exists(secondary_name, pool_name, args.location, project):
-                pool_id = f"{secondary_id}/nodePools/{pool_name}"
-                k8s.terraform_import(k8s.SHARED_VPC_TF_DIR, state_file, pool_address, pool_id, tf_vars)
+            if not k8s.terraform_state_has(k8s.SHARED_VPC_TF_DIR, state_file, pool_address):
+                if k8s.gke_node_pool_exists(secondary_name, pool_name, args.location, project):
+                    pool_id = f"{secondary_id}/nodePools/{pool_name}"
+                    k8s.terraform_import(k8s.SHARED_VPC_TF_DIR, state_file, pool_address, pool_id, tf_vars)
+                else:
+                    # Cluster exists but its node pool is genuinely absent (partial prior
+                    # create / out-of-band delete): recreate it via the API (cluster-safe)
+                    # with the module's default shape, then import so state tracks it.
+                    k8s.recreate_secondary_node_pool(
+                        secondary_name,
+                        pool_name,
+                        args.location,
+                        project,
+                        machine_type=k8s.SECONDARY_POOL_MACHINE_TYPE,
+                        node_zone=k8s.zone_for_location(args.location),
+                        node_count=k8s.SECONDARY_POOL_NODE_COUNT,
+                    )
+                    pool_id = f"{secondary_id}/nodePools/{pool_name}"
+                    k8s.terraform_import(k8s.SHARED_VPC_TF_DIR, state_file, pool_address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars)
         else:
             k8s.terraform_apply(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
 
-        # Stamp (or confirm) the cloud-side ownership marker carrying the FULL run
-        # identity on the secondary, so a later cross-worker adopt can prove it owns
-        # this cluster before importing it. Idempotent (no-op when already present).
-        k8s.ensure_cluster_ownership_label(secondary_name, args.location, project)
+        # Confirm the cloud-side full-run-identity ownership marker on the secondary
+        # (stamped atomically at Terraform creation). No-op on the common path; FAILS
+        # CLOSED on a foreign/absent marker so a deleted-and-replaced same-name cluster
+        # is never relabeled as run-owned. Only a fresh create backfills the marker.
+        k8s.ensure_cluster_ownership_label(secondary_name, args.location, project, fresh_create=not secondary_exists)
 
         # Describe BOTH clusters LIVE and verify shared membership + active state
         # BEFORE installing/waiting on the secondary kubeconfig. The GKE up-state

@@ -171,7 +171,21 @@ def main() -> int:
         # Detect the existing cluster and ADOPT it below instead.
         state_file = k8s.cluster_state_file()
         cluster_in_state = k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary")
-        cluster_exists = cluster_in_state or k8s.gke_cluster_exists(cluster_name, args.location, project)
+        # Query cloud existence INDEPENDENTLY of local state: state alone must not
+        # select the adopt/refresh-only branch. A cluster tracked in stale state but
+        # genuinely GONE from the cloud (deleted out of band, or a partial prior
+        # create) must be RECREATED, not refreshed into a phantom that later
+        # readiness/autoscaling checks fail on. Discard the stale state so the
+        # fresh-create path below rebuilds the state-owned cluster + baseline pools.
+        cluster_on_cloud = k8s.gke_cluster_exists(cluster_name, args.location, project)
+        if cluster_in_state and not cluster_on_cloud:
+            k8s.log(
+                f"note: Terraform state tracks cluster {cluster_name} but it is absent from the "
+                "cloud; discarding stale state and recreating the state-owned cluster."
+            )
+            k8s.discard_cluster_state(k8s.CLUSTER_TF_DIR, state_file)
+            cluster_in_state = False
+        cluster_exists = cluster_on_cloud
 
         # 1) GPU zone. A FRESH create runs the capacity preflight BEFORE the cluster
         #    apply (a GKE node-pool CREATE op cannot be cancelled). An ALREADY
@@ -226,6 +240,11 @@ def main() -> int:
             "location": args.location,
             "kube_version": args.kube_version,
             "network": network,
+            # Stamp the full-run-identity ownership marker on the cluster ATOMICALLY
+            # at creation (resource_labels) so a genuinely run-owned cluster always
+            # carries it — the adopt/relabel/destroy paths then treat an absent or
+            # mismatched marker as a foreign/replaced cluster and fail closed.
+            "ownership_labels": {k8s.OWNERSHIP_LABEL_KEY: k8s.full_run_scope_id()},
             "master_authorized_cidrs": authorized_cidrs,
             "system_machine_type": args.cpu_machine_type,
             "system_node_count": args.system_node_count,
@@ -287,7 +306,37 @@ def main() -> int:
                 if k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, address):
                     continue
                 if not k8s.gke_node_pool_exists(cluster_name, pool_name, args.location, project):
-                    continue
+                    # The cluster exists but this REQUIRED baseline pool is genuinely
+                    # absent (a partial prior create, or an out-of-band pool delete). A
+                    # refresh-only would leave it missing and later readiness/autoscaling
+                    # checks would fail loudly instead of restoring the contract, so
+                    # RECREATE it via the API (a node-pool create can only ADD the pool
+                    # and can never replace the cluster), then import so state tracks the
+                    # rebuilt pool.
+                    if address == "google_container_node_pool.system":
+                        k8s.recreate_baseline_system_pool(
+                            cluster_name,
+                            pool_name,
+                            args.location,
+                            project,
+                            machine_type=args.cpu_machine_type,
+                            node_zone=k8s.zone_for_location(args.location),
+                            node_count=args.system_node_count,
+                            min_nodes=args.system_min_nodes,
+                            max_nodes=args.system_max_nodes,
+                        )
+                    else:
+                        k8s.recreate_baseline_gpu_pool(
+                            cluster_name,
+                            pool_name,
+                            args.location,
+                            project,
+                            machine_type=args.gpu_machine_type,
+                            node_zone=gpu_zone,
+                            node_count=args.gpu_node_count,
+                            accelerator_type=args.gpu_accelerator_type,
+                            accelerator_count=args.gpu_accelerator_count,
+                        )
                 pool_id = f"{cluster_id}/nodePools/{pool_name}"
                 k8s.terraform_import(k8s.CLUSTER_TF_DIR, state_file, address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.CLUSTER_TF_DIR, state_file, tf_vars)
@@ -295,12 +344,13 @@ def main() -> int:
             # Fresh create (the cluster does not exist yet — nothing to adopt).
             k8s.terraform_apply(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
 
-        # 2a) Stamp (or confirm) the cloud-side ownership marker carrying the FULL
-        #     run identity. This is the proof a later cross-worker adopt verifies
-        #     before importing the cluster: a fresh create gets it here, and an
-        #     in-state (already-owned) cluster is backfilled so it, too, can prove
-        #     ownership. Idempotent — a no-op read when the marker already matches.
-        k8s.ensure_cluster_ownership_label(cluster_name, args.location, project)
+        # 2a) Confirm the cloud-side full-run-identity ownership marker. The cluster
+        #     is stamped ATOMICALLY at Terraform creation (resource_labels), so this
+        #     is a no-op read on the common path; it FAILS CLOSED if the live marker
+        #     belongs to a different run (a deleted-and-replaced same-name cluster) or
+        #     is absent on an adopted cluster, and only backfills a marker on a fresh
+        #     create (belt-and-suspenders if the label write has not yet propagated).
+        k8s.ensure_cluster_ownership_label(cluster_name, args.location, project, fresh_create=not cluster_exists)
 
         # 3) Install the kubeconfig for ambient kubectl.
         k8s.install_kubeconfig(cluster_name, args.location, project)

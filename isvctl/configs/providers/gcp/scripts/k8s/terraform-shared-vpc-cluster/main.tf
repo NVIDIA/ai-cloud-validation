@@ -76,6 +76,12 @@ resource "google_container_cluster" "secondary" {
   network    = local.primary_network
   subnetwork = local.primary_subnetwork == "" ? null : local.primary_subnetwork
 
+  # Full-run-identity ownership marker stamped atomically at creation (matches the
+  # primary cluster); the adopt/destroy paths require it before importing or
+  # destroying a state-tracked secondary, so a foreign same-name cluster is never
+  # adopted or destroyed as run-owned.
+  resource_labels = var.ownership_labels
+
   remove_default_node_pool = true
   initial_node_count       = 1
 

@@ -103,14 +103,31 @@ def main() -> int:
             except k8s.LifecycleError:
                 return fallback
 
+        secondary_location = _own("location", _PLACEHOLDER_LOCATION)
         tf_vars = {
             "project": project,
             "cluster_name": secondary_name,
             "cluster_state_path": k8s.cluster_state_path_for_node_pool(),
-            "location": _own("location", _PLACEHOLDER_LOCATION),
+            "location": secondary_location,
             "network": _own("network"),
             "subnetwork": _own("subnetwork"),
         }
+        # Fail-closed backstop against a state entry that now resolves to a
+        # deleted-and-replaced same-name FOREIGN secondary: re-verify the LIVE
+        # ownership marker before destroy and SKIP on a definitive non-ownership
+        # signal (present-but-different-run, or absent). A not-found or transiently
+        # unreadable marker falls through so a describe flake never leaks our own.
+        destroy_ok, ownership_reason = k8s.destroy_ownership_ok(secondary_name, secondary_location, project)
+        if not destroy_ok:
+            k8s.log(f"warning: skipping secondary cluster destroy — {ownership_reason}")
+            result.update(
+                {
+                    "success": True,
+                    "message": f"Secondary cluster destroy skipped — {ownership_reason}.",
+                    "resources_deleted": [],
+                }
+            )
+            return k8s.emit(result)
         k8s.terraform_destroy(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
 
         result.update(

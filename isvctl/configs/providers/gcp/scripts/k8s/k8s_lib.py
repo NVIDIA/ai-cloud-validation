@@ -922,13 +922,36 @@ def _net_identity(value: str) -> str:
     return v.rsplit("/", 1)[-1].lower() if v else ""
 
 
+def _with_host_prefix(token: str) -> str:
+    """Return a bare IP address as a single-HOST CIDR whose prefix matches the
+    address family; a token that already carries a ``/prefix`` is returned as-is.
+
+    A bare value is parsed as an IP ADDRESS first so the host prefix is correct
+    per family: IPv4 -> ``/32``, IPv6 -> ``/128``. The old behavior appended a
+    literal ``/32`` to EVERY bare value, which turned a bare IPv6 host such as
+    ``2001:db8::1`` into an IPv6 ``/32`` network — a catastrophic widening of a
+    control-plane allow-list from one host to 2**96 addresses. A token that is not
+    a bare address (already has ``/``, or is not a parseable IP) is returned
+    unchanged so the caller's own CIDR parse raises/normalizes it uniformly. This
+    is the ONE canonical normalizer shared by the request and readback paths so a
+    bare host and its live readback always compare equal."""
+    if "/" in token:
+        return token
+    try:
+        addr = ipaddress.ip_address(token)
+    except ValueError:
+        return token
+    return f"{token}/{addr.max_prefixlen}"
+
+
 def normalize_authorized_cidrs(raw: str) -> list[str]:
     """Parse the comma-separated control-plane authorized CIDR list.
 
     The `none` sentinel or a blank value returns [] (authorized networks left
-    unconfigured). A bare IPv4 normalizes to /32. Every entry must be a valid
-    CIDR and MUST NOT be world-open (0.0.0.0/0 or ::/0) — a world-open entry
-    defeats the ACL, so it is a hard config_error, never a silent pass."""
+    unconfigured). A bare IPv4 normalizes to /32 and a bare IPv6 to /128 (a single
+    host, never a widened range). Every entry must be a valid CIDR and MUST NOT be
+    world-open (0.0.0.0/0 or ::/0) — a world-open entry defeats the ACL, so it is a
+    hard config_error, never a silent pass."""
     v = normalize_sentinel(raw)
     if not v:
         return []
@@ -937,7 +960,7 @@ def normalize_authorized_cidrs(raw: str) -> list[str]:
         token = token.strip()
         if not token:
             continue
-        candidate = token if "/" in token else f"{token}/32"
+        candidate = _with_host_prefix(token)
         try:
             net = ipaddress.ip_network(candidate, strict=False)
         except ValueError as exc:
@@ -1037,14 +1060,16 @@ def same_network(a: str, b: str) -> bool:
 
 def _normalize_cidr_set(cidrs: list[str]) -> set[str]:
     """Normalize a list of CIDR strings into a comparable set (bare IPv4 -> /32,
-    canonical network form). Unparseable tokens are kept lower-cased so a genuine
+    bare IPv6 -> /128, canonical network form) via the SAME `_with_host_prefix`
+    normalizer the request path uses, so a requested bare host and its live
+    readback compare equal. Unparseable tokens are kept lower-cased so a genuine
     mismatch never silently compares equal."""
     out: set[str] = set()
     for token in cidrs:
         token = (token or "").strip()
         if not token:
             continue
-        candidate = token if "/" in token else f"{token}/32"
+        candidate = _with_host_prefix(token)
         try:
             out.add(str(ipaddress.ip_network(candidate, strict=False)))
         except ValueError:
@@ -1248,19 +1273,49 @@ def verify_cluster_ownership(cluster_name: str, location: str, project: str, *, 
         )
 
 
-def ensure_cluster_ownership_label(cluster_name: str, location: str, project: str, *, timeout: int = 300) -> None:
-    """Idempotently stamp THIS run's ownership marker on a cluster this run OWNS
-    (a fresh create, or a cluster already tracked in this worktree's state).
+def ensure_cluster_ownership_label(
+    cluster_name: str, location: str, project: str, *, fresh_create: bool, timeout: int = 300
+) -> None:
+    """Confirm — or, only for a cluster THIS run just created, stamp — the
+    cloud-side full-run-identity ownership marker. FAIL CLOSED so a foreign cluster
+    is never relabeled as run-owned:
 
-    This is the cloud-side proof a later cross-worker adopt verifies before it will
-    import the cluster. Reads first and skips the update when the marker is already
-    present, so it is a cheap no-op on the common in-state path and only issues the
-    control-plane label update on a freshly created (or legacy unlabeled) owned
-    cluster."""
+    * marker already == this run -> no-op (the common path: the cluster is stamped
+      ATOMICALLY at Terraform creation via `resource_labels`, so both a fresh
+      create and an in-state/adopted cluster normally match here).
+    * marker present but a DIFFERENT run -> REFUSE (raise). Overwriting it (the old
+      behavior) would let a state-tracked cluster that was deleted and replaced by a
+      colliding same-name cluster be relabeled — and later destroyed — as though
+      this run owned it.
+    * marker ABSENT -> only a fresh create (a cluster we KNOW we just provisioned)
+      may stamp it, as a belt-and-suspenders backstop if the Terraform label write
+      has not yet propagated to describe. An adopted/in-state cluster carrying NO
+      marker is NOT backfilled from local state alone — it fails closed, because a
+      genuinely run-owned cluster was stamped at creation, so a missing marker means
+      the live resource is not the one this run created.
+    """
     labels = _read_cluster_labels(cluster_name, location, project)
     expected = full_run_scope_id()
-    if labels is not None and labels.get(OWNERSHIP_LABEL_KEY) == expected:
+    observed = labels.get(OWNERSHIP_LABEL_KEY) if labels is not None else None
+    if observed == expected:
         return
+    if observed is not None:
+        raise LifecycleError(
+            "config_error",
+            f"[bucket=config_error] refusing to (re)stamp ownership on cluster {cluster_name}: "
+            f"its live marker {OWNERSHIP_LABEL_KEY}='{observed}' belongs to a DIFFERENT run, not "
+            f"this run's identity '{expected}'. A state-tracked cluster that was deleted and "
+            "replaced by a colliding same-name cluster must never be relabeled (and later "
+            "destroyed) as run-owned. Tear down the pre-existing cluster or use a fresh RUN_ID.",
+        )
+    if not fresh_create:
+        raise LifecycleError(
+            "config_error",
+            f"[bucket=config_error] cluster {cluster_name} is tracked as run-owned but carries NO "
+            f"cloud-side ownership marker {OWNERSHIP_LABEL_KEY}; refusing to backfill it from local "
+            "state alone (the marker is stamped atomically at Terraform creation). A missing marker "
+            "on an adopted cluster means the live resource is not the one this run created.",
+        )
     rc, out = gcloud(
         [
             "container",
@@ -1283,6 +1338,223 @@ def ensure_cluster_ownership_label(cluster_name: str, location: str, project: st
             f"{OWNERSHIP_LABEL_KEY}={expected} on {cluster_name}; refusing to leave an owned "
             f"cluster unprovable for a later cross-worker adopt: {fold_tail(out)}",
         )
+
+
+def destroy_ownership_ok(cluster_name: str, location: str, project: str) -> tuple[bool, str]:
+    """Gate a state-targeted cluster DESTROY on live ownership; returns (ok, reason).
+
+    A destroy is state-targeted, so a state entry that now resolves to a colliding
+    same-name FOREIGN cluster (the original was deleted and replaced out of band)
+    could otherwise destroy a resource this run does not own. Fail CLOSED on a
+    definitive non-ownership signal — a marker that is present-but-a-different-run,
+    OR entirely absent (a genuinely run-owned cluster is stamped at Terraform
+    creation, so a missing marker means the live resource is not ours). A cluster
+    that is already gone (not_found) or whose marker is transiently UNREADABLE falls
+    through to the existing state-targeted destroy, so a describe flake never leaks
+    this run's OWN cluster."""
+    try:
+        labels = _read_cluster_labels(cluster_name, location, project)
+    except LifecycleError as exc:
+        return True, f"ownership marker unreadable ({exc.detail}); proceeding with state-targeted destroy"
+    if labels is None:
+        return True, "live cluster already absent; state-targeted destroy is a no-op reconcile"
+    expected = full_run_scope_id()
+    observed = labels.get(OWNERSHIP_LABEL_KEY)
+    if observed == expected:
+        return True, "live ownership marker matches this run"
+    return False, (
+        f"live cluster {cluster_name} carries ownership marker {OWNERSHIP_LABEL_KEY}="
+        f"'{observed or '<absent>'}', not this run's '{expected}'; refusing to destroy a cluster "
+        "this run does not own (state may point at a deleted-and-replaced same-name cluster)"
+    )
+
+
+def discard_cluster_state(module_dir: Path, state_file: str) -> None:
+    """Discard a STALE primary/secondary cluster state file so setup rebuilds the
+    state-owned cluster from scratch.
+
+    Used when local Terraform state still tracks a cluster the cloud no longer has
+    (deleted out of band, or a partial prior create): a refresh-only would just drop
+    the phantom from state and never rebuild it, so later readiness/autoscaling
+    checks would fail loudly instead of restoring the cluster. The state file only
+    ever tracks THIS run's own cluster + its in-module baseline pools, so discarding
+    it is safe — the fresh apply that follows recreates every resource under the
+    same run-scoped names."""
+    try:
+        (module_dir / state_file).unlink(missing_ok=True)
+        # terraform writes a .backup sidecar; drop it too so the next apply starts
+        # from a truly empty state rather than resurrecting the phantom.
+        (module_dir / f"{state_file}.backup").unlink(missing_ok=True)
+    except OSError as exc:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] could not discard stale cluster state {state_file} in "
+            f"{module_dir.name} to reconcile a cloud-absent cluster: {exc}",
+        ) from exc
+
+
+def recreate_baseline_system_pool(
+    cluster_name: str,
+    pool_name: str,
+    location: str,
+    project: str,
+    *,
+    machine_type: str,
+    node_zone: str,
+    node_count: int,
+    min_nodes: int,
+    max_nodes: int,
+    timeout: int = 1200,
+) -> None:
+    """API-create a genuinely-absent baseline SYSTEM pool during adopt reconcile.
+
+    Mirrors ``terraform/main.tf`` ``google_container_node_pool.system`` (single
+    zone, GKE-managed autoscaling, cloud-platform scopes). Uses ``gcloud`` rather
+    than a Terraform apply because a normal apply on an imported cluster would force
+    a full cluster REPLACE (initial_node_count reads back as 0); a node-pool create
+    can only ADD the pool and can NEVER replace the existing cluster."""
+    rc, out = gcloud(
+        [
+            "container",
+            "node-pools",
+            "create",
+            pool_name,
+            "--cluster",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--node-locations",
+            node_zone,
+            "--machine-type",
+            machine_type,
+            "--num-nodes",
+            str(node_count),
+            "--enable-autoscaling",
+            "--min-nodes",
+            str(min_nodes),
+            "--max-nodes",
+            str(max_nodes),
+            "--scopes",
+            "https://www.googleapis.com/auth/cloud-platform",
+        ],
+        timeout=timeout,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not recreate absent baseline system pool {pool_name} on "
+            f"{cluster_name}: {fold_tail(out)}",
+        )
+
+
+def recreate_baseline_gpu_pool(
+    cluster_name: str,
+    pool_name: str,
+    location: str,
+    project: str,
+    *,
+    machine_type: str,
+    node_zone: str,
+    node_count: int,
+    accelerator_type: str,
+    accelerator_count: int,
+    timeout: int = 1800,
+) -> None:
+    """API-create a genuinely-absent baseline GPU pool during adopt reconcile.
+
+    Mirrors ``terraform/main.tf`` ``google_container_node_pool.gpu`` (fixed
+    single-zone pool, LATEST GKE-managed driver, cloud-platform scopes). gcloud
+    (not Terraform) so it can only ADD the pool and never replace the cluster."""
+    rc, out = gcloud(
+        [
+            "container",
+            "node-pools",
+            "create",
+            pool_name,
+            "--cluster",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--node-locations",
+            node_zone,
+            "--machine-type",
+            machine_type,
+            "--num-nodes",
+            str(node_count),
+            "--accelerator",
+            f"type={accelerator_type},count={accelerator_count},gpu-driver-version=LATEST",
+            "--scopes",
+            "https://www.googleapis.com/auth/cloud-platform",
+        ],
+        timeout=timeout,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not recreate absent baseline GPU pool {pool_name} on "
+            f"{cluster_name}: {fold_tail(out)}",
+        )
+
+
+def recreate_secondary_node_pool(
+    cluster_name: str,
+    pool_name: str,
+    location: str,
+    project: str,
+    *,
+    machine_type: str,
+    node_zone: str,
+    node_count: int,
+    timeout: int = 1200,
+) -> None:
+    """API-create a genuinely-absent secondary shared-VPC node pool during adopt
+    reconcile. Mirrors ``terraform-shared-vpc-cluster/main.tf``
+    ``google_container_node_pool.secondary`` (machine_type + node_count default to
+    the module's own defaults). gcloud so it can never replace the cluster."""
+    rc, out = gcloud(
+        [
+            "container",
+            "node-pools",
+            "create",
+            pool_name,
+            "--cluster",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--node-locations",
+            node_zone,
+            "--machine-type",
+            machine_type,
+            "--num-nodes",
+            str(node_count),
+            "--scopes",
+            "https://www.googleapis.com/auth/cloud-platform",
+        ],
+        timeout=timeout,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not recreate absent secondary node pool {pool_name} on "
+            f"{cluster_name}: {fold_tail(out)}",
+        )
+
+
+# Module default for the secondary shared-VPC node pool (mirrors
+# terraform-shared-vpc-cluster/variables.tf `machine_type` / `node_count`
+# defaults); the create stub relies on those defaults, so a genuinely-absent
+# secondary pool is recreated with the SAME shape.
+SECONDARY_POOL_MACHINE_TYPE = "e2-standard-4"
+SECONDARY_POOL_NODE_COUNT = 1
 
 
 # --------------------------------------------------------------------------- #
@@ -1494,32 +1766,57 @@ def _retained_probes_marker_path() -> Path:
 def record_retained_probes(retained: list[str]) -> None:
     """Persist that an inline probe delete could not be confirmed this run.
 
-    ``select_gpu_zone`` stays best-effort (it must not fail a found capacity zone
-    on a transient cleanup hiccup), but a retained probe MIG is a standalone
-    billable size-1 GPU resource. Recording it lets teardown's preservation
-    (``--skip-destroy``) path know a probe-only reclaim is PENDING and run the
-    backstop even though it never touches the cluster — while keeping its fast
-    no-auth short-circuit when nothing is pending. Best-effort: a marker write
-    failure only downgrades the preservation-path backstop, never the run."""
+    ``select_gpu_zone`` stays best-effort about the cloud DELETE (it must not fail
+    a found capacity zone on a transient cleanup hiccup), but recording a genuine
+    retention is FAIL-CLOSED: a retained probe MIG is a standalone billable size-1
+    GPU resource, and this marker is how the preservation (``--skip-destroy``)
+    teardown path learns a probe-only reclaim is PENDING. Silently dropping the
+    record (the old best-effort behavior) would let that MIG bill forever while
+    teardown reports a clean success, so an UNRECORDABLE retained probe raises and
+    fails setup — a normal (non-skip) teardown still reclaims it unconditionally
+    via the run-scoped backstop, so failing loudly here never leaks. The write is
+    retried once before it is treated as fatal."""
     if not retained:
         return
-    try:
-        with _retained_probes_marker_path().open("a", encoding="utf-8") as fh:
-            for name in retained:
-                fh.write(f"{name}\n")
-    except OSError as exc:
-        log(f"warning: could not record retained GPU-probe marker: {exc}")
+    path = _retained_probes_marker_path()
+    last_exc: OSError | None = None
+    for attempt in range(2):
+        try:
+            with path.open("a", encoding="utf-8") as fh:
+                for name in retained:
+                    fh.write(f"{name}\n")
+            return
+        except OSError as exc:
+            last_exc = exc
+            if attempt == 0:
+                time.sleep(1)
+    raise LifecycleError(
+        "cleanup_incomplete",
+        f"[bucket=cleanup_incomplete] could not persist the retained GPU capacity-probe "
+        f"marker at {path} ({last_exc}); refusing to leave a billable probe MIG unrecorded "
+        "where the preservation (--skip-destroy) teardown path would miss it and report a "
+        "false clean success.",
+    )
 
 
 def retained_probes_pending() -> bool:
     """True when an inline GPU-probe delete was left unconfirmed this run (the
-    marker file exists and is non-empty). Swallows every error so the preservation
-    short-circuit never fails on a missing RUN_ID or an unreadable marker."""
+    marker file exists and is non-empty).
+
+    FAIL CLOSED on an INDETERMINATE marker: a read/stat error returns True so the
+    preservation (``--skip-destroy``) path conservatively RUNS the run-scoped probe
+    backstop (derived purely from the run id; a harmless no-op when nothing leaked)
+    instead of mis-reporting "nothing pending" while a billable MIG survives. Only
+    a marker that is DEFINITIVELY absent (or present-but-empty) returns False."""
+    path = _retained_probes_marker_path()
     try:
-        path = _retained_probes_marker_path()
         return path.is_file() and path.stat().st_size > 0
-    except Exception:  # a marker read must never break the preservation path
-        return False
+    except OSError as exc:
+        log(
+            f"warning: retained GPU-probe marker at {path} is unreadable ({exc}); running the "
+            "run-scoped probe backstop to fail closed rather than skip cleanup"
+        )
+        return True
 
 
 def clear_retained_probes_marker() -> None:

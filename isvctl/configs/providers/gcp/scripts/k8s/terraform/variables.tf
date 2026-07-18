@@ -57,6 +57,22 @@ variable "subnetwork" {
   default     = ""
 }
 
+variable "ownership_labels" {
+  description = <<-EOT
+    Full-run-identity ownership marker stamped on the cluster's resource_labels at
+    CREATION (isv-ncp-run-id=<full run id>). This is the cloud-side proof a later
+    cross-worker adopt verifies before importing the cluster, and that setup/teardown
+    require to match before relabeling or destroying a state-tracked cluster — so a
+    same-name cluster this run does not own is never adopted or destroyed. Stamping it
+    atomically here (rather than only via a post-apply gcloud update) means a
+    genuinely run-owned cluster ALWAYS carries the marker, so an absent marker
+    reliably signals a foreign/replaced cluster. Empty default keeps a var-less
+    destroy valid (destroy is state-targeted).
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
 variable "master_authorized_cidrs" {
   description = <<-EOT
     Operator-approved CIDRs allowed to reach the GKE control-plane public

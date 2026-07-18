@@ -268,24 +268,33 @@ def main() -> int:
         #    OWNERSHIP: destroy is state-targeted, and the state only ever holds
         #    resources this run CREATED or adopted with PROVEN full-identity
         #    ownership (setup/create_node_pool verify the cloud-side marker before
-        #    importing), so a same-name cluster this run does not own is never in
-        #    state and thus never destroyed here.
+        #    importing). As a fail-closed backstop against a state entry that now
+        #    resolves to a deleted-and-replaced same-name FOREIGN cluster, re-verify
+        #    the LIVE ownership marker just before destroy and SKIP it on a definitive
+        #    non-ownership signal (present-but-different-run, or absent — a genuinely
+        #    run-owned cluster is stamped at Terraform creation). A not-found or a
+        #    transiently-unreadable marker falls through so a describe flake never
+        #    leaks our OWN cluster.
         destroy_error: BaseException | None = None
         resources_deleted: list[str] = []
         try:
-            k8s.terraform_init(k8s.CLUSTER_TF_DIR)
-            tf_vars = {
-                "project": project,
-                "cluster_name": cluster_name,
-                "location": location,
-                # Delete-irrelevant vars (targeted by state) take benign placeholders.
-                "system_machine_type": _PLACEHOLDER,
-                "gpu_machine_type": _PLACEHOLDER,
-                "gpu_accelerator_type": _PLACEHOLDER,
-                "gpu_node_locations": [gpu_zone],
-            }
-            k8s.terraform_destroy(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
-            resources_deleted = ["google_container_cluster", "google_container_node_pool"]
+            destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, location, project)
+            if not destroy_ok:
+                k8s.log(f"warning: skipping cluster destroy — {ownership_reason}")
+            else:
+                k8s.terraform_init(k8s.CLUSTER_TF_DIR)
+                tf_vars = {
+                    "project": project,
+                    "cluster_name": cluster_name,
+                    "location": location,
+                    # Delete-irrelevant vars (targeted by state) take benign placeholders.
+                    "system_machine_type": _PLACEHOLDER,
+                    "gpu_machine_type": _PLACEHOLDER,
+                    "gpu_accelerator_type": _PLACEHOLDER,
+                    "gpu_node_locations": [gpu_zone],
+                }
+                k8s.terraform_destroy(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
+                resources_deleted = ["google_container_cluster", "google_container_node_pool"]
         except BaseException as exc:
             destroy_error = exc
 

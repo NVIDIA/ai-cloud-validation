@@ -119,6 +119,25 @@ def main() -> int:
             "cluster_location": cluster_location,
             "machine_type": _PLACEHOLDER_MACHINE_TYPE,
         }
+        # Fail-closed backstop before destroying a state-targeted node pool: when the
+        # parent cluster wiring is recoverable, re-verify the PARENT cluster's live
+        # ownership marker and SKIP the pool destroy on a definitive non-ownership
+        # signal (present-but-different-run, or absent) so a pool on a
+        # deleted-and-replaced same-name FOREIGN cluster is never destroyed. An
+        # unrecoverable parent (primary state already gone) or a transiently-unreadable
+        # marker falls through to the existing state-targeted destroy.
+        if cluster_name and cluster_location:
+            destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, cluster_location, project)
+            if not destroy_ok:
+                k8s.log(f"warning: skipping node pool destroy — parent cluster {ownership_reason}")
+                result.update(
+                    {
+                        "success": True,
+                        "message": f"Node pool {pool_name} destroy skipped — parent cluster {ownership_reason}.",
+                        "resources_deleted": [],
+                    }
+                )
+                return k8s.emit(result)
         k8s.terraform_destroy(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
 
         result.update(
