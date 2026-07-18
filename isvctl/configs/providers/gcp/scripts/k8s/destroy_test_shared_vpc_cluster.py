@@ -114,16 +114,22 @@ def main() -> int:
         }
         # Fail-closed backstop against a state entry that now resolves to a
         # deleted-and-replaced same-name FOREIGN secondary: re-verify the LIVE
-        # ownership marker before destroy and SKIP on a definitive non-ownership
+        # ownership marker before destroy and REFUSE on a definitive non-ownership
         # signal (present-but-different-run, or absent). A not-found or transiently
-        # unreadable marker falls through so a describe flake never leaks our own.
+        # unreadable marker falls through so a describe flake never leaks our own. A
+        # definitive non-ownership signal is surfaced as a VISIBLE failure —
+        # preserving a foreign same-name secondary must never present as a clean skip.
         destroy_ok, ownership_reason = k8s.destroy_ownership_ok(secondary_name, secondary_location, project)
         if not destroy_ok:
-            k8s.log(f"warning: skipping secondary cluster destroy — {ownership_reason}")
+            k8s.log(f"warning: refusing secondary cluster destroy — {ownership_reason}")
             result.update(
                 {
-                    "success": True,
-                    "message": f"Secondary cluster destroy skipped — {ownership_reason}.",
+                    "success": False,
+                    "error_type": "ownership_conflict",
+                    "error": (
+                        f"[bucket=ownership_conflict] refusing to destroy secondary cluster "
+                        f"{secondary_name}: {ownership_reason}. The cluster was left untouched."
+                    ),
                     "resources_deleted": [],
                 }
             )

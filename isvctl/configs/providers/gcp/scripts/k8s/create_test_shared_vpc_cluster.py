@@ -126,13 +126,17 @@ def main() -> int:
             # its API-reported initial_node_count). Readiness is verified live via
             # wait_secondary_ready below.
             secondary_id = f"projects/{project}/locations/{args.location}/clusters/{secondary_name}"
+            # FAIL CLOSED before ANY state-backed import, pool recreation, or refresh
+            # touches the live secondary — on BOTH the fresh-worktree adopt path AND
+            # the in-state re-entry path. Require the full-run-identity ownership
+            # marker first (a genuinely run-owned secondary is stamped at Terraform
+            # creation, so this is a no-op read on the common path). A stale/colliding
+            # same-name cluster — even one this worktree's stale local state still
+            # tracks — must never have its node pool imported/recreated/refreshed (and
+            # later destroyed) as though this run owned it. Its shared-VPC membership
+            # is additionally verified live below before any success is emitted.
+            k8s.verify_cluster_ownership(secondary_name, args.location, project)
             if not secondary_in_state:
-                # FAIL CLOSED before importing a secondary this worktree's state does
-                # not track: require the full-run-identity ownership marker so a
-                # stale/colliding same-name cluster is never adopted (and later
-                # destroyed) as though this run owned it. Its shared-VPC membership
-                # is additionally verified live below before any success is emitted.
-                k8s.verify_cluster_ownership(secondary_name, args.location, project)
                 k8s.terraform_import(
                     k8s.SHARED_VPC_TF_DIR, state_file, "google_container_cluster.secondary", secondary_id, tf_vars
                 )

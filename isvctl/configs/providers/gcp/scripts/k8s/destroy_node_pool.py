@@ -121,19 +121,25 @@ def main() -> int:
         }
         # Fail-closed backstop before destroying a state-targeted node pool: when the
         # parent cluster wiring is recoverable, re-verify the PARENT cluster's live
-        # ownership marker and SKIP the pool destroy on a definitive non-ownership
+        # ownership marker and REFUSE the pool destroy on a definitive non-ownership
         # signal (present-but-different-run, or absent) so a pool on a
         # deleted-and-replaced same-name FOREIGN cluster is never destroyed. An
         # unrecoverable parent (primary state already gone) or a transiently-unreadable
-        # marker falls through to the existing state-targeted destroy.
+        # marker falls through to the existing state-targeted destroy. A definitive
+        # non-ownership signal is surfaced as a VISIBLE failure — preserving a pool
+        # under a foreign cluster must never present as a clean skip.
         if cluster_name and cluster_location:
             destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, cluster_location, project)
             if not destroy_ok:
-                k8s.log(f"warning: skipping node pool destroy — parent cluster {ownership_reason}")
+                k8s.log(f"warning: refusing node pool destroy — parent cluster {ownership_reason}")
                 result.update(
                     {
-                        "success": True,
-                        "message": f"Node pool {pool_name} destroy skipped — parent cluster {ownership_reason}.",
+                        "success": False,
+                        "error_type": "ownership_conflict",
+                        "error": (
+                            f"[bucket=ownership_conflict] refusing to destroy node pool {pool_name}: "
+                            f"its parent cluster {ownership_reason}. The pool was left untouched."
+                        ),
                         "resources_deleted": [],
                     }
                 )

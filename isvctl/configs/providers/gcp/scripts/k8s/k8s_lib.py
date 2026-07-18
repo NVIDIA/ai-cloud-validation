@@ -720,6 +720,10 @@ def verify_adopted_node_pool_shape(
     expected_labels: dict[str, Any],
     expected_taints: list[dict[str, Any]],
     *,
+    expected_node_count: int | None = None,
+    expected_node_locations: list[str] | None = None,
+    expected_accelerator_type: str = "",
+    expected_accelerator_count: int = 0,
     timeout: int = 120,
 ) -> None:
     """Prove an ADOPTED node pool actually has the shape this step would emit.
@@ -728,10 +732,19 @@ def verify_adopted_node_pool_shape(
     are derived from Terraform INPUT variables, not from the live pool, so a
     preserved same-name pool with a different machine type / labels / taints would
     be reported with a fabricated shape the released K8sNodePoolCheck then asserts.
-    Read the live pool's node_config and fail CLOSED unless its machine type
-    matches exactly and every expected label / taint is actually present (GKE may
-    add its own labels, so expectations must be a SUBSET of the live set, never
-    exact-equal). A describe failure RAISES — an unverifiable adopted pool is never
+    Read the live pool and fail CLOSED unless its machine type matches exactly and
+    every expected label / taint is actually present (GKE may add its own labels,
+    so those expectations must be a SUBSET of the live set, never exact-equal).
+
+    The requested NODE COUNT, node LOCATIONS, and GPU accelerator TYPE/COUNT are
+    verified against the live pool too. ``desired_size`` (the emitted
+    ``expected_replicas``) is read from the pool's own refreshed Terraform state, so
+    on the adopt path it would otherwise be seeded by the pool's OWN live drift —
+    letting the released count check compare the live count against itself. Requiring
+    the live count / locations / accelerator to equal the CONTRACT inputs closes that
+    self-seeding gap: a preserved same-name pool of a different size, zone placement,
+    or GPU shape fails closed instead of being emitted with a self-fulfilling
+    contract. A describe failure RAISES — an unverifiable adopted pool is never
     emitted with an assumed shape."""
     rc, out = gcloud(
         [
@@ -758,13 +771,14 @@ def verify_adopted_node_pool_shape(
             f"{cluster_name} to verify its shape before emitting it: {fold_tail(out)}",
         )
     try:
-        config = (json.loads(out) or {}).get("config") or {}
+        pool = json.loads(out) or {}
     except json.JSONDecodeError as exc:
         raise LifecycleError(
             "unknown_error",
             f"[bucket=unknown_error] node-pool describe returned unparseable JSON while "
             f"verifying adopted pool {pool_name} shape: {exc}",
         ) from exc
+    config = pool.get("config") or {}
 
     observed_machine = str(config.get("machineType", "") or "")
     if expected_machine_type and observed_machine != expected_machine_type:
@@ -804,6 +818,63 @@ def verify_adopted_node_pool_shape(
                 f"[bucket=config_error] adopted node pool {pool_name} is missing expected "
                 f"taint {want[0]}={want[1]}:{want[2]} (live taints: {sorted(observed_taints)}). "
                 "Refusing to emit a pool shape the live pool does not actually enforce.",
+            )
+
+    # Requested per-zone node count (GKE reports it as initialNodeCount). The test
+    # pool is single-zone (node_locations pinned) and never autoscaled, so the live
+    # value equals the contract input on a genuine same-run adopt; a preserved
+    # same-name pool of a different size must NOT be emitted with its own live count
+    # as the expected_replicas the released count check then trivially satisfies.
+    if expected_node_count is not None:
+        try:
+            observed_count = int(pool.get("initialNodeCount", 0) or 0)
+        except (TypeError, ValueError):
+            observed_count = -1
+        if observed_count != int(expected_node_count):
+            raise LifecycleError(
+                "config_error",
+                f"[bucket=config_error] adopted node pool {pool_name} node-count mismatch: "
+                f"expected {int(expected_node_count)} but the live pool runs {observed_count}. "
+                "Refusing to emit a fabricated replica count for a preserved pool that does not "
+                "match the contract input (the live count must not seed its own expectation).",
+            )
+
+    # Requested zone placement. A preserved pool placed in a different zone would
+    # otherwise be adopted and emitted as though it matched the requested locations.
+    if expected_node_locations:
+        observed_locations = {str(z) for z in (pool.get("locations") or [])}
+        want_locations = {str(z) for z in expected_node_locations}
+        if not want_locations.issubset(observed_locations):
+            raise LifecycleError(
+                "config_error",
+                f"[bucket=config_error] adopted node pool {pool_name} node-location mismatch: "
+                f"expected {sorted(want_locations)} but the live pool runs in {sorted(observed_locations)}. "
+                "Refusing to emit a pool whose zone placement does not match the contract input.",
+            )
+
+    # Requested GPU accelerator type/count (GPU pools only; GKE exposes each as
+    # config.accelerators[].acceleratorType / acceleratorCount, the latter a string).
+    if expected_accelerator_type and expected_accelerator_count > 0:
+        observed_accels: list[str] = []
+        matched = False
+        for accel in config.get("accelerators") or []:
+            if not isinstance(accel, dict):
+                continue
+            a_type = str(accel.get("acceleratorType", "") or "")
+            try:
+                a_count = int(accel.get("acceleratorCount", 0) or 0)
+            except (TypeError, ValueError):
+                a_count = -1
+            observed_accels.append(f"{a_type}x{a_count}")
+            if a_type == expected_accelerator_type and a_count == int(expected_accelerator_count):
+                matched = True
+        if not matched:
+            raise LifecycleError(
+                "config_error",
+                f"[bucket=config_error] adopted node pool {pool_name} GPU accelerator mismatch: "
+                f"expected {expected_accelerator_type}x{int(expected_accelerator_count)} but the live "
+                f"pool exposes {observed_accels or '[]'}. Refusing to emit a GPU pool shape the live "
+                "pool does not actually carry.",
             )
 
 

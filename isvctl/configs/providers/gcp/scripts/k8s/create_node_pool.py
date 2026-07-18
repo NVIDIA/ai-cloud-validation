@@ -224,10 +224,14 @@ def main() -> int:
 
         if adopt:
             # The expected_* outputs above are derived from Terraform INPUT vars, not
-            # the live pool. Prove the ADOPTED pool actually has that shape (machine
-            # type + every expected label/taint) before emitting it, so a preserved
-            # same-name pool with a different shape can never be reported with a
-            # fabricated contract the released K8sNodePoolCheck then asserts against.
+            # the live pool. Prove the ADOPTED pool actually has that shape before
+            # emitting it, so a preserved same-name pool with a different shape can
+            # never be reported with a fabricated contract the released
+            # K8sNodePoolCheck then asserts against. Verify machine type + every
+            # expected label/taint AND the requested node count, zone placement, and
+            # GPU accelerator type/count — the emitted expected_replicas is read from
+            # the pool's OWN refreshed state, so without a live-vs-requested count
+            # gate an adopted pool would seed its own replica expectation.
             k8s.verify_adopted_node_pool_shape(
                 cluster_name,
                 pool_name,
@@ -236,6 +240,10 @@ def main() -> int:
                 args.machine_type,
                 expected_labels,
                 expected_taints,
+                expected_node_count=args.node_count,
+                expected_node_locations=node_locations,
+                expected_accelerator_type=args.accelerator_type.strip() if is_gpu else "",
+                expected_accelerator_count=args.accelerator_count if is_gpu else 0,
             )
 
         if is_gpu:

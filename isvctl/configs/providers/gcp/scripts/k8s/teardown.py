@@ -252,56 +252,85 @@ def main() -> int:
         except k8s.LifecycleError:
             gpu_zone = _PLACEHOLDER_ZONE
 
-        # 1) Reclaim run PVCs while the cluster still lives (best-effort).
+        # 1) OWNERSHIP GATE FIRST — before ANY cluster-scoped mutation (PVC reclaim,
+        #    terraform destroy, OR the cluster-labeled PD reclaim). The state only
+        #    ever holds resources this run CREATED or adopted with PROVEN
+        #    full-identity ownership (setup/create_node_pool verify the cloud-side
+        #    marker before importing). As a fail-closed backstop against a state
+        #    entry that now resolves to a deleted-and-replaced same-name FOREIGN
+        #    cluster, re-verify the LIVE ownership marker up front. destroy_ownership_ok
+        #    falls through (ok=True) on a not-found (idempotent no-op reconcile) or a
+        #    transiently-unreadable marker so a describe flake never leaks our OWN
+        #    cluster; it returns ok=False only on a DEFINITIVE non-ownership signal
+        #    (marker present-but-a-different-run, or absent on a live cluster).
+        destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, location, project)
+
+        if not destroy_ok:
+            # Definitive non-ownership: our state points at a foreign/replaced
+            # same-name cluster. NEVER touch its PVCs, its cluster, or its
+            # cluster-labeled disks (those now belong to the replacement). Reclaim
+            # ONLY the run-id-scoped GPU capacity-preflight probe — it is scoped
+            # purely to THIS run's id, independent of any cluster — and surface the
+            # ownership anomaly as a VISIBLE failure. A foreign-cluster preserve must
+            # never present as a clean "destroyed".
+            k8s.log(f"warning: skipping cluster destroy — {ownership_reason}")
+            _probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
+            cleanup_errors = [f"refused to destroy cluster {cluster_name}: {ownership_reason}"] + probe_errors
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_conflict",
+                    "error": (
+                        "[bucket=ownership_conflict] refusing to destroy a cluster this run does not "
+                        f"own: {ownership_reason}. The cluster and its PVC-backed disks were left "
+                        "untouched; only run-id-scoped GPU-probe reclaim ran."
+                    ),
+                    "resources_deleted": [],
+                    "cleanup_errors": cleanup_errors,
+                }
+            )
+            return k8s.emit(result)
+
+        # We own the cluster (live marker matched, or a describe flake / not-found
+        # fell through).
+        # 2) Reclaim run PVCs while the cluster still lives (best-effort).
         try:
             k8s.install_kubeconfig(cluster_name, location, project)
             k8s.reclaim_run_pvcs()
         except k8s.LifecycleError as exc:
             k8s.log(f"warning: PVC reclaim skipped (cluster may be unreachable): {exc.detail}")
 
-        # 2) terraform destroy the cluster (init unconditionally first). Capture a
+        # 3) terraform destroy the cluster (init unconditionally first). Capture a
         #    destroy failure instead of letting it jump straight to the outer
         #    handler: the run-scoped PD + GPU-probe backstops below reclaim
         #    standalone billable resources terraform never owns, so they MUST run on
         #    every exit — including a failed destroy. The destroy error stays the
         #    primary reported failure; the backstops never mask it.
-        #    OWNERSHIP: destroy is state-targeted, and the state only ever holds
-        #    resources this run CREATED or adopted with PROVEN full-identity
-        #    ownership (setup/create_node_pool verify the cloud-side marker before
-        #    importing). As a fail-closed backstop against a state entry that now
-        #    resolves to a deleted-and-replaced same-name FOREIGN cluster, re-verify
-        #    the LIVE ownership marker just before destroy and SKIP it on a definitive
-        #    non-ownership signal (present-but-different-run, or absent — a genuinely
-        #    run-owned cluster is stamped at Terraform creation). A not-found or a
-        #    transiently-unreadable marker falls through so a describe flake never
-        #    leaks our OWN cluster.
         destroy_error: BaseException | None = None
         resources_deleted: list[str] = []
         try:
-            destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, location, project)
-            if not destroy_ok:
-                k8s.log(f"warning: skipping cluster destroy — {ownership_reason}")
-            else:
-                k8s.terraform_init(k8s.CLUSTER_TF_DIR)
-                tf_vars = {
-                    "project": project,
-                    "cluster_name": cluster_name,
-                    "location": location,
-                    # Delete-irrelevant vars (targeted by state) take benign placeholders.
-                    "system_machine_type": _PLACEHOLDER,
-                    "gpu_machine_type": _PLACEHOLDER,
-                    "gpu_accelerator_type": _PLACEHOLDER,
-                    "gpu_node_locations": [gpu_zone],
-                }
-                k8s.terraform_destroy(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
-                resources_deleted = ["google_container_cluster", "google_container_node_pool"]
+            k8s.terraform_init(k8s.CLUSTER_TF_DIR)
+            tf_vars = {
+                "project": project,
+                "cluster_name": cluster_name,
+                "location": location,
+                # Delete-irrelevant vars (targeted by state) take benign placeholders.
+                "system_machine_type": _PLACEHOLDER,
+                "gpu_machine_type": _PLACEHOLDER,
+                "gpu_accelerator_type": _PLACEHOLDER,
+                "gpu_node_locations": [gpu_zone],
+            }
+            k8s.terraform_destroy(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
+            resources_deleted = ["google_container_cluster", "google_container_node_pool"]
         except BaseException as exc:
             destroy_error = exc
 
-        # 3) Backstop: reclaim any PVC-backed PD whose CSI delete raced teardown, by
+        # 4) Backstop: reclaim any PVC-backed PD whose CSI delete raced teardown, by
         #    THIS run's cluster label across every zone a run-owned pool may have
-        #    selected (baseline + test GPU pool pick zones independently).
-        # 4) Backstop: reclaim any GPU capacity-preflight probe MIG / template this
+        #    selected (baseline + test GPU pool pick zones independently). Reached
+        #    only once ownership is proven (a definitive non-ownership signal returned
+        #    above), so the cluster-labeled disks scanned here are genuinely run-owned.
+        # 5) Backstop: reclaim any GPU capacity-preflight probe MIG / template this
         #    run left behind (setup + create_test_gpu_node_pool each probe). A probe
         #    MIG is a standalone billable size-1 GPU resource outside Terraform state
         #    and without the cluster label, so nothing else reclaims it.

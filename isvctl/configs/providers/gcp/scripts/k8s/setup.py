@@ -271,15 +271,23 @@ def main() -> int:
             # cluster because the provider reads initial_node_count back as 0 after
             # remove_default_node_pool and would force a full cluster REPLACE.
             cluster_id = f"projects/{project}/locations/{args.location}/clusters/{cluster_name}"
+            # FAIL CLOSED before ANY state-backed import, pool recreation, or
+            # refresh touches the live cluster — on BOTH the fresh-worktree adopt
+            # path AND the in-state re-entry path. Prove exact ownership by the FULL
+            # run identity via the cloud-side marker first (a genuinely run-owned
+            # cluster is stamped at Terraform creation, so this is a no-op read on
+            # the common path). A deleted-and-replaced same-name FOREIGN cluster —
+            # even one this worktree's stale local state still tracks — must never
+            # have its baseline pools imported/recreated/refreshed (and later
+            # destroyed) as though this run owned it. A bare run-scoped name or a
+            # local-state entry must never authorize mutating the live cluster.
+            k8s.verify_cluster_ownership(cluster_name, args.location, project)
             if not cluster_in_state:
-                # FAIL CLOSED before importing a cluster this worktree's state does
-                # not yet track: prove exact ownership by the FULL run identity via
-                # the cloud-side marker, and verify the contract-relevant network
-                # BEFORE the import makes the cluster eligible for teardown's
-                # destroy. A bare run-scoped name match must never authorize import —
-                # a stale, colliding, or operator-precreated same-name cluster would
-                # otherwise be adopted and later destroyed as though this run owned it.
-                k8s.verify_cluster_ownership(cluster_name, args.location, project)
+                # Before importing a cluster this worktree's state does not yet
+                # track, also verify the contract-relevant network BEFORE the import
+                # makes the cluster eligible for teardown's destroy, so an adopted
+                # cluster on an unexpected substrate is never imported with a
+                # mismatched network.
                 observed_net, _observed_subnet, _status = k8s.read_cluster_membership(
                     cluster_name, args.location, project
                 )
