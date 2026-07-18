@@ -35,6 +35,7 @@ from isvtest.validations.k8s_storage import (
     K8sCsiStorageQuotaApiCheck,
     K8sCsiStorageTypesCheck,
     K8sCsiTenantScopedCredentialsCheck,
+    _collect_storage_diagnostics,
     _find_cluster_secret_grants,
     _find_shared_cluster_marker,
     _rule_grants_unrestricted_secrets,
@@ -74,6 +75,50 @@ def _pvc_json(
     if volume_name is not None:
         spec["volumeName"] = volume_name
     return json.dumps({"kind": "PersistentVolumeClaim", "status": status, "spec": spec})
+
+
+class TestStorageFailureDiagnostics:
+    def test_collects_bounded_redacted_pod_pvc_state_and_events(self) -> None:
+        commands: list[str] = []
+
+        def run(cmd: str, timeout: int | None = None) -> CommandResult:
+            commands.append(cmd)
+            assert timeout == 30
+            return _ok(stdout=f"token: do-not-log\n{'x' * 2000}")
+
+        diagnostics = _collect_storage_diagnostics(
+            run,
+            "kubectl --kubeconfig test",
+            "ns-1",
+            pod_name="pod-1",
+            pvc_name="pvc-1",
+        )
+
+        assert len(commands) == 6
+        assert any("get pod pod-1" in command for command in commands)
+        assert any("describe pod pod-1" in command for command in commands)
+        assert any("involvedObject.kind=Pod" in command for command in commands)
+        assert any("get pvc pvc-1" in command for command in commands)
+        assert any("describe pvc pvc-1" in command for command in commands)
+        assert any("involvedObject.kind=PersistentVolumeClaim" in command for command in commands)
+        assert "do-not-log" not in diagnostics
+        assert "[REDACTED]" in diagnostics
+        assert "[section truncated]" in diagnostics
+        assert len(diagnostics) <= 6144
+
+    def test_command_failure_is_recorded_without_raising(self) -> None:
+        def run(cmd: str, timeout: int | None = None) -> CommandResult:
+            raise RuntimeError(f"kubectl unavailable for {cmd}")
+
+        diagnostics = _collect_storage_diagnostics(
+            run,
+            "kubectl",
+            "ns-1",
+            pod_name="pod-1",
+            pvc_name="pvc-1",
+        )
+
+        assert diagnostics.count("diagnostic command failed: RuntimeError") == 6
 
 
 class _FakeProc:
