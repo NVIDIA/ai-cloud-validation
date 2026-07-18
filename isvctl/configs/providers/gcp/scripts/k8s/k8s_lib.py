@@ -1253,6 +1253,57 @@ def _note_retained_probes(retained: list[str]) -> None:
         )
 
 
+def _zone_region(zone: str) -> str:
+    """Region of a compute zone (``us-central1-a`` -> ``us-central1``)."""
+    return zone.rsplit("-", 1)[0]
+
+
+def _resolve_probe_subnet(project: str, network: str, region: str) -> str | None:
+    """Name of a subnetwork in ``region`` that belongs to ``network`` (or None).
+
+    A custom-mode VPC (``auto_create_subnetworks=false``) — the exact case
+    ``GCP_K8S_NETWORK`` targets — auto-creates NO subnets, so a probe instance
+    template built with only ``--network`` cannot place: GCE requires an explicit
+    ``--subnet`` in the template's region. Auto-mode networks (e.g. ``default``)
+    DO carry a same-named regional subnet, so this resolves uniformly for both.
+    The candidate subnets are filtered to the selected network's own identity
+    (``_net_identity``), so a same-named subnet on ANOTHER VPC is never chosen —
+    preserving the exact-network-identity guarantee the capacity probe relies on.
+    Returns None (caller falls back to ``--network`` only, the auto-mode path)
+    when no subnet in ``region`` belongs to the network or the read fails.
+    """
+    net_id = _net_identity(network)
+    if not net_id:
+        return None
+    rc, out = gcloud(
+        [
+            "compute",
+            "networks",
+            "subnets",
+            "list",
+            "--project",
+            project,
+            "--filter",
+            f"region:( {region} )",
+            "--format=json",
+        ],
+        timeout=60,
+        echo=False,
+    )
+    if rc != 0 or not out.strip():
+        return None
+    try:
+        subnets = json.loads(out)
+    except json.JSONDecodeError:
+        return None
+    for sn in subnets if isinstance(subnets, list) else []:
+        if _net_identity(str(sn.get("network", ""))) == net_id:
+            name = sn.get("name")
+            if name:
+                return str(name)
+    return None
+
+
 def select_gpu_zone(
     project: str,
     candidate_zones: list[str],
@@ -1298,6 +1349,14 @@ def select_gpu_zone(
         mig_name = normalize_gke_name(f"isv-gpumig-{run_scope_id()}-{disc}")[:60]
         log(f"GPU capacity preflight: probing zone {zone} (mig={mig_name})...")
 
+        selected_network = network or "default"
+        region = _zone_region(zone)
+        # Resolve a subnet in THIS zone's region that belongs to the selected VPC.
+        # A custom-mode VPC has no auto subnet, so a bare --network probe fails to
+        # place; an explicit --subnet (pinned to the region) makes both auto- and
+        # custom-mode networks placeable. None -> fall back to --network only.
+        probe_subnet = _resolve_probe_subnet(project, selected_network, region)
+
         tmpl_args = [
             "compute",
             "instance-templates",
@@ -1316,7 +1375,7 @@ def select_gpu_zone(
             # a probe on another network would not prove the pool's GPU shape is
             # placeable in the cluster's actual substrate.
             "--network",
-            network or "default",
+            selected_network,
             "--image-family",
             "debian-12",
             "--image-project",
@@ -1324,6 +1383,12 @@ def select_gpu_zone(
             "--boot-disk-size",
             "50GB",
         ]
+        # Pin an explicit regional subnet when one was resolved. --network stays
+        # so gcloud still validates the subnet belongs to the selected VPC (exact
+        # network-identity check retained); --region tells the global template
+        # which regional subnet to bind, matching this candidate zone's region.
+        if probe_subnet:
+            tmpl_args += ["--subnet", probe_subnet, "--region", region]
         # CONDITIONAL: only a separate-accelerator shape (e.g. n1 + T4) needs the
         # explicit --accelerator; an integrated-GPU machine already carries it.
         if not integrated and accelerator_type:
@@ -1551,33 +1616,6 @@ def apply_nvidia_runtimeclass(*, timeout: int = 60) -> None:
         )
 
 
-def label_gpu_nodes(*, timeout: int = 120) -> None:
-    """Apply nvidia.com/gpu.present=true to every GKE GPU node (honest bridge).
-
-    GKE's managed-driver path does NOT set nvidia.com/gpu.present (a
-    GPU-Operator/GFD label); GKE GPU nodes carry cloud.google.com/gke-accelerator
-    and advertise the nvidia.com/gpu resource. The released GPU checks discover
-    GPU nodes via `kubectl get nodes -l nvidia.com/gpu.present=true`, so map GKE's
-    native GPU labeling to the label those checks select on. The gke-accelerator
-    selector covers every GPU node (baseline + test pools) in one pass.
-    """
-    rc, out = kubectl(
-        [
-            "label",
-            "nodes",
-            "-l",
-            "cloud.google.com/gke-accelerator",
-            "nvidia.com/gpu.present=true",
-            "--overwrite",
-        ],
-        timeout=timeout,
-    )
-    if rc != 0:
-        # Non-fatal if there are simply no GPU nodes yet; the two-gate preflight
-        # is the authoritative readiness gate. Surface as a warning only.
-        log(f"warning: labeling GPU nodes returned rc={rc}: {fold_tail(out, limit=400)}")
-
-
 def strip_baseline_pool_markers(*, timeout: int = 60) -> None:
     """Remove the reserved isv.ncp.validation/pool marker from BASELINE nodes.
 
@@ -1638,9 +1676,11 @@ def install_mpi_operator(*, timeout: int = 300) -> None:
             f"[bucket=config_error] the vendored MPI Operator manifest {MPI_OPERATOR_MANIFEST} "
             "is missing; the multi-node NCCL MPIJob prerequisite cannot be installed.",
         )
-    # Server-side apply: the MPIJob CRD schema exceeds the client-side
-    # last-applied annotation size limit. force-conflicts keeps re-apply (adopt
-    # path re-runs setup) idempotent.
+    # Server-side apply keeps the adopt/setup re-run path idempotent: the API
+    # server tracks field ownership and reconciles each field in place, so a
+    # re-apply of this pinned manifest never accumulates client-side
+    # last-applied-annotation drift. --force-conflicts lets setup re-assert
+    # ownership of any field a prior apply (or GKE) already manages.
     rc, out = kubectl(
         ["apply", "--server-side", "--force-conflicts", "-f", str(MPI_OPERATOR_MANIFEST)],
         timeout=timeout,
@@ -1773,47 +1813,46 @@ def _gpu_device_plugin_pod_ready_on_node(node_name: str, *, timeout: int = 30) -
     return None
 
 
-def wait_two_gate_gpu_ready(*, timeout: int = 900, poll_interval: int = 15) -> str | None:
-    """Block until a GPU node reaches the provider-native GPU-ready state, using
-    NO-image-pull signals only: the node is Ready, advertises nonzero allocatable
-    ``nvidia.com/gpu``, AND hosts a Ready GKE-managed GPU device-plugin DaemonSet
-    pod (which reports Ready only after the managed driver install completes).
+def wait_two_gate_gpu_ready(
+    gpu_pool_name: str,
+    expected_count: int,
+    *,
+    timeout: int = 900,
+    poll_interval: int = 15,
+) -> str | None:
+    """Block until the BASELINE GPU pool is provider-native GPU-ready on EVERY one
+    of its ``expected_count`` nodes, then bridge them to nvidia.com/gpu.present.
 
-    Returns the driver version read best-effort from that already-running managed
+    Scoped to the baseline pool's OWN selector
+    (``cloud.google.com/gke-nodepool=<gpu_pool_name>``) and gated on ALL
+    ``expected_count`` nodes satisfying the three explicit-True, NO-image-pull
+    signals — node Ready=True, nonzero allocatable ``nvidia.com/gpu``, AND a Ready
+    GKE-managed GPU device-plugin DaemonSet pod on the node (which reports Ready
+    only after the managed driver install completes). A single first-ready node,
+    or an adopted/preserved validation pool's nodes on another pool, can never
+    satisfy this gate for a multi-node baseline pool, so setup can never derive
+    inventory from partial or wrong-pool GPU readiness.
+
+    Returns the driver version read best-effort from an already-running managed
     pod (``kubectl exec nvidia-smi``, no new pull), or None when it cannot be read
     — driver_version is OPTIONAL inventory (K8sDriverVersionCheck skips on empty),
-    and readiness NEVER depends on reading it. Never returns while no GPU node has
-    reached the provider-native ready state.
+    and readiness NEVER depends on reading it. A timeout, labeling error, missing
+    node, or readback mismatch RAISES so setup's success stays false.
     """
-    deadline = time.time() + timeout
-    label_gpu_nodes()
-    while time.time() < deadline:
-        nodes = _kubectl_json(["get", "nodes", "-l", "nvidia.com/gpu.present=true", "-o", "json"])
-        items = (nodes or {}).get("items", []) if isinstance(nodes, dict) else []
-        for node in items:
-            node_name = (node.get("metadata", {}) or {}).get("name")
-            status = node.get("status", {}) or {}
-            allocatable = status.get("allocatable", {}) or {}
-            gpu = allocatable.get("nvidia.com/gpu")
-            conditions = status.get("conditions", []) or []
-            is_ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
-            if node_name and is_ready and gpu and str(gpu) not in ("", "0"):
-                if _gpu_device_plugin_pod_ready_on_node(node_name):
-                    # Provider-native GPU readiness satisfied. Read the driver
-                    # version best-effort from the managed pod (no image pull).
-                    return _probe_driver_version()
-        log(
-            "  waiting for a Ready GPU node with allocatable nvidia.com/gpu and a Ready "
-            "GKE-managed device-plugin pod..."
-        )
-        label_gpu_nodes()
-        time.sleep(poll_interval)
-    raise LifecycleError(
-        "transient",
-        "[bucket=transient] GPU readiness preflight timed out: no GPU node reached "
-        "Ready with allocatable nvidia.com/gpu and a Ready GKE-managed device-plugin "
-        f"pod within {timeout}s.",
+    pool_selector = f"cloud.google.com/gke-nodepool={gpu_pool_name}"
+    # Pool-scoped, all-node completion gate (same explicit-True signals + labeled
+    # readback the test GPU pool uses); it labels exactly the baseline pool's
+    # ready nodes with nvidia.com/gpu.present=true so the released GPU checks
+    # discover them.
+    wait_gpu_pool_ready_and_bridge(
+        pool_selector,
+        expected_count,
+        timeout=timeout,
+        poll_interval=poll_interval,
     )
+    # Readiness is satisfied on every baseline node. Read the driver version
+    # best-effort from an already-running managed pod (no image pull).
+    return _probe_driver_version()
 
 
 # --------------------------------------------------------------------------- #
@@ -1828,8 +1867,8 @@ def _ready_gpu_node_names(label_selector: str) -> list[str]:
     on the node (the no-image-pull driver-ready signal).
 
     Scoped to ONE pool's own selector (``cloud.google.com/gke-nodepool=<pool>``),
-    so the setup baseline GPU pool's nodes never satisfy THIS pool's readiness
-    count — the exact distinction the cluster-wide readiness helper cannot make.
+    so one pool's nodes never satisfy ANOTHER pool's readiness count — both the
+    setup baseline pool and each test GPU pool gate on their own pool selector.
     """
     nodes = _kubectl_json(["get", "nodes", "-l", label_selector, "-o", "json"])
     items = (nodes or {}).get("items", []) if isinstance(nodes, dict) else []
@@ -1898,14 +1937,14 @@ def wait_gpu_pool_ready_and_bridge(
     applies and reads back ``nvidia.com/gpu.present=true`` on exactly those nodes.
     Returns the bridged pool node names on success.
 
-    Why this is NOT ``wait_two_gate_gpu_ready`` (cluster-wide): the setup baseline
-    GPU pool could already satisfy a cluster-wide gate while THIS test pool is
-    still unregistered or driver-less, so a cluster-wide gate would let the create
-    step emit success before the new nodes are Ready or discoverable — the exact
-    false-success this pool-scoped gate prevents. A timeout, labeling error,
-    missing node, or readback mismatch RAISES so the create step's success stays
-    false and the released GPU checks never run against an unready or
-    undiscoverable test pool.
+    This is the shared pool-scoped primitive: ``wait_two_gate_gpu_ready`` calls it
+    with the baseline GPU pool selector, and ``create_test_gpu_node_pool`` calls it
+    with the test pool selector. Scoping to THIS pool's own selector means another
+    pool's already-Ready nodes can never let a create step emit success before its
+    OWN nodes are Ready and discoverable — the exact false-success this gate
+    prevents. A timeout, labeling error, missing node, or readback mismatch RAISES
+    so the caller's step success stays false and the released GPU checks never run
+    against an unready or undiscoverable pool.
     """
     if expected_count <= 0:
         raise LifecycleError(

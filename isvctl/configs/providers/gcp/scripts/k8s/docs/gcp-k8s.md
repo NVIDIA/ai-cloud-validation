@@ -89,11 +89,12 @@ export RUN_ID=$(openssl rand -hex 4)
 
 ## Operator environment variables (k8s domain)
 
-All fourteen `GCP_K8S_*` settings and their required/optional status + defaults are
+All sixteen `GCP_K8S_*` settings and their required/optional status + defaults are
 documented in the tier-1 index [`docs/references/gcp.md`](../../../../../../../docs/references/gcp.md#operator-environment-variables).
 In short: `GCP_K8S_LOCATION`, `GCP_K8S_CPU_MACHINE_TYPE`, `GCP_K8S_GPU_MACHINE_TYPE`,
 and `GCP_K8S_GPU_ACCELERATOR_TYPE` are **required** (no safe public default); the
-other ten are optional overrides.
+other twelve are optional overrides (including the GKE managed-autoscaler bounds
+`GCP_K8S_SYSTEM_MIN_NODES`/`GCP_K8S_SYSTEM_MAX_NODES` on the CPU/system pool).
 
 `GCP_K8S_NETWORK` selects the VPC the cluster and every standalone GPU
 capacity-preflight MIG attach to. It defaults to `default`, so a project that

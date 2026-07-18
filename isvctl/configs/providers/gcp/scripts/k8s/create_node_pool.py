@@ -222,9 +222,10 @@ def main() -> int:
             # apply nvidia.com/gpu.present=true to exactly those nodes, and read the
             # label back. A timeout, labeling error, missing node, or readback
             # mismatch RAISES here, so success stays False and the released GPU
-            # checks never run against an unready or undiscoverable test pool. The
-            # cluster-wide two-gate helper alone would be unsafe: the setup baseline
-            # GPU pool could satisfy it while this new test pool is still unready.
+            # checks never run against an unready or undiscoverable test pool. Each
+            # GPU pool gates on its OWN selector (setup's baseline pool and every
+            # test pool alike), so another pool's Ready nodes can never satisfy this
+            # pool's readiness count.
             k8s.install_kubeconfig(cluster_name, cluster_location, project)
             k8s.wait_gpu_pool_ready_and_bridge(label_selector, desired_size, timeout=_GPU_POOL_READY_TIMEOUT)
 

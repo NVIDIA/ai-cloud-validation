@@ -326,11 +326,13 @@ def main() -> int:
         # would make every CSI check unschedulable. No-op on a fresh cluster.
         k8s.strip_baseline_pool_markers()
 
-        # 5) Provider-native GPU readiness gate BEFORE emitting inventory (node
+        # 5) Provider-native GPU readiness gate BEFORE emitting inventory. Scoped
+        #    to the baseline GPU pool and gated on ALL gpu_node_count nodes (node
         #    Ready + allocatable nvidia.com/gpu + Ready managed device-plugin pod;
-        #    no image pull). Returns the real nvidia-smi driver version read from
-        #    the managed pod, or None to leave it unset.
-        driver_version = k8s.wait_two_gate_gpu_ready(timeout=_TWO_GATE_TIMEOUT)
+        #    no image pull), so setup never derives inventory from a single
+        #    first-ready node or a preserved validation pool. Returns the real
+        #    nvidia-smi driver version read from the managed pod, or None.
+        driver_version = k8s.wait_two_gate_gpu_ready(gpu_pool_name, args.gpu_node_count, timeout=_TWO_GATE_TIMEOUT)
 
         # 5a) Install the pinned, vendored Kubeflow MPI Operator (v2beta1) and gate
         #     on its CRD + controller readiness so the released multi-node NCCL
