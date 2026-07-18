@@ -130,24 +130,43 @@ def main() -> int:
         cluster_name = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "cluster_name")
         cluster_location = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "location")
 
+        # The harness preserves run-scoped resources (GCP_K8S_SKIP_TEARDOWN), so
+        # this pool may already exist from an earlier per-step worker in the run
+        # while THIS worktree's local state is empty; a blind create would collide
+        # on 409 "already exists". Detect that and ADOPT it (import) instead. A pool
+        # already tracked in the local state (created/adopted earlier in this same
+        # worktree — e.g. the CPU pool that update_test_node_pool then scales)
+        # reconciles in place.
+        in_state = k8s.terraform_state_has(k8s.NODE_POOL_TF_DIR, state_file, "google_container_node_pool.this")
+        pool_in_cloud = in_state or k8s.gke_node_pool_exists(cluster_name, pool_name, cluster_location, project)
+        adopt = pool_in_cloud and not in_state
+
         node_locations: list[str]
         if is_gpu:
-            # Read the selected VPC from the primary cluster's Terraform state so
-            # the GPU capacity probe runs on the SAME network the cluster attaches
-            # to — never an independent `default` fallback that could drift to a
-            # different VPC in a custom-network project.
-            cluster_network = k8s.normalize_network(
-                k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "network")
-            )
-            candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, cluster_location)
-            gpu_zone = k8s.select_gpu_zone(
-                project,
-                candidates,
-                args.machine_type,
-                args.accelerator_type,
-                args.accelerator_count,
-                network=cluster_network,
-            )
+            if pool_in_cloud:
+                # Reuse the existing GPU pool's ACTUAL zone: never re-run the
+                # non-deterministic preflight against a pool whose zone is fixed
+                # (a different node_locations would drift/replace it).
+                gpu_zone = k8s.gke_node_pool_zone(cluster_name, pool_name, cluster_location, project) or ""
+            else:
+                gpu_zone = ""
+            if not gpu_zone:
+                # Read the selected VPC from the primary cluster's Terraform state so
+                # the GPU capacity probe runs on the SAME network the cluster attaches
+                # to — never an independent `default` fallback that could drift to a
+                # different VPC in a custom-network project.
+                cluster_network = k8s.normalize_network(
+                    k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "network")
+                )
+                candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, cluster_location)
+                gpu_zone = k8s.select_gpu_zone(
+                    project,
+                    candidates,
+                    args.machine_type,
+                    args.accelerator_type,
+                    args.accelerator_count,
+                    network=cluster_network,
+                )
             node_locations = [gpu_zone]
             result["gpu_zone"] = gpu_zone
         else:
@@ -174,7 +193,19 @@ def main() -> int:
             "taints": taints,
         }
         apply_timeout = _GPU_APPLY_TIMEOUT if is_gpu else _APPLY_TIMEOUT
-        k8s.terraform_apply(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=apply_timeout)
+        if adopt:
+            # Adopt the preserved pool: import it, then refresh-only to populate the
+            # node_pool outputs WITHOUT modifying a pool another worker owns (never
+            # scale/replace it here). A later same-worktree step that must change it
+            # (update_test_node_pool scaling the CPU pool) then sees it in-state and
+            # reconciles in place via the apply branch below.
+            pool_id = f"projects/{project}/locations/{cluster_location}/clusters/{cluster_name}/nodePools/{pool_name}"
+            k8s.terraform_import(k8s.NODE_POOL_TF_DIR, state_file, "google_container_node_pool.this", pool_id, tf_vars)
+            k8s.terraform_refresh_only(k8s.NODE_POOL_TF_DIR, state_file, tf_vars)
+        else:
+            # Fresh create, or an in-state pool this worktree already owns (the CPU
+            # pool that update_test_node_pool scales in place).
+            k8s.terraform_apply(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=apply_timeout)
 
         # Read back what Terraform actually created.
         node_pool_name = k8s.terraform_output_raw(k8s.NODE_POOL_TF_DIR, state_file, "node_pool_name")

@@ -72,6 +72,15 @@ def main() -> int:
         network_id = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "network")
         subnetwork_id = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "subnetwork")
 
+        # The harness preserves run-scoped resources (GCP_K8S_SKIP_TEARDOWN), so the
+        # secondary may already exist from an earlier per-step worker in the run
+        # while THIS worktree's local state is empty; a blind create would collide
+        # on 409 "already exists". Detect that and ADOPT it (import) instead.
+        secondary_in_state = k8s.terraform_state_has(
+            k8s.SHARED_VPC_TF_DIR, state_file, "google_container_cluster.secondary"
+        )
+        secondary_exists = secondary_in_state or k8s.gke_cluster_exists(secondary_name, args.location, project)
+
         k8s.terraform_init(k8s.SHARED_VPC_TF_DIR)
         tf_vars = {
             "project": project,
@@ -87,7 +96,18 @@ def main() -> int:
             # regional secondary does not multiply node_count across region zones.
             "node_locations": [k8s.zone_for_location(args.location)],
         }
-        k8s.terraform_apply(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
+        if secondary_exists and not secondary_in_state:
+            # ADOPT the preserved secondary: import + refresh-only (never re-create
+            # via a normal apply — that 409s, and an import + normal apply would
+            # REPLACE the cluster over its API-reported initial_node_count). The
+            # stub verifies readiness live via wait_secondary_ready below.
+            secondary_id = f"projects/{project}/locations/{args.location}/clusters/{secondary_name}"
+            k8s.terraform_import(
+                k8s.SHARED_VPC_TF_DIR, state_file, "google_container_cluster.secondary", secondary_id, tf_vars
+            )
+            k8s.terraform_refresh_only(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars)
+        else:
+            k8s.terraform_apply(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
 
         # Wait for the secondary to report a Ready node (isolated kubeconfig).
         secondary_ready_nodes = k8s.wait_secondary_ready(secondary_name, args.location, project, timeout=_READY_TIMEOUT)
