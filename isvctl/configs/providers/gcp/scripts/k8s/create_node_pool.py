@@ -55,9 +55,15 @@ import k8s_lib as k8s
 
 PLATFORM = "kubernetes"
 
-# Internal apply budget (bounded); the config step timeout is headroom over the
+# Internal apply budgets (bounded); the config step timeout is headroom over the
 # preflight (GPU only) + apply + kubeconfig + pool readiness+bridge worst-case sum.
+# A CPU pool applies quickly. A GPU pool's apply MUST exceed the google provider's
+# own node-pool create timeout (30m default) so a definitive GKE terminal error
+# surfaces instead of the wrapper killing a still-running create. Both stay under
+# their config step timeout (never an outer step timeout shorter than this inner
+# apply timeout).
 _APPLY_TIMEOUT = 1500
+_GPU_APPLY_TIMEOUT = 3000
 
 # Pool-scoped GPU completion-gate budget (GPU only): after apply, wait for THIS
 # pool's nodes to be Ready with allocatable nvidia.com/gpu, then bridge + read
@@ -126,6 +132,13 @@ def main() -> int:
 
         node_locations: list[str]
         if is_gpu:
+            # Read the selected VPC from the primary cluster's Terraform state so
+            # the GPU capacity probe runs on the SAME network the cluster attaches
+            # to — never an independent `default` fallback that could drift to a
+            # different VPC in a custom-network project.
+            cluster_network = k8s.normalize_network(
+                k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "network")
+            )
             candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, cluster_location)
             gpu_zone = k8s.select_gpu_zone(
                 project,
@@ -133,6 +146,7 @@ def main() -> int:
                 args.machine_type,
                 args.accelerator_type,
                 args.accelerator_count,
+                network=cluster_network,
             )
             node_locations = [gpu_zone]
             result["gpu_zone"] = gpu_zone
@@ -159,7 +173,8 @@ def main() -> int:
             "labels": labels,
             "taints": taints,
         }
-        k8s.terraform_apply(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
+        apply_timeout = _GPU_APPLY_TIMEOUT if is_gpu else _APPLY_TIMEOUT
+        k8s.terraform_apply(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=apply_timeout)
 
         # Read back what Terraform actually created.
         node_pool_name = k8s.terraform_output_raw(k8s.NODE_POOL_TF_DIR, state_file, "node_pool_name")

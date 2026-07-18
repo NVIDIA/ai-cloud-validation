@@ -89,18 +89,34 @@ export RUN_ID=$(openssl rand -hex 4)
 
 ## Operator environment variables (k8s domain)
 
-All twelve `GCP_K8S_*` settings and their required/optional status + defaults are
+All fourteen `GCP_K8S_*` settings and their required/optional status + defaults are
 documented in the tier-1 index [`docs/references/gcp.md`](../../../../../../../docs/references/gcp.md#operator-environment-variables).
 In short: `GCP_K8S_LOCATION`, `GCP_K8S_CPU_MACHINE_TYPE`, `GCP_K8S_GPU_MACHINE_TYPE`,
 and `GCP_K8S_GPU_ACCELERATOR_TYPE` are **required** (no safe public default); the
-other eight are optional overrides.
+other ten are optional overrides.
 
-One of those optional overrides, `GCP_K8S_UNAUTHORIZED_PROBE_CMD`, activates the
-outside-vantage API-network-ACL probe: set it to a shell command that reaches the
-cluster's Kubernetes API from a source that *should* be blocked, and
-`K8sApiNetworkAclCheck` enforces that the API refuses it. Leave it **unset** (the
-default) and that check honestly structured-skips — there is no outside vantage
-point to probe, so the override only ever activates the check, never weakens it.
+`GCP_K8S_NETWORK` selects the VPC the cluster and every standalone GPU
+capacity-preflight MIG attach to. It defaults to `default`, so a project that
+retains the auto-created default VPC needs no override; **a custom-VPC-only
+project MUST set it** (name or self-link) or setup fails because no `default`
+network exists. Setup reads the live cluster's network back and fails if it does
+not match this value, and the GPU test pool reads the primary cluster's network
+so its probe can never drift to another VPC.
+
+The optional API-network-ACL capability is a PAIR. `GCP_K8S_AUTHORIZED_CIDRS`
+(comma-separated CIDRs; a bare IPv4 becomes `/32`) enables GKE authorized
+networks (`master_authorized_networks_config`) on the control-plane public
+endpoint and **rejects world-open `0.0.0.0/0` / `::/0`** — the list must name the
+runner's *actual egress CIDR*, not a documentation-only address, or `kubectl`
+loses access. `GCP_K8S_UNAUTHORIZED_PROBE_CMD` activates the outside-vantage
+probe: a shell command **template** (must contain the literal `{api_endpoint}`)
+that reaches the cluster's Kubernetes API **from a source that should be blocked**
+— for example an SSH-to-a-remote-host `curl`, NOT a local `curl` from the same
+runner that keeps authorized access. Setup substitutes the run's resolved API URL
+and `K8sApiNetworkAclCheck` enforces that the API refuses it. `K8sApiNetworkAclCheck`
+is substantive only when **both** are set; leave either **unset** (the default)
+and it honestly structured-skips — the overrides only ever activate the check,
+never weaken it.
 The probe **must target the reviewed cluster's own API endpoint**: setup resolves
 that endpoint from the installed kubeconfig (falling back to the GKE API) and
 emits it as `steps.setup.kubernetes.api_endpoint`, which the suite binds to the
@@ -174,6 +190,12 @@ re-applies the SAME CPU pool state with a higher `node_count` (in-place scale).
 Nodes are labeled `cloud.google.com/gke-nodepool=<name>` (the stable selector the
 check polls) with `expected_instance_types` populated from the real
 `node_config.machine_type`.
+
+`create_test_delete_node_pool` provisions a throwaway CPU pool (`isv-test-delete-pool`,
+its own isolated state) that exists ONLY for the delete proof (K8S06-03):
+`delete_test_node_pool` removes it in the TEST phase so `K8sNodePoolCheck` observes
+its selector reach zero nodes, and `destroy_test_delete_node_pool` is an idempotent
+teardown safety net in case the test-phase delete did not run.
 
 ### Multi-cluster (shared VPC)
 
