@@ -51,6 +51,11 @@ PLATFORM = "kubernetes"
 
 _APPLY_TIMEOUT = 1500
 _READY_TIMEOUT = 900
+# Destroy budget for the ambiguous-create reconcile: a fresh-create apply that
+# times out / is interrupted can leave the exact secondary cluster present before
+# its state address is durable, so on apply failure the exact deterministic cluster
+# is imported + destroyed + waited to confirmed absence (only the failure path).
+_RECONCILE_DESTROY_TIMEOUT = 1500
 
 
 def main() -> int:
@@ -167,7 +172,22 @@ def main() -> int:
                     k8s.terraform_import(k8s.SHARED_VPC_TF_DIR, state_file, pool_address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars)
         else:
-            k8s.terraform_apply(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
+            # Fresh create: wrap the apply in ambiguous-create recovery so an apply
+            # timeout / interruption that leaves the exact secondary cluster present
+            # without a durable state address is reconciled (import + destroy + wait
+            # for confirmed absence when run-owned, clean when confirmed-absent,
+            # fail-visibly on unreadable / mismatched ownership) BEFORE re-raising.
+            k8s.apply_cluster_with_recovery(
+                k8s.SHARED_VPC_TF_DIR,
+                state_file,
+                "google_container_cluster.secondary",
+                secondary_name,
+                args.location,
+                project,
+                tf_vars,
+                apply_timeout=_APPLY_TIMEOUT,
+                reconcile_destroy_timeout=_RECONCILE_DESTROY_TIMEOUT,
+            )
 
         # Confirm the cloud-side full-run-identity ownership marker on the secondary
         # (stamped atomically at Terraform creation). No-op on the common path; FAILS

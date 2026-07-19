@@ -45,6 +45,65 @@ import k8s_lib as k8s
 
 PLATFORM = "kubernetes"
 _DESTROY_TIMEOUT = 1500
+_SECONDARY_ADDRESS = "google_container_cluster.secondary"
+
+
+def _reconcile_stateless_secondary(project: str, secondary_name: str, location: str, state_file: str) -> int:
+    """Reconcile the EXACT secondary cluster live when its local state is absent or
+    VALID-EMPTY.
+
+    File presence alone cannot distinguish "never created" from "already destroyed",
+    and a failed create apply can leave the exact secondary present before its state
+    address is durable. Report idempotent success ONLY after confirmed cloud absence:
+    describe the exact deterministic secondary in the known (deterministic)
+    project/location, treat a confirmed-absent cluster as clean, import + destroy +
+    wait a run-owned leak, and fail visibly on unreadable/mismatched ownership."""
+    result: dict[str, Any] = {"success": False, "platform": PLATFORM}
+    try:
+        tf_vars = {
+            "project": project,
+            "cluster_name": secondary_name,
+            "cluster_state_path": k8s.cluster_state_path_for_node_pool(),
+            "location": location,
+            "network": "",
+            "subnetwork": "",
+        }
+        outcome = k8s.reconcile_orphaned_cluster(
+            k8s.SHARED_VPC_TF_DIR,
+            state_file,
+            _SECONDARY_ADDRESS,
+            secondary_name,
+            location,
+            project,
+            tf_vars,
+            destroy_timeout=_DESTROY_TIMEOUT,
+        )
+        if outcome == "reclaimed":
+            result.update(
+                {
+                    "success": True,
+                    "message": (
+                        f"Secondary cluster {secondary_name} had no durable local state but was found "
+                        "live and run-owned (an ambiguous create); imported, destroyed, and confirmed "
+                        "absent."
+                    ),
+                    "resources_deleted": ["google_container_cluster"],
+                }
+            )
+        else:  # "absent"
+            result.update(
+                {
+                    "success": True,
+                    "message": (
+                        f"Secondary cluster state {state_file} is absent/valid-empty and the cluster "
+                        "is confirmed absent live - nothing to destroy."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+    except BaseException as exc:  # always emit structured JSON, never crash without output
+        result = k8s.error_result(PLATFORM, exc)
+    return k8s.emit(result)
 
 
 def main() -> int:
@@ -53,6 +112,12 @@ def main() -> int:
         "--cluster-name",
         default="isv-gke-secondary",
         help="Secondary cluster name base (RUN_ID-suffixed by the stub).",
+    )
+    parser.add_argument(
+        "--location",
+        required=True,
+        help="Secondary cluster location (deterministic; used to describe the exact "
+        "cluster for the absent/valid-empty-state live reconcile).",
     )
     parser.add_argument(
         "--skip-destroy",
@@ -79,18 +144,37 @@ def main() -> int:
         secondary_name = k8s.scoped_name(args.cluster_name)
         state_file = k8s.shared_vpc_state_file()
 
-        if not k8s.state_exists(k8s.SHARED_VPC_TF_DIR, state_file):
+        # Initialize unconditionally (idempotent) so `terraform state list`
+        # classification reads a ready local backend, then classify by the EXACT
+        # secondary address rather than mere file presence: an absent OR valid-empty
+        # state must be reconciled live (a failed create apply can leave the exact
+        # secondary present before its state address is durable), and a failed state
+        # read is ownership_unprovable — never a clean "nothing to destroy".
+        k8s.terraform_init(k8s.SHARED_VPC_TF_DIR)
+        state_class = k8s.classify_state(k8s.SHARED_VPC_TF_DIR, state_file, _SECONDARY_ADDRESS)
+
+        if state_class == "unreadable":
             result.update(
                 {
-                    "success": True,
-                    "message": f"Secondary cluster state {state_file} absent - nothing to destroy.",
+                    "success": False,
+                    "error_type": "ownership_unprovable",
+                    "error": (
+                        f"[bucket=ownership_unprovable] refusing to report secondary cluster "
+                        f"{secondary_name} clean: its Terraform state {state_file} exists but "
+                        "`terraform state list` could not be read, so its provenance is unprovable. "
+                        "A rerun with readable state recovers."
+                    ),
                     "resources_deleted": [],
                 }
             )
             return k8s.emit(result)
 
-        k8s.terraform_init(k8s.SHARED_VPC_TF_DIR)
+        if state_class in ("absent", "empty"):
+            # No tracked secondary address: reconcile the EXACT deterministic secondary
+            # live and report success only after confirmed cloud absence.
+            return _reconcile_stateless_secondary(project, secondary_name, args.location, state_file)
 
+        # state_class == "tracked": the secondary address is in state.
         # Re-derive the required vars from the SECONDARY's OWN persisted state so
         # the var-less destroy never depends on the primary state (best-effort
         # teardown may already have destroyed it). network/subnetwork are the

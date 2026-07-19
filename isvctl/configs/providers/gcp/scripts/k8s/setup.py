@@ -72,6 +72,11 @@ _APPLY_TIMEOUT = 3600
 _TWO_GATE_TIMEOUT = 900
 _AUTOSCALING_TIMEOUT = 600
 _MPI_OPERATOR_TIMEOUT = 300
+# Destroy budget for the ambiguous-create reconcile: a fresh-create apply that
+# times out / is interrupted can leave the exact cluster present before its state
+# address is durable, so on apply failure the exact deterministic cluster is
+# imported + destroyed + waited to confirmed absence (only the failure path).
+_RECONCILE_DESTROY_TIMEOUT = 2400
 
 
 def main() -> int:
@@ -363,8 +368,25 @@ def main() -> int:
                 k8s.terraform_import(k8s.CLUSTER_TF_DIR, state_file, address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.CLUSTER_TF_DIR, state_file, tf_vars)
         else:
-            # Fresh create (the cluster does not exist yet — nothing to adopt).
-            k8s.terraform_apply(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
+            # Fresh create (the cluster does not exist yet — nothing to adopt). An
+            # apply timeout / interruption can submit the GKE cluster create and leave
+            # the exact resource present before its state address is durable, so wrap
+            # the apply in ambiguous-create recovery: on failure reconcile the exact
+            # deterministic cluster (import + destroy + wait for confirmed absence when
+            # run-owned, clean when confirmed-absent, fail-visibly on unreadable /
+            # mismatched ownership) BEFORE re-raising, so a partially-created cluster
+            # can never escape cleanup with no durable state entry.
+            k8s.apply_cluster_with_recovery(
+                k8s.CLUSTER_TF_DIR,
+                state_file,
+                "google_container_cluster.primary",
+                cluster_name,
+                args.location,
+                project,
+                tf_vars,
+                apply_timeout=_APPLY_TIMEOUT,
+                reconcile_destroy_timeout=_RECONCILE_DESTROY_TIMEOUT,
+            )
 
         # 2a) Confirm the cloud-side full-run-identity ownership marker. The cluster
         #     is stamped ATOMICALLY at Terraform creation (resource_labels), so this

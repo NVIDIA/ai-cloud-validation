@@ -263,6 +263,10 @@ commands:
         args:
           - "--cluster-name"
           - "isv-gke-secondary"
+          # Deterministic location so an absent/valid-empty state can still describe
+          # the EXACT secondary cluster for the live reconcile before reporting clean.
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 1800
 
@@ -291,6 +295,10 @@ commands:
         args:
           - "--cluster-name"
           - "isv-gke"
+          # Deterministic location so an absent/valid-empty state can still describe
+          # the EXACT primary cluster for the live reconcile before reporting clean.
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 3000
 

@@ -77,6 +77,11 @@ PLATFORM = "kubernetes"
 # apply timeout).
 _APPLY_TIMEOUT = 1500
 _GPU_APPLY_TIMEOUT = 3000
+# Destroy budget for the ambiguous-create reconcile: a fresh-create apply that
+# times out / is interrupted can leave the exact pool present before its state
+# address is durable, so on FRESH-create apply failure the exact deterministic pool
+# is imported + destroyed + waited to confirmed absence (only the failure path).
+_RECONCILE_DESTROY_TIMEOUT = 1200
 
 # Pool-scoped GPU completion-gate budget (GPU only): after apply, wait for THIS
 # pool's nodes to be Ready with allocatable nvidia.com/gpu, then bridge + read
@@ -244,10 +249,31 @@ def main() -> int:
             pool_id = f"projects/{project}/locations/{cluster_location}/clusters/{cluster_name}/nodePools/{pool_name}"
             k8s.terraform_import(k8s.NODE_POOL_TF_DIR, state_file, "google_container_node_pool.this", pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.NODE_POOL_TF_DIR, state_file, tf_vars)
-        else:
-            # Fresh create, or an in-state pool this worktree already owns (the CPU
-            # pool that update_test_node_pool scales in place).
+        elif in_state:
+            # An in-state pool this worktree already owns (the CPU pool that
+            # update_test_node_pool scales in place). Its state address is already
+            # durable, so an apply failure here is a SCALE failure, not an ambiguous
+            # create — teardown destroys the tracked pool normally. Re-raise as-is.
             k8s.terraform_apply(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=apply_timeout)
+        else:
+            # FRESH create: no durable state address yet, so an apply timeout /
+            # interruption can leave the exact pool present with nothing tracking it.
+            # Wrap the apply in ambiguous-create recovery: on failure reconcile the
+            # exact pool under its run-owned parent (import + destroy + wait when owned,
+            # clean when confirmed-absent, fail-visibly on unreadable / mismatched
+            # parent ownership) BEFORE re-raising.
+            k8s.apply_node_pool_with_recovery(
+                k8s.NODE_POOL_TF_DIR,
+                state_file,
+                "google_container_node_pool.this",
+                cluster_name,
+                cluster_location,
+                pool_name,
+                project,
+                tf_vars,
+                apply_timeout=apply_timeout,
+                reconcile_destroy_timeout=_RECONCILE_DESTROY_TIMEOUT,
+            )
 
         # Read back what Terraform actually created.
         node_pool_name = k8s.terraform_output_raw(k8s.NODE_POOL_TF_DIR, state_file, "node_pool_name")

@@ -185,9 +185,122 @@ def _emit_preserved_teardown() -> int:
     return k8s.emit(result)
 
 
+def _emit_stateless_teardown(project: str, cluster_name: str, location: str, state_file: str) -> int:
+    """Absent / valid-empty primary-cluster state: reconcile the exact deterministic
+    cluster live BEFORE reporting clean, then run the run-scoped GPU-probe backstop.
+
+    Setup can bail before a durable apply (a timed-out / interrupted apply can still
+    leave a billable cluster whose state address never became durable), and a prior
+    teardown leaves a valid-empty state — file presence alone must not report "nothing
+    to destroy". Describe the exact cluster in the known deterministic project/location:
+    a confirmed-absent cluster is clean; a run-owned leak is imported + destroyed +
+    waited to confirmed absence (then its cluster-labeled orphan PDs reclaimed); an
+    unreadable or mismatched ownership marker fails visibly and leaves the cluster
+    untouched. The run-scoped GPU-probe backstop runs regardless — it is independent of
+    cluster state."""
+    result: dict[str, Any] = {"success": False, "platform": PLATFORM}
+    try:
+        tf_vars = {
+            "project": project,
+            "cluster_name": cluster_name,
+            "location": location,
+            # Delete-irrelevant vars (targeted by state) take benign placeholders.
+            "system_machine_type": _PLACEHOLDER,
+            "gpu_machine_type": _PLACEHOLDER,
+            "gpu_accelerator_type": _PLACEHOLDER,
+            "gpu_node_locations": [_PLACEHOLDER_ZONE],
+        }
+        try:
+            cluster_outcome = k8s.reconcile_orphaned_cluster(
+                k8s.CLUSTER_TF_DIR,
+                state_file,
+                "google_container_cluster.primary",
+                cluster_name,
+                location,
+                project,
+                tf_vars,
+                destroy_timeout=_DESTROY_TIMEOUT,
+            )
+        except k8s.LifecycleError as exc:
+            # Ownership unreadable/mismatched, or the reconcile destroy failed: never a
+            # false clean. Still run the run-scoped probe backstop and surface both.
+            _probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
+            cleanup_errors = [
+                f"refused to reconcile cluster {cluster_name} from absent/valid-empty state: {exc.detail}"
+            ] + probe_errors
+            result.update(
+                {
+                    "success": False,
+                    "error_type": exc.bucket,
+                    "error": exc.detail,
+                    "resources_deleted": [],
+                    "cleanup_errors": cleanup_errors,
+                }
+            )
+            return k8s.emit(result)
+
+        # Cluster reconciled (confirmed-absent, or a run-owned leak destroyed). Run the
+        # run-scoped GPU-probe backstop; only when a leaked cluster was actually
+        # reclaimed (so it is confirmed gone) also reclaim its cluster-labeled PDs.
+        probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
+        pd_reclaim: dict[str, Any] = {"deleted": []}
+        pd_errors: list[str] = []
+        if cluster_outcome == "reclaimed":
+            pd_reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
+        cleanup_errors = pd_errors + probe_errors
+
+        if cleanup_errors:
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "cleanup_incomplete",
+                    "error": (
+                        "[bucket=cleanup_incomplete] primary-cluster state was absent/valid-empty and "
+                        "the exact cluster was reconciled, but run-owned billable resource reclaim is "
+                        "UNCONFIRMED: " + "; ".join(cleanup_errors)
+                    ),
+                    "resources_deleted": ["google_container_cluster"] if cluster_outcome == "reclaimed" else [],
+                    "cleanup_errors": cleanup_errors,
+                }
+            )
+        else:
+            k8s.clear_retained_probes_marker()
+            if cluster_outcome == "reclaimed":
+                message = (
+                    f"Primary cluster {cluster_name} had no durable state but was found live and "
+                    "run-owned (an ambiguous create); imported, destroyed, and confirmed absent; "
+                    f"{len(pd_reclaim['deleted'])} orphaned PD(s) and "
+                    f"{len(probe_reclaim['deleted'])} GPU-preflight probe resource(s) reclaimed."
+                )
+                resources_deleted = ["google_container_cluster", "google_container_node_pool"]
+            else:
+                message = (
+                    f"Cluster state {state_file} absent/valid-empty and cluster {cluster_name} "
+                    "confirmed absent live - nothing to destroy; "
+                    f"{len(probe_reclaim['deleted'])} orphaned GPU-preflight probe resource(s) reclaimed."
+                )
+                resources_deleted = []
+            result.update(
+                {
+                    "success": True,
+                    "message": message,
+                    "resources_deleted": resources_deleted,
+                }
+            )
+    except BaseException as exc:  # always emit structured JSON, never crash without output
+        result = k8s.error_result(PLATFORM, exc)
+    return k8s.emit(result)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Destroy the primary GKE cluster via Terraform.")
     parser.add_argument("--cluster-name", default="isv-gke", help="Cluster name base (RUN_ID-suffixed by the stub).")
+    parser.add_argument(
+        "--location",
+        required=True,
+        help="Cluster location (deterministic; used to describe the exact cluster for "
+        "the absent/valid-empty-state live reconcile before reporting clean).",
+    )
     parser.add_argument(
         "--skip-destroy",
         action="store_true",
@@ -204,43 +317,48 @@ def main() -> int:
         cluster_name = k8s.scoped_name(args.cluster_name)
         state_file = k8s.cluster_state_file()
 
-        if not k8s.state_exists(k8s.CLUSTER_TF_DIR, state_file):
-            # No cluster Terraform state: setup bailed before `terraform apply`
-            # wrote it (e.g. the GPU capacity preflight raised in select_gpu_zone).
-            # The cluster and its PVC-backed disks never existed, but a standalone
-            # size-1 GPU capacity-probe MIG can still be orphaned — its backstop is
-            # scoped purely to THIS run's id, independent of cluster state, so it
-            # MUST run here too. A retained billable probe MIG can never present as
-            # a clean "nothing to destroy".
-            probe_reclaim, cleanup_errors = _reclaim_gpu_probes(project)
-            if cleanup_errors:
-                result.update(
-                    {
-                        "success": False,
-                        "error_type": "cleanup_incomplete",
-                        "error": (
-                            "[bucket=cleanup_incomplete] No cluster state to destroy, but "
-                            "run-owned GPU capacity-preflight probe reclaim is UNCONFIRMED: "
-                            + "; ".join(cleanup_errors)
-                        ),
-                        "resources_deleted": [],
-                        "cleanup_errors": cleanup_errors,
-                    }
-                )
-            else:
-                result.update(
-                    {
-                        "success": True,
-                        "message": (
-                            f"Cluster state {state_file} absent - nothing to destroy; "
-                            f"{len(probe_reclaim['deleted'])} orphaned GPU-preflight probe "
-                            "resource(s) reclaimed."
-                        ),
-                        "resources_deleted": [],
-                    }
-                )
+        # Initialize unconditionally (idempotent; reconciles a stale lock) so
+        # `terraform state list` classification and any reconcile/destroy below read a
+        # ready local backend, then classify the primary cluster's state by its EXACT
+        # address rather than mere file presence.
+        k8s.terraform_init(k8s.CLUSTER_TF_DIR)
+        state_class = k8s.classify_state(k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary")
+
+        if state_class == "unreadable":
+            # State present but `terraform state list` failed: ownership/identity cannot
+            # be classified. Fail CLOSED (ownership_unprovable). Still run the
+            # run-scoped GPU-probe backstop (independent of cluster state).
+            _probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
+            cleanup_errors = [
+                f"refused to destroy cluster {cluster_name}: its Terraform state {state_file} exists "
+                "but `terraform state list` could not be read, so its provenance is unprovable"
+            ] + probe_errors
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_unprovable",
+                    "error": (
+                        f"[bucket=ownership_unprovable] refusing to destroy cluster {cluster_name}: its "
+                        f"Terraform state {state_file} exists but `terraform state list` is unreadable, "
+                        "so ownership cannot be classified. The cluster was left untouched; only "
+                        "run-id-scoped GPU-probe reclaim ran."
+                    ),
+                    "resources_deleted": [],
+                    "cleanup_errors": cleanup_errors,
+                }
+            )
             return k8s.emit(result)
 
+        if state_class in ("absent", "empty"):
+            # No tracked cluster address: setup bailed before a durable `terraform
+            # apply` (an ambiguous create can still leave a billable cluster), OR a
+            # prior teardown already destroyed it (a valid-empty state). Reconcile the
+            # exact deterministic cluster live before reporting clean, and run the
+            # run-scoped GPU-probe backstop — a retained billable cluster or probe MIG
+            # can never present as a clean "nothing to destroy".
+            return _emit_stateless_teardown(project, cluster_name, args.location, state_file)
+
+        # state_class == "tracked": the cluster address is in state.
         # Recover the create-time location from state — REQUIRED to describe the LIVE
         # cluster and prove ownership before ANY destroy. It must NOT fall back to a
         # placeholder: a wrong location would describe a DIFFERENT resource and read a

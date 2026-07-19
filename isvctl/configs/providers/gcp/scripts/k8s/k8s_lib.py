@@ -605,6 +605,41 @@ def state_exists(module_dir: Path, state_file: str) -> bool:
     return (module_dir / state_file).is_file()
 
 
+def classify_state(module_dir: Path, state_file: str, address: str, *, timeout: int = 120) -> str:
+    """Classify a local Terraform state for ``address``: 'absent' | 'empty' | 'tracked' | 'unreadable'.
+
+    ``Path.exists()`` alone (``state_exists``) cannot tell a never-written state from
+    a VALID-EMPTY one a successful ``terraform destroy`` left behind, nor from a state
+    whose address is present-but-unreadable — yet the teardown safety net must treat
+    all four differently. Classify with ``terraform state list`` (per the terraform
+    state semantics: file existence is not the discriminator):
+
+      * the state FILE is absent                    -> 'absent';
+      * ``terraform state list`` FAILS              -> 'unreadable' (never read as empty);
+      * the list contains ``address``               -> 'tracked';
+      * the list succeeds WITHOUT ``address``        -> 'empty'
+        (a fresh empty state, or the valid-empty state a successful destroy leaves —
+        e.g. the delete-test pool after its test-phase destroy).
+
+    Callers reconcile 'absent'/'empty' against live cloud state (reporting idempotent
+    success only after confirmed absence) and treat 'unreadable' as
+    ``ownership_unprovable``. Run ``terraform_init`` before this so a local-backend
+    state read never trips an "initialization required" error.
+    """
+    if not state_exists(module_dir, state_file):
+        return "absent"
+    rc, out = _run(
+        ["terraform", "state", "list", f"-state={state_file}"],
+        cwd=module_dir,
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        return "unreadable"
+    addresses = [line.strip() for line in out.splitlines() if line.strip()]
+    return "tracked" if address in addresses else "empty"
+
+
 # --------------------------------------------------------------------------- #
 # gcloud / kubectl                                                            #
 # --------------------------------------------------------------------------- #
@@ -1617,6 +1652,241 @@ def discard_cluster_state(module_dir: Path, state_file: str) -> None:
             f"[bucket=unknown_error] could not discard stale cluster state {state_file} in "
             f"{module_dir.name} to reconcile a cloud-absent cluster: {exc}",
         ) from exc
+
+
+# --------------------------------------------------------------------------- #
+# Ambiguous-create / state-absent reconciliation (no billable escape)         #
+# --------------------------------------------------------------------------- #
+
+
+def wait_cluster_absent(
+    cluster_name: str, location: str, project: str, *, timeout: int = 1800, poll_interval: int = 15
+) -> None:
+    """Block until the exact GKE cluster is CONFIRMED absent (describe -> not_found).
+
+    ``terraform destroy`` / ``gcloud ... delete`` returns once the delete OPERATION is
+    accepted, but only confirmed cloud absence proves a billable cluster is truly gone.
+    Poll ``gke_cluster_exists`` (tri-state: False only on a clean not_found; an
+    unreadable describe RAISES) and RAISE on timeout, so a reconcile never reports a
+    cluster reclaimed while it may still exist."""
+    deadline = time.time() + timeout
+    while True:
+        if not gke_cluster_exists(cluster_name, location, project):
+            return
+        if time.time() >= deadline:
+            raise LifecycleError(
+                "cleanup_incomplete",
+                f"[bucket=cleanup_incomplete] GKE cluster {cluster_name} in {location} is still "
+                f"present {timeout}s after its reconcile destroy was issued; refusing to report it "
+                "reclaimed while a billable cluster may remain.",
+            )
+        time.sleep(poll_interval)
+
+
+def wait_node_pool_absent(
+    cluster_name: str, pool_name: str, location: str, project: str, *, timeout: int = 1200, poll_interval: int = 15
+) -> None:
+    """Block until the exact GKE node pool is CONFIRMED absent (describe -> not_found).
+
+    Poll ``gke_node_pool_exists`` (tri-state: False only on a clean not_found; an
+    unreadable describe RAISES) and RAISE on timeout, so a reconcile never reports a
+    pool reclaimed while it may still exist."""
+    deadline = time.time() + timeout
+    while True:
+        if not gke_node_pool_exists(cluster_name, pool_name, location, project):
+            return
+        if time.time() >= deadline:
+            raise LifecycleError(
+                "cleanup_incomplete",
+                f"[bucket=cleanup_incomplete] GKE node pool {pool_name} on {cluster_name} is still "
+                f"present {timeout}s after its reconcile destroy was issued; refusing to report it "
+                "reclaimed while a billable pool may remain.",
+            )
+        time.sleep(poll_interval)
+
+
+def reconcile_orphaned_cluster(
+    module_dir: Path,
+    state_file: str,
+    address: str,
+    cluster_name: str,
+    location: str,
+    project: str,
+    tf_vars: dict[str, Any],
+    *,
+    destroy_timeout: int,
+    wait_timeout: int = 1800,
+) -> str:
+    """Ambiguous-create / state-absent reconciliation for the EXACT GKE cluster.
+
+    A ``terraform apply`` timeout or interruption can submit the deterministic cluster
+    create and leave the exact resource present before its local state address is
+    durable; an absent or valid-empty state then hides a billable leak. Describe the
+    exact deterministic cluster in the known project/location and reconcile:
+
+      * confirmed not-found (``gke_cluster_exists`` False) -> 'absent' (clean; nothing
+        leaked);
+      * present AND carrying THIS run's full ownership marker -> import the exact
+        address (when not already tracked), ``terraform destroy``, and wait for
+        CONFIRMED cloud absence -> 'reclaimed';
+      * present but the ownership marker is UNREADABLE or belongs to a DIFFERENT run ->
+        ``verify_cluster_ownership`` RAISES a visible failure and the live cluster is
+        left untouched.
+
+    Only the ONE exact deterministic name is ever touched — never a prefix, label
+    inventory, or project-wide deletion sweep."""
+    if not gke_cluster_exists(cluster_name, location, project):
+        return "absent"
+    # Present: FAIL CLOSED unless the live cluster carries THIS run's exact marker.
+    verify_cluster_ownership(cluster_name, location, project)
+    cluster_id = f"projects/{project}/locations/{location}/clusters/{cluster_name}"
+    terraform_init(module_dir)
+    if not terraform_state_has(module_dir, state_file, address):
+        terraform_import(module_dir, state_file, address, cluster_id, tf_vars)
+    terraform_destroy(module_dir, state_file, tf_vars, timeout=destroy_timeout)
+    wait_cluster_absent(cluster_name, location, project, timeout=wait_timeout)
+    return "reclaimed"
+
+
+def reconcile_orphaned_node_pool(
+    module_dir: Path,
+    state_file: str,
+    address: str,
+    cluster_name: str,
+    cluster_location: str,
+    pool_name: str,
+    project: str,
+    tf_vars: dict[str, Any],
+    *,
+    destroy_timeout: int,
+    wait_timeout: int = 1200,
+) -> str:
+    """Ambiguous-create / state-absent reconciliation for the EXACT GKE node pool.
+
+    The node-pool analog of ``reconcile_orphaned_cluster`` for a pool beneath its
+    exact parent cluster:
+
+      * parent cluster confirmed not-found, or the pool confirmed not-found -> 'absent'
+        (clean; a pool cannot outlive its parent);
+      * pool present AND its EXACT parent cluster carries THIS run's full ownership
+        marker -> import the exact pool address (when not already tracked),
+        ``terraform destroy``, and wait for CONFIRMED absence -> 'reclaimed';
+      * pool present but the parent's ownership marker is UNREADABLE or a DIFFERENT run
+        -> ``verify_cluster_ownership`` RAISES; the live pool is left untouched.
+
+    A node pool carries no independent ownership label, so the current-run marker is
+    required on its EXACT PARENT cluster — never a bare pool-name match."""
+    if not gke_cluster_exists(cluster_name, cluster_location, project):
+        return "absent"
+    if not gke_node_pool_exists(cluster_name, pool_name, cluster_location, project):
+        return "absent"
+    verify_cluster_ownership(cluster_name, cluster_location, project)
+    pool_id = f"projects/{project}/locations/{cluster_location}/clusters/{cluster_name}/nodePools/{pool_name}"
+    terraform_init(module_dir)
+    if not terraform_state_has(module_dir, state_file, address):
+        terraform_import(module_dir, state_file, address, pool_id, tf_vars)
+    terraform_destroy(module_dir, state_file, tf_vars, timeout=destroy_timeout)
+    wait_node_pool_absent(cluster_name, pool_name, cluster_location, project, timeout=wait_timeout)
+    return "reclaimed"
+
+
+def apply_cluster_with_recovery(
+    module_dir: Path,
+    state_file: str,
+    address: str,
+    cluster_name: str,
+    location: str,
+    project: str,
+    tf_vars: dict[str, Any],
+    *,
+    apply_timeout: int,
+    reconcile_destroy_timeout: int,
+) -> None:
+    """``terraform_apply`` a cluster module, reconciling an AMBIGUOUS create on failure.
+
+    A ``terraform apply`` timeout / interruption can submit the GKE cluster create and
+    leave the exact resource present before its state address is durable. Treat EVERY
+    non-successful apply as an ambiguous create: reconcile the exact deterministic
+    cluster (confirmed-absent is clean; a run-owned leak is imported, destroyed, and
+    waited to confirmed absence; unreadable/mismatched ownership fails visibly) BEFORE
+    re-raising, so a partially-created cluster can never escape cleanup with no durable
+    state entry. The original apply diagnostic stays the reported failure unless the
+    reconcile surfaces a more serious ownership/cleanup anomaly."""
+    try:
+        terraform_apply(module_dir, state_file, tf_vars, timeout=apply_timeout)
+    except LifecycleError as apply_exc:
+        try:
+            outcome = reconcile_orphaned_cluster(
+                module_dir,
+                state_file,
+                address,
+                cluster_name,
+                location,
+                project,
+                tf_vars,
+                destroy_timeout=reconcile_destroy_timeout,
+            )
+        except LifecycleError as reconcile_exc:
+            raise LifecycleError(
+                reconcile_exc.bucket,
+                f"{reconcile_exc.detail} (surfaced while reconciling an ambiguous cluster create "
+                f"after apply failed: {apply_exc.detail})",
+            ) from apply_exc
+        log(
+            f"note: reconciled ambiguous cluster create after apply failure — exact cluster "
+            f"{cluster_name} was {outcome}; re-raising the original apply failure."
+        )
+        raise
+
+
+def apply_node_pool_with_recovery(
+    module_dir: Path,
+    state_file: str,
+    address: str,
+    cluster_name: str,
+    cluster_location: str,
+    pool_name: str,
+    project: str,
+    tf_vars: dict[str, Any],
+    *,
+    apply_timeout: int,
+    reconcile_destroy_timeout: int,
+) -> None:
+    """``terraform_apply`` a node-pool module, reconciling an AMBIGUOUS create on failure.
+
+    The node-pool analog of ``apply_cluster_with_recovery``: on ANY apply failure,
+    reconcile the exact deterministic pool beneath its run-owned parent (import +
+    destroy + wait when owned, clean when confirmed-absent, fail-visibly on unreadable
+    / mismatched parent ownership) BEFORE re-raising. Use ONLY on the FRESH-create path
+    — an in-state re-apply (e.g. a scale) already has a durable state address that
+    teardown destroys normally, so an apply failure there is a scale failure, not an
+    ambiguous create."""
+    try:
+        terraform_apply(module_dir, state_file, tf_vars, timeout=apply_timeout)
+    except LifecycleError as apply_exc:
+        try:
+            outcome = reconcile_orphaned_node_pool(
+                module_dir,
+                state_file,
+                address,
+                cluster_name,
+                cluster_location,
+                pool_name,
+                project,
+                tf_vars,
+                destroy_timeout=reconcile_destroy_timeout,
+            )
+        except LifecycleError as reconcile_exc:
+            raise LifecycleError(
+                reconcile_exc.bucket,
+                f"{reconcile_exc.detail} (surfaced while reconciling an ambiguous node-pool create "
+                f"after apply failed: {apply_exc.detail})",
+            ) from apply_exc
+        log(
+            f"note: reconciled ambiguous node-pool create after apply failure — exact pool "
+            f"{pool_name} on {cluster_name} was {outcome}; re-raising the original apply failure."
+        )
+        raise
 
 
 def recreate_baseline_system_pool(
