@@ -1130,17 +1130,26 @@ def verify_adopted_node_pool_shape(
                 "match the contract input (the live count must not seed its own expectation).",
             )
 
-    # Requested zone placement. A preserved pool placed in a different zone would
-    # otherwise be adopted and emitted as though it matched the requested locations.
+    # Requested zone placement. Every caller pins the test pool to a SINGLE zone
+    # (create_node_pool / setup / shared-VPC all pass a one-element node_locations),
+    # so the live placement must EQUAL the requested set EXACTLY — an ``issubset``
+    # test would accept a drifted MULTI-zone superset (a preserved same-name pool
+    # spread across extra zones), and baseline inventory would then derive its
+    # node/GPU expectations from that drifted resource, letting the released checks
+    # validate the pool against its own self-fulfilling shape. Regression guard: a
+    # requested one-zone pool answered by a live two-zone pool now FAILS CLOSED here
+    # instead of being adopted. GKE never adds zones to a single-zone node pool on
+    # its own, so exact equality has no false-positive surface.
     if expected_node_locations:
         observed_locations = {str(z) for z in (pool.get("locations") or [])}
         want_locations = {str(z) for z in expected_node_locations}
-        if not want_locations.issubset(observed_locations):
+        if observed_locations != want_locations:
             raise LifecycleError(
                 "config_error",
                 f"[bucket=config_error] adopted node pool {pool_name} node-location mismatch: "
-                f"expected {sorted(want_locations)} but the live pool runs in {sorted(observed_locations)}. "
-                "Refusing to emit a pool whose zone placement does not match the contract input.",
+                f"expected exactly {sorted(want_locations)} but the live pool runs in "
+                f"{sorted(observed_locations)}. Refusing to emit a pool whose zone placement is not "
+                "an exact match for the contract input (a multi-zone superset is drift, not a match).",
             )
 
     # Requested GPU accelerator type/count (GPU pools only; GKE exposes each as
@@ -3916,7 +3925,39 @@ def record_owned_pds_from_live_pvs(cluster_name: str, kubeconfig: Path, *, timeo
     failure it records a best-effort ``capture_complete=false`` ledger AND returns
     ``complete=False``, so the backstop fails CLOSED (every surviving cluster-labeled disk it
     cannot prove is ours is surfaced as ``unverified``, never deleted from the truncated label
-    alone and never silently passed) even if the false-ledger write itself is also lost."""
+    alone and never silently passed) even if the false-ledger write itself is also lost.
+
+    MONOTONIC across retries: teardown can run more than once (a failed cluster destroy is
+    rerun). Attempt one may record disk D from its live PV, delete D's PVC/PV, then hit a
+    failed destroy; attempt two's ``kubectl get pv`` no longer lists D, so a REPLACE-write
+    would silently drop D from the ledger and, once the cluster is finally destroyed, the
+    backstop would treat D's still-billable disk as a prefix-colliding foreign disk (neither
+    deleted nor reported — a leaked disk presenting as clean). So this capture UNIONS the
+    freshly-observed exact identities with everything this run already captured and never
+    shrinks the ledger from a later, smaller live view. Entries are only ever ADDED here; an
+    identity leaves the ledger solely once its disk is confirmed deleted/absent (the backstop
+    no-ops on a ledger entry the live disk listing no longer returns). A capture FAILURE
+    PRESERVES the prior identities (writes them back with ``capture_complete=false``) rather
+    than truncating the ledger to empty."""
+    ledger_path = _owned_pd_ledger_path()
+    # Load whatever this run already captured so a fresh capture UNIONS with — never overwrites
+    # — earlier identities. A transiently-unreadable EXISTING ledger must NOT be clobbered (that
+    # would drop previously-captured owned disks), so fail closed WITHOUT writing. A
+    # definitively-absent or foreign ledger reads back as no prior entries.
+    try:
+        _, prior_entries = _read_owned_pd_ledger(ledger_path)
+    except OSError as exc:
+        detail = (
+            "the run-owned Persistent Disk ownership ledger was unreadable while merging a fresh "
+            f"live-PV capture ({exc}); leaving the existing ledger untouched and failing closed so "
+            "no previously-captured owned disk is dropped"
+        )
+        log("warning: " + detail)
+        return {"complete": False, "error": detail}
+    # Preserve prior order, drop duplicates. Serves both as the merge base on success and as the
+    # PRESERVED contents on any capture failure below (never shrunk to []).
+    prior_identities: list[tuple[str, str, str]] = list(dict.fromkeys(prior_entries))
+
     try:
         rc, out = kubectl(["get", "pv", "-o", "json"], kubeconfig=kubeconfig, timeout=timeout, echo=False)
     except BaseException as exc:  # capture is a best-effort backstop input, never fatal
@@ -3930,7 +3971,8 @@ def record_owned_pds_from_live_pvs(cluster_name: str, kubeconfig: Path, *, timeo
             "warning: " + detail + "; teardown will fail closed on any surviving cluster-labeled "
             "disk it cannot prove is ours"
         )
-        _try_write_owned_pd_ledger(capture_complete=False, entries=[])
+        # Preserve the prior ledger on capture failure — never shrink it to empty.
+        _try_write_owned_pd_ledger(capture_complete=False, entries=prior_identities)
         return {"complete": False, "error": detail}
     try:
         payload = json.loads(out) if out.strip() else {}
@@ -3940,14 +3982,19 @@ def record_owned_pds_from_live_pvs(cluster_name: str, kubeconfig: Path, *, timeo
             f"Disk identities ({exc})"
         )
         log("warning: " + detail + "; teardown will fail closed on unverifiable disks")
-        _try_write_owned_pd_ledger(capture_complete=False, entries=[])
+        # Preserve the prior ledger on capture failure — never shrink it to empty.
+        _try_write_owned_pd_ledger(capture_complete=False, entries=prior_identities)
         return {"complete": False, "error": detail}
-    entries: list[tuple[str, str, str]] = []
+    observed: list[tuple[str, str, str]] = []
     for item in payload.get("items", []) or []:
         identity = _pd_csi_disk_identity(item if isinstance(item, dict) else {})
         if identity is not None:
-            entries.append(identity)
-    if not _try_write_owned_pd_ledger(capture_complete=True, entries=entries):
+            observed.append(identity)
+    # Monotonic union: everything ever captured this run PLUS this attempt's live identities.
+    # A disk recorded on an earlier attempt (then its PVC/PV deleted before a failed destroy)
+    # stays authorized for reclaim; a later capture that observes fewer PVs never removes it.
+    merged: list[tuple[str, str, str]] = list(dict.fromkeys([*prior_identities, *observed]))
+    if not _try_write_owned_pd_ledger(capture_complete=True, entries=merged):
         # The live capture succeeded but its ledger could not be persisted. Do NOT report a
         # fresh complete capture: without a durable ledger the backstop has no authorization
         # list, so it must fail closed and the caller must surface the persistence failure.
@@ -3957,8 +4004,8 @@ def record_owned_pds_from_live_pvs(cluster_name: str, kubeconfig: Path, *, timeo
             "successful live-PV capture",
         }
     log(
-        f"recorded {len(entries)} run-owned PVC-backed Persistent Disk identit(ies) for cluster "
-        f"{cluster_name} into the full-run ownership ledger"
+        f"recorded {len(observed)} live + {len(merged)} cumulative run-owned PVC-backed Persistent "
+        f"Disk identit(ies) for cluster {cluster_name} into the monotonic full-run ownership ledger"
     )
     return {"complete": True, "error": None}
 
