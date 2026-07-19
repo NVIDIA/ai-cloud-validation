@@ -3992,14 +3992,16 @@ def delete_orphan_pds(
         return {"deleted": [], "failed": [], "unverified": [], "list_error": fold_tail(out, limit=600)}
     try:
         listed = _loads_gcloud_json_list(out)
-    except json.JSONDecodeError as exc:
-        # Unparseable list JSON is an unreadable listing, NOT an empty successful one —
-        # fail closed so a leak is never masked by a parse error.
+    except (json.JSONDecodeError, ValueError) as exc:
+        # An unparseable body OR a syntactically valid but non-array top-level value
+        # (object, string, number, null) is an unreadable/contract-malformed listing,
+        # NOT an empty successful one — fail closed so a leak is never masked by malformed
+        # disk-list output. Only an empty response or a real empty array is confirmed absence.
         return {
             "deleted": [],
             "failed": [],
             "unverified": [],
-            "list_error": f"unparseable disk list JSON: {exc}; {fold_tail(out, limit=400)}",
+            "list_error": f"unreadable disk list JSON: {exc}; {fold_tail(out, limit=400)}",
         }
 
     for item in listed:
@@ -4083,7 +4085,13 @@ def _loads_gcloud_json_list(out: str) -> list[Any]:
     ``_run`` folds stderr into stdout, so a filter-key WARNING (e.g. "The following filter
     keys were not present in any resource") can precede the JSON array. Try a direct parse
     first, then fall back to parsing from the first ``[`` so a warning line never masquerades
-    as unparseable output. An empty body is an empty (successful) listing."""
+    as unparseable output. An empty body is an empty (successful) listing.
+
+    Accept ONLY an actual JSON array as a successful inventory. A syntactically valid but
+    non-array top-level value (object, string, number, ``null``) is a contract-malformed
+    response, NOT an empty listing — raise ``ValueError`` so the caller fails closed through
+    ``list_error`` instead of silently converting it into confirmed absence (which could
+    conceal run-owned billable disks behind a false-clean teardown)."""
     text = out.strip()
     if not text:
         return []
@@ -4094,7 +4102,12 @@ def _loads_gcloud_json_list(out: str) -> list[Any]:
         if start == -1:
             raise
         parsed = json.loads(text[start:])
-    return parsed if isinstance(parsed, list) else []
+    if not isinstance(parsed, list):
+        raise ValueError(
+            f"expected a JSON array from 'gcloud ... --format=json' but got a top-level "
+            f"{type(parsed).__name__}; refusing to treat a non-array response as an empty listing"
+        )
+    return parsed
 
 
 def _disk_scope_from_list_item(item: dict[str, Any]) -> tuple[str | None, str | None]:

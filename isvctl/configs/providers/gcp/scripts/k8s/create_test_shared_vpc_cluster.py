@@ -74,10 +74,23 @@ def main() -> int:
         secondary_name = k8s.scoped_name(args.cluster_name)
         state_file = k8s.shared_vpc_state_file()
 
-        # Primary identity + shared network/subnetwork read live from the primary
-        # cluster's Terraform state at create.
+        # Primary identity read live from the primary cluster's Terraform state at create.
         primary_name = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "cluster_name")
         primary_location = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "location")
+
+        # FAIL CLOSED before trusting the primary's shared network/subnetwork or performing
+        # ANY secondary lookup, import, recreation, apply, or success emission: prove the
+        # primary cluster still carries THIS run's exact full-run-identity ownership marker.
+        # The primary's name/location come from LOCAL Terraform state, and a bare name match
+        # is not ownership proof — a stale primary state whose same-name cluster was deleted
+        # and replaced by a FOREIGN cluster would otherwise seed the secondary's shared VPC
+        # from, and report multi-cluster coverage against, a cluster this run does not own.
+        # Missing, unreadable, or mismatched ownership raises a structured LifecycleError and
+        # authorizes no secondary mutation. The node-pool consumer gates on this same marker
+        # before any child-pool mutation; the producer of the shared network must too.
+        k8s.verify_cluster_ownership(primary_name, primary_location, project)
+
+        # Shared network/subnetwork read from the now-ownership-verified primary state.
         network_id = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "network")
         subnetwork_id = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "subnetwork")
 

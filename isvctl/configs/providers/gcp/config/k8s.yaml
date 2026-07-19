@@ -415,6 +415,24 @@ tests:
         # GKE pins guest_accelerator.count so the per-node count is known.
         K8sGpuCapacityCheck:
           expected_total: "{{ (steps.setup.kubernetes.total_gpus | default(0, true) | int) + ((steps.create_test_gpu_node_pool.expected_replicas | default(0, true) | int) * (gpu_accelerator_count | default('1', true) | int)) }}"
+        # GKE runs the Cluster Autoscaler in its MANAGED control plane, so there is
+        # no in-cluster cluster-autoscaler Deployment for the released check to find.
+        # Setup reads back the live system node-pool autoscaling config and verifies
+        # it is enabled with the requested min/max bounds, then emits provider-native
+        # evidence at steps.setup.kubernetes.autoscaler (provider/node_pool/enabled/
+        # min_nodes/max_nodes). Bind that setup output as step_output so the check
+        # consumes the managed evidence instead of installing a competing in-cluster
+        # autoscaler, and require it: with the provider-native signal available the
+        # check must FAIL (not structured-skip) if the configured pool is not
+        # autoscaling.
+        K8sClusterAutoscalerCheck:
+          # Bind setup as the evidence source (injects its output as step_output)
+          # but keep the check in the TEST phase (its default) — binding a step
+          # would otherwise inherit the setup step's phase and stop the check from
+          # running in a test-only (--phase test) invocation.
+          step: setup
+          phase: test
+          require_autoscaler: true
 
     k8s_observability:
       checks:
