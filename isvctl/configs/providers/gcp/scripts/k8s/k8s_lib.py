@@ -714,16 +714,33 @@ _GKE_POOL_STATES = frozenset(
 # its whole timeout.
 _GKE_POOL_ERROR_STATES = frozenset({"ERROR", "RUNNING_WITH_ERROR"})
 
+# CLI failure buckets a readiness poll must SURFACE immediately instead of waiting
+# out: expired/invalid credentials, a missing IAM permission, or a resource that
+# is genuinely gone never clear on their own, so blocking the full readiness
+# budget only delays an actionable diagnostic and buries it under a generic
+# timeout. A 'transient' read (rate-limit / quota / stockout / network blip) or an
+# unclassifiable 'unknown_error' is instead RETAINED and retried, then surfaced
+# verbatim if the wait ultimately expires — never silently read as "keep waiting".
+_TERMINAL_READ_BUCKETS = frozenset({"access_denied", "credentials_invalid", "not_found"})
 
-def gke_node_pool_status(cluster_name: str, pool_name: str, location: str, project: str, *, timeout: int = 120) -> str:
-    """Return the live GKE node-pool status (RUNNING, RECONCILING, PROVISIONING,
-    ERROR, RUNNING_WITH_ERROR, STOPPING, ...), or '' when it cannot be read.
 
-    The CPU pool completion gate polls this so an adopted or still-reconciling pool
-    must reach a healthy RUNNING state before the step emits success. Only a
-    recognized GKE status token is returned; unrecognized chatter (e.g. a merged
-    gcloud WARNING line) resolves to '' so the caller keeps waiting rather than
-    misreading a diagnostic line as a pool state."""
+def gke_node_pool_status(
+    cluster_name: str, pool_name: str, location: str, project: str, *, timeout: int = 120
+) -> tuple[str, LifecycleError | None]:
+    """Return ``(status, read_failure)`` for a live GKE node pool.
+
+    ``status`` is a recognized GKE status token (RUNNING, RECONCILING,
+    PROVISIONING, ERROR, RUNNING_WITH_ERROR, STOPPING, ...) or '' when the describe
+    SUCCEEDED but rendered no recognized token (e.g. a merged gcloud WARNING line);
+    the caller keeps waiting on ''.
+
+    ``read_failure`` is None on a clean read. On a FAILED describe it is a
+    classified LifecycleError (constructed, never raised here) carrying the folded
+    gcloud output, so the completion gate can surface a terminal
+    auth/permission/not-found failure IMMEDIATELY and retain a transient one for
+    its timeout diagnostic — instead of silently collapsing a command failure into
+    an empty (indistinguishable "still waiting") status that is waited out for the
+    whole readiness budget."""
     rc, out = gcloud(
         [
             "container",
@@ -742,12 +759,17 @@ def gke_node_pool_status(cluster_name: str, pool_name: str, location: str, proje
         echo=False,
     )
     if rc != 0:
-        return ""
+        bucket = _classify_cli_output(out)
+        return "", LifecycleError(
+            bucket,
+            f"[bucket={bucket}] `gcloud container node-pools describe` failed for pool "
+            f"{pool_name} on {cluster_name} in {location}: {fold_tail(out)}",
+        )
     for line in out.splitlines():
         token = line.strip()
         if token in _GKE_POOL_STATES:
-            return token
-    return ""
+            return token, None
+    return "", None
 
 
 _GKE_EFFECT_TO_K8S = {
@@ -2861,30 +2883,44 @@ def wait_cpu_pool_ready(
     deadline = time.time() + timeout
     ready_names: list[str] = []
     pool_status = ""
+    last_read_error: LifecycleError | None = None
     while time.time() < deadline:
-        pool_status = gke_node_pool_status(cluster_name, pool_name, location, project)
-        if pool_status in _GKE_POOL_ERROR_STATES:
-            raise LifecycleError(
-                "unknown_error",
-                f"[bucket=unknown_error] CPU node pool {pool_name} on {cluster_name} is in a "
-                f"terminal-unhealthy state '{pool_status}'; refusing to emit success for an errored pool.",
-            )
-        if pool_status == "RUNNING":
-            ready_names = _ready_pool_node_names(label_selector)
-            if len(ready_names) >= expected_count:
-                break
+        pool_status, read_error = gke_node_pool_status(cluster_name, pool_name, location, project)
+        if read_error is not None:
+            if read_error.bucket in _TERMINAL_READ_BUCKETS:
+                # Bad credentials, a missing permission, or a genuinely absent
+                # pool never converges — surface it now instead of polling out the
+                # whole budget and burying the diagnostic under a generic timeout.
+                raise read_error
+            last_read_error = read_error  # transient/unknown: retain, keep polling
+        else:
+            last_read_error = None  # a clean read clears any retained transient error
+            if pool_status in _GKE_POOL_ERROR_STATES:
+                raise LifecycleError(
+                    "unknown_error",
+                    f"[bucket=unknown_error] CPU node pool {pool_name} on {cluster_name} is in a "
+                    f"terminal-unhealthy state '{pool_status}'; refusing to emit success for an errored pool.",
+                )
+            if pool_status == "RUNNING":
+                ready_names = _ready_pool_node_names(label_selector)
+                if len(ready_names) >= expected_count:
+                    break
         log(
             f"  waiting for CPU pool '{pool_name}' to be RUNNING with {expected_count} Ready "
             f"node(s) (status={pool_status or 'unknown'}, ready={len(ready_names)})..."
         )
         time.sleep(poll_interval)
     else:
-        raise LifecycleError(
-            "transient",
+        detail = (
             f"[bucket=transient] CPU pool completion gate timed out: pool {pool_name} "
             f"status='{pool_status or 'unknown'}', only {len(ready_names)}/{expected_count} "
-            f"node(s) matching '{label_selector}' reached Ready within {timeout}s.",
+            f"node(s) matching '{label_selector}' reached Ready within {timeout}s."
         )
+        if last_read_error is not None:
+            # The budget closed while node-pool reads were still failing — carry the
+            # retained API failure so the operator sees WHY, not just "timed out".
+            detail += f" Last node-pool read failure: {last_read_error.detail}"
+        raise LifecycleError("transient", detail)
     log(f"  CPU pool '{pool_name}' ready: RUNNING with {len(ready_names)} Ready node(s).")
     return ready_names
 
@@ -3487,12 +3523,24 @@ def gke_cluster_status_active(cluster_name: str, location: str, project: str) ->
     return status or "UNKNOWN"
 
 
-def ready_node_count_isolated(cluster_name: str, location: str, project: str, *, timeout: int = 180) -> int:
-    """Count Ready nodes in a cluster using an ISOLATED temp kubeconfig.
+def ready_node_count_isolated(
+    cluster_name: str, location: str, project: str, *, timeout: int = 180
+) -> tuple[int, LifecycleError | None]:
+    """Return ``(ready_node_count, read_failure)`` for a cluster, using an ISOLATED
+    temp kubeconfig.
 
     Never mutates the ambient ~/.kube/config, so checking the secondary cluster
     does not switch the current context away from the primary (the test-phase
     in-cluster checks run against the primary via ambient kubectl).
+
+    ``read_failure`` is None on a clean read — a count of 0 then means the cluster
+    is reachable but has no Ready node YET, a legitimate keep-waiting signal. A
+    FAILED credential fetch or ``kubectl`` call, or a malformed JSON response, is
+    returned as a classified LifecycleError (constructed, never raised here) so the
+    readiness wait can surface a terminal auth/permission/not-found failure
+    IMMEDIATELY and retain a transient one for its timeout diagnostic, instead of
+    collapsing every failure into an indistinguishable zero count waited out for
+    the whole budget.
     """
     import tempfile
 
@@ -3501,7 +3549,7 @@ def ready_node_count_isolated(cluster_name: str, location: str, project: str, *,
     env = os.environ.copy()
     env["KUBECONFIG"] = kubeconfig
     try:
-        rc, _ = _run(
+        rc, cred_out = _run(
             [
                 "gcloud",
                 "container",
@@ -3518,20 +3566,38 @@ def ready_node_count_isolated(cluster_name: str, location: str, project: str, *,
             echo=False,
         )
         if rc != 0:
-            return 0
+            bucket = _classify_cli_output(cred_out)
+            return 0, LifecycleError(
+                bucket,
+                f"[bucket={bucket}] `gcloud container clusters get-credentials` failed for "
+                f"secondary cluster {cluster_name} in {location}: {fold_tail(cred_out)}",
+            )
         rc2, out = _run(["kubectl", "get", "nodes", "-o", "json"], env=env, timeout=timeout, echo=False)
-        if rc2 != 0 or not out.strip():
-            return 0
+        if rc2 != 0:
+            bucket = _classify_cli_output(out)
+            return 0, LifecycleError(
+                bucket,
+                f"[bucket={bucket}] `kubectl get nodes` failed for secondary cluster {cluster_name}: {fold_tail(out)}",
+            )
+        if not out.strip():
+            return 0, LifecycleError(
+                "transient",
+                f"[bucket=transient] `kubectl get nodes` returned no output for secondary cluster {cluster_name}.",
+            )
         try:
             data = json.loads(out)
         except json.JSONDecodeError:
-            return 0
+            return 0, LifecycleError(
+                "transient",
+                f"[bucket=transient] `kubectl get nodes` returned malformed JSON for secondary "
+                f"cluster {cluster_name}: {fold_tail(out)}",
+            )
         count = 0
         for node in data.get("items", []):
             conds = node.get("status", {}).get("conditions", []) or []
             if any(c.get("type") == "Ready" and c.get("status") == "True" for c in conds):
                 count += 1
-        return count
+        return count, None
     finally:
         try:
             os.remove(kubeconfig)
@@ -3549,13 +3615,26 @@ def wait_secondary_ready(
 ) -> int:
     """Block until the secondary cluster reports >=1 Ready node; return the count."""
     deadline = time.time() + timeout
+    count = 0
+    last_read_error: LifecycleError | None = None
     while time.time() < deadline:
-        count = ready_node_count_isolated(cluster_name, location, project)
-        if count >= 1:
-            return count
+        count, read_error = ready_node_count_isolated(cluster_name, location, project)
+        if read_error is not None:
+            if read_error.bucket in _TERMINAL_READ_BUCKETS:
+                # Bad credentials, a missing permission, or a genuinely absent
+                # cluster never converges — surface it now instead of polling out
+                # the whole budget and losing the diagnostic to a generic timeout.
+                raise read_error
+            last_read_error = read_error  # transient/unknown: retain, keep polling
+        else:
+            last_read_error = None  # a clean read clears any retained transient error
+            if count >= 1:
+                return count
         log(f"  waiting for secondary cluster {cluster_name} to report a Ready node ({count} so far)...")
         time.sleep(poll_interval)
-    raise LifecycleError(
-        "transient",
-        f"[bucket=transient] secondary cluster {cluster_name} did not report a Ready node within {timeout}s.",
-    )
+    detail = f"[bucket=transient] secondary cluster {cluster_name} did not report a Ready node within {timeout}s."
+    if last_read_error is not None:
+        # The budget closed while readiness reads were still failing — carry the
+        # retained API failure so the operator sees WHY, not just "timed out".
+        detail += f" Last readiness read failure: {last_read_error.detail}"
+    raise LifecycleError("transient", detail)
