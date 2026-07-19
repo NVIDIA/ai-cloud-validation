@@ -3688,6 +3688,15 @@ def reclaim_run_pvcs(kubeconfig: Path, *, timeout: int = 240) -> None:
 _PD_LEDGER_IDENTITY_PREFIX = "# run-identity: "
 _PD_LEDGER_CAPTURE_PREFIX = "# capture-complete: "
 
+# A PVC-backed Persistent Disk is either ZONAL (its CSI volumeHandle carries
+# ``/zones/<zone>/``, reclaimed with ``--zone``) or REGIONAL (``/regions/<region>/``,
+# reclaimed with ``--region``). The ownership identity MUST preserve BOTH the scope kind
+# and the location so a regional owned disk is enumerated and deleted with the correct
+# flag instead of being silently dropped by a zone-only reclaim.
+_DISK_SCOPE_ZONE = "zone"
+_DISK_SCOPE_REGION = "region"
+_DISK_SCOPE_FLAG = {_DISK_SCOPE_ZONE: "--zone", _DISK_SCOPE_REGION: "--region"}
+
 
 def _owned_pd_ledger_path() -> Path:
     """Durable per-run file recording the EXACT identities of this run's PVC-backed
@@ -3701,35 +3710,42 @@ def _owned_pd_ledger_path() -> Path:
     return CLUSTER_TF_DIR / f"owned-pds-{run_scope_id()}-{_run_identity_digest()}.ledger"
 
 
-def _pd_csi_disk_identity(pv_item: dict[str, Any]) -> tuple[str, str] | None:
-    """Return ``(disk_name, location)`` for a pd.csi.storage.gke.io PV, else None.
+def _pd_csi_disk_identity(pv_item: dict[str, Any]) -> tuple[str, str, str] | None:
+    """Return ``(disk_name, scope, location)`` for a pd.csi.storage.gke.io PV, else None.
 
     The GKE PD CSI ``volumeHandle`` is ``projects/<p>/zones/<zone>/disks/<name>`` (zonal)
     or ``projects/<p>/regions/<region>/disks/<name>`` (regional); the backing Compute
-    Engine disk NAME is the exact identity teardown reclaims. Non-pd.csi PVs (hostPath,
-    other drivers) and malformed handles yield None so only reclaimable disks are ledgered.
+    Engine disk NAME is the exact identity teardown reclaims. ``scope`` records whether the
+    disk is ``zone``-scoped or ``region``-scoped so reclamation enumerates and deletes it
+    with the matching ``--zone``/``--region`` flag — a regional handle must never collapse
+    into a zone-only identity that the backstop then silently skips. Non-pd.csi PVs
+    (hostPath, other drivers) and malformed handles yield None so only reclaimable disks
+    are ledgered.
     """
     spec = (pv_item or {}).get("spec", {}) or {}
     csi = spec.get("csi", {}) or {}
     if csi.get("driver") != _GKE_PD_CSI_PROVISIONER:
         return None
     handle = csi.get("volumeHandle", "") or ""
-    match = re.search(r"/(?:zones|regions)/([^/]+)/disks/([^/]+)$", handle)
+    match = re.search(r"/(zones|regions)/([^/]+)/disks/([^/]+)$", handle)
     if not match:
         return None
-    return match.group(2), match.group(1)
+    scope = _DISK_SCOPE_REGION if match.group(1) == "regions" else _DISK_SCOPE_ZONE
+    return match.group(3), scope, match.group(2)
 
 
-def _write_owned_pd_ledger(path: Path, *, capture_complete: bool, entries: list[tuple[str, str]]) -> None:
+def _write_owned_pd_ledger(path: Path, *, capture_complete: bool, entries: list[tuple[str, str, str]]) -> None:
     """Atomically (re)write the owned-PD ledger (temp file, flush/fsync, atomic replace)
     so an interrupted write can never strand a truncated/empty ledger. Stamps the CURRENT
-    run's full identity and whether the live-PV capture completed."""
+    run's full identity and whether the live-PV capture completed. Each entry line records
+    ``<name> <scope> <location>`` so a regional owned disk keeps its scope kind through the
+    setup/teardown lifecycle boundary and is reclaimed with the correct flag."""
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
         lines = [
             f"{_PD_LEDGER_IDENTITY_PREFIX}{full_run_scope_id()}",
             f"{_PD_LEDGER_CAPTURE_PREFIX}{'true' if capture_complete else 'false'}",
-            *[f"{name} {location}" for name, location in entries],
+            *[f"{name} {scope} {location}" for name, scope, location in entries],
         ]
         with tmp.open("w", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
@@ -3740,8 +3756,8 @@ def _write_owned_pd_ledger(path: Path, *, capture_complete: bool, entries: list[
         tmp.unlink(missing_ok=True)
 
 
-def _read_owned_pd_ledger(path: Path) -> tuple[bool, list[tuple[str, str]]]:
-    """Return ``(capture_complete, [(disk_name, location), ...])`` for THIS run.
+def _read_owned_pd_ledger(path: Path) -> tuple[bool, list[tuple[str, str, str]]]:
+    """Return ``(capture_complete, [(disk_name, scope, location), ...])`` for THIS run.
 
     Returns ``(False, [])`` ONLY when the ledger is DEFINITIVELY absent (never written —
     e.g. the cluster was unreachable so no live capture ran). Any OTHER read error is
@@ -3757,7 +3773,7 @@ def _read_owned_pd_ledger(path: Path) -> tuple[bool, list[tuple[str, str]]]:
         return False, []
     identity: str | None = None
     capture_complete = False
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str, str, str]] = []
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -3768,8 +3784,21 @@ def _read_owned_pd_ledger(path: Path) -> tuple[bool, list[tuple[str, str]]]:
         if stripped.startswith(_PD_LEDGER_CAPTURE_PREFIX):
             capture_complete = stripped[len(_PD_LEDGER_CAPTURE_PREFIX) :].strip().lower() == "true"
             continue
+        # Each disk entry is ``<name> <scope> <location>``. A legacy 2-field row
+        # (``<name> <location>``, written before scope was tracked) has its scope inferred
+        # from the location shape so it is still reclaimed rather than silently skipped; a
+        # 1-field row keeps an empty scope so reclamation surfaces it as unsupported (never
+        # a silent skip). The scope is never dropped here.
         parts = stripped.split()
-        entries.append((parts[0], parts[1] if len(parts) > 1 else ""))
+        name = parts[0]
+        if len(parts) >= 3:
+            entries.append((name, parts[1], parts[2]))
+        elif len(parts) == 2:
+            location = parts[1]
+            scope = _DISK_SCOPE_ZONE if _ZONE_RE.match(location) else _DISK_SCOPE_REGION
+            entries.append((name, scope, location))
+        else:
+            entries.append((name, "", ""))
     if identity is not None and identity != full_run_scope_id():
         return False, []
     return capture_complete, entries
@@ -3819,7 +3848,7 @@ def record_owned_pds_from_live_pvs(cluster_name: str, kubeconfig: Path, *, timeo
         log("warning: " + detail + "; teardown will fail closed on unverifiable disks")
         _try_write_owned_pd_ledger(capture_complete=False, entries=[])
         return {"complete": False, "error": detail}
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str, str, str]] = []
     for item in payload.get("items", []) or []:
         identity = _pd_csi_disk_identity(item if isinstance(item, dict) else {})
         if identity is not None:
@@ -3840,7 +3869,7 @@ def record_owned_pds_from_live_pvs(cluster_name: str, kubeconfig: Path, *, timeo
     return {"complete": True, "error": None}
 
 
-def _try_write_owned_pd_ledger(*, capture_complete: bool, entries: list[tuple[str, str]]) -> bool:
+def _try_write_owned_pd_ledger(*, capture_complete: bool, entries: list[tuple[str, str, str]]) -> bool:
     """Persist the owned-PD ledger. Returns ``True`` when the atomic write durably landed and
     ``False`` when it was lost (the caller SURFACES a lost write instead of silently swallowing
     it). A missing/lost ledger reads back as ``capture_complete=False``, and the teardown
@@ -3879,26 +3908,34 @@ def delete_orphan_pds(
     rule requires the FULL RUN_ID before reclaiming PVCs or disks from a cluster). This
     backstop therefore combines two signals:
 
-      * DISCOVERY — a zone-agnostic ``goog-k8s-cluster-name`` label list finds every
-        SURVIVING candidate disk. The scan stays zone-agnostic because the baseline pool
-        and the test GPU pool select zones independently, so a raced PD can land in either.
+      * DISCOVERY — a location-agnostic ``goog-k8s-cluster-name`` label list (STRUCTURED
+        ``--format=json``) finds every SURVIVING candidate disk, ZONAL and REGIONAL alike,
+        and reads each disk's own ``zone``/``region`` scope from the response rather than
+        inferring it. The scan stays location-agnostic because the baseline pool and the
+        test GPU pool select zones independently, so a raced PD can land in either — and a
+        PVC bound to a regional StorageClass leaks a REGIONAL disk that a zone-only list
+        would never surface.
       * AUTHORIZATION — the run's own full-identity ledger
         (``record_owned_pds_from_live_pvs``, captured while the cluster was live and its
-        ownership marker verified). A candidate is deleted ONLY if it appears in that
-        ledger, so a prefix-colliding OTHER run's detached orphan disk is NEVER deleted.
+        ownership marker verified), keyed by the EXACT ``(name, scope, location)`` identity.
+        A candidate is deleted ONLY if that whole tuple appears in the ledger, so a
+        prefix-colliding OTHER run's detached orphan disk is NEVER deleted and a regional
+        owned disk is matched on its region — not silently discarded to a name-only set.
 
     Returns a structured reclaim result::
 
         {"deleted": [names], "failed": [names], "unverified": [names], "list_error": str | None}
 
     ``list_error`` (with empty lists) means the ledger or the disk LISTING itself could not
-    be read, so run-owned disks could NOT be confirmed reclaimed — never conflated with an
-    empty successful listing. ``failed`` are ledger-owned disks that survived even after
-    retrying safe transient failures. ``unverified`` are cluster-labeled disks whose full-run
-    ownership could not be PROVEN (a label match with NO completed live capture to authorize
-    it): they are never deleted from the label alone, but they are surfaced so a possibly
-    leaked billable disk never presents as a clean teardown. The caller emits
-    ``cleanup_errors`` + ``success=False`` whenever any of the three is set.
+    be read (including unparseable list JSON), so run-owned disks could NOT be confirmed
+    reclaimed — never conflated with an empty successful listing. ``failed`` are ledger-owned
+    disks that survived even after retrying safe transient failures, PLUS any ledger entry
+    whose scope is unsupported/unreadable (it is surfaced, never silently skipped).
+    ``unverified`` are cluster-labeled disks whose full-run ownership could not be PROVEN (a
+    label match with NO completed live capture to authorize it): they are never deleted from
+    the label alone, but they are surfaced so a possibly leaked billable disk never presents
+    as a clean teardown. The caller emits ``cleanup_errors`` + ``success=False`` whenever any
+    of the three is set.
     """
     if not cluster_name:
         return {"deleted": [], "failed": [], "unverified": [], "list_error": None}
@@ -3916,7 +3953,25 @@ def delete_orphan_pds(
             "unverified": [],
             "list_error": f"run-owned Persistent Disk ownership ledger unreadable: {exc}",
         }
-    owned_names = {name for name, _location in owned_entries}
+    # Authorize on the EXACT (name, scope, location) tuple — never a name-only set that
+    # would drop a regional disk's region and let a zone-only reclaim silently skip it.
+    deleted: list[str] = []
+    failed: list[str] = []
+    unverified: list[str] = []
+    owned_identities: set[tuple[str, str, str]] = set()
+    for name, scope, location in owned_entries:
+        if scope in _DISK_SCOPE_FLAG and location:
+            owned_identities.add((name, scope, location))
+        else:
+            # An owned ledger entry whose scope is unsupported/unreadable cannot be
+            # enumerated or deleted with a correct flag. Fail closed by surfacing it — a
+            # ledger-owned disk must NEVER be silently skipped just because its scope is
+            # unresolvable.
+            log(
+                f"warning: run-owned Persistent Disk {name} has an unsupported/unreadable "
+                f"ledger scope ({scope!r} {location!r}); surfacing it instead of skipping"
+            )
+            failed.append(name)
     rc, out = gcloud(
         [
             "compute",
@@ -3926,7 +3981,7 @@ def delete_orphan_pds(
             project,
             "--filter",
             f"labels.goog-k8s-cluster-name={cluster_name}",
-            "--format=value(name,zone.basename())",
+            "--format=json",
         ],
         timeout=timeout,
         echo=False,
@@ -3935,29 +3990,41 @@ def delete_orphan_pds(
         # Listing FAILED — distinct from an empty successful listing. We cannot
         # confirm no run-owned disks remain, so the caller must not report clean.
         return {"deleted": [], "failed": [], "unverified": [], "list_error": fold_tail(out, limit=600)}
+    try:
+        listed = _loads_gcloud_json_list(out)
+    except json.JSONDecodeError as exc:
+        # Unparseable list JSON is an unreadable listing, NOT an empty successful one —
+        # fail closed so a leak is never masked by a parse error.
+        return {
+            "deleted": [],
+            "failed": [],
+            "unverified": [],
+            "list_error": f"unparseable disk list JSON: {exc}; {fold_tail(out, limit=400)}",
+        }
 
-    deleted: list[str] = []
-    failed: list[str] = []
-    unverified: list[str] = []
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) < 2:
+    for item in listed:
+        if not isinstance(item, dict):
             continue
-        disk, disk_zone = parts[0].strip(), parts[1].strip()
-        # `_run` merges gcloud's stderr into stdout, so a diagnostic line can
-        # masquerade as a 2-column `value(name,zone.basename())` row — e.g. an
-        # empty match emits "WARNING: The following filter keys were not present
-        # in any resource : labels.goog-k8s-cluster-name", which would otherwise
-        # parse as a disk named "WARNING:" in a bogus zone "The" and get reported
-        # as an un-reclaimed (billable) disk, falsely failing an otherwise-clean
-        # teardown. A real disk row always carries a valid zone basename in the
-        # second column, so gate on that shape and drop any non-disk chatter.
-        if not disk or not _ZONE_RE.match(disk_zone):
+        disk = (item.get("name") or "").strip()
+        if not disk:
             continue
-        if disk not in owned_names:
-            # The disk carries this run's TRUNCATED cluster label but is NOT in this run's
-            # full-identity ownership ledger, so the 8-char cluster name is the only thing
-            # tying it to us — insufficient proof. NEVER delete it.
+        scope, location = _disk_scope_from_list_item(item)
+        if scope is None or not location:
+            # A cluster-labeled disk whose own response carries neither a zone nor a region
+            # URL cannot be described or deleted with a correct flag. Never silently skip a
+            # possibly-billable labeled disk — surface it so teardown reports non-clean.
+            log(
+                f"warning: disk {disk} carries this run's cluster label but its scope could "
+                "not be resolved from the structured listing; surfacing it"
+            )
+            failed.append(disk)
+            continue
+        loc_label = f"{scope} {location}"
+        if (disk, scope, location) not in owned_identities:
+            # The disk carries this run's TRUNCATED cluster label but its EXACT
+            # (name, scope, location) identity is NOT in this run's full-identity ledger, so
+            # the 8-char cluster name is the only thing tying it to us — insufficient proof.
+            # NEVER delete it.
             if capture_complete and capture_fresh:
                 # A COMPLETE capture from THIS teardown (capture_fresh) proves the ledger is a
                 # current snapshot of this run's live PVC-backed disks, so a label match
@@ -3965,7 +4032,7 @@ def delete_orphan_pds(
                 # scope. Leave the prefix-colliding run's disk untouched; it is not a leak of
                 # ours to reclaim OR to report.
                 log(
-                    f"info: disk {disk} in {disk_zone} carries this run's truncated cluster "
+                    f"info: disk {disk} in {loc_label} carries this run's truncated cluster "
                     "label but is absent from this teardown's fresh full-run ownership ledger; "
                     "leaving a prefix-colliding run's disk untouched"
                 )
@@ -3977,7 +4044,7 @@ def delete_orphan_pds(
                 # possibly-leaked billable disk — a leak must never present as clean). A disk
                 # that appeared after a stale capture is caught here instead of being ignored.
                 log(
-                    f"warning: disk {disk} in {disk_zone} carries this run's truncated cluster "
+                    f"warning: disk {disk} in {loc_label} carries this run's truncated cluster "
                     "label but its full-run ownership could not be verified (no fresh live "
                     "capture); refusing to delete from the label alone and surfacing it"
                 )
@@ -3992,25 +4059,66 @@ def delete_orphan_pds(
         # under a live cluster. A describe error that is not a clean not-found leaves
         # the disk's state UNKNOWN. In both cases refuse to delete and report the
         # disk (via `failed`) so the caller emits cleanup_errors + success=False
-        # rather than a destructive best-effort delete.
-        state, detail = _disk_reclaim_state(project, disk, disk_zone, timeout=timeout)
+        # rather than a destructive best-effort delete. Zonal disks describe/delete
+        # with --zone, regional disks with --region.
+        state, detail = _disk_reclaim_state(project, disk, scope, location, timeout=timeout)
         if state == "gone":
             # Already deleted (the CSI driver won the race) — confirmed reclaimed.
             deleted.append(disk)
             continue
         if state != "detached":
-            log(f"warning: disk {disk} in {disk_zone} not reclaimed ({state}): {detail}")
+            log(f"warning: disk {disk} in {loc_label} not reclaimed ({state}): {detail}")
             failed.append(disk)
             continue
-        if _delete_disk_with_retry(project, disk, disk_zone, timeout=timeout, retries=retries):
+        if _delete_disk_with_retry(project, disk, scope, location, timeout=timeout, retries=retries):
             deleted.append(disk)
         else:
             failed.append(disk)
     return {"deleted": deleted, "failed": failed, "unverified": unverified, "list_error": None}
 
 
-def _disk_reclaim_state(project: str, disk: str, disk_zone: str, *, timeout: int = 120) -> tuple[str, str]:
+def _loads_gcloud_json_list(out: str) -> list[Any]:
+    """Parse a ``gcloud ... --format=json`` array, tolerating leading merged-stderr chatter.
+
+    ``_run`` folds stderr into stdout, so a filter-key WARNING (e.g. "The following filter
+    keys were not present in any resource") can precede the JSON array. Try a direct parse
+    first, then fall back to parsing from the first ``[`` so a warning line never masquerades
+    as unparseable output. An empty body is an empty (successful) listing."""
+    text = out.strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("[")
+        if start == -1:
+            raise
+        parsed = json.loads(text[start:])
+    return parsed if isinstance(parsed, list) else []
+
+
+def _disk_scope_from_list_item(item: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Classify a ``gcloud compute disks list`` JSON row as zonal or regional.
+
+    A zonal disk carries a ``zone`` URL, a regional disk a ``region`` URL
+    (``.../zones/us-central1-a`` or ``.../regions/us-central1``). Returns
+    ``(scope, location_basename)`` or ``(None, None)`` when neither is present so the caller
+    surfaces an unclassifiable labeled disk instead of silently skipping it."""
+    zone_url = item.get("zone")
+    if isinstance(zone_url, str) and zone_url.strip():
+        return _DISK_SCOPE_ZONE, zone_url.rstrip("/").rsplit("/", 1)[-1]
+    region_url = item.get("region")
+    if isinstance(region_url, str) and region_url.strip():
+        return _DISK_SCOPE_REGION, region_url.rstrip("/").rsplit("/", 1)[-1]
+    return None, None
+
+
+def _disk_reclaim_state(project: str, disk: str, scope: str, location: str, *, timeout: int = 120) -> tuple[str, str]:
     """Describe one exact disk and classify whether the PD backstop may delete it.
+
+    ``scope`` selects the location flag (``zone`` -> ``--zone``, ``region`` -> ``--region``)
+    so a REGIONAL disk is described with ``--region`` instead of a ``--zone`` that GCE
+    deterministically rejects.
 
     Returns one of:
       * ``("detached", "")``          - present and NOT attached to any instance -> safe to delete.
@@ -4027,8 +4135,8 @@ def _disk_reclaim_state(project: str, disk: str, disk_zone: str, *, timeout: int
             "disks",
             "describe",
             disk,
-            "--zone",
-            disk_zone,
+            _DISK_SCOPE_FLAG[scope],
+            location,
             "--project",
             project,
             "--format=json",
@@ -4050,12 +4158,16 @@ def _disk_reclaim_state(project: str, disk: str, disk_zone: str, *, timeout: int
     return ("detached", "")
 
 
-def _delete_disk_with_retry(project: str, disk: str, disk_zone: str, *, timeout: int = 180, retries: int = 2) -> bool:
+def _delete_disk_with_retry(
+    project: str, disk: str, scope: str, location: str, *, timeout: int = 180, retries: int = 2
+) -> bool:
     """Delete one run-owned disk; retry safe transient failures. Returns True when
-    the disk is confirmed gone (deleted, or already not_found), False otherwise."""
+    the disk is confirmed gone (deleted, or already not_found), False otherwise. ``scope``
+    selects ``--zone``/``--region`` so a regional disk is deleted with the correct flag."""
+    scope_flag = _DISK_SCOPE_FLAG[scope]
     for attempt in range(retries + 1):
         rc, out = gcloud(
-            ["compute", "disks", "delete", disk, "--zone", disk_zone, "--project", project, "--quiet"],
+            ["compute", "disks", "delete", disk, scope_flag, location, "--project", project, "--quiet"],
             timeout=timeout,
             echo=False,
         )
@@ -4064,7 +4176,7 @@ def _delete_disk_with_retry(project: str, disk: str, disk_zone: str, *, timeout:
         if _is_transient_cleanup_error(out) and attempt < retries:
             time.sleep(5)
             continue
-        log(f"warning: disk {disk} in {disk_zone} not reclaimed (rc={rc}): {fold_tail(out, limit=400)}")
+        log(f"warning: disk {disk} in {scope} {location} not reclaimed (rc={rc}): {fold_tail(out, limit=400)}")
         return False
     return False
 
