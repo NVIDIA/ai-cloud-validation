@@ -31,22 +31,33 @@ Two GKE-specific teardown steps beyond the EKS oracle:
      teardown-on-failure after setup bailed early (stale/absent lock) still
      reconciles the lock and no-ops cleanly instead of aborting "Inconsistent
      dependency lock file".
-  3. BACKSTOP: after the cluster is gone, delete Compute disks in ANY zone whose
-     goog-k8s-cluster-name label == THIS run's cluster (exact ownership, never a
-     name-pattern sweep). A failed disk listing or a surviving disk is surfaced
-     as `cleanup_errors` with `success=False` — a leaked billable disk never
-     presents as a clean teardown.
+  3. BACKSTOP: after the cluster is gone, reclaim this run's leaked PVC-backed
+     Persistent Disks. A `goog-k8s-cluster-name` label match DISCOVERS surviving
+     candidate disks zone-agnostically, but a delete is AUTHORIZED only when the
+     disk is in this run's FULL-run ownership ledger — the exact disk identities
+     captured from live PVs while the cluster was up and its ownership marker was
+     verified. The truncated cluster label (8 identity chars) is NOT ownership
+     proof on its own: two runs whose RUN_IDs share the first 8 chars collide on
+     it, so a label-only delete could reap a prefix-colliding run's detached
+     orphan disk. A failed ledger/disk listing, a surviving ledger-owned disk, or
+     a cluster-labeled disk with unprovable full-run ownership is surfaced as
+     `cleanup_errors` with `success=False` — a leaked billable disk never presents
+     as a clean teardown.
   4. BACKSTOP: reclaim any GPU capacity-preflight probe MIG / instance-template
      this run left behind (setup + create_test_gpu_node_pool each probe), scoped
-     to THIS run's probe-name prefix. A probe MIG is a standalone billable size-1
-     GPU resource outside Terraform state and without the cluster label, so a
+     to THIS run's full-identity probe ledger. A probe MIG is a standalone billable
+     size-1 GPU resource outside Terraform state and without the cluster label, so a
      failed inline probe delete would otherwise leak silently; an unconfirmed
      reclaim is surfaced as `cleanup_errors` with `success=False` too. This probe
      backstop is scoped purely to the run id (independent of any cluster state), so
      it runs on EVERY non-preservation path — including when no cluster state
      exists (a setup GPU-preflight bail can leave a probe MIG without ever writing
-     cluster state) and after a failed `terraform destroy` (each backstop runs in
-     its own guarded block, so a destroy raise no longer skips the reclaim).
+     cluster state), after a failed `terraform destroy` (each backstop runs in its
+     own guarded block, so a destroy raise no longer skips the reclaim), and after
+     ANY preflight raise past the guarded blocks once the project is resolved (a
+     `terraform init`, state-classify, or ownership-describe failure jumps to the
+     outer handler, which still runs the probe backstop rather than exiting with a
+     billable probe unreclaimed).
 
 AWS reference: ../../aws/scripts/eks/teardown.sh
 """
@@ -70,8 +81,9 @@ _PLACEHOLDER_ZONE = "us-central1-a"
 
 def _pd_reclaim_errors(reclaim: dict[str, Any], cluster_name: str) -> list[str]:
     """Cleanup-error strings for any run-owned Persistent Disk that could not be
-    confirmed reclaimed (a failed listing or a surviving disk). Empty when the
-    backstop confirmed every run-owned disk is gone."""
+    confirmed reclaimed (a failed ledger/disk listing, a surviving ledger-owned
+    disk, or a cluster-labeled disk whose full-run ownership could not be proven).
+    Empty when the backstop confirmed every run-owned disk is gone."""
     errors: list[str] = []
     if reclaim["list_error"]:
         errors.append(
@@ -80,6 +92,16 @@ def _pd_reclaim_errors(reclaim: dict[str, Any], cluster_name: str) -> list[str]:
         )
     if reclaim["failed"]:
         errors.append(f"failed to delete run-owned Persistent Disk(s): {', '.join(reclaim['failed'])}")
+    if reclaim.get("unverified"):
+        # A disk carrying THIS run's truncated goog-k8s-cluster-name label whose full-run
+        # ownership could not be proven (no completed live disk-identity capture). It is
+        # never deleted from the truncated label alone, but a possibly-leaked billable disk
+        # must never present as a clean teardown, so surface it for manual review.
+        errors.append(
+            "found Persistent Disk(s) carrying this run's truncated cluster label whose full-run "
+            "ownership could NOT be verified (no completed live disk-identity capture); refusing to "
+            f"delete from the truncated label alone: {', '.join(reclaim['unverified'])}"
+        )
     return errors
 
 
@@ -107,7 +129,7 @@ def _reclaim_orphan_pds(project: str, cluster_name: str) -> tuple[dict[str, Any]
     try:
         reclaim = k8s.delete_orphan_pds(project, cluster_name)
     except BaseException as exc:  # a backstop must never crash the teardown
-        reclaim = {"deleted": [], "failed": [], "list_error": f"disk reclaim raised: {exc}"}
+        reclaim = {"deleted": [], "failed": [], "unverified": [], "list_error": f"disk reclaim raised: {exc}"}
     return reclaim, _pd_reclaim_errors(reclaim, cluster_name)
 
 
@@ -246,12 +268,15 @@ def _emit_stateless_teardown(project: str, cluster_name: str, location: str, sta
         # run-owned billable disk can survive on EITHER confirmed-gone branch — e.g. a
         # prior tracked-path teardown destroyed the cluster (state became valid-empty)
         # but its PD reclaim hit a transient list error, and this rerun classifies the
-        # cluster as confirmed-absent. Run the cluster-labeled PD backstop on both so
-        # neither branch can present a billable disk leak as a clean teardown. It is
-        # safe on the confirmed-absent branch too: delete_orphan_pds scopes strictly to
-        # THIS run's goog-k8s-cluster-name label and requires each disk be described and
-        # detached before deletion, so it never touches a foreign or in-use disk. Run
-        # the run-scoped GPU-probe backstop alongside it.
+        # cluster as confirmed-absent. Run the PD backstop on both so neither branch can
+        # present a billable disk leak as a clean teardown. It is safe on the confirmed-
+        # absent branch too: delete_orphan_pds authorizes a delete only for a disk in THIS
+        # run's full-run ownership ledger (a `goog-k8s-cluster-name` label match merely
+        # discovers candidates), and requires each disk be described and detached before
+        # deletion, so it never touches a foreign, prefix-colliding, or in-use disk — an
+        # unprovable cluster-labeled disk is surfaced, never reaped. This stateless path
+        # ran no live capture, so a genuine leak here surfaces as `unverified` rather than
+        # being deleted from the truncated label alone. Run the GPU-probe backstop alongside.
         probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
         pd_reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
         cleanup_errors = pd_errors + probe_errors
@@ -296,7 +321,15 @@ def _emit_stateless_teardown(project: str, cluster_name: str, location: str, sta
                 }
             )
     except BaseException as exc:  # always emit structured JSON, never crash without output
+        # Same preflight-isolated cleanup invariant as main(): a raise BEFORE the guarded
+        # probe reclaim above (e.g. reconcile_orphaned_cluster raising a non-LifecycleError,
+        # or building tf_vars) must still reclaim the run-id-scoped GPU probe MIG. `project`
+        # is always resolved here (a parameter), so run the probe backstop and merge any
+        # failure into cleanup_errors while keeping the original error primary.
         result = k8s.error_result(PLATFORM, exc)
+        _probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
+        if probe_errors:
+            result["cleanup_errors"] = list(result.get("cleanup_errors", [])) + probe_errors
     return k8s.emit(result)
 
 
@@ -319,6 +352,7 @@ def main() -> int:
     if args.skip_destroy:
         return _emit_preserved_teardown()
 
+    project: str | None = None
     result: dict[str, Any] = {"success": False, "platform": PLATFORM}
     try:
         project = k8s.resolve_project_id()
@@ -451,9 +485,18 @@ def main() -> int:
 
         # We own the cluster (live marker matched, or a describe flake / not-found
         # fell through).
-        # 2) Reclaim run PVCs while the cluster still lives (best-effort).
+        # 2) Reclaim run PVCs while the cluster still lives (best-effort). FIRST capture
+        #    the EXACT identities of this run's PVC-backed Persistent Disks into the
+        #    full-run ownership ledger — this is the only window a standalone disk can be
+        #    tied back to the FULL RUN_ID (the cluster is live and its ownership marker was
+        #    just verified above). The truncated goog-k8s-cluster-name label alone is NOT
+        #    ownership proof, so the PD backstop authorizes a delete only for a disk in this
+        #    ledger. Capture BEFORE deleting the PVCs so every potentially-orphaned disk is
+        #    recorded; the capture never raises (a failure records an incomplete ledger so
+        #    the backstop fails closed).
         try:
             k8s.install_kubeconfig(cluster_name, location, project)
+            k8s.record_owned_pds_from_live_pvs(cluster_name)
             k8s.reclaim_run_pvcs()
         except k8s.LifecycleError as exc:
             k8s.log(f"warning: PVC reclaim skipped (cluster may be unreachable): {exc.detail}")
@@ -504,14 +547,16 @@ def main() -> int:
                 result["cleanup_errors"] = probe_errors
             return k8s.emit(result)
 
-        # 5) Backstop: reclaim any PVC-backed PD whose CSI delete raced teardown, by
-        #    THIS run's cluster label across every zone a run-owned pool may have
-        #    selected (baseline + test GPU pool pick zones independently). Reached
-        #    ONLY after the cluster destroy is CONFIRMED (terraform_destroy returned no
-        #    error, which also covers an already not-found cluster) AND ownership was
-        #    proven above, so the cluster-labeled disks scanned here are genuinely
-        #    run-owned AND their cluster is gone. Each disk is additionally described
-        #    and required to be detached/deletable before deletion.
+        # 5) Backstop: reclaim any PVC-backed PD whose CSI delete raced teardown. A
+        #    `goog-k8s-cluster-name` label match DISCOVERS candidates across every zone a
+        #    run-owned pool may have selected (baseline + test GPU pool pick zones
+        #    independently), but deletion is AUTHORIZED only for a disk in this run's
+        #    full-run ownership ledger (captured from live PVs in step 2 above), never from
+        #    the truncated cluster label alone. Reached ONLY after the cluster destroy is
+        #    CONFIRMED (terraform_destroy returned no error, which also covers an already
+        #    not-found cluster) AND ownership was proven above, so the ledger-owned disks
+        #    scanned here are genuinely run-owned AND their cluster is gone. Each disk is
+        #    additionally described and required to be detached/deletable before deletion.
         reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
         cleanup_errors = pd_errors + probe_errors
 
@@ -546,7 +591,21 @@ def main() -> int:
                 }
             )
     except BaseException as exc:  # always emit structured JSON, never crash without output
+        # PREFLIGHT-ISOLATED CLEANUP: the GPU capacity-preflight probe backstop is
+        # scoped purely to THIS run's id and is INDEPENDENT of any cluster / Terraform state,
+        # so it MUST run on EVERY non-preservation exit once the project is resolved —
+        # including a raise BEFORE the guarded backstop blocks above ever executed (e.g.
+        # terraform_init reconciling a stale lock, classify_state, scoped_name, or the
+        # destroy-ownership describe raising). Those propagate straight here, and this handler
+        # previously exited WITHOUT reclaiming a billable probe MIG/instance-template. Keep the
+        # original failure as the PRIMARY reported error and merge any probe-reclaim failure
+        # into cleanup_errors; leave the retained-probe ledger intact (do not clear it on a
+        # failed exit) so a rerun re-attempts the reclaim while any leak remains.
         result = k8s.error_result(PLATFORM, exc)
+        if project is not None:
+            _probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
+            if probe_errors:
+                result["cleanup_errors"] = list(result.get("cleanup_errors", [])) + probe_errors
 
     return k8s.emit(result)
 

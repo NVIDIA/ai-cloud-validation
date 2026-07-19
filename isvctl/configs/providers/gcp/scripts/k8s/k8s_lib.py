@@ -3582,28 +3582,215 @@ def reclaim_run_pvcs(*, timeout: int = 240) -> None:
     time.sleep(15)
 
 
+# Full-run ownership ledger for this run's PVC-backed Persistent Disks. A GKE PD
+# carries only the pd.csi driver's `goog-k8s-cluster-name` label, whose value is the
+# 8-char-truncated run-scoped cluster NAME (two runs whose RUN_IDs share the first 8
+# chars collide on it). A truncated name is NOT ownership proof (the cluster ownership-marker
+# rule requires the FULL RUN_ID before reclaiming PVCs or disks from a present cluster), so
+# teardown records the EXACT disk identities of this run's live PVs — while
+# the cluster is up and its full ownership marker was just verified — and later authorizes
+# a disk delete ONLY when it appears in this run's own ledger. The ledger is keyed like
+# the GPU-probe marker: filename carries the full-run-identity digest and each write stamps
+# the full run identity, so a prefix-colliding run can never read or delete from it.
+_PD_LEDGER_IDENTITY_PREFIX = "# run-identity: "
+_PD_LEDGER_CAPTURE_PREFIX = "# capture-complete: "
+
+
+def _owned_pd_ledger_path() -> Path:
+    """Durable per-run file recording the EXACT identities of this run's PVC-backed
+    Persistent Disks, captured while the cluster was live and proven owned.
+
+    Keyed by the collision-resistant digest of the COMPLETE ``RUN_ID``/``LS_RUN_ID``
+    (``_run_identity_digest``), exactly like the retained-probe marker, so two runs whose
+    ids share the first 8 chars can never write to — or authorize deletions from — one
+    shared ledger. Lives beside the primary tfstate so it threads across the separate
+    setup/teardown lifecycle-step processes (git-ignored, see terraform/.gitignore)."""
+    return CLUSTER_TF_DIR / f"owned-pds-{run_scope_id()}-{_run_identity_digest()}.ledger"
+
+
+def _pd_csi_disk_identity(pv_item: dict[str, Any]) -> tuple[str, str] | None:
+    """Return ``(disk_name, location)`` for a pd.csi.storage.gke.io PV, else None.
+
+    The GKE PD CSI ``volumeHandle`` is ``projects/<p>/zones/<zone>/disks/<name>`` (zonal)
+    or ``projects/<p>/regions/<region>/disks/<name>`` (regional); the backing Compute
+    Engine disk NAME is the exact identity teardown reclaims. Non-pd.csi PVs (hostPath,
+    other drivers) and malformed handles yield None so only reclaimable disks are ledgered.
+    """
+    spec = (pv_item or {}).get("spec", {}) or {}
+    csi = spec.get("csi", {}) or {}
+    if csi.get("driver") != _GKE_PD_CSI_PROVISIONER:
+        return None
+    handle = csi.get("volumeHandle", "") or ""
+    match = re.search(r"/(?:zones|regions)/([^/]+)/disks/([^/]+)$", handle)
+    if not match:
+        return None
+    return match.group(2), match.group(1)
+
+
+def _write_owned_pd_ledger(path: Path, *, capture_complete: bool, entries: list[tuple[str, str]]) -> None:
+    """Atomically (re)write the owned-PD ledger (temp file, flush/fsync, atomic replace)
+    so an interrupted write can never strand a truncated/empty ledger. Stamps the CURRENT
+    run's full identity and whether the live-PV capture completed."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        lines = [
+            f"{_PD_LEDGER_IDENTITY_PREFIX}{full_run_scope_id()}",
+            f"{_PD_LEDGER_CAPTURE_PREFIX}{'true' if capture_complete else 'false'}",
+            *[f"{name} {location}" for name, location in entries],
+        ]
+        with tmp.open("w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _read_owned_pd_ledger(path: Path) -> tuple[bool, list[tuple[str, str]]]:
+    """Return ``(capture_complete, [(disk_name, location), ...])`` for THIS run.
+
+    Returns ``(False, [])`` ONLY when the ledger is DEFINITIVELY absent (never written —
+    e.g. the cluster was unreachable so no live capture ran). Any OTHER read error is
+    RE-RAISED (only ``FileNotFoundError`` is swallowed) so a transiently-unreadable EXISTING
+    ledger fails closed at the caller (a ``list_error``) instead of masquerading as "no owned
+    disks". FAIL CLOSED on a FOREIGN ledger: a full-run identity stamp that is not this run's
+    (a filename-digest collision or a stale cross-run file) is NOT our capture, so report
+    ``capture_complete=False`` and no owned names — the backstop then treats every surviving
+    cluster-labeled disk as unverifiable rather than trusting a foreign run's list."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False, []
+    identity: str | None = None
+    capture_complete = False
+    entries: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(_PD_LEDGER_IDENTITY_PREFIX):
+            identity = stripped[len(_PD_LEDGER_IDENTITY_PREFIX) :].strip()
+            continue
+        if stripped.startswith(_PD_LEDGER_CAPTURE_PREFIX):
+            capture_complete = stripped[len(_PD_LEDGER_CAPTURE_PREFIX) :].strip().lower() == "true"
+            continue
+        parts = stripped.split()
+        entries.append((parts[0], parts[1] if len(parts) > 1 else ""))
+    if identity is not None and identity != full_run_scope_id():
+        return False, []
+    return capture_complete, entries
+
+
+def record_owned_pds_from_live_pvs(cluster_name: str, *, timeout: int = 60) -> None:
+    """Capture the EXACT identities of this run's PVC-backed Persistent Disks into the
+    full-run ownership ledger, while the cluster is LIVE and its ownership marker was just
+    verified — the only window a standalone disk can be tied back to the full RUN_ID.
+
+    Best-effort and NEVER raises (teardown must proceed): on any failure it records a
+    ``capture_complete=false`` ledger so the teardown backstop FAILS CLOSED — surfacing any
+    surviving cluster-labeled disk it cannot prove is ours rather than deleting from the
+    truncated label alone OR silently passing a possibly-leaked billable disk (a leaked
+    billable disk must never present as a clean teardown). A
+    successful enumeration records ``capture_complete=true`` with every pd.csi disk identity,
+    so the backstop can then distinguish a disk that is genuinely a prefix-colliding OTHER
+    run's (a label match outside a COMPLETE capture) from one whose ownership is merely
+    unproven."""
+    try:
+        rc, out = kubectl(["get", "pv", "-o", "json"], timeout=timeout, echo=False)
+    except BaseException as exc:  # capture is a best-effort backstop input, never fatal
+        rc, out = 1, f"kubectl get pv raised: {exc}"
+    if rc != 0:
+        log(
+            "warning: could not enumerate live PVs to capture run-owned Persistent Disk "
+            f"identities (rc={rc}); teardown will fail closed on any surviving cluster-labeled "
+            f"disk it cannot prove is ours: {fold_tail(out, limit=400)}"
+        )
+        _try_write_owned_pd_ledger(capture_complete=False, entries=[])
+        return
+    try:
+        payload = json.loads(out) if out.strip() else {}
+    except json.JSONDecodeError as exc:
+        log(
+            "warning: live PV inventory returned unparseable JSON while capturing run-owned "
+            f"Persistent Disk identities ({exc}); teardown will fail closed on unverifiable disks"
+        )
+        _try_write_owned_pd_ledger(capture_complete=False, entries=[])
+        return
+    entries: list[tuple[str, str]] = []
+    for item in payload.get("items", []) or []:
+        identity = _pd_csi_disk_identity(item if isinstance(item, dict) else {})
+        if identity is not None:
+            entries.append(identity)
+    _try_write_owned_pd_ledger(capture_complete=True, entries=entries)
+    log(
+        f"recorded {len(entries)} run-owned PVC-backed Persistent Disk identit(ies) for cluster "
+        f"{cluster_name} into the full-run ownership ledger"
+    )
+
+
+def _try_write_owned_pd_ledger(*, capture_complete: bool, entries: list[tuple[str, str]]) -> None:
+    """Persist the owned-PD ledger, swallowing local write errors (best-effort). A missing
+    ledger reads back as ``capture_complete=False``, so a lost write still fails the backstop
+    closed rather than authorizing a label-only delete."""
+    try:
+        _write_owned_pd_ledger(_owned_pd_ledger_path(), capture_complete=capture_complete, entries=entries)
+    except (OSError, LifecycleError) as exc:
+        log(
+            f"warning: could not persist the run-owned Persistent Disk ownership ledger ({exc}); "
+            "teardown will fail closed on any surviving cluster-labeled disk"
+        )
+
+
 def delete_orphan_pds(project: str, cluster_name: str, *, timeout: int = 180, retries: int = 2) -> dict[str, Any]:
-    """Backstop: delete Compute Engine disks in ANY zone whose
-    goog-k8s-cluster-name label == THIS run's cluster_name (exact-ownership by
-    the run's own cluster label — never a broad name-pattern sweep). The scan is
-    zone-agnostic on purpose: the baseline pool and the test GPU pool each run
-    their own zone-capacity selection, so run-owned PVC-backed disks can land in
-    different zones; scoping to a single zone would miss a raced PD in the other
-    pool's zone. Each discovered disk is deleted in its own reported zone.
+    """Backstop: reclaim this run's leaked PVC-backed Persistent Disks, authorizing a
+    delete ONLY when full-run ownership is PROVEN — never from the truncated
+    goog-k8s-cluster-name label alone.
+
+    The disk carries only the pd.csi driver's ``goog-k8s-cluster-name`` label, whose value
+    is the 8-char-truncated run-scoped cluster NAME; two runs whose RUN_IDs share the first
+    8 chars collide on it, so name equality is NOT ownership proof (the cluster ownership-marker
+    rule requires the FULL RUN_ID before reclaiming PVCs or disks from a cluster). This
+    backstop therefore combines two signals:
+
+      * DISCOVERY — a zone-agnostic ``goog-k8s-cluster-name`` label list finds every
+        SURVIVING candidate disk. The scan stays zone-agnostic because the baseline pool
+        and the test GPU pool select zones independently, so a raced PD can land in either.
+      * AUTHORIZATION — the run's own full-identity ledger
+        (``record_owned_pds_from_live_pvs``, captured while the cluster was live and its
+        ownership marker verified). A candidate is deleted ONLY if it appears in that
+        ledger, so a prefix-colliding OTHER run's detached orphan disk is NEVER deleted.
 
     Returns a structured reclaim result::
 
-        {"deleted": [names], "failed": [names], "list_error": str | None}
+        {"deleted": [names], "failed": [names], "unverified": [names], "list_error": str | None}
 
-    ``list_error`` (with empty deleted/failed) means the disk LISTING itself
-    failed, so run-owned disks could NOT be confirmed reclaimed — never conflated
-    with an empty successful listing. ``failed`` non-empty means specific disks
-    survived even after retrying safe transient failures. The caller emits
-    ``cleanup_errors`` + ``success=False`` whenever either is set, so a leaked
-    billable disk can never present as a clean teardown.
+    ``list_error`` (with empty lists) means the ledger or the disk LISTING itself could not
+    be read, so run-owned disks could NOT be confirmed reclaimed — never conflated with an
+    empty successful listing. ``failed`` are ledger-owned disks that survived even after
+    retrying safe transient failures. ``unverified`` are cluster-labeled disks whose full-run
+    ownership could not be PROVEN (a label match with NO completed live capture to authorize
+    it): they are never deleted from the label alone, but they are surfaced so a possibly
+    leaked billable disk never presents as a clean teardown. The caller emits
+    ``cleanup_errors`` + ``success=False`` whenever any of the three is set.
     """
     if not cluster_name:
-        return {"deleted": [], "failed": [], "list_error": None}
+        return {"deleted": [], "failed": [], "unverified": [], "list_error": None}
+    # Load this run's full-identity ownership ledger FIRST. An EXISTING-but-unreadable
+    # ledger fails closed (list_error) — never read as "no owned disks". A DEFINITIVELY
+    # absent ledger (no live capture ran) yields capture_complete=False + no owned names,
+    # so every surviving cluster-labeled disk below is treated as unverifiable rather than
+    # deleted from the truncated label alone.
+    try:
+        capture_complete, owned_entries = _read_owned_pd_ledger(_owned_pd_ledger_path())
+    except OSError as exc:
+        return {
+            "deleted": [],
+            "failed": [],
+            "unverified": [],
+            "list_error": f"run-owned Persistent Disk ownership ledger unreadable: {exc}",
+        }
+    owned_names = {name for name, _location in owned_entries}
     rc, out = gcloud(
         [
             "compute",
@@ -3621,10 +3808,11 @@ def delete_orphan_pds(project: str, cluster_name: str, *, timeout: int = 180, re
     if rc != 0:
         # Listing FAILED — distinct from an empty successful listing. We cannot
         # confirm no run-owned disks remain, so the caller must not report clean.
-        return {"deleted": [], "failed": [], "list_error": fold_tail(out, limit=600)}
+        return {"deleted": [], "failed": [], "unverified": [], "list_error": fold_tail(out, limit=600)}
 
     deleted: list[str] = []
     failed: list[str] = []
+    unverified: list[str] = []
     for line in out.splitlines():
         parts = line.split()
         if len(parts) < 2:
@@ -3639,6 +3827,31 @@ def delete_orphan_pds(project: str, cluster_name: str, *, timeout: int = 180, re
         # teardown. A real disk row always carries a valid zone basename in the
         # second column, so gate on that shape and drop any non-disk chatter.
         if not disk or not _ZONE_RE.match(disk_zone):
+            continue
+        if disk not in owned_names:
+            # The disk carries this run's TRUNCATED cluster label but is NOT in this run's
+            # full-identity ownership ledger, so the 8-char cluster name is the only thing
+            # tying it to us — insufficient proof. NEVER delete it.
+            if capture_complete:
+                # The ledger is a COMPLETE snapshot of this run's live PVC-backed disks, so
+                # a label match outside it belongs to a DIFFERENT run whose RUN_ID shares
+                # this run's 8-char scope. Leave the prefix-colliding run's disk untouched;
+                # it is not a leak of ours to reclaim OR to report.
+                log(
+                    f"info: disk {disk} in {disk_zone} carries this run's truncated cluster "
+                    "label but is absent from the full-run ownership ledger; leaving a "
+                    "prefix-colliding run's disk untouched"
+                )
+            else:
+                # No completed live capture, so ownership is INDETERMINATE. Fail closed:
+                # surface it (never delete from the label alone, never silently pass a
+                # possibly-leaked billable disk — a leak must never present as clean).
+                log(
+                    f"warning: disk {disk} in {disk_zone} carries this run's truncated cluster "
+                    "label but its full-run ownership could not be verified (no live capture); "
+                    "refusing to delete from the label alone and surfacing it"
+                )
+                unverified.append(disk)
             continue
         # Describe the EXACT disk and confirm a deletable/detached live state BEFORE
         # deleting it. The backstop reclaims PVC-backed disks the CSI driver leaked
@@ -3663,7 +3876,7 @@ def delete_orphan_pds(project: str, cluster_name: str, *, timeout: int = 180, re
             deleted.append(disk)
         else:
             failed.append(disk)
-    return {"deleted": deleted, "failed": failed, "list_error": None}
+    return {"deleted": deleted, "failed": failed, "unverified": unverified, "list_error": None}
 
 
 def _disk_reclaim_state(project: str, disk: str, disk_zone: str, *, timeout: int = 120) -> tuple[str, str]:
