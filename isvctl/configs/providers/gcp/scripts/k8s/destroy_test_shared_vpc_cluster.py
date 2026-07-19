@@ -45,7 +45,6 @@ import k8s_lib as k8s
 
 PLATFORM = "kubernetes"
 _DESTROY_TIMEOUT = 1500
-_PLACEHOLDER_LOCATION = "us-central1"
 
 
 def main() -> int:
@@ -94,16 +93,39 @@ def main() -> int:
 
         # Re-derive the required vars from the SECONDARY's OWN persisted state so
         # the var-less destroy never depends on the primary state (best-effort
-        # teardown may already have destroyed it). location has no default, so it
-        # must be present; network/subnetwork are the destroy-time fallbacks for
-        # the module's try(primary_state, var) wiring.
+        # teardown may already have destroyed it). network/subnetwork are the
+        # destroy-time fallbacks for the module's try(primary_state, var) wiring, so
+        # an empty fallback for THEM is harmless (they never gate ownership).
         def _own(name: str, fallback: str = "") -> str:
             try:
                 return k8s.terraform_output_raw(k8s.SHARED_VPC_TF_DIR, state_file, name)
             except k8s.LifecycleError:
                 return fallback
 
-        secondary_location = _own("location", _PLACEHOLDER_LOCATION)
+        # location has NO placeholder fallback — it is REQUIRED to describe the LIVE
+        # secondary and prove ownership before destroy. A wrong (placeholder) location
+        # would describe a DIFFERENT resource and read a false not_found, authorizing
+        # destruction of a cluster whose ownership was never proven. If it is
+        # unreadable, fail CLOSED with a visible structured failure.
+        try:
+            secondary_location = k8s.terraform_output_raw(k8s.SHARED_VPC_TF_DIR, state_file, "location")
+        except k8s.LifecycleError as exc:
+            k8s.log(f"warning: refusing secondary cluster destroy — location unreadable from state: {exc.detail}")
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_unprovable",
+                    "error": (
+                        f"[bucket=ownership_unprovable] refusing to destroy secondary cluster "
+                        f"{secondary_name}: its create-time location is unreadable from state "
+                        f"({exc.detail}), so run ownership cannot be verified. The cluster was left "
+                        "untouched; a rerun with readable state recovers."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+            return k8s.emit(result)
+
         tf_vars = {
             "project": project,
             "cluster_name": secondary_name,
@@ -112,13 +134,13 @@ def main() -> int:
             "network": _own("network"),
             "subnetwork": _own("subnetwork"),
         }
-        # Fail-closed backstop against a state entry that now resolves to a
+        # Fail-closed gate against a state entry that now resolves to a
         # deleted-and-replaced same-name FOREIGN secondary: re-verify the LIVE
-        # ownership marker before destroy and REFUSE on a definitive non-ownership
-        # signal (present-but-different-run, or absent). A not-found or transiently
-        # unreadable marker falls through so a describe flake never leaks our own. A
-        # definitive non-ownership signal is surfaced as a VISIBLE failure —
-        # preserving a foreign same-name secondary must never present as a clean skip.
+        # ownership marker before destroy and REFUSE unless ownership is positively
+        # proven (marker matches this run, or a clean not_found). A
+        # present-but-different-run marker, an absent marker, OR an UNREADABLE marker
+        # all fail closed as a VISIBLE failure — preserving a foreign or
+        # ownership-unprovable same-name secondary must never present as a clean skip.
         destroy_ok, ownership_reason = k8s.destroy_ownership_ok(secondary_name, secondary_location, project)
         if not destroy_ok:
             k8s.log(f"warning: refusing secondary cluster destroy — {ownership_reason}")

@@ -97,19 +97,56 @@ def main() -> int:
 
         k8s.terraform_init(k8s.NODE_POOL_TF_DIR)
 
-        # Recover the cluster wiring this pool PERSISTED in its own state at create
-        # so the var-less destroy resolves without the primary state's outputs
-        # (best-effort teardown may already have destroyed the primary before this
-        # retry). The pool is targeted by its own state resource id, so an empty
-        # fallback is harmless — the value only needs to be present, never live.
+        # Recover the parent cluster wiring this pool PERSISTED in its OWN state at
+        # create (never the primary's), so the parent-ownership gate below can
+        # re-verify the LIVE marker before the state-targeted destroy. These outputs
+        # are stamped into this pool's own state at create, so a read failure here
+        # means the pool's provenance is UNREADABLE — we cannot prove the parent
+        # cluster belongs to this run, and must fail CLOSED rather than destroy a pool
+        # on a possibly-foreign cluster. An empty fallback would silently SKIP the
+        # ownership gate and still destroy, so it is never used.
         try:
             cluster_name = k8s.terraform_output_raw(k8s.NODE_POOL_TF_DIR, state_file, "cluster_name")
-        except k8s.LifecycleError:
-            cluster_name = ""
-        try:
             cluster_location = k8s.terraform_output_raw(k8s.NODE_POOL_TF_DIR, state_file, "cluster_location")
-        except k8s.LifecycleError:
-            cluster_location = ""
+        except k8s.LifecycleError as exc:
+            k8s.log(f"warning: refusing node pool destroy — parent identity unreadable from state: {exc.detail}")
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_unprovable",
+                    "error": (
+                        f"[bucket=ownership_unprovable] refusing to destroy node pool {pool_name}: its "
+                        f"parent cluster identity/location is unreadable from state ({exc.detail}), so "
+                        "parent ownership cannot be verified. The pool was left untouched; a rerun with "
+                        "readable state recovers."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+            return k8s.emit(result)
+
+        # Fail-closed parent-ownership gate before the state-targeted destroy: verify
+        # the PARENT cluster's LIVE ownership marker and REFUSE the pool destroy unless
+        # ownership is positively proven (marker matches this run, or the parent is a
+        # clean not_found). A present-but-different-run marker, an absent marker, OR an
+        # UNREADABLE marker all fail closed as a VISIBLE failure so a pool on a
+        # deleted-and-replaced same-name FOREIGN cluster — or a pool whose parent
+        # ownership cannot be read — is never destroyed.
+        destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, cluster_location, project)
+        if not destroy_ok:
+            k8s.log(f"warning: refusing node pool destroy — parent cluster {ownership_reason}")
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_conflict",
+                    "error": (
+                        f"[bucket=ownership_conflict] refusing to destroy node pool {pool_name}: "
+                        f"its parent cluster {ownership_reason}. The pool was left untouched."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+            return k8s.emit(result)
 
         tf_vars = {
             "project": project,
@@ -119,31 +156,6 @@ def main() -> int:
             "cluster_location": cluster_location,
             "machine_type": _PLACEHOLDER_MACHINE_TYPE,
         }
-        # Fail-closed backstop before destroying a state-targeted node pool: when the
-        # parent cluster wiring is recoverable, re-verify the PARENT cluster's live
-        # ownership marker and REFUSE the pool destroy on a definitive non-ownership
-        # signal (present-but-different-run, or absent) so a pool on a
-        # deleted-and-replaced same-name FOREIGN cluster is never destroyed. An
-        # unrecoverable parent (primary state already gone) or a transiently-unreadable
-        # marker falls through to the existing state-targeted destroy. A definitive
-        # non-ownership signal is surfaced as a VISIBLE failure — preserving a pool
-        # under a foreign cluster must never present as a clean skip.
-        if cluster_name and cluster_location:
-            destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, cluster_location, project)
-            if not destroy_ok:
-                k8s.log(f"warning: refusing node pool destroy — parent cluster {ownership_reason}")
-                result.update(
-                    {
-                        "success": False,
-                        "error_type": "ownership_conflict",
-                        "error": (
-                            f"[bucket=ownership_conflict] refusing to destroy node pool {pool_name}: "
-                            f"its parent cluster {ownership_reason}. The pool was left untouched."
-                        ),
-                        "resources_deleted": [],
-                    }
-                )
-                return k8s.emit(result)
         k8s.terraform_destroy(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
 
         result.update(

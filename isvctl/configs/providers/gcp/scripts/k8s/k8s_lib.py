@@ -1462,17 +1462,30 @@ def destroy_ownership_ok(cluster_name: str, location: str, project: str) -> tupl
 
     A destroy is state-targeted, so a state entry that now resolves to a colliding
     same-name FOREIGN cluster (the original was deleted and replaced out of band)
-    could otherwise destroy a resource this run does not own. Fail CLOSED on a
-    definitive non-ownership signal — a marker that is present-but-a-different-run,
-    OR entirely absent (a genuinely run-owned cluster is stamped at Terraform
-    creation, so a missing marker means the live resource is not ours). A cluster
-    that is already gone (not_found) or whose marker is transiently UNREADABLE falls
-    through to the existing state-targeted destroy, so a describe flake never leaks
-    this run's OWN cluster."""
+    could otherwise destroy a resource this run does not own. Fail CLOSED unless
+    ownership is POSITIVELY proven — permit the destroy ONLY when:
+    * the live ownership marker equals this run's identity (we own it), OR
+    * the cluster is a clean, positively classified ``not_found`` (already gone, so
+      the state-targeted destroy is an idempotent no-op reconcile).
+    EVERY other outcome leaves ownership unproven and returns ``ok=False``:
+    * a marker present-but-a-different-run (a replaced same-name FOREIGN cluster),
+    * a marker entirely absent on a live cluster (a genuinely run-owned cluster is
+      stamped at Terraform creation, so a missing marker means the live resource is
+      not ours), AND
+    * a marker that is UNREADABLE — an authentication, permission, transport, or
+      malformed-response describe failure. An unreadable marker MUST NOT authorize
+      destruction: it cannot prove the same-name cluster belongs to this run, so
+      treating a describe flake as "proceed" could destroy a foreign cluster. The
+      caller surfaces this as a visible structured failure; a later rerun, once the
+      marker is readable again, recovers and destroys the genuinely-owned cluster."""
     try:
         labels = _read_cluster_labels(cluster_name, location, project)
     except LifecycleError as exc:
-        return True, f"ownership marker unreadable ({exc.detail}); proceeding with state-targeted destroy"
+        return False, (
+            f"ownership marker for cluster {cluster_name} is unreadable ({exc.detail}); "
+            "refusing to destroy a state-targeted cluster whose run ownership cannot be "
+            "proven (an unreadable marker is never treated as owned)"
+        )
     if labels is None:
         return True, "live cluster already absent; state-targeted destroy is a no-op reconcile"
     expected = full_run_scope_id()

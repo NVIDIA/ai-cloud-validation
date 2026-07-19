@@ -241,12 +241,40 @@ def main() -> int:
                 )
             return k8s.emit(result)
 
-        # Recover the create-time location + GPU zone from state for the destroy
-        # vars and the PD backstop.
+        # Recover the create-time location from state — REQUIRED to describe the LIVE
+        # cluster and prove ownership before ANY destroy. It must NOT fall back to a
+        # placeholder: a wrong location would describe a DIFFERENT resource and read a
+        # false not_found, which would then authorize destroying a state-targeted
+        # cluster whose ownership was never proven. If it is unreadable, fail CLOSED —
+        # refuse the destroy as a visible structured failure and reclaim only the
+        # run-id-scoped GPU probe, whose ownership does not depend on the cluster.
         try:
             location = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, state_file, "location")
-        except k8s.LifecycleError:
-            location = _PLACEHOLDER_ZONE
+        except k8s.LifecycleError as exc:
+            k8s.log(f"warning: skipping cluster destroy — create-time location unreadable: {exc.detail}")
+            _probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
+            cleanup_errors = [
+                f"refused to destroy cluster {cluster_name}: create-time location is unreadable from "
+                f"state ({exc.detail}); run ownership cannot be verified"
+            ] + probe_errors
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_unprovable",
+                    "error": (
+                        "[bucket=ownership_unprovable] refusing to destroy a cluster whose create-time "
+                        f"location is unreadable from state ({exc.detail}); run ownership cannot be "
+                        "proven. The cluster and its PVC-backed disks were left untouched; only "
+                        "run-id-scoped GPU-probe reclaim ran."
+                    ),
+                    "resources_deleted": [],
+                    "cleanup_errors": cleanup_errors,
+                }
+            )
+            return k8s.emit(result)
+        # gpu_zone feeds only the delete-irrelevant gpu_node_locations tf var (the
+        # destroy is state-targeted), so a placeholder fallback here never gates
+        # ownership and is harmless.
         try:
             gpu_zone = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, state_file, "gpu_zone")
         except k8s.LifecycleError:
@@ -259,20 +287,24 @@ def main() -> int:
         #    marker before importing). As a fail-closed backstop against a state
         #    entry that now resolves to a deleted-and-replaced same-name FOREIGN
         #    cluster, re-verify the LIVE ownership marker up front. destroy_ownership_ok
-        #    falls through (ok=True) on a not-found (idempotent no-op reconcile) or a
-        #    transiently-unreadable marker so a describe flake never leaks our OWN
-        #    cluster; it returns ok=False only on a DEFINITIVE non-ownership signal
-        #    (marker present-but-a-different-run, or absent on a live cluster).
+        #    returns ok=True ONLY on positively proven ownership — a live marker that
+        #    matches this run, or a clean not_found (an idempotent no-op reconcile).
+        #    It returns ok=False on EVERY unproven outcome: a marker
+        #    present-but-a-different-run, a marker absent on a live cluster, OR a
+        #    marker that is UNREADABLE (auth / permission / transport / malformed
+        #    describe). A describe flake therefore NEVER authorizes destroying a
+        #    same-name cluster we cannot prove we own — teardown fails visibly and a
+        #    rerun with a readable marker recovers.
         destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, location, project)
 
         if not destroy_ok:
-            # Definitive non-ownership: our state points at a foreign/replaced
-            # same-name cluster. NEVER touch its PVCs, its cluster, or its
-            # cluster-labeled disks (those now belong to the replacement). Reclaim
-            # ONLY the run-id-scoped GPU capacity-preflight probe — it is scoped
-            # purely to THIS run's id, independent of any cluster — and surface the
-            # ownership anomaly as a VISIBLE failure. A foreign-cluster preserve must
-            # never present as a clean "destroyed".
+            # Ownership not proven: our state may point at a foreign/replaced same-name
+            # cluster, or the ownership marker is unreadable. Either way NEVER touch
+            # its PVCs, its cluster, or its cluster-labeled disks (those may belong to
+            # a replacement). Reclaim ONLY the run-id-scoped GPU capacity-preflight
+            # probe — it is scoped purely to THIS run's id, independent of any cluster
+            # — and surface the ownership anomaly as a VISIBLE failure. An unproven or
+            # foreign-cluster preserve must never present as a clean "destroyed".
             k8s.log(f"warning: skipping cluster destroy — {ownership_reason}")
             _probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
             cleanup_errors = [f"refused to destroy cluster {cluster_name}: {ownership_reason}"] + probe_errors
