@@ -239,14 +239,21 @@ def _emit_stateless_teardown(project: str, cluster_name: str, location: str, sta
             )
             return k8s.emit(result)
 
-        # Cluster reconciled (confirmed-absent, or a run-owned leak destroyed). Run the
-        # run-scoped GPU-probe backstop; only when a leaked cluster was actually
-        # reclaimed (so it is confirmed gone) also reclaim its cluster-labeled PDs.
+        # Cluster reconciled. BOTH outcomes mean the exact deterministic cluster is
+        # CONFIRMED gone: "reclaimed" (a run-owned leak was imported, destroyed, and
+        # waited to absence) or "absent" (already confirmed not-found live). A GKE
+        # cluster delete does NOT reclaim its PVC-backed Persistent Disks, so a
+        # run-owned billable disk can survive on EITHER confirmed-gone branch — e.g. a
+        # prior tracked-path teardown destroyed the cluster (state became valid-empty)
+        # but its PD reclaim hit a transient list error, and this rerun classifies the
+        # cluster as confirmed-absent. Run the cluster-labeled PD backstop on both so
+        # neither branch can present a billable disk leak as a clean teardown. It is
+        # safe on the confirmed-absent branch too: delete_orphan_pds scopes strictly to
+        # THIS run's goog-k8s-cluster-name label and requires each disk be described and
+        # detached before deletion, so it never touches a foreign or in-use disk. Run
+        # the run-scoped GPU-probe backstop alongside it.
         probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
-        pd_reclaim: dict[str, Any] = {"deleted": []}
-        pd_errors: list[str] = []
-        if cluster_outcome == "reclaimed":
-            pd_reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
+        pd_reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
         cleanup_errors = pd_errors + probe_errors
 
         if cleanup_errors:
@@ -276,8 +283,9 @@ def _emit_stateless_teardown(project: str, cluster_name: str, location: str, sta
             else:
                 message = (
                     f"Cluster state {state_file} absent/valid-empty and cluster {cluster_name} "
-                    "confirmed absent live - nothing to destroy; "
-                    f"{len(probe_reclaim['deleted'])} orphaned GPU-preflight probe resource(s) reclaimed."
+                    "confirmed absent live - no cluster to destroy; "
+                    f"{len(pd_reclaim['deleted'])} orphaned PD(s) and "
+                    f"{len(probe_reclaim['deleted'])} GPU-preflight probe resource(s) reclaimed."
                 )
                 resources_deleted = []
             result.update(
