@@ -675,7 +675,9 @@ def gcloud(args: list[str], *, timeout: int = 180, echo: bool = True) -> tuple[i
     return _run(["gcloud", *args], timeout=timeout, echo=echo)
 
 
-def kubectl(args: list[str], *, kubeconfig: Path | None = None, timeout: int = 120, echo: bool = True) -> tuple[int, str]:
+def kubectl(
+    args: list[str], *, kubeconfig: Path | None = None, timeout: int = 120, echo: bool = True
+) -> tuple[int, str]:
     """Run kubectl. When ``kubeconfig`` is given, target that EXACT file explicitly
     (``--kubeconfig``) instead of the shared ambient ~/.kube/config — the only safe way to
     run a destructive or ownership-critical op while a CONCURRENT run may be flipping the
@@ -1002,6 +1004,88 @@ _GKE_EFFECT_TO_K8S = {
 }
 
 
+def _parse_instance_group_url(url: str) -> tuple[str, str]:
+    """Return ``(zone, manager_name)`` parsed from a GKE node-pool ``instanceGroupUrls``
+    entry, or ``("", "")`` when it is not a zonal managed-instance-group URL.
+
+    GKE backs each node-pool zone with one zonal managed instance group, e.g.
+    ``.../projects/<p>/zones/<zone>/instanceGroupManagers/<name>`` (the describe output
+    also uses the ``instanceGroups`` spelling for the same zonal resource)."""
+    segments = urlsplit(url).path.split("/")
+    zone = ""
+    name = ""
+    for idx, seg in enumerate(segments):
+        if seg == "zones" and idx + 1 < len(segments):
+            zone = segments[idx + 1]
+        elif seg in ("instanceGroupManagers", "instanceGroups") and idx + 1 < len(segments):
+            name = segments[idx + 1]
+    return zone, name
+
+
+def node_pool_current_desired_size(pool: dict[str, Any], project: str, *, timeout: int = 60) -> int:
+    """Current DESIRED node count of a live GKE node pool, summed from its backing
+    managed-instance-group ``targetSize``.
+
+    The Container API's ``initialNodeCount`` is the CREATION-time count and is NOT
+    updated by a later resize — a resize goes through ``SetNodePoolSize`` and lands on
+    the backing MIG's ``targetSize`` — so a pool created at one node and later resized
+    still reports ``initialNodeCount=1``. The MIG ``targetSize`` is the authoritative
+    current per-zone desired size. The test pool is pinned single-zone (the caller
+    enforces exact node_locations equality), so there is one backing MIG; still SUM
+    across every ``instanceGroupUrls`` entry so a drifted multi-zone pool reports its
+    true larger size and fails the caller's single-zone count equality rather than
+    matching on one zone alone. RAISES on a missing / unreadable / non-integer MIG
+    target size so an adopted pool is never verified against an assumed current size."""
+    urls = [u for u in (pool.get("instanceGroupUrls") or []) if isinstance(u, str) and u.strip()]
+    if not urls:
+        raise LifecycleError(
+            "unknown_error",
+            "[bucket=unknown_error] adopted node pool exposes no instanceGroupUrls, so its "
+            "current desired size cannot be read from live managed-instance-group target sizes.",
+        )
+    total = 0
+    for url in urls:
+        zone, manager = _parse_instance_group_url(url)
+        if not zone or not manager:
+            raise LifecycleError(
+                "unknown_error",
+                f"[bucket=unknown_error] adopted node pool instance-group URL is not a zonal "
+                f"managed-instance-group URL ({url!r}); cannot read its current desired size.",
+            )
+        rc, out = gcloud(
+            [
+                "compute",
+                "instance-groups",
+                "managed",
+                "describe",
+                manager,
+                "--zone",
+                zone,
+                "--project",
+                project,
+                "--format=value(targetSize)",
+            ],
+            timeout=timeout,
+            echo=False,
+        )
+        if rc != 0:
+            bucket = _classify_cli_output(out)
+            raise LifecycleError(
+                bucket,
+                f"[bucket={bucket}] could not read managed instance group {manager} in {zone} "
+                f"target size to verify the adopted pool's current desired node count: {fold_tail(out)}",
+            )
+        try:
+            total += int((out or "").strip())
+        except (TypeError, ValueError) as exc:
+            raise LifecycleError(
+                "unknown_error",
+                f"[bucket=unknown_error] managed instance group {manager} in {zone} returned a "
+                f"non-integer target size {out!r}; cannot verify the adopted pool's current size.",
+            ) from exc
+    return total
+
+
 def verify_adopted_node_pool_shape(
     cluster_name: str,
     pool_name: str,
@@ -1111,23 +1195,27 @@ def verify_adopted_node_pool_shape(
                 "Refusing to emit a pool shape the live pool does not actually enforce.",
             )
 
-    # Requested per-zone node count (GKE reports it as initialNodeCount). The test
-    # pool is single-zone (node_locations pinned) and never autoscaled, so the live
-    # value equals the contract input on a genuine same-run adopt; a preserved
-    # same-name pool of a different size must NOT be emitted with its own live count
-    # as the expected_replicas the released count check then trivially satisfies.
+    # Requested per-zone node count. GKE reports the CREATION-time count as
+    # initialNodeCount, which a later resize does NOT update (a resize lands on the
+    # backing MIG targetSize via SetNodePoolSize), so trusting initialNodeCount would
+    # let a pool created-at-1, resized-to-2, then adopt-requesting-1 satisfy this gate
+    # on stale creation-time data. Read the CURRENT desired size from the live
+    # managed-instance-group target sizes instead. The test pool is single-zone
+    # (node_locations pinned) and never autoscaled, so the current per-zone target
+    # equals the contract input on a genuine same-run adopt; a preserved same-name pool
+    # of a different current size fails closed here rather than seeding its own
+    # expected_replicas. An unreadable MIG target size RAISES (never assumed).
     if expected_node_count is not None:
-        try:
-            observed_count = int(pool.get("initialNodeCount", 0) or 0)
-        except (TypeError, ValueError):
-            observed_count = -1
+        observed_count = node_pool_current_desired_size(pool, project)
         if observed_count != int(expected_node_count):
             raise LifecycleError(
                 "config_error",
                 f"[bucket=config_error] adopted node pool {pool_name} node-count mismatch: "
-                f"expected {int(expected_node_count)} but the live pool runs {observed_count}. "
-                "Refusing to emit a fabricated replica count for a preserved pool that does not "
-                "match the contract input (the live count must not seed its own expectation).",
+                f"expected {int(expected_node_count)} but the live pool's current desired size is "
+                f"{observed_count} (read from managed-instance-group target sizes, not the "
+                "creation-time initialNodeCount). Refusing to emit a fabricated replica count for a "
+                "preserved pool that does not match the contract input (the live count must not seed "
+                "its own expectation).",
             )
 
     # Requested zone placement. Every caller pins the test pool to a SINGLE zone
@@ -1711,46 +1799,65 @@ def ensure_cluster_ownership_label(
         )
 
 
-def destroy_ownership_ok(cluster_name: str, location: str, project: str) -> tuple[bool, str]:
-    """Gate a state-targeted cluster DESTROY on live ownership; returns (ok, reason).
+def cluster_destroy_disposition(cluster_name: str, location: str, project: str) -> tuple[str, str]:
+    """Classify a state-targeted cluster DESTROY into a 3-way ownership disposition.
 
     A destroy is state-targeted, so a state entry that now resolves to a colliding
     same-name FOREIGN cluster (the original was deleted and replaced out of band)
-    could otherwise destroy a resource this run does not own. Fail CLOSED unless
-    ownership is POSITIVELY proven — permit the destroy ONLY when:
-    * the live ownership marker equals this run's identity (we own it), OR
-    * the cluster is a clean, positively classified ``not_found`` (already gone, so
-      the state-targeted destroy is an idempotent no-op reconcile).
-    EVERY other outcome leaves ownership unproven and returns ``ok=False``:
-    * a marker present-but-a-different-run (a replaced same-name FOREIGN cluster),
-    * a marker entirely absent on a live cluster (a genuinely run-owned cluster is
-      stamped at Terraform creation, so a missing marker means the live resource is
-      not ours), AND
-    * a marker that is UNREADABLE — an authentication, permission, transport, or
-      malformed-response describe failure. An unreadable marker MUST NOT authorize
-      destruction: it cannot prove the same-name cluster belongs to this run, so
-      treating a describe flake as "proceed" could destroy a foreign cluster. The
-      caller surfaces this as a visible structured failure; a later rerun, once the
-      marker is readable again, recovers and destroys the genuinely-owned cluster."""
+    could otherwise destroy a resource this run does not own. Returns
+    ``(disposition, reason)`` where ``disposition`` is one of:
+
+    * ``"owned"``    - the live ownership marker equals this run's identity (we own the
+                       live cluster). Capture its live PVs, then destroy.
+    * ``"absent"``   - the cluster is a clean, positively classified ``not_found``
+                       (already gone). The state-targeted destroy is then an idempotent
+                       reconcile, and NO live-cluster PV capture is possible — the caller
+                       must SKIP it and rely on the durable PD ownership ledger + the
+                       run-scoped probe backstop, never forcing the expected capture
+                       failure into a false ``cleanup_incomplete``.
+    * ``"unproven"`` - EVERY outcome that leaves ownership unproven, so destruction is
+                       never authorized: a marker present-but-a-DIFFERENT-run (a replaced
+                       same-name FOREIGN cluster), a marker absent on a LIVE cluster (a
+                       run-owned cluster is stamped at Terraform creation, so a missing
+                       marker means the live resource is not ours), OR a marker that is
+                       UNREADABLE (auth / permission / transport / malformed describe). A
+                       describe flake therefore never authorizes destroying a same-name
+                       cluster we cannot prove we own; the caller surfaces it visibly and a
+                       later rerun with a readable marker recovers.
+
+    Splitting ``absent`` out from ``owned`` lets the primary teardown skip the impossible
+    live-cluster PV capture on a confirmed-absent cluster instead of driving that capture's
+    expected failure into a false teardown failure."""
     try:
         labels = _read_cluster_labels(cluster_name, location, project)
     except LifecycleError as exc:
-        return False, (
+        return "unproven", (
             f"ownership marker for cluster {cluster_name} is unreadable ({exc.detail}); "
             "refusing to destroy a state-targeted cluster whose run ownership cannot be "
             "proven (an unreadable marker is never treated as owned)"
         )
     if labels is None:
-        return True, "live cluster already absent; state-targeted destroy is a no-op reconcile"
+        return "absent", "live cluster already absent; state-targeted destroy is a no-op reconcile"
     expected = full_run_scope_id()
     observed = labels.get(OWNERSHIP_LABEL_KEY)
     if observed == expected:
-        return True, "live ownership marker matches this run"
-    return False, (
+        return "owned", "live ownership marker matches this run"
+    return "unproven", (
         f"live cluster {cluster_name} carries ownership marker {OWNERSHIP_LABEL_KEY}="
         f"'{observed or '<absent>'}', not this run's '{expected}'; refusing to destroy a cluster "
         "this run does not own (state may point at a deleted-and-replaced same-name cluster)"
     )
+
+
+def destroy_ownership_ok(cluster_name: str, location: str, project: str) -> tuple[bool, str]:
+    """Permit-vs-refuse adapter over :func:`cluster_destroy_disposition`; returns (ok, reason).
+
+    For callers (node-pool + secondary-cluster destroy) that only need a boolean gate: an
+    ``owned`` or a confirmed ``absent`` cluster permits the state-targeted destroy (we own
+    it, or it is an idempotent no-op reconcile), while every ``unproven`` disposition fails
+    closed."""
+    disposition, reason = cluster_destroy_disposition(cluster_name, location, project)
+    return disposition in ("owned", "absent"), reason
 
 
 def discard_cluster_state(module_dir: Path, state_file: str) -> None:
@@ -3978,8 +4085,7 @@ def record_owned_pds_from_live_pvs(cluster_name: str, kubeconfig: Path, *, timeo
         payload = json.loads(out) if out.strip() else {}
     except json.JSONDecodeError as exc:
         detail = (
-            "live PV inventory returned unparseable JSON while capturing run-owned Persistent "
-            f"Disk identities ({exc})"
+            f"live PV inventory returned unparseable JSON while capturing run-owned Persistent Disk identities ({exc})"
         )
         log("warning: " + detail + "; teardown will fail closed on unverifiable disks")
         # Preserve the prior ledger on capture failure — never shrink it to empty.

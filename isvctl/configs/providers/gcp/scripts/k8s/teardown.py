@@ -75,6 +75,12 @@ import k8s_lib as k8s
 
 PLATFORM = "kubernetes"
 _DESTROY_TIMEOUT = 2400
+# Confirmation poll AFTER terraform destroy: terraform's delete OPERATION completing is
+# not proof of live absence, so poll the exact cluster until the API returns not_found
+# before any dependent orphan-disk cleanup runs or success is reported. Kept well under
+# the teardown step cap (3000s) on top of _DESTROY_TIMEOUT; a genuine destroy already
+# blocked on the delete LRO, so this returns on the first poll in the common case.
+_ABSENCE_WAIT_TIMEOUT = 300
 _PLACEHOLDER = "placeholder"
 _PLACEHOLDER_ZONE = "us-central1-a"
 
@@ -457,15 +463,21 @@ def main() -> int:
         #    cluster, re-verify the LIVE ownership marker up front. destroy_ownership_ok
         #    returns ok=True ONLY on positively proven ownership — a live marker that
         #    matches this run, or a clean not_found (an idempotent no-op reconcile).
-        #    It returns ok=False on EVERY unproven outcome: a marker
-        #    present-but-a-different-run, a marker absent on a live cluster, OR a
+        #    cluster_destroy_disposition returns a 3-way disposition: "owned" (live
+        #    marker matches this run), "absent" (a clean not_found — already gone, an
+        #    idempotent no-op reconcile), or "unproven" on EVERY unproven outcome (a
+        #    marker present-but-a-different-run, a marker absent on a live cluster, OR a
         #    marker that is UNREADABLE (auth / permission / transport / malformed
-        #    describe). A describe flake therefore NEVER authorizes destroying a
+        #    describe)). A describe flake therefore NEVER authorizes destroying a
         #    same-name cluster we cannot prove we own — teardown fails visibly and a
-        #    rerun with a readable marker recovers.
-        destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, location, project)
+        #    rerun with a readable marker recovers. The "absent" disposition is kept
+        #    DISTINCT from "owned" so the confirmed-absent branch below SKIPS the
+        #    impossible live-cluster PV capture instead of forcing that expected capture
+        #    failure into a false cleanup_incomplete.
+        disposition, ownership_reason = k8s.cluster_destroy_disposition(cluster_name, location, project)
+        cluster_confirmed_absent = disposition == "absent"
 
-        if not destroy_ok:
+        if disposition == "unproven":
             # Ownership not proven: our state may point at a foreign/replaced same-name
             # cluster, or the ownership marker is unreadable. Either way NEVER touch
             # its PVCs, its cluster, or its cluster-labeled disks (those may belong to
@@ -491,8 +503,9 @@ def main() -> int:
             )
             return k8s.emit(result)
 
-        # We own the cluster (live marker matched, or a describe flake / not-found
-        # fell through).
+        # disposition is "owned" (the live ownership marker matched this run) OR "absent"
+        # (the tracked cluster is CONFIRMED not_found live). Both permit the state-targeted
+        # destroy; the confirmed-absent branch skips the impossible live-cluster PV capture.
         # 2) Reclaim run PVCs while the cluster still lives (best-effort). FIRST capture
         #    the EXACT identities of this run's PVC-backed Persistent Disks into the
         #    full-run ownership ledger — this is the only window a standalone disk can be
@@ -513,16 +526,28 @@ def main() -> int:
             "unreachable before capture)",
         }
         teardown_kubeconfig: Path | None = None
-        try:
-            teardown_kubeconfig = k8s.isolated_kubeconfig_for(cluster_name, location, project)
-            capture_status = k8s.record_owned_pds_from_live_pvs(cluster_name, teardown_kubeconfig)
-            k8s.reclaim_run_pvcs(teardown_kubeconfig)
-        except k8s.LifecycleError as exc:
-            k8s.log(f"warning: PVC reclaim skipped (cluster may be unreachable): {exc.detail}")
-            capture_status = {"complete": False, "error": exc.detail}
-        finally:
-            if teardown_kubeconfig is not None:
-                k8s.discard_isolated_kubeconfig(teardown_kubeconfig)
+        if cluster_confirmed_absent:
+            # The tracked cluster is CONFIRMED absent live, so kubeconfig-based live-PV
+            # capture is IMPOSSIBLE — there is no cluster to reach. Skip it and rely on the
+            # DURABLE PD ownership ledger (persisted by an earlier attempt's live capture)
+            # + the run-scoped probe backstop below. Mark the capture skipped-by-absence
+            # (an EXPECTED, non-error condition — NOT a capture failure) so a legitimately
+            # already-gone cluster is never forced into a false cleanup_incomplete. Because
+            # complete stays False the PD backstop still runs capture_fresh=False, surfacing
+            # any out-of-ledger cluster-labeled disk as `unverified` rather than trusting a
+            # stale ledger, so it continues to fail closed on an unverifiable survivor.
+            capture_status = {"complete": False, "absent": True, "error": ""}
+        else:
+            try:
+                teardown_kubeconfig = k8s.isolated_kubeconfig_for(cluster_name, location, project)
+                capture_status = k8s.record_owned_pds_from_live_pvs(cluster_name, teardown_kubeconfig)
+                k8s.reclaim_run_pvcs(teardown_kubeconfig)
+            except k8s.LifecycleError as exc:
+                k8s.log(f"warning: PVC reclaim skipped (cluster may be unreachable): {exc.detail}")
+                capture_status = {"complete": False, "error": exc.detail}
+            finally:
+                if teardown_kubeconfig is not None:
+                    k8s.discard_isolated_kubeconfig(teardown_kubeconfig)
 
         # 3) terraform destroy the cluster (init unconditionally first). Capture a
         #    destroy failure instead of letting it jump straight to the outer
@@ -545,7 +570,21 @@ def main() -> int:
                 "gpu_node_locations": [gpu_zone],
             }
             k8s.terraform_destroy(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
-            resources_deleted = ["google_container_cluster", "google_container_node_pool"]
+            # terraform destroy returns once the delete OPERATION is accepted, which is
+            # NOT proof of live absence (wait_cluster_absent documents this). Poll the
+            # EXACT cluster until the API returns not_found BEFORE the dependent
+            # orphan-disk backstop runs or success is reported — otherwise orphan-disk
+            # cleanup could begin while the cluster is still live, or teardown could
+            # report a cluster reclaimed while it remains observable and billable. A
+            # timeout / unreadable describe RAISES here and becomes destroy_error below,
+            # which skips the PD backstop (the cluster may still be live) and fails
+            # visibly. On the confirmed-absent branch this returns on the first poll.
+            k8s.wait_cluster_absent(cluster_name, location, project, timeout=_ABSENCE_WAIT_TIMEOUT)
+            # On the confirmed-absent branch the destroy only reconciled stale tracked
+            # state (no live cluster was deleted), so do not claim a cluster deletion.
+            resources_deleted = (
+                [] if cluster_confirmed_absent else ["google_container_cluster", "google_container_node_pool"]
+            )
         except BaseException as exc:
             destroy_error = exc
 
@@ -588,7 +627,12 @@ def main() -> int:
         # `unverified`; additionally record the capture failure itself so a lost capture is
         # never hidden behind an otherwise-clean teardown.
         capture_errors: list[str] = []
-        if not capture_status["complete"]:
+        if not capture_status["complete"] and not capture_status.get("absent"):
+            # A capture that could not COMPLETE against a LIVE cluster is a real anomaly and
+            # must surface. But an EXPECTED skip because the cluster was CONFIRMED absent
+            # (capture_status["absent"]) is not a failure — the durable ledger + probe
+            # backstops still fail closed on any surviving/unverified inventory below, so a
+            # legitimately already-gone cluster must not be forced to a false failure here.
             capture_errors.append(
                 "run-owned Persistent Disk identity capture did not complete this teardown, so a "
                 "disk appearing after any earlier capture cannot be proven foreign; treating "
@@ -616,13 +660,22 @@ def main() -> int:
             # Every run-owned billable resource confirmed reclaimed — drop the
             # retained-probe marker so a later preservation rerun short-circuits.
             k8s.clear_retained_probes_marker()
+            if cluster_confirmed_absent:
+                message = (
+                    f"GKE cluster {cluster_name} was already CONFIRMED absent live; stale tracked "
+                    f"state reconciled and {len(reclaim['deleted'])} orphaned PD(s) and "
+                    f"{len(probe_reclaim['deleted'])} GPU-preflight probe resource(s) reclaimed."
+                )
+            else:
+                message = (
+                    f"GKE cluster {cluster_name} destroyed and confirmed absent; "
+                    f"{len(reclaim['deleted'])} orphaned PD(s) and "
+                    f"{len(probe_reclaim['deleted'])} GPU-preflight probe resource(s) reclaimed."
+                )
             result.update(
                 {
                     "success": True,
-                    "message": (
-                        f"GKE cluster {cluster_name} destroyed; {len(reclaim['deleted'])} orphaned PD(s) "
-                        f"and {len(probe_reclaim['deleted'])} GPU-preflight probe resource(s) reclaimed."
-                    ),
+                    "message": message,
                     "resources_deleted": resources_deleted,
                 }
             )

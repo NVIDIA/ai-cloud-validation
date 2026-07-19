@@ -55,6 +55,12 @@ _DESTROY_TIMEOUT = 1500
 # budget: the preceding terraform_destroy already blocks on the delete operation,
 # so the poll normally confirms absence on its first iteration.
 _RECONCILE_WAIT_TIMEOUT = 1500
+# Confirmation poll AFTER the tracked-state terraform destroy: terraform's delete
+# OPERATION completing is not proof of live absence, so poll the exact secondary cluster
+# until the API returns not_found before reporting success. Kept strictly below this
+# step's 1800s orchestrator cap on top of _DESTROY_TIMEOUT; the preceding destroy already
+# blocked on the delete LRO, so the poll normally confirms absence on its first iteration.
+_ABSENCE_WAIT_TIMEOUT = 240
 _SECONDARY_ADDRESS = "google_container_cluster.secondary"
 
 
@@ -252,11 +258,18 @@ def main() -> int:
             )
             return k8s.emit(result)
         k8s.terraform_destroy(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
+        # terraform destroy returns once the delete OPERATION is accepted, which is NOT
+        # proof of live absence (wait_cluster_absent documents this). Poll the EXACT
+        # secondary cluster until the API returns not_found before reporting success, so a
+        # cluster that is still observable/billable is never reported destroyed. A timeout /
+        # unreadable describe RAISES into the outer handler as a visible failure; a rerun
+        # recovers.
+        k8s.wait_cluster_absent(secondary_name, secondary_location, project, timeout=_ABSENCE_WAIT_TIMEOUT)
 
         result.update(
             {
                 "success": True,
-                "message": f"Secondary cluster {secondary_name} destroyed.",
+                "message": f"Secondary cluster {secondary_name} destroyed and confirmed absent.",
                 "resources_deleted": ["google_container_cluster"],
             }
         )

@@ -51,15 +51,19 @@ import k8s_lib as k8s
 
 PLATFORM = "kubernetes"
 _DESTROY_TIMEOUT = 1200
+# Confirmation poll AFTER terraform destroy: terraform's delete OPERATION completing is
+# not proof of live absence, so poll the exact node pool until the API returns not_found
+# before reporting success. Kept strictly below this step's 1500s orchestrator cap on top
+# of _DESTROY_TIMEOUT; the preceding destroy already blocked on the delete LRO, so the
+# poll normally confirms absence on its first iteration.
+_ABSENCE_WAIT_TIMEOUT = 240
 # Benign placeholder for the delete-irrelevant machine_type var (terraform
 # destroy targets by state, not by this value).
 _PLACEHOLDER_MACHINE_TYPE = "e2-standard-4"
 _POOL_ADDRESS = "google_container_node_pool.this"
 
 
-def _resolve_parent_for_reconcile(
-    fallback_cluster_name: str, fallback_location: str
-) -> str | tuple[str, str]:
+def _resolve_parent_for_reconcile(fallback_cluster_name: str, fallback_location: str) -> str | tuple[str, str]:
     """Resolve the parent cluster ``(name, location)`` for the empty/absent pool-state
     reconcile.
 
@@ -82,9 +86,7 @@ def _resolve_parent_for_reconcile(
                            (ownership_unprovable).
     """
     k8s.terraform_init(k8s.CLUSTER_TF_DIR)
-    primary_class = k8s.classify_state(
-        k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "google_container_cluster.primary"
-    )
+    primary_class = k8s.classify_state(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "google_container_cluster.primary")
     if primary_class in ("absent", "empty"):
         # Local state cannot distinguish "parent never created" from "parent state
         # was lost while the run-owned cluster + pool are still live". Describe the
@@ -271,9 +273,7 @@ def main() -> int:
             # failed create apply — an ambiguous create) OR already destroyed in the
             # test phase (a valid-empty state). Reconcile the EXACT pool live and
             # report success only after confirmed cloud absence.
-            return _reconcile_stateless_pool(
-                project, pool_name, state_file, fallback_cluster_name, fallback_location
-            )
+            return _reconcile_stateless_pool(project, pool_name, state_file, fallback_cluster_name, fallback_location)
 
         # state_class == "tracked": the pool address is in state.
         # Recover the parent cluster wiring this pool PERSISTED in its OWN state at
@@ -336,11 +336,18 @@ def main() -> int:
             "machine_type": _PLACEHOLDER_MACHINE_TYPE,
         }
         k8s.terraform_destroy(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
+        # terraform destroy returns once the delete OPERATION is accepted, which is NOT
+        # proof of live absence (wait_node_pool_absent documents this). Poll the EXACT
+        # node pool until the API returns not_found before reporting success, so a pool
+        # that is still observable/billable is never reported destroyed. A timeout /
+        # unreadable describe RAISES into the outer handler as a visible failure; a rerun
+        # recovers.
+        k8s.wait_node_pool_absent(cluster_name, pool_name, cluster_location, project, timeout=_ABSENCE_WAIT_TIMEOUT)
 
         result.update(
             {
                 "success": True,
-                "message": f"Node pool {pool_name} destroyed.",
+                "message": f"Node pool {pool_name} destroyed and confirmed absent.",
                 "resources_deleted": ["google_container_node_pool"],
             }
         )
