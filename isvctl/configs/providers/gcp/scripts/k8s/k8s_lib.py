@@ -33,6 +33,7 @@ argparse of its own.
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import os
@@ -2276,27 +2277,86 @@ def _delete_probe_resource(args: list[str], *, kind: str, name: str, retries: in
     return False
 
 
+# Header line stamped INSIDE every retained-probe marker: the FULL run identity that
+# owns the ledger. Cleanup consumes probe names ONLY from a ledger whose stamp equals
+# the current run, so one run's teardown can never delete another run's live probes.
+_PROBE_MARKER_IDENTITY_PREFIX = "# run-identity: "
+
+
+def _run_identity_digest() -> str:
+    """Collision-resistant hex digest of the COMPLETE run identity.
+
+    The retained-probe marker filename is keyed by THIS — not the 8-char
+    ``run_scope_id`` — so two runs whose ``RUN_ID`` share the first 8 chars can never
+    collide on one shared ledger. ``run_scope_id`` truncates to 8 chars for the GKE
+    name cap; if the marker were keyed only on that value, two prefix-colliding
+    sessions would merge both runs' probe names into a single file and either run's
+    teardown would then delete the OTHER run's billable probes. Hashing the full,
+    untruncated id removes that shared key. An unset id reuses the standard guard."""
+    raw = (os.environ.get("RUN_ID") or os.environ.get("LS_RUN_ID") or "").strip()
+    if not raw:
+        run_scope_id()  # reuse the canonical unset-id guard (raises LifecycleError)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
 def _retained_probes_marker_path() -> Path:
     """Durable per-run signal file recording that a GPU capacity-preflight probe
     delete was left unconfirmed. Lives beside the primary tfstate so it persists
     across the separate setup and teardown lifecycle-step processes in the run's
-    worktree (git-ignored, see terraform/.gitignore)."""
-    return CLUSTER_TF_DIR / f"retained-probes-{run_scope_id()}.marker"
+    worktree (git-ignored, see terraform/.gitignore).
+
+    Keyed by a collision-resistant digest of the COMPLETE ``RUN_ID``/``LS_RUN_ID``
+    (``_run_identity_digest``) so two runs whose ids share the first 8 chars can never
+    write to — and delete from — one shared ledger. The 8-char ``run_scope_id`` stays
+    in the name only as a human-readable hint; the digest is what isolates runs."""
+    return CLUSTER_TF_DIR / f"retained-probes-{run_scope_id()}-{_run_identity_digest()}.marker"
+
+
+def _parse_marker(path: Path) -> tuple[str | None, list[str]]:
+    """Split a retained-probe marker into (stored full-run identity, probe names).
+
+    Returns ``(None, [])`` ONLY when the marker is DEFINITIVELY absent. Any OTHER
+    read error is RE-RAISED (only ``FileNotFoundError`` is swallowed) so a
+    transiently-unreadable EXISTING marker is never mistaken for an empty one. A
+    marker written by this build always carries the identity header as its first
+    line; a legacy headerless marker parses as ``identity is None``."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None, []
+    identity: str | None = None
+    names: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(_PROBE_MARKER_IDENTITY_PREFIX):
+            identity = stripped[len(_PROBE_MARKER_IDENTITY_PREFIX) :].strip()
+            continue
+        names.append(stripped)
+    return identity, names
 
 
 def _read_pending_probe_names(path: Path) -> list[str]:
-    """Probe names currently recorded in the marker.
+    """Probe names recorded in the marker FOR THE CURRENT RUN.
 
     Returns [] ONLY when the marker is DEFINITIVELY absent (never created, or
     already cleared once every probe was confirmed reclaimed). Any OTHER read
     error is RE-RAISED: a transiently-unreadable EXISTING marker must never be
     mistaken for an empty one, or a caller merging/rewriting it would silently
-    erase a previously recorded — and still billable — cleanup obligation."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
+    erase a previously recorded — and still billable — cleanup obligation.
+
+    FAIL CLOSED on a FOREIGN ledger: if the marker is stamped with a full-run
+    identity that is NOT this run's (a digest collision on the filename, or a stale
+    cross-run file), its names are not this run's cleanup obligations, so return [].
+    Teardown then consumes — and deletes — ONLY names from the current full-run
+    ledger and can never reclaim a concurrent run's still-active probes. A legacy
+    headerless marker (``identity is None``) at this run's own full-identity-keyed
+    path is treated as this run's own and read normally."""
+    identity, names = _parse_marker(path)
+    if identity is not None and identity != full_run_scope_id():
         return []
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    return names
 
 
 def _atomic_write_marker(path: Path, names: list[str]) -> None:
@@ -2308,11 +2368,16 @@ def _atomic_write_marker(path: Path, names: list[str]) -> None:
     an emptied marker and lose an unconfirmed probe name. Instead write a sibling
     temp file, flush+fsync it, then ``os.replace`` it over the target — the replace
     is atomic, so any failure leaves the PRIOR marker fully intact for the next run
-    (and this call's caller to observe as a write error and fail closed)."""
+    (and this call's caller to observe as a write error and fail closed).
+
+    Every rewrite re-stamps the CURRENT run's full identity as the header line so the
+    ledger records which run owns these obligations; ``_read_pending_probe_names``
+    refuses to consume names from a ledger stamped with a different run."""
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
+        lines = [f"{_PROBE_MARKER_IDENTITY_PREFIX}{full_run_scope_id()}", *names]
         with tmp.open("w", encoding="utf-8") as handle:
-            handle.write("\n".join(names) + "\n")
+            handle.write("\n".join(lines) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp, path)
@@ -3711,12 +3776,16 @@ def delete_orphan_gpu_probes(project: str, *, timeout: int = 180, retries: int =
 
     ``mark_probes_pending`` fails CLOSED before EVERY probe create, so the retained-
     probe marker holds the exact full names of every probe whose inline delete is not
-    yet confirmed. Reclaim is driven off THOSE exact names — never an ``isv-gpumig-
-    <8-char>-`` prefix sweep. The run-scope id is truncated to 8 chars for the GKE
-    name cap, so two runs sharing the first 8 chars of RUN_ID share that prefix; a
-    prefix sweep could then delete a CONCURRENT run's billable probe. Exact-name
-    reclaim (each name carries its own per-probe random discriminator) cannot select
-    another run's probes, satisfying the full-scoped-identity cleanup requirement.
+    yet confirmed. The marker FILE is keyed by a collision-resistant digest of the
+    COMPLETE ``RUN_ID``/``LS_RUN_ID`` and stamps this run's full identity as its
+    header, and ``_read_pending_probe_names`` returns names ONLY from a ledger stamped
+    with THIS run's identity (fail closed on any mismatch). Reclaim is therefore
+    driven off the current run's OWN exact names — never an ``isv-gpumig-<8-char>-``
+    prefix sweep, and never a ledger two prefix-colliding runs could have combined.
+    The 8-char ``run_scope_id`` truncation that once let two runs share one marker
+    (and delete each other's billable probes) no longer keys the ledger; even under a
+    digest collision the identity stamp keeps one run's teardown from selecting a
+    concurrent run's probes, satisfying the full-scoped-identity cleanup requirement.
 
     Returns ``{"deleted": [names], "failed": [names], "list_error": str | None}``
     with the same contract as delete_orphan_pds, so the caller emits
