@@ -64,13 +64,19 @@ PLATFORM = "kubernetes"
 #   kubeconfig install                       <=  180s
 #   network verify + RuntimeClass apply      <=  180s
 #   system-pool autoscaling readback/reconcile <=  600s
+#   system-pool readiness gate (RUNNING+Ready) <=  300s
 #   GPU readiness gate (provider-native)     <=  900s
 #   MPI Operator apply + readiness gate      <=  300s
 #   inventory (kubectl reads + pod exec)     <=  300s
-# Worst-case serial sum ~= 6870s -> config setup step timeout 7200s.
+# Worst-case serial sum ~= 7170s -> config setup step timeout 7200s.
 _APPLY_TIMEOUT = 3600
 _TWO_GATE_TIMEOUT = 900
 _AUTOSCALING_TIMEOUT = 600
+# Observable-completion gate for the GKE-autoscaled baseline system pool. The
+# pool is created in the SAME apply as the cluster/GPU pool, so on the common
+# path it is already RUNNING with Ready nodes by the time this gate runs (a fast
+# confirmation); the budget gives margin for a still-reconciling adopted pool.
+_SYSTEM_POOL_READY_TIMEOUT = 300
 _MPI_OPERATOR_TIMEOUT = 300
 # Destroy budget for the ambiguous-create reconcile: a fresh-create apply that
 # times out / is interrupted can leave the exact cluster present before its state
@@ -479,6 +485,27 @@ def main() -> int:
             args.system_min_nodes,
             args.system_max_nodes,
             timeout=_AUTOSCALING_TIMEOUT,
+        )
+
+        # 3a-iii) Autoscaler-safe observable-completion gate on the baseline
+        #     system (CPU) pool. Shape + autoscaler-bound verification alone let a
+        #     PROVISIONING / RECONCILING, terminally-unhealthy, or empty ADOPTED
+        #     same-run system pool report success — only the GPU baseline was
+        #     readiness-gated, and inventory then derives node_count from whatever
+        #     nodes happen to exist. Require the live pool to be RUNNING with at
+        #     least system_min_nodes (its guaranteed GKE autoscaler floor) nodes
+        #     matching the pool's OWN selector Ready before emitting inventory, on
+        #     BOTH setup paths (fresh create AND same-run adopt, which converge
+        #     here after kubeconfig install + autoscaler reconciliation). The >=
+        #     floor is autoscaler-safe: it tolerates any live size at or above the
+        #     min and never asserts the exact seed count GKE manages.
+        k8s.wait_system_pool_ready(
+            cluster_name,
+            system_pool_name,
+            args.location,
+            project,
+            args.system_min_nodes,
+            timeout=_SYSTEM_POOL_READY_TIMEOUT,
         )
 
         # 3b) Resolve the reviewed cluster's API server URL and bind the ACL probe

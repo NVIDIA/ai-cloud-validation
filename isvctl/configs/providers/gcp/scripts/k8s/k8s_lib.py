@@ -3656,6 +3656,51 @@ def wait_cpu_pool_ready(
     return ready_names
 
 
+def wait_system_pool_ready(
+    cluster_name: str,
+    system_pool_name: str,
+    location: str,
+    project: str,
+    system_min_nodes: int,
+    *,
+    timeout: int = 300,
+    poll_interval: int = 15,
+) -> list[str]:
+    """Autoscaler-safe observable-completion gate for the BASELINE system pool.
+
+    Setup gates the baseline GPU pool on provider-native readiness
+    (``wait_two_gate_gpu_ready``) but otherwise emitted success once the system
+    pool's SHAPE and autoscaler bounds were verified — never confirming the pool
+    actually converged. A ``PROVISIONING`` / ``RECONCILING``, terminally-unhealthy,
+    or empty ADOPTED same-run system pool could therefore pass while only the GPU
+    baseline was readiness-gated, and inventory would then derive ``node_count``
+    from whatever nodes happen to exist. This closes that gap on BOTH setup paths.
+
+    The system pool is GKE-autoscaled, so its live size floats between
+    ``system_min_nodes`` and its max; requiring the exact initial seed count would
+    flake when the autoscaler settles to the floor. Instead this requires the live
+    pool to reach ``RUNNING`` and at least ``system_min_nodes`` (its guaranteed
+    autoscaler floor, min 1 — a functioning cluster's system pool always hosts at
+    least one Ready node) nodes matching the pool's OWN selector
+    ``cloud.google.com/gke-nodepool=<system_pool_name>`` to be Ready. The ``>=``
+    floor is autoscaler-safe: it tolerates any live size at or above the min while
+    still catching a still-reconciling, terminally-errored, or empty pool.
+    Delegates to ``wait_cpu_pool_ready`` for the shared RUNNING-state +
+    selector-scoped Ready-node primitive; a timeout, terminal-error pool state, or
+    too few Ready nodes RAISES so setup's success stays false."""
+    min_ready = max(system_min_nodes, 1)
+    return wait_cpu_pool_ready(
+        cluster_name,
+        system_pool_name,
+        location,
+        project,
+        f"cloud.google.com/gke-nodepool={system_pool_name}",
+        min_ready,
+        timeout=timeout,
+        poll_interval=poll_interval,
+    )
+
+
 def _probe_driver_version(*, timeout: int = 45) -> str | None:
     """Best-effort read of the GPU driver version from the ALREADY-RUNNING
     GKE-managed GPU device-plugin DaemonSet pod (``kubectl exec nvidia-smi``).
