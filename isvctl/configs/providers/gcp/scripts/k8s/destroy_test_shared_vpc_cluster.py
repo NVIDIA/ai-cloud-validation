@@ -45,6 +45,16 @@ import k8s_lib as k8s
 
 PLATFORM = "kubernetes"
 _DESTROY_TIMEOUT = 1500
+# Absence-confirmation budget for the ambiguous-create reconcile path. Passed
+# EXPLICITLY (not left at reconcile_orphaned_cluster's 1800 default) so the
+# longest single internal wait stays at the 1500s destroy budget, strictly below
+# this step's 1800s orchestrator cap in config/k8s.yaml. Leaving the 1800 default
+# made the absence wait EQUAL the step cap, so the orchestrator could kill the
+# step at the same instant the wait would raise its structured cleanup_incomplete
+# failure — swallowing the diagnostic. 1500s remains a generous confirmation
+# budget: the preceding terraform_destroy already blocks on the delete operation,
+# so the poll normally confirms absence on its first iteration.
+_RECONCILE_WAIT_TIMEOUT = 1500
 _SECONDARY_ADDRESS = "google_container_cluster.secondary"
 
 
@@ -77,6 +87,7 @@ def _reconcile_stateless_secondary(project: str, secondary_name: str, location: 
             project,
             tf_vars,
             destroy_timeout=_DESTROY_TIMEOUT,
+            wait_timeout=_RECONCILE_WAIT_TIMEOUT,
         )
         if outcome == "reclaimed":
             result.update(
