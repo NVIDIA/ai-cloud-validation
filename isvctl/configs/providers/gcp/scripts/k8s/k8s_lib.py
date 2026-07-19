@@ -1881,12 +1881,39 @@ def _retained_probes_marker_path() -> Path:
 
 
 def _read_pending_probe_names(path: Path) -> list[str]:
-    """Probe names currently recorded in the marker (empty list on any read error)."""
+    """Probe names currently recorded in the marker.
+
+    Returns [] ONLY when the marker is DEFINITIVELY absent (never created, or
+    already cleared once every probe was confirmed reclaimed). Any OTHER read
+    error is RE-RAISED: a transiently-unreadable EXISTING marker must never be
+    mistaken for an empty one, or a caller merging/rewriting it would silently
+    erase a previously recorded — and still billable — cleanup obligation."""
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError:
+    except FileNotFoundError:
         return []
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _atomic_write_marker(path: Path, names: list[str]) -> None:
+    """Atomically (re)write the retained-probe marker so an interrupted write can
+    never destroy the existing one.
+
+    The in-place ``Path.write_text`` this replaces TRUNCATES the marker before the
+    new bytes land, so a failure (disk full, SIGKILL) after truncation would strand
+    an emptied marker and lose an unconfirmed probe name. Instead write a sibling
+    temp file, flush+fsync it, then ``os.replace`` it over the target — the replace
+    is atomic, so any failure leaves the PRIOR marker fully intact for the next run
+    (and this call's caller to observe as a write error and fail closed)."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            handle.write("\n".join(names) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def mark_probes_pending(names: list[str]) -> None:
@@ -1904,9 +1931,13 @@ def mark_probes_pending(names: list[str]) -> None:
     FAIL-CLOSED: refuse to create a billable probe we cannot track (raise) rather
     than create an untracked one. A normal (non-skip) teardown reclaims it
     unconditionally via the run-scoped backstop, so failing loudly here never leaks.
-    The write is retried once before it is treated as fatal. The names are cleared
-    again by ``clear_pending_probes`` once their inline delete is CONFIRMED, or wiped
-    wholesale by the teardown backstop once reclaim is confirmed."""
+    The read+merge+write is retried once before it is treated as fatal. Fail-closed
+    covers BOTH edges: an unreadable EXISTING marker re-raises from
+    ``_read_pending_probe_names`` (never merged as empty, so a prior probe is never
+    dropped), and the write is atomic (``_atomic_write_marker`` replaces in-place
+    truncation) so a mid-write failure leaves the prior marker intact. The names are
+    cleared again by ``clear_pending_probes`` once their inline delete is CONFIRMED,
+    or wiped wholesale by the teardown backstop once reclaim is confirmed."""
     wanted = [name for name in names if name]
     if not wanted:
         return
@@ -1915,7 +1946,7 @@ def mark_probes_pending(names: list[str]) -> None:
     for attempt in range(2):
         try:
             merged = list(dict.fromkeys(_read_pending_probe_names(path) + wanted))
-            path.write_text("\n".join(merged) + "\n", encoding="utf-8")
+            _atomic_write_marker(path, merged)
             return
         except OSError as exc:
             last_exc = exc
@@ -1962,19 +1993,36 @@ def clear_pending_probes(names: list[str]) -> None:
     """Drop names from the pending-probe tracker once their inline delete is CONFIRMED
     (both MIG + template gone).
 
-    Best-effort: if the rewrite fails, the names simply STAY pending and the teardown
-    backstop reclaims them (a harmless no-op once they are already deleted), so this
-    never fails a found-capacity zone. The marker file is removed when it empties so
-    the common preservation path stays a cheap short-circuit."""
+    Best-effort AND fail-safe: if anything goes wrong the names simply STAY pending
+    and the teardown backstop reclaims them (a harmless no-op once they are already
+    deleted), so this never fails a found-capacity zone. Two destructive edges are
+    closed: an unreadable EXISTING marker is never treated as empty (which would
+    unlink a marker still holding OTHER pending probes), and the rewrite is atomic
+    (never truncating in place). The marker file is removed ONLY after a successful
+    read confirms it is now empty, so the common preservation path stays a cheap
+    short-circuit without ever discarding an unconfirmed obligation."""
     drop = {name for name in names if name}
     if not drop:
         return
     path = _retained_probes_marker_path()
     try:
-        remaining = [name for name in _read_pending_probe_names(path) if name not in drop]
+        existing = _read_pending_probe_names(path)
+    except OSError as exc:
+        # The marker EXISTS but is transiently unreadable. Never interpret that as
+        # empty and unlink it — that would erase still-pending obligations NOT in
+        # `drop`. Leave the marker intact; the run-scoped teardown backstop still
+        # reclaims (a harmless no-op once the probe is already deleted).
+        log(f"warning: retained GPU-probe marker at {path} unreadable ({exc}); left intact for teardown")
+        return
+    remaining = [name for name in existing if name not in drop]
+    if remaining == existing:
+        return  # nothing of ours to drop — avoid a needless rewrite/truncate
+    try:
         if remaining:
-            path.write_text("\n".join(remaining) + "\n", encoding="utf-8")
+            _atomic_write_marker(path, remaining)
         else:
+            # Reached ONLY via a successful read confirming every name left in the
+            # marker was in `drop` (all inline deletes CONFIRMED) — safe to remove.
             path.unlink(missing_ok=True)
     except OSError:
         pass  # leave the tracker in place; the run-scoped backstop still reclaims
