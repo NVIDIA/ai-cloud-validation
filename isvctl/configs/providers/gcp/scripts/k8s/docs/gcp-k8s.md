@@ -271,14 +271,26 @@ Teardown runs by default (even after failures). It reclaims run-created PVCs so
 the `pd.csi.storage.gke.io` driver deletes their backing Persistent Disks BEFORE
 the cluster is destroyed (a GKE cluster delete does NOT reclaim PVC-backed PDs —
 they orphan as standalone Compute disks), then `terraform destroy`s the cluster,
-then backstops any raced PD by THIS run's `goog-k8s-cluster-name` label AND any
-leftover GPU capacity-preflight probe MIG/template by this run's probe-name
-prefix. Node pools are destroyed by their own steps first. `terraform init` runs
-unconditionally before every destroy so a teardown-on-failure after setup bailed
-early still reconciles a stale lock and no-ops cleanly. `terraform destroy` is
-state-targeted, and the cluster only enters that state via a fresh create or an
-adopt that first proved this run's exact ownership (a cloud-side full-run-id
-label), so teardown never destroys a same-name cluster this run does not own.
+then backstops any raced PD and any leftover GPU capacity-preflight probe
+MIG/template. In both backstops the `goog-k8s-cluster-name` label (for disks) and
+the probe name (for MIGs/templates) are DISCOVERY inputs only — they surface
+candidate resources but never authorize a delete on their own, because the
+truncated 8-char cluster label and a bare name can collide across runs. A disk is
+deleted ONLY when it is in this run's full-run ownership ledger (the exact
+PVC-backed disk identities captured from live PVs while the cluster was up and its
+full-run-id ownership marker was verified, read through an isolated kubeconfig
+pinned to that exact cluster), and a probe MIG/template ONLY when it matches this
+run's exact full-identity probe ledger. The backstops FAIL CLOSED: a failed
+listing, a surviving ledger-owned resource, an incomplete live capture, or a
+labeled/named resource whose full-run ownership cannot be proven is surfaced as
+`cleanup_errors` with `success=False`, so a billable orphan can never present as a
+clean teardown. Node pools are destroyed by their own steps first. `terraform
+init` runs unconditionally before every destroy so a teardown-on-failure after
+setup bailed early still reconciles a stale lock and no-ops cleanly. `terraform
+destroy` is state-targeted, and the cluster only enters that state via a fresh
+create or an adopt that first proved this run's exact ownership (a cloud-side
+full-run-id label), so teardown never destroys a same-name cluster this run does
+not own.
 
 `GCP_K8S_SKIP_TEARDOWN=true` preserves the cluster and node pools for debugging.
 Preservation still reclaims a **standalone** GPU capacity-preflight probe MIG (a

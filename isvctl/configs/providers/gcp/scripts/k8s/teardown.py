@@ -122,12 +122,20 @@ def _probe_reclaim_errors(probe_reclaim: dict[str, Any]) -> list[str]:
     return errors
 
 
-def _reclaim_orphan_pds(project: str, cluster_name: str) -> tuple[dict[str, Any], list[str]]:
+def _reclaim_orphan_pds(
+    project: str, cluster_name: str, *, capture_fresh: bool = False
+) -> tuple[dict[str, Any], list[str]]:
     """Run the run-scoped orphan-PD backstop in its own guarded block so it never
     raises past teardown (an unexpected failure becomes a cleanup-error string
-    instead of masking the primary result)."""
+    instead of masking the primary result).
+
+    ``capture_fresh`` threads THIS teardown's own live-PV capture result: only a fresh,
+    complete, persisted capture authorizes treating an out-of-ledger cluster-labeled disk as
+    a prefix-colliding OTHER run's. It defaults to ``False`` (fail closed) so a path that ran
+    no live capture — e.g. the absent/valid-empty stateless reconcile — surfaces every
+    unmatched disk as ``unverified`` rather than trusting an older completed ledger."""
     try:
-        reclaim = k8s.delete_orphan_pds(project, cluster_name)
+        reclaim = k8s.delete_orphan_pds(project, cluster_name, capture_fresh=capture_fresh)
     except BaseException as exc:  # a backstop must never crash the teardown
         reclaim = {"deleted": [], "failed": [], "unverified": [], "list_error": f"disk reclaim raised: {exc}"}
     return reclaim, _pd_reclaim_errors(reclaim, cluster_name)
@@ -492,14 +500,29 @@ def main() -> int:
         #    just verified above). The truncated goog-k8s-cluster-name label alone is NOT
         #    ownership proof, so the PD backstop authorizes a delete only for a disk in this
         #    ledger. Capture BEFORE deleting the PVCs so every potentially-orphaned disk is
-        #    recorded; the capture never raises (a failure records an incomplete ledger so
-        #    the backstop fails closed).
+        #    recorded; the capture never raises (a failure records an incomplete ledger AND
+        #    returns complete=False so the backstop fails closed and the failure is surfaced).
+        #    Bind BOTH the capture and the destructive `kubectl delete pvc --all` to an
+        #    ISOLATED, target-validated kubeconfig for THIS exact ownership-verified cluster:
+        #    a concurrent run flipping the shared ambient current-context can otherwise make
+        #    our capture ledger a foreign cluster's disks or our delete wipe another live
+        #    cluster's PVCs.
+        capture_status: dict[str, Any] = {
+            "complete": False,
+            "error": "run-owned Persistent Disk identity capture did not run (cluster became "
+            "unreachable before capture)",
+        }
+        teardown_kubeconfig: Path | None = None
         try:
-            k8s.install_kubeconfig(cluster_name, location, project)
-            k8s.record_owned_pds_from_live_pvs(cluster_name)
-            k8s.reclaim_run_pvcs()
+            teardown_kubeconfig = k8s.isolated_kubeconfig_for(cluster_name, location, project)
+            capture_status = k8s.record_owned_pds_from_live_pvs(cluster_name, teardown_kubeconfig)
+            k8s.reclaim_run_pvcs(teardown_kubeconfig)
         except k8s.LifecycleError as exc:
             k8s.log(f"warning: PVC reclaim skipped (cluster may be unreachable): {exc.detail}")
+            capture_status = {"complete": False, "error": exc.detail}
+        finally:
+            if teardown_kubeconfig is not None:
+                k8s.discard_isolated_kubeconfig(teardown_kubeconfig)
 
         # 3) terraform destroy the cluster (init unconditionally first). Capture a
         #    destroy failure instead of letting it jump straight to the outer
@@ -557,11 +580,24 @@ def main() -> int:
         #    not-found cluster) AND ownership was proven above, so the ledger-owned disks
         #    scanned here are genuinely run-owned AND their cluster is gone. Each disk is
         #    additionally described and required to be detached/deletable before deletion.
-        reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
-        cleanup_errors = pd_errors + probe_errors
+        reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name, capture_fresh=capture_status["complete"])
+        # PROPAGATE a capture / ledger-persistence failure. When this teardown's own live-PV
+        # capture did not complete, there is no FRESH full-run signal to prove a new
+        # out-of-ledger cluster-labeled disk is a prefix-colliding OTHER run's, so
+        # delete_orphan_pds (capture_fresh=False) already surfaces every unmatched disk as
+        # `unverified`; additionally record the capture failure itself so a lost capture is
+        # never hidden behind an otherwise-clean teardown.
+        capture_errors: list[str] = []
+        if not capture_status["complete"]:
+            capture_errors.append(
+                "run-owned Persistent Disk identity capture did not complete this teardown, so a "
+                "disk appearing after any earlier capture cannot be proven foreign; treating "
+                f"unmatched cluster-labeled disks as unverified: {capture_status['error']}"
+            )
+        cleanup_errors = capture_errors + pd_errors + probe_errors
 
-        # A failed disk/probe LISTING or any surviving resource means run-owned
-        # (billable) resources cannot be confirmed reclaimed — never present that as
+        # A failed capture, a failed disk/probe LISTING, or any surviving resource means
+        # run-owned (billable) resources cannot be confirmed reclaimed — never present that as
         # a clean teardown.
         if cleanup_errors:
             result.update(

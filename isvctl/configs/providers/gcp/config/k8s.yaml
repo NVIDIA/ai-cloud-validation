@@ -308,8 +308,11 @@ commands:
         timeout: 1500
 
       # Reclaim run PVC-backed PDs, destroy the primary cluster, backstop any
-      # raced PD by this run's cluster label AND any leftover GPU-preflight probe
-      # MIG/template by this run's probe-name prefix. Honors GCP_K8S_SKIP_TEARDOWN.
+      # raced PD AND any leftover GPU-preflight probe MIG/template. The cluster
+      # label / probe name only DISCOVER candidates; a delete is authorized ONLY by
+      # this run's full-identity ownership ledger, and an unprovable or surviving
+      # resource fails closed (cleanup_errors + success=False). Honors
+      # GCP_K8S_SKIP_TEARDOWN.
       # Longest single internal wait is terraform destroy (<=2400s); the reclaim
       # list/delete calls are short and independent, well under the 3000s step
       # timeout.

@@ -675,13 +675,25 @@ def gcloud(args: list[str], *, timeout: int = 180, echo: bool = True) -> tuple[i
     return _run(["gcloud", *args], timeout=timeout, echo=echo)
 
 
-def kubectl(args: list[str], *, timeout: int = 120, echo: bool = True) -> tuple[int, str]:
-    return _run(["kubectl", *args], timeout=timeout, echo=echo)
+def kubectl(args: list[str], *, kubeconfig: Path | None = None, timeout: int = 120, echo: bool = True) -> tuple[int, str]:
+    """Run kubectl. When ``kubeconfig`` is given, target that EXACT file explicitly
+    (``--kubeconfig``) instead of the shared ambient ~/.kube/config — the only safe way to
+    run a destructive or ownership-critical op while a CONCURRENT run may be flipping the
+    ambient current-context between calls."""
+    cmd = ["kubectl"]
+    if kubeconfig is not None:
+        cmd += ["--kubeconfig", str(kubeconfig)]
+    return _run([*cmd, *args], timeout=timeout, echo=echo)
 
 
 def install_kubeconfig(cluster_name: str, location: str, project: str, *, timeout: int = 180) -> None:
     """Install the kubeconfig where ambient kubectl reads it (GKE analog of
-    `aws eks update-kubeconfig`)."""
+    `aws eks update-kubeconfig`).
+
+    Used by setup / create_node_pool so the test-phase in-cluster checks reach the primary
+    via ambient kubectl. A DESTRUCTIVE teardown op (PVC delete / PV capture) must NOT rely on
+    this shared ambient context — a concurrent run's own get-credentials can flip it between
+    calls — so teardown uses ``isolated_kubeconfig_for`` instead."""
     rc, out = gcloud(
         [
             "container",
@@ -702,6 +714,82 @@ def install_kubeconfig(cluster_name: str, location: str, project: str, *, timeou
             f"[bucket={bucket}] `gcloud container clusters get-credentials` failed "
             f"for {cluster_name} in {location}: {fold_tail(out)}",
         )
+
+
+def isolated_kubeconfig_for(cluster_name: str, location: str, project: str, *, timeout: int = 180) -> Path:
+    """Create an ISOLATED, target-validated kubeconfig bound to exactly ONE
+    ownership-verified cluster — the safe context for the destructive teardown PVC path.
+
+    ``install_kubeconfig`` writes the SHARED ambient ~/.kube/config and switches its
+    current-context; a CONCURRENT run's own ``get-credentials`` can flip that shared context
+    between our live-PV capture and our ``kubectl delete pvc --all``, so the destructive
+    delete could wipe a DIFFERENT live cluster's PVCs and the capture could ledger another
+    cluster's disks. Fetch credentials into a PRIVATE temp kubeconfig (``KUBECONFIG`` env,
+    never the ambient file) and VALIDATE that its current-context is the deterministic GKE
+    context for this EXACT ``(project, location, cluster)`` before returning it, so every
+    destructive op pinned to this file targets the ownership-verified cluster regardless of
+    ambient-context churn. Fails CLOSED (raises) on a credential-fetch failure or a
+    context that does not resolve to the exact expected target."""
+    import tempfile
+
+    fd, path_str = tempfile.mkstemp(suffix=f"-{run_scope_id()}-teardown.kubeconfig")
+    os.close(fd)
+    path = Path(path_str)
+    env = os.environ.copy()
+    env["KUBECONFIG"] = str(path)
+    rc, out = _run(
+        [
+            "gcloud",
+            "container",
+            "clusters",
+            "get-credentials",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+        ],
+        env=env,
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        path.unlink(missing_ok=True)
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] `gcloud container clusters get-credentials` failed for isolated "
+            f"teardown kubeconfig of {cluster_name} in {location}: {fold_tail(out)}",
+        )
+    # VALIDATE the target BEFORE any destructive op: get-credentials names the context
+    # deterministically `gke_<project>_<location>_<cluster>`, so require the isolated file's
+    # current-context to be EXACTLY that. A mismatch (or unreadable context) means the
+    # kubeconfig is not pinned to the exact ownership-verified cluster — refuse to hand it to
+    # a destructive PVC delete and fail closed.
+    expected_context = f"gke_{project}_{location}_{cluster_name}"
+    rc2, ctx = _run(
+        ["kubectl", "--kubeconfig", str(path), "config", "current-context"],
+        timeout=60,
+        echo=False,
+    )
+    actual_context = ctx.strip()
+    if rc2 != 0 or actual_context != expected_context:
+        path.unlink(missing_ok=True)
+        raise LifecycleError(
+            "ownership_unprovable",
+            f"[bucket=ownership_unprovable] isolated teardown kubeconfig for {cluster_name} did not "
+            f"resolve to the expected GKE context {expected_context!r} (got {actual_context!r}); "
+            "refusing destructive PVC cleanup against an unverified target",
+        )
+    return path
+
+
+def discard_isolated_kubeconfig(path: Path) -> None:
+    """Remove an isolated teardown kubeconfig temp file (best-effort; never raises)."""
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError as exc:
+        log(f"warning: could not remove isolated teardown kubeconfig {path}: {exc}")
 
 
 def gke_cluster_exists(cluster_name: str, location: str, project: str, *, timeout: int = 120) -> bool:
@@ -3567,13 +3655,18 @@ def _resolve_block_storage_class() -> str:
 # --------------------------------------------------------------------------- #
 
 
-def reclaim_run_pvcs(*, timeout: int = 240) -> None:
+def reclaim_run_pvcs(kubeconfig: Path, *, timeout: int = 240) -> None:
     """Delete run-created PVCs so the pd.csi.storage.gke.io driver reclaims each
     backing Persistent Disk BEFORE the cluster is destroyed (a GKE cluster delete
     does NOT reclaim PVC-backed PDs — they orphan as standalone Compute disks).
-    Best-effort: teardown must proceed even if this races."""
+    Best-effort: teardown must proceed even if this races.
+
+    Runs against the ISOLATED, target-validated ``kubeconfig`` (never the shared ambient
+    context) so a concurrent run flipping the ambient current-context can never make this
+    `kubectl delete pvc --all --all-namespaces` wipe another live cluster's PVCs."""
     rc, out = kubectl(
         ["delete", "pvc", "--all", "--all-namespaces", "--ignore-not-found", "--timeout=120s"],
+        kubeconfig=kubeconfig,
         timeout=timeout,
     )
     if rc != 0:
@@ -3682,70 +3775,103 @@ def _read_owned_pd_ledger(path: Path) -> tuple[bool, list[tuple[str, str]]]:
     return capture_complete, entries
 
 
-def record_owned_pds_from_live_pvs(cluster_name: str, *, timeout: int = 60) -> None:
+def record_owned_pds_from_live_pvs(cluster_name: str, kubeconfig: Path, *, timeout: int = 60) -> dict[str, Any]:
     """Capture the EXACT identities of this run's PVC-backed Persistent Disks into the
     full-run ownership ledger, while the cluster is LIVE and its ownership marker was just
     verified — the only window a standalone disk can be tied back to the full RUN_ID.
 
-    Best-effort and NEVER raises (teardown must proceed): on any failure it records a
-    ``capture_complete=false`` ledger so the teardown backstop FAILS CLOSED — surfacing any
-    surviving cluster-labeled disk it cannot prove is ours rather than deleting from the
-    truncated label alone OR silently passing a possibly-leaked billable disk (a leaked
-    billable disk must never present as a clean teardown). A
-    successful enumeration records ``capture_complete=true`` with every pd.csi disk identity,
-    so the backstop can then distinguish a disk that is genuinely a prefix-colliding OTHER
-    run's (a label match outside a COMPLETE capture) from one whose ownership is merely
-    unproven."""
+    Reads live PVs through the ISOLATED, target-validated ``kubeconfig`` (never the shared
+    ambient context) so the capture can never ledger a concurrently-switched foreign
+    cluster's disks.
+
+    Never raises (teardown must proceed) but RETURNS a capture status
+    ``{"complete": bool, "error": str | None}`` so the caller can PROPAGATE a capture or
+    ledger-persistence failure into ``cleanup_errors``. ``complete=True`` ONLY when the
+    live-PV enumeration succeeded AND the ledger persisted with ``capture_complete=true`` —
+    that success is the single FRESH full-run signal that authorizes the teardown backstop to
+    treat an out-of-ledger cluster-labeled disk as a prefix-colliding OTHER run's. On ANY
+    failure it records a best-effort ``capture_complete=false`` ledger AND returns
+    ``complete=False``, so the backstop fails CLOSED (every surviving cluster-labeled disk it
+    cannot prove is ours is surfaced as ``unverified``, never deleted from the truncated label
+    alone and never silently passed) even if the false-ledger write itself is also lost."""
     try:
-        rc, out = kubectl(["get", "pv", "-o", "json"], timeout=timeout, echo=False)
+        rc, out = kubectl(["get", "pv", "-o", "json"], kubeconfig=kubeconfig, timeout=timeout, echo=False)
     except BaseException as exc:  # capture is a best-effort backstop input, never fatal
         rc, out = 1, f"kubectl get pv raised: {exc}"
     if rc != 0:
+        detail = (
+            "could not enumerate live PVs to capture run-owned Persistent Disk identities "
+            f"(rc={rc}): {fold_tail(out, limit=400)}"
+        )
         log(
-            "warning: could not enumerate live PVs to capture run-owned Persistent Disk "
-            f"identities (rc={rc}); teardown will fail closed on any surviving cluster-labeled "
-            f"disk it cannot prove is ours: {fold_tail(out, limit=400)}"
+            "warning: " + detail + "; teardown will fail closed on any surviving cluster-labeled "
+            "disk it cannot prove is ours"
         )
         _try_write_owned_pd_ledger(capture_complete=False, entries=[])
-        return
+        return {"complete": False, "error": detail}
     try:
         payload = json.loads(out) if out.strip() else {}
     except json.JSONDecodeError as exc:
-        log(
-            "warning: live PV inventory returned unparseable JSON while capturing run-owned "
-            f"Persistent Disk identities ({exc}); teardown will fail closed on unverifiable disks"
+        detail = (
+            "live PV inventory returned unparseable JSON while capturing run-owned Persistent "
+            f"Disk identities ({exc})"
         )
+        log("warning: " + detail + "; teardown will fail closed on unverifiable disks")
         _try_write_owned_pd_ledger(capture_complete=False, entries=[])
-        return
+        return {"complete": False, "error": detail}
     entries: list[tuple[str, str]] = []
     for item in payload.get("items", []) or []:
         identity = _pd_csi_disk_identity(item if isinstance(item, dict) else {})
         if identity is not None:
             entries.append(identity)
-    _try_write_owned_pd_ledger(capture_complete=True, entries=entries)
+    if not _try_write_owned_pd_ledger(capture_complete=True, entries=entries):
+        # The live capture succeeded but its ledger could not be persisted. Do NOT report a
+        # fresh complete capture: without a durable ledger the backstop has no authorization
+        # list, so it must fail closed and the caller must surface the persistence failure.
+        return {
+            "complete": False,
+            "error": "could not persist the run-owned Persistent Disk ownership ledger after a "
+            "successful live-PV capture",
+        }
     log(
         f"recorded {len(entries)} run-owned PVC-backed Persistent Disk identit(ies) for cluster "
         f"{cluster_name} into the full-run ownership ledger"
     )
+    return {"complete": True, "error": None}
 
 
-def _try_write_owned_pd_ledger(*, capture_complete: bool, entries: list[tuple[str, str]]) -> None:
-    """Persist the owned-PD ledger, swallowing local write errors (best-effort). A missing
-    ledger reads back as ``capture_complete=False``, so a lost write still fails the backstop
-    closed rather than authorizing a label-only delete."""
+def _try_write_owned_pd_ledger(*, capture_complete: bool, entries: list[tuple[str, str]]) -> bool:
+    """Persist the owned-PD ledger. Returns ``True`` when the atomic write durably landed and
+    ``False`` when it was lost (the caller SURFACES a lost write instead of silently swallowing
+    it). A missing/lost ledger reads back as ``capture_complete=False``, and the teardown
+    backstop is additionally gated on a FRESH in-process capture signal, so a lost write can
+    never let an older completed capture authorize ignoring a new out-of-ledger disk."""
     try:
         _write_owned_pd_ledger(_owned_pd_ledger_path(), capture_complete=capture_complete, entries=entries)
+        return True
     except (OSError, LifecycleError) as exc:
         log(
             f"warning: could not persist the run-owned Persistent Disk ownership ledger ({exc}); "
             "teardown will fail closed on any surviving cluster-labeled disk"
         )
+        return False
 
 
-def delete_orphan_pds(project: str, cluster_name: str, *, timeout: int = 180, retries: int = 2) -> dict[str, Any]:
+def delete_orphan_pds(
+    project: str, cluster_name: str, *, capture_fresh: bool = False, timeout: int = 180, retries: int = 2
+) -> dict[str, Any]:
     """Backstop: reclaim this run's leaked PVC-backed Persistent Disks, authorizing a
     delete ONLY when full-run ownership is PROVEN — never from the truncated
     goog-k8s-cluster-name label alone.
+
+    ``capture_fresh`` is the FRESH full-run signal from THIS teardown's own live-PV capture
+    (``record_owned_pds_from_live_pvs`` returned ``complete=True`` in THIS process). It — not
+    a persisted ``capture-complete`` flag that an EARLIER attempt may have written — is what
+    authorizes treating an out-of-ledger cluster-labeled disk as a prefix-colliding OTHER
+    run's. When it is ``False`` (no capture ran, the capture failed, or the ledger persist
+    failed) an older completed capture is NEVER accepted as current: every unmatched disk is
+    surfaced as ``unverified`` so a disk that appeared after a stale capture cannot be
+    silently ignored.
 
     The disk carries only the pd.csi driver's ``goog-k8s-cluster-name`` label, whose value
     is the 8-char-truncated run-scoped cluster NAME; two runs whose RUN_IDs share the first
@@ -3832,24 +3958,28 @@ def delete_orphan_pds(project: str, cluster_name: str, *, timeout: int = 180, re
             # The disk carries this run's TRUNCATED cluster label but is NOT in this run's
             # full-identity ownership ledger, so the 8-char cluster name is the only thing
             # tying it to us — insufficient proof. NEVER delete it.
-            if capture_complete:
-                # The ledger is a COMPLETE snapshot of this run's live PVC-backed disks, so
-                # a label match outside it belongs to a DIFFERENT run whose RUN_ID shares
-                # this run's 8-char scope. Leave the prefix-colliding run's disk untouched;
-                # it is not a leak of ours to reclaim OR to report.
+            if capture_complete and capture_fresh:
+                # A COMPLETE capture from THIS teardown (capture_fresh) proves the ledger is a
+                # current snapshot of this run's live PVC-backed disks, so a label match
+                # outside it belongs to a DIFFERENT run whose RUN_ID shares this run's 8-char
+                # scope. Leave the prefix-colliding run's disk untouched; it is not a leak of
+                # ours to reclaim OR to report.
                 log(
                     f"info: disk {disk} in {disk_zone} carries this run's truncated cluster "
-                    "label but is absent from the full-run ownership ledger; leaving a "
-                    "prefix-colliding run's disk untouched"
+                    "label but is absent from this teardown's fresh full-run ownership ledger; "
+                    "leaving a prefix-colliding run's disk untouched"
                 )
             else:
-                # No completed live capture, so ownership is INDETERMINATE. Fail closed:
-                # surface it (never delete from the label alone, never silently pass a
-                # possibly-leaked billable disk — a leak must never present as clean).
+                # No FRESH completed live capture from THIS teardown to prove the disk is
+                # foreign (no capture ran, it failed, or only an OLDER completed capture that
+                # must not be accepted as current exists), so ownership is INDETERMINATE. Fail
+                # closed: surface it (never delete from the label alone, never silently pass a
+                # possibly-leaked billable disk — a leak must never present as clean). A disk
+                # that appeared after a stale capture is caught here instead of being ignored.
                 log(
                     f"warning: disk {disk} in {disk_zone} carries this run's truncated cluster "
-                    "label but its full-run ownership could not be verified (no live capture); "
-                    "refusing to delete from the label alone and surfacing it"
+                    "label but its full-run ownership could not be verified (no fresh live "
+                    "capture); refusing to delete from the label alone and surfacing it"
                 )
                 unverified.append(disk)
             continue
