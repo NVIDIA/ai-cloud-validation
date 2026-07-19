@@ -71,6 +71,41 @@ _STOCKOUT_TOKENS = (
     "STOCKOUT",
 )
 
+# GCP's documented transient API error taxonomy: HTTP 429 / 500 / 503 / 504 map to
+# ResourceExhausted / InternalServerError / ServiceUnavailable / DeadlineExceeded,
+# all "retry with bounded backoff" (as opposed to the terminal permission /
+# not-found / conflict / credential buckets that never clear on their own). A
+# gcloud CLI surface renders these as either a canonical status word/token OR an
+# HTTP/code-tagged status number, so recognize BOTH the word forms below and a
+# status number seen in a code/status/http/error context (via _TRANSIENT_STATUS_RE).
+# The regex deliberately never matches a BARE number, so a 403/404/409 permission,
+# not-found, or conflict message keeps its own distinct classification — only a
+# 429/500/503/504 tagged as an HTTP/API status is read as transient. Lowercase
+# forms only (matched against the already-lowercased output).
+_TRANSIENT_TOKENS = (
+    "resource_exhausted",
+    "resourceexhausted",
+    "rate limit exceeded",
+    "ratelimitexceeded",
+    "rate_limit_exceeded",
+    "too many requests",
+    "service unavailable",
+    "serviceunavailable",
+    "temporarily unavailable",
+    "currently unavailable",
+    "backend error",
+    "backenderror",
+    "internal error",
+    "internal_error",
+    "internalservererror",
+    "internal server error",
+    "deadline exceeded",
+    "deadline_exceeded",
+    "deadlineexceeded",
+    "try again later",
+)
+_TRANSIENT_STATUS_RE = re.compile(r"(?:code|status|error|http\S*)[\s:=\]\[\"'>,]*\b(?:429|500|503|504)\b")
+
 # Integrated-GPU machine families carry their accelerator via the machine type
 # itself (g2 = L4, a2 = A100, a3 = H100/H200), so a raw-compute probe VM for
 # these needs NO `--accelerator` flag. Separate-accelerator shapes (e.g. n1)
@@ -323,6 +358,14 @@ def _classify_cli_output(output: str) -> str:
     if any(tok.lower() in low for tok in _STOCKOUT_TOKENS):
         return "transient"
     if "quota_exceeded" in low or "quota exceeded" in low:
+        return "transient"
+    # Rate-limit (429), internal-server (500), service-unavailable (503), and
+    # deadline-exceeded (504) responses are GCP's documented transient bucket —
+    # retry with bounded backoff instead of treating them as a terminal failure.
+    # Checked before the terminal buckets so a server-side 5xx/429 is retried;
+    # genuine permission/not-found/conflict/credential outputs carry none of these
+    # tokens and keep their own bucket.
+    if any(tok in low for tok in _TRANSIENT_TOKENS) or _TRANSIENT_STATUS_RE.search(low):
         return "transient"
     if (
         "permission denied" in low
@@ -668,12 +711,26 @@ def gke_node_pool_exists(cluster_name: str, pool_name: str, location: str, proje
 def gke_node_pool_zone(
     cluster_name: str, pool_name: str, location: str, project: str, *, timeout: int = 120
 ) -> str | None:
-    """Return the first zone an existing node pool runs in, or None if unreadable.
+    """Resolve an EXISTING node pool's actual zone — TRI-STATE.
 
-    When ADOPTING an existing GPU pool the stub reuses its ACTUAL zone rather than
-    re-running the non-deterministic capacity preflight: handing a reconcile apply
-    a different node_locations would drift (potentially replace) the pool.
-    Best-effort — returns None so the caller can fall back; never raises.
+    Returns:
+      * the pool's first zone   — the pool exists and its locations read cleanly;
+      * ``None``                — the pool is CONFIRMED ABSENT (describe not_found),
+                                  so the caller may safely run the capacity preflight
+                                  to place a fresh pool;
+      * raises ``LifecycleError`` — the describe was UNREADABLE (transient / auth /
+                                  permission) OR succeeded but rendered no
+                                  zone-shaped token (malformed output).
+
+    Why tri-state, not "None on any failure": when ADOPTING/reconciling an existing
+    GPU pool the caller reuses its ACTUAL zone rather than re-running the
+    non-deterministic capacity preflight, because handing a reconcile apply a
+    different ``node_locations`` would drift (potentially REPLACE) the live pool.
+    Collapsing an unreadable read to ``None`` would let the caller substitute a
+    fabricated, capacity-selected zone and feed it into reconciliation of a pool
+    that STILL EXISTS — silently mutating/replacing a preserved, run-owned GPU pool
+    on a transient read blip. So only a CONFIRMED-absent pool falls back to
+    preflight; an existing-or-unknown pool must yield its real zone or FAIL CLOSED.
     """
     rc, out = gcloud(
         [
@@ -693,7 +750,16 @@ def gke_node_pool_zone(
         echo=False,
     )
     if rc != 0:
-        return None
+        bucket = _classify_cli_output(out)
+        if bucket == "not_found":
+            # Pool is genuinely gone: safe for the caller to run capacity preflight.
+            return None
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not read the zone of existing GPU node pool "
+            f"{pool_name} on {cluster_name}; refusing to substitute a "
+            f"capacity-selected zone that could drift/replace the live pool: {fold_tail(out)}",
+        )
     # `value(locations)` renders the zone list joined by ';' (gcloud may also
     # prepend a WARNING line); return the first zone-shaped token found.
     for line in out.splitlines():
@@ -701,7 +767,15 @@ def gke_node_pool_zone(
             token = token.strip()
             if re.fullmatch(r"[a-z]+-[a-z0-9]+-[a-z]", token):
                 return token
-    return None
+    # Describe SUCCEEDED but rendered no zone-shaped token: the pool exists yet its
+    # zone is unreadable/malformed. Fail closed rather than fall back to preflight
+    # and reconcile the existing pool onto a fabricated zone.
+    raise LifecycleError(
+        "unknown_error",
+        f"[bucket=unknown_error] GPU node pool {pool_name} on {cluster_name} describe "
+        f"returned no zone-shaped locations token; refusing to substitute a "
+        f"capacity-selected zone that could drift/replace the live pool: {fold_tail(out)}",
+    )
 
 
 # Recognized GKE node-pool status tokens (gcloud may merge a WARNING line into a

@@ -178,7 +178,11 @@ def main() -> int:
             if pool_in_cloud:
                 # Reuse the existing GPU pool's ACTUAL zone: never re-run the
                 # non-deterministic preflight against a pool whose zone is fixed
-                # (a different node_locations would drift/replace it).
+                # (a different node_locations would drift/replace it). Tri-state:
+                # yields the real zone, or "" (via `or ""`) ONLY when the pool is
+                # CONFIRMED ABSENT (stale in-state entry for a pool since deleted from
+                # the cloud); an unreadable/malformed describe RAISES (fail closed) so
+                # a transient read never feeds a fabricated zone into reconciliation.
                 gpu_zone = k8s.gke_node_pool_zone(cluster_name, pool_name, cluster_location, project) or ""
             else:
                 gpu_zone = ""

@@ -201,11 +201,16 @@ def main() -> int:
                 except k8s.LifecycleError:
                     gpu_zone = ""
             if not gpu_zone:
+                # Tri-state: returns the live baseline GPU pool's ACTUAL zone, or
+                # None ONLY when that pool is CONFIRMED ABSENT; an unreadable/
+                # malformed describe RAISES (fail closed) rather than yielding a
+                # zone the caller could reconcile the existing pool onto.
                 gpu_zone = k8s.gke_node_pool_zone(cluster_name, gpu_pool_name, args.location, project) or ""
             if not gpu_zone:
-                # Cluster exists but its baseline GPU pool zone is unreadable (e.g. a
-                # partial prior create); fall back to the preflight so a genuine
-                # reconcile apply can still place the pool.
+                # Reached ONLY when the baseline GPU pool is confirmed absent (e.g. a
+                # partial prior create left the cluster without it): run the preflight
+                # so the reconcile apply can place a FRESH pool. An existing pool never
+                # reaches here — it yielded its real zone (or failed closed) above.
                 candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, args.location)
                 gpu_zone = k8s.select_gpu_zone(
                     project,
