@@ -100,9 +100,19 @@ other twelve are optional overrides (including the GKE managed-autoscaler bounds
 capacity-preflight MIG attach to. It defaults to `default`, so a project that
 retains the auto-created default VPC needs no override; **a custom-VPC-only
 project MUST set it** (name or self-link) or setup fails because no `default`
-network exists. Setup reads the live cluster's network back and fails if it does
-not match this value, and the GPU test pool reads the primary cluster's network
-so its probe can never drift to another VPC.
+network exists. No separate subnet variable is needed: a custom-mode VPC
+auto-creates no subnet, so on a FRESH create setup deterministically resolves the
+cluster's regional subnetwork from the selected network + cluster region
+(`resolve_cluster_subnet`, the cluster-side counterpart of the GPU probe's subnet
+resolver) and binds it explicitly — the auto-mode `default` VPC resolves to its
+regional `default` subnet (the same subnet GKE would auto-pick). The resolver is
+ambiguity-rejecting: if the selected VPC carves more than one subnet in the
+cluster region it fails closed rather than guessing, so the operator must scope
+the VPC to a single regional subnet (or a Shared-VPC service project whose host
+subnets are not locally listable falls back to GKE's own default selection).
+Setup then reads the live cluster's network back and fails if it does not match
+this value, and the GPU test pool reads the primary cluster's network so its
+probe can never drift to another VPC.
 
 The optional API-network-ACL capability is a PAIR. `GCP_K8S_AUTHORIZED_CIDRS`
 (comma-separated CIDRs; a bare IPv4 becomes `/32`) enables GKE authorized
@@ -232,8 +242,12 @@ Provider-specific behavior worth calling out:
 - **cluster-autoscaler:** setup enables GKE-managed autoscaling on the CPU/system
   pool (bounded min/max, read back and verified live) and emits provider-native
   evidence. GKE runs the autoscaler in its managed control plane, so there is no
-  in-cluster `cluster-autoscaler` Deployment; the released `K8sClusterAutoscalerCheck`
-  therefore stays on its structured-skip until it grows a provider-native mode.
+  in-cluster `cluster-autoscaler` Deployment. The released `K8sClusterAutoscalerCheck`
+  now has a provider-managed evidence mode: the config binds setup as its
+  `step_output` with `require_autoscaler: true`, so the check consumes that live
+  managed-autoscaling readback and PASSES (it no longer structured-skips on the
+  absent in-cluster Deployment; it fails closed if the bound pool is not
+  autoscaling with the requested bounds).
 - **CSI block storage:** setup discovers a live `pd.csi.storage.gke.io` block
   `StorageClass`, so the block-storage checks (types / quota / dynamic
   provisioning) run against a real class without an explicit `K8S_CSI_*` override.

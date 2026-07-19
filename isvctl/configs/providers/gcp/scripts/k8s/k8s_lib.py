@@ -2622,6 +2622,19 @@ def _zone_region(zone: str) -> str:
     return zone.rsplit("-", 1)[0]
 
 
+def _location_region(location: str) -> str:
+    """Region of a GKE cluster location: a REGIONAL value is returned unchanged; a
+    ZONAL value is reduced to its region (``us-central1-a`` -> ``us-central1``).
+    Anything else is passed through so a downstream read surfaces the real
+    invalid-location error rather than a silently mis-scoped subnet lookup."""
+    token = location.strip()
+    if _REGION_RE.match(token):
+        return token
+    if _ZONE_RE.match(token):
+        return _zone_region(token)
+    return token
+
+
 def _resolve_probe_subnet(project: str, network: str, region: str) -> str | None:
     """Name of a subnetwork in ``region`` that belongs to ``network`` (or None).
 
@@ -2666,6 +2679,86 @@ def _resolve_probe_subnet(project: str, network: str, region: str) -> str | None
             if name:
                 return str(name)
     return None
+
+
+def resolve_cluster_subnet(project: str, network: str, location: str) -> str:
+    """Regional subnetwork the GKE cluster should attach to within ``network``,
+    or ``""`` when GKE's own default selection suffices.
+
+    A custom-mode VPC (``auto_create_subnetworks=false``) — the exact case
+    ``GCP_K8S_NETWORK`` targets — auto-creates NO subnets, so a cluster created
+    with only ``--network`` (``subnetwork = null``) cannot place: GKE has no
+    default subnet to pick and the apply fails loudly. This is the cluster-side
+    counterpart of the GPU capacity probe's ``_resolve_probe_subnet``: it binds
+    the cluster to a concrete regional subnet of the SELECTED network so both
+    auto- and custom-mode VPCs provision from the same operator input.
+
+    Resolution is constrained to the selected network's own identity
+    (``_net_identity``, so a same-named subnet on ANOTHER VPC is never chosen) and
+    to the cluster location's region, and it is AMBIGUITY-REJECTING: exactly one
+    candidate subnet is bound; more than one (a custom-mode VPC carving several
+    subnets in the region) is a fail-closed config error rather than a silent,
+    non-deterministic pick. An auto-mode VPC names its single regional subnet
+    after the network, so that exact-name subnet is the deterministic choice even
+    if a stray extra subnet exists.
+
+    Returns ``""`` (Terraform binds ``subnetwork = null`` and GKE keeps its own
+    default selection) when no subnet in the region belongs to the network or the
+    read fails — the auto-mode ``default`` VPC and a Shared-VPC service project
+    whose host subnets are not listable here both keep today's behavior.
+
+    This does NOT relax the exact live network verification setup performs after
+    apply (``verify_and_read_network``); it only supplies the concrete subnet a
+    custom-mode network requires to place the cluster at all.
+    """
+    net_id = _net_identity(network)
+    if not net_id:
+        return ""
+    region = _location_region(location)
+    if not region:
+        return ""
+    rc, out = gcloud(
+        [
+            "compute",
+            "networks",
+            "subnets",
+            "list",
+            "--project",
+            project,
+            "--filter",
+            f"region:( {region} )",
+            "--format=json",
+        ],
+        timeout=60,
+        echo=False,
+    )
+    if rc != 0 or not out.strip():
+        return ""
+    try:
+        subnets = json.loads(out)
+    except json.JSONDecodeError:
+        return ""
+    matches = [
+        str(sn.get("name"))
+        for sn in (subnets if isinstance(subnets, list) else [])
+        if sn.get("name") and _net_identity(str(sn.get("network", ""))) == net_id
+    ]
+    if not matches:
+        return ""
+    if len(matches) == 1:
+        return matches[0]
+    named = [name for name in matches if _net_identity(name) == net_id]
+    if len(named) == 1:
+        return named[0]
+    raise LifecycleError(
+        "config_error",
+        f"[bucket=config_error] the operator-selected VPC '{network}' has "
+        f"{len(matches)} subnetworks in region '{region}' "
+        f"({', '.join(sorted(matches))}); setup cannot deterministically pick one "
+        "for the GKE cluster. Point GCP_K8S_NETWORK at a network with a single "
+        "subnet in the cluster region, or scope the VPC so exactly one subnet "
+        "serves this region.",
+    )
 
 
 def select_gpu_zone(
@@ -3571,12 +3664,13 @@ def gather_inventory(
         "gpu_resource_name": "nvidia.com/gpu",
         # GKE runs the Cluster Autoscaler in its MANAGED control plane — there is
         # NO in-cluster cluster-autoscaler Deployment to name (emitting one would
-        # point the released Deployment-shaped check at a nonexistent object).
-        # Instead emit PROVIDER-NATIVE autoscaler evidence (provider=managed,
-        # node_pool, enabled, min/max) read back + verified live off the system
-        # node pool, so a future provider-aware validator mode can consume it. The
-        # released K8sClusterAutoscalerCheck stays on its structured-skip (its
-        # default in-cluster Deployment probe finds nothing) until that mode ships.
+        # point the Deployment-shaped probe at a nonexistent object). Instead emit
+        # PROVIDER-NATIVE autoscaler evidence (provider=managed, node_pool, enabled,
+        # min/max) read back + verified live off the system node pool. The released
+        # K8sClusterAutoscalerCheck now has a provider-managed mode: bound via the
+        # config as its step_output (require_autoscaler: true), it consumes THIS
+        # evidence and passes live off the managed autoscaling readback — it no
+        # longer structured-skips on the absent in-cluster Deployment.
         "autoscaler": autoscaler or {},
         # Outside-vantage API-ACL probe, already RENDERED against this run's
         # resolved api_endpoint by setup (from --unauthorized-probe-template).

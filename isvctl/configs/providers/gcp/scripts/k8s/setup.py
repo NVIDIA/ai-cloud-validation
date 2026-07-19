@@ -244,12 +244,28 @@ def main() -> int:
         #    master_authorized_cidrs enables GKE authorized networks (empty -> block
         #    omitted, public endpoint open).
         k8s.terraform_init(k8s.CLUSTER_TF_DIR)
+        # A FRESH create must bind the concrete regional subnetwork the selected VPC
+        # requires: a custom-mode VPC auto-creates no subnet, so a null subnetwork
+        # cannot place the cluster (GKE has no default to pick). Resolve it
+        # deterministically from the selected network + cluster region, constrained
+        # to the network's own identity and ambiguity-rejecting (fail closed on a
+        # multi-subnet region rather than a silent guess). The auto-mode `default`
+        # VPC resolves to its regional `default` subnet — the same placement GKE
+        # would auto-pick — so the tested path is unchanged. On the ADOPT path the
+        # existing cluster's subnet is already fixed and read back live below, so no
+        # resolution (and no early ambiguity-raise before the teardown-capable
+        # import) is needed there.
+        cluster_subnetwork = "" if cluster_exists else k8s.resolve_cluster_subnet(project, network, args.location)
         tf_vars = {
             "project": project,
             "cluster_name": cluster_name,
             "location": args.location,
             "kube_version": args.kube_version,
             "network": network,
+            # Concrete regional subnet of the selected VPC (empty -> GKE's own default
+            # selection, the auto-mode / Shared-VPC path). Read back + verified live
+            # after apply via verify_and_read_network.
+            "subnetwork": cluster_subnetwork,
             # Stamp the full-run-identity ownership marker on the cluster ATOMICALLY
             # at creation (resource_labels) so a genuinely run-owned cluster always
             # carries it — the adopt/relabel/destroy paths then treat an absent or
