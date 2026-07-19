@@ -219,7 +219,7 @@ spec:
       serviceAccountName: mpi-operator
       containers:
         - name: mpi-operator
-          image: mpioperator/mpi-operator:v0.8.2
+          image: mpioperator/mpi-operator:0.8.2
           imagePullPolicy: IfNotPresent
           args:
             - -alsologtostderr
