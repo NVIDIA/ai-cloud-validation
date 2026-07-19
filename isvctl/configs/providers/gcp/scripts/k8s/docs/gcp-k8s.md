@@ -288,9 +288,19 @@ backstop, leaves the cluster and node pools untouched, and reports the reclaim â
 so a preserved run can never hide a leaked probe MIG behind a success-shaped
 result. When no probe cleanup is pending it short-circuits with no cloud calls.
 
+Preservation is driven by `GCP_K8S_SKIP_TEARDOWN` (it forwards `--skip-destroy`
+to every teardown step), and that variable is usually still exported in the
+shell that preserved the run. So the standalone teardown MUST force it back to
+`false` in the same command â€” otherwise the preserved variable turns this
+recovery cleanup into a success-shaped no-op that leaves the cluster, node
+pools, and secondary cluster allocated. Re-use the SAME `RUN_ID` so teardown
+re-derives the run-scoped resource names it must reclaim:
+
 ```bash
-# Standalone teardown for a previously-preserved run (re-use the SAME RUN_ID):
-RUN_ID=<original-run-id> uv run isvctl test run \
+# Standalone teardown for a previously-preserved run: disable preservation in
+# the SAME command (re-use the original RUN_ID). `unset GCP_K8S_SKIP_TEARDOWN`
+# beforehand works too.
+GCP_K8S_SKIP_TEARDOWN=false RUN_ID=<original-run-id> uv run isvctl test run \
   -f isvctl/configs/providers/gcp/config/k8s.yaml --phase teardown
 ```
 
