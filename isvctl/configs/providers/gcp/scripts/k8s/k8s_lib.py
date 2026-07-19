@@ -106,6 +106,25 @@ _TRANSIENT_TOKENS = (
 )
 _TRANSIENT_STATUS_RE = re.compile(r"(?:code|status|error|http\S*)[\s:=\]\[\"'>,]*\b(?:429|500|503|504)\b")
 
+# Terminal not-found (404) / conflict (409) status NUMBERS are recognized ONLY in an
+# explicit code/status/http/error context — NEVER as a bare substring. A run-scoped
+# resource name or project id can literally contain the digits "404"/"409", and
+# `_run` folds the WHOLE failing command (run-scoped names + project) into its
+# timeout diagnostic, so a bare-substring match could misread a TIMEOUT (or any
+# unrelated output) as a clean not-found/conflict — letting the existence/absence
+# helpers report a still-billable resource absent. Same context-anchored shape as
+# _TRANSIENT_STATUS_RE (deliberately never matches a bare number); the textual
+# `not found` / `already exists` tokens keep their own distinct match in
+# _classify_cli_output.
+_NOT_FOUND_STATUS_RE = re.compile(r"(?:code|status|error|http\S*)[\s:=\]\[\"'>,]*\b404\b")
+_CONFLICT_STATUS_RE = re.compile(r"(?:code|status|error|http\S*)[\s:=\]\[\"'>,]*\b409\b")
+
+# Stable marker `_run` appends to a TIMED-OUT command's folded output. A timeout is
+# an INCOMPLETE read — the command never returned a disposition — so it must classify
+# as transient (retry/raise), never as terminal not-found/conflict, even though the
+# folded command echo may carry a run-scoped name/project containing 404/409 digits.
+_TIMEOUT_MARKER = "[timed out after "
+
 # Integrated-GPU machine families carry their accelerator via the machine type
 # itself (g2 = L4, a2 = A100, a3 = H100/H200), so a raw-compute probe VM for
 # these needs NO `--accelerator` flag. Separate-accelerator shapes (e.g. n1)
@@ -345,7 +364,7 @@ def _run(
         partial = exc.output or ""
         if isinstance(partial, bytes):
             partial = partial.decode("utf-8", "replace")
-        return 124, f"{partial}\n[timeout after {timeout}s running: {' '.join(args)}]"
+        return 124, f"{partial}\n{_TIMEOUT_MARKER}{timeout}s running: {' '.join(args)}]"
     if echo and proc.stdout:
         sys.stderr.write(proc.stdout)
         sys.stderr.flush()
@@ -355,6 +374,12 @@ def _run(
 def _classify_cli_output(output: str) -> str:
     """Map a failing CLI output to a disposition bucket (best-effort)."""
     low = output.lower()
+    # A TIMED-OUT command never returned a real disposition — the folded echo of the
+    # whole command (run-scoped names + project ids) can contain 404/409 digits, so
+    # classify the timeout as transient FIRST, before any status-number match, so an
+    # unreadable-by-timeout describe is never misread as clean not-found/conflict.
+    if _TIMEOUT_MARKER in low:
+        return "transient"
     if any(tok.lower() in low for tok in _STOCKOUT_TOKENS):
         return "transient"
     if "quota_exceeded" in low or "quota exceeded" in low:
@@ -376,9 +401,9 @@ def _classify_cli_output(output: str) -> str:
         or ("constraint" in low and "denied" in low)
     ):
         return "access_denied"
-    if "not found" in low or "notfound" in low or "404" in low:
+    if "not found" in low or "notfound" in low or _NOT_FOUND_STATUS_RE.search(low):
         return "not_found"
-    if "already exists" in low or "alreadyexists" in low or "409" in low:
+    if "already exists" in low or "alreadyexists" in low or _CONFLICT_STATUS_RE.search(low):
         return "conflict"
     if "unauthenticated" in low or "invalid_grant" in low or "credentials" in low:
         return "credentials_invalid"
@@ -3636,36 +3661,17 @@ def _delete_disk_with_retry(project: str, disk: str, disk_zone: str, *, timeout:
     return False
 
 
-def delete_orphan_gpu_probes(project: str, *, timeout: int = 180, retries: int = 2) -> dict[str, Any]:
-    """Backstop: reclaim any GPU capacity-preflight probe resource THIS run left
-    behind.
+def _resolve_probe_mig_zone(project: str, mig_name: str, *, timeout: int) -> tuple[str | None, str | None]:
+    """Resolve the zone of an EXACT-named probe MIG, or classify its absence.
 
-    select_gpu_zone stands up throwaway size-1 GPU Managed Instance Groups (+ their
-    instance templates), named ``isv-gpumig-<run_id>-*`` / ``isv-gpuprobe-<run_id>-*``,
-    and deletes them inline best-effort; an unconfirmed inline delete would
-    otherwise leak a billable size-1 GPU MIG that no teardown step consumes (the
-    probe MIG is a standalone Compute resource, NOT part of any Terraform state and
-    NOT carrying the cluster label delete_orphan_pds scopes on). Reclaim by THIS
-    run's probe-name prefix (exact run-ownership via the run-scope id — never a
-    broad ``isv-gpumig-*`` sweep across other runs).
-
-    Returns ``{"deleted": [names], "failed": [names], "list_error": str | None}``
-    with the same contract as delete_orphan_pds, so the caller emits
-    ``cleanup_errors`` + ``success=False`` whenever a probe cannot be confirmed
-    reclaimed. A failed LISTING (distinct from an empty listing) surfaces as
-    ``list_error`` so an unverifiable probe never presents as a clean teardown.
+    Returns ``(zone, None)`` when the exact MIG is live in a readable zone,
+    ``(None, None)`` when it is CONFIRMED absent (a clean exact-name list with no
+    matching row), and ``(None, error)`` when the list itself could not be read
+    (fail closed — an unreadable list is never treated as absence). The filter is an
+    EXACT ``name=`` equality on the full persisted probe name (never a truncated
+    ``name~^prefix`` regex), so a concurrent run whose id shares this run's 8-char
+    scope can never be selected.
     """
-    try:
-        sid = run_scope_id()
-    except LifecycleError as exc:
-        return {"deleted": [], "failed": [], "list_error": exc.detail}
-    mig_prefix = normalize_gke_name(f"isv-gpumig-{sid}")
-    tmpl_prefix = normalize_gke_name(f"isv-gpuprobe-{sid}")
-
-    deleted: list[str] = []
-    failed: list[str] = []
-
-    # 1) Zonal Managed Instance Groups whose name is one of this run's probe MIGs.
     rc, out = gcloud(
         [
             "compute",
@@ -3675,23 +3681,80 @@ def delete_orphan_gpu_probes(project: str, *, timeout: int = 180, retries: int =
             "--project",
             project,
             "--filter",
-            f"name~^{mig_prefix}-",
+            f"name={mig_name}",
             "--format=value(name,zone.basename())",
         ],
         timeout=timeout,
         echo=False,
     )
     if rc != 0:
-        return {"deleted": [], "failed": [], "list_error": fold_tail(out, limit=600)}
+        return None, fold_tail(out, limit=600)
     for line in out.splitlines():
         parts = line.split()
         if len(parts) < 2:
             continue
-        mig, mig_zone = parts[0].strip(), parts[1].strip()
-        # Drop merged-stderr chatter: a real probe MIG row starts with THIS run's
-        # prefix and carries a valid zone basename in the second column.
-        if not mig.startswith(mig_prefix) or not _ZONE_RE.match(mig_zone):
-            continue
+        name, zone = parts[0].strip(), parts[1].strip()
+        if name == mig_name and _ZONE_RE.match(zone):
+            return zone, None
+    return None, None
+
+
+def delete_orphan_gpu_probes(project: str, *, timeout: int = 180, retries: int = 2) -> dict[str, Any]:
+    """Backstop: reclaim any GPU capacity-preflight probe resource THIS run left
+    behind, keyed by the EXACT persisted probe names.
+
+    select_gpu_zone stands up throwaway size-1 GPU Managed Instance Groups (+ their
+    instance templates) and deletes them inline best-effort; an unconfirmed inline
+    delete would otherwise leak a billable size-1 GPU MIG that no teardown step
+    consumes (the probe MIG is a standalone Compute resource, NOT part of any
+    Terraform state and NOT carrying the cluster label delete_orphan_pds scopes on).
+
+    ``mark_probes_pending`` fails CLOSED before EVERY probe create, so the retained-
+    probe marker holds the exact full names of every probe whose inline delete is not
+    yet confirmed. Reclaim is driven off THOSE exact names — never an ``isv-gpumig-
+    <8-char>-`` prefix sweep. The run-scope id is truncated to 8 chars for the GKE
+    name cap, so two runs sharing the first 8 chars of RUN_ID share that prefix; a
+    prefix sweep could then delete a CONCURRENT run's billable probe. Exact-name
+    reclaim (each name carries its own per-probe random discriminator) cannot select
+    another run's probes, satisfying the full-scoped-identity cleanup requirement.
+
+    Returns ``{"deleted": [names], "failed": [names], "list_error": str | None}``
+    with the same contract as delete_orphan_pds, so the caller emits
+    ``cleanup_errors`` + ``success=False`` whenever a probe cannot be confirmed
+    reclaimed. An UNREADABLE marker or a failed exact-name LIST (distinct from a
+    clean confirmed-absent) surfaces as ``list_error`` so an unverifiable probe never
+    presents as a clean teardown.
+    """
+    try:
+        marker_path = _retained_probes_marker_path()
+    except LifecycleError as exc:  # run-scope id unset
+        return {"deleted": [], "failed": [], "list_error": exc.detail}
+    try:
+        pending = _read_pending_probe_names(marker_path)
+    except OSError as exc:
+        # An EXISTING-but-unreadable marker must never be read as "nothing pending":
+        # fail closed so the caller surfaces an unverified probe rather than a clean
+        # teardown.
+        return {"deleted": [], "failed": [], "list_error": f"retained-probe marker {marker_path} unreadable: {exc}"}
+
+    # Partition the persisted names by their resource stem. Every recorded name is a
+    # zonal probe MIG or a global instance template (mark_probes_pending records the
+    # pair together at create time).
+    wanted_migs = [n for n in pending if n.startswith("isv-gpumig-")]
+    wanted_tmpls = [n for n in pending if n.startswith("isv-gpuprobe-")]
+
+    deleted: list[str] = []
+    failed: list[str] = []
+
+    # 1) Zonal Managed Instance Groups, reclaimed by EXACT persisted name. Resolve
+    #    each name's zone with an exact-name list (fail closed on an unreadable list),
+    #    then delete; a confirmed-absent MIG is already reclaimed.
+    for mig in wanted_migs:
+        zone, list_error = _resolve_probe_mig_zone(project, mig, timeout=timeout)
+        if list_error is not None:
+            return {"deleted": deleted, "failed": failed, "list_error": list_error}
+        if zone is None:
+            continue  # confirmed absent — nothing billable to reclaim
         if _delete_probe_resource(
             [
                 "compute",
@@ -3700,40 +3763,22 @@ def delete_orphan_gpu_probes(project: str, *, timeout: int = 180, retries: int =
                 "delete",
                 mig,
                 "--zone",
-                mig_zone,
+                zone,
                 "--project",
                 project,
                 "--quiet",
             ],
             kind="orphan probe MIG",
-            name=f"{mig} (zone {mig_zone})",
+            name=f"{mig} (zone {zone})",
             retries=retries,
         ):
             deleted.append(mig)
         else:
             failed.append(mig)
 
-    # 2) Global instance templates whose name is one of this run's probe templates.
-    rc, out = gcloud(
-        [
-            "compute",
-            "instance-templates",
-            "list",
-            "--project",
-            project,
-            "--filter",
-            f"name~^{tmpl_prefix}-",
-            "--format=value(name)",
-        ],
-        timeout=timeout,
-        echo=False,
-    )
-    if rc != 0:
-        return {"deleted": deleted, "failed": failed, "list_error": fold_tail(out, limit=600)}
-    for line in out.splitlines():
-        tmpl = line.strip()
-        if not tmpl or not tmpl.startswith(tmpl_prefix):
-            continue
+    # 2) Global instance templates, reclaimed by EXACT persisted name (a not_found
+    #    delete is confirmed-absent, so _delete_probe_resource returns True).
+    for tmpl in wanted_tmpls:
         if _delete_probe_resource(
             ["compute", "instance-templates", "delete", tmpl, "--project", project, "--quiet"],
             kind="orphan probe instance-template",

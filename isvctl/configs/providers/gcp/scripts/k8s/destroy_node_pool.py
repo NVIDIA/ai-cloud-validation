@@ -57,28 +57,43 @@ _PLACEHOLDER_MACHINE_TYPE = "e2-standard-4"
 _POOL_ADDRESS = "google_container_node_pool.this"
 
 
-def _resolve_parent_for_reconcile() -> str | tuple[str, str]:
+def _resolve_parent_for_reconcile(
+    fallback_cluster_name: str, fallback_location: str
+) -> str | tuple[str, str]:
     """Resolve the parent cluster ``(name, location)`` for the empty/absent pool-state
-    reconcile from the PRIMARY cluster state.
+    reconcile.
 
     A pool whose local state is absent or VALID-EMPTY no longer carries its own
     ``cluster_name`` / ``cluster_location`` outputs, so the parent identity needed to
     describe the exact pool live is recovered from the primary cluster state (the same
     source create_node_pool reads via terraform_remote_state). Returns:
 
-      * ``'absent'``     - the primary cluster state is absent OR valid-empty (the
-                           parent never existed / was already destroyed, so the pool
-                           cannot exist) -> the caller reports idempotent clean;
+      * ``(name, loc)``  - the parent identity to describe live. When the primary
+                           cluster state is present it comes from that state; when the
+                           primary state is ALSO absent/valid-empty it falls back to
+                           the DETERMINISTIC run-scoped parent (the same name/location
+                           create used), because local state loss does NOT prove the
+                           parent cluster (or the pool beneath it) is gone — the caller
+                           must still describe the exact resource live before reporting
+                           clean;
       * ``'unreadable'`` - the primary state is present but its address/identity cannot
-                           be read -> fail closed (ownership_unprovable);
-      * ``(name, loc)``  - the parent identity read cleanly.
+                           be read, OR local state is absent and no deterministic
+                           parent location was supplied -> fail closed
+                           (ownership_unprovable).
     """
     k8s.terraform_init(k8s.CLUSTER_TF_DIR)
     primary_class = k8s.classify_state(
         k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "google_container_cluster.primary"
     )
     if primary_class in ("absent", "empty"):
-        return "absent"
+        # Local state cannot distinguish "parent never created" from "parent state
+        # was lost while the run-owned cluster + pool are still live". Describe the
+        # DETERMINISTIC run-scoped parent live rather than reporting a false clean; a
+        # confirmed-absent parent (or pool) is then the only clean absence. Without a
+        # location we cannot describe the parent, so fail closed.
+        if not fallback_cluster_name or not fallback_location:
+            return "unreadable"
+        return (fallback_cluster_name, fallback_location)
     if primary_class == "unreadable":
         return "unreadable"
     try:
@@ -89,7 +104,13 @@ def _resolve_parent_for_reconcile() -> str | tuple[str, str]:
     return (cluster_name, cluster_location)
 
 
-def _reconcile_stateless_pool(project: str, pool_name: str, state_file: str) -> int:
+def _reconcile_stateless_pool(
+    project: str,
+    pool_name: str,
+    state_file: str,
+    fallback_cluster_name: str,
+    fallback_location: str,
+) -> int:
     """Reconcile the EXACT pool live when its local state is absent or VALID-EMPTY.
 
     File presence alone cannot distinguish "never created" from "already destroyed"
@@ -101,20 +122,7 @@ def _reconcile_stateless_pool(project: str, pool_name: str, state_file: str) -> 
     clean."""
     result: dict[str, Any] = {"success": False, "platform": PLATFORM}
     try:
-        parent = _resolve_parent_for_reconcile()
-        if parent == "absent":
-            result.update(
-                {
-                    "success": True,
-                    "message": (
-                        f"Node pool {pool_name} state {state_file} is absent/valid-empty and its "
-                        "parent cluster state is absent/valid-empty (the parent never existed or was "
-                        "already destroyed, so the pool cannot exist) - nothing to destroy."
-                    ),
-                    "resources_deleted": [],
-                }
-            )
-            return k8s.emit(result)
+        parent = _resolve_parent_for_reconcile(fallback_cluster_name, fallback_location)
         if parent == "unreadable":
             result.update(
                 {
@@ -122,9 +130,11 @@ def _reconcile_stateless_pool(project: str, pool_name: str, state_file: str) -> 
                     "error_type": "ownership_unprovable",
                     "error": (
                         f"[bucket=ownership_unprovable] refusing to report node pool {pool_name} "
-                        "clean: its local state is absent/valid-empty and the primary cluster state "
-                        "needed to identify its parent for a live reconcile is unreadable. A rerun "
-                        "with readable state recovers."
+                        "clean: its local state is absent/valid-empty and the parent cluster identity "
+                        "needed to describe the exact pool live is unprovable (the primary cluster "
+                        "state is unreadable, or no deterministic parent name/location was supplied). "
+                        "A rerun with readable state (or the parent cluster-name/location args) "
+                        "recovers."
                     ),
                     "resources_deleted": [],
                 }
@@ -182,6 +192,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Destroy a GKE test node pool via Terraform.")
     parser.add_argument("--pool-name", required=True, help="Node-pool name base (RUN_ID-suffixed by the stub).")
     parser.add_argument(
+        "--cluster-name",
+        default="",
+        help=(
+            "Parent cluster name BASE (RUN_ID-suffixed by the stub). Deterministic parent identity "
+            "so a state-loss reconcile can describe the exact pool live when BOTH the pool state and "
+            "the primary cluster state are absent/valid-empty."
+        ),
+    )
+    parser.add_argument(
+        "--location",
+        default="",
+        help="Parent cluster location; pairs with --cluster-name for the state-loss live reconcile.",
+    )
+    parser.add_argument(
         "--skip-destroy",
         action="store_true",
         help="Preserve the node pool for debugging (GCP_K8S_SKIP_TEARDOWN=true).",
@@ -206,6 +230,13 @@ def main() -> int:
         project = k8s.resolve_project_id()
         pool_name = k8s.scoped_name(args.pool_name)
         state_file = k8s.state_file_for_pool(pool_name)
+        # Deterministic parent identity for the state-loss reconcile: the SAME
+        # run-scoped cluster name + location create/teardown use. Passed to every
+        # pool-destroy invocation so a lost local state can still describe the exact
+        # parent + pool live before reporting clean (never a false "nothing to
+        # destroy" from local-state absence alone).
+        fallback_cluster_name = k8s.scoped_name(args.cluster_name) if args.cluster_name.strip() else ""
+        fallback_location = args.location.strip()
 
         # Initialize unconditionally (idempotent) so `terraform state list`
         # classification reads a ready local backend, then classify the pool's state
@@ -240,7 +271,9 @@ def main() -> int:
             # failed create apply — an ambiguous create) OR already destroyed in the
             # test phase (a valid-empty state). Reconcile the EXACT pool live and
             # report success only after confirmed cloud absence.
-            return _reconcile_stateless_pool(project, pool_name, state_file)
+            return _reconcile_stateless_pool(
+                project, pool_name, state_file, fallback_cluster_name, fallback_location
+            )
 
         # state_class == "tracked": the pool address is in state.
         # Recover the parent cluster wiring this pool PERSISTED in its OWN state at

@@ -367,6 +367,42 @@ def main() -> int:
                 pool_id = f"{cluster_id}/nodePools/{pool_name}"
                 k8s.terraform_import(k8s.CLUSTER_TF_DIR, state_file, address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.CLUSTER_TF_DIR, state_file, tf_vars)
+
+            # Live-shape verify the ADOPTED baseline pools before emitting inventory.
+            # After import + refresh-only, the pool outputs the released checks assert
+            # (machine type, replica count, zone, GPU accelerator) are seeded from the
+            # pool's OWN refreshed state, so a PRESERVED same-name pool whose real shape
+            # drifted from the contract would be emitted with a self-fulfilling shape
+            # the downstream checks then trivially satisfy. Describe each baseline pool
+            # LIVE and fail CLOSED unless it matches the contract inputs. The system
+            # pool is GKE-autoscaled (its live count floats between min/max — verified
+            # separately by verify_system_autoscaling), so its exact count is NOT
+            # asserted here; the fixed baseline GPU pool has its count, zone, and
+            # accelerator type/count checked.
+            k8s.verify_adopted_node_pool_shape(
+                cluster_name,
+                system_pool_name,
+                args.location,
+                project,
+                args.cpu_machine_type,
+                {},
+                [],
+                expected_node_count=None,
+                expected_node_locations=[k8s.zone_for_location(args.location)],
+            )
+            k8s.verify_adopted_node_pool_shape(
+                cluster_name,
+                gpu_pool_name,
+                args.location,
+                project,
+                args.gpu_machine_type,
+                {},
+                [],
+                expected_node_count=args.gpu_node_count,
+                expected_node_locations=[gpu_zone],
+                expected_accelerator_type=args.gpu_accelerator_type,
+                expected_accelerator_count=args.gpu_accelerator_count,
+            )
         else:
             # Fresh create (the cluster does not exist yet — nothing to adopt). An
             # apply timeout / interruption can submit the GKE cluster create and leave

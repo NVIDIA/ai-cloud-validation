@@ -171,6 +171,24 @@ def main() -> int:
                     pool_id = f"{secondary_id}/nodePools/{pool_name}"
                     k8s.terraform_import(k8s.SHARED_VPC_TF_DIR, state_file, pool_address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars)
+
+            # Live-shape verify the ADOPTED secondary node pool before emitting the
+            # multi_cluster payload. On the import + refresh-only adopt path the pool's
+            # shape is otherwise taken on trust from its own refreshed state, so a
+            # PRESERVED same-name pool whose real machine type, count, or zone drifted
+            # from the module contract would be accepted. Describe it LIVE and fail
+            # CLOSED on any mismatch (single-zone, fixed-count, no accelerator).
+            k8s.verify_adopted_node_pool_shape(
+                secondary_name,
+                pool_name,
+                args.location,
+                project,
+                k8s.SECONDARY_POOL_MACHINE_TYPE,
+                {},
+                [],
+                expected_node_count=k8s.SECONDARY_POOL_NODE_COUNT,
+                expected_node_locations=[k8s.zone_for_location(args.location)],
+            )
         else:
             # Fresh create: wrap the apply in ambiguous-create recovery so an apply
             # timeout / interruption that leaves the exact secondary cluster present

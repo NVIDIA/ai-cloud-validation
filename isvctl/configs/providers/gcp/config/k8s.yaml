@@ -227,6 +227,12 @@ commands:
         args:
           - "--pool-name"
           - "isv-test-delete-pool"
+          # Deterministic parent identity so a state-loss reconcile can describe the
+          # EXACT pool under its run-owned parent live before reporting clean.
+          - "--cluster-name"
+          - "isv-gke"
+          - "--location"
+          - "{{location}}"
         timeout: 1500
 
       # Teardown order: destroy both test node pools before the cluster teardown.
@@ -241,6 +247,12 @@ commands:
         args:
           - "--pool-name"
           - "isv-test-pool"
+          # Deterministic parent identity so a state-loss reconcile can describe the
+          # EXACT pool under its run-owned parent live before reporting clean.
+          - "--cluster-name"
+          - "isv-gke"
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 1500
 
@@ -250,6 +262,12 @@ commands:
         args:
           - "--pool-name"
           - "isv-test-gpu-pool"
+          # Deterministic parent identity so a state-loss reconcile can describe the
+          # EXACT pool under its run-owned parent live before reporting clean.
+          - "--cluster-name"
+          - "isv-gke"
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 1500
 
@@ -280,6 +298,12 @@ commands:
         args:
           - "--pool-name"
           - "isv-test-delete-pool"
+          # Deterministic parent identity so a state-loss reconcile can describe the
+          # EXACT pool under its run-owned parent live before reporting clean.
+          - "--cluster-name"
+          - "isv-gke"
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 1500
 
