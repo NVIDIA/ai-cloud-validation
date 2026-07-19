@@ -1880,28 +1880,42 @@ def _retained_probes_marker_path() -> Path:
     return CLUSTER_TF_DIR / f"retained-probes-{run_scope_id()}.marker"
 
 
-def record_retained_probes(retained: list[str]) -> None:
-    """Persist that an inline probe delete could not be confirmed this run.
+def _read_pending_probe_names(path: Path) -> list[str]:
+    """Probe names currently recorded in the marker (empty list on any read error)."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
-    ``select_gpu_zone`` stays best-effort about the cloud DELETE (it must not fail
-    a found capacity zone on a transient cleanup hiccup), but recording a genuine
-    retention is FAIL-CLOSED: a retained probe MIG is a standalone billable size-1
-    GPU resource, and this marker is how the preservation (``--skip-destroy``)
-    teardown path learns a probe-only reclaim is PENDING. Silently dropping the
-    record (the old best-effort behavior) would let that MIG bill forever while
-    teardown reports a clean success, so an UNRECORDABLE retained probe raises and
-    fails setup — a normal (non-skip) teardown still reclaims it unconditionally
-    via the run-scoped backstop, so failing loudly here never leaks. The write is
-    retried once before it is treated as fatal."""
-    if not retained:
+
+def mark_probes_pending(names: list[str]) -> None:
+    """Persist probe resource NAMES as pending-reclaim BEFORE they are created.
+
+    The inline probe delete runs in a ``finally``, but a HARD process kill (SIGKILL,
+    OOM, node eviction, harness timeout) during the SUCCESSFUL template/MIG create or
+    the subsequent capacity wait bypasses ``finally`` entirely — leaving a standalone
+    billable size-1 GPU MIG with NO marker. The preservation (``--skip-destroy``)
+    teardown then short-circuits on the empty marker and that MIG bills forever.
+    Recording the names UP FRONT closes that pre-marker interruption window: the
+    marker survives the kill, so preservation teardown still runs the run-scoped
+    backstop and reclaims the leak.
+
+    FAIL-CLOSED: refuse to create a billable probe we cannot track (raise) rather
+    than create an untracked one. A normal (non-skip) teardown reclaims it
+    unconditionally via the run-scoped backstop, so failing loudly here never leaks.
+    The write is retried once before it is treated as fatal. The names are cleared
+    again by ``clear_pending_probes`` once their inline delete is CONFIRMED, or wiped
+    wholesale by the teardown backstop once reclaim is confirmed."""
+    wanted = [name for name in names if name]
+    if not wanted:
         return
     path = _retained_probes_marker_path()
     last_exc: OSError | None = None
     for attempt in range(2):
         try:
-            with path.open("a", encoding="utf-8") as fh:
-                for name in retained:
-                    fh.write(f"{name}\n")
+            merged = list(dict.fromkeys(_read_pending_probe_names(path) + wanted))
+            path.write_text("\n".join(merged) + "\n", encoding="utf-8")
             return
         except OSError as exc:
             last_exc = exc
@@ -1909,10 +1923,10 @@ def record_retained_probes(retained: list[str]) -> None:
                 time.sleep(1)
     raise LifecycleError(
         "cleanup_incomplete",
-        f"[bucket=cleanup_incomplete] could not persist the retained GPU capacity-probe "
-        f"marker at {path} ({last_exc}); refusing to leave a billable probe MIG unrecorded "
-        "where the preservation (--skip-destroy) teardown path would miss it and report a "
-        "false clean success.",
+        f"[bucket=cleanup_incomplete] could not persist the pending GPU capacity-probe "
+        f"tracker at {path} ({last_exc}); refusing to CREATE a billable probe MIG we cannot "
+        "track, which a kill before the inline delete would strand and the preservation "
+        "(--skip-destroy) teardown path would miss.",
     )
 
 
@@ -1944,22 +1958,58 @@ def clear_retained_probes_marker() -> None:
         pass
 
 
+def clear_pending_probes(names: list[str]) -> None:
+    """Drop names from the pending-probe tracker once their inline delete is CONFIRMED
+    (both MIG + template gone).
+
+    Best-effort: if the rewrite fails, the names simply STAY pending and the teardown
+    backstop reclaims them (a harmless no-op once they are already deleted), so this
+    never fails a found-capacity zone. The marker file is removed when it empties so
+    the common preservation path stays a cheap short-circuit."""
+    drop = {name for name in names if name}
+    if not drop:
+        return
+    path = _retained_probes_marker_path()
+    try:
+        remaining = [name for name in _read_pending_probe_names(path) if name not in drop]
+        if remaining:
+            path.write_text("\n".join(remaining) + "\n", encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass  # leave the tracker in place; the run-scoped backstop still reclaims
+
+
 def _note_retained_probes(retained: list[str]) -> None:
-    """Surface any probe resource whose inline delete was not confirmed.
+    """Log any probe resource whose inline delete was NOT confirmed this run.
 
     The names are run-scoped (``isv-gpumig-<run_id>-*`` / ``isv-gpuprobe-<run_id>-*``),
-    so teardown's delete_orphan_gpu_probes backstop reclaims them deterministically
-    even though select_gpu_zone stays best-effort here (it must not fail a found
-    capacity zone on a transient cleanup hiccup). A durable marker is ALSO recorded
-    so the preservation (``--skip-destroy``) teardown path runs that backstop
-    instead of short-circuiting past a leaked billable MIG."""
+    and were already recorded as pending by ``mark_probes_pending`` BEFORE the probe
+    was created, so they REMAIN in the marker (never cleared here) and teardown's
+    run-scoped ``delete_orphan_gpu_probes`` backstop reclaims them deterministically —
+    select_gpu_zone stays best-effort about the cloud DELETE (it must not fail a found
+    capacity zone on a transient cleanup hiccup)."""
     if retained:
         log(
             f"note: GPU capacity preflight left {len(retained)} probe resource(s) "
-            f"unconfirmed-deleted ({'; '.join(retained)}); teardown's run-scoped probe "
-            "backstop will reclaim them."
+            f"unconfirmed-deleted ({'; '.join(retained)}); they remain recorded pending and "
+            "teardown's run-scoped probe backstop will reclaim them."
         )
-        record_retained_probes(retained)
+
+
+def _reclaim_probe(project: str, zone: str, mig_name: str, template_name: str) -> None:
+    """Inline-delete this zone's probe MIG + template and reconcile the pending tracker.
+
+    Both confirmed gone -> drop them from the tracker (keeps the common preservation
+    teardown a cheap short-circuit). Any unconfirmed -> the names STAY pending (they
+    were recorded by ``mark_probes_pending`` before create) and are logged, so
+    teardown's run-scoped backstop reclaims the billable MIG. Never raises — cleanup
+    must not mask the probe's own capacity result."""
+    retained = _delete_probe(project, zone, mig_name, template_name)
+    if retained:
+        _note_retained_probes(retained)
+    else:
+        clear_pending_probes([mig_name, template_name])
 
 
 def _zone_region(zone: str) -> str:
@@ -2058,6 +2108,14 @@ def select_gpu_zone(
         mig_name = normalize_gke_name(f"isv-gpumig-{run_scope_id()}-{disc}")[:60]
         log(f"GPU capacity preflight: probing zone {zone} (mig={mig_name})...")
 
+        # Record BOTH probe names as pending-reclaim BEFORE the first create. A hard
+        # kill during the template/MIG create or the capacity wait bypasses the
+        # inline-delete finally below, so without this pre-create marker a billable
+        # size-1 GPU MIG could survive with no signal and the preservation teardown
+        # would short-circuit clean. FAIL-CLOSED: a marker we cannot write refuses the
+        # create rather than standing up an untracked probe.
+        mark_probes_pending([template_name, mig_name])
+
         selected_network = network or "default"
         region = _zone_region(zone)
         # Resolve a subnet in THIS zone's region that belongs to the selected VPC.
@@ -2112,7 +2170,7 @@ def select_gpu_zone(
             # (e.g. malformed template) — surface + FAIL, never treat as
             # no-capacity and walk on.
             if not _output_has_stockout(out):
-                _note_retained_probes(_delete_probe(project, zone, mig_name, template_name))
+                _reclaim_probe(project, zone, mig_name, template_name)
                 bucket = _classify_cli_output(out)
                 raise LifecycleError(
                     bucket,
@@ -2120,7 +2178,7 @@ def select_gpu_zone(
                     f"{zone} with a NON-stockout error (config/policy/quota, not "
                     f"capacity): {fold_tail(out)}",
                 )
-            _note_retained_probes(_delete_probe(project, zone, mig_name, template_name))
+            _reclaim_probe(project, zone, mig_name, template_name)
             log(f"  zone {zone}: stockout on template create; trying next zone")
             continue
 
@@ -2134,7 +2192,7 @@ def select_gpu_zone(
                 poll_interval=poll_interval,
             )
         finally:
-            _note_retained_probes(_delete_probe(project, zone, mig_name, template_name))
+            _reclaim_probe(project, zone, mig_name, template_name)
 
         if capacity == "capacity":
             log(f"  zone {zone}: HAS capacity -> selecting")

@@ -283,25 +283,34 @@ def main() -> int:
             # local-state entry must never authorize mutating the live cluster.
             k8s.verify_cluster_ownership(cluster_name, args.location, project)
             if not cluster_in_state:
-                # Before importing a cluster this worktree's state does not yet
-                # track, also verify the contract-relevant network BEFORE the import
-                # makes the cluster eligible for teardown's destroy, so an adopted
-                # cluster on an unexpected substrate is never imported with a
-                # mismatched network.
+                # PERSIST A CLEANUP-CAPABLE HANDOFF FIRST, before ANY fallible
+                # validation. Ownership is PROVEN above, so this cluster is genuinely
+                # this run's — import it into Terraform state immediately so teardown
+                # can always destroy it. Importing a proven-owned cluster is safe.
+                # If instead the contract validation below ran first and raised, the
+                # cluster would have NO local state, and a default teardown would then
+                # see "no state" and report a false "nothing to destroy" while a
+                # billable run-owned cluster stayed allocated. Ordering the import
+                # before the network check closes that owned-cluster-escapes-teardown
+                # window.
+                k8s.terraform_import(
+                    k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary", cluster_id, tf_vars
+                )
+                # Now validate the contract-relevant network. A mismatch REJECTS the
+                # cluster FOR TESTING (raise), but the import above means teardown
+                # retains full capability to destroy this run-owned cluster even
+                # though it sits on an unexpected substrate — no leak, no false clean.
                 observed_net, _observed_subnet, _status = k8s.read_cluster_membership(
                     cluster_name, args.location, project
                 )
                 if not k8s.same_network(observed_net, network):
                     raise k8s.LifecycleError(
                         "config_error",
-                        f"[bucket=config_error] refusing to adopt cluster {cluster_name}: it is "
-                        f"attached to network '{observed_net}', not the operator-selected VPC "
-                        f"'{network}'. An adopted cluster on an unexpected network would be "
-                        "imported (and later destroyed) with a mismatched substrate.",
+                        f"[bucket=config_error] refusing to adopt cluster {cluster_name} for testing: "
+                        f"it is attached to network '{observed_net}', not the operator-selected VPC "
+                        f"'{network}'. It was imported into Terraform state first so teardown can still "
+                        "destroy this run-owned cluster; it is rejected here only for testing.",
                     )
-                k8s.terraform_import(
-                    k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary", cluster_id, tf_vars
-                )
             # The baseline pools are declared INSIDE the cluster module (no separate
             # tfstate), so importing the cluster alone leaves them untracked and a
             # later reconcile apply tries to CREATE the already-live pools (the
