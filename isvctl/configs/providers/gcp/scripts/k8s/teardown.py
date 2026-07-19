@@ -325,29 +325,37 @@ def main() -> int:
         except BaseException as exc:
             destroy_error = exc
 
-        # 4) Backstop: reclaim any PVC-backed PD whose CSI delete raced teardown, by
-        #    THIS run's cluster label across every zone a run-owned pool may have
-        #    selected (baseline + test GPU pool pick zones independently). Reached
-        #    only once ownership is proven (a definitive non-ownership signal returned
-        #    above), so the cluster-labeled disks scanned here are genuinely run-owned.
-        # 5) Backstop: reclaim any GPU capacity-preflight probe MIG / template this
-        #    run left behind (setup + create_test_gpu_node_pool each probe). A probe
-        #    MIG is a standalone billable size-1 GPU resource outside Terraform state
-        #    and without the cluster label, so nothing else reclaims it.
-        # Each backstop runs in its OWN guarded block, independent of the destroy
-        # outcome, so a destroy raise no longer skips the destroy-independent reclaim.
-        reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
+        # 4) Backstop (always safe): reclaim any GPU capacity-preflight probe MIG /
+        #    template this run left behind (setup + create_test_gpu_node_pool each
+        #    probe). A probe MIG is a standalone billable size-1 GPU resource outside
+        #    Terraform state, scoped purely to THIS run's id and INDEPENDENT of the
+        #    cluster, so it runs on every exit — including a failed destroy — in its
+        #    own guarded block.
         probe_reclaim, probe_errors = _reclaim_gpu_probes(project)
-        cleanup_errors = pd_errors + probe_errors
 
         if destroy_error is not None:
-            # The destroy failure is the primary, UNMASKED error (teardown fails
-            # visibly and a rerun recovers). Attach any backstop status so a retained
-            # billable resource is still reported alongside it.
+            # The cluster destroy FAILED, so the cluster may still be live. Do NOT run
+            # the PD backstop now: deleting cluster-labeled disks while the cluster
+            # still exists could delete disks still attached to, or protected for, that
+            # live cluster. The destroy failure is the primary, UNMASKED error
+            # (teardown fails visibly; a rerun recovers and, once the cluster is
+            # confirmed gone, reclaims the disks). Attach any probe-reclaim status so a
+            # retained billable probe MIG is still reported alongside it.
             result = k8s.error_result(PLATFORM, destroy_error)
-            if cleanup_errors:
-                result["cleanup_errors"] = cleanup_errors
+            if probe_errors:
+                result["cleanup_errors"] = probe_errors
             return k8s.emit(result)
+
+        # 5) Backstop: reclaim any PVC-backed PD whose CSI delete raced teardown, by
+        #    THIS run's cluster label across every zone a run-owned pool may have
+        #    selected (baseline + test GPU pool pick zones independently). Reached
+        #    ONLY after the cluster destroy is CONFIRMED (terraform_destroy returned no
+        #    error, which also covers an already not-found cluster) AND ownership was
+        #    proven above, so the cluster-labeled disks scanned here are genuinely
+        #    run-owned AND their cluster is gone. Each disk is additionally described
+        #    and required to be detached/deletable before deletion.
+        reclaim, pd_errors = _reclaim_orphan_pds(project, cluster_name)
+        cleanup_errors = pd_errors + probe_errors
 
         # A failed disk/probe LISTING or any surviving resource means run-owned
         # (billable) resources cannot be confirmed reclaimed — never present that as

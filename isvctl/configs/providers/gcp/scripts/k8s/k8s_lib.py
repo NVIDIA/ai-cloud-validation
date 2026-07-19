@@ -704,6 +704,52 @@ def gke_node_pool_zone(
     return None
 
 
+# Recognized GKE node-pool status tokens (gcloud may merge a WARNING line into a
+# `value(status)` render, so only a known token is accepted as a pool state).
+_GKE_POOL_STATES = frozenset(
+    {"PROVISIONING", "RUNNING", "RUNNING_WITH_ERROR", "RECONCILING", "STOPPING", "ERROR", "STATUS_UNSPECIFIED"}
+)
+# Terminally-unhealthy GKE node-pool states: a pool here has failed and will not
+# converge on its own, so a completion gate must fail closed rather than wait out
+# its whole timeout.
+_GKE_POOL_ERROR_STATES = frozenset({"ERROR", "RUNNING_WITH_ERROR"})
+
+
+def gke_node_pool_status(cluster_name: str, pool_name: str, location: str, project: str, *, timeout: int = 120) -> str:
+    """Return the live GKE node-pool status (RUNNING, RECONCILING, PROVISIONING,
+    ERROR, RUNNING_WITH_ERROR, STOPPING, ...), or '' when it cannot be read.
+
+    The CPU pool completion gate polls this so an adopted or still-reconciling pool
+    must reach a healthy RUNNING state before the step emits success. Only a
+    recognized GKE status token is returned; unrecognized chatter (e.g. a merged
+    gcloud WARNING line) resolves to '' so the caller keeps waiting rather than
+    misreading a diagnostic line as a pool state."""
+    rc, out = gcloud(
+        [
+            "container",
+            "node-pools",
+            "describe",
+            pool_name,
+            "--cluster",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=value(status)",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        return ""
+    for line in out.splitlines():
+        token = line.strip()
+        if token in _GKE_POOL_STATES:
+            return token
+    return ""
+
+
 _GKE_EFFECT_TO_K8S = {
     "NO_SCHEDULE": "NoSchedule",
     "PREFER_NO_SCHEDULE": "PreferNoSchedule",
@@ -2641,6 +2687,89 @@ def wait_gpu_pool_ready_and_bridge(
     return ready_names
 
 
+def _ready_pool_node_names(label_selector: str) -> list[str]:
+    """Names of nodes matching ``label_selector`` whose Kubernetes Ready condition
+    is True. Scoped to ONE pool's own selector
+    (``cloud.google.com/gke-nodepool=<pool>``) so another pool's Ready nodes never
+    satisfy this pool's readiness count. CPU analog of ``_ready_gpu_node_names``
+    without the GPU-allocatable / device-plugin gate."""
+    nodes = _kubectl_json(["get", "nodes", "-l", label_selector, "-o", "json"])
+    items = (nodes or {}).get("items", []) if isinstance(nodes, dict) else []
+    ready: list[str] = []
+    for node in items:
+        name = (node.get("metadata", {}) or {}).get("name")
+        conditions = (node.get("status", {}) or {}).get("conditions", []) or []
+        is_ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+        if name and is_ready:
+            ready.append(name)
+    return ready
+
+
+def wait_cpu_pool_ready(
+    cluster_name: str,
+    pool_name: str,
+    location: str,
+    project: str,
+    label_selector: str,
+    expected_count: int,
+    *,
+    timeout: int = 240,
+    poll_interval: int = 15,
+) -> list[str]:
+    """Pool-scoped completion gate for a CPU node pool (create / in-state scale /
+    adopt).
+
+    Enforces the SAME observable-completion contract the GPU pool gate and the
+    fresh Terraform apply enforce, so an ADOPTED or still-reconciling CPU pool can
+    never emit success before it has actually converged:
+
+      1. The live GKE node pool reaches a healthy ``RUNNING`` state — a
+         ``RECONCILING`` / ``PROVISIONING`` pool is still settling (keep waiting);
+         an ``ERROR`` / ``RUNNING_WITH_ERROR`` pool RAISES immediately so success
+         stays false instead of waiting out the whole timeout.
+      2. ``expected_count`` nodes matching THIS pool's own ``label_selector`` are
+         Ready in Kubernetes.
+
+    Scoping to the pool's own selector means another pool's already-Ready nodes can
+    never satisfy this pool's readiness count. A timeout, a terminal-error pool
+    state, or too few Ready nodes RAISES so the caller's step success stays false
+    and the released node-pool checks never run against an unready pool."""
+    if expected_count <= 0:
+        raise LifecycleError(
+            "config_error",
+            f"[bucket=config_error] CPU pool completion gate needs a positive expected node count, got {expected_count}.",
+        )
+    deadline = time.time() + timeout
+    ready_names: list[str] = []
+    pool_status = ""
+    while time.time() < deadline:
+        pool_status = gke_node_pool_status(cluster_name, pool_name, location, project)
+        if pool_status in _GKE_POOL_ERROR_STATES:
+            raise LifecycleError(
+                "unknown_error",
+                f"[bucket=unknown_error] CPU node pool {pool_name} on {cluster_name} is in a "
+                f"terminal-unhealthy state '{pool_status}'; refusing to emit success for an errored pool.",
+            )
+        if pool_status == "RUNNING":
+            ready_names = _ready_pool_node_names(label_selector)
+            if len(ready_names) >= expected_count:
+                break
+        log(
+            f"  waiting for CPU pool '{pool_name}' to be RUNNING with {expected_count} Ready "
+            f"node(s) (status={pool_status or 'unknown'}, ready={len(ready_names)})..."
+        )
+        time.sleep(poll_interval)
+    else:
+        raise LifecycleError(
+            "transient",
+            f"[bucket=transient] CPU pool completion gate timed out: pool {pool_name} "
+            f"status='{pool_status or 'unknown'}', only {len(ready_names)}/{expected_count} "
+            f"node(s) matching '{label_selector}' reached Ready within {timeout}s.",
+        )
+    log(f"  CPU pool '{pool_name}' ready: RUNNING with {len(ready_names)} Ready node(s).")
+    return ready_names
+
+
 def _probe_driver_version(*, timeout: int = 45) -> str | None:
     """Best-effort read of the GPU driver version from the ALREADY-RUNNING
     GKE-managed GPU device-plugin DaemonSet pod (``kubectl exec nvidia-smi``).
@@ -2922,11 +3051,71 @@ def delete_orphan_pds(project: str, cluster_name: str, *, timeout: int = 180, re
         # second column, so gate on that shape and drop any non-disk chatter.
         if not disk or not _ZONE_RE.match(disk_zone):
             continue
+        # Describe the EXACT disk and confirm a deletable/detached live state BEFORE
+        # deleting it. The backstop reclaims PVC-backed disks the CSI driver leaked
+        # AFTER the cluster is confirmed gone, so a genuine orphan is detached. A
+        # disk still ATTACHED to a live instance (its `users` list is non-empty)
+        # means a consumer — most likely a cluster whose destroy did not actually
+        # complete — still holds it; force-deleting it could pull a disk out from
+        # under a live cluster. A describe error that is not a clean not-found leaves
+        # the disk's state UNKNOWN. In both cases refuse to delete and report the
+        # disk (via `failed`) so the caller emits cleanup_errors + success=False
+        # rather than a destructive best-effort delete.
+        state, detail = _disk_reclaim_state(project, disk, disk_zone, timeout=timeout)
+        if state == "gone":
+            # Already deleted (the CSI driver won the race) — confirmed reclaimed.
+            deleted.append(disk)
+            continue
+        if state != "detached":
+            log(f"warning: disk {disk} in {disk_zone} not reclaimed ({state}): {detail}")
+            failed.append(disk)
+            continue
         if _delete_disk_with_retry(project, disk, disk_zone, timeout=timeout, retries=retries):
             deleted.append(disk)
         else:
             failed.append(disk)
     return {"deleted": deleted, "failed": failed, "list_error": None}
+
+
+def _disk_reclaim_state(project: str, disk: str, disk_zone: str, *, timeout: int = 120) -> tuple[str, str]:
+    """Describe one exact disk and classify whether the PD backstop may delete it.
+
+    Returns one of:
+      * ``("detached", "")``          - present and NOT attached to any instance -> safe to delete.
+      * ``("attached", detail)``      - a live instance still holds it (``users`` non-empty);
+                                        a consumer (most likely a cluster whose destroy did
+                                        not complete) still uses it -> must NOT delete.
+      * ``("gone", "")``              - describe returns a clean not-found -> already reclaimed.
+      * ``("describe_error", detail)``- describe failed for another reason -> the disk's
+                                        deletable state cannot be confirmed -> must NOT delete.
+    """
+    rc, out = gcloud(
+        [
+            "compute",
+            "disks",
+            "describe",
+            disk,
+            "--zone",
+            disk_zone,
+            "--project",
+            project,
+            "--format=json",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        if _classify_cli_output(out) == "not_found":
+            return ("gone", "")
+        return ("describe_error", fold_tail(out, limit=400))
+    try:
+        payload = json.loads(out) or {}
+    except json.JSONDecodeError as exc:
+        return ("describe_error", f"unparseable disk describe JSON: {exc}")
+    users = payload.get("users") or []
+    if users:
+        return ("attached", f"still attached to {len(users)} instance(s): {users}")
+    return ("detached", "")
 
 
 def _delete_disk_with_retry(project: str, disk: str, disk_zone: str, *, timeout: int = 180, retries: int = 2) -> bool:

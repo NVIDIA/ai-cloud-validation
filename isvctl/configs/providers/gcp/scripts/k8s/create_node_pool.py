@@ -28,13 +28,26 @@ env var (update re-applies in place; destroy re-derives the same file). Cluster
 wiring (name, location) is read from the primary cluster's state via
 terraform_remote_state.
 
+Before ANY pool lookup, refresh, import, or apply, the parent cluster is proven to
+carry THIS run's exact full-run-identity ownership marker (verify_cluster_ownership)
+— on every path (fresh create, in-state scale, adopt) — so a stale pool state can
+never create/scale/reconcile a pool inside a colliding same-name foreign cluster.
+
+Every path ends on a POOL-SCOPED completion gate so success means the pool actually
+converged, not just that Terraform/import returned:
+  * GPU pool: wait for THIS pool's own nodes (its label_selector) to be Ready with
+    allocatable nvidia.com/gpu, then apply and read back nvidia.com/gpu.present=true
+    on exactly those nodes so the released GPU checks discover them.
+  * CPU pool: require a healthy RUNNING GKE pool state and THIS pool's requested
+    Ready-node count (its own label_selector) to converge — the adopt path only
+    imports+refreshes (never applies), so this gate is what stops an unready
+    RECONCILING/ERROR adopted CPU pool from reporting success.
+A timeout, unhealthy pool state, labeling error, missing node, or readback mismatch
+keeps step success false.
+
 For a GPU pool the zone is chosen by the same capacity preflight setup uses (a
 GKE node-pool CREATE op cannot be cancelled, so the pool is never created in an
-unprobed zone). After apply, a POOL-SCOPED completion gate waits for THIS pool's
-own nodes (its label_selector) to be Ready with allocatable nvidia.com/gpu, then
-applies and reads back nvidia.com/gpu.present=true on exactly those nodes so the
-released GPU checks discover them. A timeout, labeling error, missing node, or
-readback mismatch keeps step success false.
+unprobed zone).
 
 Emits the `node_pool` schema the suite reads via {{steps.<step>.*}}.
 
@@ -70,6 +83,13 @@ _GPU_APPLY_TIMEOUT = 3000
 # back nvidia.com/gpu.present=true. Kept well under the config step cap (3000s)
 # minus the preflight + apply + kubeconfig worst case (see config/k8s.yaml).
 _GPU_POOL_READY_TIMEOUT = 360
+
+# Pool-scoped CPU completion-gate budget (CPU pools): after apply/adopt, require
+# the live GKE pool to reach a healthy RUNNING state and THIS pool's requested
+# Ready node count to converge. CPU nodes register Ready within a couple minutes;
+# this stays well under the CPU step cap (1800s) and under the inner apply budget
+# (never an outer step timeout shorter than any inner wait).
+_CPU_POOL_READY_TIMEOUT = 240
 
 
 def _parse_json_object(raw: str, flag: str) -> dict[str, Any]:
@@ -129,6 +149,18 @@ def main() -> int:
         # destroy resolves even after the primary state's outputs are gone.
         cluster_name = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "cluster_name")
         cluster_location = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "location")
+
+        # FAIL CLOSED before ANY pool lookup, refresh, import, or Terraform apply:
+        # prove the parent cluster still carries THIS run's exact full-run-identity
+        # ownership marker. The pool lives INSIDE this cluster, and neither local
+        # pool state (in_state) nor a bare run-scoped name match proves the cluster
+        # is the one this run created — a state-tracked cluster that was deleted and
+        # replaced by a colliding same-name FOREIGN cluster would otherwise let a
+        # stale pool state create, scale, or reconcile a pool inside that foreign
+        # cluster. Every mutation path (fresh create, in-state reconcile/scale, and
+        # adopt) passes through this single gate, so no path can mutate a pool in a
+        # cluster this run does not own.
+        k8s.verify_cluster_ownership(cluster_name, cluster_location, project)
 
         # The harness preserves run-scoped resources (GCP_K8S_SKIP_TEARDOWN), so
         # this pool may already exist from an earlier per-step worker in the run
@@ -200,12 +232,11 @@ def main() -> int:
             # (update_test_node_pool scaling the CPU pool) then sees it in-state and
             # reconciles in place via the apply branch below.
             #
-            # FAIL CLOSED before importing: the pool lives INSIDE the primary
-            # cluster, so prove that cluster carries THIS run's full-identity
-            # ownership marker first. Importing a pool under a cluster this run does
-            # not own would make the pool eligible for teardown's destroy on a bare
-            # name match.
-            k8s.verify_cluster_ownership(cluster_name, cluster_location, project)
+            # Parent-cluster ownership was already proven above (before any pool
+            # lookup), so this import is safe: the pool lives inside a cluster this
+            # run demonstrably owns. Importing a pool under a cluster this run did not
+            # own would make the pool eligible for teardown's destroy on a bare name
+            # match — the exact case the up-front verify_cluster_ownership gate blocks.
             pool_id = f"projects/{project}/locations/{cluster_location}/clusters/{cluster_name}/nodePools/{pool_name}"
             k8s.terraform_import(k8s.NODE_POOL_TF_DIR, state_file, "google_container_node_pool.this", pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.NODE_POOL_TF_DIR, state_file, tf_vars)
@@ -259,6 +290,27 @@ def main() -> int:
             # pool's readiness count.
             k8s.install_kubeconfig(cluster_name, cluster_location, project)
             k8s.wait_gpu_pool_ready_and_bridge(label_selector, desired_size, timeout=_GPU_POOL_READY_TIMEOUT)
+        else:
+            # CPU pool completion gate — the SAME live completion contract the GPU
+            # path and the fresh Terraform apply enforce, applied to EVERY CPU path
+            # (fresh create, in-state scale, AND adopt). On the adopt path the pool is
+            # only imported + refreshed (never applied), so without this gate an
+            # adopted CPU pool would emit success from static shape alone while it was
+            # still RECONCILING/ERROR or short of its Ready node count. Ensure kubectl
+            # reaches the cluster, then require a healthy RUNNING GKE pool state and
+            # THIS pool's requested Ready-node count (its own label_selector) to
+            # converge before emitting success. A timeout, terminal-error pool state,
+            # or too-few Ready nodes RAISES here, keeping step success false.
+            k8s.install_kubeconfig(cluster_name, cluster_location, project)
+            k8s.wait_cpu_pool_ready(
+                cluster_name,
+                pool_name,
+                cluster_location,
+                project,
+                label_selector,
+                desired_size,
+                timeout=_CPU_POOL_READY_TIMEOUT,
+            )
 
         # Store labels/taints/instance-types as JSON STRINGS: Jinja renders step
         # outputs as strings, so the check json-parses these back.

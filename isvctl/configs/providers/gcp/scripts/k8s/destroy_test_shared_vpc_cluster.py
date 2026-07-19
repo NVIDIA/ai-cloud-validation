@@ -19,7 +19,7 @@
 Runs BEFORE the primary teardown so the secondary releases the shared network
 first. Exact-ownership cleanup via the threaded secondary-cluster state.
 Idempotent: an already-absent secondary (no state / never ran — the step is
-gated by the unreleased K8sMultiClusterSameVpcCheck) is success. The location /
+gated by the released K8sMultiClusterSameVpcCheck) is success. The location /
 network / subnetwork vars are re-derived from the SECONDARY's OWN persisted state
 (not the primary's) so the var-less destroy resolves even after a best-effort
 teardown already destroyed the primary — no "No value for required variable" and
