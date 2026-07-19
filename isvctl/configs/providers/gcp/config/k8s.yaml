@@ -412,8 +412,15 @@ tests:
         # MPI Operator (scripts/k8s/manifests/mpi-operator-v0.8.2.yaml) and gates
         # on its CRD + controller readiness, so this multi-node workload runs (it
         # no longer structured-skips on the missing GKE-default MPI Operator).
+        # The released MPIJob launcher pins a node-role.kubernetes.io/control-plane
+        # nodeAffinity, but GKE is a managed control plane with no schedulable
+        # control-plane node, so the launcher would stay Pending and time out.
+        # override_launcher_affinity drops that affinity so the launcher schedules
+        # on any Ready worker node; the MPI Operator readiness gate and the
+        # released bandwidth floor are unchanged.
         K8sNcclMultiNodeWorkload:
           nodes: 2
+          override_launcher_affinity: true
         # Both 3B NIM paths cap the vLLM KV-cache token budget so llama-3.2-3b's
         # default 128K context fits the 24 GB L4 profile (the shared workloads
         # forward nim_max_model_len as NIM_MAX_MODEL_LEN). A2/A100 memory is not
