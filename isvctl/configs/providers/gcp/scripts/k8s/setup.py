@@ -600,6 +600,15 @@ def main() -> int:
             {
                 "success": True,
                 "cluster_name": cluster_name,
+                # The resolved GKE location (region for a regional cluster, zone for
+                # a zonal one) — the same value every gke read above used to identify
+                # the cluster. Emitted top-level so the downstream telemetry checks
+                # (K8sControlPlaneLogsCheck) can bind resource.labels.location to
+                # {{steps.setup.location}}; GKE control-plane component logs are
+                # keyed by project/location/cluster_name, so without this output the
+                # location clause would render empty and query a different (or no)
+                # cluster's logs.
+                "location": args.location,
                 # The canonically-resolved project (explicit -> GOOGLE_CLOUD_PROJECT
                 # / GCLOUD_PROJECT -> google.auth.default() ADC, via resolve_project).
                 # Downstream telemetry checks (K8sControlPlaneLogsCheck) bind their
