@@ -255,7 +255,7 @@ tests:
     def test_foundational_module_checks_declare_foundational(self) -> None:
         """Once-per-lab API module checks carry platforms ["foundational"]."""
         catalog = build_catalog(released_only=False)
-        foundational_modules = {"iam", "control_plane", "image_registry", "network", "observability"}
+        foundational_modules = {"iam", "control_plane", "image_registry", "network", "observability", "security"}
         for entry in catalog:
             if foundational_modules & set(entry["modules"]):
                 assert entry["platforms"] == ["foundational"], (
@@ -288,35 +288,32 @@ tests:
         assert platform_map == {"RestrictedCheck": {"bare_metal", "vm"}}
         assert module_map == {"RestrictedCheck": {"security"}, "UnrestrictedCheck": {"security"}}
 
-    def test_declared_platforms_reach_catalog_entries(self) -> None:
-        """The migrated CAP04 checks carry their declared platforms, not a label."""
+    def test_cap04_checks_are_foundational(self) -> None:
+        """The self-contained CAP04 checks run once with the security module."""
         catalog = build_catalog(released_only=False)
         by_name = {e["name"]: e for e in catalog}
         for name in ("CapacityReservationGroupingCheck", "CapacityTopologyBlockAtomicAllocationCheck"):
             entry = by_name[name]
-            assert entry["platforms"] == ["bare_metal"]
+            assert entry["platforms"] == ["foundational"]
             assert entry["modules"] == ["security"]
             assert "bare_metal" not in entry["labels"]
 
-    def test_filled_module_suites_carry_runtime_platforms(self) -> None:
-        """Security/storage checks declare the four runtime columns unless a
-        narrower subset is intended (the CAP04 pair)."""
+    def test_storage_suite_checks_carry_runtime_platforms(self) -> None:
+        """Every check in the self-contained storage suite supports each runtime column."""
         from isvtest.catalog import _build_axis_maps
 
         runtime_platforms = ["bare_metal", "kubernetes", "slurm", "vm"]
-        bare_metal_only = {"CapacityReservationGroupingCheck", "CapacityTopologyBlockAtomicAllocationCheck"}
-        filled_modules = {"security", "storage"}
-
         _, suite_modules = _build_axis_maps()
         checked = 0
         for entry in build_catalog(released_only=False):
             name = entry["name"]
-            if not (suite_modules.get(name, set()) & filled_modules):
+            if "storage" not in suite_modules.get(name, set()):
                 continue
             checked += 1
-            expected = ["bare_metal"] if name in bare_metal_only else runtime_platforms
-            assert entry["platforms"] == expected, f"{name}: expected {expected}, got {entry['platforms']}"
-        assert checked > 50, f"expected the filled module suites to contribute many entries, got {checked}"
+            assert entry["platforms"] == runtime_platforms, (
+                f"{name}: expected {runtime_platforms}, got {entry['platforms']}"
+            )
+        assert checked > 0
 
     def test_platform_suite_checks_use_platforms_axis(self) -> None:
         """Checks wired in a platform suite land on platforms, not modules."""

@@ -217,6 +217,7 @@ def test_repo_foundational_column_is_exactly_foundational_modules(provider: str)
         ("module", "image_registry"),
         ("module", "network"),
         ("module", "observability"),
+        ("module", "security"),
     ]
     assert all(r.column_platform == "foundational" for r in plan.runs)
 
@@ -225,11 +226,12 @@ def test_repo_foundational_column_is_exactly_foundational_modules(provider: str)
 def test_repo_runtime_columns_omit_foundational_modules(column: str) -> None:
     """Foundational-only modules are omitted from runtime columns."""
     plan = plan_platform_run("aws", column, configs_root=REPO_CONFIGS_ROOT)
-    assert {run.platform for run in plan.runs} >= {column, "security"}
+    assert {run.platform for run in plan.runs} >= {column, "storage"}
     assert {(o.module, o.reason) for o in plan.omitted} == {
         ("control_plane", f"no checks compatible with column '{column}'"),
         ("iam", f"no checks compatible with column '{column}'"),
         ("image_registry", f"no checks compatible with column '{column}'"),
         ("network", f"no checks compatible with column '{column}'"),
         ("observability", f"no checks compatible with column '{column}'"),
+        ("security", f"no checks compatible with column '{column}'"),
     }
