@@ -464,6 +464,18 @@ def main() -> int:
             cluster_name, args.location, project, network
         )
 
+        # 3a-0) When the operator pinned a specific Kubernetes version, verify the
+        #     LIVE control-plane version satisfies that pin. --kube-version reaches
+        #     Terraform's min_master_version only on a FRESH create; a same-run
+        #     PRESERVED cluster is adopted refresh-only, which CANNOT re-version the
+        #     running control plane, so a CHANGED non-empty pin would otherwise be
+        #     silently ignored and setup would report success against the previously
+        #     provisioned version. Both paths converge here: fail CLOSED on a
+        #     mismatch (a no-op pass on a fresh create GKE built from the pin), which
+        #     verifies the requested shape without any replacing operation.
+        if args.kube_version:
+            k8s.verify_control_plane_version(cluster_name, args.location, project, args.kube_version)
+
         # 3a-i) When the operator configured an API-ACL policy, read back the LIVE
         #     master_authorized_networks source set and require it to equal the
         #     requested CIDRs (fresh create AND adopt). A fresh apply could omit the

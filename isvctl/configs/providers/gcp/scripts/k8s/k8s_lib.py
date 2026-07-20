@@ -1604,6 +1604,140 @@ def verify_authorized_networks(
     return sorted(observed_set)
 
 
+def _split_gke_version(version: str) -> tuple[list[object], int | None]:
+    """Split a GKE version string into its dotted semantic components and the
+    optional numeric ``-gke.N`` build.
+
+    GKE control-plane versions render as ``X.Y.Z-gke.N`` (e.g.
+    ``1.29.5-gke.1241004``); an operator pin may be a bare prefix like ``1.29`` or
+    ``1.29.5``, a fully qualified ``1.29.5-gke.1241004``, or ``latest``. Returns
+    ``(semver_parts, build)`` where ``semver_parts`` holds the pre-``-gke`` dotted
+    components (int when numeric, else the lowercased token) and ``build`` is the
+    integer after ``-gke.`` (or None when absent/unparseable)."""
+    token = (version or "").strip().lower().lstrip("v")
+    build: int | None = None
+    match = re.search(r"-gke\.(\d+)", token)
+    if match:
+        build = int(match.group(1))
+    semver = token.split("-gke.")[0]
+    parts: list[object] = []
+    for piece in semver.split("."):
+        if not piece:
+            continue
+        parts.append(int(piece) if piece.isdigit() else piece)
+    return parts, build
+
+
+def control_plane_version_satisfies_pin(pin: str, live_version: str) -> bool:
+    """True when a live GKE control-plane version satisfies a requested
+    ``min_master_version`` pin under GKE's documented version-normalization
+    semantics.
+
+    GKE accepts the pin as a specific version (``1.29.5-gke.1241004``), a version
+    prefix (``1.29`` / ``1.29.5``), or ``latest``, and resolves it to the latest
+    available version whose components share the pin's prefix and are >= the pin.
+    The live version SATISFIES the pin iff:
+
+    * pin == ``latest`` (any resolvable live version is acceptable), OR
+    * the pin's dotted semantic components are an exact PER-COMPONENT prefix of
+      the live version's components (``1.29`` matches ``1.29.5-gke.N``; ``1.30``
+      does not match ``1.29.5``; ``1.2`` does not match ``1.29`` — never a raw
+      string prefix), AND
+    * when the pin fixes the ``-gke.N`` build, the live build is >= the pin build
+      (GKE may float the patch build upward within the same semver line)."""
+    pin = (pin or "").strip()
+    if not pin:
+        return True
+    if pin.lower().lstrip("v") == "latest":
+        return True
+    pin_parts, pin_build = _split_gke_version(pin)
+    live_parts, _live_build_unused = _split_gke_version(live_version)
+    if not pin_parts or len(pin_parts) > len(live_parts):
+        return False
+    for want, got in zip(pin_parts, live_parts):
+        if want != got:
+            return False
+    if pin_build is not None:
+        _, live_build = _split_gke_version(live_version)
+        if live_build is None:
+            return False
+        return live_build >= pin_build
+    return True
+
+
+def verify_control_plane_version(
+    cluster_name: str,
+    location: str,
+    project: str,
+    requested_pin: str,
+    *,
+    timeout: int = 120,
+) -> str:
+    """Read the live GKE control-plane (master) version and, when the operator
+    pinned a non-empty ``--kube-version``, fail CLOSED unless the live version
+    satisfies that pin under GKE's version-normalization semantics.
+
+    The pin reaches Terraform's ``min_master_version`` only on a FRESH create; a
+    same-run PRESERVED cluster is adopted with a refresh-only apply that cannot
+    modify the running control plane, so a CHANGED pin would otherwise be silently
+    ignored and setup would report success against the previously provisioned
+    version. Verifying the live version here — on BOTH the fresh-create and reuse
+    convergence paths — closes that gap without any replacing operation (a no-op
+    pass on a fresh create GKE built from the pin). Returns the observed live
+    version; a describe failure or an unsatisfied pin RAISES a classified
+    LifecycleError."""
+    rc, out = gcloud(
+        [
+            "container",
+            "clusters",
+            "describe",
+            cluster_name,
+            "--location",
+            location,
+            "--project",
+            project,
+            "--format=json",
+        ],
+        timeout=timeout,
+        echo=False,
+    )
+    if rc != 0:
+        bucket = _classify_cli_output(out)
+        raise LifecycleError(
+            bucket,
+            f"[bucket={bucket}] could not describe cluster {cluster_name} to verify its "
+            f"control-plane version: {fold_tail(out)}",
+        )
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError as exc:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] cluster describe returned unparseable JSON while "
+            f"verifying the control-plane version: {exc}",
+        ) from exc
+    live_version = str(data.get("currentMasterVersion", "") or "").strip()
+    pin = (requested_pin or "").strip()
+    if pin and not live_version:
+        raise LifecycleError(
+            "unknown_error",
+            f"[bucket=unknown_error] GKE cluster {cluster_name} describe did not report a "
+            f"currentMasterVersion; cannot verify the requested --kube-version pin '{pin}'. "
+            "Refusing to emit inventory against an unverifiable control plane.",
+        )
+    if pin and not control_plane_version_satisfies_pin(pin, live_version):
+        raise LifecycleError(
+            "config_error",
+            f"[bucket=config_error] GKE control-plane version mismatch on {cluster_name}: "
+            f"operator pinned --kube-version='{pin}' but the live control plane runs "
+            f"'{live_version}'. A preserved same-run cluster is adopted refresh-only and "
+            "cannot be re-versioned in place, so the requested pin was not applied. Use a "
+            "fresh RUN_ID (or tear the cluster down) to provision the requested version; "
+            "refusing to report setup success against a different control-plane version.",
+        )
+    return live_version
+
+
 def read_cluster_membership(
     cluster_name: str,
     location: str,
