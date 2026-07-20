@@ -164,11 +164,25 @@ def main() -> int:
             # state lacks it, by its terraform-derived name.
             pool_address = "google_container_node_pool.secondary"
             pool_name = k8s.secondary_pool_name(secondary_name)
-            if not k8s.terraform_state_has(k8s.SHARED_VPC_TF_DIR, state_file, pool_address):
-                if k8s.gke_node_pool_exists(secondary_name, pool_name, args.location, project):
-                    pool_id = f"{secondary_id}/nodePools/{pool_name}"
-                    k8s.terraform_import(k8s.SHARED_VPC_TF_DIR, state_file, pool_address, pool_id, tf_vars)
-                else:
+            pool_id = f"{secondary_id}/nodePools/{pool_name}"
+            # Decide adoption from LIVE cloud existence, NOT state membership alone.
+            # This pool lives INSIDE the shared-VPC module and is adopted refresh-only
+            # (never a normal apply, which would REPLACE the secondary cluster). If
+            # local state still tracks a pool that was deleted out-of-band in the
+            # cloud, a bare refresh-only would only drop that stale address and leave
+            # the pool missing, so wait_secondary_ready / verify_adopted_node_pool_shape
+            # below would fail on THIS run and force an unnecessary second invocation
+            # to recover. Cross state membership against live existence.
+            pool_in_state = k8s.terraform_state_has(k8s.SHARED_VPC_TF_DIR, state_file, pool_address)
+            pool_live = k8s.gke_node_pool_exists(secondary_name, pool_name, args.location, project)
+            if not (pool_in_state and pool_live):
+                if pool_in_state and not pool_live:
+                    # Stale address for an out-of-band-deleted pool: drop it from state
+                    # so the recreate + import below can rebuild the exact run-owned
+                    # pool (import refuses to write over an address already tracked).
+                    # state rm only edits local state and can never destroy the cluster.
+                    k8s.terraform_state_rm(k8s.SHARED_VPC_TF_DIR, state_file, pool_address)
+                if not pool_live:
                     # Cluster exists but its node pool is genuinely absent (partial prior
                     # create / out-of-band delete): recreate it via the API (cluster-safe)
                     # with the module's default shape, then import so state tracks it.
@@ -181,8 +195,7 @@ def main() -> int:
                         node_zone=k8s.zone_for_location(args.location),
                         node_count=k8s.SECONDARY_POOL_NODE_COUNT,
                     )
-                    pool_id = f"{secondary_id}/nodePools/{pool_name}"
-                    k8s.terraform_import(k8s.SHARED_VPC_TF_DIR, state_file, pool_address, pool_id, tf_vars)
+                k8s.terraform_import(k8s.SHARED_VPC_TF_DIR, state_file, pool_address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.SHARED_VPC_TF_DIR, state_file, tf_vars)
 
             # Live-shape verify the ADOPTED secondary node pool before emitting the

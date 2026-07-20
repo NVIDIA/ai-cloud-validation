@@ -577,6 +577,44 @@ def terraform_import(
     )
 
 
+def terraform_state_rm(
+    module_dir: Path,
+    state_file: str,
+    address: str,
+    *,
+    timeout: int = 120,
+) -> None:
+    """Drop a STALE ``address`` from ``state_file`` WITHOUT mutating live infra
+    (`terraform state rm`).
+
+    Used on the adopt path when local state still tracks a node pool that has since
+    been deleted out-of-band in the cloud. The pool declared INSIDE the cluster
+    module is adopted refresh-only (never a normal apply, which would force a
+    cluster REPLACE), so refresh-only alone would only drop the stale address and
+    leave the pool missing — the later live-shape / readiness check would then fail
+    on this run. The stale address must be removed here BEFORE the pool is recreated
+    and re-imported, because ``terraform import`` refuses to write over an address
+    already tracked. ``state rm`` only edits local state and can never destroy the
+    live cluster. A clean not-found (the address is already gone) is tolerated; any
+    other failure RAISES a classified LifecycleError.
+    """
+    rc, out = _run(
+        ["terraform", "state", "rm", f"-state={state_file}", address],
+        cwd=module_dir,
+        timeout=timeout,
+    )
+    if rc == 0:
+        return
+    bucket = _classify_cli_output(out)
+    if bucket == "not_found":
+        return
+    raise LifecycleError(
+        bucket,
+        f"[bucket={bucket}] terraform state rm {address} failed in {module_dir.name} "
+        f"(state={state_file}): {fold_tail(out)}",
+    )
+
+
 def terraform_refresh_only(
     module_dir: Path,
     state_file: str,

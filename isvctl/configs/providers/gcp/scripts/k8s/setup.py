@@ -352,9 +352,28 @@ def main() -> int:
                 ("google_container_node_pool.system", system_pool_name),
                 ("google_container_node_pool.gpu", gpu_pool_name),
             ):
-                if k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, address):
+                pool_id = f"{cluster_id}/nodePools/{pool_name}"
+                # Decide adoption from LIVE cloud existence, NOT state membership
+                # alone. These baseline pools live INSIDE the cluster module and are
+                # adopted refresh-only (never a normal apply, which would REPLACE the
+                # cluster). If local state still tracks a pool that was deleted
+                # out-of-band in the cloud, a bare refresh-only would only drop that
+                # stale address and leave the pool missing, so the live-shape /
+                # readiness checks below would fail on THIS run and force an
+                # unnecessary second invocation to recover. Cross state membership
+                # against live existence and reconcile every combination in one pass.
+                in_state = k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, address)
+                pool_live = k8s.gke_node_pool_exists(cluster_name, pool_name, args.location, project)
+                if in_state and pool_live:
+                    # Tracked AND live — refresh-only below reconciles it in place.
                     continue
-                if not k8s.gke_node_pool_exists(cluster_name, pool_name, args.location, project):
+                if in_state and not pool_live:
+                    # Stale address for an out-of-band-deleted pool: drop it from state
+                    # so the recreate + import below can rebuild the exact run-owned
+                    # pool (import refuses to write over an address already tracked).
+                    # state rm only edits local state and can never destroy the cluster.
+                    k8s.terraform_state_rm(k8s.CLUSTER_TF_DIR, state_file, address)
+                if not pool_live:
                     # The cluster exists but this REQUIRED baseline pool is genuinely
                     # absent (a partial prior create, or an out-of-band pool delete). A
                     # refresh-only would leave it missing and later readiness/autoscaling
@@ -386,7 +405,6 @@ def main() -> int:
                             accelerator_type=args.gpu_accelerator_type,
                             accelerator_count=args.gpu_accelerator_count,
                         )
-                pool_id = f"{cluster_id}/nodePools/{pool_name}"
                 k8s.terraform_import(k8s.CLUSTER_TF_DIR, state_file, address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.CLUSTER_TF_DIR, state_file, tf_vars)
 
