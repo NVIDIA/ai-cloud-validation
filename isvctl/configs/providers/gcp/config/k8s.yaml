@@ -424,19 +424,17 @@ tests:
         # google.auth.default() ADC), so telemetry queries
         # the SAME project the cluster runs in instead of a partial
         # GOOGLE_CLOUD_PROJECT-only-plus-gcloud-config chain that omits
-        # GCLOUD_PROJECT and ADC. GKE cluster identity is project/location/name
-        # scoped, so each query ALSO binds resource.labels.cluster_name AND
-        # resource.labels.location to THIS run's cluster (the location setup
-        # resolved and the cluster actually runs in). Without the location clause a
-        # same-named cluster in another location could satisfy the check, since the
-        # validator only length-checks the output — it never validates a co-tenant's
-        # or another location's logs.
+        # GCLOUD_PROJECT and ADC. Each query binds resource.labels.cluster_name to
+        # THIS run's RUN_ID-scoped cluster; that name is deterministically unique
+        # within the project, so the cluster_name + project + log_id filter already
+        # isolates this run's control-plane logs (the canonical knowledge-contract
+        # override form — no resource.labels.location clause).
         # logging_config is enabled on the cluster (see terraform/main.tf).
         K8sControlPlaneLogsCheck:
           commands:
-            kube-apiserver: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/apiserver\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
-            kube-scheduler: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/scheduler\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
-            kube-controller-manager: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/controller-manager\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-apiserver: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/apiserver\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-scheduler: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/scheduler\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-controller-manager: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/controller-manager\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
 
     k8s_workloads:
       checks:
