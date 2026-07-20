@@ -427,8 +427,8 @@ tests:
         # GCLOUD_PROJECT and ADC. Each query binds resource.labels.cluster_name to
         # THIS run's RUN_ID-scoped cluster; that name is deterministically unique
         # within the project, so the cluster_name + project + log_id filter already
-        # isolates this run's control-plane logs (the canonical knowledge-contract
-        # override form — no resource.labels.location clause).
+        # isolates this run's control-plane logs, so no resource.labels.location
+        # clause is needed.
         # logging_config is enabled on the cluster (see terraform/main.tf).
         K8sControlPlaneLogsCheck:
           commands:
@@ -456,9 +456,8 @@ tests:
         # on any Ready worker node; the MPI Operator readiness gate is unchanged.
         #
         # min_bus_bw_gbps: evidence-backed threshold adaptation for the G2/L4
-        # profile (knowledge invariant "K8sNcclMultiNodeWorkload ... Record the
-        # live G2/L4 result and either provision a network/GPU profile that meets
-        # the contract or pursue an evidence-backed suite threshold adaptation").
+        # profile — record the live G2/L4 result and either provision a network/GPU
+        # profile that meets the contract or adapt the threshold with cited evidence.
         # The released suite floor of 100 GB/s targets NVLink/NVSwitch + RDMA
         # fabrics (the AWS EKS oracle runs P4d/P5 with EFA); it is physically
         # unreachable here. This run's GPU profile is g2-standard-8 / nvidia-l4:
