@@ -45,7 +45,8 @@ Every suite declares exactly one axis key in its `tests:` block:
   suite's column has **no platform run** - providers ship no config for it,
   and `--platform foundational` plans a modules-only column containing exactly
   the modules whose checks declare `platforms: ["foundational"]` (iam,
-  control-plane: pure provider-API tests that fit no runtime environment).
+  control-plane, image-registry: pure provider-API tests that fit no runtime
+  environment).
 - **`module: <name>`** - an operational concern: `iam`, `network`, `security`,
   `observability`, `control_plane`, `image_registry`. Its value is also the
   runtime platform (derived), so a module suite needs no separate `platform:`.
@@ -166,7 +167,7 @@ are not retro-carved.
 isvctl test run --provider aws --platform vm
 
 # Run the foundational column: no platform run, just the modules declaring it
-# (iam, control-plane) - the once-per-lab provider-API checks.
+# (iam, control-plane, image-registry) - the once-per-lab provider-API checks.
 isvctl test run --provider aws --platform foundational
 
 # Min Req preset is just a label filter on the column.
@@ -204,10 +205,10 @@ An `aws/config/eks.yaml` importing `k8s.yaml` is the `kubernetes` platform.
 ### Run-all vs run-a-slice: worked examples
 
 - **Host is VM, run everything:** `--provider aws --platform vm` runs
-  `vm.yaml` (platform) then `network`/`security`/`image-registry`/
-  `observability`/`storage` (modules), each under the `vm` column so a module
-  check declaring `platforms:` without `vm` skips. `iam` and `control-plane`
-  (foundational-only) are omitted - they run once, under
+  `vm.yaml` (platform) then `network`/`security`/`observability`/`storage`
+  (modules), each under the `vm` column so a module check declaring
+  `platforms:` without `vm` skips. `iam`, `control-plane`, and
+  `image-registry` (foundational-only) are omitted - they run once, under
   `--platform foundational`.
 - **Storage is a label, not a module (yet):** the `storage`-labeled K8s CSI
   checks in `k8s.yaml` are selectable via `--label storage`, but `storage` is

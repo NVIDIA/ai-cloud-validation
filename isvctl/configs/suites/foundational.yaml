@@ -18,8 +18,8 @@
 # This platform suite wires NO validations. Its sole purpose is to put
 # `foundational` on the capability (platform) axis so module suites whose
 # checks are pure provider-API tests with no runtime environment (iam,
-# control-plane) can declare `platforms: ["foundational"]` and run once,
-# under this column, instead of under every runtime column.
+# control-plane, image-registry) can declare `platforms: ["foundational"]`
+# and run once, under this column, instead of under every runtime column.
 #
 # Planner rule: a capability column whose platform suite wires no validations
 # has NO platform run. Providers do not ship a foundational config -

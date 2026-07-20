@@ -208,19 +208,24 @@ REPO_CONFIGS_ROOT = Path(__file__).resolve().parents[1] / "configs"
 
 
 @pytest.mark.parametrize("provider", ["aws", "my-isv"])
-def test_repo_foundational_column_is_exactly_iam_and_control_plane(provider: str) -> None:
-    """The real foundational column is modules-only: control-plane + iam."""
+def test_repo_foundational_column_is_exactly_foundational_modules(provider: str) -> None:
+    """The real foundational column is modules-only: control-plane + iam + image_registry."""
     plan = plan_platform_run(provider, "foundational", configs_root=REPO_CONFIGS_ROOT)
-    assert [(r.role, r.platform) for r in plan.runs] == [("module", "control_plane"), ("module", "iam")]
+    assert [(r.role, r.platform) for r in plan.runs] == [
+        ("module", "control_plane"),
+        ("module", "iam"),
+        ("module", "image_registry"),
+    ]
     assert all(r.column_platform == "foundational" for r in plan.runs)
 
 
 @pytest.mark.parametrize("column", ["vm", "kubernetes"])
-def test_repo_runtime_columns_omit_iam_and_control_plane(column: str) -> None:
-    """iam / control-plane declare only foundational, so runtime columns omit them."""
+def test_repo_runtime_columns_omit_foundational_modules(column: str) -> None:
+    """Foundational-only modules are omitted from runtime columns."""
     plan = plan_platform_run("aws", column, configs_root=REPO_CONFIGS_ROOT)
     assert {run.platform for run in plan.runs} >= {column, "network", "security"}
     assert {(o.module, o.reason) for o in plan.omitted} == {
         ("control_plane", f"no checks compatible with column '{column}'"),
         ("iam", f"no checks compatible with column '{column}'"),
+        ("image_registry", f"no checks compatible with column '{column}'"),
     }
