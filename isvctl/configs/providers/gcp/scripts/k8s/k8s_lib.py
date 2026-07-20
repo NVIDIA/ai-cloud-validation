@@ -2889,8 +2889,8 @@ def clear_pending_probes(names: list[str]) -> None:
 def _note_retained_probes(retained: list[str]) -> None:
     """Log any probe resource whose inline delete was NOT confirmed this run.
 
-    The names are run-scoped (``isv-gpumig-<disc>-<run_id>`` / ``isv-gpuprobe-<disc>-<run_id>``,
-    terminating in the run id so the run-scoped orphan sweep also matches them),
+    The names are run-scoped (``isv-gpumig-<disc>-<run-scope>`` / ``isv-gpuprobe-<disc>-<run-scope>``,
+    terminating in the run scope id so the run-scoped orphan sweep also matches them),
     and were already recorded as pending by ``mark_probes_pending`` BEFORE the probe
     was created, so they REMAIN in the marker (never cleared here) and teardown's
     run-scoped ``delete_orphan_gpu_probes`` backstop reclaims them deterministically —
@@ -3105,13 +3105,13 @@ def select_gpu_zone(
         tried.append(zone)
         disc = secrets.token_hex(2)
         # Names MUST TERMINATE in the run-scope id so the run-scoped orphan checker —
-        # which reaps by matching `^...-<run-id>$` — can find a probe MIG/template
-        # stranded by a hard kill. The prior `isv-gpumig-<run-id>-<disc>` order ended
+        # which reaps by matching `^...-<run-scope>$` — can find a probe MIG/template
+        # stranded by a hard kill. The prior `isv-gpumig-<run-scope>-<disc>` order ended
         # in the random disc, so the sweep skipped it and a billable size-1 GPU MIG
         # could bill on undetected. ``scoped_name`` puts the disc BEFORE the run id and
-        # truncates only the base, so the terminal `-<run-id>` always survives the
-        # RFC-1035 normalization + length cap: `isv-gpuprobe-<disc>-<run-id>` /
-        # `isv-gpumig-<disc>-<run-id>`. The `isv-gpuprobe-`/`isv-gpumig-` stems are
+        # truncates only the base, so the terminal `-<run-scope>` always survives the
+        # RFC-1035 normalization + length cap: `isv-gpuprobe-<disc>-<run-scope>` /
+        # `isv-gpumig-<disc>-<run-scope>`. The `isv-gpuprobe-`/`isv-gpumig-` stems are
         # preserved, so the exact-name pending ledger + prefix partition still hold.
         template_name = scoped_name(f"isv-gpuprobe-{disc}")
         mig_name = scoped_name(f"isv-gpumig-{disc}")
