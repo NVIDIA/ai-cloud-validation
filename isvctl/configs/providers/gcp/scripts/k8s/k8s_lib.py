@@ -510,23 +510,36 @@ def terraform_destroy(
 
 
 def terraform_state_has(module_dir: Path, state_file: str, address: str, *, timeout: int = 60) -> bool:
-    """True when ``address`` is already tracked in ``state_file``.
+    """True when ``address`` is already tracked in ``state_file``; RAISES when the
+    state cannot be read.
 
     Decides whether a resource must be ADOPTED (imported) before apply. A fresh
     per-step worktree starts with an EMPTY local state even though the harness may
     have preserved the run-scoped resource that an earlier per-step worker in the
     same run provisioned (GCP_K8S_SKIP_TEARDOWN keeps every run resource alive);
     without adoption the apply re-CREATEs and collides on a 409 "already exists".
+
+    Delegates to ``classify_state`` after an idempotent ``terraform_init`` so a
+    FAILED ``terraform state list`` — an unreadable, corrupt, timed-out, or
+    uninitialized backend — is NEVER collapsed into "address absent". Several
+    callers reach this before their own init; without the init here a not-yet-
+    initialized state would list-fail and (under the old ``rc != 0 -> False``) send
+    an address ALREADY present in local state down the import/adopt path. Only a
+    state that reads back successfully WITHOUT the exact address returns ``False``;
+    an unreadable state raises ``ownership_unprovable`` so reconciliation fails
+    loudly rather than adopting over a tracked resource.
     """
-    if not state_exists(module_dir, state_file):
-        return False
-    rc, out = _run(
-        ["terraform", "state", "list", f"-state={state_file}", address],
-        cwd=module_dir,
-        timeout=timeout,
-        echo=False,
-    )
-    return rc == 0 and address in out
+    terraform_init(module_dir)
+    state = classify_state(module_dir, state_file, address, timeout=timeout)
+    if state == "unreadable":
+        raise LifecycleError(
+            "ownership_unprovable",
+            f"[bucket=ownership_unprovable] terraform state list for '{address}' in "
+            f"{state_file} ({module_dir.name}) failed: cannot prove whether the address is "
+            f"already tracked. Refusing to treat an unreadable state as address-absent "
+            f"(which would wrongly enter the import/adopt path).",
+        )
+    return state == "tracked"
 
 
 def terraform_import(
@@ -2838,7 +2851,8 @@ def clear_pending_probes(names: list[str]) -> None:
 def _note_retained_probes(retained: list[str]) -> None:
     """Log any probe resource whose inline delete was NOT confirmed this run.
 
-    The names are run-scoped (``isv-gpumig-<run_id>-*`` / ``isv-gpuprobe-<run_id>-*``),
+    The names are run-scoped (``isv-gpumig-<disc>-<run_id>`` / ``isv-gpuprobe-<disc>-<run_id>``,
+    terminating in the run id so the run-scoped orphan sweep also matches them),
     and were already recorded as pending by ``mark_probes_pending`` BEFORE the probe
     was created, so they REMAIN in the marker (never cleared here) and teardown's
     run-scoped ``delete_orphan_gpu_probes`` backstop reclaims them deterministically —
@@ -3052,8 +3066,17 @@ def select_gpu_zone(
             continue
         tried.append(zone)
         disc = secrets.token_hex(2)
-        template_name = normalize_gke_name(f"isv-gpuprobe-{run_scope_id()}-{disc}")[:60]
-        mig_name = normalize_gke_name(f"isv-gpumig-{run_scope_id()}-{disc}")[:60]
+        # Names MUST TERMINATE in the run-scope id so the run-scoped orphan checker —
+        # which reaps by matching `^...-<run-id>$` — can find a probe MIG/template
+        # stranded by a hard kill. The prior `isv-gpumig-<run-id>-<disc>` order ended
+        # in the random disc, so the sweep skipped it and a billable size-1 GPU MIG
+        # could bill on undetected. ``scoped_name`` puts the disc BEFORE the run id and
+        # truncates only the base, so the terminal `-<run-id>` always survives the
+        # RFC-1035 normalization + length cap: `isv-gpuprobe-<disc>-<run-id>` /
+        # `isv-gpumig-<disc>-<run-id>`. The `isv-gpuprobe-`/`isv-gpumig-` stems are
+        # preserved, so the exact-name pending ledger + prefix partition still hold.
+        template_name = scoped_name(f"isv-gpuprobe-{disc}")
+        mig_name = scoped_name(f"isv-gpumig-{disc}")
         log(f"GPU capacity preflight: probing zone {zone} (mig={mig_name})...")
 
         # Record BOTH probe names as pending-reclaim BEFORE the first create. A hard
@@ -3961,11 +3984,13 @@ def gather_inventory(
         # NO in-cluster cluster-autoscaler Deployment to name (emitting one would
         # point the Deployment-shaped probe at a nonexistent object). Instead emit
         # PROVIDER-NATIVE autoscaler evidence (provider=managed, node_pool, enabled,
-        # min/max) read back + verified live off the system node pool. The released
-        # K8sClusterAutoscalerCheck now has a provider-managed mode: bound via the
-        # config as its step_output (require_autoscaler: true), it consumes THIS
-        # evidence and passes live off the managed autoscaling readback — it no
-        # longer structured-skips on the absent in-cluster Deployment.
+        # min/max) read back + verified live off the system node pool by setup. The
+        # released K8sClusterAutoscalerCheck stays Deployment-only (no provider-managed
+        # mode), so on GKE it STRUCTURED-SKIPS: nothing binds this evidence as its
+        # step_output and require_autoscaler is false. This field is emitted so setup's
+        # own live enable/min/max verification is recorded, and so a future validator
+        # that accepts a provider-native signal can consume it — it is NOT consumed by
+        # the released check today.
         "autoscaler": autoscaler or {},
         # Outside-vantage API-ACL probe, already RENDERED against this run's
         # resolved api_endpoint by setup (from --unauthorized-probe-template).
@@ -4674,8 +4699,8 @@ def delete_orphan_gpu_probes(project: str, *, timeout: int = 180, retries: int =
     COMPLETE ``RUN_ID``/``LS_RUN_ID`` and stamps this run's full identity as its
     header, and ``_read_pending_probe_names`` returns names ONLY from a ledger stamped
     with THIS run's identity (fail closed on any mismatch). Reclaim is therefore
-    driven off the current run's OWN exact names — never an ``isv-gpumig-<8-char>-``
-    prefix sweep, and never a ledger two prefix-colliding runs could have combined.
+    driven off the current run's OWN exact names — never a broad ``isv-gpumig-*``
+    name sweep, and never a ledger two prefix-colliding runs could have combined.
     The 8-char ``run_scope_id`` truncation that once let two runs share one marker
     (and delete each other's billable probes) no longer keys the ledger; even under a
     digest collision the identity stamp keeps one run's teardown from selecting a

@@ -241,13 +241,16 @@ Provider-specific behavior worth calling out:
 
 - **cluster-autoscaler:** setup enables GKE-managed autoscaling on the CPU/system
   pool (bounded min/max, read back and verified live) and emits provider-native
-  evidence. GKE runs the autoscaler in its managed control plane, so there is no
-  in-cluster `cluster-autoscaler` Deployment. The released `K8sClusterAutoscalerCheck`
-  now has a provider-managed evidence mode: the config binds setup as its
-  `step_output` with `require_autoscaler: true`, so the check consumes that live
-  managed-autoscaling readback and PASSES (it no longer structured-skips on the
-  absent in-cluster Deployment; it fails closed if the bound pool is not
-  autoscaling with the requested bounds).
+  evidence (`provider=managed`, node_pool, min/max) into the setup inventory. GKE
+  runs the autoscaler in its managed control plane, so there is no in-cluster
+  `cluster-autoscaler` Deployment. The released `K8sClusterAutoscalerCheck` remains
+  **Deployment-only** — it discovers only an in-cluster autoscaler Deployment and
+  has no provider-managed evidence mode — so on GKE it **structured-skips**
+  (`require_autoscaler` is false; nothing binds setup's managed readback as its
+  `step_output`). Setup's independent live enable/min/max verification is the real
+  coverage today; the released validator does not yet record autoscaler coverage
+  here. This enablement stays visible until the upstream validator learns to accept
+  a provider-native GKE/API signal, at which point the binding can require the check.
 - **CSI block storage:** setup discovers a live `pd.csi.storage.gke.io` block
   `StorageClass`, so the block-storage checks (types / quota / dynamic
   provisioning) run against a real class without an explicit `K8S_CSI_*` override.

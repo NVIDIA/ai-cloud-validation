@@ -161,8 +161,12 @@ resource "google_container_cluster" "primary" {
 # GKE-MANAGED autoscaling is enabled here with explicit min/max bounds: GKE runs
 # the Cluster Autoscaler in its managed control plane (there is NO upstream
 # cluster-autoscaler Deployment in kube-system to install), so this node-pool
-# autoscaling block IS the real autoscaling integration K8sClusterAutoscalerCheck
-# validates through the provider-native evidence setup emits. The GPU pools stay
+# autoscaling block IS the real autoscaling integration. Setup independently reads
+# it back live (enabled + observed min/max equal the requested bounds) and emits
+# provider-native evidence. The released K8sClusterAutoscalerCheck stays
+# Deployment-only and therefore STRUCTURED-SKIPS on GKE (it cannot yet consume this
+# managed evidence), so setup's own verification — not the released check — is the
+# coverage this block provides. The GPU pools stay
 # FIXED (node_count) because their capacity-preflight contract needs eager nodes;
 # only the CPU/system pool autoscales. `node_count` is mutually exclusive with the
 # autoscaling block, so the pool is seeded with initial_node_count and the live
