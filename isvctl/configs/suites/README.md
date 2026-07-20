@@ -92,11 +92,10 @@ platform, each carrying its own platform label plus the shared concern label**:
 # bare_metal.yaml    labels: ["bare_metal", "storage"]   reads {{steps.launch_instance.*}}
 ```
 
-A **module-suite** check that only applies to some platforms instead declares
-`platforms: [...]` on its wiring (e.g. `platforms: ["vm", "bare_metal"]`) -
-subsets are supported, and platform names never appear in a module-suite
-check's `labels:`. The planner uses the same declarations to prune whole
-configs: a module config with **no** check eligible for a column is omitted
+A **module-suite** check instead declares `platforms: [...]` on its wiring
+(e.g. `platforms: ["vm", "bare_metal"]`) - subsets are supported, and platform
+names never appear in a module-suite check's `labels:`. The planner uses the
+same declarations to prune whole configs: a module config with **no** check eligible for a column is omitted
 from that column's plan (dry-run reports
 `omitted: iam (no checks compatible with column 'vm')`), so a run never pays
 a module's setup/teardown to execute zero checks.
@@ -119,12 +118,19 @@ use one validation-only fragment per platform.
 - every suite check carries the suite's declared `platform:` or `module:` label;
 - **platform names are banned from module-suite `labels:`** - the positive
   `platforms: [...]` declaration is the only capability-compatibility
-  mechanism. Omitted/empty = the check runs under every `--platform` column;
-  non-empty = it runs only under those columns (subsets like
-  `platforms: ["vm", "bare_metal"]` are supported). Every value must be a
-  member of the platform axis, `platforms:` is rejected on platform-suite
-  checks (their column is fixed by file placement), and standalone `--module`
-  runs apply no platform filtering;
+  mechanism. The declaration is **required** on every module-suite check in
+  this repo: there is no implicit default, and the validator rejects a
+  missing or empty `platforms:`. A check runs only under the columns it
+  declares (subsets like `platforms: ["vm", "bare_metal"]` are supported).
+  Fill convention: a check compatible with every runtime environment declares
+  `platforms: ["bare_metal", "kubernetes", "slurm", "vm"]` (alphabetical);
+  the synthetic `foundational` column is never implied and must be declared
+  positively. At runtime a missing/empty declaration is still treated as
+  compatible with every real environment, so older/external configs keep
+  working - strictness is repo-enforced by the validator only. Every value
+  must be a member of the platform axis, `platforms:` is rejected on
+  platform-suite checks (their column is fixed by file placement), and
+  standalone `--module` runs apply no platform filtering;
 - every **wiring name is globally unique** across suites. A generic check
   class wired in several places uses a distinct variant name per wiring
   (`StepSuccessCheck-iam_teardown`, `GpuCheck-bm_gpu`), typically

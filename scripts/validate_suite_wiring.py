@@ -30,10 +30,14 @@ validation metadata on this branch. This validator enforces:
   Each suite check must include its declared axis label, for example checks in
   a suite with ``tests.platform: bare_metal`` must include ``bare_metal``.
 * ``platforms`` - the positive capability-compatibility declaration on
-  module-suite checks. Every value must be a member of the platform axis, and
-  the field is rejected inside platform suites (their column is fixed by file
-  placement). Platform-axis names must not appear in a module-suite check's
-  ``labels`` - ``platforms:`` is the only capability-compatibility mechanism.
+  module-suite checks. The declaration is REQUIRED: a module-suite check with
+  a missing or empty ``platforms:`` is an error. Every value must be a member
+  of the platform axis, and the field is rejected inside platform suites
+  (their column is fixed by file placement). Platform-axis names must not
+  appear in a module-suite check's ``labels`` - ``platforms:`` is the only
+  capability-compatibility mechanism. Strictness is enforced by this
+  repo-side validator only: at runtime a missing/empty declaration still
+  means "every real environment", so older/external configs keep working.
   Labels are otherwise free-form: they originate in the wiring YAML itself, so
   there is no external allowlist to validate them against.
 * name uniqueness - a wiring name may appear only once within each suite file
@@ -211,6 +215,25 @@ def _module_platform_label_error(
     return None
 
 
+def _missing_platforms_error(location: str, params: dict[str, Any]) -> str | None:
+    """Return the strict-mode error for a module-suite check without ``platforms:``.
+
+    Non-list ``platforms:`` values are left to :func:`_platforms_declaration_errors`
+    (one shape error is enough).
+    """
+    declared = params.get("platforms")
+    if "platforms" in params and not isinstance(declared, list):
+        return None
+    if isinstance(declared, list) and declared:
+        return None
+    return (
+        f"{location}: missing or empty 'platforms' declaration; module-suite checks must "
+        f"declare the supported platforms explicitly, e.g. "
+        f'\'platforms: ["bare_metal", "kubernetes", "slurm", "vm"]\' '
+        f"(there is no implicit default in this repo)"
+    )
+
+
 def _platforms_declaration_errors(
     location: str,
     params: dict[str, Any],
@@ -349,6 +372,9 @@ def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = No
                 governance_error = _module_platform_label_error(location, labels, platform_labels)
                 if governance_error:
                     errors.append(governance_error)
+                strict_error = _missing_platforms_error(location, params)
+                if strict_error:
+                    errors.append(strict_error)
             errors.extend(_platforms_declaration_errors(location, params, platform_labels, suite_kind=suite_kind))
 
     for path in _iter_provider_configs(providers_dir):
@@ -393,7 +419,10 @@ def main(argv: list[str] | None = None) -> int:
         print(message)
         return 0
 
-    ok = f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare test_id, labels, and suite labels."
+    ok = (
+        f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare "
+        f"test_id, labels, suite labels, and (module suites) platforms."
+    )
     print(ok)
     return 0
 

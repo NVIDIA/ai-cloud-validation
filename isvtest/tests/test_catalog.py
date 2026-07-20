@@ -297,6 +297,27 @@ tests:
             assert entry["modules"] == ["security"]
             assert "bare_metal" not in entry["labels"]
 
+    def test_filled_module_suites_carry_runtime_platforms(self) -> None:
+        """Strict mode fill: every check wired in the network/security/observability/
+        image_registry/storage suites positively declares its platforms - the four
+        runtime columns unless a narrower subset is intended (the CAP04 pair)."""
+        from isvtest.catalog import _build_axis_maps
+
+        runtime_platforms = ["bare_metal", "kubernetes", "slurm", "vm"]
+        bare_metal_only = {"CapacityReservationGroupingCheck", "CapacityTopologyBlockAtomicAllocationCheck"}
+        filled_modules = {"network", "security", "observability", "image_registry", "storage"}
+
+        _, suite_modules = _build_axis_maps()
+        checked = 0
+        for entry in build_catalog(released_only=False):
+            name = entry["name"]
+            if not (suite_modules.get(name, set()) & filled_modules):
+                continue
+            checked += 1
+            expected = ["bare_metal"] if name in bare_metal_only else runtime_platforms
+            assert entry["platforms"] == expected, f"{name}: expected {expected}, got {entry['platforms']}"
+        assert checked > 50, f"expected the filled module suites to contribute many entries, got {checked}"
+
     def test_platform_suite_checks_use_platforms_axis(self) -> None:
         """Checks wired in a platform suite land on platforms, not modules."""
         catalog = build_catalog(released_only=False)

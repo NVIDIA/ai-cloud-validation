@@ -53,6 +53,7 @@ tests:
         NetworkProvisionedCheck:
           test_id: "N/A"
           labels: ["network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           require_subnets: true
           min_subnets: 2
 
@@ -63,27 +64,32 @@ tests:
         VpcCrudCheck-create:
           test_id: "SDN01-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: vpc_crud
           operations: ["create_vpc"]
         VpcCrudCheck-read:
           test_id: "SDN01-02"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: vpc_crud
           operations: ["read_vpc"]
         VpcCrudCheck-update:
           test_id: "SDN01-03"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: vpc_crud
           operations: ["update_tags", "update_dns"]
         VpcCrudCheck-delete:
           test_id: "SDN01-04"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: vpc_crud
           operations: ["delete_vpc"]
         # no test id for subnet count / multi-AZ layout (SDN04-01 covers exclusive-subnet isolation, not subnet topology).
         SubnetConfigCheck:
           test_id: "N/A"
           labels: ["network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: subnet_config
           min_subnets: 4
           require_multi_az: true
@@ -91,25 +97,30 @@ tests:
           # SDN04-03 (E/W isolation) is exercised by the same check but is not separately attributable under a single test_id.
           test_id: "SDN04-02"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: vpc_isolation
         SgCrudCheck-create:
           test_id: "SDN02-01"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_crud
           operations: ["create_vpc", "create_sg"]
         SgCrudCheck-read:
           test_id: "SDN02-02"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_crud
           operations: ["read_sg"]
         SgCrudCheck-update:
           test_id: "SDN02-03"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_crud
           operations: ["update_sg_add_rule", "update_sg_modify_rule", "update_sg_remove_rule"]
         SgCrudCheck-delete:
           test_id: "SDN02-04"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_crud
           operations: ["delete_sg", "verify_deleted"]
         # SG/NACL enforcement + connectivity/traffic behavior have no dedicated
@@ -117,22 +128,27 @@ tests:
         SecurityBlockingCheck:
           test_id: "N/A"
           labels: ["network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: security_blocking
         NetworkConnectivityCheck:
           test_id: "N/A"
           labels: ["network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: connectivity_test
         TrafficFlowCheck:
           test_id: "N/A"
           labels: ["network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: traffic_validation
         VpcIpConfigCheck:
           test_id: "IPAM02-01"
           labels: ["network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: vpc_ip_config
         DhcpIpManagementCheck:
           test_id: "IPAM01-01"
           labels: ["network", "ssh"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: dhcp_ip_test
 
     sg_scoping:
@@ -140,22 +156,27 @@ tests:
         SgWorkloadScopingCheck:
           test_id: "SDN02-05"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_workload_scoping
         SgNodeScopingCheck:
           test_id: "SDN02-06"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_node_scoping
         SgSubnetScopingCheck:
           test_id: "SDN02-07"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_subnet_scoping
         SgServiceScopingCheck:
           test_id: "SDN02-09"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_service_scoping
         SgPortSecurityPolicyCheck:
           test_id: "SDN02-10"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_port_security_policy
 
     sdn_policy:
@@ -163,6 +184,7 @@ tests:
         SgPolicyPropagationTimingCheck:
           test_id: "SDN02-08"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sg_policy_propagation
           max_propagation_seconds: 10
 
@@ -171,14 +193,17 @@ tests:
         SdnHardwareFaultLoggingCheck:
           test_id: "SDN09-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sdn_hardware_fault_logging
         SdnLatencyPerfLoggingCheck:
           test_id: "SDN09-02"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sdn_latency_perf_logging
         SdnFilterAuditTrailCheck:
           test_id: "SDN09-03"
           labels: ["min_req", "network", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: sdn_filter_audit_trail
 
     sdn:
@@ -186,31 +211,38 @@ tests:
         ByoipCheck:
           test_id: "NET03-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: byoip_test
         StablePrivateIpCheck:
           test_id: "SDN11-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: stable_ip_test
         StableEgressIpCheck:
           test_id: "DMS05-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: stable_egress_ip_test
         FloatingIpCheck:
           test_id: "SDN05-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: floating_ip_test
           max_switch_seconds: 10
         LocalizedDnsCheck:
           test_id: "SDN06-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: dns_test
         VpcPeeringCheck:
           test_id: "SDN07-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: peering_test
         StorageL3RoutingCheck:
           test_id: "SDN08-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: storage_l3_routing
 
     # Read-only metadata/API checks for provider-reported backend fabric
@@ -220,10 +252,12 @@ tests:
         BackendSwitchFabricCheck:
           test_id: "NET01-01"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: backend_switch_fabric
         NvlinkDomainCheck:
           test_id: "NET02-02"
           labels: ["min_req", "network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: nvlink_domain
 
     teardown_checks:
@@ -232,6 +266,7 @@ tests:
         StepSuccessCheck-network_teardown:
           test_id: "N/A"
           labels: ["network"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
 
   exclude:
     labels: []

@@ -40,6 +40,7 @@ tests:
         TelemetryDeliveryLatencyCheck:
           test_id: "OBS05-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: telemetry_delivery_latency
           max_delivery_seconds: "{{max_delivery_seconds}}"
 
@@ -48,22 +49,27 @@ tests:
         NorthSouthNetworkTelemetryCheck:
           test_id: "OBS06-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: north_south_network_telemetry
         EastWestNetworkTelemetryCheck:
           test_id: "OBS07-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: east_west_network_telemetry
         ManagementNetworkTelemetryCheck:
           test_id: "OBS08-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: management_network_telemetry
         NvswitchFabricTelemetryCheck:
           test_id: "OBS09-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: nvswitch_fabric_telemetry
         HostNicNetworkTelemetryCheck:
           test_id: "OBS10-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: host_nic_network_telemetry
 
     network_logs:
@@ -71,6 +77,7 @@ tests:
         VpcFlowLogsCheck:
           test_id: "OBS19-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: vpc_flow_logs
 
     # Host syslog + BMC SEL/telemetry checks run against the dedicated host
@@ -81,6 +88,7 @@ tests:
         HostSyslogCheck:
           test_id: "OBS18-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: host_syslogs
 
     bmc_logs:
@@ -88,6 +96,7 @@ tests:
         BmcSelLogsCheck:
           test_id: "OBS17-01"
           labels: ["min_req", "observability", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: bmc_sel_logs
 
     bmc_telemetry:
@@ -95,6 +104,7 @@ tests:
         BmcGpuTelemetryCheck:
           test_id: "TELEM04-01"
           labels: ["gpu", "min_req", "observability", "security"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: bmc_gpu_telemetry
 
     storage_capacity_telemetry:
@@ -102,6 +112,7 @@ tests:
         StorageCapacityTelemetryCheck:
           test_id: "TELEM05-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: storage_capacity_telemetry
 
     storage_performance_telemetry:
@@ -109,6 +120,7 @@ tests:
         StoragePerformanceTelemetryCheck:
           test_id: "TELEM06-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: storage_performance_telemetry
 
     gpu_nvlink_telemetry:
@@ -116,6 +128,7 @@ tests:
         GpuNvlinkTelemetryCheck:
           test_id: "TELEM07-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: gpu_nvlink_telemetry
 
     switch_nvlink_telemetry:
@@ -123,6 +136,7 @@ tests:
         SwitchNvlinkTelemetryCheck:
           test_id: "TELEM08-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: switch_nvlink_telemetry
 
     fabric_logs:
@@ -130,10 +144,12 @@ tests:
         FabricManagerLogsCheck:
           test_id: "OBS11-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: fabric_manager_logs
         UfmEventLogsCheck:
           test_id: "OBS13-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: ufm_event_logs
 
     subnet_manager_logs:
@@ -141,6 +157,7 @@ tests:
         SubnetManagerLogsCheck:
           test_id: "OBS12-01"
           labels: ["min_req", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: subnet_manager_logs
 
     switch_logs:
@@ -148,14 +165,17 @@ tests:
         GeneralSwitchLogsCheck:
           test_id: "OBS14-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: general_switch_logs
         SwitchSyslogCheck:
           test_id: "OBS15-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: switch_syslogs
         SwitchKernelLogsCheck:
           test_id: "OBS16-01"
           labels: ["min_req", "network", "observability"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           step: switch_kernel_logs
 
   exclude:

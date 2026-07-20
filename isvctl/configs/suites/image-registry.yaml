@@ -57,9 +57,11 @@ tests:
         StepSuccessCheck-img_image_upload:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
         FieldExistsCheck-img_image_upload:
           test_id: "BOOT01-01"
           labels: ["image_registry", "min_req"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           fields: ["image_id", "storage_bucket", "disk_ids"]
 
     # --- Image CRUD ---
@@ -69,13 +71,16 @@ tests:
         StepSuccessCheck-img_image_crud:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
         FieldExistsCheck-img_image_crud:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           fields: ["image_id", "operations"]
         CrudOperationsCheck-img_image_crud:
           test_id: "BOOT03-02"
           labels: ["image_registry", "min_req"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           operations: ["get", "list", "create", "delete"]
 
     # --- VM Launch from Image ---
@@ -85,13 +90,16 @@ tests:
         StepSuccessCheck-img_vm_from_image:
           test_id: "BOOT01-05"
           labels: ["image_registry", "min_req"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
         FieldExistsCheck-img_vm_from_image:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           fields: ["instance_id", "public_ip", "key_path"]
         InstanceStateCheck-img_vm_from_image:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           expected_state: "running"
 
     vm_ssh:
@@ -100,9 +108,11 @@ tests:
         ConnectivityCheck-img_vm_ssh:
           test_id: "N/A"
           labels: ["image_registry", "ssh"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
         OsCheck-img_vm_ssh:
           test_id: "N/A"
           labels: ["image_registry", "ssh"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           expected_os: "ubuntu"
 
     # --- OS Install Config CRUD ---
@@ -112,9 +122,11 @@ tests:
         StepSuccessCheck-img_install_config_crud:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
         FieldExistsCheck-img_install_config_crud:
           test_id: "BOOT01-02"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           fields: ["config_id", "config_name", "operations"]
 
     # --- OS Image on BMaaS ---
@@ -124,13 +136,16 @@ tests:
         StepSuccessCheck-img_bm_from_image:
           test_id: "BOOT01-03"
           labels: ["image_registry", "min_req"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
         FieldExistsCheck-img_bm_from_image:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           fields: ["instance_id", "image_id", "instance_state"]
         InstanceStateCheck-img_bm_from_image:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           expected_state: "running"
 
     # --- OS Install Config on BMaaS ---
@@ -140,13 +155,16 @@ tests:
         StepSuccessCheck-img_bm_from_config:
           test_id: "BOOT01-04"
           labels: ["image_registry", "min_req"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
         FieldExistsCheck-img_bm_from_config:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           fields: ["instance_id", "config_id", "instance_state"]
         InstanceStateCheck-img_bm_from_config:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
           expected_state: "running"
 
     teardown_checks:
@@ -155,6 +173,7 @@ tests:
         StepSuccessCheck-img_teardown:
           test_id: "N/A"
           labels: ["image_registry"]
+          platforms: ["bare_metal", "kubernetes", "slurm", "vm"]
 
   exclude:
     labels: []

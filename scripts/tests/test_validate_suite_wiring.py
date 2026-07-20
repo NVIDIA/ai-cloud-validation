@@ -18,6 +18,7 @@ _spec.loader.exec_module(validate_suite_wiring)
 
 def test_wiring_errors_flags_missing_metadata(tmp_path: Path) -> None:
     """Missing test_id or labels on a wired check is reported with context."""
+    _write_platform_axis_suites(tmp_path)
     suite = tmp_path / "demo.yaml"
     suite.write_text(
         """\
@@ -29,14 +30,17 @@ tests:
         GoodCheck:
           test_id: "SEC01-01"
           labels: ["security"]
+          platforms: ["vm"]
         BadCheck:
           labels: ["security"]
+          platforms: ["vm"]
         AlsoBad:
           test_id: "N/A"
+          platforms: ["vm"]
 """
     )
     errors = validate_suite_wiring.wiring_errors(tmp_path)
-    assert any("demo.yaml:9" in err and "BadCheck" in err and "missing test_id" in err for err in errors)
+    assert any("demo.yaml:10" in err and "BadCheck" in err and "missing test_id" in err for err in errors)
     assert any("demo.yaml:" in err and "AlsoBad" in err and "missing labels" in err for err in errors)
     assert not any("GoodCheck" in err for err in errors)
 
@@ -62,6 +66,7 @@ tests:
 
 def test_wiring_errors_require_declared_suite_label(tmp_path: Path) -> None:
     """Checks must include the suite label derived from tests.platform/module."""
+    _write_platform_axis_suites(tmp_path)
     suite = tmp_path / "custom-name.yaml"
     suite.write_text(
         """\
@@ -73,9 +78,11 @@ tests:
         MissingSuiteLabel:
           test_id: "MOD01-01"
           labels: ["gpu"]
+          platforms: ["vm"]
         GoodCheck:
           test_id: "MOD01-02"
           labels: ["gpu", "custom_module"]
+          platforms: ["vm"]
 """
     )
     errors = validate_suite_wiring.wiring_errors(tmp_path)
@@ -146,6 +153,7 @@ tests:
         LabelledCheck:
           test_id: "SEC01-01"
           labels: ["bare_metal", "security"]
+          platforms: ["bare_metal"]
         DeclaredCheck:
           test_id: "SEC01-02"
           labels: ["security"]
@@ -177,6 +185,57 @@ tests:
 """
     )
     assert validate_suite_wiring.wiring_errors(tmp_path) == []
+
+
+def test_wiring_errors_require_platforms_on_module_suite_checks(tmp_path: Path) -> None:
+    """Strict mode: a module-suite check with missing or empty platforms: is an error."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "security.yaml").write_text(
+        """\
+tests:
+  module: security
+  validations:
+    example:
+      checks:
+        OmittedCheck:
+          test_id: "SEC01-01"
+          labels: ["security"]
+        EmptyCheck:
+          test_id: "SEC01-02"
+          labels: ["security"]
+          platforms: []
+        DeclaredCheck:
+          test_id: "SEC01-03"
+          labels: ["security"]
+          platforms: ["vm"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any(
+        "OmittedCheck" in err and "missing or empty 'platforms'" in err and "explicitly" in err for err in errors
+    )
+    assert any("EmptyCheck" in err and "missing or empty 'platforms'" in err for err in errors)
+    assert not any("DeclaredCheck" in err for err in errors)
+
+
+def test_wiring_errors_do_not_require_platforms_on_platform_suites_or_provider_configs(tmp_path: Path) -> None:
+    """Strictness applies to module suites only: platform suites (where platforms:
+    is banned outright) and provider configs (runtime stays lenient) are exempt."""
+    suites_dir = tmp_path / "suites"
+    _write_platform_axis_suites(suites_dir)
+    provider_config = tmp_path / "providers" / "acme" / "config" / "vm.yaml"
+    provider_config.parent.mkdir(parents=True)
+    provider_config.write_text(
+        """\
+tests:
+  validations:
+    example:
+      checks:
+        ProviderCheck:
+          test_id: "VM01-02"
+"""
+    )
+    assert validate_suite_wiring.wiring_errors(suites_dir, tmp_path / "providers") == []
 
 
 def test_wiring_errors_accepts_validation_less_platform_suite(tmp_path: Path) -> None:

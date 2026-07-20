@@ -134,10 +134,13 @@ capability: platform runs report `(platform, -)`, module runs inside a
 report `(-, module)` (no capability).
 `scripts/validate_suite_wiring.py` governs labels: every suite declares exactly
 one axis key, every suite check carries that declared axis label, and platform
-names are banned from module-suite check `labels:`. A module-suite check that
-applies only to some platforms declares `platforms: [...]` (a subset of the
-platform axis; omitted = compatible with every platform, subsets like
-`[vm, bare_metal]` are supported). `platforms:` is rejected on platform-suite
+names are banned from module-suite check `labels:`. Every module-suite check
+must positively declare `platforms: [...]` (a subset of the platform axis;
+subsets like `[vm, bare_metal]` are supported) - the declaration is REQUIRED
+in this repo, and the validator rejects a missing or empty one. At runtime a
+missing declaration is still treated as compatible with every real environment
+(older/external configs keep working); strictness is repo-enforced by the
+validator only. `platforms:` is rejected on platform-suite
 checks (their column is fixed by file placement), and standalone `--module`
 runs apply no platform filtering. The `foundational` capability
 (`suites/foundational.yaml`, a platform suite wiring no validations) exists
