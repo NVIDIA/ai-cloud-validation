@@ -45,7 +45,19 @@ provider "google" {
   project = var.project
 }
 
+# Consult the primary cluster's state ONLY when its state file is actually
+# present. At CREATE the primary state exists and its live cluster name/location is
+# the source of truth (the eks idiom). During a var-less DESTROY, or the
+# state-loss reconcile that imports+destroys a surviving pool after a best-effort
+# teardown already removed the primary state, that file is GONE — and refreshing an
+# unconditional terraform_remote_state against a missing local backend ERRORS during
+# plan, BEFORE any try() fallback in locals can run, which strands the run-owned
+# pool. `count` on fileexists() (same relative path the backend reads, resolved from
+# this module's dir) drops the data source entirely when the primary state is
+# absent, so recovery falls back cleanly to the threaded cluster_name /
+# cluster_location vars and the state-targeted destroy still runs.
 data "terraform_remote_state" "cluster" {
+  count   = fileexists(var.cluster_state_path) ? 1 : 0
   backend = "local"
   config = {
     path = var.cluster_state_path
@@ -53,15 +65,16 @@ data "terraform_remote_state" "cluster" {
 }
 
 locals {
-  # Prefer the LIVE primary outputs (create-time wiring, eks idiom); fall back to
-  # the values this module persisted as its own inputs/outputs so a var-less
-  # DESTROY still resolves after the primary teardown emptied the primary state's
-  # outputs. `try` catches the missing-attribute error on an emptied remote state
-  # and uses the threaded fallback var instead of aborting the destroy. The pool
-  # is targeted by its own state resource id at destroy, so these values only need
-  # to be PRESENT, never re-fetched from the (possibly-gone) primary.
-  cluster_name     = try(data.terraform_remote_state.cluster.outputs.cluster_name, var.cluster_name)
-  cluster_location = try(data.terraform_remote_state.cluster.outputs.location, var.cluster_location)
+  # Prefer the LIVE primary outputs when the primary state is present (create-time
+  # wiring, eks idiom); otherwise fall back to the values this module persisted as
+  # its own inputs/outputs so a var-less DESTROY still resolves after the primary
+  # teardown removed the primary state. The length() guard reads the [0] index only
+  # when the data source was instantiated (present state); `try` still catches an
+  # emptied-but-present remote state whose outputs are gone. The pool is targeted by
+  # its own state resource id at destroy, so these values only need to be PRESENT,
+  # never re-fetched from the (possibly-gone) primary.
+  cluster_name     = length(data.terraform_remote_state.cluster) > 0 ? try(data.terraform_remote_state.cluster[0].outputs.cluster_name, var.cluster_name) : var.cluster_name
+  cluster_location = length(data.terraform_remote_state.cluster) > 0 ? try(data.terraform_remote_state.cluster[0].outputs.location, var.cluster_location) : var.cluster_location
 
   # Stable markers so kubectl probes / the node-count exclusion can identify the
   # test pool even when the caller supplies no custom labels. Merged UNDER the

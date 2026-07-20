@@ -39,7 +39,19 @@ provider "google" {
   project = var.project
 }
 
+# Consult the primary cluster's state ONLY when its state file is actually
+# present. At CREATE the primary state exists and its live network/subnetwork is the
+# source of truth (proving same-VPC coexistence). During a var-less DESTROY, or the
+# state-loss reconcile that imports+destroys a surviving secondary after a
+# best-effort teardown already removed the primary state, that file is GONE — and
+# refreshing an unconditional terraform_remote_state against a missing local backend
+# ERRORS during plan, BEFORE any try() fallback in locals can run, which strands the
+# run-owned secondary cluster. `count` on fileexists() (same relative path the
+# backend reads, resolved from this module's dir) drops the data source entirely
+# when the primary state is absent, so recovery falls back cleanly to the threaded
+# network / subnetwork vars and the state-targeted destroy still runs.
 data "terraform_remote_state" "primary" {
+  count   = fileexists(var.cluster_state_path) ? 1 : 0
   backend = "local"
   config = {
     path = var.cluster_state_path
@@ -48,14 +60,15 @@ data "terraform_remote_state" "primary" {
 
 locals {
   # Attach to the SAME network/subnetwork as the primary to prove same-VPC
-  # coexistence — read LIVE from the primary state at create. Fall back to the
-  # values persisted in THIS module's own state/inputs so a var-less DESTROY still
-  # resolves after the primary teardown emptied the primary state's outputs (`try`
-  # catches the missing-attribute error and uses the threaded fallback var). The
+  # coexistence — read LIVE from the primary state at create when it is present.
+  # Otherwise (var-less DESTROY / state-loss reconcile) fall back to the values
+  # persisted in THIS module's own state/inputs. The length() guard reads the [0]
+  # index only when the data source was instantiated (present state); `try` still
+  # catches an emptied-but-present remote state whose outputs are gone. The
   # secondary is targeted by its own state id at destroy, so these only need to be
   # present.
-  primary_network    = try(data.terraform_remote_state.primary.outputs.network, var.network)
-  primary_subnetwork = try(data.terraform_remote_state.primary.outputs.subnetwork, var.subnetwork)
+  primary_network    = length(data.terraform_remote_state.primary) > 0 ? try(data.terraform_remote_state.primary[0].outputs.network, var.network) : var.network
+  primary_subnetwork = length(data.terraform_remote_state.primary) > 0 ? try(data.terraform_remote_state.primary[0].outputs.subnetwork, var.subnetwork) : var.subnetwork
 
   # GKE node-pool names are RFC-1035 capped at 40 chars. cluster_name is already
   # capped at 40, so appending "-np" could overflow for a long cluster-name
