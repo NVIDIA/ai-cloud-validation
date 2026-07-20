@@ -255,7 +255,7 @@ tests:
     def test_foundational_module_checks_declare_foundational(self) -> None:
         """Once-per-lab API module checks carry platforms ["foundational"]."""
         catalog = build_catalog(released_only=False)
-        foundational_modules = {"iam", "control_plane", "image_registry", "network"}
+        foundational_modules = {"iam", "control_plane", "image_registry", "network", "observability"}
         for entry in catalog:
             if foundational_modules & set(entry["modules"]):
                 assert entry["platforms"] == ["foundational"], (
@@ -299,13 +299,13 @@ tests:
             assert "bare_metal" not in entry["labels"]
 
     def test_filled_module_suites_carry_runtime_platforms(self) -> None:
-        """Security/observability/storage checks declare the four runtime columns
-        unless a narrower subset is intended (the CAP04 pair)."""
+        """Security/storage checks declare the four runtime columns unless a
+        narrower subset is intended (the CAP04 pair)."""
         from isvtest.catalog import _build_axis_maps
 
         runtime_platforms = ["bare_metal", "kubernetes", "slurm", "vm"]
         bare_metal_only = {"CapacityReservationGroupingCheck", "CapacityTopologyBlockAtomicAllocationCheck"}
-        filled_modules = {"security", "observability", "storage"}
+        filled_modules = {"security", "storage"}
 
         _, suite_modules = _build_axis_maps()
         checked = 0

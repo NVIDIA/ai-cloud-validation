@@ -146,7 +146,8 @@ runs apply no platform filtering. The `foundational` capability
 (`suites/foundational.yaml`, a platform suite wiring no validations) exists
 only to extend the axis: a validation-less platform suite's column has no
 platform run (providers ship no config for it) and plans only modules whose
-checks positively declare it - iam, control-plane, image-registry, and network declare
+checks positively declare it - iam, control-plane, image-registry, network, and
+observability declare
 `platforms: ["foundational"]` and run once there, not under runtime columns.
 Labels are otherwise free-form (they
 originate in the wiring YAML, so there is no external allowlist). Wiring names are globally unique

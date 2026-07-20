@@ -216,6 +216,7 @@ def test_repo_foundational_column_is_exactly_foundational_modules(provider: str)
         ("module", "iam"),
         ("module", "image_registry"),
         ("module", "network"),
+        ("module", "observability"),
     ]
     assert all(r.column_platform == "foundational" for r in plan.runs)
 
@@ -230,4 +231,5 @@ def test_repo_runtime_columns_omit_foundational_modules(column: str) -> None:
         ("iam", f"no checks compatible with column '{column}'"),
         ("image_registry", f"no checks compatible with column '{column}'"),
         ("network", f"no checks compatible with column '{column}'"),
+        ("observability", f"no checks compatible with column '{column}'"),
     }
