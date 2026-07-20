@@ -48,6 +48,18 @@ variable "machine_type" {
   default     = "e2-standard-4"
 }
 
+variable "ownership_labels" {
+  description = <<-EOT
+    Full-run-identity ownership marker stamped on the secondary cluster's
+    resource_labels at CREATION (isv-ncp-run-id=<full run id>), matching the primary
+    cluster. It is the adopt-safety proof cross-worker adopt and destroy require, so a
+    same-name secondary this run does not own is never adopted or destroyed. Empty
+    default keeps a var-less destroy valid.
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
 variable "node_count" {
   description = "Node count for the secondary cluster's node pool."
   type        = number

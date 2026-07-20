@@ -51,14 +51,162 @@ import k8s_lib as k8s
 
 PLATFORM = "kubernetes"
 _DESTROY_TIMEOUT = 1200
+# Confirmation poll AFTER terraform destroy: terraform's delete OPERATION completing is
+# not proof of live absence, so poll the exact node pool until the API returns not_found
+# before reporting success. Kept strictly below this step's 1500s orchestrator cap on top
+# of _DESTROY_TIMEOUT; the preceding destroy already blocked on the delete LRO, so the
+# poll normally confirms absence on its first iteration.
+_ABSENCE_WAIT_TIMEOUT = 240
 # Benign placeholder for the delete-irrelevant machine_type var (terraform
 # destroy targets by state, not by this value).
 _PLACEHOLDER_MACHINE_TYPE = "e2-standard-4"
+_POOL_ADDRESS = "google_container_node_pool.this"
+
+
+def _resolve_parent_for_reconcile(fallback_cluster_name: str, fallback_location: str) -> str | tuple[str, str]:
+    """Resolve the parent cluster ``(name, location)`` for the empty/absent pool-state
+    reconcile.
+
+    A pool whose local state is absent or VALID-EMPTY no longer carries its own
+    ``cluster_name`` / ``cluster_location`` outputs, so the parent identity needed to
+    describe the exact pool live is recovered from the primary cluster state (the same
+    source create_node_pool reads via terraform_remote_state). Returns:
+
+      * ``(name, loc)``  - the parent identity to describe live. When the primary
+                           cluster state is present it comes from that state; when the
+                           primary state is ALSO absent/valid-empty it falls back to
+                           the DETERMINISTIC run-scoped parent (the same name/location
+                           create used), because local state loss does NOT prove the
+                           parent cluster (or the pool beneath it) is gone — the caller
+                           must still describe the exact resource live before reporting
+                           clean;
+      * ``'unreadable'`` - the primary state is present but its address/identity cannot
+                           be read, OR local state is absent and no deterministic
+                           parent location was supplied -> fail closed
+                           (ownership_unprovable).
+    """
+    k8s.terraform_init(k8s.CLUSTER_TF_DIR)
+    primary_class = k8s.classify_state(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "google_container_cluster.primary")
+    if primary_class in ("absent", "empty"):
+        # Local state cannot distinguish "parent never created" from "parent state
+        # was lost while the run-owned cluster + pool are still live". Describe the
+        # DETERMINISTIC run-scoped parent live rather than reporting a false clean; a
+        # confirmed-absent parent (or pool) is then the only clean absence. Without a
+        # location we cannot describe the parent, so fail closed.
+        if not fallback_cluster_name or not fallback_location:
+            return "unreadable"
+        return (fallback_cluster_name, fallback_location)
+    if primary_class == "unreadable":
+        return "unreadable"
+    try:
+        cluster_name = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "cluster_name")
+        cluster_location = k8s.terraform_output_raw(k8s.CLUSTER_TF_DIR, k8s.cluster_state_file(), "location")
+    except k8s.LifecycleError:
+        return "unreadable"
+    return (cluster_name, cluster_location)
+
+
+def _reconcile_stateless_pool(
+    project: str,
+    pool_name: str,
+    state_file: str,
+    fallback_cluster_name: str,
+    fallback_location: str,
+) -> int:
+    """Reconcile the EXACT pool live when its local state is absent or VALID-EMPTY.
+
+    File presence alone cannot distinguish "never created" from "already destroyed"
+    (the delete-test pool's normal test-phase destroy leaves a valid-empty state its
+    teardown safety net then re-enters), so report idempotent success ONLY after
+    confirmed cloud absence: describe the exact deterministic pool under its run-owned
+    parent, treat a confirmed-absent pool as clean, import + destroy + wait a run-owned
+    leak, and fail visibly on an unreadable/mismatched parent identity — never a false
+    clean."""
+    result: dict[str, Any] = {"success": False, "platform": PLATFORM}
+    try:
+        parent = _resolve_parent_for_reconcile(fallback_cluster_name, fallback_location)
+        if parent == "unreadable":
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_unprovable",
+                    "error": (
+                        f"[bucket=ownership_unprovable] refusing to report node pool {pool_name} "
+                        "clean: its local state is absent/valid-empty and the parent cluster identity "
+                        "needed to describe the exact pool live is unprovable (the primary cluster "
+                        "state is unreadable, or no deterministic parent name/location was supplied). "
+                        "A rerun with readable state (or the parent cluster-name/location args) "
+                        "recovers."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+            return k8s.emit(result)
+        cluster_name, cluster_location = parent
+        tf_vars = {
+            "project": project,
+            "pool_name": pool_name,
+            "cluster_state_path": k8s.cluster_state_path_for_node_pool(),
+            "cluster_name": cluster_name,
+            "cluster_location": cluster_location,
+            "machine_type": _PLACEHOLDER_MACHINE_TYPE,
+        }
+        outcome = k8s.reconcile_orphaned_node_pool(
+            k8s.NODE_POOL_TF_DIR,
+            state_file,
+            _POOL_ADDRESS,
+            cluster_name,
+            cluster_location,
+            pool_name,
+            project,
+            tf_vars,
+            destroy_timeout=_DESTROY_TIMEOUT,
+        )
+        if outcome == "reclaimed":
+            result.update(
+                {
+                    "success": True,
+                    "message": (
+                        f"Node pool {pool_name} had no durable local state but was found live under "
+                        "its run-owned parent (an ambiguous create); imported, destroyed, and "
+                        "confirmed absent."
+                    ),
+                    "resources_deleted": ["google_container_node_pool"],
+                }
+            )
+        else:  # "absent"
+            result.update(
+                {
+                    "success": True,
+                    "message": (
+                        f"Node pool {pool_name} state {state_file} is absent/valid-empty and the pool "
+                        "is confirmed absent live - nothing to destroy."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+    except BaseException as exc:  # always emit structured JSON, never crash without output
+        result = k8s.error_result(PLATFORM, exc)
+    return k8s.emit(result)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Destroy a GKE test node pool via Terraform.")
     parser.add_argument("--pool-name", required=True, help="Node-pool name base (RUN_ID-suffixed by the stub).")
+    parser.add_argument(
+        "--cluster-name",
+        default="",
+        help=(
+            "Parent cluster name BASE (RUN_ID-suffixed by the stub). Deterministic parent identity "
+            "so a state-loss reconcile can describe the exact pool live when BOTH the pool state and "
+            "the primary cluster state are absent/valid-empty."
+        ),
+    )
+    parser.add_argument(
+        "--location",
+        default="",
+        help="Parent cluster location; pairs with --cluster-name for the state-loss live reconcile.",
+    )
     parser.add_argument(
         "--skip-destroy",
         action="store_true",
@@ -84,32 +232,100 @@ def main() -> int:
         project = k8s.resolve_project_id()
         pool_name = k8s.scoped_name(args.pool_name)
         state_file = k8s.state_file_for_pool(pool_name)
+        # Deterministic parent identity for the state-loss reconcile: the SAME
+        # run-scoped cluster name + location create/teardown use. Passed to every
+        # pool-destroy invocation so a lost local state can still describe the exact
+        # parent + pool live before reporting clean (never a false "nothing to
+        # destroy" from local-state absence alone).
+        fallback_cluster_name = k8s.scoped_name(args.cluster_name) if args.cluster_name.strip() else ""
+        fallback_location = args.location.strip()
 
-        if not k8s.state_exists(k8s.NODE_POOL_TF_DIR, state_file):
+        # Initialize unconditionally (idempotent) so `terraform state list`
+        # classification reads a ready local backend, then classify the pool's state
+        # by its EXACT address rather than mere file presence. The delete-test pool's
+        # normal test-phase destroy leaves a VALID-EMPTY state its teardown safety net
+        # re-enters; file presence alone would then read its outputs, fail, and
+        # mis-report a canonical successful cleanup as ownership_unprovable.
+        k8s.terraform_init(k8s.NODE_POOL_TF_DIR)
+        state_class = k8s.classify_state(k8s.NODE_POOL_TF_DIR, state_file, _POOL_ADDRESS)
+
+        if state_class == "unreadable":
+            # `terraform state list` failed: the pool's ownership/identity cannot be
+            # classified. Fail CLOSED — a failed state read is ownership_unprovable,
+            # never a clean "nothing to destroy".
             result.update(
                 {
-                    "success": True,
-                    "message": f"Node pool state {state_file} absent - nothing to destroy.",
+                    "success": False,
+                    "error_type": "ownership_unprovable",
+                    "error": (
+                        f"[bucket=ownership_unprovable] refusing to report node pool {pool_name} "
+                        f"clean: its Terraform state {state_file} exists but `terraform state list` "
+                        "could not be read, so its provenance is unprovable. A rerun with readable "
+                        "state recovers."
+                    ),
                     "resources_deleted": [],
                 }
             )
             return k8s.emit(result)
 
-        k8s.terraform_init(k8s.NODE_POOL_TF_DIR)
+        if state_class in ("absent", "empty"):
+            # No tracked pool address: the pool was either never durably created (a
+            # failed create apply — an ambiguous create) OR already destroyed in the
+            # test phase (a valid-empty state). Reconcile the EXACT pool live and
+            # report success only after confirmed cloud absence.
+            return _reconcile_stateless_pool(project, pool_name, state_file, fallback_cluster_name, fallback_location)
 
-        # Recover the cluster wiring this pool PERSISTED in its own state at create
-        # so the var-less destroy resolves without the primary state's outputs
-        # (best-effort teardown may already have destroyed the primary before this
-        # retry). The pool is targeted by its own state resource id, so an empty
-        # fallback is harmless — the value only needs to be present, never live.
+        # state_class == "tracked": the pool address is in state.
+        # Recover the parent cluster wiring this pool PERSISTED in its OWN state at
+        # create (never the primary's), so the parent-ownership gate below can
+        # re-verify the LIVE marker before the state-targeted destroy. These outputs
+        # are stamped into this pool's own state at create, so a read failure here
+        # means the pool's provenance is UNREADABLE — we cannot prove the parent
+        # cluster belongs to this run, and must fail CLOSED rather than destroy a pool
+        # on a possibly-foreign cluster. An empty fallback would silently SKIP the
+        # ownership gate and still destroy, so it is never used.
         try:
             cluster_name = k8s.terraform_output_raw(k8s.NODE_POOL_TF_DIR, state_file, "cluster_name")
-        except k8s.LifecycleError:
-            cluster_name = ""
-        try:
             cluster_location = k8s.terraform_output_raw(k8s.NODE_POOL_TF_DIR, state_file, "cluster_location")
-        except k8s.LifecycleError:
-            cluster_location = ""
+        except k8s.LifecycleError as exc:
+            k8s.log(f"warning: refusing node pool destroy — parent identity unreadable from state: {exc.detail}")
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_unprovable",
+                    "error": (
+                        f"[bucket=ownership_unprovable] refusing to destroy node pool {pool_name}: its "
+                        f"parent cluster identity/location is unreadable from state ({exc.detail}), so "
+                        "parent ownership cannot be verified. The pool was left untouched; a rerun with "
+                        "readable state recovers."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+            return k8s.emit(result)
+
+        # Fail-closed parent-ownership gate before the state-targeted destroy: verify
+        # the PARENT cluster's LIVE ownership marker and REFUSE the pool destroy unless
+        # ownership is positively proven (marker matches this run, or the parent is a
+        # clean not_found). A present-but-different-run marker, an absent marker, OR an
+        # UNREADABLE marker all fail closed as a VISIBLE failure so a pool on a
+        # deleted-and-replaced same-name FOREIGN cluster — or a pool whose parent
+        # ownership cannot be read — is never destroyed.
+        destroy_ok, ownership_reason = k8s.destroy_ownership_ok(cluster_name, cluster_location, project)
+        if not destroy_ok:
+            k8s.log(f"warning: refusing node pool destroy — parent cluster {ownership_reason}")
+            result.update(
+                {
+                    "success": False,
+                    "error_type": "ownership_conflict",
+                    "error": (
+                        f"[bucket=ownership_conflict] refusing to destroy node pool {pool_name}: "
+                        f"its parent cluster {ownership_reason}. The pool was left untouched."
+                    ),
+                    "resources_deleted": [],
+                }
+            )
+            return k8s.emit(result)
 
         tf_vars = {
             "project": project,
@@ -120,11 +336,18 @@ def main() -> int:
             "machine_type": _PLACEHOLDER_MACHINE_TYPE,
         }
         k8s.terraform_destroy(k8s.NODE_POOL_TF_DIR, state_file, tf_vars, timeout=_DESTROY_TIMEOUT)
+        # terraform destroy returns once the delete OPERATION is accepted, which is NOT
+        # proof of live absence (wait_node_pool_absent documents this). Poll the EXACT
+        # node pool until the API returns not_found before reporting success, so a pool
+        # that is still observable/billable is never reported destroyed. A timeout /
+        # unreadable describe RAISES into the outer handler as a visible failure; a rerun
+        # recovers.
+        k8s.wait_node_pool_absent(cluster_name, pool_name, cluster_location, project, timeout=_ABSENCE_WAIT_TIMEOUT)
 
         result.update(
             {
                 "success": True,
-                "message": f"Node pool {pool_name} destroyed.",
+                "message": f"Node pool {pool_name} destroyed and confirmed absent.",
                 "resources_deleted": ["google_container_node_pool"],
             }
         )

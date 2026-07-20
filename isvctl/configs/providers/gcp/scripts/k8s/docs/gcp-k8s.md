@@ -89,19 +89,30 @@ export RUN_ID=$(openssl rand -hex 4)
 
 ## Operator environment variables (k8s domain)
 
-All fourteen `GCP_K8S_*` settings and their required/optional status + defaults are
+All sixteen `GCP_K8S_*` settings and their required/optional status + defaults are
 documented in the tier-1 index [`docs/references/gcp.md`](../../../../../../../docs/references/gcp.md#operator-environment-variables).
 In short: `GCP_K8S_LOCATION`, `GCP_K8S_CPU_MACHINE_TYPE`, `GCP_K8S_GPU_MACHINE_TYPE`,
 and `GCP_K8S_GPU_ACCELERATOR_TYPE` are **required** (no safe public default); the
-other ten are optional overrides.
+other twelve are optional overrides (including the GKE managed-autoscaler bounds
+`GCP_K8S_SYSTEM_MIN_NODES`/`GCP_K8S_SYSTEM_MAX_NODES` on the CPU/system pool).
 
 `GCP_K8S_NETWORK` selects the VPC the cluster and every standalone GPU
 capacity-preflight MIG attach to. It defaults to `default`, so a project that
 retains the auto-created default VPC needs no override; **a custom-VPC-only
 project MUST set it** (name or self-link) or setup fails because no `default`
-network exists. Setup reads the live cluster's network back and fails if it does
-not match this value, and the GPU test pool reads the primary cluster's network
-so its probe can never drift to another VPC.
+network exists. No separate subnet variable is needed: a custom-mode VPC
+auto-creates no subnet, so on a FRESH create setup deterministically resolves the
+cluster's regional subnetwork from the selected network + cluster region
+(`resolve_cluster_subnet`, the cluster-side counterpart of the GPU probe's subnet
+resolver) and binds it explicitly — the auto-mode `default` VPC resolves to its
+regional `default` subnet (the same subnet GKE would auto-pick). The resolver is
+ambiguity-rejecting: if the selected VPC carves more than one subnet in the
+cluster region it fails closed rather than guessing, so the operator must scope
+the VPC to a single regional subnet (or a Shared-VPC service project whose host
+subnets are not locally listable falls back to GKE's own default selection).
+Setup then reads the live cluster's network back and fails if it does not match
+this value, and the GPU test pool reads the primary cluster's network so its
+probe can never drift to another VPC.
 
 The optional API-network-ACL capability is a PAIR. `GCP_K8S_AUTHORIZED_CIDRS`
 (comma-separated CIDRs; a bare IPv4 becomes `/32`) enables GKE authorized
@@ -151,9 +162,14 @@ throwaway **standalone size-1 Managed Instance Group** (a plain Compute MIG, not
 a node pool — it deletes in seconds) mirroring the GPU shape is stood up, its
 capacity signal read (`ZONE_RESOURCE_POOL_EXHAUSTED` in `list-errors` → no
 capacity → next zone; instance reaching `STAGING`/`RUNNING` → capacity → use this
-zone), then deleted on every exit path. The real GPU pool is created directly in
-the first zone that showed capacity. A non-stockout probe failure (org policy,
-quota, permission) is surfaced and fails the step — never misread as no-capacity.
+zone), then deleted **best-effort** on every exit path. An inline delete that
+cannot be confirmed does not fail a found capacity zone (a transient cleanup
+hiccup must not mask real GPU capacity); instead the retained MIG is recorded and
+reclaimed by teardown's run-scoped probe backstop — which runs even on the
+`--skip-destroy` preservation path (see [Teardown](#teardown)). The real GPU pool
+is created directly in the first zone that showed capacity. A non-stockout probe
+failure (org policy, quota, permission) is surfaced and fails the step — never
+misread as no-capacity.
 
 ### GKE-specific bridges (setup)
 
@@ -201,9 +217,13 @@ teardown safety net in case the test-phase delete did not run.
 
 `create_test_shared_vpc_cluster` provisions a SECOND cluster on the SAME VPC
 network as the primary (native on GKE) and emits the `multi_cluster` payload.
-It is gated by `requires_available_validations: [K8sMultiClusterSameVpcCheck]`,
-so it only runs under `ISVTEST_INCLUDE_UNRELEASED=1` (the check is unreleased).
-The GKE `RUNNING` up-state is mapped to the contract sentinel `ACTIVE`.
+It is gated by `requires_available_validations: [K8sMultiClusterSameVpcCheck]`;
+that check is RELEASED, so the step runs whenever the check is selected (the
+default). After apply, BOTH clusters are described live through the GKE API and
+their shared network/subnetwork membership + active state are verified BEFORE the
+secondary kubeconfig install and node-readiness wait; each cluster's OBSERVED
+network is emitted (never the primary's echoed to both). The GKE `RUNNING`
+up-state is mapped to the contract sentinel `ACTIVE`.
 
 ## Subtests exercised
 
@@ -211,19 +231,40 @@ The full `suites/k8s.yaml` contract runs against the GKE cluster: node
 count/readiness, GPU driver + nvidia-smi + capacity + pod-access + labels, GPU
 Operator namespace/pods (satisfied by the managed DaemonSets in `kube-system`),
 pod health / no-pending / no-error, MIG (self-skips on non-MIG GPUs), dual-stack
-(auto), cluster-autoscaler (self-skips), NetworkPolicy (Dataplane V2), CSI
-storage types / quota / tenant-scoping / provisioning modes (self-skip until a
-StorageClass is named via `K8S_CSI_*`), OIDC issuer, conformance (`quick`),
-control-plane metrics + logs (Cloud Logging), API network ACL (self-skips until
-an outside-vantage probe is supplied), and the node-pool CRUD checks. GPU
-workloads (NCCL, GPU-stress, NIM-1b) run when `NGC_API_KEY` is set.
+(auto), cluster-autoscaler, NetworkPolicy (Dataplane V2), CSI storage types /
+quota / tenant-scoping / provisioning modes, OIDC issuer, conformance (`quick`),
+control-plane metrics + logs (Cloud Logging), API network ACL, the multi-cluster
+same-VPC check, and the node-pool CRUD checks. GPU workloads (NCCL single- and
+multi-node, GPU-stress, NIM) run when `NGC_API_KEY` is set.
 
-**Excluded (STOPGAP, not a GKE gap):** `K8sNimHelmWorkload-3b` and
-`K8sNimInferenceWorkload` — the released NIM workloads never cap `max_model_len`,
-so llama-3.2-3b's 128K KV cache overflows a ≤24GB GPU (L4) and the vLLM engine
-fails to start. This is an upstream NIM-workload limitation seen on every NCP,
-not a GKE defect. The 1B sibling is KEPT. Remove the exclusion once the NIM
-workloads cap `max_model_len`, or run on a >24GB GPU.
+Provider-specific behavior worth calling out:
+
+- **cluster-autoscaler:** setup enables GKE-managed autoscaling on the CPU/system
+  pool (bounded min/max, read back and verified live) and emits provider-native
+  evidence (`provider=managed`, node_pool, min/max) into the setup inventory. GKE
+  runs the autoscaler in its managed control plane, so there is no in-cluster
+  `cluster-autoscaler` Deployment. The released `K8sClusterAutoscalerCheck` remains
+  **Deployment-only** — it discovers only an in-cluster autoscaler Deployment and
+  has no provider-managed evidence mode — so on GKE it **structured-skips**
+  (`require_autoscaler` is false; nothing binds setup's managed readback as its
+  `step_output`). Setup's independent live enable/min/max verification is the real
+  coverage today; the released validator does not yet record autoscaler coverage
+  here. This enablement stays visible until the upstream validator learns to accept
+  a provider-native GKE/API signal, at which point the binding can require the check.
+- **CSI block storage:** setup discovers a live `pd.csi.storage.gke.io` block
+  `StorageClass`, so the block-storage checks (types / quota / dynamic
+  provisioning) run against a real class without an explicit `K8S_CSI_*` override.
+  The shared-fs / NFS types still self-skip until a class is named.
+- **API network ACL:** self-skips until BOTH `GCP_K8S_AUTHORIZED_CIDRS` and an
+  outside-vantage `GCP_K8S_UNAUTHORIZED_PROBE_CMD` are supplied; when configured,
+  setup enables `master_authorized_networks`, reads the live allow-list back, and
+  fails closed unless it equals the requested CIDRs.
+- **multi-node NCCL:** setup installs the pinned Kubeflow MPI Operator
+  (`manifests/mpi-operator-v0.8.2.yaml`) and gates on its CRD + controller
+  readiness, so `K8sNcclMultiNodeWorkload` runs its MPIJob (no MPI-Operator skip).
+- **NIM 3B workloads:** `K8sNimHelmWorkload-3b` and `K8sNimInferenceWorkload` are
+  ENABLED — each caps `nim_max_model_len` (8192) so llama-3.2-3b's KV cache fits a
+  ≤24GB GPU (L4), instead of overflowing at the default 128K context.
 
 ## Running
 
@@ -234,8 +275,8 @@ uv run isvctl test run -f isvctl/configs/providers/gcp/config/k8s.yaml
 # Preserve the cluster for debugging (teardown skipped).
 GCP_K8S_SKIP_TEARDOWN=true uv run isvctl test run -f isvctl/configs/providers/gcp/config/k8s.yaml
 
-# Include the unreleased multi-cluster check + its shared-VPC setup step.
-ISVTEST_INCLUDE_UNRELEASED=1 uv run isvctl test run -f isvctl/configs/providers/gcp/config/k8s.yaml
+# The multi-cluster same-VPC check is RELEASED, so its shared-VPC setup step runs
+# by default; ISVTEST_INCLUDE_UNRELEASED=1 is only needed for still-unreleased checks.
 ```
 
 Wall-clock is roughly 30–60 minutes on a clean environment; a GPU-zone stockout
@@ -247,14 +288,48 @@ Teardown runs by default (even after failures). It reclaims run-created PVCs so
 the `pd.csi.storage.gke.io` driver deletes their backing Persistent Disks BEFORE
 the cluster is destroyed (a GKE cluster delete does NOT reclaim PVC-backed PDs —
 they orphan as standalone Compute disks), then `terraform destroy`s the cluster,
-then backstops any raced PD by THIS run's `goog-k8s-cluster-name` label. Node
-pools are destroyed by their own steps first. `terraform init` runs
-unconditionally before every destroy so a teardown-on-failure after setup bailed
-early still reconciles a stale lock and no-ops cleanly.
+then backstops any raced PD and any leftover GPU capacity-preflight probe
+MIG/template. In both backstops the `goog-k8s-cluster-name` label (for disks) and
+the probe name (for MIGs/templates) are DISCOVERY inputs only — they surface
+candidate resources but never authorize a delete on their own, because the
+truncated 8-char cluster label and a bare name can collide across runs. A disk is
+deleted ONLY when it is in this run's full-run ownership ledger (the exact
+PVC-backed disk identities captured from live PVs while the cluster was up and its
+full-run-id ownership marker was verified, read through an isolated kubeconfig
+pinned to that exact cluster), and a probe MIG/template ONLY when it matches this
+run's exact full-identity probe ledger. The backstops FAIL CLOSED: a failed
+listing, a surviving ledger-owned resource, an incomplete live capture, or a
+labeled/named resource whose full-run ownership cannot be proven is surfaced as
+`cleanup_errors` with `success=False`, so a billable orphan can never present as a
+clean teardown. Node pools are destroyed by their own steps first. `terraform
+init` runs unconditionally before every destroy so a teardown-on-failure after
+setup bailed early still reconciles a stale lock and no-ops cleanly. `terraform
+destroy` is state-targeted, and the cluster only enters that state via a fresh
+create or an adopt that first proved this run's exact ownership (a cloud-side
+full-run-id label), so teardown never destroys a same-name cluster this run does
+not own.
+
+`GCP_K8S_SKIP_TEARDOWN=true` preserves the cluster and node pools for debugging.
+Preservation still reclaims a **standalone** GPU capacity-preflight probe MIG (a
+billable size-1 GPU resource that lives OUTSIDE the cluster) when an earlier
+inline delete was left unconfirmed: the skip-teardown path runs the probe-ONLY
+backstop, leaves the cluster and node pools untouched, and reports the reclaim —
+so a preserved run can never hide a leaked probe MIG behind a success-shaped
+result. When no probe cleanup is pending it short-circuits with no cloud calls.
+
+Preservation is driven by `GCP_K8S_SKIP_TEARDOWN` (it forwards `--skip-destroy`
+to every teardown step), and that variable is usually still exported in the
+shell that preserved the run. So the standalone teardown MUST force it back to
+`false` in the same command — otherwise the preserved variable turns this
+recovery cleanup into a success-shaped no-op that leaves the cluster, node
+pools, and secondary cluster allocated. Re-use the SAME `RUN_ID` so teardown
+re-derives the run-scoped resource names it must reclaim:
 
 ```bash
-# Standalone teardown for a previously-preserved run (re-use the SAME RUN_ID):
-RUN_ID=<original-run-id> uv run isvctl test run \
+# Standalone teardown for a previously-preserved run: disable preservation in
+# the SAME command (re-use the original RUN_ID). `unset GCP_K8S_SKIP_TEARDOWN`
+# beforehand works too.
+GCP_K8S_SKIP_TEARDOWN=false RUN_ID=<original-run-id> uv run isvctl test run \
   -f isvctl/configs/providers/gcp/config/k8s.yaml --phase teardown
 ```
 

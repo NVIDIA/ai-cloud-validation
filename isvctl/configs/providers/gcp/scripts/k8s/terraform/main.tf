@@ -82,6 +82,15 @@ resource "google_container_cluster" "primary" {
   network    = var.network
   subnetwork = var.subnetwork == "" ? null : var.subnetwork
 
+  # Full-run-identity ownership marker, stamped ATOMICALLY at creation. This is the
+  # adopt-safety proof: a later cross-worker adopt (and setup/teardown before
+  # relabeling or destroying a state-tracked cluster) requires this exact marker,
+  # so a same-name cluster this run does not own is never adopted or destroyed.
+  # Stamping it here (not only via a post-apply gcloud update) guarantees a
+  # genuinely run-owned cluster ALWAYS carries it, so an absent marker reliably
+  # signals a foreign/replaced cluster.
+  resource_labels = var.ownership_labels
+
   # No default node pool: create a small, separately-named system pool below.
   remove_default_node_pool = true
   initial_node_count       = 1
@@ -145,16 +154,41 @@ resource "google_container_cluster" "primary" {
 # System (CPU) node pool — hosts kube-system / DaemonSet workloads. Untainted
 # so system pods schedule freely. PINNED to a single zone (like the GPU pools):
 # node_count is PER-ZONE, so on a REGIONAL cluster an unpinned system pool would
-# spread node_count across every region zone (node_count x #zones), tripling cost
-# and breaking the "CPU/system pool stays single-zone" invariant. Empty ->
-# inherit the cluster's node locations (a zonal cluster is already single-zone).
+# spread capacity across every region zone (per-zone x #zones), tripling cost and
+# breaking the "CPU/system pool stays single-zone" invariant. Empty -> inherit the
+# cluster's node locations (a zonal cluster is already single-zone).
+#
+# GKE-MANAGED autoscaling is enabled here with explicit min/max bounds: GKE runs
+# the Cluster Autoscaler in its managed control plane (there is NO upstream
+# cluster-autoscaler Deployment in kube-system to install), so this node-pool
+# autoscaling block IS the real autoscaling integration. Setup independently reads
+# it back live (enabled + observed min/max equal the requested bounds) and emits
+# provider-native evidence. The released K8sClusterAutoscalerCheck stays
+# Deployment-only and therefore STRUCTURED-SKIPS on GKE (it cannot yet consume this
+# managed evidence), so setup's own verification — not the released check — is the
+# coverage this block provides. The GPU pools stay
+# FIXED (node_count) because their capacity-preflight contract needs eager nodes;
+# only the CPU/system pool autoscales. `node_count` is mutually exclusive with the
+# autoscaling block, so the pool is seeded with initial_node_count and the live
+# count then floats between min and max under the managed autoscaler.
 resource "google_container_node_pool" "system" {
   name           = local.system_pool_name
   cluster        = google_container_cluster.primary.name
   location       = google_container_cluster.primary.location
   node_locations = length(var.system_node_locations) > 0 ? var.system_node_locations : null
 
-  node_count = var.system_node_count
+  initial_node_count = var.system_node_count
+
+  autoscaling {
+    min_node_count = var.system_min_nodes
+    max_node_count = var.system_max_nodes
+  }
+
+  # The managed autoscaler owns the live node count after creation, so ignore
+  # post-create drift on the seed count (never force a REPLACE on reconcile).
+  lifecycle {
+    ignore_changes = [initial_node_count]
+  }
 
   node_config {
     machine_type = var.system_machine_type

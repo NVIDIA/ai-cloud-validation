@@ -3,6 +3,14 @@
 *.tfstate.backup
 *.tfstate.lock.info
 
+# Runtime signal: a leaked GPU capacity-preflight probe pending reclaim
+# (written by setup, consumed by teardown's preservation path).
+retained-probes-*.marker
+
+# Runtime ledger: exact identities of this run's PVC-backed Persistent Disks,
+# captured while the cluster is live so teardown reclaims only ledger-proven disks.
+owned-pds-*.ledger
+
 # Terraform cache
 .terraform/
 .terraform.lock.hcl

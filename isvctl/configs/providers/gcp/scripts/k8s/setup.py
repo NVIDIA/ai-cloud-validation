@@ -59,15 +59,30 @@ PLATFORM = "kubernetes"
 # pool) so a definitive GKE terminal error surfaces instead of the wrapper
 # killing a still-running create; the config step timeout is in turn larger than
 # this inner apply budget (never an outer step timeout shorter than the inner).
-#   preflight probe (~3 zones * ~270s)     ~=  810s
-#   cluster + baseline GPU pool apply       <= 3600s
-#   kubeconfig install                      <=  180s
-#   network verify + RuntimeClass apply     <=  180s
-#   GPU readiness gate (provider-native)    <=  900s
-#   inventory (kubectl reads + pod exec)    <=  300s
-# Worst-case serial sum ~= 5970s -> config setup step timeout 6000s.
+#   preflight probe (~3 zones * ~270s)      ~=  810s
+#   cluster + baseline GPU pool apply        <= 3600s
+#   kubeconfig install                       <=  180s
+#   network verify + RuntimeClass apply      <=  180s
+#   system-pool autoscaling readback/reconcile <=  600s
+#   system-pool readiness gate (RUNNING+Ready) <=  300s
+#   GPU readiness gate (provider-native)     <=  900s
+#   MPI Operator apply + readiness gate      <=  300s
+#   inventory (kubectl reads + pod exec)     <=  300s
+# Worst-case serial sum ~= 7170s -> config setup step timeout 7200s.
 _APPLY_TIMEOUT = 3600
 _TWO_GATE_TIMEOUT = 900
+_AUTOSCALING_TIMEOUT = 600
+# Observable-completion gate for the GKE-autoscaled baseline system pool. The
+# pool is created in the SAME apply as the cluster/GPU pool, so on the common
+# path it is already RUNNING with Ready nodes by the time this gate runs (a fast
+# confirmation); the budget gives margin for a still-reconciling adopted pool.
+_SYSTEM_POOL_READY_TIMEOUT = 300
+_MPI_OPERATOR_TIMEOUT = 300
+# Destroy budget for the ambiguous-create reconcile: a fresh-create apply that
+# times out / is interrupted can leave the exact cluster present before its state
+# address is durable, so on apply failure the exact deterministic cluster is
+# imported + destroyed + waited to confirmed absence (only the failure path).
+_RECONCILE_DESTROY_TIMEOUT = 2400
 
 
 def main() -> int:
@@ -102,13 +117,41 @@ def main() -> int:
         default="",
         help="Outside-vantage probe template containing {api_endpoint}; blank/'none' sentinel -> disabled.",
     )
-    parser.add_argument("--system-node-count", type=int, default=1, help="System (CPU) pool node count.")
+    parser.add_argument("--system-node-count", type=int, default=1, help="System (CPU) pool seed node count.")
+    parser.add_argument(
+        "--system-min-nodes", type=int, default=1, help="Lower bound for the managed autoscaler on the system pool."
+    )
+    parser.add_argument(
+        "--system-max-nodes", type=int, default=3, help="Upper bound for the managed autoscaler on the system pool."
+    )
     args = parser.parse_args()
 
     result: dict = {"success": False, "platform": PLATFORM}
     try:
+        # Managed-autoscaler bound relationship is enforced HERE (not in a
+        # Terraform variable validation): a cross-variable `condition` referencing
+        # var.system_min_nodes from var.system_max_nodes's validation is a
+        # Terraform 1.9+ language feature, but the module advertises a >=1.5 floor.
+        # Keep the module self-contained on 1.5 by checking the relationship in the
+        # stub before apply.
+        if args.system_max_nodes < args.system_min_nodes:
+            raise k8s.LifecycleError(
+                "config_error",
+                "[bucket=config_error] GCP_K8S_SYSTEM_MAX_NODES "
+                f"({args.system_max_nodes}) must be >= GCP_K8S_SYSTEM_MIN_NODES "
+                f"({args.system_min_nodes}); the GKE-managed autoscaler upper bound cannot "
+                "be below its lower bound.",
+            )
+
         project = k8s.resolve_project_id()
         cluster_name = k8s.scoped_name(args.cluster_name)
+
+        # Resolve the canonical baseline pool names ONCE (the same trimmed/capped
+        # spelling terraform's locals produce) and reuse them for the GPU-zone
+        # lookup, the adopt import, and the autoscaling readback — never a raw
+        # f"{cluster_name}-gpu", which diverges from the canonical name when an
+        # operator-supplied cluster base hits the GKE 40-char pool-name cap.
+        system_pool_name, gpu_pool_name = k8s.baseline_pool_names(cluster_name)
 
         # Resolve the operator network / API-ACL capability inputs. The provider
         # config renders the non-empty "none" sentinel (so the arg renderer never
@@ -119,6 +162,19 @@ def main() -> int:
         authorized_cidrs = k8s.normalize_authorized_cidrs(args.authorized_cidrs)
         probe_template = k8s.normalize_sentinel(args.unauthorized_probe_template)
 
+        # The outside-vantage probe only proves ACL ENFORCEMENT against a real
+        # authorized-network policy. Requiring the probe template WITHOUT any
+        # authorized CIDRs would leave the endpoint open (no block rendered), so a
+        # failing probe would prove nothing. Fail CLOSED on that pairing gap.
+        if probe_template and not authorized_cidrs:
+            raise k8s.LifecycleError(
+                "config_error",
+                "[bucket=config_error] GCP_K8S_UNAUTHORIZED_PROBE_CMD is set but "
+                "GCP_K8S_AUTHORIZED_CIDRS is empty. An unauthorized probe cannot prove "
+                "API-ACL enforcement when the control-plane endpoint has no authorized "
+                "networks configured; supply the runner's egress CIDR(s) or unset the probe.",
+            )
+
         # The harness preserves every run-scoped resource (GCP_K8S_SKIP_TEARDOWN),
         # so an earlier per-step worker in THIS run may already have provisioned the
         # run-scoped cluster. A fresh worktree's local state is empty, so a blind
@@ -126,7 +182,21 @@ def main() -> int:
         # Detect the existing cluster and ADOPT it below instead.
         state_file = k8s.cluster_state_file()
         cluster_in_state = k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary")
-        cluster_exists = cluster_in_state or k8s.gke_cluster_exists(cluster_name, args.location, project)
+        # Query cloud existence INDEPENDENTLY of local state: state alone must not
+        # select the adopt/refresh-only branch. A cluster tracked in stale state but
+        # genuinely GONE from the cloud (deleted out of band, or a partial prior
+        # create) must be RECREATED, not refreshed into a phantom that later
+        # readiness/autoscaling checks fail on. Discard the stale state so the
+        # fresh-create path below rebuilds the state-owned cluster + baseline pools.
+        cluster_on_cloud = k8s.gke_cluster_exists(cluster_name, args.location, project)
+        if cluster_in_state and not cluster_on_cloud:
+            k8s.log(
+                f"note: Terraform state tracks cluster {cluster_name} but it is absent from the "
+                "cloud; discarding stale state and recreating the state-owned cluster."
+            )
+            k8s.discard_cluster_state(k8s.CLUSTER_TF_DIR, state_file)
+            cluster_in_state = False
+        cluster_exists = cluster_on_cloud
 
         # 1) GPU zone. A FRESH create runs the capacity preflight BEFORE the cluster
         #    apply (a GKE node-pool CREATE op cannot be cancelled). An ALREADY
@@ -142,11 +212,16 @@ def main() -> int:
                 except k8s.LifecycleError:
                     gpu_zone = ""
             if not gpu_zone:
-                gpu_zone = k8s.gke_node_pool_zone(cluster_name, f"{cluster_name}-gpu", args.location, project) or ""
+                # Tri-state: returns the live baseline GPU pool's ACTUAL zone, or
+                # None ONLY when that pool is CONFIRMED ABSENT; an unreadable/
+                # malformed describe RAISES (fail closed) rather than yielding a
+                # zone the caller could reconcile the existing pool onto.
+                gpu_zone = k8s.gke_node_pool_zone(cluster_name, gpu_pool_name, args.location, project) or ""
             if not gpu_zone:
-                # Cluster exists but its baseline GPU pool zone is unreadable (e.g. a
-                # partial prior create); fall back to the preflight so a genuine
-                # reconcile apply can still place the pool.
+                # Reached ONLY when the baseline GPU pool is confirmed absent (e.g. a
+                # partial prior create left the cluster without it): run the preflight
+                # so the reconcile apply can place a FRESH pool. An existing pool never
+                # reaches here — it yielded its real zone (or failed closed) above.
                 candidates = k8s.candidate_gpu_zones(args.gpu_node_locations, args.location)
                 gpu_zone = k8s.select_gpu_zone(
                     project,
@@ -175,15 +250,40 @@ def main() -> int:
         #    master_authorized_cidrs enables GKE authorized networks (empty -> block
         #    omitted, public endpoint open).
         k8s.terraform_init(k8s.CLUSTER_TF_DIR)
+        # A FRESH create must bind the concrete regional subnetwork the selected VPC
+        # requires: a custom-mode VPC auto-creates no subnet, so a null subnetwork
+        # cannot place the cluster (GKE has no default to pick). Resolve it
+        # deterministically from the selected network + cluster region, constrained
+        # to the network's own identity and ambiguity-rejecting (fail closed on a
+        # multi-subnet region rather than a silent guess). The auto-mode `default`
+        # VPC resolves to its regional `default` subnet — the same placement GKE
+        # would auto-pick — so the tested path is unchanged. On the ADOPT path the
+        # existing cluster's subnet is already fixed and read back live below, so no
+        # resolution (and no early ambiguity-raise before the teardown-capable
+        # import) is needed there.
+        cluster_subnetwork = "" if cluster_exists else k8s.resolve_cluster_subnet(project, network, args.location)
         tf_vars = {
             "project": project,
             "cluster_name": cluster_name,
             "location": args.location,
             "kube_version": args.kube_version,
             "network": network,
+            # Concrete regional subnet of the selected VPC (empty -> GKE's own default
+            # selection, the auto-mode / Shared-VPC path). Read back + verified live
+            # after apply via verify_and_read_network.
+            "subnetwork": cluster_subnetwork,
+            # Stamp the full-run-identity ownership marker on the cluster ATOMICALLY
+            # at creation (resource_labels) so a genuinely run-owned cluster always
+            # carries it — the adopt/relabel/destroy paths then treat an absent or
+            # mismatched marker as a foreign/replaced cluster and fail closed.
+            "ownership_labels": {k8s.OWNERSHIP_LABEL_KEY: k8s.full_run_scope_id()},
             "master_authorized_cidrs": authorized_cidrs,
             "system_machine_type": args.cpu_machine_type,
             "system_node_count": args.system_node_count,
+            # GKE-managed autoscaling bounds for the CPU/system pool (GPU pools
+            # stay fixed). Read back + verified live after apply/adopt below.
+            "system_min_nodes": args.system_min_nodes,
+            "system_max_nodes": args.system_max_nodes,
             "system_node_locations": [k8s.zone_for_location(args.location)],
             "gpu_machine_type": args.gpu_machine_type,
             "gpu_accelerator_type": args.gpu_accelerator_type,
@@ -203,30 +303,174 @@ def main() -> int:
             # cluster because the provider reads initial_node_count back as 0 after
             # remove_default_node_pool and would force a full cluster REPLACE.
             cluster_id = f"projects/{project}/locations/{args.location}/clusters/{cluster_name}"
+            # FAIL CLOSED before ANY state-backed import, pool recreation, or
+            # refresh touches the live cluster — on BOTH the fresh-worktree adopt
+            # path AND the in-state re-entry path. Prove exact ownership by the FULL
+            # run identity via the cloud-side marker first (a genuinely run-owned
+            # cluster is stamped at Terraform creation, so this is a no-op read on
+            # the common path). A deleted-and-replaced same-name FOREIGN cluster —
+            # even one this worktree's stale local state still tracks — must never
+            # have its baseline pools imported/recreated/refreshed (and later
+            # destroyed) as though this run owned it. A bare run-scoped name or a
+            # local-state entry must never authorize mutating the live cluster.
+            k8s.verify_cluster_ownership(cluster_name, args.location, project)
             if not cluster_in_state:
+                # PERSIST A CLEANUP-CAPABLE HANDOFF FIRST, before ANY fallible
+                # validation. Ownership is PROVEN above, so this cluster is genuinely
+                # this run's — import it into Terraform state immediately so teardown
+                # can always destroy it. Importing a proven-owned cluster is safe.
+                # If instead the contract validation below ran first and raised, the
+                # cluster would have NO local state, and a default teardown would then
+                # see "no state" and report a false "nothing to destroy" while a
+                # billable run-owned cluster stayed allocated. Ordering the import
+                # before the network check closes that owned-cluster-escapes-teardown
+                # window.
                 k8s.terraform_import(
                     k8s.CLUSTER_TF_DIR, state_file, "google_container_cluster.primary", cluster_id, tf_vars
                 )
+                # Now validate the contract-relevant network. A mismatch REJECTS the
+                # cluster FOR TESTING (raise), but the import above means teardown
+                # retains full capability to destroy this run-owned cluster even
+                # though it sits on an unexpected substrate — no leak, no false clean.
+                observed_net, _observed_subnet, _status = k8s.read_cluster_membership(
+                    cluster_name, args.location, project
+                )
+                if not k8s.same_network(observed_net, network):
+                    raise k8s.LifecycleError(
+                        "config_error",
+                        f"[bucket=config_error] refusing to adopt cluster {cluster_name} for testing: "
+                        f"it is attached to network '{observed_net}', not the operator-selected VPC "
+                        f"'{network}'. It was imported into Terraform state first so teardown can still "
+                        "destroy this run-owned cluster; it is rejected here only for testing.",
+                    )
             # The baseline pools are declared INSIDE the cluster module (no separate
             # tfstate), so importing the cluster alone leaves them untracked and a
             # later reconcile apply tries to CREATE the already-live pools (the
             # observed 409). Import each pool the cloud has but local state lacks, by
-            # its terraform-derived name.
-            system_pool_name, gpu_pool_name = k8s.baseline_pool_names(cluster_name)
+            # its terraform-derived name (resolved once at the top of setup).
             for address, pool_name in (
                 ("google_container_node_pool.system", system_pool_name),
                 ("google_container_node_pool.gpu", gpu_pool_name),
             ):
-                if k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, address):
-                    continue
-                if not k8s.gke_node_pool_exists(cluster_name, pool_name, args.location, project):
-                    continue
                 pool_id = f"{cluster_id}/nodePools/{pool_name}"
+                # Decide adoption from LIVE cloud existence, NOT state membership
+                # alone. These baseline pools live INSIDE the cluster module and are
+                # adopted refresh-only (never a normal apply, which would REPLACE the
+                # cluster). If local state still tracks a pool that was deleted
+                # out-of-band in the cloud, a bare refresh-only would only drop that
+                # stale address and leave the pool missing, so the live-shape /
+                # readiness checks below would fail on THIS run and force an
+                # unnecessary second invocation to recover. Cross state membership
+                # against live existence and reconcile every combination in one pass.
+                in_state = k8s.terraform_state_has(k8s.CLUSTER_TF_DIR, state_file, address)
+                pool_live = k8s.gke_node_pool_exists(cluster_name, pool_name, args.location, project)
+                if in_state and pool_live:
+                    # Tracked AND live — refresh-only below reconciles it in place.
+                    continue
+                if in_state and not pool_live:
+                    # Stale address for an out-of-band-deleted pool: drop it from state
+                    # so the recreate + import below can rebuild the exact run-owned
+                    # pool (import refuses to write over an address already tracked).
+                    # state rm only edits local state and can never destroy the cluster.
+                    k8s.terraform_state_rm(k8s.CLUSTER_TF_DIR, state_file, address)
+                if not pool_live:
+                    # The cluster exists but this REQUIRED baseline pool is genuinely
+                    # absent (a partial prior create, or an out-of-band pool delete). A
+                    # refresh-only would leave it missing and later readiness/autoscaling
+                    # checks would fail loudly instead of restoring the contract, so
+                    # RECREATE it via the API (a node-pool create can only ADD the pool
+                    # and can never replace the cluster), then import so state tracks the
+                    # rebuilt pool.
+                    if address == "google_container_node_pool.system":
+                        k8s.recreate_baseline_system_pool(
+                            cluster_name,
+                            pool_name,
+                            args.location,
+                            project,
+                            machine_type=args.cpu_machine_type,
+                            node_zone=k8s.zone_for_location(args.location),
+                            node_count=args.system_node_count,
+                            min_nodes=args.system_min_nodes,
+                            max_nodes=args.system_max_nodes,
+                        )
+                    else:
+                        k8s.recreate_baseline_gpu_pool(
+                            cluster_name,
+                            pool_name,
+                            args.location,
+                            project,
+                            machine_type=args.gpu_machine_type,
+                            node_zone=gpu_zone,
+                            node_count=args.gpu_node_count,
+                            accelerator_type=args.gpu_accelerator_type,
+                            accelerator_count=args.gpu_accelerator_count,
+                        )
                 k8s.terraform_import(k8s.CLUSTER_TF_DIR, state_file, address, pool_id, tf_vars)
             k8s.terraform_refresh_only(k8s.CLUSTER_TF_DIR, state_file, tf_vars)
+
+            # Live-shape verify the ADOPTED baseline pools before emitting inventory.
+            # After import + refresh-only, the pool outputs the released checks assert
+            # (machine type, replica count, zone, GPU accelerator) are seeded from the
+            # pool's OWN refreshed state, so a PRESERVED same-name pool whose real shape
+            # drifted from the contract would be emitted with a self-fulfilling shape
+            # the downstream checks then trivially satisfy. Describe each baseline pool
+            # LIVE and fail CLOSED unless it matches the contract inputs. The system
+            # pool is GKE-autoscaled (its live count floats between min/max — verified
+            # separately by verify_system_autoscaling), so its exact count is NOT
+            # asserted here; the fixed baseline GPU pool has its count, zone, and
+            # accelerator type/count checked.
+            k8s.verify_adopted_node_pool_shape(
+                cluster_name,
+                system_pool_name,
+                args.location,
+                project,
+                args.cpu_machine_type,
+                {},
+                [],
+                expected_node_count=None,
+                expected_node_locations=[k8s.zone_for_location(args.location)],
+            )
+            k8s.verify_adopted_node_pool_shape(
+                cluster_name,
+                gpu_pool_name,
+                args.location,
+                project,
+                args.gpu_machine_type,
+                {},
+                [],
+                expected_node_count=args.gpu_node_count,
+                expected_node_locations=[gpu_zone],
+                expected_accelerator_type=args.gpu_accelerator_type,
+                expected_accelerator_count=args.gpu_accelerator_count,
+            )
         else:
-            # Fresh create (the cluster does not exist yet — nothing to adopt).
-            k8s.terraform_apply(k8s.CLUSTER_TF_DIR, state_file, tf_vars, timeout=_APPLY_TIMEOUT)
+            # Fresh create (the cluster does not exist yet — nothing to adopt). An
+            # apply timeout / interruption can submit the GKE cluster create and leave
+            # the exact resource present before its state address is durable, so wrap
+            # the apply in ambiguous-create recovery: on failure reconcile the exact
+            # deterministic cluster (import + destroy + wait for confirmed absence when
+            # run-owned, clean when confirmed-absent, fail-visibly on unreadable /
+            # mismatched ownership) BEFORE re-raising, so a partially-created cluster
+            # can never escape cleanup with no durable state entry.
+            k8s.apply_cluster_with_recovery(
+                k8s.CLUSTER_TF_DIR,
+                state_file,
+                "google_container_cluster.primary",
+                cluster_name,
+                args.location,
+                project,
+                tf_vars,
+                apply_timeout=_APPLY_TIMEOUT,
+                reconcile_destroy_timeout=_RECONCILE_DESTROY_TIMEOUT,
+            )
+
+        # 2a) Confirm the cloud-side full-run-identity ownership marker. The cluster
+        #     is stamped ATOMICALLY at Terraform creation (resource_labels), so this
+        #     is a no-op read on the common path; it FAILS CLOSED if the live marker
+        #     belongs to a different run (a deleted-and-replaced same-name cluster) or
+        #     is absent on an adopted cluster, and only backfills a marker on a fresh
+        #     create (belt-and-suspenders if the label write has not yet propagated).
+        k8s.ensure_cluster_ownership_label(cluster_name, args.location, project, fresh_create=not cluster_exists)
 
         # 3) Install the kubeconfig for ambient kubectl.
         k8s.install_kubeconfig(cluster_name, args.location, project)
@@ -236,6 +480,62 @@ def main() -> int:
         #     state, not just the Terraform input.
         observed_network, observed_subnetwork = k8s.verify_and_read_network(
             cluster_name, args.location, project, network
+        )
+
+        # 3a-0) When the operator pinned a specific Kubernetes version, verify the
+        #     LIVE control-plane version satisfies that pin. --kube-version reaches
+        #     Terraform's min_master_version only on a FRESH create; a same-run
+        #     PRESERVED cluster is adopted refresh-only, which CANNOT re-version the
+        #     running control plane, so a CHANGED non-empty pin would otherwise be
+        #     silently ignored and setup would report success against the previously
+        #     provisioned version. Both paths converge here: fail CLOSED on a
+        #     mismatch (a no-op pass on a fresh create GKE built from the pin), which
+        #     verifies the requested shape without any replacing operation.
+        if args.kube_version:
+            k8s.verify_control_plane_version(cluster_name, args.location, project, args.kube_version)
+
+        # 3a-i) When the operator configured an API-ACL policy, read back the LIVE
+        #     master_authorized_networks source set and require it to equal the
+        #     requested CIDRs (fresh create AND adopt). A fresh apply could omit the
+        #     block, and a reused/adopted cluster could enforce a DIFFERENT allow-
+        #     list — either way an unrelated probe failure would misread as ACL
+        #     enforcement. Fail CLOSED on a missing/mismatched policy.
+        if authorized_cidrs:
+            k8s.verify_authorized_networks(cluster_name, args.location, project, authorized_cidrs)
+
+        # 3a-ii) Read back + verify GKE-managed autoscaling on the system pool
+        #     (enable/reconcile it on the adopt path) and capture the provider-
+        #     native evidence for inventory. Fails CLOSED unless the live pool is
+        #     autoscaling with the requested min/max bounds.
+        autoscaler_evidence = k8s.verify_system_autoscaling(
+            cluster_name,
+            system_pool_name,
+            args.location,
+            project,
+            args.system_min_nodes,
+            args.system_max_nodes,
+            timeout=_AUTOSCALING_TIMEOUT,
+        )
+
+        # 3a-iii) Autoscaler-safe observable-completion gate on the baseline
+        #     system (CPU) pool. Shape + autoscaler-bound verification alone let a
+        #     PROVISIONING / RECONCILING, terminally-unhealthy, or empty ADOPTED
+        #     same-run system pool report success — only the GPU baseline was
+        #     readiness-gated, and inventory then derives node_count from whatever
+        #     nodes happen to exist. Require the live pool to be RUNNING with at
+        #     least system_min_nodes (its guaranteed GKE autoscaler floor) nodes
+        #     matching the pool's OWN selector Ready before emitting inventory, on
+        #     BOTH setup paths (fresh create AND same-run adopt, which converge
+        #     here after kubeconfig install + autoscaler reconciliation). The >=
+        #     floor is autoscaler-safe: it tolerates any live size at or above the
+        #     min and never asserts the exact seed count GKE manages.
+        k8s.wait_system_pool_ready(
+            cluster_name,
+            system_pool_name,
+            args.location,
+            project,
+            args.system_min_nodes,
+            timeout=_SYSTEM_POOL_READY_TIMEOUT,
         )
 
         # 3b) Resolve the reviewed cluster's API server URL and bind the ACL probe
@@ -270,11 +570,20 @@ def main() -> int:
         # would make every CSI check unschedulable. No-op on a fresh cluster.
         k8s.strip_baseline_pool_markers()
 
-        # 5) Provider-native GPU readiness gate BEFORE emitting inventory (node
+        # 5) Provider-native GPU readiness gate BEFORE emitting inventory. Scoped
+        #    to the baseline GPU pool and gated on ALL gpu_node_count nodes (node
         #    Ready + allocatable nvidia.com/gpu + Ready managed device-plugin pod;
-        #    no image pull). Returns the real nvidia-smi driver version read from
-        #    the managed pod, or None to leave it unset.
-        driver_version = k8s.wait_two_gate_gpu_ready(timeout=_TWO_GATE_TIMEOUT)
+        #    no image pull), so setup never derives inventory from a single
+        #    first-ready node or a preserved validation pool. Returns the real
+        #    nvidia-smi driver version read from the managed pod, or None.
+        driver_version = k8s.wait_two_gate_gpu_ready(gpu_pool_name, args.gpu_node_count, timeout=_TWO_GATE_TIMEOUT)
+
+        # 5a) Install the pinned, vendored Kubeflow MPI Operator (v2beta1) and gate
+        #     on its CRD + controller readiness so the released multi-node NCCL
+        #     workload (K8sNcclMultiNodeWorkload) has its MPIJob controller instead
+        #     of silently structured-skipping. GKE does not install it by default;
+        #     the manifest is a local provider asset (never fetched at runtime).
+        k8s.install_mpi_operator(timeout=_MPI_OPERATOR_TIMEOUT)
 
         # 6) Observe inventory live via kubectl. Required node/GPU reads raise on
         #    failure, so setup can never emit synthetic 'success' inventory.
@@ -283,6 +592,7 @@ def main() -> int:
             driver_version=driver_version,
             api_endpoint=api_endpoint,
             unauthorized_probe_cmd=unauthorized_probe_cmd,
+            autoscaler=autoscaler_evidence,
         )
 
         k8s_block = inventory["kubernetes"]
@@ -290,6 +600,15 @@ def main() -> int:
             {
                 "success": True,
                 "cluster_name": cluster_name,
+                # The resolved GKE location (region for a regional cluster, zone for
+                # a zonal one) — the same value every gke read above used to identify
+                # the cluster. Emitted top-level so the downstream telemetry checks
+                # (K8sControlPlaneLogsCheck) can bind resource.labels.location to
+                # {{steps.setup.location}}; GKE control-plane component logs are
+                # keyed by project/location/cluster_name, so without this output the
+                # location clause would render empty and query a different (or no)
+                # cluster's logs.
+                "location": args.location,
                 # The canonically-resolved project (explicit -> GOOGLE_CLOUD_PROJECT
                 # / GCLOUD_PROJECT -> google.auth.default() ADC, via resolve_project).
                 # Downstream telemetry checks (K8sControlPlaneLogsCheck) bind their

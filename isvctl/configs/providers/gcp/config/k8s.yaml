@@ -49,16 +49,19 @@ commands:
   kubernetes:
     phases: ["setup", "test", "teardown"]
     steps:
-      # Provision the primary cluster (google_container_cluster + system pool +
-      # baseline GPU pool), install the kubeconfig, verify the live VPC, bridge
-      # the nvidia RuntimeClass + GPU node labels, gate on the provider-native
-      # GPU readiness signals, then emit inventory observed live via kubectl.
-      # Worst-case internal wait stack: GPU capacity preflight (~3 zones *
-      # ~270s = 810s) + cluster+GPU-pool terraform apply (<=3600s, must exceed
-      # the google provider's 40m/30m create timeouts) + kubeconfig (<=180s) +
-      # network verify + RuntimeClass (<=180s) + GPU readiness gate (<=900s) +
-      # inventory reads (<=300s) ~= 5970s; 6000s is margin over that sum, and it
-      # exceeds the inner apply budget (never outer < inner).
+      # Provision the primary cluster (google_container_cluster + managed-
+      # autoscaled system pool + fixed baseline GPU pool), install the kubeconfig,
+      # verify the live VPC + authorized-networks policy + system-pool autoscaling,
+      # bridge the nvidia RuntimeClass + GPU node labels, gate on the provider-
+      # native GPU readiness signals, install the pinned MPI Operator, then emit
+      # inventory observed live via kubectl. Worst-case internal wait stack: GPU
+      # capacity preflight (~3 zones * ~270s = 810s) + cluster+GPU-pool terraform
+      # apply (<=3600s, must exceed the google provider's 40m/30m create timeouts)
+      # + kubeconfig (<=180s) + network verify + RuntimeClass (<=180s) + system-
+      # pool autoscaling readback/reconcile (<=600s) + GPU readiness gate (<=900s)
+      # + MPI Operator apply + readiness (<=300s) + inventory reads (<=300s) ~=
+      # 6870s; 7200s is margin over that sum, and it exceeds the inner apply budget
+      # (never outer < inner).
       - name: setup
         phase: setup
         command: "python3 ../scripts/k8s/setup.py"
@@ -90,13 +93,19 @@ commands:
           - "{{authorized_cidrs}}"
           - "--unauthorized-probe-template"
           - "{{unauthorized_probe_template}}"
-        timeout: 6000
+          # GKE-managed autoscaling bounds for the CPU/system pool (GPU pools stay
+          # fixed for the capacity-preflight contract). Verified live after apply.
+          - "--system-min-nodes"
+          - "{{system_min_nodes}}"
+          - "--system-max-nodes"
+          - "{{system_max_nodes}}"
+        timeout: 7200
 
       # K8S26-01: prove a second GKE cluster coexists in the SAME VPC network as
-      # the primary (native on GKE). Gated by requires_available_validations, so
-      # it only runs when the UNRELEASED K8sMultiClusterSameVpcCheck is enabled
-      # (ISVTEST_INCLUDE_UNRELEASED=1). Worst-case: secondary cluster apply
-      # (<=1500s) + >=1 Ready node wait (<=900s) + describe (<=200s) ~= 2600s.
+      # the primary (native on GKE). Gated by requires_available_validations on
+      # the RELEASED K8sMultiClusterSameVpcCheck, so it runs whenever that check
+      # is selected (the default). Worst-case: secondary cluster apply (<=1500s) +
+      # live membership describe (<=200s) + >=1 Ready node wait (<=900s) ~= 2600s.
       - name: create_test_shared_vpc_cluster
         phase: setup
         command: "python3 ../scripts/k8s/create_test_shared_vpc_cluster.py"
@@ -218,6 +227,12 @@ commands:
         args:
           - "--pool-name"
           - "isv-test-delete-pool"
+          # Deterministic parent identity so a state-loss reconcile can describe the
+          # EXACT pool under its run-owned parent live before reporting clean.
+          - "--cluster-name"
+          - "isv-gke"
+          - "--location"
+          - "{{location}}"
         timeout: 1500
 
       # Teardown order: destroy both test node pools before the cluster teardown.
@@ -232,6 +247,12 @@ commands:
         args:
           - "--pool-name"
           - "isv-test-pool"
+          # Deterministic parent identity so a state-loss reconcile can describe the
+          # EXACT pool under its run-owned parent live before reporting clean.
+          - "--cluster-name"
+          - "isv-gke"
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 1500
 
@@ -241,6 +262,12 @@ commands:
         args:
           - "--pool-name"
           - "isv-test-gpu-pool"
+          # Deterministic parent identity so a state-loss reconcile can describe the
+          # EXACT pool under its run-owned parent live before reporting clean.
+          - "--cluster-name"
+          - "isv-gke"
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 1500
 
@@ -254,6 +281,10 @@ commands:
         args:
           - "--cluster-name"
           - "isv-gke-secondary"
+          # Deterministic location so an absent/valid-empty state can still describe
+          # the EXACT secondary cluster for the live reconcile before reporting clean.
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 1800
 
@@ -267,12 +298,21 @@ commands:
         args:
           - "--pool-name"
           - "isv-test-delete-pool"
+          # Deterministic parent identity so a state-loss reconcile can describe the
+          # EXACT pool under its run-owned parent live before reporting clean.
+          - "--cluster-name"
+          - "isv-gke"
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 1500
 
       # Reclaim run PVC-backed PDs, destroy the primary cluster, backstop any
-      # raced PD by this run's cluster label AND any leftover GPU-preflight probe
-      # MIG/template by this run's probe-name prefix. Honors GCP_K8S_SKIP_TEARDOWN.
+      # raced PD AND any leftover GPU-preflight probe MIG/template. The cluster
+      # label / probe name only DISCOVER candidates; a delete is authorized ONLY by
+      # this run's full-identity ownership ledger, and an unprovable or surviving
+      # resource fails closed (cleanup_errors + success=False). Honors
+      # GCP_K8S_SKIP_TEARDOWN.
       # Longest single internal wait is terraform destroy (<=2400s); the reclaim
       # list/delete calls are short and independent, well under the 3000s step
       # timeout.
@@ -282,6 +322,10 @@ commands:
         args:
           - "--cluster-name"
           - "isv-gke"
+          # Deterministic location so an absent/valid-empty state can still describe
+          # the EXACT primary cluster for the live reconcile before reporting clean.
+          - "--location"
+          - "{{location}}"
           - "{{teardown_flag}}"
         timeout: 3000
 
@@ -305,6 +349,11 @@ tests:
     cpu_node_count: "{{env.GCP_K8S_CPU_NODE_COUNT | default('1', true)}}"
     cpu_scale_node_count: "{{env.GCP_K8S_CPU_SCALE_NODE_COUNT | default('2', true)}}"
     gpu_node_count: "{{env.GCP_K8S_GPU_NODE_COUNT | default('1', true)}}"
+    # OPTIONAL GKE-managed autoscaler bounds for the CPU/system pool (per zone).
+    # min seeds the pool; max caps it. GKE runs the autoscaler in its managed
+    # control plane, so there is no in-cluster cluster-autoscaler Deployment.
+    system_min_nodes: "{{env.GCP_K8S_SYSTEM_MIN_NODES | default('1', true)}}"
+    system_max_nodes: "{{env.GCP_K8S_SYSTEM_MAX_NODES | default('3', true)}}"
     gpu_accelerator_count: "{{env.GCP_K8S_GPU_ACCELERATOR_COUNT | default('1', true)}}"
     # OPTIONAL ordered candidate zones for the GPU capacity preflight. Falls back
     # to the GCP_K8S_LOCATION value (never empty in a live run, since location is
@@ -338,13 +387,12 @@ tests:
     teardown_flag: "{{(env.GCP_K8S_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
 
   validations:
-    # Bind the UNRELEASED multi-cluster same-VPC check to the secondary-cluster
-    # step so the `multi_cluster` payload actually has a consumer when unreleased
-    # validations are enabled (mirrors providers/aws/config/eks.yaml). Without
-    # this the expensive secondary cluster provisions but nothing asserts same-VPC
-    # coexistence — the step would run uncovered. The check is gated by the step's
-    # requires_available_validations, so it stays inert unless
-    # ISVTEST_INCLUDE_UNRELEASED=1.
+    # Bind the RELEASED multi-cluster same-VPC check to the secondary-cluster step
+    # so the `multi_cluster` payload has a consumer (mirrors
+    # providers/aws/config/eks.yaml). Without this the expensive secondary cluster
+    # provisions but nothing asserts same-VPC coexistence — the step would run
+    # uncovered. The check is gated by the step's requires_available_validations,
+    # so the secondary cluster is only provisioned when the check is selected.
     k8s_multi_cluster:
       checks:
         K8sMultiClusterSameVpcCheck:
@@ -367,7 +415,6 @@ tests:
         # GKE pins guest_accelerator.count so the per-node count is known.
         K8sGpuCapacityCheck:
           expected_total: "{{ (steps.setup.kubernetes.total_gpus | default(0, true) | int) + ((steps.create_test_gpu_node_pool.expected_replicas | default(0, true) | int) * (gpu_accelerator_count | default('1', true) | int)) }}"
-
     k8s_observability:
       checks:
         # GKE is a managed control plane (no control-plane pods in a namespace),
@@ -377,14 +424,19 @@ tests:
         # google.auth.default() ADC), so telemetry queries
         # the SAME project the cluster runs in instead of a partial
         # GOOGLE_CLOUD_PROJECT-only-plus-gcloud-config chain that omits
-        # GCLOUD_PROJECT and ADC. Each query is scoped to THIS run's cluster via
-        # resource.labels.cluster_name so it never validates a co-tenant's logs.
+        # GCLOUD_PROJECT and ADC. GKE cluster identity is project/location/name
+        # scoped, so each query ALSO binds resource.labels.cluster_name AND
+        # resource.labels.location to THIS run's cluster (the location setup
+        # resolved and the cluster actually runs in). Without the location clause a
+        # same-named cluster in another location could satisfy the check, since the
+        # validator only length-checks the output — it never validates a co-tenant's
+        # or another location's logs.
         # logging_config is enabled on the cluster (see terraform/main.tf).
         K8sControlPlaneLogsCheck:
           commands:
-            kube-apiserver: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/apiserver\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
-            kube-scheduler: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/scheduler\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
-            kube-controller-manager: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/controller-manager\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-apiserver: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/apiserver\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-scheduler: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/scheduler\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-controller-manager: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/controller-manager\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
 
     k8s_workloads:
       checks:
@@ -395,11 +447,19 @@ tests:
           timeout: 900
         # The baseline + validation GPU test pools provide two GPU nodes. The
         # suite otherwise derives this from only the baseline pool (normally 1);
-        # pin it to 2 so the MPIJob spans both. (The released multi-node NCCL
-        # workload structured-skips gracefully when the Kubeflow MPI Operator CRD
-        # is absent — GKE does not install it by default.)
+        # pin it to 2 so the MPIJob spans both. Setup installs the pinned Kubeflow
+        # MPI Operator (scripts/k8s/manifests/mpi-operator-v0.8.2.yaml) and gates
+        # on its CRD + controller readiness, so this multi-node workload runs (it
+        # no longer structured-skips on the missing GKE-default MPI Operator).
+        # The released MPIJob launcher pins a node-role.kubernetes.io/control-plane
+        # nodeAffinity, but GKE is a managed control plane with no schedulable
+        # control-plane node, so the launcher would stay Pending and time out.
+        # override_launcher_affinity drops that affinity so the launcher schedules
+        # on any Ready worker node; the MPI Operator readiness gate and the
+        # released bandwidth floor are unchanged.
         K8sNcclMultiNodeWorkload:
           nodes: 2
+          override_launcher_affinity: true
         # Both 3B NIM paths cap the vLLM KV-cache token budget so llama-3.2-3b's
         # default 128K context fits the 24 GB L4 profile (the shared workloads
         # forward nim_max_model_len as NIM_MAX_MODEL_LEN). A2/A100 memory is not
