@@ -41,23 +41,7 @@ DEFAULT_LABEL_SELECTORS: tuple[str, ...] = (
 
 
 class K8sClusterAutoscalerCheck(BaseValidation):
-    """Verify Cluster Autoscaler integration, in-cluster or provider-managed.
-
-    Two evidence modes are supported so the check works both where the autoscaler
-    is an in-cluster Deployment (installed via Helm on self-managed clusters) and
-    where it is a control-plane feature of a managed Kubernetes service that
-    exposes no in-cluster Deployment (e.g. GKE-managed node-pool autoscaling):
-
-    * **Provider-managed evidence** - when the bound setup step (declared via the
-      wiring's ``step`` key) emits verified provider-native autoscaler evidence,
-      the check consumes it directly and does not require an in-cluster
-      Deployment. The evidence is read from the step output's ``kubernetes``
-      inventory ``autoscaler`` block (or a top-level ``autoscaler`` block) and is
-      accepted only when it proves autoscaling is enabled with sane min/max
-      bounds. This avoids installing a competing in-cluster autoscaler purely to
-      satisfy a Deployment-shaped probe.
-    * **In-cluster Deployment** - the default: discover a Cluster Autoscaler
-      Deployment and verify its replicas and pods are healthy.
+    """Verify an upstream Cluster Autoscaler deployment is installed and running.
 
     Config keys:
 
@@ -67,34 +51,15 @@ class K8sClusterAutoscalerCheck(BaseValidation):
       ``["cluster-autoscaler"]``.
     * ``label_selectors`` - label selectors used to discover deployments across
       all namespaces. Defaults cover common upstream manifests and Helm charts.
-    * ``require_autoscaler`` - when ``False`` (default), an absent autoscaler
-      (no provider-managed evidence AND no in-cluster Deployment) causes the
-      check to skip rather than fail. Set to ``True`` to require a verified
+    * ``require_autoscaler`` - when ``False`` (default), absent deployments
+      cause the check to skip rather than fail. Set to ``True`` to require a
       Cluster Autoscaler integration on the cluster.
-    * ``step`` - optional wiring key that binds a setup step whose output carries
-      provider-managed autoscaler evidence (the framework injects it as
-      ``step_output``).
     """
 
-    description: ClassVar[str] = "Verify Cluster Autoscaler integration (in-cluster or provider-managed)."
+    description: ClassVar[str] = "Verify upstream Cluster Autoscaler integration is installed and running."
 
     def run(self) -> None:
-        """Verify Cluster Autoscaler integration from provider-managed evidence or a Deployment."""
-        managed = _managed_autoscaler_evidence(self.config.get("step_output"))
-        if managed is not None:
-            # Provider-managed control planes (e.g. GKE) run the Cluster Autoscaler
-            # outside the cluster, so there is no in-cluster Deployment to probe.
-            # The bound setup step already read back the live node-pool autoscaling
-            # config and verified it is enabled with the requested bounds, so consume
-            # that provider-native evidence directly instead of skipping.
-            self.set_passed(
-                "Provider-managed Cluster Autoscaler verified from setup evidence: "
-                f"provider={managed['provider']}, node_pool={managed['node_pool']}, "
-                f"min_nodes={managed['min_nodes']}, max_nodes={managed['max_nodes']} "
-                "(managed control plane exposes no in-cluster cluster-autoscaler Deployment)"
-            )
-            return
-
+        """Find Cluster Autoscaler deployments and verify their replicas and pods are healthy."""
         try:
             namespaces = _coerce_str_list(
                 self.config.get("namespaces", self.config.get("namespace", ["kube-system"])),
@@ -255,63 +220,6 @@ def _coerce_str_list(value: Any, field: str) -> list[str]:
         if stripped:
             values.append(stripped)
     return values
-
-
-def _managed_autoscaler_evidence(step_output: Any) -> dict[str, Any] | None:
-    """Extract validated provider-managed autoscaler evidence from a bound setup step.
-
-    A managed Kubernetes service whose Cluster Autoscaler runs in the control plane
-    (e.g. GKE) exposes no in-cluster Deployment. Its setup instead emits provider-native
-    evidence under the ``kubernetes`` inventory ``autoscaler`` block after reading back and
-    verifying the live node-pool autoscaling configuration. Accept that evidence ONLY when
-    it proves autoscaling is actually enabled with sane bounds (a named pool, a non-empty
-    provider tag, ``enabled`` true, and ``0 <= min_nodes <= max_nodes`` with ``max_nodes >=
-    1``). Anything missing, disabled, or malformed returns ``None`` so the caller falls back
-    to in-cluster Deployment discovery and its skip/fail semantics rather than passing on
-    unverified evidence."""
-    if not isinstance(step_output, dict):
-        return None
-    inventory = step_output.get("kubernetes")
-    evidence = inventory.get("autoscaler") if isinstance(inventory, dict) else None
-    if not isinstance(evidence, dict):
-        # Also accept a top-level autoscaler block for providers that emit it there.
-        evidence = step_output.get("autoscaler")
-    if not isinstance(evidence, dict):
-        return None
-    provider = str(evidence.get("provider") or "").strip()
-    node_pool = str(evidence.get("node_pool") or "").strip()
-    min_nodes = _coerce_non_negative_int(evidence.get("min_nodes"))
-    max_nodes = _coerce_non_negative_int(evidence.get("max_nodes"))
-    if not provider or not node_pool or not _is_true_flag(evidence.get("enabled")):
-        return None
-    if min_nodes is None or max_nodes is None or max_nodes < 1 or min_nodes > max_nodes:
-        return None
-    return {"provider": provider, "node_pool": node_pool, "min_nodes": min_nodes, "max_nodes": max_nodes}
-
-
-def _is_true_flag(value: Any) -> bool:
-    """Return True only for a boolean ``True`` or a case-insensitive ``"true"`` string."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() == "true"
-    return False
-
-
-def _coerce_non_negative_int(value: Any) -> int | None:
-    """Return a non-negative int from an int or decimal string, else ``None`` (rejects bools)."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        parsed = value
-    elif isinstance(value, str):
-        stripped = value.strip()
-        if not stripped.isdecimal():
-            return None
-        parsed = int(stripped)
-    else:
-        return None
-    return parsed if parsed >= 0 else None
 
 
 def _object_ref(obj: dict[str, Any]) -> tuple[str, str]:
