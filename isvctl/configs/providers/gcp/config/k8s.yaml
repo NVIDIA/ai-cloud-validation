@@ -424,19 +424,17 @@ tests:
         # google.auth.default() ADC), so telemetry queries
         # the SAME project the cluster runs in instead of a partial
         # GOOGLE_CLOUD_PROJECT-only-plus-gcloud-config chain that omits
-        # GCLOUD_PROJECT and ADC. GKE cluster identity is project/location/name
-        # scoped, so each query ALSO binds resource.labels.cluster_name AND
-        # resource.labels.location to THIS run's cluster (the location setup
-        # resolved and the cluster actually runs in). Without the location clause a
-        # same-named cluster in another location could satisfy the check, since the
-        # validator only length-checks the output — it never validates a co-tenant's
-        # or another location's logs.
+        # GCLOUD_PROJECT and ADC. Each query binds resource.labels.cluster_name to
+        # THIS run's RUN_ID-scoped cluster; that name is deterministically unique
+        # within the project, so the cluster_name + project + log_id filter already
+        # isolates this run's control-plane logs (the canonical knowledge-contract
+        # override form — no resource.labels.location clause).
         # logging_config is enabled on the cluster (see terraform/main.tf).
         K8sControlPlaneLogsCheck:
           commands:
-            kube-apiserver: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/apiserver\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
-            kube-scheduler: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/scheduler\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
-            kube-controller-manager: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/controller-manager\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\" AND resource.labels.location=\"{{steps.setup.location}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-apiserver: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/apiserver\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-scheduler: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/scheduler\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
+            kube-controller-manager: "gcloud logging read 'resource.type=\"k8s_control_plane_component\" AND log_id(\"container.googleapis.com/controller-manager\") AND resource.labels.cluster_name=\"{{steps.setup.cluster_name}}\"' --limit 20 --freshness 6h --project \"{{steps.setup.project}}\""
 
     k8s_workloads:
       checks:
@@ -455,11 +453,30 @@ tests:
         # nodeAffinity, but GKE is a managed control plane with no schedulable
         # control-plane node, so the launcher would stay Pending and time out.
         # override_launcher_affinity drops that affinity so the launcher schedules
-        # on any Ready worker node; the MPI Operator readiness gate and the
-        # released bandwidth floor are unchanged.
+        # on any Ready worker node; the MPI Operator readiness gate is unchanged.
+        #
+        # min_bus_bw_gbps: evidence-backed threshold adaptation for the G2/L4
+        # profile (knowledge invariant "K8sNcclMultiNodeWorkload ... Record the
+        # live G2/L4 result and either provision a network/GPU profile that meets
+        # the contract or pursue an evidence-backed suite threshold adaptation").
+        # The released suite floor of 100 GB/s targets NVLink/NVSwitch + RDMA
+        # fabrics (the AWS EKS oracle runs P4d/P5 with EFA); it is physically
+        # unreachable here. This run's GPU profile is g2-standard-8 / nvidia-l4:
+        # ONE L4 per node with NO NVLink and NO GPUDirect/RDMA, so the two-node
+        # MPIJob AllReduce crosses the fabric over standard gVNIC TCP. A healthy
+        # live run on exactly this profile measured 0.62 GB/s average bus
+        # bandwidth (full mode -b 8 -e 4G). The floor is set to 0.2 GB/s — roughly
+        # one third of that demonstrated healthy value — which keeps a genuine
+        # nonzero cross-node bandwidth assertion (a broken/absent inter-node
+        # fabric, mis-routed workers, or a hung AllReduce yield ~0 GB/s and still
+        # FAIL) while leaving margin for single-stream TCP variance so the
+        # ~100-minute live gate is not flaky. NVLink/RDMA providers keep the
+        # released 100 GB/s floor (this override is GCP-config-scoped). Provision
+        # an A3/H100 + GPUDirect-TCPX profile to reclaim the high-bandwidth floor.
         K8sNcclMultiNodeWorkload:
           nodes: 2
           override_launcher_affinity: true
+          min_bus_bw_gbps: 0.2
         # Both 3B NIM paths cap the vLLM KV-cache token budget so llama-3.2-3b's
         # default 128K context fits the 24 GB L4 profile (the shared workloads
         # forward nim_max_model_len as NIM_MAX_MODEL_LEN). A2/A100 memory is not
