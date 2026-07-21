@@ -24,7 +24,7 @@ def test_security_suite_defines_capacity_validations() -> None:
         "CapacityReservationGroupingCheck": {
             "test_id": "CAP04-01",
             "labels": ["capacity", "min_req", "security"],
-            "platforms": ["bare_metal"],
+            "platforms": ["foundational"],
             "step": "capacity_reservation_grouping",
             "min_resources": "{{min_resources}}",
         }
@@ -37,7 +37,7 @@ def test_security_suite_defines_capacity_validations() -> None:
         "CapacityTopologyBlockAtomicAllocationCheck": {
             "test_id": "CAP04-02",
             "labels": ["capacity", "min_req", "security"],
-            "platforms": ["bare_metal"],
+            "platforms": ["foundational"],
             "min_resources": 2,
         }
     }
