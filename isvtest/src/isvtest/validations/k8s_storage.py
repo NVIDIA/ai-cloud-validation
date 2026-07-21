@@ -44,7 +44,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
 from kubernetes.utils import parse_quantity
 
@@ -60,6 +60,7 @@ from isvtest.core.k8s import (
     parse_kubectl_json,
     render_k8s_manifest,
 )
+from isvtest.core.runners import CommandResult
 from isvtest.core.validation import BaseValidation
 
 _MANIFEST_DIR = Path(__file__).parent / "manifests" / "k8s"
@@ -71,6 +72,8 @@ _MOUNT_POD_MANIFEST = _MANIFEST_DIR / "storage_mount_pod.yaml"
 # BusyBox provides flock/stat/ls/mkdir/awk/seq; override via the ``image``
 # config key for air-gapped clusters that mirror to a private registry.
 _DEFAULT_IMAGE = "busybox:1.36"
+_DIAGNOSTIC_COMMAND_TIMEOUT = 30
+_DIAGNOSTIC_TOTAL_TIMEOUT = 30
 
 _STORAGE_TYPES: tuple[tuple[str, str], ...] = (
     ("block", "ReadWriteOnce"),
@@ -179,7 +182,7 @@ def _bounded_diagnostic_section(label: str, text: str) -> str:
 
 
 def _collect_storage_diagnostics(
-    run_command,
+    run_command: Callable[[str, int | None], CommandResult],
     kubectl_base: str,
     namespace: str,
     *,
@@ -193,6 +196,7 @@ def _collect_storage_diagnostics(
         ("PVC", "pvc", "PersistentVolumeClaim", pvc_name),
     )
     sections: list[str] = []
+    deadline = time.monotonic() + _DIAGNOSTIC_TOTAL_TIMEOUT
     for label, resource, event_kind, name in resources:
         name_quoted = shlex.quote(name)
         commands = (
@@ -206,8 +210,12 @@ def _collect_storage_diagnostics(
             ),
         )
         for section_label, command in commands:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                sections.append("== diagnostics ==\n[collection deadline exceeded]")
+                break
             try:
-                result = run_command(command, timeout=30)
+                result = run_command(command, timeout=min(_DIAGNOSTIC_COMMAND_TIMEOUT, max(1, int(remaining))))
                 output = (
                     result.stdout
                     if result.exit_code == 0
@@ -232,7 +240,7 @@ def _log_storage_diagnostics(
 ) -> None:
     """Emit failure evidence before namespace cleanup; collection is best-effort."""
     diagnostics = _collect_storage_diagnostics(
-        validation.run_command,
+        lambda command, timeout: validation.runner.run(command, timeout=timeout or _DIAGNOSTIC_COMMAND_TIMEOUT),
         validation._kubectl_base,
         validation._namespace,
         pod_name=pod_name,
