@@ -54,8 +54,10 @@ from isvctl.config.platform_resolution import (
     OmittedRun,
     PlannedRun,
     PlatformResolutionError,
+    column_is_modules_only,
     plan_platform_run,
     resolve_module_configs,
+    synthetic_platform_columns,
 )
 from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.loop import Orchestrator, Phase, _apply_step_validation_gates, _has_explicit_pytest_selection
@@ -142,6 +144,11 @@ def _planned_run_plan(
                 "role": run.role,
                 "platform": run.platform,
                 "column_platform": run.column_platform,
+                # Session module runs execute inside the platform run's
+                # setup/teardown bracket, via their commands[<module>@<column>]
+                # lifecycle, with the platform outputs at {{ session.* }}.
+                "session": run.session,
+                "commands_key": run.commands_key,
                 "upload": {
                     "capability": run.column_platform,
                     "module": run.platform if run.role == "module" else None,
@@ -222,12 +229,18 @@ def _planned_validations_by_category(
     requested_phase: Phase,
     extra_pytest_args: list[str],
     column_platform: str | None = None,
+    commands_key: str | None = None,
 ) -> ValidationPlan:
-    """Return validations that would run, plus any that would be skipped."""
+    """Return validations that would run, plus any that would be skipped.
+
+    ``commands_key`` overrides the ``commands[...]`` lookup for a session run
+    (``<module>@<column>``), so step-bound checks resolve against the session
+    lifecycle's steps instead of the module's own.
+    """
     if not config.tests or not config.tests.validations:
         return ValidationPlan(ready_by_category={}, skipped=[])
 
-    platform = config.tests.platform
+    platform = commands_key or config.tests.platform
     released_tests = load_released_test_filter()
 
     step_phases: dict[str, str] = {}
@@ -274,6 +287,7 @@ def _planned_validations_by_category(
             released_tests=released_tests,
             render_context=render_context,
             column_platform=column_platform,
+            synthetic_columns=synthetic_platform_columns(CONFIGS_ROOT),
         )
 
     ready_by_category: dict[str, list[str]] = {}
@@ -313,6 +327,7 @@ def _validation_plan_for_run(
         requested_phase=requested_phase,
         extra_pytest_args=extra_pytest_args,
         column_platform=run.column_platform,
+        commands_key=run.commands_key,
     )
     return config, plan
 
@@ -330,8 +345,13 @@ def _render_config_body_lines(
     planned: ValidationPlan,
     *,
     indent: str = "  ",
+    commands_key: str | None = None,
 ) -> list[str]:
-    """Render the per-config dry-run body: summary, steps, validations, and skipped checks."""
+    """Render the per-config dry-run body: summary, steps, validations, and skipped checks.
+
+    ``commands_key`` selects a session run's ``<module>@<column>`` lifecycle
+    block for the steps display instead of the config's own.
+    """
     platform = config.tests.platform if config.tests else None
     module = config.tests.module if config.tests else None
     total_tests = sum(len(names) for names in planned.ready_by_category.values())
@@ -344,7 +364,8 @@ def _render_config_body_lines(
     else:
         lines.append(f"{indent}Tests:    {total_tests} validation(s)")
 
-    platform_cmds = config.commands.get(platform) if platform else None
+    commands_lookup = commands_key or platform
+    platform_cmds = config.commands.get(commands_lookup) if commands_lookup else None
     if platform_cmds:
         lines.append(f"{indent}Phases:   {', '.join(platform_cmds.phases)}")
         steps_by_phase: dict[str, list[str]] = {}
@@ -423,13 +444,16 @@ def _render_planned_run_text(
         lines.append(f"  Tests:    {total_ready} validation(s) ({total_skipped} skipped) across {len(runs)} config(s)")
     else:
         lines.append(f"  Tests:    {total_ready} validation(s) across {len(runs)} config(s)")
+    if any(run.session for run in runs):
+        lines.append("  Order:    platform setup + tests → session module run(s) → platform teardown (always last)")
 
     for run, config, plan in run_summaries:
+        label = run.platform
+        if run.session:
+            label = f"{run.platform} session under {run.column_platform}, commands[{run.commands_key}]"
         lines.append("")
-        lines.append(
-            f"  --- {_short_config_path(run.config_path)} [{run.platform}] — {_format_validation_count(plan)} ---"
-        )
-        lines.extend(_render_config_body_lines(config, plan, indent="    "))
+        lines.append(f"  --- {_short_config_path(run.config_path)} [{label}] — {_format_validation_count(plan)} ---")
+        lines.extend(_render_config_body_lines(config, plan, indent="    ", commands_key=run.commands_key))
 
     if omitted:
         lines.append("")
@@ -465,6 +489,13 @@ def _render_config_text(
     return "\n".join(lines)
 
 
+def _run_descriptor(planned: PlannedRun) -> str:
+    """Operator-facing label for one planned run."""
+    if planned.session:
+        return f"{planned.platform} session under {planned.column_platform}"
+    return planned.role
+
+
 def _execute_planned_runs(
     ctx: typer.Context,
     runs: list[PlannedRun],
@@ -476,39 +507,102 @@ def _execute_planned_runs(
 ) -> None:
     """Run each planned config as its own orchestration, continuing past failures.
 
+    Standalone runs execute sequentially as before. Session module runs
+    execute INSIDE the platform run's lifecycle — after its pre-teardown
+    phases, before its teardown (which always runs last) — each with the
+    platform's step outputs mounted at ``{{ session.* }}``. If the platform
+    setup fails, session runs are reported as skipped rather than executed
+    against a broken environment.
+
     Each run carries its column platform so checks declaring a ``platforms:``
     restriction are filtered against it; user ``--exclude-label`` values pass
-    through unchanged. A combined pass/fail summary is printed and the process
-    exits 1 if any config failed. ``forward_kwargs`` are the remaining
-    ``run()`` options, passed through unchanged.
+    through unchanged. A combined summary is printed and the process exits 1
+    if any config failed. ``forward_kwargs`` are the remaining ``run()``
+    options.
     """
     total = len(runs)
-    outcomes: list[tuple[Path, bool]] = []
-    for planned in runs:
-        print_progress(f"\n--- Running {planned.config_path} ({planned.role}) ---")
+    outcomes: list[tuple[Path, str]] = []  # (config, "PASS" | "FAIL" | "SKIP")
+
+    extra_pytest_args = list(ctx.args)
+    color = forward_kwargs.get("color")
+    if color:
+        extra_pytest_args.append(f"--color={color}")
+
+    common: dict[str, Any] = {
+        "set_values": forward_kwargs.get("set_values"),
+        "extra_pytest_args": extra_pytest_args,
+        "labels": labels,
+        "exclude_labels": user_exclude_labels,
+        "dry_run": False,
+        "json_output": False,
+        "phase": forward_kwargs.get("phase", Phase.ALL),
+        "working_dir": forward_kwargs.get("working_dir"),
+        "verbose": forward_kwargs.get("verbose", False),
+        "no_upload": forward_kwargs.get("no_upload", False),
+        "lab_id": forward_kwargs.get("lab_id"),
+        "tags": forward_kwargs.get("tags"),
+        "isv_software_version": forward_kwargs.get("isv_software_version"),
+    }
+
+    def _execute_one(
+        planned: PlannedRun,
+        *,
+        session_data: dict[str, Any] | None = None,
+        pre_teardown_hook: Any = None,
+    ) -> None:
+        print_progress(f"\n--- Running {planned.config_path} ({_run_descriptor(planned)}) ---")
         try:
-            run(
-                ctx,
+            _run_single_config(
                 config_files=[planned.config_path],
-                provider=None,
-                labels=labels,
-                exclude_labels=user_exclude_labels,
-                dry_run=False,
                 junitxml=_junitxml_for_config(junitxml, planned.config_path, total),
                 column_platform=planned.column_platform,
-                **forward_kwargs,
+                session_data=session_data,
+                commands_key=planned.commands_key,
+                pre_teardown_hook=pre_teardown_hook,
+                **common,
             )
-            outcomes.append((planned.config_path, True))
+            outcomes.append((planned.config_path, "PASS"))
         except typer.Exit as exc:
-            outcomes.append((planned.config_path, exc.exit_code == 0))
+            outcomes.append((planned.config_path, "PASS" if exc.exit_code == 0 else "FAIL"))
+
+    platform_run = next((r for r in runs if r.role == "platform"), None)
+    session_runs = [r for r in runs if r.role == "module" and r.session]
+    standalone_runs = [r for r in runs if r.role == "module" and not r.session]
+
+    if platform_run is not None:
+        session_body = None
+        if session_runs:
+
+            def session_body(session_steps: dict[str, Any], platform_ok: bool) -> None:
+                if not platform_ok:
+                    for planned in session_runs:
+                        print_warning(f"Skipping {planned.config_path} — platform setup failed, no session available")
+                        outcomes.append((planned.config_path, "SKIP"))
+                    return
+                for planned in session_runs:
+                    _execute_one(planned, session_data=session_steps)
+
+        _execute_one(platform_run, pre_teardown_hook=session_body)
+    elif session_runs:
+        # Defensive: a session run cannot execute without its platform bracket.
+        for planned in session_runs:
+            print_warning(f"Skipping {planned.config_path} — session runs require the platform bracket")
+            outcomes.append((planned.config_path, "SKIP"))
+
+    for planned in standalone_runs:
+        _execute_one(planned)
 
     typer.echo("\n" + "=" * 60)
     typer.echo("PLATFORM/MODULE RUN SUMMARY")
     typer.echo("=" * 60)
-    for config_path, ok in outcomes:
-        status = typer.style("[PASS]", fg=typer.colors.GREEN) if ok else typer.style("[FAIL]", fg=typer.colors.RED)
-        typer.echo(f"{status} {config_path}")
-    if not all(ok for _, ok in outcomes):
+    styles = {
+        "PASS": typer.style("[PASS]", fg=typer.colors.GREEN),
+        "FAIL": typer.style("[FAIL]", fg=typer.colors.RED),
+        "SKIP": typer.style("[SKIP]", fg=typer.colors.YELLOW),
+    }
+    for config_path, status in outcomes:
+        typer.echo(f"{styles[status]} {config_path}")
+    if any(status == "FAIL" for _, status in outcomes):
         raise typer.Exit(code=1)
 
 
@@ -743,11 +837,35 @@ def run(
             try:
                 omitted: list[OmittedRun] | None = None
                 if platform and modules:
-                    # Intersect: only the requested modules, each under the
-                    # column (the platform config itself does not run).
-                    runs = resolve_module_configs(
-                        provider, modules or [], configs_root=CONFIGS_ROOT, column_platform=platform
-                    )
+                    if column_is_modules_only(platform, configs_root=CONFIGS_ROOT):
+                        # Intersect under a modules-only column (e.g.
+                        # foundational): the requested modules run standalone
+                        # with column filtering — there is no platform config.
+                        runs = resolve_module_configs(
+                            provider, modules or [], configs_root=CONFIGS_ROOT, column_platform=platform
+                        )
+                    else:
+                        # Intersect under a real column: the requested modules
+                        # are session runs, so the plan is the column plan
+                        # filtered to them — platform bracket included (its
+                        # setup provides the session, its teardown runs last).
+                        column_plan = plan_platform_run(provider, platform, configs_root=CONFIGS_ROOT)
+                        requested = set(modules or [])
+                        planned_modules = {r.platform for r in column_plan.runs if r.role == "module"}
+                        omitted_modules = {o.module for o in column_plan.omitted}
+                        unknown = requested - planned_modules - omitted_modules
+                        if unknown:
+                            print_error(f"Unknown module(s) for provider {provider!r}: {', '.join(sorted(unknown))}.")
+                            raise typer.Exit(code=1)
+                        runs = [r for r in column_plan.runs if r.role == "platform" or r.platform in requested]
+                        omitted = [o for o in column_plan.omitted if o.module in requested]
+                        if not any(r.role == "module" for r in runs):
+                            reasons = "; ".join(f"{o.module}: {o.reason}" for o in omitted)
+                            print_error(
+                                f"No requested module can run under column '{platform}' ({reasons}). "
+                                f"Nothing to execute."
+                            )
+                            raise typer.Exit(code=1)
                     selection: dict[str, Any] = {"platform": platform, "modules": modules}
                 elif platform:
                     column_plan = plan_platform_run(provider, platform, configs_root=CONFIGS_ROOT)
@@ -846,6 +964,60 @@ def run(
     if color:
         extra_pytest_args.extend([f"--color={color}"])
 
+    _run_single_config(
+        config_files=config_files,
+        extra_pytest_args=extra_pytest_args,
+        set_values=set_values,
+        labels=labels,
+        exclude_labels=exclude_labels,
+        dry_run=dry_run,
+        json_output=json_output,
+        phase=phase,
+        working_dir=working_dir,
+        verbose=verbose,
+        junitxml=junitxml,
+        no_upload=no_upload,
+        lab_id=lab_id,
+        tags=tags,
+        isv_software_version=isv_software_version,
+        column_platform=column_platform,
+    )
+
+
+def _run_single_config(
+    *,
+    config_files: list[Path],
+    extra_pytest_args: list[str],
+    set_values: list[str] | None,
+    labels: list[str] | None,
+    exclude_labels: list[str] | None,
+    dry_run: bool,
+    json_output: bool,
+    phase: Phase,
+    working_dir: Path | None,
+    verbose: bool,
+    junitxml: Path,
+    no_upload: bool,
+    lab_id: int | None,
+    tags: list[str] | None,
+    isv_software_version: str | None,
+    column_platform: str | None,
+    session_data: dict[str, Any] | None = None,
+    commands_key: str | None = None,
+    pre_teardown_hook: Any = None,
+) -> None:
+    """Merge, validate, and execute one config as a full orchestration.
+
+    The execution core of ``test run``: config merge, dry-run rendering, ISV
+    Lab Service run creation, orchestration, result upload, and the results
+    display. Raises ``typer.Exit(1)`` on failure, exactly like the CLI command
+    it was extracted from (callers in the fan-out catch it per run).
+
+    ``session_data``/``commands_key`` configure a module session run under a
+    platform column; ``pre_teardown_hook`` makes this run a platform-session
+    bracket whose body executes before this run's teardown (see
+    ``Orchestrator.run``).
+    """
     # Load and merge YAML files (resolving import: directives)
     try:
         merged_config = merge_yaml_files([str(p) for p in config_files], set_values or [])
@@ -968,10 +1140,15 @@ def run(
             print_warning("Failed to create test run, continuing without upload")
             upload_results = False
 
-    # Run orchestration with log file capture (tee to _output/pytest-output.log)
+    # Run orchestration with log file capture (tee to _output/pytest-output.log).
+    # A session module run executes while its platform run's log file is still
+    # open, so it gets its own file instead of clobbering the platform's.
     orchestrator = Orchestrator(config, working_dir=effective_working_dir)
     output_dir = get_output_dir()
-    log_file_path = output_dir / "pytest-output.log"
+    if session_data is None:
+        log_file_path = output_dir / "pytest-output.log"
+    else:
+        log_file_path = output_dir / f"pytest-output-{config_files[0].stem}.log"
 
     # Build test catalog early so it runs inside the TeeWriter context
     # (avoids logging errors from stale stream references after the log file closes)
@@ -992,6 +1169,10 @@ def run(
                 column_platform=column_platform,
                 verbose=verbose,
                 junitxml=str(junitxml),
+                session_data=session_data,
+                commands_key=commands_key,
+                pre_teardown_hook=pre_teardown_hook,
+                synthetic_columns=synthetic_platform_columns(CONFIGS_ROOT),
             )
             if upload_results:
                 try:

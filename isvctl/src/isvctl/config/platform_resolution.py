@@ -17,8 +17,16 @@ marks a platform suite (service line). Plans which configs to run:
   has no platform run: the column is modules-only and admits only modules
   whose checks positively declare it.
 * ``--module <mod>`` runs a single config declaring ``module: <mod>``.
-* Both together intersect: only the requested module configs, each under the
-  ``--platform`` column (the platform config itself does not run).
+* Both together intersect. Under a modules-only column the requested module
+  configs run standalone with column filtering (the synthetic column has no
+  platform config). Under a real column the requested modules need the
+  platform session, so the plan is the column plan filtered to the requested
+  modules: platform bracket plus those modules' session runs.
+
+Module runs under a real column are **session runs**: they execute inside the
+platform run's setup/teardown bracket via a ``commands[<module>@<column>]``
+lifecycle, consuming the platform's step outputs at ``{{ session.* }}``. A
+module whose merged config lacks that block is omitted from the column.
 
 Classification is by the axis key, never by filename: an ``aws/config/eks.yaml``
 that imports ``k8s.yaml`` inherits ``platform: kubernetes`` and is a platform suite.
@@ -72,6 +80,17 @@ class PlannedRun:
     # restriction are filtered against it. None for standalone --module runs
     # (no column, hence no platform filtering).
     column_platform: str | None = None
+    # True for a module run that executes INSIDE the column's platform session
+    # (after the platform's own phases, before its teardown), with the platform
+    # run's step outputs mounted read-only at ``{{ session.* }}``. Only real
+    # columns have sessions; modules under a modules-only column (e.g.
+    # ``foundational``) run standalone.
+    session: bool = False
+    # The ``commands[...]`` key a session run executes (``<module>@<column>``,
+    # e.g. ``storage@kubernetes``) instead of the module's own lifecycle block.
+    # None for non-session runs (the orchestrator derives the key from the
+    # config's axis value as before).
+    commands_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -199,6 +218,39 @@ def _suite_platform_axis(configs_root: Path) -> dict[str, bool]:
     return axis
 
 
+def session_commands_key(module: str, column: str) -> str:
+    """The ``commands[...]`` key a module's session lifecycle uses under ``column``."""
+    return f"{module}@{column}"
+
+
+def synthetic_platform_columns(configs_root: Path) -> set[str]:
+    """The modules-only columns of the suite axis (validation-less platform suites).
+
+    Used by no-column runs to recognize session-only checks: a module check
+    whose ``platforms:`` declaration names none of these columns can execute
+    only inside a real column's platform session.
+    """
+    return {column for column, wires in _suite_platform_axis(configs_root).items() if not wires}
+
+
+def column_is_modules_only(column: str, *, configs_root: Path) -> bool:
+    """True when ``column`` is a modules-only (validation-less platform suite) column.
+
+    Such a column (e.g. ``foundational``) has no platform run and therefore no
+    session: its modules run standalone. Unknown columns return False (the
+    caller's plan/resolve path reports them).
+    """
+    normalized = PLATFORM_ALIASES.get(column, column)
+    return _suite_platform_axis(configs_root).get(normalized) is False
+
+
+def _has_session_commands(config_path: Path, key: str) -> bool:
+    """Return whether the merged config declares a ``commands[<key>]`` block."""
+    merged = merge_yaml_files([str(config_path)])
+    commands = merged.get("commands")
+    return isinstance(commands, dict) and key in commands
+
+
 def _has_column_eligible_check(config_path: Path, column: str, *, require_declaration: bool) -> bool:
     """Return whether any check in the merged config may run under ``column``.
 
@@ -268,12 +320,30 @@ def plan_platform_run(provider: str, platform: str, *, configs_root: Path) -> Co
                 )
             )
             continue
+        # Under a real column the module runs INSIDE the platform session and
+        # needs a session lifecycle: a ``commands[<module>@<column>]`` block
+        # consuming the platform run's ``{{ session.* }}`` outputs. A module
+        # with eligible checks but no session commands cannot execute here.
+        commands_key: str | None = None
+        if not modules_only:
+            commands_key = session_commands_key(module_config.platform, normalized)
+            if not _has_session_commands(module_config.config_path, commands_key):
+                omitted.append(
+                    OmittedRun(
+                        config_path=module_config.config_path,
+                        module=module_config.platform,
+                        reason=f"no session commands (commands['{commands_key}']) for column '{normalized}'",
+                    )
+                )
+                continue
         runs.append(
             PlannedRun(
                 config_path=module_config.config_path,
                 role="module",
                 platform=module_config.platform,
                 column_platform=normalized,
+                session=not modules_only,
+                commands_key=commands_key,
             )
         )
     return ColumnPlan(runs=runs, omitted=omitted)

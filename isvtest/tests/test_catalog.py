@@ -253,7 +253,13 @@ tests:
         assert entry["platforms"] == ["foundational"]
 
     def test_foundational_module_checks_declare_foundational(self) -> None:
-        """Once-per-lab API module checks carry platforms ["foundational"]."""
+        """Module checks run once (foundational) or inside a platform session.
+
+        Every module-suite check either carries platforms ["foundational"]
+        (self-contained, once per lab) or positively declares the real
+        column(s) whose platform session it runs inside (e.g. the storage
+        suite's kubernetes CSI checks).
+        """
         catalog = build_catalog(released_only=False)
         foundational_modules = {
             "iam",
@@ -264,10 +270,13 @@ tests:
             "security",
             "storage",
         }
+        session_columns = {"bare_metal", "kubernetes", "slurm", "vm"}
         for entry in catalog:
             if foundational_modules & set(entry["modules"]):
-                assert entry["platforms"] == ["foundational"], (
-                    f"{entry['name']}: expected ['foundational'], got {entry['platforms']}"
+                platforms = set(entry["platforms"])
+                assert platforms == {"foundational"} or platforms <= session_columns, (
+                    f"{entry['name']}: expected ['foundational'] or a real-column "
+                    f"session declaration, got {entry['platforms']}"
                 )
 
     def test_module_suite_platforms_declaration_sets_platform_axis(self, tmp_path) -> None:

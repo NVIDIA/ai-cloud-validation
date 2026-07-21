@@ -105,7 +105,9 @@ def test_dry_run_planning_suppresses_resolution_warnings() -> None:
 
     assert result.exit_code == 0, result.output
     assert "default(...) masked" not in result.stderr
-    assert "Tests:    44 validation(s) (5 skipped)" in result.stdout
+    # 15 storage/filesystem checks moved to suites/storage.yaml as
+    # kubernetes session checks (2026-07-20).
+    assert "Tests:    29 validation(s) (5 skipped)" in result.stdout
     assert "Skipped (5):" in result.stdout
     assert "step not configured:" in result.stdout
     assert "K8sNodePoolCheck-create_cpu_pool" in result.stdout

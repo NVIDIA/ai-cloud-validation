@@ -82,12 +82,20 @@ tests:
 
 
 def write_axis_provider_config(
-    root: Path, provider: str, name: str, suite: str, *, run_platform: str | None = None
+    root: Path,
+    provider: str,
+    name: str,
+    suite: str,
+    *,
+    run_platform: str | None = None,
+    session_keys: list[str] | None = None,
 ) -> Path:
     """Write a provider config importing one suite (inheriting its kind/platform).
 
     With ``run_platform``, the config also carries a runnable echo step in that
     platform's commands group so CLI tests can execute it end-to-end.
+    ``session_keys`` adds a ``commands[<key>]`` session lifecycle per key
+    (``<module>@<column>``) so the module joins that column's session plan.
     """
     config_path = root / "providers" / provider / "config" / name
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,10 +104,15 @@ import:
   - ../../../suites/{suite}
 version: "1.0"
 """
+    command_groups = []
     if run_platform:
-        body += f"""\
-commands:
-  {run_platform}:
+        command_groups.append(run_platform)
+    command_groups.extend(session_keys or [])
+    if command_groups:
+        body += "commands:\n"
+        for group in command_groups:
+            body += f"""\
+  {group}:
     phases: [test]
     steps:
       - name: test_step

@@ -193,6 +193,7 @@ def resolve_entries(
     released_tests: AbstractSet[str] | None,
     render_context: Mapping[str, Any],
     column_platform: str | None = None,
+    synthetic_columns: AbstractSet[str] | None = None,
 ) -> list[ResolvedEntry]:
     """Resolve validation entries into ready or terminal outcomes.
 
@@ -210,6 +211,13 @@ def resolve_entries(
             fan-out), or None when there is no column (standalone ``--module``
             or plain ``-f`` runs). An entry with a non-empty ``platforms``
             declaration is skipped when the column is not in it.
+        synthetic_columns: The modules-only (validation-less platform suite)
+            columns of the axis, e.g. ``{"foundational"}``. In a run with no
+            column, an entry whose ``platforms`` declaration names ONLY real
+            columns is a session check — it can execute only inside that
+            platform's session, so it is skipped here. ``None`` (callers
+            without axis knowledge) disables the rule, keeping the historical
+            no-column-no-filtering behavior.
 
     Returns:
         A resolved entry for every input entry, in input order.
@@ -272,6 +280,23 @@ def resolve_entries(
                     SkipReason.EXCLUDED,
                     f"validation '{entry.name}' platforms restriction [{platform_list}] "
                     f"does not include column '{column_platform}'",
+                )
+            )
+            continue
+
+        if (
+            column_platform is None
+            and entry.platforms
+            and synthetic_columns is not None
+            and not set(entry.platforms) & set(synthetic_columns)
+        ):
+            platform_list = ", ".join(entry.platforms)
+            resolved.append(
+                _skip(
+                    entry,
+                    SkipReason.EXCLUDED,
+                    f"validation '{entry.name}' runs only inside a platform session "
+                    f"(platforms [{platform_list}]); use --platform {entry.platforms[0]}",
                 )
             )
             continue

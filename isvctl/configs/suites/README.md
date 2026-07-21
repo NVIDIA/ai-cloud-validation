@@ -82,34 +82,38 @@ infra as the **test subject** -> module suite. A single concern (label) commonly
 has checks in both places; the shared **label** is the matrix row, placement per
 check follows infra need.
 
-### A concern that spans platforms
+### A concern that spans platforms: platform-session checks
 
-A cross-platform concern (e.g. `storage` covering K8s CSI *and*, later, BM block
-devices) that needs the platform's live host is modelled as **one check-set per
-platform, each carrying its own platform label plus the shared concern label**:
+A cross-platform concern (e.g. `storage` covering K8s CSI *and*, later, BM
+block devices) that needs the platform's live infrastructure stays in **its
+own module suite** and declares the real column(s) it runs under:
 
 ```yaml
-# k8s.yaml           labels: ["kubernetes", "storage"]   reads {{steps.setup.csi.*}}
-# bare_metal.yaml    labels: ["bare_metal", "storage"]   reads {{steps.launch_instance.*}}
+# suites/storage.yaml (module: storage)
+K8sCsiPvcExpandCheck:
+  labels: ["min_req", "storage"]
+  platforms: ["kubernetes"]                # session check: real column
+  storage_class: "{{ session.setup.csi.block_storage_class | default('', true) }}"
 ```
 
-A **module-suite** check instead declares `platforms: [...]` on its wiring
-(e.g. `platforms: ["vm", "bare_metal"]`) - subsets are supported, and platform
-names never appear in a module-suite check's `labels:`. The planner uses the
-same declarations to prune whole configs: a module config with **no** check eligible for a column is omitted
-from that column's plan (dry-run reports
-`omitted: iam (no checks compatible with column 'vm')`), so a run never pays
-a module's setup/teardown to execute zero checks.
+Declaring a real column makes it a **session check**: under
+`--platform kubernetes` the storage module runs INSIDE the platform run's
+bracket - after the platform's own phases, before its teardown (which always
+runs last) - via the provider's `commands[storage@kubernetes]` lifecycle. The
+platform run's step outputs are mounted read-only at `{{ session.* }}` for
+both step args and validation params (`session.*` = the enclosing platform
+run; `steps.*` stays the run's own lifecycle). A module config without the
+`commands[<module>@<column>]` block is omitted from that column's plan
+(dry-run reports the missing key), as is a module with **no** check eligible
+for the column - a run never pays a module's setup/teardown to execute zero
+checks.
 
-The inline K8s side exists today (the `storage`-labeled CSI checks in
-`k8s.yaml`). Since `suites/storage.yaml` (`module: storage`) landed, `storage`
-is **both** a module row (the self-contained block-volume + high-speed-storage
-suite, which provisions its own subject) and a piggyback label on the inline
-CSI checks - the matrix's "By label" view unions the two. Do **not** put
-platform-inline checks in a suite imported by several platforms: a plain
-`-f eks.yaml` run would drag the other platform's checks in and they would
-SKIP (no `launch_instance` step), polluting the report. Keep them inline, or
-use one validation-only fragment per platform.
+`storage` is therefore one module row with two kinds of checks: the
+self-contained block-volume + high-speed-storage suite
+(`platforms: ["foundational"]`, provisions its own subject, runs once per
+lab) and the kubernetes session checks above. In a run with no column (bare
+`--module storage` / `-f`), session-only checks are skipped with a pointer to
+`--platform kubernetes`.
 
 ### Label governance
 
@@ -158,16 +162,24 @@ are not retro-carved.
 ### How selection works (CLI)
 
 ```bash
-# Run the whole VMaaS column: the vm platform config + every compatible module
-# config. Each runs as its own orchestration (own JUnit); a combined summary
-# prints and the process exits 1 if any config failed. Module checks whose
-# platforms: declaration excludes the column are skipped; a module with no
-# column-compatible check at all (e.g. iam, foundational-only) is omitted.
-isvctl test run --provider aws --platform vm
+# Run a whole real column as a platform session: the platform config's setup
+# and tests, then every compatible module's session run inside the bracket
+# (each its own orchestration + JUnit, with {{ session.* }} outputs), then the
+# platform teardown LAST. A module is part of the column only when it has a
+# column-eligible check AND a commands[<module>@<column>] lifecycle; the rest
+# are omitted (surfaced in --dry-run). A combined summary prints and the
+# process exits 1 if any config failed; if the platform setup fails, session
+# runs are reported skipped and teardown still runs.
+isvctl test run --provider aws --platform kubernetes
 
-# Run the foundational column: no platform run, just the modules declaring it
+# Run the foundational column: no platform run (and no session), just the
+# modules declaring it, each standalone
 # (iam, control-plane, image-registry, network, observability, security, storage).
 isvctl test run --provider aws --platform foundational
+
+# Intersect under a real column: the platform bracket plus ONLY the requested
+# module's session run.
+isvctl test run --provider aws --platform kubernetes --module storage
 
 # Min Req preset is just a label filter on the column.
 isvctl test run --provider aws --platform vm --label min_req

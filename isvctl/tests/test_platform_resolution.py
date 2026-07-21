@@ -32,7 +32,11 @@ from .conftest import write_axis_provider_config, write_axis_suite
 
 
 def _standard_provider(root: Path) -> None:
-    """Build a provider with vm/bare_metal platforms and iam/network modules."""
+    """Build a provider with vm/bare_metal platforms and iam/network modules.
+
+    Both modules carry vm session commands (``commands[<module>@vm]``) so they
+    join the vm column's session plan; only network has bare_metal ones.
+    """
     write_axis_suite(root, "vm.yaml", "vm", "platform")
     write_axis_suite(root, "bare_metal.yaml", "bare_metal", "platform")
     write_axis_suite(root, "k8s.yaml", "kubernetes", "platform")
@@ -41,8 +45,10 @@ def _standard_provider(root: Path) -> None:
     write_axis_suite(root, "network.yaml", "network", "module")
     write_axis_provider_config(root, "acme", "vm.yaml", "vm.yaml")
     write_axis_provider_config(root, "acme", "bare_metal.yaml", "bare_metal.yaml")
-    write_axis_provider_config(root, "acme", "iam.yaml", "iam.yaml")
-    write_axis_provider_config(root, "acme", "network.yaml", "network.yaml")
+    write_axis_provider_config(root, "acme", "iam.yaml", "iam.yaml", session_keys=["iam@vm"])
+    write_axis_provider_config(
+        root, "acme", "network.yaml", "network.yaml", session_keys=["network@vm", "network@bare_metal"]
+    )
 
 
 def test_classify_reads_kind_via_imports(tmp_path: Path) -> None:
@@ -71,7 +77,7 @@ def test_classify_errors_on_missing_kind(tmp_path: Path) -> None:
 
 
 def test_plan_platform_run_orders_and_sets_column(tmp_path: Path) -> None:
-    """A platform plan runs the platform first, then modules, all under the column."""
+    """A platform plan runs the platform first, then session modules, all under the column."""
     _standard_provider(tmp_path)
     plan = plan_platform_run("acme", "vm", configs_root=tmp_path)
     runs = plan.runs
@@ -80,6 +86,8 @@ def test_plan_platform_run_orders_and_sets_column(tmp_path: Path) -> None:
     assert runs[0].role == "platform"
     assert runs[0].platform == "vm"
     assert runs[0].column_platform == "vm"
+    assert runs[0].session is False
+    assert runs[0].commands_key is None
 
     module_runs = runs[1:]
     assert [r.platform for r in module_runs] == ["iam", "network"]
@@ -88,6 +96,24 @@ def test_plan_platform_run_orders_and_sets_column(tmp_path: Path) -> None:
         # module runs execute under the column; checks declaring a platforms:
         # restriction that excludes it are skipped at resolution time
         assert module_run.column_platform == "vm"
+        # under a real column the module runs inside the platform session,
+        # via its <module>@<column> lifecycle
+        assert module_run.session is True
+        assert module_run.commands_key == f"{module_run.platform}@vm"
+
+
+def test_plan_platform_run_omits_module_without_session_commands(tmp_path: Path) -> None:
+    """A module with eligible checks but no session lifecycle is omitted from a real column."""
+    _standard_provider(tmp_path)
+    # iam has session commands only for vm; under bare_metal it cannot run.
+    plan = plan_platform_run("acme", "bare_metal", configs_root=tmp_path)
+
+    assert [(r.role, r.platform) for r in plan.runs] == [("platform", "bare_metal"), ("module", "network")]
+    assert plan.runs[1].session is True
+    assert plan.runs[1].commands_key == "network@bare_metal"
+    assert [(o.module, o.reason) for o in plan.omitted] == [
+        ("iam", "no session commands (commands['iam@bare_metal']) for column 'bare_metal'"),
+    ]
 
 
 def test_plan_platform_run_k8s_alias(tmp_path: Path) -> None:
@@ -160,6 +186,10 @@ def test_plan_foundational_column_is_modules_only(tmp_path: Path) -> None:
 
     assert [(r.role, r.platform) for r in plan.runs] == [("module", "iam")]
     assert plan.runs[0].column_platform == "foundational"
+    # a modules-only column has no platform run, hence no session: modules run
+    # standalone with their own lifecycle
+    assert plan.runs[0].session is False
+    assert plan.runs[0].commands_key is None
     assert [(o.module, o.reason) for o in plan.omitted] == [
         ("network", "no checks compatible with column 'foundational'"),
     ]
@@ -223,17 +253,40 @@ def test_repo_foundational_column_is_exactly_foundational_modules(provider: str)
     assert all(r.column_platform == "foundational" for r in plan.runs)
 
 
-@pytest.mark.parametrize("column", ["vm", "kubernetes"])
-def test_repo_runtime_columns_omit_foundational_modules(column: str) -> None:
+def test_repo_vm_column_omits_foundational_modules() -> None:
     """Foundational-only modules are omitted from runtime columns."""
-    plan = plan_platform_run("aws", column, configs_root=REPO_CONFIGS_ROOT)
-    assert {run.platform for run in plan.runs} == {column}
+    plan = plan_platform_run("aws", "vm", configs_root=REPO_CONFIGS_ROOT)
+    assert {run.platform for run in plan.runs} == {"vm"}
     assert {(o.module, o.reason) for o in plan.omitted} == {
-        ("control_plane", f"no checks compatible with column '{column}'"),
-        ("iam", f"no checks compatible with column '{column}'"),
-        ("image_registry", f"no checks compatible with column '{column}'"),
-        ("network", f"no checks compatible with column '{column}'"),
-        ("observability", f"no checks compatible with column '{column}'"),
-        ("security", f"no checks compatible with column '{column}'"),
-        ("storage", f"no checks compatible with column '{column}'"),
+        ("control_plane", "no checks compatible with column 'vm'"),
+        ("iam", "no checks compatible with column 'vm'"),
+        ("image_registry", "no checks compatible with column 'vm'"),
+        ("network", "no checks compatible with column 'vm'"),
+        ("observability", "no checks compatible with column 'vm'"),
+        ("security", "no checks compatible with column 'vm'"),
+        ("storage", "no checks compatible with column 'vm'"),
+    }
+
+
+def test_repo_kubernetes_column_includes_storage_session() -> None:
+    """The kubernetes column runs the storage module inside its platform session.
+
+    The storage suite's CSI / shared-filesystem checks declare
+    platforms: ["kubernetes"] and the AWS provider ships
+    commands[storage@kubernetes], so storage joins the column as a session
+    run; the foundational-only modules stay omitted.
+    """
+    plan = plan_platform_run("aws", "kubernetes", configs_root=REPO_CONFIGS_ROOT)
+    assert [(r.role, r.platform) for r in plan.runs] == [("platform", "kubernetes"), ("module", "storage")]
+    storage_run = plan.runs[1]
+    assert storage_run.session is True
+    assert storage_run.commands_key == "storage@kubernetes"
+    assert storage_run.column_platform == "kubernetes"
+    assert {(o.module, o.reason) for o in plan.omitted} == {
+        ("control_plane", "no checks compatible with column 'kubernetes'"),
+        ("iam", "no checks compatible with column 'kubernetes'"),
+        ("image_registry", "no checks compatible with column 'kubernetes'"),
+        ("network", "no checks compatible with column 'kubernetes'"),
+        ("observability", "no checks compatible with column 'kubernetes'"),
+        ("security", "no checks compatible with column 'kubernetes'"),
     }

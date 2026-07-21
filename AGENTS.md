@@ -141,14 +141,24 @@ in this repo, and the validator rejects a missing or empty one. At runtime a
 missing declaration is still treated as compatible with every real environment
 (older/external configs keep working); strictness is repo-enforced by the
 validator only. `platforms:` is rejected on platform-suite
-checks (their column is fixed by file placement), and standalone `--module`
-runs apply no platform filtering. The `foundational` capability
+checks (their column is fixed by file placement). The `foundational` capability
 (`suites/foundational.yaml`, a platform suite wiring no validations) exists
 only to extend the axis: a validation-less platform suite's column has no
 platform run (providers ship no config for it) and plans only modules whose
 checks positively declare it - iam, control-plane, image-registry, network,
-observability, security, and storage declare
+observability, security, and (partially) storage declare
 `platforms: ["foundational"]` and run once there, not under runtime columns.
+A module check declaring a REAL column is a **platform-session check**: under
+`--platform <col>` the module runs INSIDE the platform run's bracket (after
+its pre-teardown phases, before its teardown, which always comes last), via a
+provider `commands[<module>@<col>]` lifecycle whose steps and validation
+params can consume the platform run's step outputs at `{{ session.* }}` (a
+module without that commands block is omitted from the column, surfaced in
+`--dry-run`). The storage suite's k8s_storage / k8s_filesystem checks are the
+reference: `platforms: ["kubernetes"]`, reading `{{ session.setup.csi.* }}`.
+In a run with NO column (bare `--module` / `-f`), session-only checks (a
+declaration naming only real columns) are skipped with a pointer to
+`--platform`; foundational-declared and undeclared checks run unfiltered.
 Labels are otherwise free-form (they
 originate in the wiring YAML, so there is no external allowlist). Wiring names are globally unique
 across suites: a generic class wired in several places uses a distinct variant

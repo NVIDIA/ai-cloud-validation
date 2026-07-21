@@ -20,10 +20,12 @@ This module implements the test lifecycle using step-based execution:
 2. Run validations after each phase
 """
 
+import copy
 import logging
 import shutil
 import tempfile
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -365,6 +367,10 @@ class Orchestrator:
         self._column_platform: str | None = None
         self._verbose: bool = False
         self._junitxml: str | None = None
+        self._commands_key: str | None = None
+        self._pre_teardown_hook: Callable[[dict[str, Any], bool], None] | None = None
+        self._pre_teardown_hook_fired: bool = False
+        self._synthetic_columns: set[str] | None = None
 
     def run(
         self,
@@ -376,6 +382,10 @@ class Orchestrator:
         column_platform: str | None = None,
         verbose: bool = False,
         junitxml: str | None = None,
+        session_data: dict[str, Any] | None = None,
+        commands_key: str | None = None,
+        pre_teardown_hook: Callable[[dict[str, Any], bool], None] | None = None,
+        synthetic_columns: set[str] | None = None,
     ) -> OrchestratorResult:
         """Run the test lifecycle.
 
@@ -397,6 +407,21 @@ class Orchestrator:
                 skipped when the column is not in it.
             verbose: Enable verbose output for validations
             junitxml: Path to write JUnit XML report for validations
+            session_data: The enclosing platform run's step outputs for a module
+                session run, mounted read-only at ``{{ session.* }}`` for step
+                args and validation params. None outside a session.
+            commands_key: Override for the ``commands[...]`` lookup key (a
+                session run's ``<module>@<column>`` lifecycle). The config's
+                axis-derived platform still names JUnit suites and reporting.
+            pre_teardown_hook: Platform-session bracket callback. Fired exactly
+                once, at the teardown boundary, with a deep copy of this run's
+                step outputs and whether the pre-teardown phases succeeded (so
+                a failed platform setup skips the session body). Exceptions are
+                logged and never prevent teardown.
+            synthetic_columns: The modules-only columns of the platform axis
+                (e.g. ``{"foundational"}``), used in no-column runs to skip
+                session-only checks (a ``platforms:`` declaration naming only
+                real columns). None disables the rule.
 
         Returns:
             OrchestratorResult with phase results
@@ -411,6 +436,12 @@ class Orchestrator:
         self._column_platform = column_platform
         self._verbose = verbose
         self._junitxml = junitxml
+        self._commands_key = commands_key
+        self._pre_teardown_hook = pre_teardown_hook
+        self._pre_teardown_hook_fired = False
+        self._synthetic_columns = synthetic_columns
+        if session_data is not None:
+            self.context.set_session_data(session_data)
 
         platform = self._detect_platform()
         if not platform:
@@ -452,8 +483,13 @@ class Orchestrator:
         """
         logger.info(f"Running in steps mode for platform: {platform}")
 
-        config_phases = self.config.get_phases(platform)
-        if self.config.commands[platform].skip:
+        # A session run executes its ``<module>@<column>`` lifecycle; every
+        # other run's key is its axis-derived platform. The platform name still
+        # labels JUnit suites and logs either way.
+        commands_key = self._commands_key or platform
+
+        config_phases = self.config.get_phases(commands_key)
+        if self.config.commands[commands_key].skip:
             skipped_phases = _requested_config_phases(config_phases, requested_phases)
             return OrchestratorResult(
                 success=True,
@@ -468,7 +504,7 @@ class Orchestrator:
                 inventory={},
             )
 
-        steps = self.config.get_steps(platform)
+        steps = self.config.get_steps(commands_key)
         if not steps:
             return OrchestratorResult(
                 success=False,
@@ -476,7 +512,7 @@ class Orchestrator:
                     PhaseResult(
                         phase=Phase.SETUP,
                         success=False,
-                        message=f"No steps defined for platform: {platform}",
+                        message=f"No steps defined for platform: {commands_key}",
                     )
                 ],
             )
@@ -543,6 +579,13 @@ class Orchestrator:
 
         requested_phase_names = {p.value for p in requested_phases}
 
+        # Whether this run is supposed to build an environment: setup was
+        # requested AND the config wires non-skip setup steps. The session
+        # body only demands `setup_steps_ran` when that is true — a lifecycle
+        # without setup has nothing to have failed.
+        setup_requested = "setup" in requested_phase_names or Phase.ALL in requested_phases
+        setup_expected = setup_requested and any(not step.skip for step in steps_by_phase.get("setup", []))
+
         # Per-phase JUnit XML files merge at the end so later phases don't
         # overwrite earlier ones.
         junit_tmpdir: str | None = None
@@ -559,6 +602,14 @@ class Orchestrator:
                 phase_enum = _phase_enum_for_name(phase_name)
 
                 is_teardown = phase_name == "teardown"
+
+                # Platform-session bracket: the session body (module runs
+                # consuming this run's step outputs) executes after every
+                # pre-teardown phase and before teardown, so the platform's
+                # environment is live for the modules and torn down last.
+                if is_teardown:
+                    self._fire_pre_teardown_hook(overall_success and (setup_steps_ran or not setup_expected))
+
                 skip_reason: str | None = None
 
                 if not overall_success and not is_teardown:
@@ -675,6 +726,10 @@ class Orchestrator:
                 if not phase_success:
                     overall_success = False
 
+            # Safety net for lifecycles without a teardown phase: the session
+            # body still runs (once) after every configured phase.
+            self._fire_pre_teardown_hook(overall_success and (setup_steps_ran or not setup_expected))
+
             remaining_entries = [
                 (index, entry)
                 for index, entry in enumerate(validation_entries)
@@ -723,6 +778,24 @@ class Orchestrator:
             inventory=self.context.get_accumulated_context().get("steps", {}),
             validations=[resolved_validations_by_index[index] for index in sorted(resolved_validations_by_index)],
         )
+
+    def _fire_pre_teardown_hook(self, platform_ok: bool) -> None:
+        """Invoke the platform-session body exactly once, never blocking teardown.
+
+        The hook receives a deep copy of this run's step outputs (the module
+        runs' ``{{ session.* }}`` view) and whether the pre-teardown phases
+        succeeded — a failed platform setup means the session body should skip
+        its module runs rather than execute against a broken environment. Any
+        exception is logged and swallowed so platform teardown always follows.
+        """
+        if self._pre_teardown_hook is None or self._pre_teardown_hook_fired:
+            return
+        self._pre_teardown_hook_fired = True
+        session_steps = copy.deepcopy(self.context.data.get("steps", {}))
+        try:
+            self._pre_teardown_hook(session_steps, platform_ok)
+        except Exception:
+            logger.exception("Platform session body failed; continuing to teardown")
 
     def _create_phase_result(
         self,
@@ -811,6 +884,7 @@ class Orchestrator:
             released_tests=released_tests,
             render_context=self.context.get_accumulated_context(),
             column_platform=self._column_platform,
+            synthetic_columns=self._synthetic_columns,
         )
 
     def _resolve_remaining_validation_entries(

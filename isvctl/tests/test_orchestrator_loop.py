@@ -1475,3 +1475,177 @@ class TestEntriesMissingFromJunit:
     def test_returns_all_entries_when_junit_path_is_none(self) -> None:
         """A None path (pytest skipped because no ready entries) returns the full list."""
         assert _entries_missing_from_junit([self._entry("A")], None) == [self._entry("A")]
+
+
+class TestPlatformSession:
+    """Tests for the platform-session bracket and module session runs.
+
+    A platform run's ``pre_teardown_hook`` is the session body: it fires once,
+    after every pre-teardown phase and before teardown, with the run's step
+    outputs and success. A module session run executes its
+    ``commands[<module>@<column>]`` lifecycle (``commands_key``) with the
+    platform outputs mounted at ``{{ session.* }}`` (``session_data``).
+    """
+
+    @staticmethod
+    def _platform_config(tmp_path: Path, *, setup_command: str = "echo") -> RunConfig:
+        """A kubernetes platform config whose teardown touches a marker file."""
+        marker = tmp_path / "teardown-ran"
+        return RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["setup", "teardown"],
+                    steps=[
+                        StepConfig(
+                            name="setup",
+                            command=setup_command,
+                            args=['{"success": true, "platform": "kubernetes", "cluster_name": "session-c1"}'],
+                            phase="setup",
+                        ),
+                        StepConfig(
+                            name="cleanup",
+                            command="sh",
+                            args=["-c", f'touch {marker} && echo \'{{"success": true, "platform": "kubernetes"}}\''],
+                            phase="teardown",
+                        ),
+                    ],
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+
+    def test_hook_fires_before_teardown_with_step_outputs(self, tmp_path: Path) -> None:
+        """The session body sees the platform's outputs; teardown runs after it."""
+        config = self._platform_config(tmp_path)
+        marker = tmp_path / "teardown-ran"
+        calls: list[tuple[dict, bool, bool]] = []
+
+        result = Orchestrator(config).run(
+            phases=[Phase.SETUP, Phase.TEST, Phase.TEARDOWN],
+            pre_teardown_hook=lambda steps, ok: calls.append((steps, ok, marker.exists())),
+        )
+
+        assert result.success
+        assert calls == [
+            (
+                {"setup": {"success": True, "platform": "kubernetes", "cluster_name": "session-c1"}},
+                True,
+                False,
+            )
+        ]
+        assert marker.exists()  # platform teardown ran, after the session body
+
+    def test_hook_gets_platform_failure_and_teardown_still_runs(self, tmp_path: Path) -> None:
+        """A failed platform setup reports platform_ok=False; teardown still follows."""
+        config = self._platform_config(tmp_path, setup_command="false")
+        marker = tmp_path / "teardown-ran"
+        calls: list[bool] = []
+
+        result = Orchestrator(config).run(
+            phases=[Phase.SETUP, Phase.TEST, Phase.TEARDOWN],
+            pre_teardown_hook=lambda _steps, ok: calls.append(ok),
+        )
+
+        assert not result.success
+        assert calls == [False]
+        assert marker.exists()  # teardown_on_failure default still cleans up
+
+    def test_hook_exception_does_not_block_teardown(self, tmp_path: Path) -> None:
+        """A crashing session body is logged and swallowed; teardown always runs."""
+        config = self._platform_config(tmp_path)
+        marker = tmp_path / "teardown-ran"
+
+        def _boom(_steps: dict, _ok: bool) -> None:
+            raise RuntimeError("session body crashed")
+
+        result = Orchestrator(config).run(
+            phases=[Phase.SETUP, Phase.TEST, Phase.TEARDOWN],
+            pre_teardown_hook=_boom,
+        )
+
+        assert result.success
+        assert marker.exists()
+
+    def test_hook_fires_once_without_a_teardown_phase(self) -> None:
+        """A lifecycle without teardown still runs the session body exactly once."""
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(
+                            name="probe",
+                            command="echo",
+                            args=['{"success": true, "platform": "kubernetes"}'],
+                            phase="test",
+                        )
+                    ],
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+        calls: list[bool] = []
+
+        result = Orchestrator(config).run(
+            phases=[Phase.TEST],
+            pre_teardown_hook=lambda _steps, ok: calls.append(ok),
+        )
+
+        assert result.success
+        assert calls == [True]
+
+    @staticmethod
+    def _module_config() -> RunConfig:
+        """A storage module config with both its own and a kubernetes session lifecycle."""
+        return RunConfig(
+            commands={
+                "storage": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(
+                            name="own",
+                            command="echo",
+                            args=['{"success": true, "platform": "storage", "lifecycle": "own"}'],
+                            phase="test",
+                        )
+                    ],
+                ),
+                "storage@kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(
+                            name="probe",
+                            command="echo",
+                            args=[
+                                '{"success": true, "platform": "storage", "lifecycle": "session",'
+                                ' "cluster": "{{ session.setup.cluster_name }}"}'
+                            ],
+                            phase="test",
+                        )
+                    ],
+                ),
+            },
+            tests=ValidationConfig(platform="storage"),
+        )
+
+    def test_commands_key_selects_session_lifecycle_and_session_renders(self) -> None:
+        """A session run executes commands[<module>@<column>] and sees {{ session.* }}."""
+        result = Orchestrator(self._module_config()).run(
+            phases=[Phase.TEST],
+            commands_key="storage@kubernetes",
+            session_data={"setup": {"cluster_name": "session-c1"}},
+            column_platform="kubernetes",
+        )
+
+        assert result.success
+        assert "own" not in result.inventory
+        assert result.inventory["probe"]["lifecycle"] == "session"
+        assert result.inventory["probe"]["cluster"] == "session-c1"
+
+    def test_without_commands_key_the_module_lifecycle_runs(self) -> None:
+        """No commands_key keeps today's behavior: the module's own block runs."""
+        result = Orchestrator(self._module_config()).run(phases=[Phase.TEST])
+
+        assert result.success
+        assert "probe" not in result.inventory
+        assert result.inventory["own"]["lifecycle"] == "own"

@@ -92,15 +92,33 @@ tests:
 
 
 def _build_platform_provider(configs_root: Path) -> None:
-    """Build an ``acme`` provider with vm/bare_metal platforms + iam/network modules."""
+    """Build an ``acme`` provider with vm/bare_metal platforms + iam/network modules.
+
+    Both modules carry session lifecycles for every platform, so they join
+    each real column's session plan.
+    """
     write_axis_suite(configs_root, "vm.yaml", "vm", "platform")
     write_axis_suite(configs_root, "bare_metal.yaml", "bare_metal", "platform")
     write_axis_suite(configs_root, "iam.yaml", "iam", "module")
     write_axis_suite(configs_root, "network.yaml", "network", "module")
     write_axis_provider_config(configs_root, "acme", "vm.yaml", "vm.yaml", run_platform="vm")
     write_axis_provider_config(configs_root, "acme", "bare_metal.yaml", "bare_metal.yaml", run_platform="bare_metal")
-    write_axis_provider_config(configs_root, "acme", "iam.yaml", "iam.yaml", run_platform="iam")
-    write_axis_provider_config(configs_root, "acme", "network.yaml", "network.yaml", run_platform="network")
+    write_axis_provider_config(
+        configs_root,
+        "acme",
+        "iam.yaml",
+        "iam.yaml",
+        run_platform="iam",
+        session_keys=["iam@vm", "iam@bare_metal", "iam@kubernetes"],
+    )
+    write_axis_provider_config(
+        configs_root,
+        "acme",
+        "network.yaml",
+        "network.yaml",
+        run_platform="network",
+        session_keys=["network@vm", "network@bare_metal", "network@kubernetes"],
+    )
 
 
 class _FakeOrchestrator:
@@ -115,7 +133,13 @@ class _FakeOrchestrator:
         self.kwargs = kwargs
 
     def run(self, **kwargs: Any) -> OrchestratorResult:
-        """Record a synthetic orchestration call and return a successful result."""
+        """Record a synthetic orchestration call and return a successful result.
+
+        Mirrors the real orchestrator's platform-session bracket: a provided
+        ``pre_teardown_hook`` fires (with fake step outputs and success) after
+        this run is recorded, so session module runs land in ``calls`` between
+        the platform run and its teardown, exactly as in production.
+        """
         type(self).captured.update(kwargs)
         type(self).calls.append(
             {
@@ -124,6 +148,9 @@ class _FakeOrchestrator:
                 "run_kwargs": kwargs,
             }
         )
+        hook = kwargs.get("pre_teardown_hook")
+        if hook is not None:
+            hook({"setup": {"success": True}}, True)
         return OrchestratorResult(
             success=True,
             phases=[PhaseResult(phase=Phase.TEST, success=True, message="ok")],
@@ -313,6 +340,45 @@ def test_platform_dispatches_platform_then_modules(monkeypatch: pytest.MonkeyPat
     # platforms: restrictions are applied at resolution time
     assert [call["run_kwargs"].get("exclude_labels") for call in _FakeOrchestrator.calls] == [None, None, None]
     assert [call["run_kwargs"].get("column_platform") for call in _FakeOrchestrator.calls] == ["vm", "vm", "vm"]
+
+
+def test_session_module_runs_skip_when_platform_setup_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A failed platform setup skips the session module runs instead of executing them."""
+
+    class _FailingPlatformOrchestrator(_FakeOrchestrator):
+        """Fake whose session bracket reports a failed platform setup."""
+
+        def run(self, **kwargs: Any) -> OrchestratorResult:
+            type(self).captured.update(kwargs)
+            type(self).calls.append(
+                {
+                    "platform": self.config.tests.platform,
+                    "working_dir": self.kwargs.get("working_dir"),
+                    "run_kwargs": kwargs,
+                }
+            )
+            hook = kwargs.get("pre_teardown_hook")
+            if hook is not None:
+                hook({}, False)
+            return OrchestratorResult(
+                success=False,
+                phases=[PhaseResult(phase=Phase.SETUP, success=False, message="setup failed")],
+            )
+
+    configs_root = tmp_path / "configs"
+    _build_platform_provider(configs_root)
+    _FailingPlatformOrchestrator.calls = []
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(test_cli, "Orchestrator", _FailingPlatformOrchestrator)
+
+    result = runner.invoke(test_cli.app, ["run", "--provider", "acme", "--platform", "vm", "--no-upload"])
+
+    # Only the platform config ran; the session modules were skipped, and the
+    # overall invocation fails because the platform run failed.
+    assert result.exit_code == 1, result.output
+    assert [call["platform"] for call in _FailingPlatformOrchestrator.calls] == ["vm"]
+    assert result.output.count("platform setup failed, no session available") == 2
+    assert result.output.count("[SKIP]") == 2
 
 
 def test_platform_no_modules_runs_only_platform_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -539,7 +605,12 @@ def test_config_file_platform_suite_uploads_capability_only(monkeypatch: pytest.
 def test_platform_and_module_intersect_runs_module_under_column(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """`--platform vm --module iam` runs only the iam config, under the vm column."""
+    """`--platform vm --module iam` runs the platform bracket plus only the iam session.
+
+    Under a real column the requested module is a session run, so the platform
+    config runs too (its setup provides the session, its teardown comes last);
+    the other modules are excluded from the plan.
+    """
     configs_root = tmp_path / "configs"
     _build_platform_provider(configs_root)
     _FakeOrchestrator.calls = []
@@ -552,9 +623,14 @@ def test_platform_and_module_intersect_runs_module_under_column(
     )
 
     assert result.exit_code == 0, result.output
-    # the platform config does not run; the module runs under the column
-    assert [call["platform"] for call in _FakeOrchestrator.calls] == ["iam"]
-    assert _FakeOrchestrator.calls[0]["run_kwargs"].get("column_platform") == "vm"
+    assert [call["platform"] for call in _FakeOrchestrator.calls] == ["vm", "iam"]
+    platform_kwargs = _FakeOrchestrator.calls[0]["run_kwargs"]
+    assert platform_kwargs.get("pre_teardown_hook") is not None
+    module_kwargs = _FakeOrchestrator.calls[1]["run_kwargs"]
+    assert module_kwargs.get("column_platform") == "vm"
+    assert module_kwargs.get("commands_key") == "iam@vm"
+    # the session body receives the platform run's step outputs
+    assert module_kwargs.get("session_data") == {"setup": {"success": True}}
 
 
 def test_platform_and_module_intersect_normalizes_alias(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -562,6 +638,7 @@ def test_platform_and_module_intersect_normalizes_alias(monkeypatch: pytest.Monk
     configs_root = tmp_path / "configs"
     _build_platform_provider(configs_root)
     write_axis_suite(configs_root, "k8s.yaml", "kubernetes", "platform")
+    write_axis_provider_config(configs_root, "acme", "k8s.yaml", "k8s.yaml", run_platform="kubernetes")
     _FakeOrchestrator.calls = []
     monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
     monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
@@ -572,8 +649,10 @@ def test_platform_and_module_intersect_normalizes_alias(monkeypatch: pytest.Monk
     )
 
     assert result.exit_code == 0, result.output
-    assert [call["platform"] for call in _FakeOrchestrator.calls] == ["iam"]
-    assert _FakeOrchestrator.calls[0]["run_kwargs"].get("column_platform") == "kubernetes"
+    assert [call["platform"] for call in _FakeOrchestrator.calls] == ["kubernetes", "iam"]
+    module_kwargs = _FakeOrchestrator.calls[1]["run_kwargs"]
+    assert module_kwargs.get("column_platform") == "kubernetes"
+    assert module_kwargs.get("commands_key") == "iam@kubernetes"
 
 
 def test_platform_and_module_intersect_uploads_column_module_pair(
@@ -594,7 +673,8 @@ def test_platform_and_module_intersect_uploads_column_module_pair(
     )
 
     assert result.exit_code == 0, result.output
-    assert [(call["platform"], call["module"]) for call in upload_calls] == [("vm", "iam")]
+    # the platform bracket reports (vm, -) and the session module (vm, iam)
+    assert [(call["platform"], call["module"]) for call in upload_calls] == [("vm", None), ("vm", "iam")]
 
 
 def test_platform_and_module_intersect_dry_run_shows_both(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -615,8 +695,15 @@ def test_platform_and_module_intersect_dry_run_shows_both(monkeypatch: pytest.Mo
     plan = json.loads(result.output)
     assert plan["platform"] == "vm"
     assert plan["modules"] == ["iam"]
-    assert [(r["role"], r["platform"], r["column_platform"]) for r in plan["runs"]] == [("module", "iam", "vm")]
-    assert plan["runs"][0]["upload"] == {"capability": "vm", "module": "iam"}
+    # platform bracket first (provides the session), then only the requested
+    # module as a session run; network is not part of the intersect plan
+    assert [(r["role"], r["platform"], r["column_platform"]) for r in plan["runs"]] == [
+        ("platform", "vm", "vm"),
+        ("module", "iam", "vm"),
+    ]
+    assert [(r["session"], r["commands_key"]) for r in plan["runs"]] == [(False, None), (True, "iam@vm")]
+    assert plan["runs"][0]["upload"] == {"capability": "vm", "module": None}
+    assert plan["runs"][1]["upload"] == {"capability": "vm", "module": "iam"}
 
     text = runner.invoke(
         test_cli.app,
