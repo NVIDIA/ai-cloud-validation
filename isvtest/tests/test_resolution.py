@@ -64,6 +64,7 @@ def _entry(
     step: str | None = None,
     phase: str | None = None,
     labels: tuple[str, ...] = (),
+    platforms: tuple[str, ...] = (),
 ) -> ValidationEntry:
     """Build a minimal validation entry."""
     return ValidationEntry(
@@ -73,6 +74,7 @@ def _entry(
         step=step,
         phase=phase,
         labels=labels,
+        platforms=platforms,
     )
 
 
@@ -87,6 +89,7 @@ def _resolve(
     exclude_tests: set[str] | None = None,
     released_tests: set[str] | None = None,
     render_context: dict[str, Any] | None = None,
+    column_platform: str | None = None,
 ) -> ResolvedEntry:
     """Resolve one entry and return the single result."""
     results = resolve_entries(
@@ -99,6 +102,7 @@ def _resolve(
         exclude_tests=set() if exclude_tests is None else exclude_tests,
         released_tests=released_tests,
         render_context={} if render_context is None else render_context,
+        column_platform=column_platform,
     )
     assert len(results) == 1
     return results[0]
@@ -271,6 +275,52 @@ def test_resolve_entries_requires_all_include_labels() -> None:
     assert "labels" in by_name["GpuOnlyCheck"].message
 
 
+def test_resolve_entries_applies_platforms_restriction_per_column() -> None:
+    """A platforms subset runs under its declared columns and skips under the rest."""
+    entry = _entry("SubsetCheck", platforms=("vm", "bare_metal"))
+
+    for column in ("vm", "bare_metal"):
+        assert _resolve(entry, column_platform=column).is_ready
+
+    for column in ("kubernetes", "slurm"):
+        resolved = _resolve(entry, column_platform=column)
+        assert resolved.state == State.SKIPPED
+        assert resolved.skip_reason == SkipReason.EXCLUDED
+        assert "platforms restriction [vm, bare_metal]" in resolved.message
+        assert f"does not include column '{column}'" in resolved.message
+
+
+def test_resolve_entries_without_platforms_runs_under_every_column() -> None:
+    """Omitted/empty platforms means the check is compatible with every column."""
+    entry = _entry("EverywhereCheck")
+
+    for column in ("vm", "bare_metal", "kubernetes", "slurm", None):
+        assert _resolve(entry, column_platform=column).is_ready
+
+
+def test_resolve_entries_no_column_applies_no_platform_filtering() -> None:
+    """Standalone --module / plain -f runs (no column) never platform-filter."""
+    entry = _entry("SubsetCheck", platforms=("bare_metal",))
+
+    assert _resolve(entry, column_platform=None).is_ready
+
+
+def test_parse_validations_populates_platforms_from_wiring() -> None:
+    """Parser reads the per-check platforms: declaration into the entry."""
+    raw_config: dict[str, Any] = {
+        "capacity": {
+            "checks": {
+                "PlainCheck": {"labels": ["capacity"], "platforms": ["vm", "bare_metal"]},
+            },
+        },
+    }
+
+    (entry,) = parse_validations(raw_config)
+
+    assert entry.labels == ("capacity",)
+    assert entry.platforms == ("vm", "bare_metal")
+
+
 def test_parse_validations_supports_group_defaults_and_labels() -> None:
     """Parser expands config groups and populates labels from the wiring."""
     raw_config: dict[str, Any] = {
@@ -362,6 +412,38 @@ def test_resolve_entries_treats_variant_names_as_released() -> None:
     resolved = _resolve(entry, released_tests={"PlainCheck"})
 
     assert resolved.skip_reason is None, "variant of a released class must not be marked UNRELEASED"
+
+
+def test_resolve_entries_rejects_bare_variant_required_class() -> None:
+    """Reusable generic checks must be wired with a variant suffix."""
+    entry = _entry(
+        "FieldValueCheck",
+        params={"field": "success", "expected": True, "step_output": {"success": True}},
+    )
+
+    resolved = _resolve(entry, released_tests={"FieldValueCheck"})
+
+    assert resolved.state == State.ERROR
+    assert resolved.error_reason == ErrorReason.INVALID_CONFIG
+    assert "must use a variant name" in resolved.message
+
+
+def test_resolve_entries_accepts_variant_required_class_with_suffix() -> None:
+    """A variant suffix satisfies the bare-name guard for reusable checks."""
+    entry = _entry(
+        "FieldValueCheck-cp_api_health",
+        params={"field": "success", "expected": True},
+        step="check_api",
+    )
+
+    resolved = _resolve(
+        entry,
+        released_tests={"FieldValueCheck"},
+        step_phases={"check_api": "test"},
+        step_outputs={"check_api": {"success": True}},
+    )
+
+    assert resolved.is_ready
 
 
 def test_resolve_entries_warns_when_default_filter_masks_missing_step_field(

@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# my-isv Kubernetes platform wrapper
+#
+# Imports the canonical k8s suite and re-declares the setup/teardown commands
+# with paths relative to THIS file (providers/my-isv/config/). The suite embeds
+# `../providers/my-isv/scripts/...`-style paths that resolve from suites/; when
+# imported here the working dir becomes this config's directory, so the command
+# paths must be re-declared relative to it. This makes the k8s platform
+# selectable via `--provider my-isv --platform kubernetes`.
+#
+# Note: not wired into `make demo-test` (MY_ISV_DOMAINS) - the k8s setup/teardown
+# scripts have no ISVCTL_DEMO_MODE gate and expect a real cluster.
+
+import:
+  - ../../../suites/k8s.yaml
+
+version: "1.0"
+
+commands:
+  kubernetes:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: setup
+        phase: setup
+        command: "../scripts/k8s/setup.sh"
+        timeout: 120
+      - name: teardown
+        phase: teardown
+        command: "../scripts/k8s/teardown.sh"
+        timeout: 30
+
+tests:
+  cluster_name: "my-isv-k8s-validation"
+  description: "my-isv Kubernetes platform validation"

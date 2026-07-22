@@ -43,6 +43,87 @@ def _isolate_user_config(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pyte
     monkeypatch.delenv("ISVCTL_SECRETS", raising=False)
 
 
+def write_axis_suite(
+    root: Path,
+    name: str,
+    value: str,
+    axis_key: str,
+    *,
+    platforms: list[str] | None = None,
+    validations: bool = True,
+) -> None:
+    """Write a provider-neutral suite declaring one platform/module axis key.
+
+    Wires one check so the suite counts as a "real" platform/module to the
+    planner (a validation-less platform suite defines a modules-only column).
+    ``platforms`` adds a positive column declaration to the check;
+    ``validations=False`` writes an axis-only suite with no checks.
+    """
+    suite_path = root / "suites" / name
+    suite_path.parent.mkdir(parents=True, exist_ok=True)
+    if not validations:
+        body = f"tests:\n  {axis_key}: {value}\n  validations: {{}}\n"
+    else:
+        platforms_yaml = ""
+        if platforms is not None:
+            platforms_yaml = "\n          platforms: [" + ", ".join(f'"{p}"' for p in platforms) + "]"
+        body = f"""\
+tests:
+  {axis_key}: {value}
+  validations:
+    sample:
+      checks:
+        FieldExistsCheck-{value}_axis:
+          test_id: "N/A"
+          labels: ["{value}"]{platforms_yaml}
+          fields: ["success"]
+"""
+    suite_path.write_text(body, encoding="utf-8")
+
+
+def write_axis_provider_config(
+    root: Path,
+    provider: str,
+    name: str,
+    suite: str,
+    *,
+    run_platform: str | None = None,
+    session_keys: list[str] | None = None,
+) -> Path:
+    """Write a provider config importing one suite (inheriting its kind/platform).
+
+    With ``run_platform``, the config also carries a runnable echo step in that
+    platform's commands group so CLI tests can execute it end-to-end.
+    ``session_keys`` adds a ``commands[<key>]`` session lifecycle per key
+    (``<module>@<column>``) so the module joins that column's session plan.
+    """
+    config_path = root / "providers" / provider / "config" / name
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    body = f"""\
+import:
+  - ../../../suites/{suite}
+version: "1.0"
+"""
+    command_groups = []
+    if run_platform:
+        command_groups.append(run_platform)
+    command_groups.extend(session_keys or [])
+    if command_groups:
+        body += "commands:\n"
+        for group in command_groups:
+            body += f"""\
+  {group}:
+    phases: [test]
+    steps:
+      - name: test_step
+        command: echo
+        args: ['{{"success": true}}']
+        phase: test
+"""
+    config_path.write_text(body, encoding="utf-8")
+    return config_path
+
+
 def load_aws_script(domain: str, script_name: str) -> ModuleType:
     """Load an AWS provider script as a module for direct helper testing.
 

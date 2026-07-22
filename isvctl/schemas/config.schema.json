@@ -62,7 +62,7 @@
     },
     "PlatformCommands": {
       "additionalProperties": true,
-      "description": "Lifecycle commands for a specific platform.\n\nGroups commands for a platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security).\nSupports skip at both platform level (skips all phases) and phase level.\n\nThe `phases` field defines the execution order. Steps are grouped by their `phase`\nfield and executed in the order defined by `phases`. Validations run after each phase.\n\nExample:\n   ```yaml\n   network:\n     phases: [\"setup\", \"teardown\"]  # Defines execution order\n     steps:\n       - name: create_vpc\n         phase: setup\n         command: \"./create_vpc.py\"\n       - name: cleanup\n         phase: teardown\n         command: \"./teardown.py\"\n   ```\n\nIf a step's phase is not in the phases list, an error is raised.\n\nSupports skip at both platform level (skips all phases) and step level.",
+      "description": "Lifecycle commands for a specific platform.\n\nGroups commands for a platform (any platform/module axis value declared by a\nsuite's tests.platform / tests.module, e.g. kubernetes, iam).\nSupports skip at both platform level (skips all phases) and phase level.\n\nThe `phases` field defines the execution order. Steps are grouped by their `phase`\nfield and executed in the order defined by `phases`. Validations run after each phase.\n\nExample:\n   ```yaml\n   network:\n     phases: [\"setup\", \"test\", \"teardown\"]  # Defines execution order\n     steps:\n       - name: create_vpc\n         phase: setup\n         command: \"./create_vpc.py\"\n       - name: cleanup\n         phase: teardown\n         command: \"./teardown.py\"\n   ```\n\nIf a step's phase is not in the phases list, an error is raised.\n\nSupports skip at both platform level (skips all phases) and step level.",
       "properties": {
         "skip": {
           "default": false,
@@ -145,6 +145,14 @@
           "title": "Skip",
           "type": "boolean"
         },
+        "requires_available_validations": {
+          "description": "Validation names that must be available after release filtering for this step to run. Unreleased validations are available only when ISVTEST_INCLUDE_UNRELEASED=1.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Requires Available Validations",
+          "type": "array"
+        },
         "continue_on_failure": {
           "default": false,
           "description": "Continue to next step even if this step fails",
@@ -188,7 +196,7 @@
     },
     "ValidationConfig": {
       "additionalProperties": true,
-      "description": "Test configuration section.\n\nValidations are grouped by meaningful category names (e.g., 'network', 'ssh', 'gpu').\nEach validation can have a `phase` field to control execution timing:\n\n- No `phase`: Runs after setup steps complete (default)\n- `phase: teardown`: Runs after teardown steps complete\n- `phase: test`: Runs after test steps (if any exist)\n\nTwo formats are supported:\n\n1. List format (each validation specifies its own step/phase):\n    validations:\n      network:\n        - VpcCrudCheck:\n            step: vpc_crud\n        - NetworkProvisionedCheck:\n            step: create_network\n\n2. Group defaults format (step/phase apply to all checks):\n    validations:\n      credentials:\n        step: test_credentials\n        phase: test\n        checks:\n          - StepSuccessCheck: {}\n          - FieldExistsCheck:\n              field: \"account_id\"",
+      "description": "Test configuration section.\n\nValidations are grouped by meaningful category names (e.g., 'network', 'ssh', 'gpu').\nEach validation can have a `phase` field to control execution timing:\n\n- No `phase`: Runs after setup steps complete (default)\n- `phase: teardown`: Runs after teardown steps complete\n- `phase: test`: Runs after test steps (if any exist)\n\nThree formats are supported:\n\n1. List format (each validation specifies its own step/phase):\n    validations:\n      network:\n        - VpcCrudCheck:\n            step: vpc_crud\n        - NetworkProvisionedCheck:\n            step: create_network\n\n2. Group defaults with list checks (step/phase apply to all checks):\n    validations:\n      credentials:\n        step: test_credentials\n        phase: test\n        checks:\n          - StepSuccessCheck: {}\n          - FieldExistsCheck:\n              field: \"account_id\"\n\n3. Group defaults with dict checks (deep-merge friendly):\n    validations:\n      credentials:\n        step: test_credentials\n        checks:\n          StepSuccessCheck: {}\n          FieldExistsCheck:\n            field: \"account_id\"",
       "properties": {
         "cluster_name": {
           "anyOf": [
@@ -226,8 +234,21 @@
             }
           ],
           "default": null,
-          "description": "Platform: kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security",
+          "description": "Service-line platform (the commands[...] group to run; reported as the run's capability): vm, bare_metal, kubernetes, slurm. A suite that declares 'platform' is a platform suite; one that declares 'module' is an operational concern.",
           "title": "Platform"
+        },
+        "module": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operational-concern module this suite validates: iam, network, security, observability, control_plane, image_registry, ... Its value is also the runtime platform (derived below). Mutually exclusive with 'platform'.",
+          "title": "Module"
         },
         "settings": {
           "additionalProperties": true,
@@ -251,7 +272,7 @@
               }
             ]
           },
-          "description": "Validation checks by category. Supports list format or group defaults with 'checks' key.",
+          "description": "Validation checks by category. Supports list format or group defaults with 'checks' key. Each check wiring may declare 'test_id', 'labels', 'step', 'phase', and 'platforms' (a subset of the platform axis; omitted/empty = compatible with every platform, non-empty = the check runs only under those --platform columns).",
           "title": "Validations",
           "type": "object"
         },
@@ -291,7 +312,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/PlatformCommands"
       },
-      "description": "Lifecycle commands by platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security)",
+      "description": "Lifecycle commands by platform (any platform/module axis value declared by a suite, e.g. kubernetes, iam)",
       "title": "Commands",
       "type": "object"
     },

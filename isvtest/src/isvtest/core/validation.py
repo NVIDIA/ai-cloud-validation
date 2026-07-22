@@ -69,6 +69,7 @@ class BaseValidation(ABC):
     description: ClassVar[str] = ""
     timeout: ClassVar[int] = 60
     catalog_exclude: ClassVar[bool] = False
+    variant_required: ClassVar[bool] = False
 
     def __init__(self, runner: Runner | None = None, config: dict[str, Any] | None = None):
         self.config = config or {}
@@ -309,6 +310,19 @@ def get_validation_class(name: str) -> type[BaseValidation] | None:
     """
     cache = _discover_validation_classes()
     return cache.get(name)
+
+
+def validate_wiring_name(name: str) -> str | None:
+    """Return an error when a reusable class is wired under its bare name.
+
+    Generic checks such as ``FieldValueCheck`` must be wired with a globally
+    unique variant suffix (``FieldValueCheck-cp_api_health``) so catalog
+    entries and JUnit case names stay 1:1 with wirings.
+    """
+    cls = get_validation_class(name)
+    if cls is not None and cls.variant_required:
+        return f"validation {name!r} must use a variant name (e.g. {name}-<category>)"
+    return None
 
 
 def register_validation_class(cls: type[BaseValidation]) -> None:

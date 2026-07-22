@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from isvctl.config.merger import (
     apply_set_value,
@@ -27,6 +26,7 @@ from isvctl.config.merger import (
     merge_yaml_files,
     parse_set_value,
 )
+from isvctl.config.platform_resolution import effective_axes
 from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.context import Context
 
@@ -437,23 +437,26 @@ class TestImportEndToEnd:
         assert "credentials" in validations
         assert "teardown_checks" in validations
         assert result["tests"]["cluster_name"] == "aws-iam-validation"
-        assert result["tests"]["platform"] == "iam"
+        # The iam suite declares the module axis key; platform is derived at model-validation.
+        assert result["tests"]["module"] == "iam"
+        assert RunConfig.model_validate(result).tests.platform == "iam"
 
-    def test_my_isv_observability_declares_raw_platform_for_report_upload(self) -> None:
-        """Raw observability config exposes platform for upload paths that skip imports."""
+    def test_my_isv_observability_axes_resolve_for_report_upload(self) -> None:
+        """Upload paths resolve the observability config's axis pair through imports."""
         config_path = self.CONFIGS_DIR / "providers" / "my-isv" / "config" / "observability.yaml"
 
-        raw_config = yaml.safe_load(config_path.read_text()) or {}
-        assert raw_config.get("tests", {}).get("platform") == "observability"
+        # A module suite exercises its module and targets no capability of its own.
+        assert effective_axes(config_path) == (None, "observability")
 
         result = merge_yaml_files([config_path])
-        assert result["tests"]["platform"] == "observability"
+        assert RunConfig.model_validate(result).tests.platform == "observability"
 
-    def test_aws_observability_inherits_supported_validations(self) -> None:
-        """AWS observability imports the canonical suite and wires supported steps."""
+    def test_aws_observability_is_self_contained(self) -> None:
+        """AWS observability provisions one host that serves every host-scoped check."""
         result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "observability.yaml"])
 
-        assert result["tests"]["platform"] == "observability"
+        assert result["tests"]["module"] == "observability"
+        assert RunConfig.model_validate(result).tests.platform == "observability"
         assert result["tests"]["cluster_name"] == "aws-observability-validation"
 
         steps = result["commands"]["observability"]["steps"]
@@ -473,11 +476,9 @@ class TestImportEndToEnd:
         } <= step_names
 
         steps_by_name = {step["name"]: step for step in steps}
-        assert steps_by_name["host_syslogs"]["timeout"] >= 600
         assert "{{steps.enable_vpc_flow_logs.flow_log_id}}" in steps_by_name["vpc_flow_logs"]["args"]
-        launch_host_args = steps_by_name["launch_host"]["args"]
-        key_name_arg = launch_host_args[launch_host_args.index("--key-name") + 1]
-        assert key_name_arg == "isv-observability-host-key-{{steps.create_network.network_id}}"
+        # Host-scoped checks read the run's own launched host, not another suite's.
+        assert "{{steps.launch_host.public_ip}}" in steps_by_name["host_syslogs"]["args"]
 
         validations = result["tests"]["validations"]
         assert validations["network_logs"]["checks"]["VpcFlowLogsCheck"]["step"] == "vpc_flow_logs"
@@ -496,11 +497,22 @@ class TestImportEndToEnd:
         assert validations["switch_nvlink_telemetry"]["checks"]["SwitchNvlinkTelemetryCheck"]["step"] == (
             "switch_nvlink_telemetry"
         )
+        # No platform label: the module runs in full under every capability column.
+        for category in ("host_logs", "bmc_logs", "bmc_telemetry"):
+            for check in validations[category]["checks"].values():
+                assert "bare_metal" not in check["labels"]
 
-        excluded = set(result["tests"].get("exclude", {}).get("tests", []))
-        assert "BmcSelLogsCheck" not in excluded
-        assert "BmcGpuTelemetryCheck" not in excluded
-        assert "StorageCapacityTelemetryCheck" not in excluded
+    def test_aws_bare_metal_does_not_wire_observability_host_checks(self) -> None:
+        """Host/BMC observability checks live in the observability module, not bare_metal."""
+        result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "bare_metal.yaml"])
+
+        step_names = {step["name"] for step in result["commands"]["bare_metal"]["steps"]}
+        assert not ({"host_syslogs", "bmc_sel_logs", "bmc_gpu_telemetry"} & step_names)
+
+        validations = result["tests"]["validations"]
+        assert "host_logs" not in validations
+        assert "bmc_logs" not in validations
+        assert "bmc_telemetry" not in validations
 
     def test_aws_iam_commands_override_test_stubs(self) -> None:
         """AWS commands replace the test definition's placeholder stubs."""
@@ -578,7 +590,10 @@ class TestImportEndToEnd:
         assert context.render_string(exclude_selector) == "isv.ncp.validation/pool=test"
         assert context.render_string(total_gpu_count) == "2"
         assert context.render_string(expected_total) == "2"
+        # A platform suite declares platform directly (no module key).
         assert result["tests"]["platform"] == "kubernetes"
+        assert "module" not in result["tests"]
+        assert config.tests.platform == "kubernetes"
 
     def test_aws_eks_does_not_hardcode_world_open_endpoint_allowlist(self) -> None:
         """EKS setup must not create clusters that make the security suite fail."""
@@ -594,7 +609,7 @@ class TestImportEndToEnd:
         result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "bare_metal.yaml"])
 
         checks = result["tests"]["validations"]["serial_console"]["checks"]
-        assert checks == [{"SerialConsoleCheck": {}}]
+        assert checks == [{"SerialConsoleCheck-bm_serial_console": {}}]
 
     def test_microk8s_inherits_k8s_validations(self) -> None:
         """providers/microk8s.yaml imports suites/k8s.yaml and adds overrides."""

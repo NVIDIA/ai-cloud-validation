@@ -322,7 +322,7 @@ tests:
     serial_console:
       step: serial_console
       checks:
-        - SerialConsoleCheck: {}
+        - SerialConsoleCheck-bm_serial_console: {}
 
     # GPU stress - AWS metal has 8 GPUs
     gpu_stress:
@@ -352,14 +352,14 @@ tests:
     start_gpu:
       step: start_instance
       checks:
-        GpuCheck:
+        GpuCheck-bm_start_gpu:
           expected_gpus: 8
 
     # Power-cycle GPU - AWS metal has 8 GPUs
     power_cycle_gpu:
       step: power_cycle_instance
       checks:
-        GpuCheck:
+        GpuCheck-bm_power_cycle_gpu:
           expected_gpus: 8
 
     # NVLink - AWS metal has 8 GPUs
@@ -373,16 +373,16 @@ tests:
     image_installed:
       step: verify_image
       checks:
-        StepSuccessCheck: {}
-        FieldExistsCheck:
+        StepSuccessCheck-bm_image_installed: {}
+        FieldExistsCheck-bm_image_installed:
           fields: ["instance_id", "image_id", "image_name", "instance_state"]
-        InstanceStateCheck:
+        InstanceStateCheck-bm_image_installed:
           expected_state: "running"
 
     # AWS-specific: verify install config can provision BM
     config_installable:
       step: verify_config
       checks:
-        StepSuccessCheck: {}
-        FieldExistsCheck:
+        StepSuccessCheck-bm_config_installable: {}
+        FieldExistsCheck-bm_config_installable:
           fields: ["config_id", "config_name", "dry_run_passed"]

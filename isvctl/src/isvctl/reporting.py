@@ -73,23 +73,26 @@ def get_isv_test_version() -> str | None:
 
 def create_test_run(
     lab_id: int,
-    platform: str,
+    platform: str | None,
     tags: list[str],
     start_time: str,
     executed_by: str = "isvctl",
     ci_reference: str = "local-run",
     isv_software_version: str | None = None,
+    module: str | None = None,
 ) -> str | None:
     """Create a test run in ISV Lab Service.
 
     Args:
         lab_id: ISV Lab ID
-        platform: Target platform (e.g., "kubernetes", "slurm")
+        platform: Capability the run targets (e.g., "kubernetes", "slurm").
+            None for a standalone module run, which has no platform column.
         tags: List of tags for the test run
         start_time: ISO 8601 formatted start time
         executed_by: Tool that executed the test
         ci_reference: CI/CD reference identifier
         isv_software_version: ISV software stack version (opaque string from ISV)
+        module: Module the run exercises (e.g., "iam"); None for platform suites
 
     Returns:
         Test run ID if successful, None otherwise
@@ -117,7 +120,8 @@ def create_test_run(
             endpoint=endpoint,
             lab_id=lab_id,
             jwt_token=jwt_token,
-            test_target_type=platform.upper(),
+            test_target_type=platform.upper() if platform else None,
+            test_module=module.upper() if module else None,
             tags=tags,
             executed_by=executed_by,
             ci_reference=ci_reference,

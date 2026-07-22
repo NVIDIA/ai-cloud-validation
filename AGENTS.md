@@ -25,7 +25,21 @@ make format            # ruff format
 make plan              # render docs/test-plan.yaml to AsciiDoc + interactive HTML
 uv run isvctl test run -f isvctl/configs/suites/k8s.yaml          # canonical invocation
 uv run isvctl test run -f config.yaml -- -v -s -k "test_name"     # forward pytest args
+uv run isvctl test run --provider aws --platform vm               # run a whole platform column (vm config + all module configs)
+uv run isvctl test run --provider aws --module iam                # run a single module suite
+uv run isvctl test run --provider aws --label storage             # cross-file label discovery
 ```
+
+Selection: `--platform <env>` runs the environment's config plus every module
+config with at least one column-eligible check (a module whose checks all
+exclude the column is omitted from the plan, surfaced in `--dry-run`; eligible
+checks whose `platforms:` declaration excludes the column are skipped);
+`--module <mod>` runs one module suite (no platform filtering); combining
+`--platform X --module m` intersects: only the requested modules run, each
+under column X (the platform config does not run, upload reports `(X, m)`);
+`--label` filters within a run or drives
+cross-file discovery with `--provider`. `-f` is the override escape hatch. All
+are mutually exclusive with `-f`; `--platform`/`--module` require `--provider`.
 
 ## Step-Based Execution Model
 
@@ -104,6 +118,57 @@ they import (top-level `exclude.labels:` filtering blocks are fine). Sole
 exception: the single-node local providers
 `isvctl/configs/providers/{k3s,microk8s,minikube}.yaml`, which wire host-level
 checks that exist in no suite.
+
+Suites are classified by a single axis key in `tests:` - `platform: <name>`
+marks a service-line platform (`vm`, `bare_metal`, `kubernetes`, `slurm`;
+`platform` is the long-standing runtime key), while `module: <name>`
+marks an operational concern (`iam`, `network`, `security`, `observability`,
+`control_plane`, `image_registry`, ...) whose value is also the runtime platform
+(derived - the `commands[...]` group only). A config that declares `module:` is
+a module; otherwise its `platform:` marks a platform suite. Provider configs
+inherit the key via `import:`.
+The platform/module label axes are *derived* from these keys.
+Result upload reports a `(capability, module)` pair, never the module name as a
+capability: platform runs report `(platform, -)`, module runs inside a
+`--platform` column report `(column, module)`, and standalone module runs
+report `(-, module)` (no capability).
+`scripts/validate_suite_wiring.py` governs labels: every suite declares exactly
+one axis key, every suite check carries that declared axis label, and platform
+names are banned from module-suite check `labels:`. Every module-suite check
+must positively declare `platforms: [...]` (a subset of the platform axis;
+subsets like `[vm, bare_metal]` are supported) - the declaration is REQUIRED
+in this repo, and the validator rejects a missing or empty one. At runtime a
+missing declaration is still treated as compatible with every real environment
+(older/external configs keep working); strictness is repo-enforced by the
+validator only. `platforms:` is rejected on platform-suite
+checks (their column is fixed by file placement). The `foundational` capability
+(`suites/foundational.yaml`, a platform suite wiring no validations) exists
+only to extend the axis: a validation-less platform suite's column has no
+platform run (providers ship no config for it) and plans only modules whose
+checks positively declare it - iam, control-plane, image-registry, network,
+observability, security, and (partially) storage declare
+`platforms: ["foundational"]` and run once there, not under runtime columns.
+A module check declaring a REAL column is a **platform-session check**: under
+`--platform <col>` the module runs INSIDE the platform run's bracket (after
+its pre-teardown phases, before its teardown, which always comes last), via a
+provider `commands[<module>@<col>]` lifecycle whose steps and validation
+params can consume the platform run's step outputs at `{{ session.* }}` (a
+module without that commands block is omitted from the column, surfaced in
+`--dry-run`). The storage suite's k8s_storage / k8s_filesystem checks are the
+reference: `platforms: ["kubernetes"]`, reading `{{ session.setup.csi.* }}`.
+In a run with NO column (bare `--module` / `-f`), session-only checks (a
+declaration naming only real columns) are skipped with a pointer to
+`--platform`; foundational-declared and undeclared checks run unfiltered.
+Labels are otherwise free-form (they
+originate in the wiring YAML, so there is no external allowlist). Wiring names are globally unique
+across suites: a generic class wired in several places uses a distinct variant
+name per wiring (`StepSuccessCheck-iam_teardown`, `GpuCheck-bm_gpu`), so
+catalog entries, JUnit case names, and matrix cells stay 1:1 with wirings.
+Variants resolve to their base class at runtime and inherit its
+release-manifest status. A check that needs a
+platform's live host lives inline in that platform suite ("piggyback"); a
+concern that provisions its own subject or hits an API stays in its own `module:`
+suite. See `isvctl/configs/suites/README.md`.
 
 Workloads (`isvtest/src/isvtest/workloads/`) are long-running tests (NIM, NCCL,
 stress) labelled `("workload", "slow", ...)` with manifests and helper scripts

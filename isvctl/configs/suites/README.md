@@ -20,9 +20,208 @@ Suites:
 [`slurm`](slurm.yaml),
 [`control-plane`](control-plane.yaml),
 [`image-registry`](image-registry.yaml),
-[`security`](security.yaml).
+[`security`](security.yaml),
+[`foundational`](foundational.yaml) (axis placeholder, no validations).
 For the domain / script-count / AWS-reference overview see the
 [my-isv scaffold README](../providers/my-isv/scripts/README.md#domains).
+
+## Platforms, modules, and labels
+
+Test selection is a **matrix**: platforms (service lines / environments) are
+the columns, operational concerns (modules) are the rows. A run targets exactly
+one environment - the orchestrator runs a single `commands[platform]` block and
+validations read its step outputs via `{{ steps.<name>.<field> }}` - so the
+platform is the natural run unit and modules are label-selected slices.
+
+### The `platform:` / `module:` axis key
+
+Every suite declares exactly one axis key in its `tests:` block:
+
+- **`platform: <name>`** - a **service-line platform**: `vm`, `bare_metal`,
+  `kubernetes`, `slurm`. Owns a run's setup/test/teardown lifecycle. (`platform`
+  is the long-standing runtime term - the `commands[...]` group to run.)
+  `foundational` is the exception: its suite wires **no validations** and
+  exists only to put the capability on the axis. A validation-less platform
+  suite's column has **no platform run** - providers ship no config for it,
+  and `--platform foundational` plans a modules-only column containing exactly
+  the modules whose checks declare `platforms: ["foundational"]` (iam,
+  control-plane, image-registry, network, observability, security, storage:
+  pure provider-API or self-contained tests that fit no runtime environment).
+- **`module: <name>`** - an operational concern: `iam`, `network`, `security`,
+  `observability`, `control_plane`, `image_registry`. Its value is also the
+  runtime platform (derived), so a module suite needs no separate `platform:`.
+
+Result upload reports both axes as a `(capability, module)` pair - the module
+name is never reported as a capability. A platform run uploads
+`(platform, -)`; a module run inside a `--platform` column uploads
+`(column, module)`; a standalone `--module`/`-f` module run uploads
+`(-, module)` (it targets no capability of its own).
+
+Provider configs inherit the axis key through `import:` (an `aws/config/eks.yaml`
+that imports `k8s.yaml` is a platform config automatically - classification is
+by the key, never by filename or directory): a config that declares `module:` is
+a module, otherwise its `platform:` marks a platform suite. The platform and module
+**label axes are derived** from these keys, so adding a suite extends the axes
+without editing a central list.
+
+### Where a check lives (the placement rule)
+
+- Needs a platform's **live host/infra** to run against -> **inline in that
+  platform suite** ("piggyback"), tagged with the concern label too. Examples:
+  the `security`-labeled `virtual_device_hardening`/`ConsoleRbacCheck` in
+  `vm.yaml`; the `storage`-labeled `K8sCsi*` checks in `k8s.yaml` reading
+  `{{ steps.setup.csi.* }}`; BM sanitization/attestation in `bare_metal.yaml`.
+- **Provisions its own test subject** or hits an **API** -> **its own
+  `module:` suite**, running once per lab, platform-agnostic. Examples:
+  `network.yaml` (creates its own VPC), `iam.yaml`, `control-plane.yaml`,
+  `image-registry.yaml` (boots a VM *from the uploaded image* - the VM is the
+  subject, not a borrowed host).
+
+The distinguishing test: infra as **host** for the check -> platform suite;
+infra as the **test subject** -> module suite. A single concern (label) commonly
+has checks in both places; the shared **label** is the matrix row, placement per
+check follows infra need.
+
+### A concern that spans platforms: platform-session checks
+
+A cross-platform concern (e.g. `storage` covering K8s CSI *and*, later, BM
+block devices) that needs the platform's live infrastructure stays in **its
+own module suite** and declares the real column(s) it runs under:
+
+```yaml
+# suites/storage.yaml (module: storage)
+K8sCsiPvcExpandCheck:
+  labels: ["min_req", "storage"]
+  platforms: ["kubernetes"]                # session check: real column
+  storage_class: "{{ session.setup.csi.block_storage_class | default('', true) }}"
+```
+
+Declaring a real column makes it a **session check**: under
+`--platform kubernetes` the storage module runs INSIDE the platform run's
+bracket - after the platform's own phases, before its teardown (which always
+runs last) - via the provider's `commands[storage@kubernetes]` lifecycle. The
+platform run's step outputs are mounted read-only at `{{ session.* }}` for
+both step args and validation params (`session.*` = the enclosing platform
+run; `steps.*` stays the run's own lifecycle). A module config without the
+`commands[<module>@<column>]` block is omitted from that column's plan
+(dry-run reports the missing key), as is a module with **no** check eligible
+for the column - a run never pays a module's setup/teardown to execute zero
+checks.
+
+`storage` is therefore one module row with two kinds of checks: the
+self-contained block-volume + high-speed-storage suite
+(`platforms: ["foundational"]`, provisions its own subject, runs once per
+lab) and the kubernetes session checks above. In a run with no column (bare
+`--module storage` / `-f`), session-only checks are skipped with a pointer to
+`--platform kubernetes`.
+
+### Label governance
+
+`scripts/validate_suite_wiring.py` (run via `make validate-suites`) enforces:
+
+- every suite declares exactly one of `platform:` / `module:`;
+- every suite check carries the suite's declared `platform:` or `module:` label;
+- **platform names are banned from module-suite `labels:`** - the positive
+  `platforms: [...]` declaration is the only capability-compatibility
+  mechanism. The declaration is **required** on every module-suite check in
+  this repo: there is no implicit default, and the validator rejects a
+  missing or empty `platforms:`. A check runs only under the columns it
+  declares (subsets like `platforms: ["vm", "bare_metal"]` are supported).
+  Fill convention: a check compatible with every runtime environment declares
+  `platforms: ["bare_metal", "kubernetes", "slurm", "vm"]` (alphabetical);
+  the synthetic `foundational` column is never implied and must be declared
+  positively. At runtime a missing/empty declaration is still treated as
+  compatible with every real environment, so older/external configs keep
+  working - strictness is repo-enforced by the validator only. Every value
+  must be a member of the platform axis, `platforms:` is rejected on
+  platform-suite checks (their column is fixed by file placement), and
+  standalone `--module` runs apply no platform filtering;
+- every **wiring name is globally unique** across suites. A generic check
+  class wired in several places uses a distinct variant name per wiring
+  (`StepSuccessCheck-iam_teardown`, `GpuCheck-bm_gpu`), typically
+  `Class-<suite>_<category>`. The catalog, JUnit results, and the
+  capability x module matrix are all keyed by name, so a reused bare name
+  would union unrelated labels/test_ids onto one entry. Variant names resolve
+  to their base class at runtime and inherit its release-manifest status.
+
+Labels are otherwise free-form: they originate in the wiring YAML itself, so
+there is no external allowlist to validate them against.
+
+Provider configs are governed for labels too (they inherit the axis key/`test_id`).
+
+### Composition pattern (future env-dependent modules)
+
+A future module that needs a platform's infra may land as a **validation-only
+fragment** (`tests.validations` only, *no* `commands:` and *no* `tests.platform`)
+that a platform suite `import:`s. Because YAML merge combines the `validations`
+dict but the platform owns the single `commands.<platform>.steps` list, the
+fragment's checks join the platform's orchestration and read its step outputs -
+browsable in its own file, executed in one run. Existing inline piggyback checks
+are not retro-carved.
+
+### How selection works (CLI)
+
+```bash
+# Run a whole real column as a platform session: the platform config's setup
+# and tests, then every compatible module's session run inside the bracket
+# (each its own orchestration + JUnit, with {{ session.* }} outputs), then the
+# platform teardown LAST. A module is part of the column only when it has a
+# column-eligible check AND a commands[<module>@<column>] lifecycle; the rest
+# are omitted (surfaced in --dry-run). A combined summary prints and the
+# process exits 1 if any config failed; if the platform setup fails, session
+# runs are reported skipped and teardown still runs.
+isvctl test run --provider aws --platform kubernetes
+
+# Run the foundational column: no platform run (and no session), just the
+# modules declaring it, each standalone
+# (iam, control-plane, image-registry, network, observability, security, storage).
+isvctl test run --provider aws --platform foundational
+
+# Intersect under a real column: the platform bracket plus ONLY the requested
+# module's session run.
+isvctl test run --provider aws --platform kubernetes --module storage
+
+# Min Req preset is just a label filter on the column.
+isvctl test run --provider aws --platform vm --label min_req
+
+# Run one module suite (path-free). Repeatable: --module iam --module network.
+isvctl test run --provider aws --module iam
+
+# Intersect: run only the storage module, under the kubernetes column (the
+# platform config does not run; upload reports the (kubernetes, storage) pair).
+isvctl test run --provider aws --platform kubernetes --module storage
+
+# Cross-file label discovery (PR 485): every config with an iam-labeled check.
+isvctl test run --provider aws --label iam
+
+# Narrow a platform column to a subset by label (labels are free-form selection
+# tags, orthogonal to the module axis - e.g. the storage-labeled K8s CSI checks).
+isvctl test run --provider aws --platform kubernetes --label storage
+
+# -f is the override escape hatch (unchanged).
+isvctl test run -f isvctl/configs/providers/aws/config/vm.yaml -f overrides.yaml
+```
+
+The intended ISV journey: **`--platform <env>` first** (run everything for the
+environment you are on), then **`--module`/`--label` to rerun a slice** after a
+failure, with **`-f`** as the power-user override. There is no `--all` flag:
+platform runs are environment-bound, so "run everything" is one `--platform`
+command per environment.
+
+`--platform`/`--module` resolve by the effective `platform:`/`module:` key (never by filename):
+`isvctl` classifies each `providers/<p>/config/*.yaml` by the suite it imports.
+An `aws/config/eks.yaml` importing `k8s.yaml` is the `kubernetes` platform.
+`--platform k8s` is accepted as an alias for `kubernetes`.
+
+### Run-all vs run-a-slice: worked examples
+
+- **Host is VM, run everything:** `--provider aws --platform vm` runs
+  only `vm.yaml`; every current module is self-contained and runs once under
+  `--platform foundational`.
+- **Storage spans both placement models:** the self-contained
+  `suites/storage.yaml` module provisions its own VM and storage subjects and
+  runs under foundational. The `storage`-labeled K8s CSI checks stay inline in
+  `k8s.yaml` because they inspect the selected Kubernetes environment.
 
 ## Test Suite Details
 

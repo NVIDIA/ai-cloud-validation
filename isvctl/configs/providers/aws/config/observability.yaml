@@ -16,8 +16,11 @@
 # AWS Observability Validation Configuration
 #
 # Imports validations from the provider-agnostic observability canonical config.
-# AWS wires VPC Flow Logs and guest host syslog checks. Customer-visible BMC SEL
-# and Redfish GPU telemetry are not exposed by AWS EC2/EKS, so the BMC steps emit
+# AWS wires every observability check here: VPC Flow Logs, network/fabric/
+# storage telemetry, and the host syslog + BMC SEL/telemetry checks. The run
+# provisions a single g4dn.metal host (launch_host) that serves all host-scoped
+# checks, so the module is self-contained. Customer-visible BMC SEL and Redfish
+# GPU telemetry are not exposed by AWS EC2/EKS, so the BMC steps emit
 # provider-hidden evidence following the AWS security BMC pattern.
 #
 # Required IAM permissions:
@@ -185,6 +188,9 @@ commands:
           - "vpc_flow_logs"
         timeout: 120
 
+      # Host syslog + BMC SEL/telemetry checks run against launch_host - the
+      # single g4dn.metal instance this run provisions for every host-scoped
+      # observability check.
       - name: host_syslogs
         phase: test
         continue_on_failure: true
@@ -382,9 +388,8 @@ commands:
         timeout: 900
 
 tests:
-  platform: observability
   cluster_name: "aws-observability-validation"
-  description: "AWS observability validation for VPC Flow Logs and host syslogs"
+  description: "AWS observability validation for VPC Flow Logs and telemetry"
 
   settings:
     region: "us-west-2"

@@ -18,24 +18,29 @@ _spec.loader.exec_module(validate_suite_wiring)
 
 def test_wiring_errors_flags_missing_metadata(tmp_path: Path) -> None:
     """Missing test_id or labels on a wired check is reported with context."""
+    _write_platform_axis_suites(tmp_path)
     suite = tmp_path / "demo.yaml"
     suite.write_text(
         """\
 tests:
+  module: security
   validations:
     example:
       checks:
         GoodCheck:
           test_id: "SEC01-01"
           labels: ["security"]
+          platforms: ["vm"]
         BadCheck:
           labels: ["security"]
+          platforms: ["vm"]
         AlsoBad:
           test_id: "N/A"
+          platforms: ["vm"]
 """
     )
     errors = validate_suite_wiring.wiring_errors(tmp_path)
-    assert any("demo.yaml:8" in err and "BadCheck" in err and "missing test_id" in err for err in errors)
+    assert any("demo.yaml:10" in err and "BadCheck" in err and "missing test_id" in err for err in errors)
     assert any("demo.yaml:" in err and "AlsoBad" in err and "missing labels" in err for err in errors)
     assert not any("GoodCheck" in err for err in errors)
 
@@ -46,6 +51,7 @@ def test_wiring_errors_rejects_scalar_labels(tmp_path: Path) -> None:
     suite.write_text(
         """\
 tests:
+  platform: kubernetes
   validations:
     example:
       checks:
@@ -58,26 +64,276 @@ tests:
     assert any("BadCheck" in err and "missing labels" in err for err in errors)
 
 
-def test_wiring_errors_require_canonical_suite_label(tmp_path: Path) -> None:
-    """Checks in known suite files must include that suite's label."""
-    suite = tmp_path / "k8s.yaml"
+def test_wiring_errors_require_declared_suite_label(tmp_path: Path) -> None:
+    """Checks must include the suite label derived from tests.platform/module."""
+    _write_platform_axis_suites(tmp_path)
+    suite = tmp_path / "custom-name.yaml"
     suite.write_text(
+        """\
+tests:
+  module: custom_module
+  validations:
+    example:
+      checks:
+        MissingSuiteLabel:
+          test_id: "MOD01-01"
+          labels: ["gpu"]
+          platforms: ["vm"]
+        GoodCheck:
+          test_id: "MOD01-02"
+          labels: ["gpu", "custom_module"]
+          platforms: ["vm"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("MissingSuiteLabel" in err and "missing suite label 'custom_module'" in err for err in errors)
+    assert not any("GoodCheck" in err for err in errors)
+
+
+def test_wiring_errors_flags_missing_or_conflicting_axis_key(tmp_path: Path) -> None:
+    """A suite must declare exactly one of tests.platform / tests.module."""
+    (tmp_path / "no_axis.yaml").write_text(
+        """\
+tests:
+  cluster_name: no-axis
+  validations:
+    example:
+      checks:
+        GoodCheck:
+          test_id: "VM01-01"
+          labels: ["vm"]
+"""
+    )
+    (tmp_path / "both_axes.yaml").write_text(
+        """\
+tests:
+  platform: vm
+  module: iam
+  validations:
+    example:
+      checks:
+        GoodCheck:
+          test_id: "VM01-02"
+          labels: ["vm"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("no_axis.yaml" in err and "missing axis key" in err for err in errors)
+    assert any("both_axes.yaml" in err and "both tests.platform and tests.module" in err for err in errors)
+
+
+def _write_platform_axis_suites(suites_dir: Path) -> None:
+    """Write vm + bare_metal platform suites so the derived platform axis is non-empty."""
+    suites_dir.mkdir(parents=True, exist_ok=True)
+    for platform in ("vm", "bare_metal"):
+        (suites_dir / f"{platform}.yaml").write_text(
+            f"""\
+tests:
+  platform: {platform}
+  validations:
+    example:
+      checks:
+        {platform.title().replace("_", "")}Check:
+          test_id: "N/A"
+          labels: ["{platform}"]
+"""
+        )
+
+
+def test_wiring_errors_flags_platform_labels_on_module_suite_checks(tmp_path: Path) -> None:
+    """Platform-axis names are banned from module-suite labels; platforms: is the mechanism."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "security.yaml").write_text(
+        """\
+tests:
+  module: security
+  validations:
+    example:
+      checks:
+        LabelledCheck:
+          test_id: "SEC01-01"
+          labels: ["bare_metal", "security"]
+          platforms: ["bare_metal"]
+        DeclaredCheck:
+          test_id: "SEC01-02"
+          labels: ["security"]
+          platforms: ["bare_metal"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any(
+        "LabelledCheck" in err and "platform label(s) (bare_metal)" in err and "'platforms: [...]'" in err
+        for err in errors
+    )
+    assert not any("DeclaredCheck" in err for err in errors)
+
+
+def test_wiring_errors_accepts_platforms_subset_on_module_suite_checks(tmp_path: Path) -> None:
+    """A multi-value platforms subset is legal on module-suite checks."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "security.yaml").write_text(
+        """\
+tests:
+  module: security
+  validations:
+    example:
+      checks:
+        SubsetCheck:
+          test_id: "SEC01-01"
+          labels: ["security"]
+          platforms: ["vm", "bare_metal"]
+"""
+    )
+    assert validate_suite_wiring.wiring_errors(tmp_path) == []
+
+
+def test_wiring_errors_require_platforms_on_module_suite_checks(tmp_path: Path) -> None:
+    """Strict mode: a module-suite check with missing or empty platforms: is an error."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "security.yaml").write_text(
+        """\
+tests:
+  module: security
+  validations:
+    example:
+      checks:
+        OmittedCheck:
+          test_id: "SEC01-01"
+          labels: ["security"]
+        EmptyCheck:
+          test_id: "SEC01-02"
+          labels: ["security"]
+          platforms: []
+        DeclaredCheck:
+          test_id: "SEC01-03"
+          labels: ["security"]
+          platforms: ["vm"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any(
+        "OmittedCheck" in err and "missing or empty 'platforms'" in err and "explicitly" in err for err in errors
+    )
+    assert any("EmptyCheck" in err and "missing or empty 'platforms'" in err for err in errors)
+    assert not any("DeclaredCheck" in err for err in errors)
+
+
+def test_wiring_errors_do_not_require_platforms_on_platform_suites_or_provider_configs(tmp_path: Path) -> None:
+    """Strictness applies to module suites only: platform suites (where platforms:
+    is banned outright) and provider configs (runtime stays lenient) are exempt."""
+    suites_dir = tmp_path / "suites"
+    _write_platform_axis_suites(suites_dir)
+    provider_config = tmp_path / "providers" / "acme" / "config" / "vm.yaml"
+    provider_config.parent.mkdir(parents=True)
+    provider_config.write_text(
         """\
 tests:
   validations:
     example:
       checks:
-        MissingSuiteLabel:
-          test_id: "K8S01-01"
-          labels: ["gpu"]
-        GoodCheck:
-          test_id: "K8S01-02"
-          labels: ["gpu", "kubernetes"]
+        ProviderCheck:
+          test_id: "VM01-02"
+"""
+    )
+    assert validate_suite_wiring.wiring_errors(suites_dir, tmp_path / "providers") == []
+
+
+def test_wiring_errors_accepts_validation_less_platform_suite(tmp_path: Path) -> None:
+    """A platform suite wiring no validations (foundational) is legal: it only
+    extends the platform axis, and its axis value is a legal platforms: target."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "foundational.yaml").write_text(
+        """\
+tests:
+  platform: foundational
+  validations: {}
+"""
+    )
+    (tmp_path / "iam.yaml").write_text(
+        """\
+tests:
+  module: iam
+  validations:
+    example:
+      checks:
+        IamApiCheck:
+          test_id: "IAM01-01"
+          labels: ["iam"]
+          platforms: ["foundational"]
+"""
+    )
+    assert validate_suite_wiring.wiring_errors(tmp_path) == []
+
+
+def test_wiring_errors_flags_unknown_platforms_value(tmp_path: Path) -> None:
+    """Every platforms: value must be a member of the derived platform axis."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "security.yaml").write_text(
+        """\
+tests:
+  module: security
+  validations:
+    example:
+      checks:
+        TypoCheck:
+          test_id: "SEC01-01"
+          labels: ["security"]
+          platforms: ["bare-metal"]
 """
     )
     errors = validate_suite_wiring.wiring_errors(tmp_path)
-    assert any("MissingSuiteLabel" in err and "missing suite label 'kubernetes'" in err for err in errors)
-    assert not any("GoodCheck" in err for err in errors)
+    assert any("TypoCheck" in err and "unknown platform(s) in 'platforms': bare-metal" in err for err in errors)
+
+
+def test_wiring_errors_flags_platforms_on_platform_suite_checks(tmp_path: Path) -> None:
+    """platforms: is rejected in platform suites - the column is fixed by placement."""
+    _write_platform_axis_suites(tmp_path)
+    (tmp_path / "k8s.yaml").write_text(
+        """\
+tests:
+  platform: kubernetes
+  validations:
+    example:
+      checks:
+        PinnedCheck:
+          test_id: "K8S01-01"
+          labels: ["kubernetes"]
+          platforms: ["kubernetes"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("PinnedCheck" in err and "'platforms' is not allowed on platform-suite checks" in err for err in errors)
+
+
+def test_wiring_errors_flags_unknown_platforms_value_in_provider_config(tmp_path: Path) -> None:
+    """Provider config platforms: values are validated against the derived axis."""
+    suites_dir = tmp_path / "suites"
+    _write_platform_axis_suites(suites_dir)
+    provider_config = tmp_path / "providers" / "acme" / "config" / "vm.yaml"
+    provider_config.parent.mkdir(parents=True)
+    provider_config.write_text(
+        """\
+tests:
+  validations:
+    example:
+      checks:
+        ProviderCheck:
+          test_id: "VM01-02"
+          platforms: ["not_a_platform"]
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(suites_dir, tmp_path / "providers")
+    assert any("ProviderCheck" in err and "unknown platform(s) in 'platforms': not_a_platform" in err for err in errors)
+
+
+def test_derive_axis_labels_match_catalog_taxonomy() -> None:
+    """Guardrail: wiring validator and catalog share the same axis scanner."""
+    from isvtest.catalog import build_axis_taxonomy
+
+    platform_labels, module_labels = validate_suite_wiring.derive_axis_labels()
+    tax_platforms, tax_modules = build_axis_taxonomy()
+    assert platform_labels == frozenset(tax_platforms)
+    assert module_labels == frozenset(tax_modules)
 
 
 def test_wiring_errors_reports_yaml_parse_failures(tmp_path: Path) -> None:
@@ -111,21 +367,51 @@ def test_repo_suites_declare_test_id_and_labels() -> None:
     assert not errors, "suite wiring validation failed:\n  " + "\n  ".join(errors)
 
 
-def test_platform_registration_errors_flags_unregistered_suite(tmp_path: Path) -> None:
-    """A suite file not present in PLATFORM_CONFIGS is reported.
+def test_wiring_errors_flags_duplicate_names_within_provider_config(tmp_path: Path) -> None:
+    """Provider wiring names must be unique within each provider config file."""
+    suites_dir = tmp_path / "suites"
+    suites_dir.mkdir()
+    provider_config = tmp_path / "providers" / "acme" / "config" / "network.yaml"
+    provider_config.parent.mkdir(parents=True)
+    provider_config.write_text(
+        """\
+tests:
+  validations:
+    network_connectivity:
+      checks:
+        FieldValueCheck:
+          test_id: "N/A"
+          field: "tests.network_assigned.passed"
+          expected: true
+    traffic_validation:
+      checks:
+        FieldValueCheck:
+          test_id: "N/A"
+          field: "tests.network_setup.passed"
+          expected: true
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(suites_dir, tmp_path / "providers")
+    assert any("network.yaml" in err and "FieldValueCheck" in err and "appears more than once" in err for err in errors)
+    assert any("must use a variant name" in err for err in errors)
 
-    Enforced against the real repo only by the validate-suites pre-commit
-    hook, not by a repo-level pytest guard, so untracked scratch suites
-    don't break `make test`.
-    """
-    (tmp_path / "newcap.yaml").write_text("tests:\n  validations: {}\n")
-    errors = validate_suite_wiring.platform_registration_errors(tmp_path)
-    assert errors == [
-        "suites/newcap.yaml: not registered in isvtest.catalog_platforms.PLATFORM_CONFIGS (catalog platform axis)"
-    ]
 
-
-def test_registered_platforms_round_trip_through_isvreporter() -> None:
-    """Guardrail: every catalog platform is recognized by isvreporter."""
-    errors = validate_suite_wiring.registry_consistency_errors()
-    assert not errors, "registry consistency failed:\n  " + "\n  ".join(errors)
+def test_wiring_errors_flags_bare_variant_required_class(tmp_path: Path) -> None:
+    """Reusable generic checks must be wired with a variant suffix."""
+    suite = tmp_path / "demo.yaml"
+    suite.write_text(
+        """\
+tests:
+  module: control_plane
+  validations:
+    api_health:
+      checks:
+        FieldValueCheck:
+          test_id: "N/A"
+          labels: ["control_plane"]
+          field: "success"
+          expected: true
+"""
+    )
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+    assert any("FieldValueCheck" in err and "must use a variant name" in err for err in errors)

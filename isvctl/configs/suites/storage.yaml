@@ -53,7 +53,7 @@
 version: "1.0"
 
 tests:
-  platform: storage
+  module: storage
   cluster_name: "storage-validation"
   description: "Storage: block volumes and high-speed / parallel filesystem services"
 
@@ -66,6 +66,12 @@ tests:
 
   # ─── Validations ─────────────────────────────────────────────────
   # These are PROVIDER-AGNOSTIC. They only check JSON field names/values.
+  # Two kinds of checks live here:
+  #   - foundational: the suite provisions its own VM, volumes, and
+  #     filesystems, so these run once in the foundational column.
+  #   - kubernetes session: CSI / shared-filesystem checks that need a live
+  #     cluster; they run inside the kubernetes platform session (see the
+  #     k8s_storage / k8s_filesystem groups below).
   validations:
     # ─── Fixture: instance + attached, formatted, seeded volume ──────
     instance_launched:
@@ -74,69 +80,82 @@ tests:
         InstanceStateCheck:
           test_id: "N/A"
           labels: ["storage"]
+          platforms: ["foundational"]
           expected_state: "running"
 
     fixture_volume:
       step: create_volume
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_fixture_volume:
           test_id: "N/A"
           labels: ["storage"]
-        FieldExistsCheck:
+          platforms: ["foundational"]
+        FieldExistsCheck-storage_fixture_volume:
           test_id: "N/A"
           labels: ["storage"]
+          platforms: ["foundational"]
           fields: ["volume_id", "mount_point", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-storage_fixture_volume:
           test_id: "N/A"
           labels: ["storage"]
+          platforms: ["foundational"]
           operations: ["create", "attach", "format", "mount", "write_sentinel"]
 
     # ─── DATASVC-XX-02: volume snapshots (issue #321) ────────────────
     snapshot_lifecycle:
       step: snapshot_lifecycle
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_snapshot_lifecycle:
           test_id: "N/A"
           labels: ["storage"]
-        FieldExistsCheck:
+          platforms: ["foundational"]
+        FieldExistsCheck-storage_snapshot_lifecycle:
           test_id: "N/A"
           labels: ["storage"]
+          platforms: ["foundational"]
           fields: ["volume_id", "snapshot_id", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-storage_snapshot_lifecycle:
           test_id: "DATASVC02-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           operations: ["create_snapshot", "restore_volume", "verify_data"]
 
     # ─── DATASVC-XX-03: volume resizing (issue #322) ─────────────────
     volume_resize:
       step: volume_resize
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_volume_resize:
           test_id: "N/A"
           labels: ["storage"]
-        FieldExistsCheck:
+          platforms: ["foundational"]
+        FieldExistsCheck-storage_volume_resize:
           test_id: "N/A"
           labels: ["storage"]
+          platforms: ["foundational"]
           fields: ["volume_id", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-storage_volume_resize:
           test_id: "DATASVC03-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           operations: ["modify_volume", "grow_partition", "resize_filesystem", "verify_size"]
 
     # ─── DATASVC-XX-04: persistence across restarts (issue #323) ─────
     volume_persistence:
       step: volume_persistence
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_volume_persistence:
           test_id: "N/A"
           labels: ["storage"]
-        FieldExistsCheck:
+          platforms: ["foundational"]
+        FieldExistsCheck-storage_volume_persistence:
           test_id: "N/A"
           labels: ["storage"]
+          platforms: ["foundational"]
           fields: ["volume_id", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-storage_volume_persistence:
           test_id: "DATASVC04-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           operations: ["stop", "start", "verify_attached", "verify_data"]
 
     # ─── Home directory storage ──────────────────────────────────────
@@ -146,12 +165,15 @@ tests:
         DirectoryFilesystemQuotaCheck:
           test_id: "DIR01-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
         DirectoryUsageAccountingCheck:
           test_id: "DIR01-02"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
         DirectoryNfsAvailabilityCheck:
           test_id: "DIR02-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
 
     # ─── High-speed storage: SDS controller ──────────────────────────
     sds_controller:
@@ -159,18 +181,22 @@ tests:
         HssStorageProvisioningCheck:
           test_id: "HSS01-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: provision_storage
         HssQosThroughputCheck:
           test_id: "HSS02-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: qos_throughput
         HssNonDisruptiveUpgradeCheck:
           test_id: "HSS05-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: non_disruptive_upgrade
         HssRdmaMemoryProtectionCheck:
           test_id: "HSS06-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: rdma_memory_protection
 
     # ─── High-speed storage: parallel file system services ───────────
@@ -179,43 +205,275 @@ tests:
         HssParallelFsProvisioningCheck:
           test_id: "HSS07-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: provision_parallel_fs
         HssMultipleFilesystemsCheck:
           test_id: "HSS09-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: multiple_filesystems
         HssLiveExpansionCheck:
           test_id: "HSS10-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: live_expansion
         HssQuotaEnforcementCheck:
           test_id: "HSS12-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: quota_enforcement
         HssRootSquashCheck:
           test_id: "HSS13-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: root_squash
         HssFlockMountCheck:
           test_id: "HSS14-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: flock_mount
         HssChangelogAuditCheck:
           test_id: "HSS15-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: changelog_audit
         HssMultipathCheck:
           test_id: "HSS18-01"
           labels: ["min_req", "storage"]
+          platforms: ["foundational"]
           step: multipath
 
     # ─── Teardown ────────────────────────────────────────────────────
     teardown_checks:
       step: teardown_volume
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-storage_teardown:
           test_id: "N/A"
           labels: ["storage"]
+          platforms: ["foundational"]
+
+    # ─── Kubernetes session checks (CSI / shared filesystem) ─────────
+    # These run INSIDE the kubernetes platform session: `--platform
+    # kubernetes` executes them via this suite's commands[storage@kubernetes]
+    # lifecycle, after the platform's own phases and before its teardown.
+    # They consume the platform run's setup outputs at {{ session.* }} (the
+    # EKS reference emits csi.* storage classes) and target the live cluster;
+    # each check provisions and cleans its own namespaces.
+    k8s_storage:
+      checks:
+        K8sCsiStorageTypesCheck:
+          test_id: "K8S23-04"
+          labels: ["min_req", "storage"]
+          platforms: ["kubernetes"]
+          # StorageClass names by type; omit (or leave empty) to skip that type.
+          # Env overrides: K8S_CSI_BLOCK_SC, K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
+          block_storage_class: "{{ session.setup.csi.block_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          namespace_prefix: "isvtest-csi-types"
+        K8sCsiStorageQuotaApiCheck:
+          test_id: "K8S23-07"
+          labels: ["min_req", "storage"]
+          platforms: ["kubernetes"]
+          # Uses the block StorageClass by default; skips entirely when unset.
+          # per_sc_quota must exceed pvc_request so the usage PVC fits, and
+          # over_quota_request must exceed per_sc_quota so admission rejects it.
+          storage_class: "{{ session.setup.csi.block_storage_class | default('', true) }}"
+          total_quota: "10Gi"
+          per_sc_quota: "5Gi"
+          pvc_request: "1Gi"
+          over_quota_request: "100Gi"
+          bind_timeout_s: 120
+          quota_settle_s: 30
+          namespace_prefix: "isvtest-csi-quota"
+        K8sCsiTenantScopedCredentialsCheck:
+          test_id: "K8S23-06"
+          labels: ["min_req", "storage"]
+          platforms: ["kubernetes"]
+          # Pure read-only check: verifies CSI credentials are tenant-scoped
+          # by construction (Secret namespaces, labels/annotations, RBAC,
+          # and node-plugin volume topology). Skipped entirely when no
+          # CSIDriver objects exist.
+          csi_driver_namespaces:
+            - "kube-system"
+          allowed_workload_namespaces: []
+          forbidden_labels:
+            - "shared-across-clusters=true"
+        K8sCsiProvisioningModesCheck:
+          test_id: "K8S23-05"
+          labels: ["min_req", "storage"]
+          platforms: ["kubernetes"]
+          # Exercises dynamic and static CSI provisioning end-to-end with a
+          # BusyBox mount + canary-file write/read. Skipped entirely when
+          # dynamic_storage_class is unset. The static subtest is skipped
+          # (not failed) when static_pv.volume_handle / csi_driver are
+          # unset, so providers that don't pre-provision a volume can still
+          # run the dynamic probe.
+          dynamic_storage_class: "{{ session.setup.csi.block_storage_class | default('', true) }}"
+          dynamic_pvc_size: "1Gi"
+          static_pv:
+            volume_handle: "{{ session.setup.csi.static_volume_handle | default('', true) }}"
+            csi_driver: "{{ session.setup.csi.static_driver_name | default('', true) }}"
+            # Zonal block volumes (EBS/PD/Disk) must pin their consumer pod to
+            # the volume's AZ; empty for zone-agnostic backends.
+            zone: "{{ session.setup.csi.static_volume_az | default('', true) }}"
+            fs_type: "ext4"
+            capacity: "1Gi"
+            access_mode: "ReadWriteOnce"
+          bind_timeout_s: 180
+          namespace_prefix: "isvtest-csi-prov"
+        K8sCsiDriverHealthCheck:
+          test_id: "N/A"
+          labels: ["min_req", "storage"]
+          platforms: ["kubernetes"]
+          # Verifies each configured CSI driver is installed and healthy.
+          # Controller/node health (Deployment + DaemonSet) runs only
+          # when a spec supplies a `workloads` block; otherwise those subtests are
+          # skipped (driver registration is still checked).
+          #   - storage_classes: ["..."]
+          #     workloads:
+          #       namespace: kube-system
+          #       controller: { deployment: <name> }
+          #       node: { daemonset: <name> }
+          drivers:
+            - storage_classes:
+                - "{{ session.setup.csi.block_storage_class | default('', true) }}"
+              workloads: {}
+            - storage_classes:
+                - "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+              workloads: {}
+            - storage_classes:
+                - "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+              workloads: {}
+          min_controller_replicas: 1
+        K8sCsiConcurrentPvcCheck:
+          test_id: "N/A"
+          labels: ["min_req", "storage"]
+          platforms: ["kubernetes"]
+          storage_class: "{{ session.setup.csi.block_storage_class | default('', true) }}"
+          pvc_count: 2
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          namespace_prefix: "isvtest-csi-concurrent"
+        K8sCsiPvcExpandCheck:
+          test_id: "N/A"
+          labels: ["min_req", "storage"]
+          platforms: ["kubernetes"]
+          storage_class: "{{ session.setup.csi.block_storage_class | default('', true) }}"
+          initial_size: "1Gi"
+          expanded_size: "2Gi"
+          bind_timeout_s: 120
+          expand_timeout_s: 180
+          namespace_prefix: "isvtest-csi-expand"
+        K8sNodeKernelModulesCheck:
+          test_id: "HSS11-04"
+          labels: ["storage"]
+          platforms: ["kubernetes"]
+          kernel_modules: []
+          node_selector: {}
+          image: "busybox:1.36"
+          bind_timeout_s: 60
+          namespace_prefix: "isvtest-kmod"
+        K8sNfsMountOptionsCheck:
+          test_id: "HSS11-01"
+          labels: ["storage"]
+          platforms: ["kubernetes"]
+          # Env overrides: K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
+          shared_fs_storage_class: "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          pvc_size: "1Gi"
+          bind_timeout_s: 180
+          namespace_prefix: "isvtest-fs-nfs"
+          # if expected values are not set, the check will be skipped
+          expected_version: ""
+          expected_nconnect: ""
+          expected_proto: ""
+          expected_read_ahead_kb: ""
+
+    k8s_filesystem:
+      checks:
+        # Shared-filesystem POSIX-semantics checks (multi-pod, RWX PVC).
+        K8sFileLockingCheck:
+          test_id: "HSS14-02"
+          labels: ["storage"]
+          platforms: ["kubernetes"]
+          shared_fs_storage_class: "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          release_timeout_s: 60
+          namespace_prefix: "isvtest-fs-lock"
+        K8sCrossNodeWriteVisibilityCheck:
+          test_id: "HSS17-01"
+          labels: ["storage"]
+          platforms: ["kubernetes"]
+          shared_fs_storage_class: "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          visibility_window_s: 5.0
+          namespace_prefix: "isvtest-fs-vis"
+        K8sCrossNodeAttrConsistencyCheck:
+          test_id: "HSS17-02"
+          labels: ["storage"]
+          platforms: ["kubernetes"]
+          shared_fs_storage_class: "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          pvc_size: "1Gi"
+          bind_timeout_s: 120
+          attr_cache_window_s: 30.0
+          extend_bytes: 1024
+          namespace_prefix: "isvtest-fs-attr"
+        K8sLargeDirListingFilesCheck:
+          test_id: "HSS07-02"
+          labels: ["storage"]
+          platforms: ["kubernetes"]
+          shared_fs_storage_class: "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          files_count: 10000
+          pvc_size: "10Gi"
+          bind_timeout_s: 120
+          namespace_prefix: "isvtest-fs-bigdir"
+          timeout: 3600
+        K8sLargeDirListingDirsCheck:
+          test_id: "HSS07-02"
+          labels: ["storage"]
+          platforms: ["kubernetes"]
+          shared_fs_storage_class: "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "busybox:1.36"
+          node_selector: {}
+          dirs_count: 500
+          pvc_size: "10Gi"
+          bind_timeout_s: 120
+          namespace_prefix: "isvtest-fs-bigdir"
+          timeout: 3600
+        K8sPosixComplianceCheck:
+          test_id: "DIR02-02"
+          labels: ["slow", "storage"]
+          platforms: ["kubernetes"]
+          shared_fs_storage_class: "{{ session.setup.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ session.setup.csi.nfs_storage_class | default('', true) }}"
+          image: "gcc:12"
+          node_selector: {}
+          pvc_size: "5Gi"
+          bind_timeout_s: 120
+          build_timeout_s: 600
+          # tests_subdir: ""  # optional: scope to a single tests/ subdir (e.g. "chmod")
+          namespace_prefix: "isvtest-fs-posix"
+          timeout: 3600
 
   exclude:
     labels: []

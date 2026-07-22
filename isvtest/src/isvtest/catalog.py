@@ -19,13 +19,17 @@ Builds a structured catalog of all available validation tests by calling
 discover_all_tests() and serializing each BaseValidation subclass's metadata.
 The catalog is version-keyed by the installed isvtest package version.
 
-Platform tagging uses two sources (union of both):
-  1. Config files - which checks appear in each isvctl/configs/suites/*.yaml
-  2. Wiring labels - e.g. a check wired with labels: [bare_metal] implies the
-     BARE_METAL platform
-
-This ensures checks get a platform badge in the UI even when they only appear
-in provider configs (e.g. Bm* checks that run on-host, not via SSH).
+Per-entry axis placement uses these sources (union):
+  1. Canonical suite files - which checks appear in each
+     ``isvctl/configs/suites/*.yaml`` and that suite's declared
+     ``tests.platform`` / ``tests.module`` axis key. A module-suite check's
+     declared ``platforms:`` list contributes its platform placement (a
+     platform-suite check's placement is its suite's platform).
+  2. Wiring labels (modules only) - when a check is not wired in any suite
+     file, module-axis labels on its ``labels:`` list contribute module
+     placement (e.g. ``labels: [observability]`` implies the ``observability``
+     module). Platform placement is never inferred from labels - it comes
+     from platform-suite placement or a declared ``platforms:`` field.
 """
 
 import logging
@@ -36,7 +40,6 @@ from typing import Any
 import yaml
 from isvreporter.version import get_version
 
-from isvtest.catalog_platforms import LABEL_TO_PLATFORM, PLATFORM_CONFIGS
 from isvtest.core.discovery import discover_all_tests
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
@@ -136,10 +139,11 @@ def _build_check_attribute_map(
     """Map check name -> a per-check attribute unioned across all config wiring.
 
     Scans every config (suites AND providers, not just the canonical suites:
-    on-host ``bm_*`` checks are wired only in provider configs), unions the
-    values ``extract_fn`` pulls from each, then propagates a variant's values up
-    to its base name (``Foo-bar`` -> ``Foo``) so the base entry is not left bare.
-    Shared by ``build_label_map`` and ``build_test_id_map``.
+    on-host ``bm_*`` checks are wired only in provider configs). Names are kept
+    as wired: wiring names are globally unique (enforced by
+    ``scripts/validate_suite_wiring.py``), so a variant's values never smear
+    onto its base class or sibling variants. Shared by ``build_label_map`` and
+    ``build_test_id_map``.
     """
     configs_dir = _find_configs_dir()
     if not configs_dir:
@@ -149,12 +153,18 @@ def _build_check_attribute_map(
     for config_path in sorted(configs_dir.rglob("*.yaml")):
         for name, values in extract_fn(config_path).items():
             attribute_map.setdefault(name, set()).update(values)
-
-    for name, values in list(attribute_map.items()):
-        base = name.split("-")[0]
-        if base != name:
-            attribute_map.setdefault(base, set()).update(values)
     return attribute_map
+
+
+def _all_wired_names() -> set[str]:
+    """Every check name as wired in any suite or provider config (raw, exact)."""
+    configs_dir = _find_configs_dir()
+    if not configs_dir:
+        return set()
+    names: set[str] = set()
+    for config_path in sorted(configs_dir.rglob("*.yaml")):
+        names.update(_extract_checks_from_config(config_path))
+    return names
 
 
 def build_test_id_map() -> dict[str, set[str]]:
@@ -196,42 +206,75 @@ def build_label_file_map() -> dict[str, set[str]]:
     return label_files
 
 
-def _build_platform_map() -> dict[str, set[str]]:
-    """Build a mapping from test name to set of platform strings.
+def _build_axis_maps(suites_dir: Path | None = None) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Map check name -> platform/module axis labels from canonical suite wiring.
 
-    Scans the canonical config files to determine which tests belong to
-    which platforms.
+    Each suite file contributes its declared ``tests.platform`` or
+    ``tests.module`` value to every check wired in that file. A module-suite
+    check additionally contributes its declared ``platforms:`` list as its
+    platform placement (the positive capability-compatibility declaration).
     """
     configs_dir = _find_configs_dir()
-    if not configs_dir:
-        logger.warning("Could not locate isvctl/configs/ directory")
-        return {}
+    if suites_dir is None:
+        suites_dir = configs_dir / "suites" if configs_dir else None
 
-    test_to_platforms: dict[str, set[str]] = {}
+    platform_map: dict[str, set[str]] = {}
+    module_map: dict[str, set[str]] = {}
+    if suites_dir is None:
+        return platform_map, module_map
 
-    for platform, config_files in PLATFORM_CONFIGS.items():
-        for config_file in config_files:
-            config_path = configs_dir / config_file
-            if not config_path.exists():
-                logger.debug("Config not found: %s", config_path)
-                continue
+    for path in sorted(suites_dir.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(path.read_text())
+        except (OSError, yaml.YAMLError):
+            continue
+        tests = (data or {}).get("tests", {})
+        if not isinstance(tests, dict):
+            continue
+        mod = tests.get("module")
+        platform = tests.get("platform")
+        if isinstance(mod, str) and mod:
+            for check_name, params in iter_config_checks(path):
+                module_map.setdefault(check_name, set()).add(mod)
+                declared = params.get("platforms")
+                if isinstance(declared, list):
+                    valid = {p for p in declared if isinstance(p, str) and p}
+                    if valid:
+                        platform_map.setdefault(check_name, set()).update(valid)
+        elif isinstance(platform, str) and platform:
+            for check_name in _extract_checks_from_config(path):
+                platform_map.setdefault(check_name, set()).add(platform)
+    return platform_map, module_map
 
-            checks = _extract_checks_from_config(config_path)
-            for check_name in checks:
-                if check_name not in test_to_platforms:
-                    test_to_platforms[check_name] = set()
-                test_to_platforms[check_name].add(platform)
 
-    return test_to_platforms
+def _infer_module_axis_from_labels(
+    name: str,
+    labels: list[str],
+    platform_map: dict[str, set[str]],
+    module_map: dict[str, set[str]],
+    module_axis: frozenset[str],
+) -> None:
+    """Fill the module axis map from wiring labels when a check is not in any suite file.
+
+    Only module placement is inferred from labels; platform placement comes
+    exclusively from platform-suite placement or a declared ``platforms:`` field.
+    """
+    if name in platform_map or name in module_map:
+        return
+    for label in labels:
+        if label in module_axis:
+            module_map.setdefault(name, set()).add(label)
 
 
 def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
     """Discover all validation tests and return structured catalog entries.
 
-    Each entry includes a 'platforms' field derived from the config files,
-    indicating which platforms the test belongs to. Variant entries from
-    configs (e.g. K8sNimHelmWorkload-1b) are included as separate entries
-    inheriting metadata from their base class.
+    Each entry includes ``platforms`` and ``modules`` fields derived from
+    canonical suite wiring: platform-suite placement or a declared
+    ``platforms:`` field for platforms, module-suite placement (plus module
+    label inference when a check is not in any suite file) for modules.
+    Variant entries from configs (e.g. K8sNimHelmWorkload-1b) are included as
+    separate entries inheriting metadata from their base class.
 
     Args:
         released_only: When True, omit tests that are not in the committed
@@ -244,12 +287,16 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             - labels: List of public label strings (e.g. ["kubernetes", "gpu"])
             - test_ids: List of test-plan ids declared on the wiring, "N/A"
               excluded (e.g. ["SEC07-01"]); empty when only intentional gaps
-            - module: Fully qualified module path
-            - platforms: List of platform strings (e.g. ["KUBERNETES"])
+            - platforms: Platform-axis labels (e.g. ["kubernetes"])
+            - modules: Module-axis labels (e.g. ["iam"])
     """
-    platform_map = _build_platform_map()
+    platform_map, module_map = _build_axis_maps()
     label_map = build_label_map()
     test_id_map = build_test_id_map()
+    _platform_axis, module_axis = build_axis_taxonomy()
+    module_axis_set = frozenset(module_axis)
+
+    wired_names = _all_wired_names()
 
     # Build class metadata lookup, skipping classes marked for exclusion
     class_meta: dict[str, dict[str, Any]] = {}
@@ -262,58 +309,64 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         class_meta[cls.__name__] = {
             "description": getattr(cls, "description", "") or "",
             "labels": labels,
-            "module": cls.__module__,
         }
-        # Infer platforms from labels only for checks not already covered by
-        # canonical configs. Some labels (for example "security") are useful
-        # pytest filters but are not reliable platform ownership signals once a
-        # check appears in a suite file.
-        if cls.__name__ not in platform_map:
-            for label in labels:
-                platform = LABEL_TO_PLATFORM.get(label)
-                if platform:
-                    platform_map.setdefault(cls.__name__, set()).add(platform)
+        _infer_module_axis_from_labels(cls.__name__, labels, platform_map, module_map, module_axis_set)
 
     catalog: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    # Add all discovered classes
+    def _entry_axes(name: str) -> tuple[list[str], list[str]]:
+        return sorted(platform_map.get(name, set())), sorted(module_map.get(name, set()))
+
+    def _has_variant_wiring(class_name: str) -> bool:
+        prefix = f"{class_name}-"
+        return any(name.startswith(prefix) for name in wired_names)
+
+    # Add all discovered classes. A class wired only under variant names gets
+    # no bare entry: the variants are the tests, and a bare entry would carry
+    # no wiring of its own.
     for name, meta in class_meta.items():
         seen.add(name)
+        if name not in wired_names and _has_variant_wiring(name):
+            continue
+        platforms, modules = _entry_axes(name)
         catalog.append(
             {
                 "name": name,
                 "description": meta["description"],
                 "labels": meta["labels"],
                 "test_ids": sorted(test_id_map.get(name, set())),
-                "module": meta["module"],
-                "platforms": sorted(platform_map.get(name, [])),
+                "platforms": platforms,
+                "modules": modules,
             }
         )
 
-    # Add variant entries from configs that aren't base classes
-    for name, platforms in platform_map.items():
+    # Add variant entries wired in any config (suites or providers). Each
+    # variant carries only its own wiring's labels/test_ids - the base class's
+    # other wirings must not smear their scope onto it.
+    variant_names = {name for name in (set(platform_map) | set(module_map) | wired_names) if "-" in name}
+    for name in sorted(variant_names):
         if name in seen:
             continue
-        base = name.split("-")[0] if "-" in name else name
+        base = name.split("-")[0]
         if name in excluded_names or base in excluded_names:
             continue
         seen.add(name)
         meta = class_meta.get(base, {})
-        variant_suffix = name[len(base) :] if base != name else ""
+        variant_suffix = name[len(base) :]
         desc = meta.get("description", "")
-        if variant_suffix:
-            desc = f"{desc} ({variant_suffix.lstrip('-')})" if desc else variant_suffix.lstrip("-")
-        labels = sorted(set(meta.get("labels", [])) | label_map.get(name, set()))
-        test_ids = sorted(test_id_map.get(name, set()))
+        desc = f"{desc} ({variant_suffix.lstrip('-')})" if desc else variant_suffix.lstrip("-")
+        labels = sorted(label_map.get(name, set()))
+        _infer_module_axis_from_labels(name, labels, platform_map, module_map, module_axis_set)
+        platforms, modules = _entry_axes(name)
         catalog.append(
             {
                 "name": name,
                 "description": desc,
                 "labels": labels,
-                "test_ids": test_ids,
-                "module": meta.get("module", ""),
-                "platforms": sorted(platforms),
+                "test_ids": sorted(test_id_map.get(name, set())),
+                "platforms": platforms,
+                "modules": modules,
             }
         )
 
@@ -322,8 +375,15 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
         if released_tests is None:
             logger.info("Including unreleased tests in catalog because %s is enabled", INCLUDE_UNRELEASED_ENV)
         else:
-            omitted_names = sorted(entry["name"] for entry in catalog if entry["name"] not in released_tests)
-            catalog = [entry for entry in catalog if entry["name"] in released_tests]
+
+            def _is_released(name: str) -> bool:
+                # The manifest lists validation classes; a variant wiring of a
+                # released class is released (same code path as the runtime's
+                # _is_released_validation).
+                return name in released_tests or name.split("-")[0] in released_tests
+
+            omitted_names = sorted(entry["name"] for entry in catalog if not _is_released(entry["name"]))
+            catalog = [entry for entry in catalog if _is_released(entry["name"])]
             if omitted_names:
                 logger.info("Omitted %d unreleased tests from catalog", len(omitted_names))
                 logger.debug("Unreleased tests omitted from catalog: %s", ", ".join(omitted_names))
@@ -332,29 +392,59 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
     return catalog
 
 
-def build_platform_axis() -> list[str]:
-    """Return the sorted platform-axis labels (the catalog's capability columns).
+def build_axis_taxonomy(suites_dir: Path | None = None) -> tuple[list[str], list[str]]:
+    """Return ``(platforms, modules)``: the capability and concern axis labels.
 
-    Derived from :data:`PLATFORM_CONFIGS`, the canonical per-platform suite
-    mapping, so adding a platform there extends the axis automatically. The
-    values match each entry's ``platforms`` field (e.g. ``KUBERNETES``), so a
-    consumer can build the platform matrix straight from the catalog.
+    Derived from the suite axis keys (``tests.platform`` / ``tests.module``)
+    under ``suites_dir`` (default: ``isvctl/configs/suites``), so adding a suite
+    extends the axes automatically. A suite that declares ``module:`` contributes
+    a module label; otherwise its ``platform:`` contributes a platform
+    (capability) label. This is the canonical axis scanner - isvctl's
+    platform/module selection and ``scripts/validate_suite_wiring.py`` both
+    build on it. Malformed suites are skipped here; the wiring validator
+    reports them separately.
+
+    Both lists are label-form (lowercase, matching each entry's ``labels``) and
+    sorted, so a consumer can build the capability x module matrix directly.
     """
-    return sorted(PLATFORM_CONFIGS.keys())
+    if suites_dir is None:
+        configs_dir = _find_configs_dir()
+        suites_dir = configs_dir / "suites" if configs_dir else None
+    platforms: set[str] = set()
+    modules: set[str] = set()
+    if suites_dir is not None:
+        for path in sorted(suites_dir.glob("*.yaml")):
+            try:
+                data = yaml.safe_load(path.read_text())
+            except (OSError, yaml.YAMLError):
+                continue
+            tests = (data or {}).get("tests", {})
+            if not isinstance(tests, dict):
+                continue
+            module = tests.get("module")
+            if isinstance(module, str) and module:
+                modules.add(module)
+                continue
+            platform = tests.get("platform")
+            if isinstance(platform, str) and platform:
+                platforms.add(platform)
+    return sorted(platforms), sorted(modules)
 
 
 def catalog_document(entries: list[dict[str, Any]], version: str) -> dict[str, Any]:
     """Wrap catalog ``entries`` in the versioned upload/artifact envelope.
 
-    Adds the schema version, the isvtest package version, and the platform axis
-    list (see :func:`build_platform_axis`). The per-entry ``labels`` are
-    intentionally not summarized at the top level - a consumer can derive the
-    label universe from the entries when needed.
+    Adds the schema version, the isvtest package version, and the platform and
+    module axis lists (see :func:`build_axis_taxonomy`). The per-entry ``labels``
+    are intentionally not summarized at the top level - a consumer can derive
+    the label universe from the entries when needed.
     """
+    platforms, modules = build_axis_taxonomy()
     return {
         "schemaVersion": CATALOG_SCHEMA_VERSION,
         "isvTestVersion": version,
-        "platforms": build_platform_axis(),
+        "platforms": platforms,
+        "modules": modules,
         "entries": entries,
     }
 

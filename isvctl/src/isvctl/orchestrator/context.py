@@ -133,6 +133,20 @@ class Context:
         """
         self.data["inventory"] = output.model_dump(exclude_none=True)
 
+    def set_session_data(self, session_data: dict[str, Any]) -> None:
+        """Mount an enclosing platform run's step outputs at ``{{ session.* }}``.
+
+        A module session run (executing inside a platform run's setup/teardown
+        bracket) references the platform's outputs as ``session.<step>.<field>``
+        — distinct from ``steps.*``, which stays scoped to the run's own
+        lifecycle. Stored as a deep copy so the module run cannot mutate the
+        platform orchestrator's live context.
+
+        Args:
+            session_data: The platform run's accumulated step outputs.
+        """
+        self.data["session"] = copy.deepcopy(session_data)
+
     def set_step_output(self, step_name: str, output: dict[str, Any]) -> None:
         """Store output from a step for use in subsequent steps.
 

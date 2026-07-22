@@ -92,7 +92,7 @@ commands:
         timeout: 120
 
 tests:
-  platform: network
+  module: network
   cluster_name: "nico-network-validation"
   description: "Verify NICo VPC and subnet inventory"
 
@@ -119,9 +119,9 @@ tests:
     network_connectivity:
       step: network_connectivity
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-network_connectivity:
           test_id: "N/A"
-        FieldValueCheck:
+        FieldValueCheck-network_assigned:
           test_id: "N/A"
           field: "tests.network_assigned.passed"
           expected: true
@@ -129,9 +129,9 @@ tests:
     traffic_validation:
       step: traffic_validation
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-network_traffic_validation:
           test_id: "N/A"
-        FieldValueCheck:
+        FieldValueCheck-network_setup:
           test_id: "N/A"
           field: "tests.network_setup.passed"
           expected: true

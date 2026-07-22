@@ -51,7 +51,7 @@ tests:
     setup_checks:
       step: launch_instance
       checks:
-        InstanceStateCheck:
+        InstanceStateCheck-bm_setup:
           test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
@@ -59,7 +59,7 @@ tests:
     list_instances:
       step: list_instances
       checks:
-        InstanceListCheck:
+        InstanceListCheck-bm_list_instances:
           # CNP01-11 (list nodes) is a VMaaS plan item; the BMaaS plan has no equivalent list-nodes item.
           test_id: "N/A"
           labels: ["bare_metal"]
@@ -68,7 +68,7 @@ tests:
     tag_checks:
       step: verify_tags
       checks:
-        InstanceTagCheck:
+        InstanceTagCheck-bm_tag:
           test_id: "CNP05-01"
           labels: ["bare_metal", "min_req"]
           required_keys: ["Name", "CreatedBy"]
@@ -76,7 +76,7 @@ tests:
     topology_placement:
       step: topology_placement
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-bm_topology_placement:
           test_id: "N/A"
           labels: ["bare_metal"]
         TopologyPlacementCheck:
@@ -86,7 +86,7 @@ tests:
     serial_console:
       step: serial_console
       checks:
-        SerialConsoleCheck:
+        SerialConsoleCheck-bm_serial_console:
           test_id: "CNP06-01"
           labels: ["bare_metal", "min_req"]
         SerialConsoleRetentionCheck:
@@ -96,14 +96,14 @@ tests:
     cloud_init:
       step: launch_instance
       checks:
-        CloudInitCheck:
+        CloudInitCheck-bm_cloud_init:
           test_id: "BOOT02-01"
           labels: ["bare_metal", "min_req", "ssh"]
 
     instance_info:
       step: describe_instance
       checks:
-        InstanceStateCheck:
+        InstanceStateCheck-bm_instance_info:
           test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
@@ -111,10 +111,10 @@ tests:
     ssh:
       step: describe_instance
       checks:
-        ConnectivityCheck:
+        ConnectivityCheck-bm_ssh:
           test_id: "BMAAS03-01"
           labels: ["bare_metal", "ssh"]
-        OsCheck:
+        OsCheck-bm_ssh:
           # No BMaaS plan item for a host-OS image check (VMAAS-XX-05 is VM-only).
           test_id: "N/A"
           labels: ["bare_metal", "ssh"]
@@ -123,7 +123,7 @@ tests:
     gpu:
       step: describe_instance
       checks:
-        GpuCheck:
+        GpuCheck-bm_gpu:
           test_id: "BMAAS08-01"
           labels: ["bare_metal", "ssh", "gpu"]
           expected_gpus: 8
@@ -133,14 +133,14 @@ tests:
       checks:
         # vCPU pinning / PCI passthrough / host-software are VMAAS plan items;
         # the BMaaS plan has no equivalent, so these are intentional gaps here.
-        VcpuPinningCheck:
+        VcpuPinningCheck-bm_host_os:
           test_id: "N/A"
           labels: ["bare_metal", "ssh"]
-        PciBusCheck:
+        PciBusCheck-bm_host_os:
           test_id: "N/A"
           labels: ["bare_metal", "ssh", "gpu"]
           expected_gpus: 8
-        HostSoftwareCheck:
+        HostSoftwareCheck-bm_host_os:
           test_id: "N/A"
           labels: ["bare_metal", "ssh"]
 
@@ -150,7 +150,7 @@ tests:
     host_status_logs:
       step: host_status_log
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-bm_host_status_logs:
           test_id: "N/A"
           labels: ["bare_metal"]
         BmHostStatusLog:
@@ -211,38 +211,38 @@ tests:
       step: describe_instance
       checks:
         # No BMaaS plan item for a host driver/kernel check (VMAAS-XX-07 is VM-only).
-        DriverCheck:
+        DriverCheck-bm_driver_info:
           test_id: "N/A"
           labels: ["bare_metal", "ssh", "gpu"]
 
     cpu_info:
       step: describe_instance
       checks:
-        CpuInfoCheck:
+        CpuInfoCheck-bm_cpu_info:
           test_id: "N/A"
           labels: ["bare_metal", "ssh"]
 
     container_runtime:
       step: describe_instance
       checks:
-        ContainerRuntimeCheck:
+        ContainerRuntimeCheck-bm_container_runtime:
           test_id: "N/A"
           labels: ["bare_metal", "ssh", "gpu", "workload", "slow"]
 
     stop_checks:
       step: stop_instance
       checks:
-        InstanceStopCheck:
+        InstanceStopCheck-bm_stop:
           test_id: "CNP01-07"
           labels: ["bare_metal", "min_req"]
 
     start_checks:
       step: start_instance
       checks:
-        InstanceStartCheck:
+        InstanceStartCheck-bm_start:
           test_id: "CNP01-08"
           labels: ["bare_metal", "min_req"]
-        StableIdentifierCheck:
+        StableIdentifierCheck-bm_start:
           test_id: "CNP08-01"
           labels: ["bare_metal", "min_req"]
           reference_id: "{{steps.launch_instance.instance_id}}"
@@ -255,12 +255,12 @@ tests:
       step: start_instance
       checks:
         # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
-        ConnectivityCheck:
+        ConnectivityCheck-bm_start_ssh:
           test_id: "BMAAS03-01"
           labels: ["bare_metal", "ssh"]
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
-        OsCheck:
+        OsCheck-bm_start_ssh:
           test_id: "N/A"
           labels: ["bare_metal", "ssh"]
           host: "{{steps.describe_instance.public_ip}}"
@@ -271,7 +271,7 @@ tests:
       step: start_instance
       checks:
         # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
-        GpuCheck:
+        GpuCheck-bm_start_gpu:
           test_id: "BMAAS08-01"
           labels: ["bare_metal", "ssh", "gpu"]
           host: "{{steps.describe_instance.public_ip}}"
@@ -280,12 +280,12 @@ tests:
     reboot_checks:
       step: reboot_instance
       checks:
-        InstanceRebootCheck:
+        InstanceRebootCheck-bm_reboot:
           test_id: "CNP01-05"
           labels: ["bare_metal", "min_req"]
           max_uptime: 600
         # StableIdentifierCheck -> CNP08-01 (declared in the "start_checks" section)
-        StableIdentifierCheck:
+        StableIdentifierCheck-bm_reboot:
           test_id: "CNP08-01"
           labels: ["bare_metal", "min_req"]
           reference_id: "{{steps.launch_instance.instance_id}}"
@@ -293,7 +293,7 @@ tests:
     reboot_state:
       step: reboot_instance
       checks:
-        InstanceStateCheck:
+        InstanceStateCheck-bm_reboot_state:
           test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
@@ -302,12 +302,12 @@ tests:
       step: reboot_instance
       checks:
         # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
-        ConnectivityCheck:
+        ConnectivityCheck-bm_reboot_ssh:
           test_id: "BMAAS03-01"
           labels: ["bare_metal", "ssh"]
           host: "{{steps.describe_instance.public_ip}}"
           key_file: "{{steps.describe_instance.key_file}}"
-        OsCheck:
+        OsCheck-bm_reboot_ssh:
           test_id: "N/A"
           labels: ["bare_metal", "ssh"]
           host: "{{steps.describe_instance.public_ip}}"
@@ -318,7 +318,7 @@ tests:
       step: reboot_instance
       checks:
         # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
-        GpuCheck:
+        GpuCheck-bm_reboot_gpu:
           test_id: "BMAAS08-01"
           labels: ["bare_metal", "ssh", "gpu"]
           host: "{{steps.describe_instance.public_ip}}"
@@ -333,7 +333,7 @@ tests:
           labels: ["bare_metal", "min_req"]
           max_recovery_time: 900
         # StableIdentifierCheck -> CNP08-01 (declared in the "start_checks" section)
-        StableIdentifierCheck:
+        StableIdentifierCheck-bm_power_cycle:
           test_id: "CNP08-01"
           labels: ["bare_metal", "min_req"]
           reference_id: "{{steps.launch_instance.instance_id}}"
@@ -341,7 +341,7 @@ tests:
     power_cycle_state:
       step: power_cycle_instance
       checks:
-        InstanceStateCheck:
+        InstanceStateCheck-bm_power_cycle_state:
           test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
@@ -350,10 +350,10 @@ tests:
       step: power_cycle_instance
       checks:
         # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
-        ConnectivityCheck:
+        ConnectivityCheck-bm_power_cycle_ssh:
           test_id: "BMAAS03-01"
           labels: ["bare_metal", "ssh"]
-        OsCheck:
+        OsCheck-bm_power_cycle_ssh:
           test_id: "N/A"
           labels: ["bare_metal", "ssh"]
           expected_os: "ubuntu"
@@ -362,7 +362,7 @@ tests:
       step: power_cycle_instance
       checks:
         # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
-        GpuCheck:
+        GpuCheck-bm_power_cycle_gpu:
           test_id: "BMAAS08-01"
           labels: ["bare_metal", "ssh", "gpu"]
           expected_gpus: 8
@@ -371,11 +371,11 @@ tests:
     reinstall_state:
       step: reinstall_instance
       checks:
-        InstanceStateCheck:
+        InstanceStateCheck-bm_reinstall_state:
           test_id: "N/A"
           labels: ["bare_metal"]
           expected_state: "running"
-        StableIdentifierCheck:
+        StableIdentifierCheck-bm_reinstall_state:
           test_id: "CNP08-01"
           labels: ["bare_metal", "min_req"]
           reference_id: "{{steps.launch_instance.instance_id}}"
@@ -384,10 +384,10 @@ tests:
       step: reinstall_instance
       checks:
         # ConnectivityCheck -> BMAAS-XX-03, OsCheck -> N/A (declared in the "ssh" section)
-        ConnectivityCheck:
+        ConnectivityCheck-bm_reinstall_ssh:
           test_id: "BMAAS03-01"
           labels: ["bare_metal", "ssh"]
-        OsCheck:
+        OsCheck-bm_reinstall_ssh:
           test_id: "N/A"
           labels: ["bare_metal", "ssh"]
           expected_os: "ubuntu"
@@ -396,28 +396,28 @@ tests:
       step: reinstall_instance
       checks:
         # GpuCheck -> BMAAS-XX-08 (declared in the "gpu" section)
-        GpuCheck:
+        GpuCheck-bm_reinstall_gpu:
           test_id: "BMAAS08-01"
           labels: ["bare_metal", "ssh", "gpu"]
 
     nim_health:
       step: deploy_nim
       checks:
-        NimHealthCheck:
+        NimHealthCheck-bm_nim_health:
           test_id: "BMAAS10-01"
           labels: ["bare_metal", "gpu", "min_req", "slow", "ssh", "workload"]
 
     nim_models:
       step: deploy_nim
       checks:
-        NimModelCheck:
+        NimModelCheck-bm_nim_models:
           test_id: "BMAAS10-01"
           labels: ["bare_metal", "gpu", "min_req", "slow", "ssh", "workload"]
 
     nim_inference:
       step: deploy_nim
       checks:
-        NimInferenceCheck:
+        NimInferenceCheck-bm_nim_inference:
           test_id: "BMAAS10-01"
           labels: ["bare_metal", "gpu", "min_req", "slow", "ssh", "workload"]
           prompt: "What is CUDA?"
@@ -426,21 +426,21 @@ tests:
     nim_teardown:
       step: teardown_nim
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-bm_nim_teardown:
           test_id: "N/A"
           labels: ["bare_metal"]
 
     teardown_checks:
       step: teardown
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-bm_teardown:
           test_id: "N/A"
           labels: ["bare_metal"]
 
     sanitization:
       step: verify_teardown
       checks:
-        StepSuccessCheck:
+        StepSuccessCheck-bm_sanitization:
           test_id: "SEC21-01"
           labels: ["bare_metal", "min_req", "security"]
 

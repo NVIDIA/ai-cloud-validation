@@ -32,7 +32,7 @@ from isvreporter.client import (
     update_test_run,
     upload_test_catalog,
 )
-from isvreporter.platform import get_platform_from_config, is_valid_platform, normalize_platform
+from isvreporter.platform import get_axes_from_config, is_valid_platform, normalize_platform
 from isvreporter.version import get_version
 
 app = typer.Typer(
@@ -109,7 +109,15 @@ def create(
         typer.Option(
             "--platform",
             "-p",
-            help="Platform type (kubernetes, slurm, bare_metal). Auto-detected from --config if not provided.",
+            help="Capability the run targets (kubernetes, slurm, bare_metal, vm). Auto-detected from --config if not provided.",
+        ),
+    ] = None,
+    module: Annotated[
+        str | None,
+        typer.Option(
+            "--module",
+            "-m",
+            help="Module the run exercises (iam, network, ...). Auto-detected from --config if not provided.",
         ),
     ] = None,
     config: Annotated[
@@ -117,7 +125,7 @@ def create(
         typer.Option(
             "--config",
             "-f",
-            help="Path to isvctl config YAML file (auto-detects platform from 'tests.platform')",
+            help="Path to isvctl config YAML file (auto-detects capability/module from 'tests.platform'/'tests.module')",
             exists=True,
         ),
     ] = None,
@@ -144,15 +152,32 @@ def create(
     """
     endpoint, ssa_issuer, client_id, client_secret = _get_credentials()
 
-    # Determine platform: explicit arg > config file > default (kubernetes)
+    # Determine the (capability, module) axis pair:
+    # explicit args > config file > default capability (kubernetes).
+    capability: str | None
+    detected_module: str | None
     if platform and is_valid_platform(platform):
-        detected_platform = normalize_platform(platform)
+        capability = normalize_platform(platform)
+        detected_module = module.strip().upper().replace("-", "_") if module else None
+    elif module:
+        capability = None
+        detected_module = module.strip().upper().replace("-", "_")
     elif config:
-        detected_platform = get_platform_from_config(config)
+        capability, detected_module = get_axes_from_config(config)
+        if capability is None and detected_module is None:
+            capability = "KUBERNETES"
     else:
-        detected_platform = "kubernetes"
+        capability, detected_module = "KUBERNETES", None
 
-    typer.echo(f"Using platform: {detected_platform}")
+    axes = ", ".join(
+        part
+        for part in (
+            f"capability={capability}" if capability else None,
+            f"module={detected_module}" if detected_module else None,
+        )
+        if part
+    )
+    typer.echo(f"Using {axes or 'no axis metadata'}")
 
     # Get JWT token and create test run
     jwt_token = get_jwt_token(ssa_issuer, client_id, client_secret)
@@ -160,7 +185,8 @@ def create(
         endpoint=endpoint,
         lab_id=lab_id,
         jwt_token=jwt_token,
-        test_target_type=detected_platform.upper(),
+        test_target_type=capability,
+        test_module=detected_module,
         tags=list(tags),
         executed_by=executed_by,
         ci_reference=ci_reference,

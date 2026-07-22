@@ -42,7 +42,7 @@
 version: "1.0"
 
 tests:
-  platform: control_plane
+  module: control_plane
   cluster_name: "control-plane-validation"
   description: "Control plane: API health, access key lifecycle, tenant lifecycle"
 
@@ -57,17 +57,19 @@ tests:
     api_health:
       step: check_api
       checks:
-        FieldExistsCheck:
+        FieldExistsCheck-cp_api_health:
           test_id: "N/A"
           labels: ["control_plane"]
+          platforms: ["foundational"]
           fields: ["account_id", "tests"]
         # DATASVC-XX-01 (S3-compatible API w/ authenticated endpoints):
         # authenticated-endpoint half - a successful authenticated check_api
         # response. The data-path half is the CrudOperationsCheck in the
         # "s3_object_lifecycle" section, which declares the same test_id.
-        FieldValueCheck:
+        FieldValueCheck-cp_api_health:
           test_id: "DATASVC01-01"
           labels: ["control_plane", "min_req"]
+          platforms: ["foundational"]
           field: "success"
           expected: true
 
@@ -76,10 +78,12 @@ tests:
         AccessKeyCreatedCheck:
           test_id: "CP05-01"
           labels: ["control_plane", "iam"]
+          platforms: ["foundational"]
           step: create_access_key
         TenantCreatedCheck:
           test_id: "CP07-01"
           labels: ["control_plane", "iam"]
+          platforms: ["foundational"]
           step: create_tenant
 
     access_key_lifecycle:
@@ -87,14 +91,17 @@ tests:
         AccessKeyAuthenticatedCheck:
           test_id: "CP05-01"
           labels: ["control_plane", "iam"]
+          platforms: ["foundational"]
           step: test_access_key
         AccessKeyDisabledCheck:
           test_id: "CP06-01"
           labels: ["control_plane", "iam", "min_req"]
+          platforms: ["foundational"]
           step: disable_access_key
         AccessKeyRejectedCheck:
           test_id: "CP06-01"
           labels: ["control_plane", "iam", "min_req"]
+          platforms: ["foundational"]
           step: verify_key_rejected
 
     tenant_lifecycle:
@@ -102,10 +109,12 @@ tests:
         TenantListedCheck:
           test_id: "CP08-01"
           labels: ["control_plane", "iam"]
+          platforms: ["foundational"]
           step: list_tenants
         TenantInfoCheck:
           test_id: "CP09-01"
           labels: ["control_plane", "iam"]
+          platforms: ["foundational"]
           step: get_tenant
 
     s3_object_lifecycle:
@@ -113,16 +122,19 @@ tests:
       checks:
         # Data-path half of DATASVC-XX-01 (object put/get/delete); the
         # authenticated-endpoint half is the FieldValueCheck in "api_health".
-        StepSuccessCheck:
+        StepSuccessCheck-cp_s3_object_lifecycle:
           test_id: "N/A"
           labels: ["control_plane"]
-        FieldExistsCheck:
+          platforms: ["foundational"]
+        FieldExistsCheck-cp_s3_object_lifecycle:
           test_id: "N/A"
           labels: ["control_plane"]
+          platforms: ["foundational"]
           fields: ["bucket_name", "object_key", "operations"]
-        CrudOperationsCheck:
+        CrudOperationsCheck-cp_s3_object_lifecycle:
           test_id: "DATASVC01-01"
           labels: ["control_plane", "min_req"]
+          platforms: ["foundational"]
           operations: ["put", "get", "delete"]
 
     teardown_checks:
@@ -132,10 +144,12 @@ tests:
           # CP05-01 (create) and CP06-01 (disable).
           test_id: "N/A"
           labels: ["control_plane"]
+          platforms: ["foundational"]
           step: delete_access_key
         StepSuccessCheck-delete_tenant:
           test_id: "CP10-01"
           labels: ["control_plane"]
+          platforms: ["foundational"]
           step: delete_tenant
 
   exclude:

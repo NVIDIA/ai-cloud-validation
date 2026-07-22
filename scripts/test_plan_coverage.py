@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from isvtest.catalog import iter_config_checks
+from isvtest.catalog import build_axis_taxonomy, iter_config_checks
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLAN_PATH = REPO_ROOT / "docs" / "test-plan.yaml"
@@ -154,6 +154,27 @@ def config_label_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     return {name: sorted(labels) for name, labels in out.items()}
 
 
+def config_platforms_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
+    """Return ``check_name -> platforms`` declared inline in the suite configs.
+
+    Mirrors :func:`config_label_map` for the positive ``platforms:``
+    capability declaration on module-suite checks. The domain-consistency
+    guardrail accepts a platform-family requirement satisfied by this
+    declaration, since platform names are banned from module-suite labels.
+    """
+    out: dict[str, set[str]] = defaultdict(set)
+    for path in sorted(suites_dir.glob("*.yaml")):
+        for name, params in iter_config_checks(path):
+            out[name].update(_normalize_labels(params.get("platforms")))
+    return {name: sorted(platforms) for name, platforms in out.items()}
+
+
+def _platform_axis() -> set[str]:
+    """The platform-axis names (suite-derived capability columns)."""
+    platforms, _modules = build_axis_taxonomy()
+    return set(platforms)
+
+
 def _normalize_labels(value: Any) -> list[str]:
     """Return sorted, non-empty label strings from YAML metadata."""
     if isinstance(value, str):
@@ -186,9 +207,15 @@ def label_sync_errors(
 
     ``docs/test-plan.yaml`` and suite check wiring both carry labels. For every
     mapped ``test_id``, the plan item and every suite check mapped to it must all
-    carry the union of labels from both sides.
+    carry the union of labels from both sides — EXCLUDING platform-axis names:
+    platform placement moved to the ``platforms:`` declaration (banned from
+    module-suite labels), so the plan may keep a platform label for readability
+    while a session check (e.g. the storage suite's kubernetes CSI checks)
+    legitimately does not carry it. Platform-domain correctness of the wiring is
+    guarded separately by :func:`consistency_errors`.
     """
     instances = config_test_label_instances() if instances is None else instances
+    platform_axis = _platform_axis()
     plan_labels = {tid: set(_normalize_labels(entry.get("labels"))) for tid, entry in plan_entries.items()}
 
     config_labels_by_id: dict[str, set[str]] = defaultdict(set)
@@ -196,26 +223,30 @@ def label_sync_errors(
         config_labels_by_id[tid].update(labels)
 
     required_by_id = {
-        tid: plan_labels.get(tid, set()) | config_labels for tid, config_labels in config_labels_by_id.items()
+        tid: (plan_labels.get(tid, set()) | config_labels) - platform_axis
+        for tid, config_labels in config_labels_by_id.items()
     }
 
     errors: list[str] = []
     for tid in sorted(required_by_id):
         if tid not in plan_entries:
             continue
-        actual = plan_labels.get(tid, set())
+        actual = plan_labels.get(tid, set()) - platform_axis
         if actual != required_by_id[tid]:
             errors.append(
-                f"docs/test-plan.yaml:{tid} labels are {sorted(actual)}, expected union {sorted(required_by_id[tid])}"
+                f"docs/test-plan.yaml:{tid} non-platform labels are {sorted(actual)}, "
+                f"expected union {sorted(required_by_id[tid])}"
             )
 
     for source, name, tid, labels in instances:
         if tid not in plan_entries:
             continue
         required = required_by_id.get(tid, set())
-        actual = set(labels)
+        actual = set(labels) - platform_axis
         if actual != required:
-            errors.append(f"{source}: {name} ({tid}) labels are {sorted(actual)}, expected union {sorted(required)}")
+            errors.append(
+                f"{source}: {name} ({tid}) non-platform labels are {sorted(actual)}, expected union {sorted(required)}"
+            )
     return sorted(errors)
 
 
@@ -282,9 +313,11 @@ def entries_from_config_maps(
     label_map = config_label_map() if label_map is None else label_map
     if seed_entries is None:
         seed_entries = [
-            {"name": name, "test_ids": [], "labels": []} for name in sorted(set(test_id_map) | set(label_map))
+            {"name": name, "test_ids": [], "labels": [], "platforms": []}
+            for name in sorted(set(test_id_map) | set(label_map))
         ]
-    return apply_config_labels(apply_config_test_ids(seed_entries, test_id_map), label_map)
+    merged = apply_config_labels(apply_config_test_ids(seed_entries, test_id_map), label_map)
+    return _apply_variant_union(merged, config_platforms_map(), "platforms")
 
 
 def class_test_id_map(entries: list[dict[str, Any]] | None = None) -> dict[str, list[str]]:
@@ -322,15 +355,24 @@ def _req_family(test_id: str) -> str:
 
 
 def consistency_errors(entries: list[dict[str, Any]]) -> list[str]:
-    """Errors where a class's labels do not match the domain its ``test_ids`` imply."""
+    """Errors where a class's labels do not match the domain its ``test_ids`` imply.
+
+    A platform-domain requirement (e.g. ``K8S* -> kubernetes``) is satisfied by
+    the label OR by a ``platforms:`` declaration naming the platform: module
+    suites ban platform names from ``labels:`` and express placement through
+    the positive declaration instead (a session check such as the storage
+    suite's ``K8sCsiPvcExpandCheck`` declares ``platforms: ["kubernetes"]``).
+    """
     errors: list[str] = []
     for entry in entries:
         labels = set(entry.get("labels") or [])
+        platforms = set(entry.get("platforms") or [])
         for tid in real_test_ids(entry):
             required = PREFIX_REQUIRED_LABELS.get(_req_family(tid))
-            if required and required not in labels:
+            if required and required not in labels and required not in platforms:
                 errors.append(
-                    f"{entry['name']}: test_id {tid} implies label {required!r}, but wiring labels are {sorted(labels)}"
+                    f"{entry['name']}: test_id {tid} implies label {required!r}, but wiring labels are "
+                    f"{sorted(labels)} and platforms are {sorted(platforms)}"
                 )
     return sorted(errors)
 

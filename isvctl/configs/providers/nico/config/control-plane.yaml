@@ -45,7 +45,7 @@ commands:
         timeout: 120
 
 tests:
-  platform: control_plane
+  module: control_plane
   cluster_name: "nico-control-plane-validation"
   description: "Verify NICo API health"
 
@@ -58,10 +58,10 @@ tests:
     api_health:
       step: check_api
       checks:
-        FieldExistsCheck:
+        FieldExistsCheck-cp_api_health:
           test_id: "N/A"
           fields: ["account_id", "tests"]
-        FieldValueCheck:
+        FieldValueCheck-nico_api_health:
           test_id: "CP03-01"
           field: "success"
           expected: true

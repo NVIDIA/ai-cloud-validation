@@ -465,7 +465,8 @@ def test_nico_control_plane_config_platform_matches_command_group() -> None:
     """The orchestrator uses tests.platform to look up the control-plane commands group."""
     merged, _steps = _merged_nico_config_steps("control-plane.yaml", "control_plane")
 
-    assert merged["tests"]["platform"] == "control_plane"
+    assert merged["tests"]["module"] == "control_plane"
+    assert RunConfig.model_validate(merged).tests.platform == "control_plane"
 
 
 def test_nico_control_plane_config_wires_api_health() -> None:
@@ -555,7 +556,8 @@ def test_nico_iam_config_platform_matches_command_group() -> None:
     """The orchestrator uses tests.platform to look up the IAM commands group."""
     merged, _steps = _merged_nico_config_steps("iam.yaml", "iam")
 
-    assert merged["tests"]["platform"] == "iam"
+    assert merged["tests"]["module"] == "iam"
+    assert RunConfig.model_validate(merged).tests.platform == "iam"
 
 
 def test_nico_iam_config_wires_credential_readiness() -> None:
@@ -568,7 +570,7 @@ def test_nico_iam_config_wires_credential_readiness() -> None:
     validations = merged["tests"]["validations"]
     assert merged["tests"]["settings"]["nico_api_base"] == "{{env.NICO_API_BASE}}"
     assert validations["credential_readiness"]["step"] == "check_credentials"
-    assert validations["credential_readiness"]["checks"]["FieldExistsCheck"]["fields"] == [
+    assert validations["credential_readiness"]["checks"]["FieldExistsCheck-iam_credential_readiness"]["fields"] == [
         "account_id",
         "authenticated",
         "tests",
@@ -657,7 +659,9 @@ def test_nico_bare_metal_config_platform_matches_command_group() -> None:
     """The orchestrator uses tests.platform to look up the bare-metal commands group."""
     merged, _steps = _merged_nico_config_steps("bare_metal.yaml", "bare_metal")
 
+    # bare_metal imports the platform suite (declares platform, no module).
     assert merged["tests"]["platform"] == "bare_metal"
+    assert RunConfig.model_validate(merged).tests.platform == "bare_metal"
 
 
 def test_nico_bare_metal_config_wires_instance_inventory_probes() -> None:
@@ -840,7 +844,8 @@ def test_nico_network_config_platform_matches_command_group() -> None:
     """The orchestrator uses tests.platform to look up the network commands group."""
     merged, _steps = _merged_nico_config_steps("network.yaml", "network")
 
-    assert merged["tests"]["platform"] == "network"
+    assert merged["tests"]["module"] == "network"
+    assert RunConfig.model_validate(merged).tests.platform == "network"
 
 
 def test_nico_network_config_wires_network_inventory_probes() -> None:

@@ -94,19 +94,56 @@ def normalize_platform(platform: str | None) -> str:
 def get_platform_from_config(config_path: Path | str) -> str:
     """Extract and normalize platform from a config file.
 
+    Reads the file raw (imports are not resolved), so it prefers an explicit
+    ``tests.platform`` (platform suites) and falls back to ``tests.module``
+    (module suites, whose module value is the platform). Configs that inherit
+    their axis key only via ``import:`` still need an explicit value here.
+
     Args:
         config_path: Path to the YAML config file
 
     Returns:
         Canonical uppercase platform string
     """
+    capability, module = get_axes_from_config(config_path)
+    return capability or module or DEFAULT_PLATFORM
+
+
+def _normalize_axis_value(value: str) -> str:
+    """Uppercase an axis value, resolving known aliases (k8s -> KUBERNETES).
+
+    Unknown values pass through uppercased (hyphens as underscores) so new
+    catalog-driven axis values (e.g. a future platform) are not coerced to a
+    legacy name.
+    """
+    normalized = value.strip().lower().replace("-", "_")
+    return PLATFORM_ALIASES.get(normalized, normalized.upper())
+
+
+def get_axes_from_config(config_path: Path | str) -> tuple[str | None, str | None]:
+    """Return the ``(capability, module)`` pair a config's axis keys declare.
+
+    A config declaring ``tests.module`` is a module suite: it exercises a
+    module and targets no capability of its own -> ``(None, MODULE)``. One
+    declaring ``tests.platform`` is a platform suite -> ``(CAPABILITY, None)``.
+    The suite schema makes the keys mutually exclusive, but a config carrying
+    both (legacy) reports both. Reads the file raw (imports are not resolved);
+    ``(None, None)`` when the file is unreadable or declares neither key.
+    """
     try:
         with open(config_path) as f:
             config_data = yaml.safe_load(f)
-        platform = config_data.get("tests", {}).get("platform", "")
-        return normalize_platform(platform)
+        tests = (config_data or {}).get("tests", {}) or {}
     except Exception:
-        return DEFAULT_PLATFORM
+        return None, None
+
+    def _axis(key: str) -> str | None:
+        value = tests.get(key)
+        if isinstance(value, str) and value.strip():
+            return _normalize_axis_value(value)
+        return None
+
+    return _axis("platform"), _axis("module")
 
 
 def is_valid_platform(platform: str | None) -> bool:

@@ -14,23 +14,44 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Require ``test_id`` and ``labels`` on every check wired in suite YAML.
+"""Govern the platform x module taxonomy wired in suite YAML.
 
 Suite configs under ``isvctl/configs/suites/`` are the source of truth for
-validation metadata on this branch. Each wired check must declare:
+validation metadata on this branch. This validator enforces:
 
+* ``tests.platform`` / ``tests.module`` - every suite declares exactly one of
+  these axis keys. ``platform`` marks a service-line platform; ``module``
+  marks an operational concern (its value is also the runtime platform). The
+  platform/module *label* axes are derived from these keys (so adding a suite
+  extends the axes automatically).
 * ``test_id`` - a plan id from ``docs/test-plan.yaml``, or ``"N/A"`` when the
   check is generic plumbing with no plan item.
 * ``labels`` - a non-empty list used for pytest selection and catalog reporting.
-  Each canonical suite check must include its suite label, for example checks in
-  ``bare_metal.yaml`` must include ``bare_metal``.
+  Each suite check must include its declared axis label, for example checks in
+  a suite with ``tests.platform: bare_metal`` must include ``bare_metal``.
+* ``platforms`` - the positive capability-compatibility declaration on
+  module-suite checks. The declaration is REQUIRED: a module-suite check with
+  a missing or empty ``platforms:`` is an error. Every value must be a member
+  of the platform axis, and the field is rejected inside platform suites
+  (their column is fixed by file placement). Platform-axis names must not
+  appear in a module-suite check's ``labels`` - ``platforms:`` is the only
+  capability-compatibility mechanism. Strictness is enforced by this
+  repo-side validator only: at runtime a missing/empty declaration still
+  means "every real environment", so older/external configs keep working.
+  Labels are otherwise free-form: they originate in the wiring YAML itself, so
+  there is no external allowlist to validate them against.
+* name uniqueness - a wiring name may appear only once within each suite file
+  and within each provider config file. Suite files are also checked against each
+  other. Reusing a name in the same file (or across suite files) unions unrelated
+  labels/test_ids onto one catalog entry. Generic checks must use a distinct
+  variant name per wiring (``StepSuccessCheck-iam_teardown``).
+* variant names - reusable generic checks (``FieldValueCheck``, ``StepSuccessCheck``,
+  ...) declare ``variant_required`` and must be wired with a variant suffix, not
+  the bare class name.
 
-Every suite file must also be registered in
-``isvtest.catalog_platforms.PLATFORM_CONFIGS``: an unregistered suite is
-silently dropped from the pushed catalog's platform axis and its tests carry no
-platform, so the capability never shows up in the catalog UI. Registered
-platforms must in turn be recognized by ``isvreporter.platform`` — an unknown
-platform is silently reported as the default on test-run upload.
+Provider configs under ``isvctl/configs/providers/`` inherit suite ``test_id`` /
+``labels`` via ``import:`` where applicable; they are still scanned for
+within-file name uniqueness, variant-name rules, and ``platforms`` values.
 
 Usage:
     python3 scripts/validate_suite_wiring.py
@@ -48,17 +69,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from isvreporter.platform import normalize_platform
-from isvtest.catalog_platforms import PLATFORM_CONFIGS
+from isvtest.catalog import build_axis_taxonomy
+from isvtest.core.validation import validate_wiring_name
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SUITES_DIR = REPO_ROOT / "isvctl" / "configs" / "suites"
 _NEXT_CATEGORY_LINE = re.compile(r"^    \S")
-# The label every check in a canonical suite must carry, derived from the
-# platform registry: suite file stem -> lowercase platform name.
-SUITE_REQUIRED_LABELS: dict[str, str] = {
-    Path(config).stem: platform.lower() for platform, configs in PLATFORM_CONFIGS.items() for config in configs
-}
 
 
 def _check_line_patterns(check_name: str) -> tuple[re.Pattern[str], ...]:
@@ -104,18 +120,37 @@ def _normalize_test_id(value: Any) -> str | None:
     return None
 
 
-def required_suite_label(config_path: Path) -> str | None:
-    """Return the label every check in a known canonical suite must carry."""
-    return SUITE_REQUIRED_LABELS.get(config_path.stem)
+def required_suite_label(platform: Any, module: Any) -> str | None:
+    """Return the declared axis label every check in a suite must carry."""
+    if isinstance(module, str) and module:
+        return module
+    if isinstance(platform, str) and platform:
+        return platform
+    return None
+
+
+def _load_config(config_path: Path) -> tuple[list[str], Any]:
+    """Read and parse a config file once, returning ``(lines, data)``.
+
+    Raises:
+        ValueError: When the file cannot be read or parsed.
+    """
+    try:
+        text = config_path.read_text()
+        data = yaml.safe_load(text)
+    except (OSError, yaml.YAMLError) as exc:
+        raise ValueError(f"failed to read/parse {config_path}: {exc}") from exc
+    return text.splitlines(), data
 
 
 def iter_suite_checks(config_path: Path) -> Iterator[tuple[str, str, dict[str, Any]]]:
     """Yield ``(category, check_name, params)`` for checks in a suite file."""
-    try:
-        data = yaml.safe_load(config_path.read_text())
-    except (OSError, yaml.YAMLError) as exc:
-        raise ValueError(f"failed to read/parse {config_path}: {exc}") from exc
+    _, data = _load_config(config_path)
+    yield from _iter_checks(data)
 
+
+def _iter_checks(data: Any) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Yield ``(category, check_name, params)`` from parsed config data."""
     validations = (data or {}).get("tests", {}).get("validations", {})
     if not isinstance(validations, dict):
         return
@@ -139,6 +174,98 @@ def iter_suite_checks(config_path: Path) -> Iterator[tuple[str, str, dict[str, A
                 yield from _from_mapping(category, check)
 
 
+def _axis_keys(data: Any) -> tuple[Any, Any]:
+    """Return the ``(platform, module)`` axis keys declared in a config's ``tests:`` block."""
+    tests = (data or {}).get("tests", {})
+    if not isinstance(tests, dict):
+        return None, None
+    return tests.get("platform"), tests.get("module")
+
+
+def derive_axis_labels(suites_dir: Path = SUITES_DIR) -> tuple[frozenset[str], frozenset[str]]:
+    """Derive the (platform, module) label axes from the suites' axis keys.
+
+    Thin wrapper over the canonical scanner :func:`isvtest.catalog.build_axis_taxonomy`.
+    Malformed suites are skipped there; :func:`wiring_errors` reports them separately.
+    """
+    platforms, modules = build_axis_taxonomy(suites_dir)
+    return frozenset(platforms), frozenset(modules)
+
+
+def _iter_provider_configs(providers_dir: Path) -> Iterator[Path]:
+    """Yield provider config YAML files (``providers/*/config/*.yaml`` + ``providers/*.yaml``)."""
+    if not providers_dir.is_dir():
+        return
+    yield from sorted(providers_dir.glob("*/config/*.yaml"))
+    yield from sorted(providers_dir.glob("*.yaml"))
+
+
+def _module_platform_label_error(
+    location: str,
+    labels: list[str],
+    platform_labels: frozenset[str],
+) -> str | None:
+    """Return the platform-label-in-module-suite error for one check, or None."""
+    platform_hits = sorted({label for label in labels if label in platform_labels})
+    if platform_hits:
+        return (
+            f"{location}: platform label(s) ({', '.join(platform_hits)}) are not allowed on "
+            f"module-suite checks; declare platform compatibility with 'platforms: [...]' instead"
+        )
+    return None
+
+
+def _missing_platforms_error(location: str, params: dict[str, Any]) -> str | None:
+    """Return the strict-mode error for a module-suite check without ``platforms:``.
+
+    Non-list ``platforms:`` values are left to :func:`_platforms_declaration_errors`
+    (one shape error is enough).
+    """
+    declared = params.get("platforms")
+    if "platforms" in params and not isinstance(declared, list):
+        return None
+    if isinstance(declared, list) and declared:
+        return None
+    return (
+        f"{location}: missing or empty 'platforms' declaration; module-suite checks must "
+        f"declare the supported platforms explicitly, e.g. "
+        f'\'platforms: ["bare_metal", "kubernetes", "slurm", "vm"]\' '
+        f"(there is no implicit default in this repo)"
+    )
+
+
+def _platforms_declaration_errors(
+    location: str,
+    params: dict[str, Any],
+    platform_labels: frozenset[str],
+    *,
+    suite_kind: str | None,
+) -> list[str]:
+    """Return errors for a check's ``platforms:`` declaration, or [] when absent/valid.
+
+    ``suite_kind`` is ``"platform"``/``"module"`` for suite files, or None for
+    provider configs (their kind is inherited via ``import:`` and not resolved
+    here, so only the values are validated).
+    """
+    if "platforms" not in params:
+        return []
+    if suite_kind == "platform":
+        return [
+            f"{location}: 'platforms' is not allowed on platform-suite checks "
+            f"(the column is fixed by the suite file placement)"
+        ]
+    declared = params.get("platforms")
+    if not isinstance(declared, list) or not all(isinstance(p, str) and p.strip() for p in declared):
+        return [f"{location}: 'platforms' must be a list of platform names"]
+    unknown = sorted(set(declared) - platform_labels)
+    if unknown:
+        return [
+            f"{location}: unknown platform(s) in 'platforms': {', '.join(unknown)} "
+            f"(platform axis: {', '.join(sorted(platform_labels))})"
+        ]
+    return []
+
+
 def _format_location(config_path: Path, category: str, check_name: str, line_number: int | None) -> str:
     """Return a stable location string for error messages."""
     try:
@@ -150,61 +277,126 @@ def _format_location(config_path: Path, category: str, check_name: str, line_num
     return f"{rel_path}:{line_number} → {category} → {check_name}"
 
 
-def wiring_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
-    """Return human-readable errors for incomplete suite check wiring."""
-    errors: list[str] = []
-    occurrence: dict[tuple[Path, str, str], int] = defaultdict(int)
+def _relative(path: Path) -> Path | str:
+    """Return a repo-relative path for messages, or the path when outside the repo."""
+    try:
+        return path.relative_to(REPO_ROOT)
+    except ValueError:
+        return path
 
-    for path in sorted(suites_dir.glob("*.yaml")):
-        try:
-            lines = path.read_text().splitlines()
-            checks = list(iter_suite_checks(path))
-        except ValueError as exc:
-            errors.append(str(exc))
-            continue
-        for category, name, params in checks:
-            key = (path, category, name)
+
+def _duplicate_names_within_config(data: Any) -> list[str]:
+    """Return wiring names that appear more than once in one config."""
+    counts: dict[str, int] = defaultdict(int)
+    for _category, name, _params in _iter_checks(data):
+        counts[name] += 1
+    return sorted(name for name, count in counts.items() if count > 1)
+
+
+def _duplicate_name_error(name: str, files: list[str], *, scope: str) -> str:
+    """Return the wiring-name uniqueness error for one duplicated name."""
+    return (
+        f"{scope} wiring name {name!r} appears {len(files)} times "
+        f"({', '.join(sorted(set(files)))}); "
+        f"give each wiring a unique variant name like {name.split('-')[0]}-<suite>_<category>"
+    )
+
+
+def wiring_errors(suites_dir: Path = SUITES_DIR, providers_dir: Path | None = None) -> list[str]:
+    """Return human-readable errors for incomplete/ungoverned suite check wiring.
+
+    Validates suite files under ``suites_dir`` (kind, test_id, labels, suite
+    label, and ``platforms`` governance) and provider configs under
+    ``providers_dir`` (defaults to the ``providers`` directory beside
+    ``suites_dir``) for name uniqueness, variant-name rules, and ``platforms``
+    values. The platform/module label axes are derived from ``suites_dir``.
+    """
+    if providers_dir is None:
+        providers_dir = suites_dir.parent / "providers"
+
+    platform_labels, _module_labels = derive_axis_labels(suites_dir)
+
+    errors: list[str] = []
+    suite_name_files: dict[str, list[str]] = defaultdict(list)
+
+    def _record_suite_names(path: Path, data: Any) -> None:
+        """Track suite wiring names for cross-suite uniqueness."""
+        for _category, name, _params in _iter_checks(data):
+            suite_name_files[name].append(str(_relative(path)))
+
+    def _check_variant_required(location: str, name: str) -> None:
+        """Append an error when a reusable class is wired under its bare name."""
+        wiring_error = validate_wiring_name(name)
+        if wiring_error:
+            errors.append(f"{location}: {wiring_error}")
+
+    def _located_checks(path: Path, lines: list[str], data: Any) -> Iterator[tuple[str, str, dict[str, Any]]]:
+        """Yield ``(location, name, params)`` for each wired check, with line attribution."""
+        occurrence: dict[tuple[str, str], int] = defaultdict(int)
+        for category, name, params in _iter_checks(data):
+            key = (category, name)
             line_numbers = find_check_line_numbers(lines, category, name)
             line_number = line_numbers[occurrence[key]] if occurrence[key] < len(line_numbers) else None
             occurrence[key] += 1
+            yield _format_location(path, category, name, line_number), name, params
 
-            location = _format_location(path, category, name, line_number)
+    for path in sorted(suites_dir.glob("*.yaml")):
+        try:
+            lines, data = _load_config(path)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        platform, module = _axis_keys(data)
+
+        has_platform = isinstance(platform, str) and bool(platform)
+        has_module = isinstance(module, str) and bool(module)
+        if has_platform and has_module:
+            errors.append(f"{_relative(path)}: declares both tests.platform and tests.module (exactly one required)")
+        elif not has_platform and not has_module:
+            errors.append(f"{_relative(path)}: missing axis key (declare tests.platform or tests.module)")
+
+        required_label = required_suite_label(platform, module)
+        suite_kind = "module" if has_module else "platform" if has_platform else None
+        _record_suite_names(path, data)
+        for location, name, params in _located_checks(path, lines, data):
+            _check_variant_required(location, name)
             test_id = _normalize_test_id(params.get("test_id"))
             labels = _normalize_labels(params.get("labels"))
-            required_label = required_suite_label(path)
             if test_id is None:
                 errors.append(f'{location}: missing test_id (use a plan id or "N/A")')
             if not labels:
                 errors.append(f"{location}: missing labels (non-empty list required)")
             elif required_label and required_label not in labels:
                 errors.append(f"{location}: missing suite label {required_label!r}")
+            if suite_kind == "module":
+                governance_error = _module_platform_label_error(location, labels, platform_labels)
+                if governance_error:
+                    errors.append(governance_error)
+                strict_error = _missing_platforms_error(location, params)
+                if strict_error:
+                    errors.append(strict_error)
+            errors.extend(_platforms_declaration_errors(location, params, platform_labels, suite_kind=suite_kind))
+
+    for path in _iter_provider_configs(providers_dir):
+        try:
+            lines, data = _load_config(path)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        for duplicate_name in _duplicate_names_within_config(data):
+            errors.append(
+                f"{_relative(path)}: provider wiring name {duplicate_name!r} appears more than once; "
+                f"give each wiring a unique variant name like {duplicate_name.split('-')[0]}-<category>"
+            )
+        for location, name, params in _located_checks(path, lines, data):
+            _check_variant_required(location, name)
+            errors.extend(_platforms_declaration_errors(location, params, platform_labels, suite_kind=None))
+
+    for name, files in sorted(suite_name_files.items()):
+        if len(files) > 1:
+            errors.append(_duplicate_name_error(name, files, scope="suite"))
+
     return errors
-
-
-def platform_registration_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
-    """Return errors for suite files not registered in the catalog platform axis."""
-    registered = {config for configs in PLATFORM_CONFIGS.values() for config in configs}
-    return [
-        f"{suite}: not registered in isvtest.catalog_platforms.PLATFORM_CONFIGS (catalog platform axis)"
-        for suite in (f"suites/{path.name}" for path in sorted(suites_dir.glob("*.yaml")))
-        if suite not in registered
-    ]
-
-
-def registry_consistency_errors() -> list[str]:
-    """Return errors for catalog platforms that isvreporter cannot round-trip.
-
-    Suite configs declare ``tests.platform`` as the lowercase platform name;
-    ``normalize_platform`` silently coerces unknown values to the default
-    platform when reporting test runs, so a platform registered in the catalog
-    but missing from isvreporter's constants misattributes every test run.
-    """
-    return [
-        f"platform {platform}: not recognized by isvreporter.platform.normalize_platform "
-        "(add it to ALL_PLATFORMS and PLATFORM_ALIASES)"
-        for platform in sorted(PLATFORM_CONFIGS)
-        if normalize_platform(platform.lower()) != platform
-    ]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -213,14 +405,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help=(
-            "Exit 1 on wiring violations (missing test_id/labels, unregistered suites, "
-            "or isvreporter platform mismatches)."
-        ),
+        help="Exit 1 when any suite check is missing test_id or labels.",
     )
     args = parser.parse_args(argv)
 
-    errors = wiring_errors() + platform_registration_errors() + registry_consistency_errors()
+    errors = wiring_errors()
     if errors:
         header = f"suite wiring validation failed ({len(errors)} issue(s)):"
         message = header + "\n  " + "\n  ".join(errors)
@@ -231,8 +420,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     ok = (
-        f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare test_id, labels, "
-        "and suite labels, and every suite is registered as a catalog platform."
+        f"OK: all wired checks in {SUITES_DIR.relative_to(REPO_ROOT)} declare "
+        f"test_id, labels, suite labels, and (module suites) platforms."
     )
     print(ok)
     return 0

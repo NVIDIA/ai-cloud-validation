@@ -46,11 +46,18 @@ class TestUploadTestCatalog:
             {
                 "name": "TestA",
                 "description": "Test A",
-                "labels": ["k8s"],
-                "module": "mod.a",
+                "labels": ["kubernetes"],
+                "platforms": ["kubernetes"],
+                "modules": [],
                 "test_ids": ["K8S06-01"],
             },
-            {"name": "TestB", "description": "Test B", "labels": [], "module": "mod.b"},
+            {
+                "name": "TestB",
+                "description": "Test B",
+                "labels": ["iam"],
+                "platforms": [],
+                "modules": ["iam"],
+            },
         ]
 
         result = upload_test_catalog(
@@ -73,12 +80,17 @@ class TestUploadTestCatalog:
         # Envelope defaults when axis metadata is not supplied.
         assert payload["schemaVersion"] == 1
         assert payload["platforms"] == []
+        assert payload["modules"] == []
         assert len(payload["entries"]) == 2
         assert payload["entries"][0]["name"] == "TestA"
-        assert payload["entries"][0]["labels"] == ["k8s"]
+        assert payload["entries"][0]["labels"] == ["kubernetes"]
+        assert payload["entries"][0]["platforms"] == ["kubernetes"]
+        assert payload["entries"][0]["modules"] == []
         assert payload["entries"][0]["test_ids"] == ["K8S06-01"]
         assert "markers" not in payload["entries"][0]
-        assert payload["entries"][1]["labels"] == []
+        assert payload["entries"][1]["labels"] == ["iam"]
+        assert payload["entries"][1]["platforms"] == []
+        assert payload["entries"][1]["modules"] == ["iam"]
         assert payload["entries"][1]["test_ids"] == []
 
     @patch("isvreporter.client.urlopen")
@@ -180,13 +192,14 @@ class TestUploadTestCatalog:
         assert entry["name"] == "TestA"
         assert entry["description"] == ""
         assert entry["labels"] == []
+        assert entry["platforms"] == []
+        assert entry["modules"] == []
         assert "markers" not in entry
-        assert entry["module"] == ""
         assert entry["test_ids"] == []
 
     @patch("isvreporter.client.urlopen")
-    def test_forwards_platform_axis_metadata(self, mock_urlopen: MagicMock) -> None:
-        """schema_version/platforms are sent in the top-level envelope."""
+    def test_forwards_axis_metadata(self, mock_urlopen: MagicMock) -> None:
+        """schema_version/platforms/modules are sent in the top-level envelope."""
         get_response = MagicMock()
         get_response.read.return_value = json.dumps([]).encode()
         get_response.__enter__ = MagicMock(return_value=get_response)
@@ -203,13 +216,15 @@ class TestUploadTestCatalog:
             isv_test_version="1.2.3",
             entries=[{"name": "TestA"}],
             schema_version=1,
-            platforms=["KUBERNETES", "VM"],
+            platforms=["bare_metal", "vm"],
+            modules=["iam", "network"],
         )
 
         request = mock_urlopen.call_args_list[1][0][0]
         payload = json.loads(request.data.decode())
         assert payload["schemaVersion"] == 1
-        assert payload["platforms"] == ["KUBERNETES", "VM"]
+        assert payload["platforms"] == ["bare_metal", "vm"]
+        assert payload["modules"] == ["iam", "network"]
 
     @patch("isvreporter.client.urlopen")
     def test_markers_field_is_not_forwarded(self, mock_urlopen: MagicMock) -> None:

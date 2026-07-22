@@ -96,6 +96,25 @@ uv run isvctl test run -f isvctl/configs/providers/k3s.yaml
 uv run isvctl test run -f isvctl/configs/suites/slurm.yaml
 ```
 
+**By platform or module (no file paths):**
+
+```bash
+# Run everything for a platform (its config + all module configs)
+uv run isvctl test run --provider aws --platform vm
+
+# Narrow to the "Min Req" preset
+uv run isvctl test run --provider aws --platform vm --label min_req
+
+# Rerun just one module suite after a failure
+uv run isvctl test run --provider aws --module iam
+
+# Preview the plan without running
+uv run isvctl test run --provider aws --platform vm --dry-run
+```
+
+`--platform`/`--module` require `--provider` and are mutually exclusive with
+`-f`. See [suite selection docs](../isvctl/configs/suites/README.md#how-selection-works-cli).
+
 **From installed wheel:**
 
 ```bash

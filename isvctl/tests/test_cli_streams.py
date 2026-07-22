@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 import isvctl.cli.catalog as catalog_cli
@@ -38,8 +39,8 @@ _FAKE_ENTRIES = [
         "name": "AlphaCheck",
         "description": "Alpha description",
         "labels": ["kubernetes"],
-        "module": "isvtest.validations.alpha",
-        "platforms": ["KUBERNETES"],
+        "platforms": ["kubernetes"],
+        "modules": [],
     },
 ]
 
@@ -66,11 +67,11 @@ tests:
     return config
 
 
-def test_dry_run_stdout_is_pure_json(tmp_path: Path) -> None:
-    """`test run --dry-run` emits only JSON on stdout; progress goes to stderr."""
+def test_dry_run_json_stdout_is_pure_json(tmp_path: Path) -> None:
+    """`test run --dry-run --json` emits only JSON on stdout; progress goes to stderr."""
     config = _write_config(tmp_path)
 
-    result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--no-upload", "--dry-run"])
+    result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--no-upload", "--dry-run", "--json"])
 
     assert result.exit_code == 0, result.output
     # stdout must be parseable JSON with nothing else mixed in.
@@ -80,6 +81,36 @@ def test_dry_run_stdout_is_pure_json(tmp_path: Path) -> None:
     assert "Validating configuration" in result.stderr
     assert "Validating configuration" not in result.stdout
     assert "--- Dry Run: Configuration ---" not in result.stdout
+
+
+def test_dry_run_defaults_to_human_readable_text(tmp_path: Path) -> None:
+    """`test run --dry-run` (no --json) prints a readable summary, not JSON."""
+    config = _write_config(tmp_path)
+
+    result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--no-upload", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Dry run: configuration" in result.stdout
+    assert "Platform: kubernetes" in result.stdout
+    assert "Tests:    0 validation(s)" in result.stdout
+    # The default output is plain text, so stdout must not parse as JSON.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_dry_run_planning_suppresses_resolution_warnings() -> None:
+    """Dry-run planning must not flood stderr with expected Jinja default-mask warnings."""
+    k8s_suite = Path(__file__).resolve().parents[1] / "configs" / "suites" / "k8s.yaml"
+    result = runner.invoke(test_cli.app, ["run", "-f", str(k8s_suite), "--no-upload", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "default(...) masked" not in result.stderr
+    # 15 storage/filesystem checks moved to suites/storage.yaml as
+    # kubernetes session checks (2026-07-20).
+    assert "Tests:    29 validation(s) (5 skipped)" in result.stdout
+    assert "Skipped (5):" in result.stdout
+    assert "step not configured:" in result.stdout
+    assert "K8sNodePoolCheck-create_cpu_pool" in result.stdout
 
 
 def test_catalog_list_json_stdout_is_pure_json() -> None:

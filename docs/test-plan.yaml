@@ -3243,6 +3243,7 @@ domains:
                 labels:
                   - kubernetes
                   - min_req
+                  - storage
                 priority: P0
                 milestone: M5
                 notes: ""
@@ -3255,6 +3256,7 @@ domains:
                 labels:
                   - kubernetes
                   - min_req
+                  - storage
                 priority: P0
                 milestone: M5
                 notes: ""
@@ -3267,6 +3269,7 @@ domains:
                 labels:
                   - kubernetes
                   - min_req
+                  - storage
                 priority: P0
                 milestone: M5
                 notes: ""
@@ -3279,6 +3282,7 @@ domains:
                 labels:
                   - kubernetes
                   - min_req
+                  - storage
                 priority: P0
                 milestone: M5
                 notes: ""
@@ -3870,7 +3874,6 @@ domains:
                 status: published
               - summary: Verify host syslogs are available
                 labels:
-                  - bare_metal
                   - min_req
                   - observability
                 priority: P1
@@ -4474,7 +4477,6 @@ domains:
             tests:
               - summary: Verify a set of resources can be logically grouped and pinned to an account
                 labels:
-                  - bare_metal
                   - capacity
                   - min_req
                   - security
@@ -4488,7 +4490,6 @@ domains:
                 status: published
               - summary: Verify atomic allocation of a topology block as a single unit
                 labels:
-                  - bare_metal
                   - capacity
                   - min_req
                   - security

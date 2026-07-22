@@ -32,13 +32,14 @@ def create_test_run(
     endpoint: str,
     lab_id: int,
     jwt_token: str,
-    test_target_type: str,
+    test_target_type: str | None,
     tags: list[str],
     executed_by: str,
     ci_reference: str,
     start_time: str,
     isv_software_version: str | None = None,
     isv_test_version: str | None = None,
+    test_module: str | None = None,
 ) -> dict[str, Any]:
     """
     Create a new test run record.
@@ -47,13 +48,15 @@ def create_test_run(
         endpoint: ISV Lab Service endpoint URL
         lab_id: Lab ID
         jwt_token: JWT access token
-        test_target_type: Type of test target (e.g., BARE_METAL, VM, CONTAINER)
+        test_target_type: Capability the run targets (e.g., BARE_METAL, VM).
+            None for a standalone module run (no platform column).
         tags: List of tags for the test run
         executed_by: Who/what executed the test run
         ci_reference: CI job URL or reference
         start_time: Test run start time (ISO 8601 format)
         isv_software_version: ISV software stack version (opaque string from ISV)
         isv_test_version: ISV test tool version (e.g., "1.12.3")
+        test_module: Module the run exercises (e.g., IAM); None for platform suites
 
     Returns:
         API response dictionary containing test run ID
@@ -67,10 +70,13 @@ def create_test_run(
         "executedBy": executed_by,
         "ciReference": ci_reference,
         "tags": tags,
-        "testTargetType": test_target_type,
         "testRunStartAt": start_time,
     }
 
+    if test_target_type:
+        payload["testTargetType"] = test_target_type
+    if test_module:
+        payload["testModule"] = test_module
     if isv_software_version:
         payload["isvSoftwareVersion"] = isv_software_version
     if isv_test_version:
@@ -284,6 +290,7 @@ def upload_test_catalog(
     *,
     schema_version: int = 1,
     platforms: list[str] | None = None,
+    modules: list[str] | None = None,
 ) -> bool:
     """Upload test catalog for a suite version (idempotent per version).
 
@@ -296,10 +303,12 @@ def upload_test_catalog(
         jwt_token: JWT access token
         isv_test_version: Test suite version string (e.g. "1.2.3")
         entries: List of catalog entry dicts with keys:
-            name, description, labels, module, platforms, test_ids
+            name, description, labels, platforms, modules, test_ids
         schema_version: Catalog document schema version.
-        platforms: Platform axis labels (e.g. ["KUBERNETES", "VM"]) - the
+        platforms: Capability axis labels (e.g. ["bare_metal", "vm"]) - the
             matrix columns; empty list when unknown.
+        modules: Module axis labels (e.g. ["iam", "network"]) - the matrix
+            rows; empty list when unknown.
 
     Returns:
         True if catalog was uploaded or already exists, False on error
@@ -322,13 +331,14 @@ def upload_test_catalog(
         "schemaVersion": schema_version,
         "isvTestVersion": isv_test_version,
         "platforms": platforms or [],
+        "modules": modules or [],
         "entries": [
             {
                 "name": e["name"],
                 "description": e.get("description", ""),
                 "labels": e.get("labels", []),
-                "module": e.get("module", ""),
                 "platforms": e.get("platforms", []),
+                "modules": e.get("modules", []),
                 "test_ids": e.get("test_ids", []),
             }
             for e in entries

@@ -24,7 +24,7 @@ from isvtest.config.loader import ConfigLoader
 from isvtest.core.discovery import discover_all_tests
 from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, resolve_class_key
 from isvtest.core.runners import LocalRunner
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, validate_wiring_name
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 if TYPE_CHECKING:
@@ -176,6 +176,17 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         if filtering_enabled:
             # 1. Process configured validations (including aliases/variants)
             for validation_name, validation_config in enabled_validations_config.items():
+                # Pre-resolved runs already passed the bare-name gate in
+                # resolve_entries and had unique names left bare by
+                # _entries_with_pytest_names, so only enforce on the raw
+                # --config discovery path.
+                if not resolution_preapplied:
+                    wiring_error = validate_wiring_name(validation_name)
+                    if wiring_error:
+                        unmatched_validations.append(validation_name)
+                        sys.stderr.write(f"\n\033[33mWarning:\033[0m {wiring_error}\n")
+                        continue
+
                 target_class = _resolve_validation_class(validation_name, test_classes_map)
                 if target_class is not None:
                     configured_classes.add(target_class.__name__)

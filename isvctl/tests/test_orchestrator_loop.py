@@ -408,7 +408,7 @@ EOF
                     "setup_checks": {
                         "step": "setup_cluster",
                         "checks": {
-                            "FieldExistsCheck": {
+                            "FieldExistsCheck-setup_checks": {
                                 "field": "missing_field",
                             }
                         },
@@ -503,7 +503,7 @@ EOF
                 validations={
                     "probe_checks": {
                         "step": "probe",
-                        "checks": {"StepSuccessCheck": {}},
+                        "checks": {"StepSuccessCheck-probe_checks": {}},
                     },
                 },
             ),
@@ -516,7 +516,7 @@ EOF
         validations = result.phases[0].details["validations"]
         assert validations == [
             {
-                "name": "StepSuccessCheck",
+                "name": "StepSuccessCheck-probe_checks",
                 "passed": True,
                 "skipped": True,
                 "message": "step 'probe' did not produce output",
@@ -545,7 +545,7 @@ EOF
                 validations={
                     "probe_checks": {
                         "checks": {
-                            "FieldExistsCheck": {
+                            "FieldExistsCheck-probe_checks": {
                                 "field": "{{ missing.value }}",
                             }
                         },
@@ -559,7 +559,7 @@ EOF
 
         assert not result.success
         validation = result.phases[0].details["validations"][0]
-        assert validation["name"] == "FieldExistsCheck"
+        assert validation["name"] == "FieldExistsCheck-probe_checks"
         assert validation["passed"] is False
         assert validation["skipped"] is False
         assert validation["state"] == "error"
@@ -585,11 +585,11 @@ EOF
                 validations={
                     "skip_checks": {
                         "step": "no_json",
-                        "checks": {"StepSuccessCheck": {}},
+                        "checks": {"StepSuccessCheck-skip_checks": {}},
                     },
                     "error_checks": {
                         "checks": {
-                            "FieldExistsCheck": {
+                            "FieldExistsCheck-error_checks": {
                                 "field": "{{ missing.value }}",
                             }
                         },
@@ -603,12 +603,12 @@ EOF
 
         root = ET.parse(junit_path).getroot()
         cases = {case.attrib["name"]: case for case in root.iter("testcase")}
-        assert "StepSuccessCheck" in cases
-        assert cases["StepSuccessCheck"].find("skipped") is not None
-        assert cases["StepSuccessCheck"].find("skipped").attrib["type"] == "step_no_output"
-        assert "FieldExistsCheck" in cases
-        assert cases["FieldExistsCheck"].find("error") is not None
-        assert cases["FieldExistsCheck"].find("error").attrib["type"] == "template_render_failed"
+        assert "StepSuccessCheck-skip_checks" in cases
+        assert cases["StepSuccessCheck-skip_checks"].find("skipped") is not None
+        assert cases["StepSuccessCheck-skip_checks"].find("skipped").attrib["type"] == "step_no_output"
+        assert "FieldExistsCheck-error_checks" in cases
+        assert cases["FieldExistsCheck-error_checks"].find("error") is not None
+        assert cases["FieldExistsCheck-error_checks"].find("error").attrib["type"] == "template_render_failed"
 
 
 class TestLabelFiltering:
@@ -628,7 +628,7 @@ class TestLabelFiltering:
     """
 
     @staticmethod
-    def _config(*, exclude_labels: list[str] | None = None) -> RunConfig:
+    def _config(*, exclude_labels: list[str] | None = None, check_labels: list[str] | None = None) -> RunConfig:
         """Build a minimal config with one labeled validation.
 
         ``K8sNodeCountCheck`` is wired with ``labels: ["kubernetes"]`` (the
@@ -644,7 +644,7 @@ class TestLabelFiltering:
             },
             tests=ValidationConfig(
                 platform="kubernetes",
-                validations={"cluster": {"checks": {"K8sNodeCountCheck": {"labels": ["kubernetes"]}}}},
+                validations={"cluster": {"checks": {"K8sNodeCountCheck": {"labels": check_labels or ["kubernetes"]}}}},
                 exclude={"labels": exclude_labels} if exclude_labels else {},
             ),
         )
@@ -706,6 +706,114 @@ class TestLabelFiltering:
         assert check["state"] == "skipped"
         assert check["skip_reason"] == "test_excluded"
         assert check["message"] == "excluded by pytest -k/-m filter"
+
+    def test_cli_exclude_labels_skip_validation(self) -> None:
+        """A CLI ``exclude_labels`` (``--exclude-label``) skips a matching check."""
+        config = self._config()
+
+        result = Orchestrator(config).run(phases=[Phase.TEST], exclude_labels=["kubernetes"])
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        assert "excluded by label" in check["message"]
+
+    def test_cli_exclude_labels_apply_even_with_include_present(self) -> None:
+        """CLI excludes are authoritative: they apply on top of an include filter.
+
+        Unlike config ``exclude.labels`` (bypassed once ``--label`` is present),
+        a CLI exclude must still skip a check the include filter admitted.
+        """
+        config = self._config()
+
+        result = Orchestrator(config).run(
+            phases=[Phase.TEST],
+            include_labels=["kubernetes"],
+            exclude_labels=["kubernetes"],
+        )
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        assert "excluded by label" in check["message"]
+
+    def test_cli_exclude_labels_union_with_config_excludes(self) -> None:
+        """With no include filter, CLI and config excludes union together."""
+        config = self._config(exclude_labels=["gpu"], check_labels=["kubernetes", "gpu"])
+
+        result = Orchestrator(config).run(phases=[Phase.TEST], exclude_labels=["kubernetes"])
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        # both the config exclude (gpu) and the CLI exclude (kubernetes) matched
+        assert "gpu" in check["message"]
+        assert "kubernetes" in check["message"]
+
+
+class TestColumnPlatformFiltering:
+    """Tests for the per-check ``platforms:`` restriction under a --platform column.
+
+    The column platform flows from ``--platform`` fan-out (``--column-platform``)
+    through ``Orchestrator.run`` into resolution; a check whose wiring declares a
+    non-empty ``platforms`` list runs only under those columns.
+    """
+
+    @staticmethod
+    def _config(platforms: list[str] | None = None) -> RunConfig:
+        """Build a minimal module-style config with one optionally restricted check.
+
+        The runtime platform is set directly (a module suite's derived
+        ``tests.platform`` is its module name).
+        """
+        params: dict = {"labels": ["security"]}
+        if platforms is not None:
+            params["platforms"] = platforms
+        return RunConfig(
+            commands={
+                "security": PlatformCommands(
+                    phases=["test"],
+                    steps=[StepConfig(name="probe", command="true", phase="test")],
+                )
+            },
+            tests=ValidationConfig(
+                platform="security",
+                validations={"cluster": {"checks": {"K8sNodeCountCheck": params}}},
+            ),
+        )
+
+    def test_platforms_restriction_skips_under_other_column(self) -> None:
+        """A check restricted to bare_metal is skipped under the vm column."""
+        config = self._config(platforms=["bare_metal"])
+
+        result = Orchestrator(config).run(phases=[Phase.TEST], column_platform="vm")
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "skipped"
+        assert check["skip_reason"] == "test_excluded"
+        assert "platforms restriction [bare_metal]" in check["message"]
+        assert "does not include column 'vm'" in check["message"]
+
+    def test_platforms_subset_runs_under_each_declared_column(self) -> None:
+        """A vm+bare_metal subset runs under both declared columns."""
+        config = self._config(platforms=["vm", "bare_metal"])
+
+        for column in ("vm", "bare_metal"):
+            result = Orchestrator(config).run(phases=[Phase.TEST], column_platform=column)
+            check = result.phases[0].details["validations"][0]
+            assert check["state"] == "passed", check
+
+    def test_no_column_applies_no_platform_filtering(self) -> None:
+        """Standalone module runs (no column) run restricted checks unfiltered."""
+        config = self._config(platforms=["bare_metal"])
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "passed", check
+
+    def test_unrestricted_check_runs_under_any_column(self) -> None:
+        """Omitted platforms means the check runs under every column."""
+        config = self._config()
+
+        result = Orchestrator(config).run(phases=[Phase.TEST], column_platform="slurm")
+        check = result.phases[0].details["validations"][0]
+        assert check["state"] == "passed", check
 
 
 class TestTeardownOnlyPhase:
@@ -1367,3 +1475,177 @@ class TestEntriesMissingFromJunit:
     def test_returns_all_entries_when_junit_path_is_none(self) -> None:
         """A None path (pytest skipped because no ready entries) returns the full list."""
         assert _entries_missing_from_junit([self._entry("A")], None) == [self._entry("A")]
+
+
+class TestPlatformSession:
+    """Tests for the platform-session bracket and module session runs.
+
+    A platform run's ``pre_teardown_hook`` is the session body: it fires once,
+    after every pre-teardown phase and before teardown, with the run's step
+    outputs and success. A module session run executes its
+    ``commands[<module>@<column>]`` lifecycle (``commands_key``) with the
+    platform outputs mounted at ``{{ session.* }}`` (``session_data``).
+    """
+
+    @staticmethod
+    def _platform_config(tmp_path: Path, *, setup_command: str = "echo") -> RunConfig:
+        """A kubernetes platform config whose teardown touches a marker file."""
+        marker = tmp_path / "teardown-ran"
+        return RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["setup", "teardown"],
+                    steps=[
+                        StepConfig(
+                            name="setup",
+                            command=setup_command,
+                            args=['{"success": true, "platform": "kubernetes", "cluster_name": "session-c1"}'],
+                            phase="setup",
+                        ),
+                        StepConfig(
+                            name="cleanup",
+                            command="sh",
+                            args=["-c", f'touch {marker} && echo \'{{"success": true, "platform": "kubernetes"}}\''],
+                            phase="teardown",
+                        ),
+                    ],
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+
+    def test_hook_fires_before_teardown_with_step_outputs(self, tmp_path: Path) -> None:
+        """The session body sees the platform's outputs; teardown runs after it."""
+        config = self._platform_config(tmp_path)
+        marker = tmp_path / "teardown-ran"
+        calls: list[tuple[dict, bool, bool]] = []
+
+        result = Orchestrator(config).run(
+            phases=[Phase.SETUP, Phase.TEST, Phase.TEARDOWN],
+            pre_teardown_hook=lambda steps, ok: calls.append((steps, ok, marker.exists())),
+        )
+
+        assert result.success
+        assert calls == [
+            (
+                {"setup": {"success": True, "platform": "kubernetes", "cluster_name": "session-c1"}},
+                True,
+                False,
+            )
+        ]
+        assert marker.exists()  # platform teardown ran, after the session body
+
+    def test_hook_gets_platform_failure_and_teardown_still_runs(self, tmp_path: Path) -> None:
+        """A failed platform setup reports platform_ok=False; teardown still follows."""
+        config = self._platform_config(tmp_path, setup_command="false")
+        marker = tmp_path / "teardown-ran"
+        calls: list[bool] = []
+
+        result = Orchestrator(config).run(
+            phases=[Phase.SETUP, Phase.TEST, Phase.TEARDOWN],
+            pre_teardown_hook=lambda _steps, ok: calls.append(ok),
+        )
+
+        assert not result.success
+        assert calls == [False]
+        assert marker.exists()  # teardown_on_failure default still cleans up
+
+    def test_hook_exception_does_not_block_teardown(self, tmp_path: Path) -> None:
+        """A crashing session body is logged and swallowed; teardown always runs."""
+        config = self._platform_config(tmp_path)
+        marker = tmp_path / "teardown-ran"
+
+        def _boom(_steps: dict, _ok: bool) -> None:
+            raise RuntimeError("session body crashed")
+
+        result = Orchestrator(config).run(
+            phases=[Phase.SETUP, Phase.TEST, Phase.TEARDOWN],
+            pre_teardown_hook=_boom,
+        )
+
+        assert result.success
+        assert marker.exists()
+
+    def test_hook_fires_once_without_a_teardown_phase(self) -> None:
+        """A lifecycle without teardown still runs the session body exactly once."""
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(
+                            name="probe",
+                            command="echo",
+                            args=['{"success": true, "platform": "kubernetes"}'],
+                            phase="test",
+                        )
+                    ],
+                )
+            },
+            tests=ValidationConfig(platform="kubernetes"),
+        )
+        calls: list[bool] = []
+
+        result = Orchestrator(config).run(
+            phases=[Phase.TEST],
+            pre_teardown_hook=lambda _steps, ok: calls.append(ok),
+        )
+
+        assert result.success
+        assert calls == [True]
+
+    @staticmethod
+    def _module_config() -> RunConfig:
+        """A storage module config with both its own and a kubernetes session lifecycle."""
+        return RunConfig(
+            commands={
+                "storage": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(
+                            name="own",
+                            command="echo",
+                            args=['{"success": true, "platform": "storage", "lifecycle": "own"}'],
+                            phase="test",
+                        )
+                    ],
+                ),
+                "storage@kubernetes": PlatformCommands(
+                    phases=["test"],
+                    steps=[
+                        StepConfig(
+                            name="probe",
+                            command="echo",
+                            args=[
+                                '{"success": true, "platform": "storage", "lifecycle": "session",'
+                                ' "cluster": "{{ session.setup.cluster_name }}"}'
+                            ],
+                            phase="test",
+                        )
+                    ],
+                ),
+            },
+            tests=ValidationConfig(platform="storage"),
+        )
+
+    def test_commands_key_selects_session_lifecycle_and_session_renders(self) -> None:
+        """A session run executes commands[<module>@<column>] and sees {{ session.* }}."""
+        result = Orchestrator(self._module_config()).run(
+            phases=[Phase.TEST],
+            commands_key="storage@kubernetes",
+            session_data={"setup": {"cluster_name": "session-c1"}},
+            column_platform="kubernetes",
+        )
+
+        assert result.success
+        assert "own" not in result.inventory
+        assert result.inventory["probe"]["lifecycle"] == "session"
+        assert result.inventory["probe"]["cluster"] == "session-c1"
+
+    def test_without_commands_key_the_module_lifecycle_runs(self) -> None:
+        """No commands_key keeps today's behavior: the module's own block runs."""
+        result = Orchestrator(self._module_config()).run(phases=[Phase.TEST])
+
+        assert result.success
+        assert "probe" not in result.inventory
+        assert result.inventory["own"]["lifecycle"] == "own"

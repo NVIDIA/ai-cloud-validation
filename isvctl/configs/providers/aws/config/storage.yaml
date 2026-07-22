@@ -212,6 +212,33 @@ commands:
           - "{{teardown_flag}}"
         timeout: 600
 
+  # ─── Kubernetes session lifecycle ──────────────────────────────────
+  # Runs INSIDE the kubernetes platform session (`--platform kubernetes`):
+  # after the platform's own phases, before its teardown. The cluster and CSI
+  # drivers already exist — the platform run's step outputs arrive at
+  # {{ session.* }} (the EKS setup emits kubeconfig_path and csi.*). The
+  # suite's k8s_storage / k8s_filesystem checks run in the test phase; each
+  # provisions its own namespaces, so setup only verifies cluster access and
+  # teardown sweeps anything they leaked.
+  storage@kubernetes:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: session_prepare
+        phase: setup
+        command: "../scripts/storage/k8s_session_prepare.sh"
+        args:
+          - "--kubeconfig"
+          - "{{ session.setup.kubeconfig_path | default('', true) }}"
+        timeout: 120
+
+      - name: session_cleanup
+        phase: teardown
+        command: "../scripts/storage/k8s_session_cleanup.sh"
+        args:
+          - "--kubeconfig"
+          - "{{ session.setup.kubeconfig_path | default('', true) }}"
+        timeout: 300
+
 tests:
   cluster_name: "aws-storage-validation"
   description: "AWS storage validation (EBS block volume + FSx for Lustre)"

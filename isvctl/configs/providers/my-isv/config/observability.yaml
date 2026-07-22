@@ -111,6 +111,9 @@ commands:
           - "vpc_flow_logs"
         timeout: 60
 
+      # Host syslog + BMC SEL/telemetry checks: a real provider runs these
+      # against the single host its observability run provisions. Demo stubs
+      # emit dummy-success evidence.
       - name: host_syslogs
         phase: test
         continue_on_failure: true
@@ -255,7 +258,6 @@ commands:
         timeout: 60
 
 tests:
-  platform: observability
   cluster_name: "my-isv-observability-validation"
   description: "my-isv observability validation (generic stubs, dummy overrides)"
 

@@ -24,7 +24,7 @@ JSON that matches these schemas, which then become the inventory for tests.
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LabConfig(BaseModel):
@@ -111,7 +111,8 @@ class StepConfig(BaseModel):
 class PlatformCommands(BaseModel):
     """Lifecycle commands for a specific platform.
 
-    Groups commands for a platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security, observability).
+    Groups commands for a platform (any platform/module axis value declared by a
+    suite's tests.platform / tests.module, e.g. kubernetes, iam).
     Supports skip at both platform level (skips all phases) and phase level.
 
     The `phases` field defines the execution order. Steps are grouped by their `phase`
@@ -361,14 +362,44 @@ class ValidationConfig(BaseModel):
     platform: str | None = Field(
         default=None,
         description=(
-            "Platform type: KUBERNETES, SLURM, BARE_METAL, CONTROL_PLANE, IAM, NETWORK, "
-            "SECURITY, VM, IMAGE_REGISTRY, OBSERVABILITY, STORAGE"
+            "Service-line platform (the commands[...] group to run; reported as "
+            "the run's capability): vm, bare_metal, kubernetes, slurm. A suite that declares "
+            "'platform' is a platform suite; one that declares 'module' is an operational concern."
         ),
     )
+    module: str | None = Field(
+        default=None,
+        description=(
+            "Operational-concern module this suite validates: iam, network, security, "
+            "observability, control_plane, image_registry, ... Its value is also the runtime "
+            "platform (derived below). Mutually exclusive with 'platform'."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _derive_platform_from_module(self) -> "ValidationConfig":
+        """A module suite's 'module' value is its runtime 'platform'.
+
+        Platform suites declare 'platform' directly; module suites declare
+        'module' (and inherit no separate 'platform'). The two are mutually
+        exclusive, and a module's value becomes the runtime platform (the
+        commands[...] key).
+        """
+        if self.platform and self.module:
+            raise ValueError("declare only one of 'platform' or 'module', not both")
+        if self.module:
+            self.platform = self.module
+        return self
+
     settings: dict[str, Any] = Field(default_factory=dict, description="Test settings")
     validations: dict[str, list[dict[str, Any]] | dict[str, Any]] = Field(
         default_factory=dict,
-        description="Validation checks by category. Supports list format or group defaults with 'checks' key.",
+        description=(
+            "Validation checks by category. Supports list format or group defaults with 'checks' key. "
+            "Each check wiring may declare 'test_id', 'labels', 'step', 'phase', and 'platforms' "
+            "(a subset of the platform axis; omitted/empty = compatible with every platform, "
+            "non-empty = the check runs only under those --platform columns)."
+        ),
     )
     exclude: dict[str, Any] = Field(
         default_factory=dict,
@@ -393,7 +424,7 @@ class RunConfig(BaseModel):
     lab: LabConfig | None = Field(default=None, description="Lab configuration")
     commands: dict[str, PlatformCommands] = Field(
         default_factory=dict,
-        description="Lifecycle commands by platform (kubernetes, slurm, bare_metal, network, vm, iam, image_registry, security, observability)",
+        description="Lifecycle commands by platform (any platform/module axis value declared by a suite, e.g. kubernetes, iam)",
     )
     context: dict[str, Any] = Field(default_factory=dict, description="Context variables for templating")
     tests: ValidationConfig | None = Field(default=None, description="Test configuration")

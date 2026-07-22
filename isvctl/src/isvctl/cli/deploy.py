@@ -28,10 +28,10 @@ from typing import Annotated
 
 import typer
 from isvreporter.config import get_endpoint, get_ssa_issuer
-from isvreporter.platform import get_platform_from_config
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import get_output_dir, print_error, print_progress, print_step, print_warning
+from isvctl.config.platform_resolution import effective_axes
 from isvctl.orchestrator.loop import Phase
 from isvctl.remote import SCPTransfer, SSHClient, TarArchive
 from isvctl.remote.archive import DEFAULT_EXCLUDES as DEFAULT_ARCHIVE_EXCLUDES
@@ -386,11 +386,23 @@ def run(
 
         if upload_results and lab_id:
             print_step("Creating test run in isvreporter...")
-            # Derive platform from first config file
-            platform = get_platform_from_config(config_files[0]) if config_files else "kubernetes"
+            # Derive the (capability, module) axis pair from the first config
+            # file (resolved through imports): platform suites target a
+            # capability; module suites exercise a module and have no
+            # capability of their own.
+            capability: str | None = None
+            module: str | None = None
+            if config_files:
+                try:
+                    capability, module = effective_axes(Path(config_files[0]))
+                except Exception as e:
+                    logger.warning("Could not resolve axis keys from %s: %s", config_files[0], e)
+            if capability is None and module is None:
+                capability = "kubernetes"
             test_run_id = create_test_run(
                 lab_id=lab_id,
-                platform=platform,
+                platform=capability,
+                module=module,
                 tags=["validation-test", "isvctl"],
                 start_time=start_time,
                 executed_by="isvctl deploy",

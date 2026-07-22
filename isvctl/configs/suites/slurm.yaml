@@ -42,9 +42,9 @@ commands:
 # Test Configuration
 # =============================================================================
 tests:
+  platform: slurm
   cluster_name: "{{steps.setup.cluster_name}}"
   description: "Slurm cluster validation"
-  platform: slurm
 
   settings:
     show_skipped_tests: false

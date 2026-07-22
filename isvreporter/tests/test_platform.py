@@ -20,10 +20,12 @@ from pathlib import Path
 from isvreporter.platform import (
     BARE_METAL,
     DEFAULT_PLATFORM,
+    IAM,
     KUBERNETES,
     OBSERVABILITY,
     SLURM,
     STORAGE,
+    get_axes_from_config,
     get_platform_from_config,
     is_valid_platform,
     normalize_platform,
@@ -148,6 +150,16 @@ class TestGetPlatformFromConfig:
         config = _write_config(tmp_path, "tests:\n  platform: observability\n")
         assert get_platform_from_config(str(config)) == OBSERVABILITY
 
+    def test_config_with_module_axis_key(self, tmp_path: Path) -> None:
+        """The module axis key is used as the platform when no platform is set."""
+        config = _write_config(tmp_path, "tests:\n  module: observability\n")
+        assert get_platform_from_config(str(config)) == OBSERVABILITY
+
+    def test_explicit_platform_wins_over_module(self, tmp_path: Path) -> None:
+        """An explicit platform takes precedence over the module axis key."""
+        config = _write_config(tmp_path, "tests:\n  platform: slurm\n  module: iam\n")
+        assert get_platform_from_config(str(config)) == SLURM
+
     def test_config_with_storage(self, tmp_path: Path) -> None:
         """Test reading storage from config."""
         config = _write_config(tmp_path, "tests:\n  platform: storage\n")
@@ -177,3 +189,43 @@ class TestGetPlatformFromConfig:
         """Test that Path objects are accepted."""
         config = _write_config(tmp_path, "tests:\n  platform: kubernetes\n")
         assert get_platform_from_config(config) == KUBERNETES
+
+
+class TestGetAxesFromConfig:
+    """Tests for get_axes_from_config function."""
+
+    def test_platform_suite_reports_capability_only(self, tmp_path: Path) -> None:
+        """A platform suite targets a capability and exercises no module."""
+        config = _write_config(tmp_path, "tests:\n  platform: slurm\n")
+        assert get_axes_from_config(str(config)) == (SLURM, None)
+
+    def test_module_suite_reports_module_only(self, tmp_path: Path) -> None:
+        """A module suite exercises a module and targets no capability."""
+        config = _write_config(tmp_path, "tests:\n  module: iam\n")
+        assert get_axes_from_config(str(config)) == (None, IAM)
+
+    def test_alias_resolves_for_capability(self, tmp_path: Path) -> None:
+        """Known aliases (k8s) normalize to their canonical name."""
+        config = _write_config(tmp_path, "tests:\n  platform: k8s\n")
+        assert get_axes_from_config(str(config)) == (KUBERNETES, None)
+
+    def test_unknown_axis_value_passes_through_uppercased(self, tmp_path: Path) -> None:
+        """New catalog-driven values are not coerced to a legacy platform."""
+        config = _write_config(tmp_path, "tests:\n  platform: native-ai-cloud\n")
+        assert get_axes_from_config(str(config)) == ("NATIVE_AI_CLOUD", None)
+        config = _write_config(tmp_path, "tests:\n  module: storage\n")
+        assert get_axes_from_config(str(config)) == (None, "STORAGE")
+
+    def test_legacy_config_with_both_keys_reports_both(self, tmp_path: Path) -> None:
+        """A (schema-invalid) config carrying both keys reports both axes."""
+        config = _write_config(tmp_path, "tests:\n  platform: slurm\n  module: iam\n")
+        assert get_axes_from_config(str(config)) == (SLURM, IAM)
+
+    def test_missing_axis_keys_report_none(self, tmp_path: Path) -> None:
+        """No axis keys -> (None, None); the caller decides the default."""
+        config = _write_config(tmp_path, "tests:\n  labels: [unit]\n")
+        assert get_axes_from_config(str(config)) == (None, None)
+
+    def test_unreadable_file_reports_none(self) -> None:
+        """Unreadable configs report no axes instead of raising."""
+        assert get_axes_from_config("/nonexistent/path/config.yaml") == (None, None)
