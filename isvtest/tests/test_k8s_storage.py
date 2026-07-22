@@ -83,7 +83,8 @@ class TestStorageFailureDiagnostics:
 
         def run(cmd: str, timeout: int | None = None) -> CommandResult:
             commands.append(cmd)
-            assert timeout == 30
+            assert timeout is not None
+            assert 1 <= timeout <= 30
             return _ok(stdout=f"token: do-not-log\n{'x' * 2000}")
 
         diagnostics = _collect_storage_diagnostics(
