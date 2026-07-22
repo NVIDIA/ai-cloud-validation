@@ -231,3 +231,109 @@ def test_cluster_autoscaler_rejects_bad_config() -> None:
     assert not check.passed
     assert "Invalid config" in check.message
     mock_run.assert_not_called()
+
+
+def _managed_evidence(
+    *,
+    enabled: object = True,
+    node_pool: object = "system-pool",
+    min_nodes: object = 1,
+    max_nodes: object = 4,
+) -> str:
+    """Return provider-neutral managed-autoscaler command output."""
+    return json.dumps(
+        {
+            "enabled": enabled,
+            "node_pool": node_pool,
+            "min_nodes": min_nodes,
+            "max_nodes": max_nodes,
+        }
+    )
+
+
+def test_cluster_autoscaler_provider_managed_mode_passes_without_kubectl() -> None:
+    """Verify command readback can prove a managed control-plane autoscaler."""
+    check = K8sClusterAutoscalerCheck(
+        config={"mode": "provider_managed", "provider_managed_command": "probe-managed-autoscaler"}
+    )
+    with (
+        patch("isvtest.validations.k8s_autoscaler.get_kubectl_base_shell") as mock_kubectl,
+        patch.object(check, "run_command", return_value=_ok(_managed_evidence())) as mock_run,
+    ):
+        check.run()
+
+    assert check.passed, check.message
+    assert "node_pool=system-pool" in check.message
+    assert "min_nodes=1" in check.message
+    assert "max_nodes=4" in check.message
+    mock_run.assert_called_once_with("probe-managed-autoscaler")
+    mock_kubectl.assert_not_called()
+
+
+def test_cluster_autoscaler_provider_managed_mode_requires_command() -> None:
+    """Verify explicit managed mode cannot silently fall back to Deployment discovery."""
+    check = K8sClusterAutoscalerCheck(config={"mode": "provider_managed"})
+    with patch.object(check, "run_command") as mock_run:
+        check.run()
+
+    assert not check.passed
+    assert "provider_managed_command must be a non-empty string" in check.message
+    mock_run.assert_not_called()
+
+
+def test_cluster_autoscaler_provider_managed_mode_fails_on_command_error() -> None:
+    """Verify provider API or permission failures remain validation failures."""
+    check = K8sClusterAutoscalerCheck(
+        config={"mode": "provider_managed", "provider_managed_command": "probe-managed-autoscaler"}
+    )
+    with patch.object(check, "run_command", return_value=_fail(stderr="permission denied")):
+        check.run()
+
+    assert not check.passed
+    assert "command failed: permission denied" in check.message
+
+
+@pytest.mark.parametrize("stdout", ["not-json", "[]"])
+def test_cluster_autoscaler_provider_managed_mode_rejects_invalid_json(stdout: str) -> None:
+    """Verify only a provider-neutral JSON object can establish managed evidence."""
+    check = K8sClusterAutoscalerCheck(
+        config={"mode": "provider_managed", "provider_managed_command": "probe-managed-autoscaler"}
+    )
+    with patch.object(check, "run_command", return_value=_ok(stdout)):
+        check.run()
+
+    assert not check.passed
+    assert "Invalid provider-managed autoscaler evidence" in check.message
+
+
+@pytest.mark.parametrize(
+    ("stdout", "error"),
+    [
+        (_managed_evidence(enabled=False), "enabled must be the JSON boolean true"),
+        (_managed_evidence(node_pool=""), "node_pool must be a non-empty string"),
+        (_managed_evidence(min_nodes=-1), "min_nodes must be a non-negative JSON integer"),
+        (_managed_evidence(max_nodes=0), "max_nodes must be at least 1"),
+        (_managed_evidence(min_nodes=5, max_nodes=4), "min_nodes (5) cannot exceed max_nodes (4)"),
+    ],
+)
+def test_cluster_autoscaler_provider_managed_mode_rejects_invalid_evidence(stdout: str, error: str) -> None:
+    """Verify managed proof fails closed on disabled or incoherent evidence."""
+    check = K8sClusterAutoscalerCheck(
+        config={"mode": "provider_managed", "provider_managed_command": "probe-managed-autoscaler"}
+    )
+    with patch.object(check, "run_command", return_value=_ok(stdout)):
+        check.run()
+
+    assert not check.passed
+    assert error in check.message
+
+
+def test_cluster_autoscaler_rejects_unknown_mode() -> None:
+    """Verify a typo cannot silently select the Deployment path."""
+    check = K8sClusterAutoscalerCheck(config={"mode": "provider-managed"})
+    with patch.object(check, "run_command") as mock_run:
+        check.run()
+
+    assert not check.passed
+    assert "Invalid mode" in check.message
+    mock_run.assert_not_called()
