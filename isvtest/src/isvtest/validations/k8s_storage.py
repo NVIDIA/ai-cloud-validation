@@ -43,8 +43,9 @@ import shlex
 import subprocess
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, ClassVar
+from typing import Any, ClassVar
 
 from kubernetes.utils import parse_quantity
 
