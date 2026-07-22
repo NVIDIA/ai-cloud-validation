@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import json
 import shlex
 from typing import Any, ClassVar
 
@@ -38,13 +39,20 @@ DEFAULT_LABEL_SELECTORS: tuple[str, ...] = (
     "app=cluster-autoscaler",
     "k8s-app=cluster-autoscaler",
 )
+VALID_MODES: tuple[str, ...] = ("deployment", "provider_managed")
 
 
 class K8sClusterAutoscalerCheck(BaseValidation):
-    """Verify an upstream Cluster Autoscaler deployment is installed and running.
+    """Verify an in-cluster or provider-managed Cluster Autoscaler integration.
 
     Config keys:
 
+    * ``mode`` - ``"deployment"`` (default) discovers an in-cluster upstream
+      Deployment. ``"provider_managed"`` executes
+      ``provider_managed_command`` and validates its provider-neutral JSON.
+    * ``provider_managed_command`` - command that emits an object containing
+      ``enabled``, ``node_pool``, ``min_nodes``, and ``max_nodes``. Required in
+      ``provider_managed`` mode.
     * ``namespaces`` - namespaces to probe by deployment name. Defaults to
       ``["kube-system"]``. ``namespace`` is accepted as a single-value alias.
     * ``deployment_names`` - deployment names to probe. Defaults to
@@ -56,10 +64,18 @@ class K8sClusterAutoscalerCheck(BaseValidation):
       Cluster Autoscaler integration on the cluster.
     """
 
-    description: ClassVar[str] = "Verify upstream Cluster Autoscaler integration is installed and running."
+    description: ClassVar[str] = "Verify an in-cluster or provider-managed Cluster Autoscaler integration."
 
     def run(self) -> None:
-        """Find Cluster Autoscaler deployments and verify their replicas and pods are healthy."""
+        """Dispatch to provider-managed evidence or in-cluster Deployment validation."""
+        mode = self.config.get("mode", "deployment")
+        if not isinstance(mode, str) or mode not in VALID_MODES:
+            self.set_failed(f"Invalid mode: {mode!r} (expected one of {list(VALID_MODES)})")
+            return
+        if mode == "provider_managed":
+            self._run_provider_managed()
+            return
+
         try:
             namespaces = _coerce_str_list(
                 self.config.get("namespaces", self.config.get("namespace", ["kube-system"])),
@@ -135,6 +151,33 @@ class K8sClusterAutoscalerCheck(BaseValidation):
         self.set_passed(
             f"Found {len(deployments)} healthy Cluster Autoscaler deployment(s): {refs}; "
             f"{running_total} matching pod(s) Running"
+        )
+
+    def _run_provider_managed(self) -> None:
+        """Validate provider-managed autoscaling from a configured readback command."""
+        command = self.config.get("provider_managed_command")
+        if not isinstance(command, str) or not command.strip():
+            self.set_failed(
+                "Invalid config: provider_managed_command must be a non-empty string when mode='provider_managed'"
+            )
+            return
+
+        result = self.run_command(command)
+        if result.exit_code != 0:
+            detail = (result.stderr or result.stdout or f"exit {result.exit_code}").strip()
+            self.set_failed(f"Provider-managed autoscaler command failed: {detail}")
+            return
+
+        try:
+            evidence = _parse_provider_managed_evidence(result.stdout)
+        except ValueError as exc:
+            self.set_failed(f"Invalid provider-managed autoscaler evidence: {exc}")
+            return
+
+        self.set_passed(
+            "Provider-managed Cluster Autoscaler verified: "
+            f"node_pool={evidence['node_pool']}, min_nodes={evidence['min_nodes']}, "
+            f"max_nodes={evidence['max_nodes']}"
         )
 
     def _discover_deployments(
@@ -220,6 +263,44 @@ def _coerce_str_list(value: Any, field: str) -> list[str]:
         if stripped:
             values.append(stripped)
     return values
+
+
+def _parse_provider_managed_evidence(stdout: str) -> dict[str, Any]:
+    """Parse and validate the provider-neutral managed-autoscaler JSON contract."""
+    try:
+        evidence = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"command stdout is not valid JSON: {exc.msg}") from exc
+
+    if not isinstance(evidence, dict):
+        raise ValueError(f"command stdout must be a JSON object, got {type(evidence).__name__}")
+    if evidence.get("enabled") is not True:
+        raise ValueError("enabled must be the JSON boolean true")
+
+    node_pool = evidence.get("node_pool")
+    if not isinstance(node_pool, str) or not node_pool.strip():
+        raise ValueError("node_pool must be a non-empty string")
+
+    min_nodes = _managed_node_bound(evidence.get("min_nodes"), "min_nodes")
+    max_nodes = _managed_node_bound(evidence.get("max_nodes"), "max_nodes")
+    if max_nodes < 1:
+        raise ValueError("max_nodes must be at least 1")
+    if min_nodes > max_nodes:
+        raise ValueError(f"min_nodes ({min_nodes}) cannot exceed max_nodes ({max_nodes})")
+
+    return {
+        "enabled": True,
+        "node_pool": node_pool.strip(),
+        "min_nodes": min_nodes,
+        "max_nodes": max_nodes,
+    }
+
+
+def _managed_node_bound(value: Any, field: str) -> int:
+    """Return a non-negative JSON integer node bound."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field} must be a non-negative JSON integer")
+    return value
 
 
 def _object_ref(obj: dict[str, Any]) -> tuple[str, str]:
