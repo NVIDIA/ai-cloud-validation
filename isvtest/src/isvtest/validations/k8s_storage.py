@@ -38,10 +38,12 @@ Implements:
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import subprocess
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -59,6 +61,7 @@ from isvtest.core.k8s import (
     parse_kubectl_json,
     render_k8s_manifest,
 )
+from isvtest.core.runners import CommandResult
 from isvtest.core.validation import BaseValidation
 
 _MANIFEST_DIR = Path(__file__).parent / "manifests" / "k8s"
@@ -70,6 +73,8 @@ _MOUNT_POD_MANIFEST = _MANIFEST_DIR / "storage_mount_pod.yaml"
 # BusyBox provides flock/stat/ls/mkdir/awk/seq; override via the ``image``
 # config key for air-gapped clusters that mirror to a private registry.
 _DEFAULT_IMAGE = "busybox:1.36"
+_DIAGNOSTIC_COMMAND_TIMEOUT = 30
+_DIAGNOSTIC_TOTAL_TIMEOUT = 30
 
 _STORAGE_TYPES: tuple[tuple[str, str], ...] = (
     ("block", "ReadWriteOnce"),
@@ -78,6 +83,9 @@ _STORAGE_TYPES: tuple[tuple[str, str], ...] = (
 )
 
 _QUOTA_REJECTION_TOKENS: tuple[str, ...] = ("exceeded quota", "forbidden")
+_DIAGNOSTIC_SECTION_LIMIT = 1024
+_DIAGNOSTIC_TOTAL_LIMIT = 6144
+_SENSITIVE_DIAGNOSTIC_LINE = re.compile(r"(?i)(authorization|credential|password|private[-_ ]?key|secret|token)\s*[:=]")
 
 
 def _apply_manifest(kubectl_parts: list[str], manifest: str, timeout: float) -> tuple[int, str]:
@@ -161,6 +169,90 @@ def _wait_pod_ready(run_command, kubectl_base: str, namespace: str, pod_name: st
     if result.exit_code == 0:
         return True, ""
     return False, (result.stderr.strip() or result.stdout.strip())
+
+
+def _bounded_diagnostic_section(label: str, text: str) -> str:
+    """Redact sensitive lines and cap one diagnostic section."""
+    redacted = "\n".join(
+        "[REDACTED]" if _SENSITIVE_DIAGNOSTIC_LINE.search(line) else line for line in text.splitlines()
+    ).strip()
+    if len(redacted) > _DIAGNOSTIC_SECTION_LIMIT:
+        marker = "\n...[section truncated]"
+        redacted = f"{redacted[: _DIAGNOSTIC_SECTION_LIMIT - len(marker)]}{marker}"
+    return f"== {label} ==\n{redacted or '[no output]'}"
+
+
+def _collect_storage_diagnostics(
+    run_command: Callable[[str, int | None], CommandResult],
+    kubectl_base: str,
+    namespace: str,
+    *,
+    pod_name: str,
+    pvc_name: str,
+) -> str:
+    """Collect bounded pod/PVC state and events without changing test outcome."""
+    namespace_quoted = shlex.quote(namespace)
+    resources = (
+        ("Pod", "pod", "Pod", pod_name),
+        ("PVC", "pvc", "PersistentVolumeClaim", pvc_name),
+    )
+    sections: list[str] = []
+    deadline = time.monotonic() + _DIAGNOSTIC_TOTAL_TIMEOUT
+    for label, resource, event_kind, name in resources:
+        name_quoted = shlex.quote(name)
+        commands = (
+            (f"{label} state", f"{kubectl_base} get {resource} {name_quoted} -n {namespace_quoted} -o wide"),
+            (f"{label} description", f"{kubectl_base} describe {resource} {name_quoted} -n {namespace_quoted}"),
+            (
+                f"{label} events",
+                f"{kubectl_base} get events -n {namespace_quoted} "
+                f"--field-selector involvedObject.kind={event_kind},involvedObject.name={name_quoted} "
+                "--sort-by=.lastTimestamp",
+            ),
+        )
+        for section_label, command in commands:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                sections.append("== diagnostics ==\n[collection deadline exceeded]")
+                break
+            try:
+                result = run_command(command, timeout=min(_DIAGNOSTIC_COMMAND_TIMEOUT, max(1, int(remaining))))
+                output = (
+                    result.stdout
+                    if result.exit_code == 0
+                    else (result.stderr or result.stdout or f"command exited {result.exit_code}")
+                )
+            except Exception as exc:
+                output = f"diagnostic command failed: {type(exc).__name__}: {exc}"
+            sections.append(_bounded_diagnostic_section(section_label, output))
+
+    diagnostics = "\n".join(sections)
+    if len(diagnostics) > _DIAGNOSTIC_TOTAL_LIMIT:
+        marker = "\n...[diagnostics truncated]"
+        diagnostics = f"{diagnostics[: _DIAGNOSTIC_TOTAL_LIMIT - len(marker)]}{marker}"
+    return diagnostics
+
+
+def _log_storage_diagnostics(
+    validation: BaseValidation,
+    *,
+    pod_name: str,
+    pvc_name: str,
+) -> None:
+    """Emit failure evidence before namespace cleanup; collection is best-effort."""
+    diagnostics = _collect_storage_diagnostics(
+        lambda command, timeout: validation.runner.run(command, timeout=timeout or _DIAGNOSTIC_COMMAND_TIMEOUT),
+        validation._kubectl_base,
+        validation._namespace,
+        pod_name=pod_name,
+        pvc_name=pvc_name,
+    )
+    validation.log.error(
+        "CSI pod/PVC diagnostics before cleanup (pod=%s pvc=%s):\n%s",
+        pod_name,
+        pvc_name,
+        diagnostics,
+    )
 
 
 def _storage_quantities_equal(left: Any, right: Any) -> bool:
@@ -326,6 +418,12 @@ class K8sCsiStorageTypesCheck(BaseValidation):
                     self.run_command, self._kubectl_base, self._namespace, pod_name, bind_timeout
                 )
                 bound = pod_ready and self._wait_pvc_bound(pvc_name, 5)
+                if not bound:
+                    _log_storage_diagnostics(
+                        self,
+                        pod_name=pod_name,
+                        pvc_name=pvc_name,
+                    )
                 self.report_subtest(
                     f"pvc-binds[{type_name}]",
                     passed=bound,
@@ -625,6 +723,11 @@ class K8sCsiStorageQuotaApiCheck(BaseValidation):
             self.run_command, self._kubectl_base, self._namespace, pod_name, bind_timeout
         )
         if not pod_ready or not self._wait_pvc_bound(pvc_name, 5):
+            _log_storage_diagnostics(
+                self,
+                pod_name=pod_name,
+                pvc_name=pvc_name,
+            )
             self.report_subtest(
                 "per-pvc-usage",
                 passed=False,
@@ -1641,6 +1744,11 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
             self.run_command, self._kubectl_base, self._namespace, pod_name, bind_timeout
         )
         if not pod_ready:
+            _log_storage_diagnostics(
+                self,
+                pod_name=pod_name,
+                pvc_name=pvc_name,
+            )
             self.report_subtest(
                 "dynamic",
                 passed=False,
@@ -1652,6 +1760,11 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
             return None
 
         if not self._wait_pvc_bound(pvc_name, 5):
+            _log_storage_diagnostics(
+                self,
+                pod_name=pod_name,
+                pvc_name=pvc_name,
+            )
             self.report_subtest(
                 "dynamic",
                 passed=False,
@@ -1865,6 +1978,11 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
 
         ready, err = _wait_pod_ready(self.run_command, self._kubectl_base, self._namespace, pod_name, timeout_s)
         if not ready:
+            _log_storage_diagnostics(
+                self,
+                pod_name=pod_name,
+                pvc_name=pvc_name,
+            )
             self.log.error("Mount pod %s did not become Ready: %s", pod_name, err)
             return False
 
@@ -2092,6 +2210,11 @@ class K8sCsiConcurrentPvcCheck(BaseValidation):
                     ),
                 )
                 if not bound:
+                    _log_storage_diagnostics(
+                        self,
+                        pod_name=pod_name,
+                        pvc_name=pvc_name,
+                    )
                     any_failed = True
 
             # Collect PV names from all bound PVCs and assert they are distinct.
@@ -2248,6 +2371,11 @@ class K8sCsiPvcExpandCheck(BaseValidation):
                 self.run_command, self._kubectl_base, self._namespace, pod_name, bind_timeout
             )
             if not pod_ready or not _poll_pvc_bound(self.run_command, self._kubectl_base, self._namespace, pvc_name, 5):
+                _log_storage_diagnostics(
+                    self,
+                    pod_name=pod_name,
+                    pvc_name=pvc_name,
+                )
                 self.set_failed(
                     f"PVC {pvc_name!r} did not reach Bound before resize within {bind_timeout}s: {wait_err[:200]}"
                 )
