@@ -2116,6 +2116,79 @@ def test_storage_l3_main_accepts_ec2_cross_subnet_routes_via_subnet_router(
     }
 
 
+def test_storage_l3_main_rejects_reachable_cross_subnet_pairs_via_transit_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Reachability must not hide a more-specific prohibited gateway route."""
+    module = _load_network_script("storage_l3_routing_test.py")
+
+    class FakeGatewayStorageL3Ec2(FakeStorageL3Ec2):
+        """Expose local routing generally but a more-specific gateway route from subnet A."""
+
+        def describe_route_tables(self, Filters: list[dict[str, Any]]) -> dict[str, Any]:
+            """Return a selected transit-gateway route for subnet-A to subnet-B traffic."""
+            assert Filters == [{"Name": "vpc-id", "Values": ["vpc-storage"]}]
+            return {
+                "RouteTables": [
+                    {
+                        "RouteTableId": "rtb-subnet-a",
+                        "Associations": [{"SubnetId": "subnet-a"}],
+                        "Routes": [
+                            {
+                                "DestinationCidrBlock": "10.86.0.0/16",
+                                "GatewayId": "local",
+                                "State": "active",
+                            },
+                            {
+                                "DestinationCidrBlock": "10.86.2.0/24",
+                                "TransitGatewayId": "tgw-prohibited",
+                                "State": "active",
+                            },
+                        ],
+                    },
+                    {
+                        "RouteTableId": "rtb-main",
+                        "Associations": [{"Main": True}],
+                        "Routes": [
+                            {
+                                "DestinationCidrBlock": "10.86.0.0/16",
+                                "GatewayId": "local",
+                                "State": "active",
+                            }
+                        ],
+                    },
+                ]
+            }
+
+    fake_ec2 = FakeGatewayStorageL3Ec2()
+
+    def fake_run_ssm_command(ssm: Any, instance_id: str, command: str) -> tuple[bool, str]:
+        return True, ""
+
+    _patch_storage_l3_main(module, monkeypatch, fake_ec2, fake_run_ssm_command)
+
+    exit_code = module.main()
+
+    assert exit_code == 1
+    payload: dict[str, Any] = json.loads(capsys.readouterr().out)
+    assert payload["tests"]["all_to_all_reachable"] == {
+        "passed": True,
+        "pairs_tested": 6,
+        "pairs_reachable": 6,
+    }
+    assert payload["tests"]["cross_subnet_routing"] == {
+        "passed": True,
+        "pairs_tested": 4,
+        "pairs_reachable": 4,
+    }
+    assert payload["tests"]["no_gateway_hop"]["passed"] is False
+    assert payload["tests"]["no_gateway_hop"]["pairs_tested"] == 4
+    assert payload["tests"]["no_gateway_hop"]["pairs_direct"] == 2
+    assert "TransitGatewayId=tgw-prohibited" in payload["tests"]["no_gateway_hop"]["error"]
+    assert payload["success"] is False
+
+
 def test_storage_l3_main_records_cleanup_failure_without_losing_result(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
