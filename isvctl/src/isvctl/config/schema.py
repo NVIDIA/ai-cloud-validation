@@ -83,7 +83,10 @@ class StepConfig(BaseModel):
         default_factory=list,
         description="Command arguments (supports Jinja2 templating with {{ steps.prev_step.field }})",
     )
-    timeout: int = Field(default=300, description="Timeout in seconds")
+    timeout: int | None = Field(
+        default=300,
+        description="Timeout in seconds; null disables the orchestration watchdog",
+    )
     env: dict[str, str] = Field(default_factory=dict, description="Additional environment variables")
     working_dir: str | None = Field(default=None, description="Working directory for command execution")
     skip: bool = Field(default=False, description="Skip this step")
@@ -100,7 +103,23 @@ class StepConfig(BaseModel):
             "Unreleased validations are available only when ISVTEST_INCLUDE_UNRELEASED=1."
         ),
     )
+    requires_selected_validations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Configured validation names that must be selected after release, capability, label, and suite "
+            "exclusion filtering for this step to run. A failed step is also reported as an error on these "
+            "owning validations."
+        ),
+    )
     continue_on_failure: bool = Field(default=False, description="Continue to next step even if this step fails")
+    finalizer_for: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "Step whose attempted execution activates this finalizer. A finalizer may be in the target phase "
+            "or in the teardown phase; it runs immediately after the target phase validations."
+        ),
+    )
     phase: str = Field(
         default="setup",
         description="Phase this step belongs to: 'setup', 'test', or 'teardown'",
@@ -160,10 +179,75 @@ class PlatformCommands(BaseModel):
         default_factory=lambda: ["setup", "teardown"],
         description="Ordered list of phases to execute. Steps are grouped by phase and run in this order.",
     )
+    continue_after_failure: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Phases whose failure must not prevent later phases from running. "
+            "Use this for independent test cases, never for prerequisite/setup phases."
+        ),
+    )
     steps: list[StepConfig] = Field(
         default_factory=list,
         description="Sequential command steps grouped by phase",
     )
+
+    @model_validator(mode="after")
+    def validate_continuation_phases(self) -> "PlatformCommands":
+        """Reject invalid continuation and linked-finalizer declarations."""
+        if len(self.phases) != len(set(self.phases)):
+            raise ValueError("phases must not contain duplicate names")
+        unknown = [phase for phase in self.continue_after_failure if phase not in self.phases]
+        if unknown:
+            raise ValueError(f"continue_after_failure contains phases not listed in phases: {unknown}")
+        unsafe = [phase for phase in self.continue_after_failure if phase in {"setup", "teardown"}]
+        if unsafe:
+            raise ValueError(f"continue_after_failure cannot contain lifecycle phases: {unsafe}")
+        if len(self.continue_after_failure) != len(set(self.continue_after_failure)):
+            raise ValueError("continue_after_failure must not contain duplicate phase names")
+
+        for finalizer in (step for step in self.steps if step.finalizer_for is not None):
+            targets = [step for step in self.steps if step.name == finalizer.finalizer_for]
+            if len(targets) != 1:
+                raise ValueError(
+                    f"step '{finalizer.name}' finalizer_for must name exactly one configured step: "
+                    f"{finalizer.finalizer_for!r}"
+                )
+            target = targets[0]
+            target_phase = target.phase.lower()
+            finalizer_phase = finalizer.phase.lower()
+            if target_phase != finalizer_phase and finalizer_phase != "teardown":
+                raise ValueError(
+                    f"step '{finalizer.name}' finalizer_for target '{target.name}' must be in the same phase "
+                    "or the finalizer must use phase 'teardown'"
+                )
+            if finalizer_phase == "teardown" and target_phase != finalizer_phase:
+                normalized_phases = [phase.lower() for phase in self.phases]
+                if "teardown" not in normalized_phases:
+                    raise ValueError(f"step '{finalizer.name}' uses phase 'teardown', which is not listed in phases")
+                if target_phase not in normalized_phases:
+                    raise ValueError(
+                        f"step '{finalizer.name}' finalizer_for target '{target.name}' has an unknown phase"
+                    )
+                if normalized_phases.index(target_phase) >= normalized_phases.index("teardown"):
+                    raise ValueError(f"step '{finalizer.name}' teardown must be ordered after target '{target.name}'")
+            if target.finalizer_for is not None:
+                raise ValueError(f"step '{finalizer.name}' cannot finalize finalizer step '{target.name}'")
+            gate_fields = (
+                "requires",
+                "requires_available_validations",
+                "requires_selected_validations",
+            )
+            mismatched_gates = [
+                field_name
+                for field_name in gate_fields
+                if getattr(finalizer, field_name) != getattr(target, field_name)
+            ]
+            if mismatched_gates:
+                raise ValueError(
+                    f"step '{finalizer.name}' must use the same gates as target '{target.name}': "
+                    + ", ".join(mismatched_gates)
+                )
+        return self
 
 
 class KubernetesNodeOutput(BaseModel):

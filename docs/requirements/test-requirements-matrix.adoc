@@ -3495,4 +3495,544 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[K8S42-01]]K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Network Operator deployment health, versions, policies, Multus, secondary networks, and IP pools
+| ENT-REQ-000
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Network Operator deployment health, versions, policies, Multus, secondary networks, and IP pools
+| ENT-REQ-001
+| network-operator-prd
+| full
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Network Operator deployment health, versions, policies, Multus, secondary networks, and IP pools
+| ENT-REQ-003
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Network Operator deployment health, versions, policies, Multus, secondary networks, and IP pools
+| ENT-REQ-009
+| network-operator-prd
+| full
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Network Operator deployment health, versions, policies, Multus, secondary networks, and IP pools
+| ENT-REQ-011
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-02]]K8S42-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate the SR-IOV policy and profile-specific secondary network resources reported by Launch Kit
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-03]]K8S42-03
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate pod-to-pod RDMA-CM connectivity across selected rails
+| ENT-REQ-002
+| network-operator-prd
+| full
+|
+
+| K8S42-03
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate pod-to-pod RDMA-CM connectivity across selected rails
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| K8S42-03
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate pod-to-pod RDMA-CM connectivity across selected rails
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-04]]K8S42-04
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate the exact secondary network resource selected for an Ethernet or RoCE profile
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-05]]K8S42-05
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate the exact secondary network resource selected for an InfiniBand profile
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-06]]K8S42-06
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate HostDeviceNetwork readiness for an applicable Ethernet or InfiniBand profile
+| ENT-REQ-007
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-07]]K8S42-07
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate GPUDirect RDMA DMA-BUF bandwidth between GPU-enabled pod endpoints
+| ENT-REQ-008
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-08]]K8S42-08
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Launch Kit discovery completed and resolved a fabric and deployment profile
+| ENT-REQ-002
+| network-operator-prd
+| partial
+|
+
+| K8S42-08
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Launch Kit discovery completed and resolved a fabric and deployment profile
+| ENT-REQ-004
+| network-operator-prd
+| partial
+|
+
+| K8S42-08
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Launch Kit discovery completed and resolved a fabric and deployment profile
+| ENT-REQ-012
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-09]]K8S42-09
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate IP pool and profile-specific secondary-network resources plus test DaemonSet readiness
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| K8S42-09
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate IP pool and profile-specific secondary-network resources plus test DaemonSet readiness
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| K8S42-09
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate IP pool and profile-specific secondary-network resources plus test DaemonSet readiness
+| ENT-REQ-009
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-10]]K8S42-10
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Macvlan or IPoIB network readiness for an applicable RDMA Shared profile
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| K8S42-10
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate Macvlan or IPoIB network readiness for an applicable RDMA Shared profile
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-11]]K8S42-11
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate source-bound same-rail ICMP connectivity and strict cross-rail isolation
+| ENT-REQ-002
+| network-operator-prd
+| partial
+|
+
+| K8S42-11
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate source-bound same-rail ICMP connectivity and strict cross-rail isolation
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| K8S42-11
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate source-bound same-rail ICMP connectivity and strict cross-rail isolation
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-12]]K8S42-12
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate every ib_write_bw result and report its Launch Kit-resolved minimum bandwidth
+| ENT-REQ-002
+| network-operator-prd
+| partial
+|
+
+| K8S42-12
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate every ib_write_bw result and report its Launch Kit-resolved minimum bandwidth
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| K8S42-12
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate every ib_write_bw result and report its Launch Kit-resolved minimum bandwidth
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-13]]K8S42-13
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Validate same-rail and cross-rail coverage for a multi-rail Launch Kit profile
+| ENT-REQ-002
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-15]]K8S42-15
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify raw phase output, generated files, connectivity results, and Launch Kit reports were preserved
+| ENT-REQ-011
+| network-operator-prd
+| partial
+|
+
+| K8S42-15
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify raw phase output, generated files, connectivity results, and Launch Kit reports were preserved
+| ENT-REQ-013
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-16]]K8S42-16
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE SR-IOV Network RDMA profile
+| ENT-REQ-001
+| network-operator-prd
+| partial
+|
+
+| K8S42-16
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE SR-IOV Network RDMA profile
+| ENT-REQ-003
+| network-operator-prd
+| partial
+|
+
+| K8S42-16
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE SR-IOV Network RDMA profile
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| K8S42-16
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE SR-IOV Network RDMA profile
+| ENT-REQ-008
+| network-operator-prd
+| partial
+|
+
+| K8S42-16
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE SR-IOV Network RDMA profile
+| ENT-REQ-013
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-17]]K8S42-17
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand SR-IOV Network RDMA profile
+| ENT-REQ-001
+| network-operator-prd
+| partial
+|
+
+| K8S42-17
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand SR-IOV Network RDMA profile
+| ENT-REQ-003
+| network-operator-prd
+| partial
+|
+
+| K8S42-17
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand SR-IOV Network RDMA profile
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| K8S42-17
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand SR-IOV Network RDMA profile
+| ENT-REQ-008
+| network-operator-prd
+| partial
+|
+
+| K8S42-17
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand SR-IOV Network RDMA profile
+| ENT-REQ-013
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-18]]K8S42-18
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE RDMA Shared profile
+| ENT-REQ-001
+| network-operator-prd
+| partial
+|
+
+| K8S42-18
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE RDMA Shared profile
+| ENT-REQ-003
+| network-operator-prd
+| partial
+|
+
+| K8S42-18
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE RDMA Shared profile
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| K8S42-18
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE RDMA Shared profile
+| ENT-REQ-008
+| network-operator-prd
+| partial
+|
+
+| K8S42-18
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an Ethernet or RoCE RDMA Shared profile
+| ENT-REQ-013
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-19]]K8S42-19
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand or IPoIB RDMA Shared profile
+| ENT-REQ-001
+| network-operator-prd
+| partial
+|
+
+| K8S42-19
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand or IPoIB RDMA Shared profile
+| ENT-REQ-003
+| network-operator-prd
+| partial
+|
+
+| K8S42-19
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand or IPoIB RDMA Shared profile
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| K8S42-19
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand or IPoIB RDMA Shared profile
+| ENT-REQ-008
+| network-operator-prd
+| partial
+|
+
+| K8S42-19
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for an InfiniBand or IPoIB RDMA Shared profile
+| ENT-REQ-013
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-20]]K8S42-20
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for Ethernet or RoCE host-device networking on worker VMs
+| ENT-REQ-001
+| network-operator-prd
+| partial
+|
+
+| K8S42-20
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for Ethernet or RoCE host-device networking on worker VMs
+| ENT-REQ-003
+| network-operator-prd
+| partial
+|
+
+| K8S42-20
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for Ethernet or RoCE host-device networking on worker VMs
+| ENT-REQ-007
+| network-operator-prd
+| partial
+|
+
+| K8S42-20
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for Ethernet or RoCE host-device networking on worker VMs
+| ENT-REQ-008
+| network-operator-prd
+| partial
+|
+
+| K8S42-20
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for Ethernet or RoCE host-device networking on worker VMs
+| ENT-REQ-013
+| network-operator-prd
+| partial
+|
+
+| [[K8S42-21]]K8S42-21
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for InfiniBand host-device networking on worker VMs
+| ENT-REQ-001
+| network-operator-prd
+| partial
+|
+
+| K8S42-21
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for InfiniBand host-device networking on worker VMs
+| ENT-REQ-003
+| network-operator-prd
+| partial
+|
+
+| K8S42-21
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for InfiniBand host-device networking on worker VMs
+| ENT-REQ-007
+| network-operator-prd
+| partial
+|
+
+| K8S42-21
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for InfiniBand host-device networking on worker VMs
+| ENT-REQ-008
+| network-operator-prd
+| partial
+|
+
+| K8S42-21
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the complete Launch Kit workflow for InfiniBand host-device networking on worker VMs
+| ENT-REQ-013
+| network-operator-prd
+| partial
+|
+
 |===

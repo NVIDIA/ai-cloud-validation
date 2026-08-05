@@ -35,6 +35,7 @@ from isvctl.orchestrator.loop import (
     Orchestrator,
     Phase,
     _apply_capability_step_gates,
+    _apply_selected_validation_gates,
     _entries_missing_from_junit,
     _merge_junit_xmls,
     _write_terminal_junit_xml,
@@ -77,6 +78,60 @@ def test_explicit_step_requires_gate_unbound_lifecycle_steps() -> None:
 
     assert all(step.skip for step in vm_steps)
     assert all(not step.skip for step in kubernetes_steps)
+
+
+def test_selected_validation_gate_prunes_unselected_lifecycle_steps() -> None:
+    """Label selection prevents commands owned by another test group from running."""
+    steps = [
+        StepConfig(
+            name="run_ethernet",
+            command="ethernet",
+            phase="test",
+            requires_selected_validations=["EthernetCheck"],
+        ),
+        StepConfig(
+            name="run_infiniband",
+            command="infiniband",
+            phase="test",
+            requires_selected_validations=["InfiniBandCheck"],
+        ),
+    ]
+    entries = [
+        ValidationEntry(
+            name="EthernetCheck",
+            category="network",
+            params_template={},
+            labels=("ethernet",),
+        ),
+        ValidationEntry(
+            name="InfiniBandCheck",
+            category="network",
+            params_template={},
+            labels=("infiniband",),
+        ),
+    ]
+
+    all_steps = _apply_selected_validation_gates(
+        steps,
+        entries,
+        include_labels=set(),
+        exclude_labels=set(),
+        exclude_tests=set(),
+        released_tests=None,
+        capability=None,
+    )
+    ethernet_steps = _apply_selected_validation_gates(
+        steps,
+        entries,
+        include_labels={"ethernet"},
+        exclude_labels=set(),
+        exclude_tests=set(),
+        released_tests=None,
+        capability=None,
+    )
+
+    assert all(not step.skip for step in all_steps)
+    assert [step.skip for step in ethernet_steps] == [False, True]
 
 
 def test_python_script_path_falls_back_to_current_working_directory(
@@ -403,6 +458,268 @@ EOF
         assert len(teardown_phases) == 1
         assert teardown_phases[0].success
 
+    def test_independent_custom_phase_runs_after_an_allowed_failure(self) -> None:
+        """An opted-in failed use case does not hide results from later independent cases."""
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two"],
+                    continue_after_failure=["case-one"],
+                    steps=[
+                        StepConfig(name="case_one", command="false", phase="case-one"),
+                        StepConfig(
+                            name="case_two",
+                            command="echo",
+                            args=['{"success": true, "platform": "kubernetes"}'],
+                            phase="case-two",
+                            output_schema="generic",
+                        ),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+
+        assert result.success is False
+        assert [(phase.name, phase.success) for phase in result.phases] == [
+            ("case-one", False),
+            ("case-two", True),
+        ]
+
+    def test_phase_finalizer_runs_after_its_target_fails(self, tmp_path: Path) -> None:
+        """An attempted mutating step activates cleanup even when the step fails."""
+        marker = tmp_path / "cleaned"
+        cleanup = _write_script(
+            tmp_path,
+            "cleanup.sh",
+            f"#!/bin/sh\ntouch {marker}\necho '{{\"success\": true}}'\n",
+        )
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two"],
+                    continue_after_failure=["case-one"],
+                    steps=[
+                        StepConfig(name="deploy", command="false", phase="case-one"),
+                        StepConfig(
+                            name="cleanup",
+                            command=cleanup,
+                            phase="case-one",
+                            finalizer_for="deploy",
+                        ),
+                        StepConfig(name="case_two", command="true", phase="case-two"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+
+        assert result.success is False
+        assert marker.is_file()
+        assert [step["name"] for step in result.phases[0].details["steps"]] == ["deploy"]
+        assert [step["name"] for step in result.phases[1].details["steps"]] == ["cleanup"]
+        assert result.phases[1].phase is Phase.TEARDOWN
+        assert result.phases[1].name == "case-one-teardown"
+        assert result.phases[2].name == "case-two"
+        assert result.phases[2].success is True
+
+    def test_phase_finalizer_skips_when_target_was_not_attempted(self, tmp_path: Path) -> None:
+        """A prerequisite failure cannot activate destructive cleanup before deployment."""
+        marker = tmp_path / "cleaned"
+        cleanup = _write_script(tmp_path, "cleanup.sh", f"#!/bin/sh\ntouch {marker}\n")
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two"],
+                    continue_after_failure=["case-one"],
+                    steps=[
+                        StepConfig(name="preflight", command="false", phase="case-one"),
+                        StepConfig(name="deploy", command="true", phase="case-one"),
+                        StepConfig(
+                            name="cleanup",
+                            command=cleanup,
+                            phase="case-one",
+                            finalizer_for="deploy",
+                        ),
+                        StepConfig(name="case_two", command="true", phase="case-two"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+
+        assert result.success is False
+        assert not marker.exists()
+        assert [step["name"] for step in result.phases[0].details["steps"]] == ["preflight"]
+        assert result.phases[1].name == "case-one-teardown"
+        assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
+        assert result.phases[2].success is True
+
+    def test_phase_finalizer_skips_when_target_process_never_started(self, tmp_path: Path) -> None:
+        """A command-resolution failure cannot imply that a cluster mutation occurred."""
+        marker = tmp_path / "cleaned"
+        cleanup = _write_script(tmp_path, "cleanup.sh", f"#!/bin/sh\ntouch {marker}\n")
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two"],
+                    continue_after_failure=["case-one"],
+                    steps=[
+                        StepConfig(
+                            name="deploy",
+                            command=str(tmp_path / "does-not-exist"),
+                            phase="case-one",
+                        ),
+                        StepConfig(
+                            name="cleanup",
+                            command=cleanup,
+                            phase="case-one",
+                            finalizer_for="deploy",
+                        ),
+                        StepConfig(name="case_two", command="true", phase="case-two"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+
+        assert result.success is False
+        assert not marker.exists()
+        assert result.phases[0].details["steps"][0]["attempted"] is False
+        assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
+        assert result.phases[2].success is True
+
+    def test_failed_phase_finalizer_blocks_later_independent_phases(self) -> None:
+        """A failed cleanup leaves unsafe state and overrides continuation policy."""
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two"],
+                    continue_after_failure=["case-one"],
+                    steps=[
+                        StepConfig(name="deploy", command="true", phase="case-one"),
+                        StepConfig(
+                            name="cleanup",
+                            command="false",
+                            phase="case-one",
+                            finalizer_for="deploy",
+                        ),
+                        StepConfig(name="case_two", command="true", phase="case-two"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+
+        assert result.success is False
+        assert [(phase.name, phase.message) for phase in result.phases] == [
+            ("case-one", "deploy: passed"),
+            ("case-one-teardown", "cleanup: failed"),
+            ("case-two", "SKIPPED: previous phase failed"),
+        ]
+
+    def test_teardown_finalizer_runs_between_test_phases(self, tmp_path: Path) -> None:
+        """A step declared in teardown executes directly after its target test phase."""
+        marker = tmp_path / "cleaned"
+        cleanup = _write_script(tmp_path, "cleanup.sh", f"#!/bin/sh\ntouch {marker}\n")
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two", "teardown"],
+                    steps=[
+                        StepConfig(name="deploy", command="true", phase="case-one"),
+                        StepConfig(name="case_two", command="true", phase="case-two"),
+                        StepConfig(
+                            name="cleanup",
+                            command=cleanup,
+                            phase="teardown",
+                            finalizer_for="deploy",
+                        ),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+
+        assert result.success is True
+        assert marker.is_file()
+        assert [(phase.name, phase.phase) for phase in result.phases] == [
+            ("case-one", Phase.TEST),
+            ("case-one-teardown", Phase.TEARDOWN),
+            ("case-two", Phase.TEST),
+        ]
+
+    def test_teardown_only_runs_linked_finalizer_as_recovery(self, tmp_path: Path) -> None:
+        """An explicit teardown-only run does not require an in-memory target attempt."""
+        marker = tmp_path / "cleaned"
+        cleanup = _write_script(tmp_path, "cleanup.sh", f"#!/bin/sh\ntouch {marker}\n")
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["test", "teardown"],
+                    steps=[
+                        StepConfig(name="deploy", command="true", phase="test"),
+                        StepConfig(
+                            name="cleanup",
+                            command=cleanup,
+                            phase="teardown",
+                            finalizer_for="deploy",
+                        ),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEARDOWN])
+
+        assert result.success is True
+        assert marker.is_file()
+        assert [(phase.name, phase.phase) for phase in result.phases] == [
+            ("teardown", Phase.TEARDOWN),
+        ]
+
+    def test_custom_phase_failure_blocks_later_phases_by_default(self) -> None:
+        """Without an opt-in, the existing stop-on-failure behavior is unchanged."""
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two"],
+                    steps=[
+                        StepConfig(name="case_one", command="false", phase="case-one"),
+                        StepConfig(
+                            name="case_two",
+                            command="echo",
+                            args=['{"success": true, "platform": "kubernetes"}'],
+                            phase="case-two",
+                            output_schema="generic",
+                        ),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+
+        assert result.success is False
+        assert [(phase.name, phase.message) for phase in result.phases] == [
+            ("case-one", "case_one: failed"),
+            ("case-two", "SKIPPED: previous phase failed"),
+        ]
+
     def test_platform_detection_missing(self) -> None:
         """Test error when platform cannot be detected.
 
@@ -447,6 +764,29 @@ EOF
         assert [phase.phase for phase in result.phases] == [Phase.TEST]
         assert [entry.entry.name for entry in result.validations] == ["K8sCsiStorageTypesCheck"]
         assert result.validations[0].state is State.PASSED
+
+    def test_config_without_commands_reports_failed_live_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed commandless validation returns a failed result instead of reading command policy."""
+        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
+        config = RunConfig(
+            tests=ValidationConfig(
+                validations={
+                    "live_checks": {
+                        "checks": {
+                            "ExistingSystemFieldCheck": {
+                                "compose": [{"FieldExistsCheck": {"field": "missing"}}],
+                            }
+                        },
+                    }
+                },
+            ),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST], capability="kubernetes")
+
+        assert result.success is False
+        assert result.validations[0].state is State.FAILED
+        assert "Missing fields: missing" in result.validations[0].message
 
     def test_config_without_commands_or_validations_is_not_a_pass(self) -> None:
         """Validations are all a commandless run has, so wiring none asserts nothing."""
@@ -600,8 +940,79 @@ EOF
                 "state": "skipped",
                 "skip_reason": "step_no_output",
                 "error_reason": None,
+                "subtest_summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
             }
         ]
+
+    def test_failed_owned_step_is_reported_as_validation_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An early workflow failure cannot become a harmless missing-output skip."""
+        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
+        failing_step = _write_script(
+            tmp_path,
+            "deploy.sh",
+            "#!/bin/sh\necho 'driver image not found' >&2\nexit 4\n",
+        )
+        junit_path = tmp_path / "junit.xml"
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["use-case"],
+                    steps=[
+                        StepConfig(
+                            name="deploy_fixture",
+                            command=failing_step,
+                            phase="use-case",
+                            requires_selected_validations=["ProbeSucceededCheck"],
+                        ),
+                        StepConfig(
+                            name="validate_fixture",
+                            command="true",
+                            phase="use-case",
+                            requires_selected_validations=["ProbeSucceededCheck"],
+                        ),
+                    ],
+                )
+            },
+            tests=ValidationConfig(
+                capability="kubernetes",
+                validations={
+                    "probe_checks": {
+                        "step": "validate_fixture",
+                        "checks": {"ProbeSucceededCheck": {"compose": ["StepSuccessCheck"]}},
+                    },
+                },
+            ),
+        )
+
+        result = Orchestrator(config).run(
+            phases=[Phase.TEST],
+            capability="kubernetes",
+            junitxml=str(junit_path),
+        )
+
+        assert result.success is False
+        validation = result.validations[0]
+        assert validation.state is State.ERROR
+        assert validation.error_reason is ErrorReason.STEP_FAILED
+        assert validation.message == (
+            "workflow step 'deploy_fixture' failed: Command exited with code 4: driver image not found"
+        )
+
+        suite = ET.parse(junit_path).getroot().find("testsuite")
+        assert suite is not None
+        assert suite.get("errors") == "1"
+        assert suite.get("skipped") == "0"
+        case = suite.find("testcase")
+        assert case is not None
+        assert case.get("name") == "ProbeSucceededCheck"
+        error = case.find("error")
+        assert error is not None
+        assert error.get("type") == ErrorReason.STEP_FAILED.value
+        assert case.find("skipped") is None
 
     def test_validation_template_error_is_reported_as_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -22,6 +22,7 @@ from isvtest.core.resolution import ErrorReason, ResolvedEntry, SkipReason, Stat
 from isvtest.main import (
     _entries_with_pytest_names,
     _resolved_entries_to_pytest_validations,
+    _result_to_resolved_entry,
     run_validations_via_pytest,
 )
 
@@ -100,6 +101,27 @@ def test_run_validations_via_pytest_updates_ready_entries() -> None:
     assert results[0].message == "ok"
     assert results[1].skip_reason == SkipReason.RUNTIME_SKIP
     assert results[1].message == "NIM was not deployed"
+
+
+def test_result_to_resolved_entry_preserves_subtest_summary() -> None:
+    """Subtest counts remain structured until the presentation layer renders them."""
+    entry = _ready("StepSuccessCheck", "setup_checks", {"step_output": {"success": True}})
+
+    result = _result_to_resolved_entry(
+        entry,
+        {
+            "passed": True,
+            "skipped": False,
+            "message": "detailed validation output",
+            "subtest_summary": {"passed": 4, "failed": 0, "skipped": 2},
+        },
+    )
+
+    assert result.message == "detailed validation output"
+    assert result.subtest_summary.total == 6
+    assert result.subtest_summary.passed == 4
+    assert result.subtest_summary.failed == 0
+    assert result.subtest_summary.skipped == 2
 
 
 def test_run_validations_via_pytest_skips_structured_step_skips() -> None:

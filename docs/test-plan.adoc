@@ -2189,7 +2189,7 @@ a|
 | [[BFX04-01]]BFX04-01
 | BFX04
 |
-|
+| bare_metal, breakfix
 |
 | P1
 a|
@@ -2203,7 +2203,7 @@ a|
 | [[BFX05-01]]BFX05-01
 | BFX05
 |
-|
+| bare_metal, breakfix
 |
 |
 a|
@@ -2217,7 +2217,7 @@ a|
 | [[BFX06-01]]BFX06-01
 | BFX06
 |
-|
+| bare_metal, breakfix
 |
 |
 a|
@@ -2233,7 +2233,7 @@ a|
 | [[BFX01-01]]BFX01-01
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/206[#206]
-| min_req
+| breakfix, kubernetes, min_req
 |
 | P2
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/206[#206]
@@ -2247,7 +2247,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/206[#206]
 | [[BFX01-02]]BFX01-02
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/207[#207]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/207[#207]
@@ -2261,7 +2261,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/207[#207]
 | [[BFX01-03]]BFX01-03
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/208[#208]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/208[#208]
@@ -2275,7 +2275,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/208[#208]
 | [[BFX01-04]]BFX01-04
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/209[#209]
-| min_req
+| breakfix, kubernetes, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/209[#209]
@@ -2289,7 +2289,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/209[#209]
 | [[BFX01-05]]BFX01-05
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/210[#210]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/210[#210]
@@ -2305,7 +2305,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/210[#210]
 | [[BFX02-01]]BFX02-01
 | BFX02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/211[#211]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/211[#211]
@@ -2319,7 +2319,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/211[#211]
 | [[BFX02-02]]BFX02-02
 | BFX02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/212[#212]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/212[#212]
@@ -2333,7 +2333,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/212[#212]
 | [[BFX02-03]]BFX02-03
 | BFX02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/213[#213]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/213[#213]
@@ -2363,7 +2363,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/320[#320]
 | [[BFX03-02]]BFX03-02
 | BFX03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/214[#214]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/214[#214]
@@ -2377,7 +2377,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/214[#214]
 | [[BFX03-03]]BFX03-03
 | BFX03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/215[#215]
-| min_req
+| bare_metal, breakfix, min_req
 |
 | P1
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/215[#215]
@@ -3222,7 +3222,7 @@ a|
 | pending
 |
 
-.58+| Workload Orchestration
+.78+| Workload Orchestration
 | Backup and Recovery
 | Centralized managed service to automate and govern data backup across services
 | AWS backup
@@ -3400,7 +3400,7 @@ a|
 | published
 |
 
-.45+| Managed Kubernetes Control Plane
+.65+| Managed Kubernetes Control Plane
 | Tenant-isolated Kubernetes control planes for managing k8s workloads. does placement, networking, lifecyle mgmt.
 | AWS EKS, GCP GKE
 | [[K8S05-01]]K8S05-01
@@ -3760,6 +3760,288 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/220[#220]
 | M5
 |
 | Verify provider-default accelerator operators and drivers can be replaced or overridden with tenant-required versions
+| pending
+|
+
+.20+| Network Operator self-validation through Kubernetes Launch Kit
+.20+|
+| [[K8S42-01]]K8S42-01
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Production provider integration and unit coverage for ENT-REQ-001, ENT-REQ-009, and ENT-REQ-011
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate Network Operator deployment health, versions, policies, Multus, secondary networks, and IP pools
+| pending
+|
+
+| [[K8S42-02]]K8S42-02
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-005
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate the SR-IOV policy and profile-specific secondary network resources reported by Launch Kit
+| pending
+|
+
+| [[K8S42-03]]K8S42-03
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-002 and ENT-REQ-005
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate pod-to-pod RDMA-CM connectivity across selected rails
+| pending
+|
+
+| [[K8S42-04]]K8S42-04
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-005
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate the exact secondary network resource selected for an Ethernet or RoCE profile
+| pending
+|
+
+| [[K8S42-05]]K8S42-05
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-006
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate the exact secondary network resource selected for an InfiniBand profile
+| pending
+|
+
+| [[K8S42-06]]K8S42-06
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-007
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate HostDeviceNetwork readiness for an applicable Ethernet or InfiniBand profile
+| pending
+|
+
+| [[K8S42-07]]K8S42-07
+| K8S42
+|
+| era, gpudirect, kubernetes, ncp, network_operator, slow
+| Launch Kit gpudirect_dmabuf result-family integration and mock-backed unit coverage for ENT-REQ-008; live GPU qualification remains required
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate GPUDirect RDMA DMA-BUF bandwidth between GPU-enabled pod endpoints
+| pending
+|
+
+| [[K8S42-08]]K8S42-08
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-002, ENT-REQ-004, and ENT-REQ-012
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate Launch Kit discovery completed and resolved a fabric and deployment profile
+| pending
+|
+
+| [[K8S42-09]]K8S42-09
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-005, ENT-REQ-006, and ENT-REQ-009
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate IP pool and profile-specific secondary-network resources plus test DaemonSet readiness
+| pending
+|
+
+| [[K8S42-10]]K8S42-10
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-005 and ENT-REQ-006
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate Macvlan or IPoIB network readiness for an applicable RDMA Shared profile
+| pending
+|
+
+| [[K8S42-11]]K8S42-11
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-002, ENT-REQ-005, and ENT-REQ-006
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate source-bound same-rail ICMP connectivity and strict cross-rail isolation
+| pending
+|
+
+| [[K8S42-12]]K8S42-12
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for ENT-REQ-002, ENT-REQ-005, and ENT-REQ-006
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate every ib_write_bw result and report its Launch Kit-resolved minimum bandwidth
+| pending
+|
+
+| [[K8S42-13]]K8S42-13
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Provider wiring and unit coverage for Enterprise multi-rail coverage in ENT-REQ-002
+| P0
+a|
+| LimitedEnv
+|
+|
+| Validate same-rail and cross-rail coverage for a multi-rail Launch Kit profile
+| pending
+|
+
+| [[K8S42-15]]K8S42-15
+| K8S42
+|
+| era, kubernetes, ncp, network_operator, slow
+| Local evidence and framework reporting cover ENT-REQ-013; Labs attachment upload remains required
+| P0
+a|
+| LimitedEnv
+|
+|
+| Verify raw phase output, generated files, connectivity results, and Launch Kit reports were preserved
+| pending
+|
+
+| [[K8S42-16]]K8S42-16
+| K8S42
+|
+| era, ethernet, gpudirect, kubernetes, ncp, network_operator, network_operator_use_cases, roce, slow, sriov
+| Composite E2E use case: live-qualified on a two-node Ubuntu 24.04 single-rail cluster; the multi-rail member is skipped as inapplicable
+| P0
+a|
+| LimitedEnv
+|
+|
+| Run the complete Launch Kit workflow for an Ethernet or RoCE SR-IOV Network RDMA profile
+| pending
+|
+
+| [[K8S42-17]]K8S42-17
+| K8S42
+|
+| era, gpudirect, infiniband, kubernetes, ncp, network_operator, network_operator_use_cases, slow, sriov
+| Composite E2E use case: preflight, discover, generate, deploy, and validate
+| P0
+a|
+| LimitedEnv
+|
+|
+| Run the complete Launch Kit workflow for an InfiniBand SR-IOV Network RDMA profile
+| pending
+|
+
+| [[K8S42-18]]K8S42-18
+| K8S42
+|
+| era, ethernet, gpudirect, kubernetes, ncp, network_operator, network_operator_use_cases, rdma_shared, roce, slow
+| Composite E2E use case: preflight, discover, generate, deploy, and validate
+| P0
+a|
+| LimitedEnv
+|
+|
+| Run the complete Launch Kit workflow for an Ethernet or RoCE RDMA Shared profile
+| pending
+|
+
+| [[K8S42-19]]K8S42-19
+| K8S42
+|
+| era, gpudirect, infiniband, kubernetes, ncp, network_operator, network_operator_use_cases, rdma_shared, slow
+| Composite E2E use case: preflight, discover, generate, deploy, and validate
+| P0
+a|
+| LimitedEnv
+|
+|
+| Run the complete Launch Kit workflow for an InfiniBand or IPoIB RDMA Shared profile
+| pending
+|
+
+| [[K8S42-20]]K8S42-20
+| K8S42
+|
+| era, ethernet, gpudirect, host_device, kubernetes, ncp, network_operator, network_operator_use_cases, roce, slow
+| Composite E2E use case: preflight, discover, generate, deploy, and validate; live VM qualification remains required
+| P0
+a|
+| LimitedEnv
+|
+|
+| Run the complete Launch Kit workflow for Ethernet or RoCE host-device networking on worker VMs
+| pending
+|
+
+| [[K8S42-21]]K8S42-21
+| K8S42
+|
+| era, gpudirect, host_device, infiniband, kubernetes, ncp, network_operator, network_operator_use_cases, slow
+| Composite E2E use case: preflight, discover, generate, deploy, and validate; live VM qualification remains required
+| P0
+a|
+| LimitedEnv
+|
+|
+| Run the complete Launch Kit workflow for InfiniBand host-device networking on worker VMs
 | pending
 |
 

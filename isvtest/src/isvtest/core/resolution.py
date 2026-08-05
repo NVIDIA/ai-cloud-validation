@@ -20,7 +20,7 @@ import json
 import logging
 from collections.abc import Iterable, Mapping
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
 from typing import Any
@@ -93,6 +93,7 @@ class ErrorReason(StrEnum):
 
     INVALID_CONFIG = "invalid_config"
     RUNTIME_EXCEPTION = "runtime_exception"
+    STEP_FAILED = "step_failed"
     TEMPLATE_RENDER_FAILED = "template_render_failed"
 
 
@@ -109,6 +110,20 @@ class ValidationEntry:
     requires: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class SubtestSummary:
+    """Aggregate counts for the subtests reported by one validation."""
+
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+
+    @property
+    def total(self) -> int:
+        """Return the total number of reported subtests."""
+        return self.passed + self.failed + self.skipped
+
+
 @dataclass
 class ResolvedEntry:
     """Lifecycle record for a single validation entry."""
@@ -120,6 +135,7 @@ class ResolvedEntry:
     error_reason: ErrorReason | None = None
     message: str = ""
     duration_seconds: float = 0.0
+    subtest_summary: SubtestSummary = field(default_factory=SubtestSummary)
 
     @property
     def is_ready(self) -> bool:
@@ -240,6 +256,67 @@ def parse_validations(raw_config: Mapping[str, Any]) -> list[ValidationEntry]:
     return entries
 
 
+def resolve_entry_selection(
+    entry: ValidationEntry,
+    *,
+    include_labels: AbstractSet[str],
+    exclude_labels: AbstractSet[str],
+    exclude_tests: AbstractSet[str],
+    released_tests: AbstractSet[str] | None,
+    capability: str | None = None,
+) -> ResolvedEntry | None:
+    """Return a terminal result when selection excludes an entry, otherwise ``None``.
+
+    This is the provider-neutral selection boundary shared by validation
+    execution and lifecycle steps gated with ``requires_selected_validations``.
+    It deliberately stops before phase, step-output, and template resolution.
+    """
+    config_error = _validate_entry_shape(entry)
+    if config_error:
+        return _error(entry, ErrorReason.INVALID_CONFIG, config_error)
+
+    # Variant-aware match: a configured ``ClassName-Variant`` is considered
+    # released when the bare ``ClassName`` is in the manifest, mirroring the
+    # pytest-discovery path (``_is_released_validation`` in test_validations).
+    if released_tests is not None and resolve_class_key(entry.name, released_tests) is None:
+        return _skip(
+            entry,
+            SkipReason.UNRELEASED,
+            f"validation '{entry.name}' is not in released_tests.json",
+        )
+
+    if entry.name in exclude_tests:
+        return _skip(entry, SkipReason.EXCLUDED, f"validation '{entry.name}' is excluded by name")
+
+    if capability is not None and not requirements_satisfied(entry.requires, capability):
+        requirement_list = ", ".join(entry.requires) or "(none)"
+        return _skip(
+            entry,
+            SkipReason.CAPABILITY_REQUIREMENT,
+            f"requires {requirement_list} (context: {capability})",
+        )
+
+    missing_include_labels = sorted(set(include_labels).difference(entry.labels))
+    if missing_include_labels:
+        label_list = ", ".join(sorted(include_labels))
+        return _skip(
+            entry,
+            SkipReason.EXCLUDED,
+            f"validation '{entry.name}' does not match all selected labels: {label_list}",
+        )
+
+    label_matches = sorted(set(entry.labels).intersection(exclude_labels))
+    if label_matches:
+        label_list = ", ".join(label_matches)
+        return _skip(
+            entry,
+            SkipReason.EXCLUDED,
+            f"validation '{entry.name}' is excluded by label: {label_list}",
+        )
+
+    return None
+
+
 def resolve_entries(
     entries: list[ValidationEntry],
     *,
@@ -278,62 +355,16 @@ def resolve_entries(
     env = _create_jinja_env()
 
     for entry in entries:
-        config_error = _validate_entry_shape(entry)
-        if config_error:
-            resolved.append(_error(entry, ErrorReason.INVALID_CONFIG, config_error))
-            continue
-
-        # Variant-aware match: a configured ``ClassName-Variant`` is considered
-        # released when the bare ``ClassName`` is in the manifest, mirroring the
-        # pytest-discovery path (``_is_released_validation`` in test_validations).
-        if released_tests is not None and resolve_class_key(entry.name, released_tests) is None:
-            resolved.append(
-                _skip(
-                    entry,
-                    SkipReason.UNRELEASED,
-                    f"validation '{entry.name}' is not in released_tests.json",
-                )
-            )
-            continue
-
-        if entry.name in exclude_tests:
-            resolved.append(_skip(entry, SkipReason.EXCLUDED, f"validation '{entry.name}' is excluded by name"))
-            continue
-
-        if capability is not None and not requirements_satisfied(entry.requires, capability):
-            requirement_list = ", ".join(entry.requires) or "(none)"
-            context_list = capability
-            resolved.append(
-                _skip(
-                    entry,
-                    SkipReason.CAPABILITY_REQUIREMENT,
-                    f"requires {requirement_list} (context: {context_list})",
-                )
-            )
-            continue
-
-        missing_include_labels = sorted(set(include_labels).difference(entry.labels))
-        if missing_include_labels:
-            label_list = ", ".join(sorted(include_labels))
-            resolved.append(
-                _skip(
-                    entry,
-                    SkipReason.EXCLUDED,
-                    f"validation '{entry.name}' does not match all selected labels: {label_list}",
-                )
-            )
-            continue
-
-        label_matches = sorted(set(entry.labels).intersection(exclude_labels))
-        if label_matches:
-            label_list = ", ".join(label_matches)
-            resolved.append(
-                _skip(
-                    entry,
-                    SkipReason.EXCLUDED,
-                    f"validation '{entry.name}' is excluded by label: {label_list}",
-                )
-            )
+        selection_result = resolve_entry_selection(
+            entry,
+            include_labels=include_labels,
+            exclude_labels=exclude_labels,
+            exclude_tests=exclude_tests,
+            released_tests=released_tests,
+            capability=capability,
+        )
+        if selection_result is not None:
+            resolved.append(selection_result)
             continue
 
         if entry.step and entry.step in skipped_steps:

@@ -313,6 +313,18 @@ def test_validation(
             "category": category,
             "duration": result.get("duration", 0.0),
             "error_reason": result.get("error_reason"),
+            "subtest_summary": {
+                "total": len(result.get("subtests", [])),
+                "passed": sum(
+                    1 for subtest in result.get("subtests", []) if subtest.get("passed") and not subtest.get("skipped")
+                ),
+                "failed": sum(
+                    1
+                    for subtest in result.get("subtests", [])
+                    if not subtest.get("passed") and not subtest.get("skipped")
+                ),
+                "skipped": sum(1 for subtest in result.get("subtests", []) if subtest.get("skipped")),
+            },
         }
     )
 

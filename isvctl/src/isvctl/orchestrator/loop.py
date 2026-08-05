@@ -41,6 +41,7 @@ from isvtest.core.resolution import (
     requirements_satisfied,
     resolve_class_key,
     resolve_entries,
+    resolve_entry_selection,
 )
 from isvtest.main import run_validations_via_pytest
 from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
@@ -48,7 +49,7 @@ from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_
 from isvctl.config.schema import RunConfig, StepConfig
 from isvctl.orchestrator.commands import CommandExecutor
 from isvctl.orchestrator.context import Context
-from isvctl.orchestrator.step_executor import StepExecutor, StepResults
+from isvctl.orchestrator.step_executor import StepExecutor, StepResult, StepResults
 from isvctl.redaction import redact_dict, redact_junit_xml_tree
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ class PhaseResult:
     success: bool
     message: str
     details: dict[str, Any] | None = None
+    name: str | None = None
 
 
 @dataclass
@@ -281,7 +283,72 @@ def _resolved_entry_to_result_dict(entry: ResolvedEntry) -> dict[str, Any]:
         "state": entry.state.value if entry.state else None,
         "skip_reason": entry.skip_reason.value if entry.skip_reason else None,
         "error_reason": entry.error_reason.value if entry.error_reason else None,
+        "subtest_summary": {
+            "total": entry.subtest_summary.total,
+            "passed": entry.subtest_summary.passed,
+            "failed": entry.subtest_summary.failed,
+            "skipped": entry.subtest_summary.skipped,
+        },
     }
+
+
+def _step_failure_message(result: StepResult) -> str:
+    """Return an operator-facing diagnostic for one failed workflow step."""
+    detail = result.error
+    if not detail and result.schema_errors:
+        detail = f"output schema validation failed: {'; '.join(result.schema_errors)}"
+    if not detail:
+        detail = f"command exited with code {result.exit_code}"
+    return f"workflow step '{result.name}' failed: {detail}"
+
+
+def _apply_owned_step_failures(
+    entries: list[ResolvedEntry],
+    phase_steps: list[StepConfig],
+    step_results: StepResults,
+) -> list[ResolvedEntry]:
+    """Turn failed lifecycle steps into errors on their owning validations.
+
+    ``requires_selected_validations`` is both the command-selection gate and
+    the explicit ownership edge between a workflow step and its selectable
+    tests. Without this propagation, an early step failure prevents the bound
+    validation step from producing output and JUnit incorrectly records a
+    harmless ``step_no_output`` skip.
+    """
+    configs_by_name = {step.name: step for step in phase_steps}
+    errors_by_validation: dict[str, list[tuple[str, str]]] = {}
+
+    for result in step_results.steps:
+        if result.success:
+            continue
+        step = configs_by_name.get(result.name)
+        if step is None:
+            continue
+        message = _step_failure_message(result)
+        for validation_name in step.requires_selected_validations:
+            errors_by_validation.setdefault(validation_name, []).append((step.name, message))
+
+    propagated: list[ResolvedEntry] = []
+    for entry in entries:
+        step_errors = errors_by_validation.get(entry.entry.name, [])
+        if entry.is_ready:
+            # A failed validation-producing step can still return structured
+            # output that the validation interprets into failures/subtests.
+            # Only earlier owned lifecycle failures should suppress that run.
+            step_errors = [(name, message) for name, message in step_errors if name != entry.entry.step]
+        may_override = entry.is_ready or entry.skip_reason == SkipReason.STEP_NO_OUTPUT
+        if not step_errors or not may_override:
+            propagated.append(entry)
+            continue
+        propagated.append(
+            ResolvedEntry(
+                entry=entry.entry,
+                state=State.ERROR,
+                error_reason=ErrorReason.STEP_FAILED,
+                message="; ".join(message for _, message in step_errors),
+            )
+        )
+    return propagated
 
 
 def _resolved_entry_success(entry: ResolvedEntry) -> bool:
@@ -303,8 +370,7 @@ def _requested_config_phases(config_phases: list[str], requested_phases: list[Ph
     if Phase.ALL in requested_phases:
         return config_phases
 
-    requested_phase_names = {phase.value for phase in requested_phases}
-    return [phase for phase in config_phases if phase in requested_phase_names]
+    return [phase for phase in config_phases if _phase_enum_for_name(phase) in requested_phases]
 
 
 def _has_explicit_pytest_selection(extra_pytest_args: list[str] | None) -> bool:
@@ -335,6 +401,50 @@ def _apply_step_validation_gates(steps: list[Any], released_tests: set[str] | No
             "Skipping step '%s' because required validation(s) are unavailable: %s",
             skipped_step.name,
             ", ".join(unavailable),
+        )
+        gated_steps.append(skipped_step)
+    return gated_steps
+
+
+def _apply_selected_validation_gates(
+    steps: list[Any],
+    validation_entries: list[ValidationEntry],
+    *,
+    include_labels: set[str],
+    exclude_labels: set[str],
+    exclude_tests: set[str],
+    released_tests: set[str] | None,
+    capability: str | None,
+) -> list[Any]:
+    """Skip lifecycle steps whose required validations are not selected."""
+    entries_by_name = {entry.name: entry for entry in validation_entries}
+    gated_steps: list[Any] = []
+    for step in steps:
+        required_validations = getattr(step, "requires_selected_validations", [])
+        unselected: list[str] = []
+        for validation_name in required_validations:
+            entry = entries_by_name.get(validation_name)
+            if entry is None:
+                unselected.append(f"{validation_name} (not configured)")
+                continue
+            result = resolve_entry_selection(
+                entry,
+                include_labels=include_labels,
+                exclude_labels=exclude_labels,
+                exclude_tests=exclude_tests,
+                released_tests=released_tests,
+                capability=capability,
+            )
+            if result is not None:
+                unselected.append(f"{validation_name} ({result.message})")
+        if not unselected:
+            gated_steps.append(step)
+            continue
+        skipped_step = step.model_copy(update={"skip": True})
+        logger.info(
+            "Skipping step '%s' because required validation(s) are not selected: %s",
+            skipped_step.name,
+            "; ".join(unselected),
         )
         gated_steps.append(skipped_step)
     return gated_steps
@@ -499,6 +609,7 @@ class Orchestrator:
                             phase=_phase_enum_for_name(phase_name),
                             success=True,
                             message=f"SKIPPED: platform '{platform}' is skipped by configuration",
+                            name=phase_name,
                         )
                         for phase_name in skipped_phases
                     ],
@@ -517,6 +628,10 @@ class Orchestrator:
                         )
                     ],
                 )
+
+        continuation_phases = (
+            set(self.config.commands[platform].continue_after_failure) if self.config.commands else set()
+        )
 
         released_tests = load_released_test_filter()
         if released_tests is None:
@@ -541,6 +656,33 @@ class Orchestrator:
                     )
                 ],
             )
+        exclude_labels: list[str] = []
+        exclude_tests: list[str] = []
+        if self.config.tests and self.config.tests.exclude:
+            exclude_labels = self.config.tests.exclude.get("labels", [])
+            exclude_tests = self.config.tests.exclude.get("tests", [])
+        skip_config_label_exclusions = bool(self._include_labels) or _has_explicit_pytest_selection(
+            self._extra_pytest_args
+        )
+        resolution_exclude_labels = set(self._exclude_labels)
+        if not skip_config_label_exclusions:
+            resolution_exclude_labels.update(exclude_labels)
+
+        steps_before_selection = steps
+        steps = _apply_selected_validation_gates(
+            steps,
+            validation_entries,
+            include_labels=set(self._include_labels),
+            exclude_labels=resolution_exclude_labels,
+            exclude_tests=set(exclude_tests),
+            released_tests=released_tests,
+            capability=self._capability,
+        )
+        selection_skipped_steps = {
+            selected.name
+            for original, selected in zip(steps_before_selection, steps, strict=True)
+            if not original.skip and selected.skip
+        }
         steps = _apply_capability_step_gates(steps, validation_entries, self._capability)
 
         logger.info(f"Configured phases: {config_phases}")
@@ -561,6 +703,8 @@ class Orchestrator:
 
         steps_by_phase: dict[str, list] = {phase: [] for phase in config_phases}
         for step in steps:
+            if step.name in selection_skipped_steps:
+                continue
             step_phase = (step.phase or "setup").lower()
             steps_by_phase[step_phase].append(step)
 
@@ -575,25 +719,30 @@ class Orchestrator:
             step_phase = (step.phase or "setup").lower()
             self.context.set_step_phase(step.name, step_phase)
 
-        resolved_validations_by_index: dict[int, ResolvedEntry] = {}
+        configured_steps_by_name = {step.name: step for step in steps}
+        active_steps = [step for phase_steps in steps_by_phase.values() for step in phase_steps]
+        finalizers_by_target_phase: dict[str, list[StepConfig]] = {}
+        for finalizer in (step for step in active_steps if step.finalizer_for is not None):
+            target = configured_steps_by_name[finalizer.finalizer_for]
+            target_phase = (target.phase or "setup").lower()
+            finalizers_by_target_phase.setdefault(target_phase, []).append(finalizer)
 
-        exclude_labels: list[str] = []
-        exclude_tests: list[str] = []
-        if self.config.tests and self.config.tests.exclude:
-            exclude_labels = self.config.tests.exclude.get("labels", [])
-            exclude_tests = self.config.tests.exclude.get("tests", [])
-        skip_config_label_exclusions = bool(self._include_labels) or _has_explicit_pytest_selection(
-            self._extra_pytest_args
-        )
-        resolution_exclude_labels = set(self._exclude_labels)
-        if not skip_config_label_exclusions:
-            resolution_exclude_labels.update(exclude_labels)
+        resolved_validations_by_index: dict[int, ResolvedEntry] = {}
 
         phase_results: list[PhaseResult] = []
         overall_success = True
+        block_following_phases = False
         setup_steps_ran = False
 
         requested_phase_names = {p.value for p in requested_phases}
+        selected_config_phases = _requested_config_phases(config_phases, requested_phases)
+        selected_config_phase_names = set(selected_config_phases)
+        selected_finalizer_target_phases = selected_config_phase_names.intersection(finalizers_by_target_phase)
+        run_finalizers_as_teardown_recovery = (
+            "teardown" in selected_config_phase_names and not selected_finalizer_target_phases
+        )
+        attempted_step_names: set[str] = set()
+        executed_finalizer_names: set[str] = set()
 
         # Per-phase JUnit XML files merge at the end so later phases don't
         # overwrite earlier ones.
@@ -605,15 +754,24 @@ class Orchestrator:
                 junit_tmpdir = tempfile.mkdtemp(prefix="junit-phases-")
 
             for phase_name in config_phases:
-                if phase_name not in requested_phase_names and Phase.ALL not in requested_phases:
+                if phase_name not in selected_config_phase_names:
                     continue
-                phase_steps = steps_by_phase.get(phase_name, [])
+                configured_phase_steps = steps_by_phase.get(phase_name, [])
+                phase_steps = [step for step in configured_phase_steps if step.finalizer_for is None]
+                declared_phase_finalizers = [step for step in configured_phase_steps if step.finalizer_for is not None]
+                if phase_name == "teardown" and run_finalizers_as_teardown_recovery:
+                    phase_steps.extend(declared_phase_finalizers)
+                phase_finalizers = [
+                    step
+                    for step in finalizers_by_target_phase.get(phase_name, [])
+                    if step.name not in executed_finalizer_names
+                ]
                 phase_enum = _phase_enum_for_name(phase_name)
 
                 is_teardown = phase_name == "teardown"
                 skip_reason: str | None = None
 
-                if not overall_success and not is_teardown:
+                if block_following_phases and not is_teardown:
                     skip_reason = "previous phase failed"
 
                 # Teardown gating depends on whether setup was part of this run:
@@ -636,6 +794,7 @@ class Orchestrator:
                             phase=phase_enum,
                             success=True,
                             message=f"SKIPPED: {skip_reason}",
+                            name=phase_name,
                         )
                     )
                     continue
@@ -644,6 +803,7 @@ class Orchestrator:
                     step_results = self.step_executor.execute_steps(phase_steps, self.context, best_effort=is_teardown)
                 else:
                     step_results = StepResults()
+                attempted_step_names.update(result.name for result in step_results.steps if result.attempted)
 
                 # ``step_results.steps`` includes placeholder records for skip:true
                 # steps; require at least one step that wasn't skipped before letting
@@ -666,11 +826,16 @@ class Orchestrator:
                 phase_entries = [validation_entries[index] for index in phase_entry_indexes]
                 resolved_phase_entries = self._resolve_validation_entries(
                     phase_entries,
-                    requested_phase_names if Phase.ALL not in requested_phases else set(config_phases),
+                    selected_config_phase_names,
                     set(self._include_labels),
                     resolution_exclude_labels,
                     set(exclude_tests),
                     released_tests,
+                )
+                resolved_phase_entries = _apply_owned_step_failures(
+                    resolved_phase_entries,
+                    phase_steps,
+                    step_results,
                 )
                 ready_entries = [entry for entry in resolved_phase_entries if entry.is_ready]
                 terminal_before_pytest = [entry for entry in resolved_phase_entries if not entry.is_ready]
@@ -718,14 +883,54 @@ class Orchestrator:
 
                 phase_validations = [_resolved_entry_to_result_dict(entry) for entry in terminal_phase_entries]
 
-                if phase_steps or phase_validations:
+                if step_results.steps or phase_validations:
                     phase_results.append(
                         self._create_phase_result(phase_enum, step_results, phase_validations, phase_name)
+                    )
+
+                eligible_finalizers = [step for step in phase_finalizers if step.finalizer_for in attempted_step_names]
+                for finalizer in phase_finalizers:
+                    if finalizer not in eligible_finalizers:
+                        logger.info(
+                            "Skipping finalizer '%s': target step '%s' was not attempted",
+                            finalizer.name,
+                            finalizer.finalizer_for,
+                        )
+                finalizer_results = self.step_executor.execute_steps(
+                    eligible_finalizers,
+                    self.context,
+                    best_effort=True,
+                )
+                executed_finalizer_names.update(finalizer.name for finalizer in eligible_finalizers)
+                if eligible_finalizers:
+                    phase_results.append(
+                        self._create_phase_result(
+                            Phase.TEARDOWN,
+                            finalizer_results,
+                            [],
+                            f"{phase_name}-teardown",
+                        )
+                    )
+                elif phase_finalizers:
+                    target_names = ", ".join(finalizer.finalizer_for or "unknown" for finalizer in phase_finalizers)
+                    phase_results.append(
+                        PhaseResult(
+                            phase=Phase.TEARDOWN,
+                            success=True,
+                            message=f"SKIPPED: target step(s) were not attempted: {target_names}",
+                            details={"steps": [], "validations": []},
+                            name=f"{phase_name}-teardown",
+                        )
                     )
 
                 phase_success = step_results.success and all(v.get("passed", False) for v in phase_validations)
                 if not phase_success:
                     overall_success = False
+                    if phase_name not in continuation_phases:
+                        block_following_phases = True
+                if not finalizer_results.success:
+                    overall_success = False
+                    block_following_phases = True
 
             remaining_entries = [
                 (index, entry)
@@ -735,7 +940,7 @@ class Orchestrator:
             if remaining_entries:
                 terminal_remaining = self._resolve_remaining_validation_entries(
                     remaining_entries,
-                    requested_phase_names if Phase.ALL not in requested_phases else set(config_phases),
+                    selected_config_phase_names,
                     set(self._include_labels),
                     resolution_exclude_labels,
                     set(exclude_tests),
@@ -829,6 +1034,7 @@ class Orchestrator:
                     {
                         "name": s.name,
                         "success": s.success,
+                        "attempted": s.attempted,
                         "error": s.error,
                         "output": redact_dict(s.output),
                         "schema_name": s.schema_name,
@@ -839,6 +1045,7 @@ class Orchestrator:
                 ],
                 "validations": validation_results,
             },
+            name=display_name,
         )
 
     def _resolve_validation_entries(
@@ -926,6 +1133,7 @@ class Orchestrator:
                         "steps": [],
                         "validations": [_resolved_entry_to_result_dict(entry) for entry in resolved_entries],
                     },
+                    name=phase_name,
                 )
             )
 
