@@ -95,6 +95,19 @@ def test_wiring_errors_reports_yaml_parse_failures(tmp_path: Path) -> None:
     assert "failed to read/parse" in errors[0]
 
 
+def test_wiring_errors_scans_nested_suite_directories(tmp_path: Path) -> None:
+    """Domain-organized suites receive the same metadata guardrails as root suites."""
+    nested = tmp_path / "launch-kit"
+    nested.mkdir()
+    (nested / "network-operator.yaml").write_text(
+        "tests:\n  validations:\n    sample:\n      checks:\n        MissingMetadata: {}\n"
+    )
+
+    errors = validate_suite_wiring.wiring_errors(tmp_path)
+
+    assert any("launch-kit/network-operator.yaml" in error and "MissingMetadata" in error for error in errors)
+
+
 def test_find_check_line_numbers_supports_list_form() -> None:
     """List-form wiring reports each repeated check at its own line."""
     lines = """

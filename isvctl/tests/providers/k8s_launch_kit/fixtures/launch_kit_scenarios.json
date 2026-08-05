@@ -1,0 +1,104 @@
+{
+  "_copyright": "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.",
+  "_license": "Apache-2.0",
+  "contract": {
+    "source_commit": "db32e4b98170",
+    "source_files": [
+      "pkg/config/config.go",
+      "pkg/ui/json_output.go",
+      "pkg/cmd/clean.go",
+      "pkg/cmd/deploy.go",
+      "pkg/cmd/discover.go",
+      "pkg/cmd/generate.go",
+      "pkg/cmd/validate.go",
+      "pkg/networkoperatorplugin/clean.go",
+      "pkg/networkoperatorplugin/validate.go",
+      "pkg/networkoperatorplugin/connectivity/connectivity.go",
+      "pkg/networkoperatorplugin/connectivity/daemonset.go",
+      "pkg/networkoperatorplugin/connectivity/matrix.go",
+      "pkg/networkoperatorplugin/connectivity/result.go",
+      "pkg/networkoperatorplugin/connectivity/rdma.go",
+      "pkg/networkoperatorplugin/discovery/discover.go",
+      "profiles/host-device-rdma/40-example-daemonset.yaml",
+      "profiles/ipoib-rdma-shared/40-example-daemonset.yaml",
+      "profiles/macvlan-rdma-shared/40-example-daemonset.yaml",
+      "profiles/sriov-ethernet-rdma/60-example-daemonset.yaml",
+      "profiles/sriov-ib-rdma/60-example-daemonset.yaml"
+    ],
+    "supported_validation_checks": [
+      "icmp",
+      "rping",
+      "ib_write_bw"
+    ],
+    "result_families": [
+      "icmp",
+      "rping",
+      "ib_write_bw",
+      "gpudirect_dmabuf"
+    ],
+    "notes": [
+      "discover and generate emit one ui.JSONResult object",
+      "successful standalone deploy emits no stdout object",
+      "validate emits manifest, connectivity, and reportPath JSON documents",
+      "connectivity DaemonSets declare test-container for RDMA and netshoot for ICMP",
+      "enabled GPUDirect validation follows ib_write_bw and emits a distinct gpudirect_dmabuf result family",
+      "clean emits one ui.JSONResult object with a cleanup summary"
+    ]
+  },
+  "scenarios": {
+    "roce-sriov": {
+      "fabric": "ethernet",
+      "deployment": "sriov",
+      "profile_name": "SR-IOV Ethernet RDMA",
+      "network_kind": "SriovNetwork",
+      "network_api_version": "sriovnetwork.openshift.io/v1",
+      "requires_sriov": true,
+      "requires_ib": false
+    },
+    "infiniband-sriov": {
+      "fabric": "infiniband",
+      "deployment": "sriov",
+      "profile_name": "SR-IOV Infiniband RDMA",
+      "network_kind": "SriovIBNetwork",
+      "network_api_version": "sriovnetwork.openshift.io/v1",
+      "requires_sriov": true,
+      "requires_ib": true
+    },
+    "roce-rdma-shared": {
+      "fabric": "ethernet",
+      "deployment": "rdma_shared",
+      "profile_name": "Macvlan with RDMA shared device",
+      "network_kind": "MacvlanNetwork",
+      "network_api_version": "mellanox.com/v1alpha1",
+      "requires_sriov": false,
+      "requires_ib": false
+    },
+    "infiniband-rdma-shared": {
+      "fabric": "infiniband",
+      "deployment": "rdma_shared",
+      "profile_name": "IP over Infiniband with RDMA shared device",
+      "network_kind": "IPoIBNetwork",
+      "network_api_version": "mellanox.com/v1alpha1",
+      "requires_sriov": false,
+      "requires_ib": true
+    },
+    "roce-host-device": {
+      "fabric": "ethernet",
+      "deployment": "host_device",
+      "profile_name": "Host device RDMA",
+      "network_kind": "HostDeviceNetwork",
+      "network_api_version": "mellanox.com/v1alpha1",
+      "requires_sriov": false,
+      "requires_ib": false
+    },
+    "infiniband-host-device": {
+      "fabric": "infiniband",
+      "deployment": "host_device",
+      "profile_name": "Host device RDMA",
+      "network_kind": "HostDeviceNetwork",
+      "network_api_version": "mellanox.com/v1alpha1",
+      "requires_sriov": false,
+      "requires_ib": true
+    }
+  }
+}

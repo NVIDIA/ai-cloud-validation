@@ -133,6 +133,27 @@ isvctl test validate -f isvctl/configs/suites/k8s.yaml
 
 See [Configuration Guide](../guides/configuration.md) for full details.
 
+All lifecycle and step commands run with captured stdout/stderr and an outer
+watchdog. On POSIX, a timeout terminates the command's complete process group
+(`SIGTERM`, then `SIGKILL` after a short grace period), which prevents a child
+provider CLI from continuing after its wrapper step has timed out. See
+[Step Configuration](../guides/configuration.md#step-configuration).
+
+Cleanup steps may use `phase: teardown` with
+`finalizer_for: <step-name>`. The linked teardown runs directly after the
+target's phase validations whenever that command started, including after
+target or validation failure, and is reported as `<target-phase>-teardown`.
+An explicit teardown-only run executes it as standalone recovery. Cleanup
+failure blocks later non-teardown phases. See
+[Linked teardown finalizers](../guides/configuration.md#linked-teardown-finalizers)
+for activation, ordering, and process-failure limitations.
+
+Steps gated with `requires_selected_validations` also declare which validation
+owns their lifecycle result. If one of those steps fails, the named validation
+is emitted as a `step_failed` error in structured results and JUnit even when a
+later validation-producing step never runs. See
+[Gating mutating steps by test selection](../guides/configuration.md#gating-mutating-steps-by-test-selection).
+
 ### Unified Config Structure
 
 ```yaml

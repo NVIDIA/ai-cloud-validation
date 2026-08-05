@@ -16,7 +16,7 @@
 
 """Validate suite identity and check resolution in canonical and provider YAML.
 
-Suite configs under ``isvctl/configs/suites/`` are the source of truth for
+Suite configs recursively under ``isvctl/configs/suites/`` are the source of truth for
 validation metadata on this branch. Each wired check must declare:
 
 * ``test_id`` - a plan id from ``docs/test-plan.yaml``, or ``"N/A"`` when the
@@ -190,7 +190,7 @@ def wiring_errors(suites_dir: Path = SUITES_DIR) -> list[str]:
     # Read and parse each suite once; both the dead-requirement pre-pass and the
     # per-check loop below work off these parsed documents.
     parsed: list[tuple[Path, list[str], dict[str, Any]]] = []
-    for path in sorted(suites_dir.glob("*.yaml")):
+    for path in sorted(suites_dir.rglob("*.yaml")):
         try:
             text = path.read_text()
             parsed.append((path, text.splitlines(), yaml.safe_load(text) or {}))

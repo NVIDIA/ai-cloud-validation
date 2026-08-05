@@ -19,6 +19,7 @@ Welcome to the documentation for NVIDIA AI Cloud Validation suite - a collection
 
 - [Configuration](guides/configuration.md) - Configuration file format and options
 - [External Validation Guide](guides/external-validation-guide.md) - Create custom validations without modifying the repo
+- [Network Operator Launch Kit integration](guides/k8s-launch-kit/network-operator.md) - Production provider, Kubernetes preflight, mock-backed unit coverage, evidence, and limitations
 - [Remote Deployment](guides/remote-deployment.md) - Deploy and run tests on remote machines
 - [Local Development](guides/local-development.md) - MicroK8s setup for local testing
 - [Troubleshooting: Test runs stuck in STARTED](guides/troubleshooting-started-tests.md) - Why runs stay STARTED in the portal and how to fix it
