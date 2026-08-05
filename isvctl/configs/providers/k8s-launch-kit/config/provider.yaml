@@ -1,0 +1,219 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Generic Kubernetes Launch Kit provider. This production configuration invokes
+# l8k and kubectl from PATH unless a user overlay explicitly replaces them.
+#
+# This file intentionally contains no Network Operator, topology, resource,
+# validation, or l8k timeout defaults. The arguments for every command are
+# passed directly to l8k. Omitted values are resolved by Launch Kit itself.
+
+version: "1.0"
+
+context:
+  k8s_launch_kit:
+    executable: l8k
+    installation:
+      mode: verify
+      version: ""
+      installer_ref: ""
+      installer_sha256: ""
+      prefix: ""
+    # Optional complete Launch Kit configuration. Discovery stages a copy as
+    # ./user-config.yaml and writes its resolved output to ./cluster-config.yaml.
+    user_config: ""
+    kubectl_command: []
+    working_dir: ../../../../../_output/k8s-launch-kit/work
+    artifact_dir: ../../../../../_output/k8s-launch-kit/evidence
+    environment: {}
+    discover:
+      arguments: []
+    generate:
+      arguments: []
+    deploy:
+      arguments: []
+    validate:
+      arguments: []
+    clean:
+      arguments: []
+
+commands:
+  network_operator:
+    phases: [setup, test, teardown]
+    steps:
+      - name: launch_kit_prepare
+        phase: setup
+        command: python3 ../scripts/adapter.py
+        args:
+          - prepare
+          - --mode
+          - "{{ context.k8s_launch_kit.installation.mode }}"
+          - --executable
+          - "{{ context.k8s_launch_kit.executable }}"
+          - "--version={{ context.k8s_launch_kit.installation.version }}"
+          - "--installer-ref={{ context.k8s_launch_kit.installation.installer_ref }}"
+          - "--installer-sha256={{ context.k8s_launch_kit.installation.installer_sha256 }}"
+          - "--prefix={{ context.k8s_launch_kit.installation.prefix }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 900
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_available_validations: [LaunchKitKubernetesPrerequisiteCheck]
+
+      # Test-phase verification is intentional: --phase test may bypass setup.
+      - name: launch_kit_verify
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - verify
+          - --executable
+          - "{{ steps.launch_kit_prepare.executable | default(context.k8s_launch_kit.executable) }}"
+          - "--expected-version={{ context.k8s_launch_kit.installation.version }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_available_validations: [LaunchKitKubernetesPrerequisiteCheck]
+
+      # This gate always runs in the test phase, before l8k can mutate a cluster.
+      - name: launch_kit_kubernetes_preflight
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - preflight
+          - --kubectl-command-json
+          - "{{ context.k8s_launch_kit.kubectl_command | tojson }}"
+          - --workflow-arguments-json
+          - "{{ {'discover': context.k8s_launch_kit.discover.arguments, 'generate': context.k8s_launch_kit.generate.arguments, 'deploy': context.k8s_launch_kit.deploy.arguments, 'validate': context.k8s_launch_kit.validate.arguments, 'clean': context.k8s_launch_kit.clean.arguments} | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_available_validations: [LaunchKitKubernetesPrerequisiteCheck]
+
+      - name: launch_kit_discover
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - discover
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.discover.arguments | tojson }}"
+          - "--user-config={{ context.k8s_launch_kit.user_config }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_available_validations: [LaunchKitTopologyDiscoveryCheck]
+
+      - name: launch_kit_generate
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - generate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.generate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 600
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_available_validations: [LaunchKitDeploymentHealthCheck]
+
+      - name: launch_kit_deploy
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - deploy
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.deploy.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 7200
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_available_validations: [LaunchKitDeploymentHealthCheck]
+
+      - name: launch_kit_validate
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - validate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.validate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        # l8k calculates a bounded matrix budget or honors the user's explicit
+        # connectivity timeout, so it owns the deadline for this command.
+        timeout: null
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_available_validations: [LaunchKitDeploymentHealthCheck]
+
+      # Runs after phase validations when deploy was attempted, even if deploy,
+      # validate, or a validation check failed.
+      - name: launch_kit_clean
+        phase: teardown
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable | default(context.k8s_launch_kit.executable) }}"
+          - --command
+          - clean
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.clean.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 7200
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_available_validations: [LaunchKitDeploymentHealthCheck]
+        finalizer_for: launch_kit_deploy

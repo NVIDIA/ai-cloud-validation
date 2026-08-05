@@ -131,7 +131,7 @@ def config_test_id_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     both bare_metal and vm), so values still aggregate to a set across configs.
     """
     out: dict[str, set[str]] = defaultdict(set)
-    for path in sorted(suites_dir.glob("*.yaml")):
+    for path in sorted(suites_dir.rglob("*.yaml")):
         for name, params in iter_config_checks(path):
             tid = params.get("test_id")
             if isinstance(tid, str) and tid:
@@ -148,7 +148,7 @@ def config_label_map(suites_dir: Path = SUITES_DIR) -> dict[str, list[str]]:
     union of its labels.
     """
     out: dict[str, set[str]] = defaultdict(set)
-    for path in sorted(suites_dir.glob("*.yaml")):
+    for path in sorted(suites_dir.rglob("*.yaml")):
         for name, params in iter_config_checks(path):
             out[name].update(_normalize_labels(params.get("labels")))
     return {name: sorted(labels) for name, labels in out.items()}
@@ -166,7 +166,7 @@ def _normalize_labels(value: Any) -> list[str]:
 def config_test_label_instances(suites_dir: Path = SUITES_DIR) -> list[tuple[str, str, str, list[str]]]:
     """Return ``(source, check_name, test_id, labels)`` for each mapped suite check."""
     instances: list[tuple[str, str, str, list[str]]] = []
-    for path in sorted(suites_dir.glob("*.yaml")):
+    for path in sorted(suites_dir.rglob("*.yaml")):
         try:
             source = path.relative_to(REPO_ROOT).as_posix()
         except ValueError:

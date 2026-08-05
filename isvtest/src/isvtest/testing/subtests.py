@@ -509,11 +509,6 @@ def _inject_subtests_into_junit(junit_path: Path, reports: list[SubTestReport]) 
             name = tc.get("name", "")
             testcase_indices[name] = idx
 
-        # Track counts for updating testsuite attributes
-        added_tests = 0
-        added_failures = 0
-        added_skipped = 0
-
         # Insert subtests after their parent, in reverse order of parent index
         # to avoid index shifting issues
         insertions: list[tuple[int, list[ET.Element]]] = []
@@ -540,16 +535,12 @@ def _inject_subtests_into_junit(junit_path: Path, reports: list[SubTestReport]) 
                 testcase.set("classname", "")  # Match pytest's default
                 testcase.set("time", f"{report.duration:.3f}")
 
-                added_tests += 1
-
                 if report.failed:
-                    added_failures += 1
                     failure = ET.SubElement(testcase, "failure")
                     failure.set("message", f"Subtest {subtest_desc} failed")
                     if report.longrepr:
                         failure.text = str(report.longrepr)[:2000]  # Limit length
                 elif report.skipped:
-                    added_skipped += 1
                     skipped_elem = ET.SubElement(testcase, "skipped")
                     # longrepr from both our skipped-flag path and pytest.skip()
                     # is a (file, line, msg) tuple; surface the msg so the
@@ -578,14 +569,15 @@ def _inject_subtests_into_junit(junit_path: Path, reports: list[SubTestReport]) 
             for i, elem in enumerate(subtest_elements):
                 testsuite.insert(insert_pos + i, elem)
 
-        # Update testsuite counts
-        current_tests = int(testsuite.get("tests", "0"))
-        current_failures = int(testsuite.get("failures", "0"))
-        current_skipped = int(testsuite.get("skipped", "0"))
-
-        testsuite.set("tests", str(current_tests + added_tests))
-        testsuite.set("failures", str(current_failures + added_failures))
-        testsuite.set("skipped", str(current_skipped + added_skipped))
+        # pytest counts subtest reports in the testsuite attributes even though
+        # its JUnit plugin does not serialize them as testcase elements. Adding
+        # our testcase nodes and incrementing those attributes would therefore
+        # double-count every subtest. Reconcile counters with the serialized XML.
+        serialized_cases = testsuite.findall("testcase")
+        testsuite.set("tests", str(len(serialized_cases)))
+        testsuite.set("failures", str(sum(case.find("failure") is not None for case in serialized_cases)))
+        testsuite.set("errors", str(sum(case.find("error") is not None for case in serialized_cases)))
+        testsuite.set("skipped", str(sum(case.find("skipped") is not None for case in serialized_cases)))
 
         # Write back
         tree.write(junit_path, encoding="utf-8", xml_declaration=True)

@@ -52,6 +52,21 @@ def test_one_suite_flag_resolves_canonical_and_provider_suites(tmp_path: Path) -
     assert canonical_plain.platform is None
 
 
+def test_canonical_suite_resolution_discovers_nested_suite_yaml(tmp_path: Path) -> None:
+    """Domain folders under suites remain selectable through the generic resolver."""
+    _write_catalog(tmp_path)
+    domain = tmp_path / "suites" / "launch-kit"
+    domain.mkdir()
+    nested = domain / "network-operator.yaml"
+    nested.write_text("tests:\n  validations: {}\n")
+
+    resolved = resolve_suite(None, "network-operator", configs_root=tmp_path)
+
+    assert resolved.config_path == nested
+    assert resolved.name == "network_operator"
+    assert resolved.platform is None
+
+
 def test_capability_uses_catalog_vocabulary(tmp_path: Path) -> None:
     """An unknown capability is rejected while omitted context disables filtering."""
     _write_catalog(tmp_path)
