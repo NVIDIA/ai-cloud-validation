@@ -141,6 +141,14 @@ def _load_nico_script(relative_path: str, module_name: str) -> ModuleType:
     return module
 
 
+def _load_switch_firmware_script() -> ModuleType:
+    """Load the BFX03-02 NVSwitch firmware query script."""
+    return _load_nico_script(
+        "breakfix/query_switch_firmware.py",
+        "test_query_switch_firmware",
+    )
+
+
 def _load_governance_metrics_script() -> ModuleType:
     """Load the query_metrics (governance) script as a module for direct unit testing."""
     script_path = NICO_SCRIPTS / "governance" / "query_metrics.py"
@@ -1093,6 +1101,122 @@ def test_nico_scripts_require_api_base(
     captured = capsys.readouterr()
     assert exc_info.value.code == 2
     assert "--api-base" in captured.err
+
+
+def test_switch_firmware_queries_racks_and_maps_only_nvswitch_components(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """BFX03-02 should use NICo rack inventory and preserve missing firmware for validation."""
+    module = _load_switch_firmware_script()
+    observed: dict[str, Any] = {}
+
+    def fake_get_all(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return [
+            {
+                "id": "rack-1",
+                "components": [
+                    {
+                        "id": "internal-switch-1",
+                        "componentId": "switch-1",
+                        "type": "ComponentTypeNVSwitch",
+                        "firmwareVersion": "1.2.3",
+                        "slotId": 3,
+                        "trayIdx": 0,
+                    },
+                    {
+                        "id": "switch-2",
+                        "type": "nvswitch",
+                        "firmwareVersion": None,
+                    },
+                    {
+                        "id": "compute-1",
+                        "type": "ComponentTypeCompute",
+                        "firmwareVersion": "9.9.9",
+                    },
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", fake_get_all)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_switch_firmware.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+        ],
+    )
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is True
+    assert payload["trays"] == [
+        {
+            "tray_id": "switch-1",
+            "firmware_version": "1.2.3",
+            "rack_id": "rack-1",
+            "slot_id": 3,
+            "tray_index": 0,
+        },
+        {
+            "tray_id": "switch-2",
+            "firmware_version": "",
+            "rack_id": "rack-1",
+            "slot_id": None,
+            "tray_index": None,
+        },
+    ]
+    assert observed["args"] == ("test-org", "rack", "test-token")
+    assert observed["kwargs"] == {
+        "base_url": "https://nico.example/v2/org",
+        "params": {"siteId": "site-1", "includeComponents": "true"},
+        "result_key": "racks",
+    }
+
+
+def test_switch_firmware_skips_when_site_has_no_nvswitch_components(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A site without NVSwitch inventory is inapplicable, not a false pass."""
+    module = _load_switch_firmware_script()
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(
+        module,
+        "forge_get_all",
+        lambda *args, **kwargs: [{"id": "rack-1", "components": [{"type": "ComponentTypeCompute"}]}],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_switch_firmware.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+        ],
+    )
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert payload["trays"] == []
+    assert "No NVSwitch tray components" in payload["skip_reason"]
 
 
 def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
