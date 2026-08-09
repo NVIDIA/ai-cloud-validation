@@ -17,6 +17,7 @@ from isvtest.validations.breakfix import (
     HostReplacementCheck,
     MaintenanceEventsCheck,
     NodeHealthAgentCheck,
+    NvSwitchFirmwareCheck,
     PlannedMaintenanceNotificationCheck,
     RepairHistoryCheck,
     RetirementNoticesCheck,
@@ -144,6 +145,48 @@ class TestOperationChecks:
         check = _run(ReturnNodeMaintenanceCheck, step_output)
         assert check.passed
         assert "maintenance_mode=hw" in check.message
+
+
+class TestNvSwitchFirmwareCheck:
+    """Cover BFX03-02 firmware evidence for every returned switch tray."""
+
+    def test_propagates_flow_disabled_runtime_skip(self) -> None:
+        """A Flow-disabled site remains skipped instead of becoming a pass."""
+        step_output = {
+            "success": True,
+            "skipped": True,
+            "skip_reason": "NICo Flow is not enabled for this site",
+            "gap": "BFX03-02",
+            "trays": [],
+        }
+        with pytest.raises(pytest.skip.Exception):
+            _run(NvSwitchFirmwareCheck, step_output)
+
+    def test_passes_when_every_tray_has_firmware(self) -> None:
+        """Every discovered NVSwitch tray must report a non-empty version."""
+        step_output = {
+            "success": True,
+            "trays": [
+                {"tray_id": "switch-1", "firmware_version": "1.2.3"},
+                {"tray_id": "switch-2", "firmware_version": "2.0.0"},
+            ],
+        }
+        check = _run(NvSwitchFirmwareCheck, step_output)
+        assert check.passed
+        assert "2 NV switch tray(s)" in check.message
+
+    def test_fails_when_any_tray_has_no_firmware(self) -> None:
+        """One missing version keeps partial inventory from passing BFX03-02."""
+        step_output = {
+            "success": True,
+            "trays": [
+                {"tray_id": "switch-1", "firmware_version": "1.2.3"},
+                {"tray_id": "switch-2", "firmware_version": ""},
+            ],
+        }
+        check = _run(NvSwitchFirmwareCheck, step_output)
+        assert not check.passed
+        assert "1 switch tray(s) missing firmware_version" in check.message
 
 
 class TestNodeHealthAgentCheck:

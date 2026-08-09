@@ -1103,11 +1103,11 @@ def test_nico_scripts_require_api_base(
     assert "--api-base" in captured.err
 
 
-def test_switch_firmware_queries_racks_and_maps_only_nvswitch_components(
+def test_switch_firmware_queries_all_trays_and_filters_nvswitches(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """BFX03-02 should use NICo rack inventory and preserve missing firmware for validation."""
+    """BFX03-02 should query all trays and accept each deployed NVSwitch type spelling."""
     module = _load_switch_firmware_script()
     observed: dict[str, Any] = {}
 
@@ -1116,28 +1116,32 @@ def test_switch_firmware_queries_racks_and_maps_only_nvswitch_components(
         observed["kwargs"] = kwargs
         return [
             {
-                "id": "rack-1",
-                "components": [
-                    {
-                        "id": "internal-switch-1",
-                        "componentId": "switch-1",
-                        "type": "ComponentTypeNVSwitch",
-                        "firmwareVersion": "1.2.3",
-                        "slotId": 3,
-                        "trayIdx": 0,
-                    },
-                    {
-                        "id": "switch-2",
-                        "type": "nvswitch",
-                        "firmwareVersion": None,
-                    },
-                    {
-                        "id": "compute-1",
-                        "type": "ComponentTypeCompute",
-                        "firmwareVersion": "9.9.9",
-                    },
-                ],
-            }
+                "id": "internal-switch-1",
+                "componentId": "switch-1",
+                "type": "switch",
+                "firmwareVersion": "1.2.3",
+                "rackId": "rack-1",
+                "position": {"slotId": 3, "trayIdx": 0},
+            },
+            {
+                "id": "switch-2",
+                "type": "NVSwitch",
+                "firmwareVersion": None,
+                "rackId": "rack-2",
+                "position": {"slotId": 5, "trayIdx": 1},
+            },
+            {
+                "id": "switch-3",
+                "type": "ComponentTypeNVSwitch",
+                "firmwareVersion": "3.4.5",
+                "rackId": "rack-2",
+            },
+            {
+                "id": "compute-1",
+                "type": "compute",
+                "firmwareVersion": "9.9.9",
+                "rackId": "rack-2",
+            },
         ]
 
     monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
@@ -1164,23 +1168,21 @@ def test_switch_firmware_queries_racks_and_maps_only_nvswitch_components(
         {
             "tray_id": "switch-1",
             "firmware_version": "1.2.3",
-            "rack_id": "rack-1",
-            "slot_id": 3,
-            "tray_index": 0,
         },
         {
             "tray_id": "switch-2",
             "firmware_version": "",
-            "rack_id": "rack-1",
-            "slot_id": None,
-            "tray_index": None,
+        },
+        {
+            "tray_id": "switch-3",
+            "firmware_version": "3.4.5",
         },
     ]
-    assert observed["args"] == ("test-org", "rack", "test-token")
+    assert observed["args"] == ("test-org", "tray", "test-token")
     assert observed["kwargs"] == {
         "base_url": "https://nico.example/v2/org",
-        "params": {"siteId": "site-1", "includeComponents": "true"},
-        "result_key": "racks",
+        "params": {"siteId": "site-1"},
+        "result_key": "trays",
     }
 
 
@@ -1194,7 +1196,7 @@ def test_switch_firmware_skips_when_site_has_no_nvswitch_components(
     monkeypatch.setattr(
         module,
         "forge_get_all",
-        lambda *args, **kwargs: [{"id": "rack-1", "components": [{"type": "ComponentTypeCompute"}]}],
+        lambda *args, **kwargs: [{"id": "compute-1", "type": "compute"}],
     )
     monkeypatch.setattr(
         sys,
@@ -1217,6 +1219,82 @@ def test_switch_firmware_skips_when_site_has_no_nvswitch_components(
     assert payload["skipped"] is True
     assert payload["trays"] == []
     assert "No NVSwitch tray components" in payload["skip_reason"]
+
+
+def test_switch_firmware_skips_when_nico_flow_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """NICo's Flow-disabled precondition is a documented runtime gap, not a pass."""
+    module = _load_switch_firmware_script()
+
+    def flow_disabled(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        raise HTTPError(
+            "https://nico.example/v2/org/test-org/nico/tray",
+            412,
+            "Site does not have NICo Flow enabled",
+            None,
+            None,
+        )
+
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", flow_disabled)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_switch_firmware.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+        ],
+    )
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert payload["gap"] == "BFX03-02"
+    assert payload["trays"] == []
+    assert "Flow is not enabled" in payload["skip_reason"]
+
+
+def test_switch_firmware_does_not_skip_other_http_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Authentication and API authorization failures must remain failures."""
+    module = _load_switch_firmware_script()
+
+    def forbidden(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        raise HTTPError("https://nico.example/tray", 403, "Forbidden", None, None)
+
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="test-token"))
+    monkeypatch.setattr(module, "forge_get_all", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "query_switch_firmware.py",
+            "--org",
+            "test-org",
+            "--site-id",
+            "site-1",
+            "--api-base",
+            "https://nico.example/v2/org",
+        ],
+    )
+
+    assert module.main() == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is False
+    assert payload["error_type"] == "api"
+    assert "skipped" not in payload
 
 
 def test_dpu_health_script_treats_nullable_machine_lists_as_empty(
