@@ -364,7 +364,7 @@ commands:
       - name: query_switch_firmware
         phase: test
         continue_on_failure: true
-        command: "python ../scripts/breakfix/query_switch_firmware.py"
+        command: "python ../scripts/breakfix/gap_stub.py"
         args:
           - "--org"
           - "{{org}}"
@@ -372,6 +372,8 @@ commands:
           - "{{site_id}}"
           - "--api-base"
           - "{{nico_api_base}}"
+          - "--gap"
+          - "BFX03-02"
         timeout: 120
 
       - name: query_bmc_kernel_logs

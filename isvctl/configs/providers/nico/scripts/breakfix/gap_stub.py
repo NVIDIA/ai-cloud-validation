@@ -6,7 +6,7 @@
 
 Several break-fix requirements have no NICo tenant REST surface to exercise:
 the mutating BFX01 workflows run through Maestro/repair fixtures, and the
-BFX02-02/BFX04-01/BFX05/BFX06 signals are not exposed at all. Each of
+BFX02-02/BFX03-02/BFX04-01/BFX05/BFX06 signals are not exposed at all. Each of
 those steps emits a structured skip naming the gap rather than a hard failure,
 so the suite reports "not available on this platform" instead of "broken".
 
@@ -43,6 +43,10 @@ GAPS: dict[str, tuple[str, dict[str, Any]]] = {
     "BFX02-02": (
         "NICo has no retirement-notice query API (BFX02-02 gap)",
         {"notices_queryable": False, "notices": []},
+    ),
+    "BFX03-02": (
+        "NV switch tray firmware is not queryable via NICo tenant REST API (BFX03-02 gap)",
+        {"trays": []},
     ),
     "BFX04-01": (
         "GPUd/Sentinel/Maestro node health agents are not observable via NICo REST (BFX04-01 gap)",

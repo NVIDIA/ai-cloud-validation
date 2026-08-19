@@ -150,17 +150,11 @@ class TestOperationChecks:
 class TestNvSwitchFirmwareCheck:
     """Cover BFX03-02 firmware evidence for every returned switch tray."""
 
-    def test_propagates_flow_disabled_runtime_skip(self) -> None:
-        """A Flow-disabled site remains skipped instead of becoming a pass."""
-        step_output = {
-            "success": True,
-            "skipped": True,
-            "skip_reason": "NICo Flow is not enabled for this site",
-            "gap": "BFX03-02",
-            "trays": [],
-        }
-        with pytest.raises(pytest.skip.Exception):
-            _run(NvSwitchFirmwareCheck, step_output)
+    def test_fails_when_no_trays_are_returned(self) -> None:
+        """An applicable GB300 system cannot pass without NVSwitch tray evidence."""
+        check = _run(NvSwitchFirmwareCheck, {"success": True, "trays": []})
+        assert not check.passed
+        assert "Expected at least 1 NV switch tray(s), got 0" in check.message
 
     def test_passes_when_every_tray_has_firmware(self) -> None:
         """Every discovered NVSwitch tray must report a non-empty version."""

@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Direct GB300 NVSwitch firmware validation.
+#
+# This provider runs on a GB300 BCM head where Bright Cluster Manager and
+# cm-nvfwupd are installed.  It reads existing NVSwitch inventory and executes
+# only `nvfwupd show_version -j`; it never performs a firmware update.
+#
+# Prerequisites:
+#   - passwordless sudo for the read-only cmsh and nvfwupd commands
+#   - GB300_RACK set to a rack prefix (for example, a05-p01), or
+#     GB300_SWITCH_HOSTS set to a comma-separated list of NVSwitch hostnames
+#   - GB300_SWITCH_LIMIT optionally controls the number inspected (default: 1)
+#
+# Usage:
+#   GB300_RACK=a05-p01 \
+#     uv run isvctl test run \
+#       -f isvctl/configs/providers/gb300/config/bare_metal.yaml \
+#       -- -k NvSwitchFirmwareCheck
+
+import:
+  - ../../../suites/bare_metal.yaml
+
+version: "1.0"
+
+commands:
+  bare_metal:
+    phases: ["test"]
+    steps:
+      - name: query_switch_firmware
+        phase: test
+        continue_on_failure: true
+        command: "python ../scripts/breakfix/query_switch_firmware.py"
+        timeout: 180
+
+tests:
+  cluster_name: "gb300-direct-firmware-validation"
+  description: "Inspect GB300 NVSwitch tray firmware directly with nvfwupd"
+
+  settings:
+    region: ""
+    instance_type: ""
+    teardown_flag: ""
