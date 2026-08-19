@@ -15,6 +15,8 @@ reconciles all of these different goals.
 | `software-reference-requirements.md` | Generated rendering of the reference YAML (`make plan`); one contributing requirements doc among several. |
 | `storage-acceptance-requirements.yaml` | **Source of record** for the DGXC Storage Acceptance Test requirements (PRD-ref namespace). |
 | `storage-acceptance-requirements.md` | Generated rendering of the storage YAML (`make plan`). |
+| `network-operator-readiness-requirements.yaml` | **Source of record** for the Enterprise RA Network Operator self-validation integration PRD. |
+| `network-operator-readiness-requirements.md` | Generated rendering of the Network Operator PRD YAML (`make plan`). |
 | `test-requirements-matrix.yaml` | The **traceability matrix (index)**: which requirement(s) each test relates to, across documents (`source`). |
 | `test-requirements-matrix.adoc` | Generated and committed traceability matrix, viewable in github (or renderable to html) |
 | `../../scripts/reqtrace.py` | Integrity checks (`reqtrace validate`; `make reqcheck`). |
@@ -96,6 +98,7 @@ record.
 | `BFX` (04+) | reference | break-fix health (continues offtake `BFX`) |
 | `BENCH` | reference | exemplar benchmarking |
 | `N-*` | storage | Storage Acceptance test IDs |
+| `ENT-REQ-*` | network-operator-prd | Enterprise Network Operator self-validation integration |
 
 ## 3. `legacy_ids`
 
@@ -124,16 +127,22 @@ belonging to a given requirements document*. We keep the data flexible for this:
 
 When a new team's requirements document is blessed, reconcile it here:
 
-1. **Register prefix(es)** for the new doc in the registry (sec. 2). Resolve
+1. **Add a structured requirements source.** Give it a globally unique
+   top-level `source`, because that value is the matrix join key. For a project
+   PRD, set `format: project-prd` to reuse the generic section/area renderer;
+   do not add a source-specific renderer branch. Add the file to
+   `DEFAULT_SOURCES` in `requirements_source_to_md.py` when `make plan` should
+   render it by default.
+2. **Register prefix(es)** for the new doc in the registry (sec. 2). Resolve
    any overload before proceeding (see the `CP` lesson).
-2. **Assign IDs.** Prefer mirroring the upstream requirement IDs. On collision
+3. **Assign IDs.** Prefer mirroring the upstream requirement IDs. On collision
    with an existing prefix, apply the collision policy (sec. 2): continue the
    number space, or (selectively) choose another resolution and record why.
-3. **Add/adjust tests** in `test-plan.yaml` (the canonical truth). Use
+4. **Add/adjust tests** in `test-plan.yaml` (the canonical truth). Use
    `legacy_ids` for any renames.
-4. **Update the matrix** (`test-requirements-matrix.yaml`): add each
+5. **Update the matrix** (`test-requirements-matrix.yaml`): add each
    test->requirement edge with the new `source`, plus `annotations`/`notes`.
-5. **Validate**: `make reqcheck` must pass; **regenerate**: `make plan`.
+6. **Validate**: `make reqcheck` must pass; **regenerate**: `make plan`.
 
 > Kept as a subsection for now; promote to its own `ONBOARDING.md` if it grows.
 

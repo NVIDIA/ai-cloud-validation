@@ -77,6 +77,7 @@ class TestStepConfig:
         assert step.skip is False
         assert step.requires == []
         assert step.requires_available_validations == []
+        assert step.requires_selected_validations == []
 
     def test_full_step(self) -> None:
         """Test creating a fully specified step config."""
@@ -91,6 +92,7 @@ class TestStepConfig:
             skip=False,
             requires=["vm", "bare_metal"],
             requires_available_validations=["NewCheck"],
+            requires_selected_validations=["SelectedCheck"],
             continue_on_failure=True,
             output_schema="vpc",
         )
@@ -102,8 +104,15 @@ class TestStepConfig:
         assert step.phase == "setup"
         assert step.requires == ["vm", "bare_metal"]
         assert step.requires_available_validations == ["NewCheck"]
+        assert step.requires_selected_validations == ["SelectedCheck"]
         assert step.continue_on_failure is True
         assert step.output_schema == "vpc"
+
+    def test_null_timeout_disables_watchdog(self) -> None:
+        """A provider may delegate timeout ownership to the invoked tool."""
+        step = StepConfig(name="validate", command="l8k", timeout=None)
+
+        assert step.timeout is None
 
     def test_step_rejects_unknown_or_duplicate_requires(self) -> None:
         """Step requirements use the declarable capability vocabulary."""
@@ -111,6 +120,100 @@ class TestStepConfig:
             StepConfig(name="setup", command="echo", requires=["compute"])
         with pytest.raises(ValidationError, match="requires must not contain duplicates"):
             StepConfig(name="setup", command="echo", requires=["vm", "vm"])
+
+
+class TestPlatformCommands:
+    """Tests for ordered command phases."""
+
+    def test_phases_reject_duplicates(self) -> None:
+        """A duplicate phase would otherwise execute its steps more than once."""
+        with pytest.raises(ValidationError, match="phases must not contain duplicate"):
+            PlatformCommands(phases=["setup", "test", "test"])
+
+    def test_continue_after_failure_rejects_unknown_phase(self) -> None:
+        """A typo must not silently restore stop-on-failure behavior."""
+        with pytest.raises(ValidationError, match="phases not listed in phases"):
+            PlatformCommands(
+                phases=["setup", "use-case"],
+                continue_after_failure=["use-csae"],
+            )
+
+    @pytest.mark.parametrize("phase", ["setup", "teardown"])
+    def test_continue_after_failure_rejects_lifecycle_phases(self, phase: str) -> None:
+        """Setup and teardown are never independent test-case phases."""
+        with pytest.raises(ValidationError, match="cannot contain lifecycle phases"):
+            PlatformCommands(
+                phases=["setup", "use-case", "teardown"],
+                continue_after_failure=[phase],
+            )
+
+    def test_continue_after_failure_rejects_duplicates(self) -> None:
+        """Duplicate continuation entries are configuration errors, not useful policy."""
+        with pytest.raises(ValidationError, match="must not contain duplicate"):
+            PlatformCommands(
+                phases=["setup", "use-case"],
+                continue_after_failure=["use-case", "use-case"],
+            )
+
+    def test_finalizer_requires_one_target_in_its_phase_or_teardown(self) -> None:
+        """A finalizer target must resolve unambiguously in a supported lifecycle position."""
+        with pytest.raises(ValidationError, match="must name exactly one configured step"):
+            PlatformCommands(
+                phases=["test"],
+                steps=[
+                    StepConfig(name="cleanup", command="clean", phase="test", finalizer_for="deploy"),
+                ],
+            )
+
+        with pytest.raises(ValidationError, match="same phase or the finalizer must use phase 'teardown'"):
+            PlatformCommands(
+                phases=["setup", "test", "cleanup"],
+                steps=[
+                    StepConfig(name="deploy", command="deploy", phase="test"),
+                    StepConfig(name="cleanup", command="clean", phase="cleanup", finalizer_for="deploy"),
+                ],
+            )
+
+        config = PlatformCommands(
+            phases=["test", "teardown"],
+            steps=[
+                StepConfig(name="deploy", command="deploy", phase="test"),
+                StepConfig(name="cleanup", command="clean", phase="teardown", finalizer_for="deploy"),
+            ],
+        )
+        assert config.steps[1].finalizer_for == "deploy"
+
+    def test_teardown_finalizer_must_follow_target_and_match_its_gates(self) -> None:
+        """Linked teardown cannot precede its mutation or be filtered independently."""
+        with pytest.raises(ValidationError, match="teardown must be ordered after target"):
+            PlatformCommands(
+                phases=["teardown", "test"],
+                steps=[
+                    StepConfig(name="deploy", command="deploy", phase="test"),
+                    StepConfig(name="cleanup", command="clean", phase="teardown", finalizer_for="deploy"),
+                ],
+            )
+
+        with pytest.raises(ValidationError, match="must use the same gates as target"):
+            PlatformCommands(
+                phases=["test", "teardown"],
+                steps=[
+                    StepConfig(name="deploy", command="deploy", phase="test", requires=["kubernetes"]),
+                    StepConfig(name="cleanup", command="clean", phase="teardown", finalizer_for="deploy"),
+                ],
+            )
+
+    def test_finalizer_cannot_target_another_finalizer(self) -> None:
+        """Finalizer chains have ambiguous activation and cleanup ordering."""
+        with pytest.raises(ValidationError, match="cannot finalize finalizer step"):
+            PlatformCommands(
+                phases=["test"],
+                steps=[
+                    StepConfig(name="deploy", command="deploy", phase="test"),
+                    StepConfig(name="cleanup", command="clean", phase="test", finalizer_for="deploy"),
+                    StepConfig(name="verify_cleanup", command="verify", phase="test", finalizer_for="cleanup"),
+                ],
+            )
 
 
 class TestCommandOutput:

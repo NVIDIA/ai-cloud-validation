@@ -76,6 +76,16 @@ class FailingValidation(BaseValidation):
         self.set_failed("Test failed", "Error output")
 
 
+class SubtestValidation(BaseValidation):
+    """Validation that reports passing and skipped probes."""
+
+    def run(self) -> None:
+        """Report two probe outcomes and pass the parent validation."""
+        self.report_subtest("ready", True, "ready")
+        self.report_subtest("optional", False, "not applicable", skipped=True)
+        self.set_passed("All required probes passed")
+
+
 class ExceptionValidation(BaseValidation):
     """Validation that raises an exception."""
 
@@ -1777,6 +1787,16 @@ class TestValidationResultCapture:
         assert r["name"] == "ConcreteValidation"
         assert r["skipped"] is False
         assert r["passed"] is True
+
+    def test_subtest_summary_captured(self) -> None:
+        """Probe counts cross the pytest bridge without replacing the parent message."""
+        subtests = MagicMock()
+
+        run_validation_entry_point(SubtestValidation, {"_category": "test_cat"}, "SubtestValidation", subtests)
+
+        result = _validation_results[0]
+        assert result["message"] == "All required probes passed"
+        assert result["subtest_summary"] == {"total": 2, "passed": 1, "failed": 0, "skipped": 1}
 
     def test_failed_validation_captured(self) -> None:
         """Failed validations must appear with passed=False."""

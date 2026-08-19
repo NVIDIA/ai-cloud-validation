@@ -77,7 +77,8 @@ Entry point: `isvctl/src/isvctl/main.py` (Typer).
 
 - `cli/` - subcommands (`test`, `deploy`, `clean`, `docs`, `report`)
 - `orchestrator/` - `loop.py` (phase loop), `step_executor.py` (step + validation
-  execution, supports `best_effort` mode), `commands.py` (timeouts), `context.py`
+  execution, supports `best_effort` mode), `commands.py` (legacy command model),
+  `process.py` (shared subprocess and process-group timeout handling), `context.py`
   (Jinja2 with missing-reference warnings)
 - `config/` - `schema.py` (Pydantic), `output_schemas.py` (per-step JSON schemas),
   `merger.py` (multi-file merge)
@@ -152,7 +153,9 @@ forwarded env vars → optional isvreporter upload.
 
 - Workspace root `pyproject.toml` defines members; each package has its own
   `pyproject.toml`; all source under `src/`.
-- `isvctl/configs/suites/` - provider-agnostic test contracts.
+- `isvctl/configs/suites/` - provider-agnostic test contracts. Discovery is
+  recursive, so related domain suites may be grouped in a subdirectory; YAML
+  filename stems must remain globally unique.
 - `isvctl/configs/providers/<name>/` - one folder per provider (`aws/`, `my-isv/`, ...):
   - `config/` - YAML wiring (imports a suite, supplies commands)
   - `scripts/` - executable scripts (Python/Bash) that do the work, organized by
@@ -172,6 +175,126 @@ forwarded env vars → optional isvreporter upload.
 - **`aws/`** - fully implemented reference using boto3/Terraform.
   `aws/scripts/common/` provides `ec2`, `errors` (with `delete_with_retry`),
   `ssh_utils.wait_for_ssh`, `serial_console`, `vpc`.
+
+### Network Operator / Kubernetes Launch Kit
+
+- All provider-owned Launch Kit files live under
+  `isvctl/configs/providers/k8s-launch-kit/`: generic and Network Operator YAML
+  in `config/`, executable transport in `scripts/`, and provider documentation
+  in `README.md`.
+- `isvctl/configs/providers/k8s-launch-kit/config/provider.yaml` is the generic provider. Its
+  public API mirrors the CLI: `prepare`, `verify`, Kubernetes preflight,
+  `discover`, `generate`, `deploy`, `validate`, and `clean`. Workflow settings are raw
+  argument arrays; do not model or duplicate Launch Kit flags/defaults here.
+  The single file-level input, `user_config`, points to a complete Launch Kit
+  configuration. Discovery copies it to `<working_dir>/user-config.yaml` and
+  writes the resolved result to `<working_dir>/cluster-config.yaml`, preserving
+  the source file and the default paths used by subsequent commands.
+  Its `validate` step uses `timeout: null` so l8k owns the automatically
+  calculated or user-supplied matrix deadline; all other workflow steps retain
+  finite outer isvctl watchdogs. Any provider may use a null `StepConfig`
+  timeout when its invoked command owns a bounded deadline.
+- Launch Kit-specific transport code belongs under
+  `isvctl/configs/providers/k8s-launch-kit/`, not `providers/shared/` (which is
+  reserved for scripts reused by unrelated providers). Production code lives
+  in `scripts/`. Executable mocks and pinned fixtures are test-only and live in
+  `isvctl/tests/providers/k8s_launch_kit/fixtures/`; product configuration must
+  never reference them.
+- `prepare` supports `verify` and explicit `install` modes. Install mode
+  downloads and records the official Launch Kit installer, then delegates
+  archive selection, checksum verification, and installation to it. Both modes
+  verify `l8k version --output json` and `l8k schema`. The configured string
+  environment is shared by install, verification, preflight, and workflows.
+- The Kubernetes preflight is mandatory before each normal test use case. It
+  derives a single explicit kubeconfig from the raw l8k arguments (and rejects
+  conflicts), verifies API access, requires a non-empty node inventory, and
+  requires at least one Ready node. A failure stops the remaining steps in that
+  workflow/use case. An explicit teardown-only recovery intentionally invokes
+  `l8k clean` directly because cleanup must not depend on a passing test
+  prerequisite.
+- `isvctl/configs/suites/k8s-launch-kit/network-operator.yaml` owns only catalog wiring and
+  interpretation for the globally selectable PRD checks. Each check binds to
+  the real step that produced its evidence.
+- `isvctl/configs/suites/k8s-launch-kit/network-operator-use-cases.yaml` composes those shared
+  check classes into six concrete end-to-end tests: RoCE and InfiniBand across
+  SR-IOV, RDMA Shared, and host-device modes. Include only checks applicable to
+  a use case; do not run all checks and hide mismatches as interleaved skips.
+- `isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml` is the
+  production six-use-case configuration. It defaults to real `l8k` and
+  `kubectl`, executes each supported fabric/deployment combination as a named
+  custom phase, and gives every use case isolated working and evidence
+  directories. Its fabric/deployment arguments define test identity; Launch
+  Kit continues to own runtime defaults and users extend raw argv in overlays.
+  A global `user_config` is staged independently for each selected use case;
+  when it is set, raw discovery arguments cannot also select user/save config paths.
+  Keep default config/deployment path flags out of all grouped phase arguments;
+  overlays may add them only when intentionally overriding Launch Kit's paths.
+- Mock-backed coverage loads that same production YAML and injects test-owned
+  executables only in `isvctl/tests/providers/k8s_launch_kit/test_provider.py`.
+  Result-check tests live under `isvtest/tests/k8s_launch_kit/`.
+- Independent use-case phases are listed in `continue_after_failure` so a failed
+  case does not suppress later evidence. The failed phase still fails the final
+  run after its linked teardown succeeds. Never use that option for shared
+  setup or dependent phases; a failed finalizer always blocks later phases.
+- `StepConfig.finalizer_for` links cleanup to a mutating target. Provider
+  cleanup belongs in `phase: teardown`; the orchestrator runs it immediately
+  after the target phase validations and reports `<target-phase>-teardown`,
+  including for `--phase test`. It only activates when the target process
+  started, while `--phase teardown` runs it unconditionally as recovery. Use
+  this instead of unconditional cleanup when a preflight failure must not
+  delete pre-existing state. Schema validation requires matching capability
+  and validation-selection gates.
+- Mutating steps associated with a selectable test declare
+  `requires_selected_validations`. The gate applies release, capability, label,
+  and suite exclusions before command execution. It is also the reporting
+  ownership edge: a failed selected step makes each named validation a
+  `step_failed` error in structured results and JUnit rather than allowing a
+  later missing-output skip. Keep
+  `requires_available_validations` for release-only gating; pytest `-k`/`-m`
+  selection remains too late to prune lifecycle commands.
+- `CompositeCheck` predates the Launch Kit work and is framework machinery for
+  `compose:` entries. It now forwards member probes as `MemberName/probe-name`.
+  A member-level `pytest.skip` is reported as a skipped member while the
+  composite continues; skipped members neither pass nor fail the parent.
+  Successful validations with subtests are compacted by the shared isvctl
+  renderer; do not add suite-specific output flags.
+- Launch Kit areas are separate validation classes in
+  `isvtest/validations/k8s_launch_kit/checks.py`; detailed probes use `report_subtest()` so
+  all manifest and connectivity rows reach JUnit output before the parent fails.
+- Do not invent a `selfValidation` field in l8k output. Current `discover`,
+  `generate`, and `clean` emit one `ui.JSONResult`, successful standalone
+  `deploy` emits no stdout, and `validate` emits a JSON stream (static state,
+  connectivity matrix, then report path). The provider wraps these unmodified documents in a transport
+  envelope and keeps semantic assertions in pytest. The envelope records the
+  absolute command working directory so validations can resolve Launch Kit's
+  relative evidence paths without rewriting its output.
+- Current l8k base check selection remains ICMP, `rping`, and `ib_write_bw`.
+  When `validation.gpuDirect.enabled` is true, GPUDirect DMA-BUF follows
+  `ib_write_bw` and is emitted as the distinct `gpudirect_dmabuf` result family.
+  Consume that family without adding an AI Cloud Validation default or a fourth
+  `--validation-checks` value.
+- `l8k clean` is the only supported deletion path. Each use case declares it in
+  the teardown phase, linked to its deploy step; do not reproduce its
+  CR/finalizer/Helm logic with kubectl. It removes the test deployment but does
+  not snapshot or restore pre-existing state, so do not claim full ENT-REQ-010
+  coverage until Launch Kit owns a transactional restore and verification API.
+- Use `--label ethernet` or `--label infiniband` to prune the grouped run to one
+  fabric's three workflows. Use `--label sriov`, `--label rdma_shared`, or
+  `--label host_device` for one deployment-mode pair; labels compose to select
+  one concrete use case. `-k`/marker selection still happens after lifecycle
+  commands and does not prune Launch Kit workflows.
+- Use `--label gpudirect` to select the six GPU-capable use-case definitions.
+  The semantic member skips when Launch Kit emits no `gpudirect_dmabuf` rows;
+  emitted failed rows must fail the parent with endpoint GPU evidence.
+- Current reporting uploads JUnit/log/catalog only. Files under
+  `_output/k8s-launch-kit` are local evidence until the reporter gains an
+  explicit, redacted attachment contract.
+- Design, prerequisites, unit-test boundaries, PRD mapping, and production gaps live in
+  `docs/guides/k8s-launch-kit/network-operator.md`.
+- The structured PRD source is
+  `docs/requirements/network-operator-readiness-requirements.yaml`; keep its
+  `ENT-REQ-*` edges in `docs/requirements/test-requirements-matrix.yaml` and
+  regenerate committed views with `make plan`.
 
 ## Environment Variables
 

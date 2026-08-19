@@ -30,6 +30,7 @@ from pydantic import ValidationError
 
 from isvctl.config.schema import CommandConfig, CommandOutput
 from isvctl.orchestrator.context import _create_jinja_env
+from isvctl.orchestrator.process import run_command_process
 from isvctl.redaction import mask_sensitive_args
 
 logger = logging.getLogger(__name__)
@@ -132,12 +133,10 @@ class CommandExecutor:
         logger.debug(f"Working directory: {cwd}")
 
         try:
-            result = subprocess.run(
+            result = run_command_process(
                 cmd_parts,
                 cwd=cwd,
                 env=env,
-                capture_output=True,
-                text=True,
                 timeout=config.timeout,
             )
 

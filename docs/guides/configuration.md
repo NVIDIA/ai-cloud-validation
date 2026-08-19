@@ -56,7 +56,10 @@ Pre-built configs are provided in `isvctl/configs/`:
 | `providers/aws/config/vm.yaml` | AWS EC2 GPU instance tests |
 | `providers/aws/config/iam.yaml` | AWS IAM user lifecycle |
 | `providers/aws/config/eks.yaml` | AWS EKS with GPU nodes |
+| `providers/k8s-launch-kit/config/provider.yaml` | Generic Kubernetes Launch Kit workflow |
+| `providers/k8s-launch-kit/config/network-operator.yaml` | Six Network Operator Launch Kit use cases |
 | `suites/k8s.yaml` | Standard Kubernetes cluster |
+| `suites/k8s-launch-kit/*.yaml` | Launch Kit-specific Network Operator catalog wiring |
 | `suites/slurm.yaml` | Slurm HPC cluster |
 
 ## Basic Usage
@@ -155,16 +158,59 @@ Each platform defines phases and steps:
 commands:
   network:
     phases: ["setup", "test", "teardown"]    # Execution order
+    continue_after_failure: []                 # Optional independent test phases
     steps: [...]                              # Steps grouped by phase
 ```
 
 | Field | Required | Description |
 | ----- | -------- | ----------- |
-| `phases` | No | Ordered list of phases (default: `["setup", "test", "teardown"]`) |
+| `phases` | No | Ordered list of phases (default: `["setup", "teardown"]`) |
+| `continue_after_failure` | No | Phase names whose failure records a failed run but does not prevent later phases from running |
 | `steps` | Yes | List of step configurations |
 | `skip` | No | Skip this entire platform |
 
 **Important:** If a step's `phase` is not in the `phases` list, an error is raised.
+
+Phase names are not limited to `setup`, `test`, and `teardown`. Any other name
+is a custom test phase: it runs in the declared order, appears under its own
+name in the orchestration summary, and is selected by `--phase test`. A
+validation bound to a step runs after that step's custom phase.
+
+By default, a failed phase prevents later non-teardown phases from running. Use
+`continue_after_failure` only when the named phases are independent test cases
+and collecting every result in one invocation is more useful than stopping at
+the first failure:
+
+```yaml
+commands:
+  network_operator:
+    phases: [setup, roce-sriov, infiniband-sriov, roce-host-device]
+    continue_after_failure: [roce-sriov, infiniband-sriov, roce-host-device]
+    steps:
+      - name: prepare
+        phase: setup
+        command: ./prepare.sh
+      - name: test_roce_sriov
+        phase: roce-sriov
+        command: ./run-use-case.sh
+        args: [roce-sriov]
+      - name: test_infiniband_sriov
+        phase: infiniband-sriov
+        command: ./run-use-case.sh
+        args: [infiniband-sriov]
+      - name: test_roce_host_device
+        phase: roce-host-device
+        command: ./run-use-case.sh
+        args: [roce-host-device]
+```
+
+This setting changes continuation, not the verdict: if `roce-sriov` fails,
+later listed use cases still run, but the final orchestration result remains
+failed. Every continuation name must also appear once in `phases`;
+configuration validation rejects unknown or duplicate names and forbids
+`setup` and `teardown`. Do not list prerequisites shared by later phases or
+phases that leave state on which later phases depend. Teardown retains its
+existing `teardown_on_failure` behavior.
 
 ### Step Configuration
 
@@ -180,6 +226,7 @@ Each step defines a command to execute:
     AWS_PROFILE: "production"
   skip: false
   continue_on_failure: false
+  finalizer_for: null
   output_schema: vpc
 ```
 
@@ -189,12 +236,84 @@ Each step defines a command to execute:
 | `phase` | No | Phase this step belongs to (default: `setup`) |
 | `command` | Yes | Script/command to execute |
 | `args` | No | Arguments (supports Jinja2 templates) |
-| `timeout` | No | Timeout in seconds (default: 300) |
+| `timeout` | No | Orchestration watchdog in seconds (default: 300); `null` disables it |
 | `env` | No | Environment variables |
 | `skip` | No | Skip this step |
 | `continue_on_failure` | No | Continue even if this step fails |
+| `finalizer_for` | No | Run as linked teardown after the named step's phase when that command was attempted |
 | `output_schema` | No | Schema name for output validation |
 | `requires` | No | Capability contexts this step runs in (see [Capabilities](#capabilities-and-requires)) |
+| `requires_available_validations` | No | Validation names that must be available after release filtering |
+| `requires_selected_validations` | No | Configured validation names that must remain selected after release, capability, label, and suite-exclusion filtering; failed steps become errors on these owning validations |
+
+The timeout is an orchestration watchdog, not a provider-specific setting. Set
+it to `null` only when the invoked tool owns a bounded deadline; isvctl will
+then wait for the command to exit. On POSIX systems, isvctl starts each step in
+a separate process group. When the
+watchdog expires, it sends `SIGTERM` to the entire group, waits briefly, then
+uses `SIGKILL` if needed. This prevents a wrapper's child CLI from continuing
+to modify infrastructure after the wrapper step has been reported as timed
+out. On non-POSIX systems, isvctl terminates the direct child process.
+
+#### Linked teardown finalizers
+
+Use `finalizer_for` when cleanup must run after the validations for one custom
+test phase, including when the mutating step or a validation failed. Declare
+cleanup in `phase: teardown`; the orchestrator executes it directly after its
+target's test phase instead of waiting until every test case has finished:
+
+```yaml
+commands:
+  network:
+    phases: [setup, use-case-one, use-case-two, teardown]
+    continue_after_failure: [use-case-one]
+    steps:
+      - name: deploy_fixture
+        phase: use-case-one
+        command: ./deploy.sh
+
+      - name: clean_fixture
+        phase: teardown
+        command: ./clean.sh
+        finalizer_for: deploy_fixture
+```
+
+The finalizer target must resolve to one unique step, precede the configured
+`teardown` phase, and cannot itself be a finalizer. The finalizer must use the
+same capability and validation-selection gates as its target. Configuration
+validation rejects violations of these rules.
+
+The orchestrator withholds linked teardown from normal phase execution, runs
+the target phase validations, and then executes the eligible cleanup in
+best-effort mode. The result is reported separately as
+`<target-phase>-teardown`. This interleaving applies even to `--phase test`, so
+multiple independent cases cannot leave deployments overlapping until the end
+of the suite. A target activates cleanup only when its command process actually
+started, whether it passed or failed. If an earlier prerequisite stopped the
+phase, a template could not be rendered, or the executable could not be
+started, cleanup is reported as skipped; this prevents deletion of pre-existing
+state the current run never mutated.
+
+An explicit `--phase teardown` run executes linked teardown steps without an
+in-memory target attempt. This is the standalone recovery path for resources
+left by an interrupted earlier run. When target test phases and teardown are
+part of the same invocation, already-linked cleanup is not run again in the
+final teardown position.
+
+An ordinary use-case failure may still honor `continue_after_failure` after its
+finalizers succeed. A failed finalizer always blocks later non-teardown phases,
+because the fixture can no longer be assumed clean. Finalizer command output
+and failure details are recorded in the teardown phase result. Keep finalizers
+lifecycle-only rather than binding validations to their output, because target
+phase validations intentionally run before cleanup. A same-phase finalizer is
+still supported for compatibility, but a destructive provider cleanup should
+normally be declared in `phase: teardown` so its lifecycle role and reporting
+are explicit.
+
+Finalizers are an orchestration guarantee, not a recovery service. An abrupt
+isvctl process termination, host failure, or `SIGKILL` can prevent them from
+running. Provider cleanup commands should therefore be idempotent and usable as
+standalone recovery commands.
 
 #### Gating a step with `requires`
 
@@ -216,6 +335,58 @@ need, give it an explicit `requires:`** — and give both halves of the fixture 
 same one, so setup and teardown always move together. A step that survives the
 gate must not reference a gated-off step's output; use `default(...)` if it
 legitimately might be absent.
+
+#### Gating Mutating Steps by Test Selection
+
+Use `requires_selected_validations` when a lifecycle step exists only to serve
+specific validation entries. This applies selection before the command runs,
+so `--label` and `--exclude-label` do not execute an unrelated deployment and
+then discard its result:
+
+```yaml
+commands:
+  network:
+    steps:
+      - name: deploy_ethernet_fixture
+        phase: ethernet
+        command: ./deploy-ethernet.sh
+        requires_selected_validations: [EthernetConnectivityCheck]
+
+tests:
+  validations:
+    network:
+      checks:
+        EthernetConnectivityCheck:
+          step: deploy_ethernet_fixture
+          labels: [ethernet]
+```
+
+With no label filter, the validation is selected and the step runs. With
+`--label ethernet`, it also runs; with `--label infiniband`, the step is
+skipped before execution. Every listed validation must be configured and
+selected. The gate also honors the release manifest, capability requirements,
+`tests.exclude.tests`, and effective label exclusions.
+
+The same list is the reporting ownership edge for the lifecycle step. If a
+selected step fails before its validation can run, each listed validation is
+reported as `error` with reason `step_failed`, including in JUnit. This prevents
+an early deploy or setup failure from being misreported as a harmless
+`step_no_output` skip merely because a later validation step was never reached.
+The error message names the failed step and retains its redacted command
+diagnostic.
+
+`requires_available_validations` is narrower: it only prevents a step from
+running when its named checks are absent from the release manifest. Retain it
+for providers that only need release gating.
+
+Pytest `-k` and `-m` expressions are evaluated inside pytest and therefore do
+not drive `requires_selected_validations`. Use framework `--label` filtering
+for lifecycle pruning in mutating suites.
+
+Selection-filtered validations remain in the structured result and JUnit
+report. With the default `tests.settings.show_skipped_tests: false`, terminal
+output omits summary phases containing only those filtered validations. Set it
+to `true` when the skipped selection decisions should be visible interactively.
 
 ### Validation Configuration
 
@@ -350,6 +521,13 @@ Two consequences worth internalising:
 Capability names and plain-suite names share one namespace, so a plain suite may
 not be named after a capability. `catalog_document` and
 `scripts/validate_suite_wiring.py` both reject the collision.
+
+Suite discovery is recursive under `isvctl/configs/suites/`. A domain with
+multiple related suites may therefore use a subdirectory such as
+`suites/k8s-launch-kit/`; catalog generation, `--suite` resolution, doctor,
+wiring validation, and test-plan coverage all discover the nested YAMLs. Suite
+identity is still the YAML filename stem, so stems must remain unique across
+the complete suite tree.
 
 ## Import and Override
 
@@ -583,6 +761,37 @@ checks:
       - FieldExistsCheck:
           fields: ["network_id"]
 ```
+
+`CompositeCheck` is the existing framework runner behind `compose:`; authors do
+not register or invoke that class directly. The YAML key creates one catalog
+test and runs every listed validation member. Each member is reported as a
+subtest. If a member reports its own probes through `report_subtest()`, those
+probes are retained with qualified names such as
+`LaunchKitRdmaConnectivityCheck/rping/worker-a->worker-b/rail-0->rail-1`.
+This avoids collisions between members and keeps the full probe tree in pytest
+and JUnit output.
+
+A member may call `pytest.skip` when it is not applicable to the current
+environment. `CompositeCheck` records that member as a skipped subtest and
+continues with the remaining members. The skip neither passes nor fails the
+member, and the parent composite passes when every non-skipped member passes.
+This is different from skipping the step output or the composite itself, both
+of which skip the entire parent validation.
+
+The orchestration summary automatically abbreviates a successful validation
+that reported subtests:
+
+```text
+MyUseCase: PASSED - 12 subtests passed
+```
+
+If optional probes were skipped, the summary includes passed, failed, and
+skipped counts. Failed and errored validations keep their original diagnostic
+message instead of being abbreviated. There is no YAML presentation flag;
+this behavior applies to composites and ordinary validation classes alike.
+After subtest testcase nodes are injected into JUnit, the suite's tests,
+failures, errors, and skipped counters are recalculated from those serialized
+nodes so reports do not double-count pytest's pre-counted subtest events.
 
 `SchemaValidation` remains directly wireable, but is catalog-excluded because
 the step executor runs schema checks automatically.
