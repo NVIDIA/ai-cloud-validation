@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Direct GB300 BMC log validation.
+#
+# Run this provider on a GB300 BCM head. It reads the configured compute node's
+# BMC credentials from existing BCM inventory and performs only Redfish GETs
+# against a Manager-scoped BMC Journal LogService.
+# It does not clear logs, collect a diagnostic dump, or change BMC state.
+#
+# Required:
+#   export GB300_NODE_HOST=a05-p01-dgx-03-c01
+#
+# Usage:
+#   uv run isvctl test run \
+#     -f isvctl/configs/providers/gb300/config/bmc_kernel_logs.yaml \
+#     -- -k BmcKernelLogCheck
+
+import:
+  - ../../../suites/bare_metal.yaml
+
+version: "1.0"
+
+commands:
+  bare_metal:
+    phases: ["test"]
+    steps:
+      - name: query_bmc_kernel_logs
+        phase: test
+        continue_on_failure: true
+        command: "python ../scripts/breakfix/query_bmc_kernel_logs.py"
+        timeout: 120
+
+tests:
+  cluster_name: "gb300-direct-bmc-log-validation"
+  description: "Obtain GB300 BMC journal messages directly through Redfish"
+
+  settings:
+    region: ""
+    instance_type: ""
+    teardown_flag: ""

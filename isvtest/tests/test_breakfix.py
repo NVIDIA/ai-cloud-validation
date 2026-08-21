@@ -11,6 +11,7 @@ import pytest
 
 from isvtest.core.validation import BaseValidation
 from isvtest.validations.breakfix import (
+    BmcKernelLogCheck,
     CordonNodeCheck,
     FailureNotificationCheck,
     GpuResetCheck,
@@ -29,6 +30,18 @@ def _run(check_class: type[BaseValidation], step_output: dict[str, Any]) -> Base
     check = check_class(config={"step_output": step_output})
     check.run()
     return check
+
+
+def _bmc_journal_host(**overrides: Any) -> dict[str, Any]:
+    """Return one valid BMC Journal host record with optional overrides."""
+    host = {
+        "host_id": "node-1",
+        "kernel_log_available": True,
+        "log_source": "/redfish/v1/Managers/BMC_0/LogServices/Journal/Entries",
+        "message_count": 1000,
+    }
+    host.update(overrides)
+    return host
 
 
 # (check class, observable flag key, record list key, one sample record)
@@ -156,6 +169,40 @@ class TestNodeHealthAgentCheck:
     def test_fails_when_no_agents_returned(self) -> None:
         """BFX04-01 needs evidence an agent is running; zero records is not that."""
         assert not _run(NodeHealthAgentCheck, {"success": True, "agents_observable": True, "agents": []}).passed
+
+
+class TestBmcKernelLogCheck:
+    """Cover non-empty Manager BMC Journal evidence for BFX03-03."""
+
+    def test_passes_with_nonempty_manager_journal(self) -> None:
+        """A non-empty Manager BMC Journal is positive message evidence."""
+        check = _run(BmcKernelLogCheck, {"success": True, "hosts": [_bmc_journal_host()]})
+        assert check.passed
+        assert "1 host(s)" in check.message
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            {"host_id": "node-1", "kernel_log_available": True},
+            _bmc_journal_host(host_id=""),
+            _bmc_journal_host(message_count=0),
+            _bmc_journal_host(message_count=True),
+            _bmc_journal_host(message_count="1000"),
+            _bmc_journal_host(log_source=""),
+            _bmc_journal_host(log_source="/redfish/v1/Systems/System_0/LogServices/EventLog/Entries"),
+        ],
+    )
+    def test_rejects_boolean_only_or_incomplete_evidence(self, host: dict[str, Any]) -> None:
+        """A provider assertion, empty count, or non-Journal source cannot pass."""
+        check = _run(BmcKernelLogCheck, {"success": True, "hosts": [host]})
+        assert not check.passed
+        assert "evidence missing" in check._error
+
+    def test_rejects_malformed_host_record(self) -> None:
+        """A non-object host record fails cleanly rather than raising."""
+        check = _run(BmcKernelLogCheck, {"success": True, "hosts": ["node-1"]})
+        assert not check.passed
+        assert "malformed" in check._error
 
 
 class TestCordonNodeCheck:
