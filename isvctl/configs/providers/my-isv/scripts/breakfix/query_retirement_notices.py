@@ -27,11 +27,13 @@ def main() -> int:
         notices_queryable=True,
         notices=[
             {
-                "machine_id": "demo-machine-001",
-                "rack_id": "demo-rack-001",
-                "status": "scheduled",
-                "message": "End-of-life retirement",
-                "retire_after": "2027-01-15T00:00:00Z",
+                "target_type": "machine",
+                "target_id": "demo-machine-001",
+                "notice_type": "machine-retirement",
+                "origin_kind": "provider",
+                "origin": "provider.breakfix-api",
+                "notice_id": "demo-retirement-001",
+                "not_before": "2027-01-15T00:00:00Z",
             }
         ],
     )

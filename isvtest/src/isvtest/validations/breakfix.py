@@ -30,6 +30,7 @@ passes, and the requirement stays visibly unproven.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, ClassVar
 
 import pytest
@@ -128,7 +129,9 @@ class RetirementNoticesCheck(_QueryableRecordsCheck):
     """Validate retirement notices for a node/rack are queryable (BFX02-02).
 
     Step output:
-        success, notices_queryable: bool, notices: list[dict]
+        success, notices_queryable: bool,
+        notices: list[{target_type, target_id, notice_type, origin_kind,
+                       origin, not_before}]
     """
 
     description: ClassVar[str] = "Query retirement notices for a node or rack"
@@ -139,6 +142,36 @@ class RetirementNoticesCheck(_QueryableRecordsCheck):
     absent_noun: ClassVar[str] = "retirement notices"
     api_label: ClassVar[str] = "Retirement notice"
     record_noun: ClassVar[str] = "notice"
+
+    def _is_evidence(self, record: Any) -> bool:
+        """Require an authoritative retirement notice with target and time evidence."""
+        if not isinstance(record, dict):
+            return False
+        if record.get("origin_kind") != "provider":
+            return False
+        if _record_label(record, "origin", "provider", "source") == "unknown":
+            return False
+        if record.get("target_type") not in {"instance", "machine", "node", "rack"}:
+            return False
+        if _record_label(record, "target_id", "machine_id", "node_id", "rack_id") == "unknown":
+            return False
+        if record.get("notice_type") not in {
+            "retirement",
+            "instance-retirement",
+            "machine-retirement",
+            "node-retirement",
+            "rack-retirement",
+        }:
+            return False
+
+        timestamp = _record_label(record, "not_before", "scheduled_at", "retire_after", "deadline")
+        if timestamp == "unknown":
+            return False
+        try:
+            parsed_timestamp = datetime.fromisoformat(timestamp)
+        except ValueError:
+            return False
+        return parsed_timestamp.tzinfo is not None
 
 
 class RepairHistoryCheck(_QueryableRecordsCheck):

@@ -261,7 +261,7 @@ its plan item is not platform-scoped.
 | `query_topology` | test | `providers/nico/scripts/topology/query_topology.py` | `hosts_checked`, `hosts[].{host_id,failure_domain}` |
 | `query_serial_numbers` | test | `providers/nico/scripts/hardware_inventory/query_serial_numbers.py` | `machines_checked`, `machines[].components.{chassis,baseboard,cpu,gpu,nic}.{present,identifiers}` (BFX03-01) |
 | `query_maintenance_events` | test | `providers/nico/scripts/breakfix/query_maintenance_events.py` | `events_queryable`, `events[].{machine_id,status,message}` (BFX02-01) |
-| `query_retirement_notices` | test | `providers/my-isv/scripts/breakfix/query_retirement_notices.py` | `notices_queryable`, `notices` (BFX02-02) |
+| `query_retirement_notices` | test | `providers/my-isv/scripts/breakfix/query_retirement_notices.py` | `notices_queryable`, `notices[].{target_type,target_id,notice_type,origin_kind,origin,not_before}` (BFX02-02) |
 | `query_repair_history` | test | `providers/nico/scripts/breakfix/query_repair_history.py` | `history_queryable`, `records[].{machine_id,entries}` -- a record needs non-empty `entries` to count (BFX02-03) |
 | `query_switch_firmware` | test | `providers/my-isv/scripts/breakfix/query_switch_firmware.py` | `trays[].{tray_id,firmware_version}` (BFX03-02) |
 | `query_bmc_kernel_logs` | test | `providers/nico/scripts/breakfix/query_bmc_kernel_logs.py` | `hosts[].{host_id,kernel_log_available}` (BFX03-03) |

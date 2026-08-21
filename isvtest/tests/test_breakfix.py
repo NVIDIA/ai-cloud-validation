@@ -36,7 +36,19 @@ def _run(check_class: type[BaseValidation], step_output: dict[str, Any]) -> Base
 # bar as the BFX02 query APIs, so the flag alone cannot pass the check.
 _QUERYABLE_CASES = [
     (MaintenanceEventsCheck, "events_queryable", "events", {"machine_id": "m-1", "status": "maintenance"}),
-    (RetirementNoticesCheck, "notices_queryable", "notices", {"machine_id": "m-1", "status": "scheduled"}),
+    (
+        RetirementNoticesCheck,
+        "notices_queryable",
+        "notices",
+        {
+            "target_type": "machine",
+            "target_id": "m-1",
+            "notice_type": "machine-retirement",
+            "origin_kind": "provider",
+            "origin": "provider.breakfix-api",
+            "not_before": "2027-01-15T00:00:00Z",
+        },
+    ),
     (RepairHistoryCheck, "history_queryable", "records", {"machine_id": "m-1", "entries": [{"status": "x"}]}),
     (
         PlannedMaintenanceNotificationCheck,
@@ -117,6 +129,49 @@ class TestQueryableRecordChecks:
         check = _run(RepairHistoryCheck, step_output)
         assert check.passed
         assert "1 machine record(s)" in check.message
+
+    @pytest.mark.parametrize(
+        "record",
+        [
+            {"machine_id": "m-1", "status": "scheduled"},
+            {
+                "target_type": "machine",
+                "target_id": "m-1",
+                "notice_type": "machine-retirement",
+                "origin_kind": "provider",
+                "origin": "provider.breakfix-api",
+                "not_before": "not-a-timestamp",
+            },
+            {
+                "target_type": "machine",
+                "target_id": "m-1",
+                "notice_type": "machine-retirement",
+                "origin_kind": "provider",
+                "origin": "provider.breakfix-api",
+                "issued_at": "2027-01-15T00:00:00Z",
+            },
+            {
+                "target_type": "machine",
+                "target_id": "m-1",
+                "notice_type": "maintenance",
+                "origin_kind": "provider",
+                "origin": "provider.breakfix-api",
+                "not_before": "2027-01-15T00:00:00Z",
+            },
+            {
+                "target_type": "machine",
+                "target_id": "m-1",
+                "notice_type": "machine-retirement",
+                "origin_kind": "self_reported",
+                "origin": "provider.breakfix-api",
+                "not_before": "2027-01-15T00:00:00Z",
+            },
+        ],
+    )
+    def test_retirement_notice_rejects_unproven_records(self, record: dict[str, Any]) -> None:
+        """A generic lifecycle record without target/time/source proof cannot pass BFX02-02."""
+        with pytest.raises(pytest.skip.Exception):
+            _run(RetirementNoticesCheck, {"success": True, "notices_queryable": True, "notices": [record]})
 
 
 class TestOperationChecks:
