@@ -11,6 +11,10 @@
 # Required:
 #   export GB300_NODE_HOST=a05-p01-dgx-03-c01
 #
+# Optional when the BMC certificate does not chain to the BCM host's system
+# trust store:
+#   export GB300_BMC_CA_CERT=/path/to/trusted-bmc-ca.pem
+#
 # Usage:
 #   uv run isvctl test run \
 #     -f isvctl/configs/providers/gb300/config/bmc_kernel_logs.yaml \

@@ -8,6 +8,7 @@ The script is intended to run on a GB300 BCM head. It resolves one configured
 compute node's BMC endpoint and credentials from read-only ``cmsh`` inventory,
 then discovers a Manager-scoped Redfish BMC Journal LogService. Credentials and
 raw log messages remain inside the privileged subprocess and are never emitted.
+TLS uses the BCM host's system trust store or an explicitly configured BMC CA.
 """
 
 from __future__ import annotations
@@ -30,6 +31,15 @@ _QUERY_SCRIPT = (
     _MODULE_SETUP
     + """\
 node_host="$1"
+bmc_ca_cert="$2"
+
+tls_args=()
+if [ -n "$bmc_ca_cert" ]; then
+    if [ ! -f "$bmc_ca_cert" ] || [ ! -r "$bmc_ca_cert" ]; then
+        exit 24
+    fi
+    tls_args+=(--cacert "$bmc_ca_cert")
+fi
 
 bmc_ip=$(cmsh-lazy-load -c "device; use $node_host; interfaces; get rf0 ip" 2>/dev/null || true)
 if [ -z "$bmc_ip" ]; then
@@ -56,8 +66,8 @@ chmod 600 "$netrc_file" "$response_file"
 printf 'default login %s password %s\n' "$bmc_user" "$bmc_pass" > "$netrc_file"
 
 get_redfish() {
-    curl --max-time 30 --connect-timeout 10 --fail --silent --show-error --insecure \
-        --netrc-file "$netrc_file" "https://$bmc_ip$1"
+    curl --max-time 30 --connect-timeout 10 --fail --silent --show-error \
+        "${tls_args[@]}" --netrc-file "$netrc_file" "https://$bmc_ip$1"
 }
 
 managers=$(get_redfish "/redfish/v1/Managers") || exit 21
@@ -118,10 +128,10 @@ def _validate_host(host: str) -> str:
     return value
 
 
-def _run_privileged(host: str) -> subprocess.CompletedProcess[str]:
+def _run_privileged(host: str, ca_cert: str = "") -> subprocess.CompletedProcess[str]:
     """Run the fixed read-only BCM and Redfish helper as root."""
     return subprocess.run(
-        ["sudo", "-n", "bash", "-s", "--", _validate_host(host)],
+        ["sudo", "-n", "bash", "-s", "--", _validate_host(host), ca_cert],
         input=_QUERY_SCRIPT,
         text=True,
         capture_output=True,
@@ -130,10 +140,10 @@ def _run_privileged(host: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _query_host(host: str) -> dict[str, Any]:
+def _query_host(host: str, ca_cert: str = "") -> dict[str, Any]:
     """Return normalized evidence for one GB300 compute-node BMC."""
     node_host = _validate_host(host)
-    completed = _run_privileged(node_host)
+    completed = _run_privileged(node_host, ca_cert)
     if completed.returncode != 0:
         raise InspectionError("unable to retrieve a non-empty GB300 BMC Journal log")
     try:
@@ -165,6 +175,11 @@ def main() -> int:
         default=os.environ.get("GB300_NODE_HOST", ""),
         help="GB300 compute-node hostname (default: GB300_NODE_HOST)",
     )
+    parser.add_argument(
+        "--ca-cert",
+        default=os.environ.get("GB300_BMC_CA_CERT", ""),
+        help="Trusted BMC CA certificate (default: system trust store or GB300_BMC_CA_CERT)",
+    )
     args = parser.parse_args()
 
     result: dict[str, Any] = {
@@ -176,7 +191,7 @@ def main() -> int:
     try:
         if not args.node_host.strip():
             raise InspectionError("GB300_NODE_HOST is required")
-        result["hosts"] = [_query_host(args.node_host)]
+        result["hosts"] = [_query_host(args.node_host, args.ca_cert)]
     except (InspectionError, subprocess.TimeoutExpired) as exc:
         result["error_type"] = "bmc_log_inspection"
         result["error"] = str(exc) if isinstance(exc, InspectionError) else "GB300 BMC log inspection timed out"

@@ -73,10 +73,21 @@ def test_privileged_helper_contains_only_read_operations(monkeypatch: pytest.Mon
         return _completed(_journal_evidence())
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
-    module._run_privileged("a05-p01-dgx-03-c01")
+    module._run_privileged("a05-p01-dgx-03-c01", "/etc/ssl/certs/bmc-ca.pem")
 
     script = observed["kwargs"]["input"]
-    assert observed["command"] == ["sudo", "-n", "bash", "-s", "--", "a05-p01-dgx-03-c01"]
+    assert observed["command"] == [
+        "sudo",
+        "-n",
+        "bash",
+        "-s",
+        "--",
+        "a05-p01-dgx-03-c01",
+        "/etc/ssl/certs/bmc-ca.pem",
+    ]
+    assert "--insecure" not in script
+    assert '--cacert "$bmc_ca_cert"' in script
+    assert '[ ! -f "$bmc_ca_cert" ] || [ ! -r "$bmc_ca_cert" ]' in script
     assert 'get_redfish "/redfish/v1/Managers"' in script
     assert 'service_id" != "Journal"' in script
     assert "*bmc*journal*" in script
@@ -91,9 +102,9 @@ def test_privileged_helper_contains_only_read_operations(monkeypatch: pytest.Mon
 def test_live_shaped_log_produces_passing_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
     """Observed GB300 Manager Journal messages satisfy BFX03-03."""
     module = _load_script()
-    monkeypatch.setattr(module, "_run_privileged", lambda host: _completed(_journal_evidence()))
+    monkeypatch.setattr(module, "_run_privileged", lambda host, ca_cert: _completed(_journal_evidence()))
 
-    host = module._query_host("a05-p01-dgx-03-c01")
+    host = module._query_host("a05-p01-dgx-03-c01", "/trusted/bmc-ca.pem")
 
     assert host == {
         "host_id": "a05-p01-dgx-03-c01",
@@ -109,7 +120,11 @@ def test_live_shaped_log_produces_passing_evidence(monkeypatch: pytest.MonkeyPat
 def test_empty_log_cannot_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     """A reachable BMC without actual messages is not positive evidence."""
     module = _load_script()
-    monkeypatch.setattr(module, "_run_privileged", lambda host: _completed(_journal_evidence(message_count=0)))
+    monkeypatch.setattr(
+        module,
+        "_run_privileged",
+        lambda host, ca_cert: _completed(_journal_evidence(message_count=0)),
+    )
 
     with pytest.raises(module.InspectionError, match="no log messages"):
         module._query_host("a05-p01-dgx-03-c01")
@@ -142,7 +157,7 @@ def test_query_failure_does_not_leak_stderr(
     monkeypatch.setattr(
         module,
         "_run_privileged",
-        lambda host: _completed("", returncode=23, stderr="password=do-not-print"),
+        lambda host, ca_cert: _completed("", returncode=23, stderr="password=do-not-print"),
     )
     monkeypatch.setattr(sys, "argv", [SCRIPT_PATH.name])
 
