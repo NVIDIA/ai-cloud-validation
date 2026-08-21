@@ -30,7 +30,8 @@ def main() -> int:
             "requested": True,
             "accepted": True,
             "machine_id": machine_id,
-            "maintenance_mode": True,
+            "maintenance_mode": "Maintenance",
+            "restored": True,
         },
     )
 

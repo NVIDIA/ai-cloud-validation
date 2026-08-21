@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Explicitly mutating Kubernetes BFX01-02 configuration.
+#
+# The active Kubernetes cluster must provide the NVIDIA Maintenance Operator
+# NodeMaintenance CRD. This run creates a uniquely owned probe Deployment,
+# requests maintenance for one explicit node, verifies the operator cordons the
+# node and evicts only that probe, then deletes the request and verifies the
+# node and workload recover.
+#
+#   export ISVTEST_INCLUDE_UNRELEASED=1
+#   export ISVTEST_BREAKFIX_ALLOW_MUTATION=1
+#   export ISVTEST_BREAKFIX_NODE=<dedicated-test-node>
+#   uv run isvctl test run \
+#     -f isvctl/configs/providers/kubernetes-node-maintenance.yaml \
+#     --label breakfix -- -v -s -k ReturnNodeMaintenanceCheck
+
+import: ../suites/bare_metal.yaml
+
+version: "1.0"
+
+commands:
+  bare_metal:
+    phases: ["test"]
+    steps:
+      - name: return_node_maintenance
+        phase: test
+        command: "python shared/breakfix/return_node_maintenance.py"
+        args:
+          - "--node={{ env.ISVTEST_BREAKFIX_NODE | default('', true) }}"
+          - "--timeout-seconds=120"
+        timeout: 1200
+        requires_available_validations:
+          - ReturnNodeMaintenanceCheck
+
+tests:
+  description: "Bare-metal BFX01-02 validation through the Kubernetes Maintenance Operator API"
+
+  settings:
+    show_skipped_tests: true

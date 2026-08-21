@@ -85,6 +85,9 @@
 #   - Expected machines pre-registered; machines ingested and DPUs initialized
 #   - NICO_ORGANIZATION and NICO_SITE_ID environment variables set
 #   - Optional NICO_INSTANCE_ID narrows inventory checks to a known instance
+#   - BFX01-02 is staging-only and mutating. It structured-skips unless both
+#     NICO_BREAKFIX_MACHINE_ID names a dedicated fixture and
+#     NICO_BREAKFIX_ALLOW_MUTATION=1 explicitly opts in.
 #   - ssh-keygen on the host (used by query_key_access to mint the throwaway key)
 #
 # Usage:
@@ -439,7 +442,7 @@ commands:
       - name: return_node_maintenance
         phase: test
         continue_on_failure: true
-        command: "python ../scripts/breakfix/gap_stub.py"
+        command: "python ../scripts/breakfix/return_node_maintenance.py"
         args:
           - "--org"
           - "{{org}}"
@@ -447,9 +450,11 @@ commands:
           - "{{site_id}}"
           - "--api-base"
           - "{{nico_api_base}}"
-          - "--gap"
-          - "BFX01-02"
-        timeout: 600
+          - "--machine-id={{breakfix_machine_id}}"
+          - "--allow-mutation={{breakfix_allow_mutation}}"
+        # The subprocess must outlive both bounded PATCH calls and restoration
+        # polling so its finally block cannot be killed before cleanup.
+        timeout: 1200
 
       - name: return_rack_maintenance
         phase: test
@@ -592,6 +597,11 @@ tests:
     site_id: "{{env.NICO_SITE_ID}}"
     nico_api_base: "{{env.NICO_API_BASE}}"
     instance_id: "{{env.NICO_INSTANCE_ID}}"
+    # BFX01-02 is mutating and never selects a Machine automatically. Set this
+    # only to a dedicated staging fixture that the test may enter and leave
+    # maintenance mode.
+    breakfix_machine_id: "{{env.NICO_BREAKFIX_MACHINE_ID}}"
+    breakfix_allow_mutation: "{{env.NICO_BREAKFIX_ALLOW_MUTATION}}"
     # The imported bare_metal suite defines these for the full instance
     # lifecycle, which NICo does not run yet. Blank them so the suite's
     # {{instance_type}} self-reference does not emit missing-variable warnings.

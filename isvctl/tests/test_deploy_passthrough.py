@@ -44,7 +44,26 @@ def test_ngc_key_alias_is_forwarded_under_the_canonical_name(monkeypatch: pytest
 
 def test_nothing_is_forwarded_when_nothing_is_set(monkeypatch: pytest.MonkeyPatch) -> None:
     """An empty assignment list must not leave a stray token on the command line."""
-    for name in ("NGC_API_KEY", "NGC_NIM_API_KEY", INCLUDE_UNRELEASED_ENV):
+    for name in (
+        "NGC_API_KEY",
+        "NGC_NIM_API_KEY",
+        INCLUDE_UNRELEASED_ENV,
+        "ISVTEST_BREAKFIX_ALLOW_MUTATION",
+        "ISVTEST_BREAKFIX_NODE",
+    ):
         monkeypatch.delenv(name, raising=False)
 
     assert _remote_env_assignments() == ""
+
+
+def test_breakfix_mutation_controls_are_forwarded_and_quoted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Remote focused runs need the same explicit consent and node target."""
+    monkeypatch.delenv("NGC_API_KEY", raising=False)
+    monkeypatch.delenv("NGC_NIM_API_KEY", raising=False)
+    monkeypatch.delenv(INCLUDE_UNRELEASED_ENV, raising=False)
+    monkeypatch.setenv("ISVTEST_BREAKFIX_ALLOW_MUTATION", "1")
+    monkeypatch.setenv("ISVTEST_BREAKFIX_NODE", "dedicated node")
+
+    assert _remote_env_assignments() == "ISVTEST_BREAKFIX_ALLOW_MUTATION=1 ISVTEST_BREAKFIX_NODE='dedicated node'"

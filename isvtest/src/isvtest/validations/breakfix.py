@@ -278,7 +278,11 @@ class ReturnNodeMaintenanceCheck(_OperationCheck):
     """Validate returning an individual node for maintenance (BFX01-02).
 
     Step output:
-        success, operation: {requested, accepted, machine_id, maintenance_mode}
+        success, platform, operation:
+        {requested, accepted, machine_id|node_id, maintenance_mode, restored}
+
+        Kubernetes implementations additionally report workload_evacuated,
+        replacement_blocked, and workload_recovered.
     """
 
     description: ClassVar[str] = "Return an individual node to the provider for maintenance via the API"
@@ -291,6 +295,43 @@ class ReturnNodeMaintenanceCheck(_OperationCheck):
     def _pass_message(self, label: str, operation: dict[str, Any]) -> str:
         """Report the maintenance mode the provider placed the node into."""
         return f"{super()._pass_message(label, operation)} (maintenance_mode={operation.get('maintenance_mode')})"
+
+    def run(self) -> None:
+        """Require evidence of the request, observed maintenance state, and restoration."""
+        step_output = _step_output(self)
+        if step_output is None:
+            return
+        operation = step_output.get("operation") or {}
+        if not isinstance(operation, dict):
+            self.set_failed("Node maintenance operation evidence must be an object")
+            return
+        if operation.get("requested") is not True:
+            self.set_failed("Node maintenance return was not requested")
+            return
+        if operation.get("accepted") is not True:
+            self.set_failed(operation.get("message") or self.failure_message)
+            return
+        label = _record_label(operation, *self.label_keys)
+        if label == "unknown":
+            self.set_failed("Node maintenance evidence is missing a machine or node identifier")
+            return
+        if operation.get("maintenance_mode") != "Maintenance":
+            self.set_failed("Provider did not report the node in Maintenance")
+            return
+        if operation.get("restored") is not True:
+            self.set_failed("Provider did not restore the node after maintenance validation")
+            return
+        if step_output.get("platform") == "kubernetes":
+            evidence = {
+                "workload_evacuated": "Owned workload was not evacuated",
+                "replacement_blocked": "Replacement workload was not blocked during maintenance",
+                "workload_recovered": "Owned workload did not recover after maintenance",
+            }
+            for field, message in evidence.items():
+                if operation.get(field) is not True:
+                    self.set_failed(message)
+                    return
+        self.set_passed(self._pass_message(label, operation))
 
 
 class ReturnRackMaintenanceCheck(_OperationCheck):

@@ -5,7 +5,7 @@
 """Emit the documented NICo gap payload for a break-fix requirement.
 
 Several break-fix requirements have no NICo tenant REST surface to exercise:
-the mutating BFX01 workflows run through Maestro/repair fixtures, and the
+the remaining mutating BFX01 workflows run through Maestro/repair fixtures, and the
 BFX02-02/BFX03-02/BFX04-01/BFX05/BFX06 signals are not exposed at all. Each of
 those steps emits a structured skip naming the gap rather than a hard failure,
 so the suite reports "not available on this platform" instead of "broken".
@@ -28,10 +28,6 @@ from breakfix._common import emit, skip_result
 
 # gap id -> (skip reason, contract fields the bound validation still expects)
 GAPS: dict[str, tuple[str, dict[str, Any]]] = {
-    "BFX01-02": (
-        "Return-node-for-maintenance is a mutating NICo repair workflow requiring lab fixtures (BFX01-02 gap)",
-        {"operation": {"requested": False, "accepted": False}},
-    ),
     "BFX01-03": (
         "Rack-level maintenance return API is not exposed on NICo tenant REST (BFX01-03 gap)",
         {"operation": {"requested": False, "accepted": False}},

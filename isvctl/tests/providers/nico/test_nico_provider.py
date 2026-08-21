@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs
 
 import pytest
@@ -3921,3 +3921,308 @@ def test_query_key_access_no_provision_never_mutates(
     assert code == 0
     assert out["skipped"] is True
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# return_node_maintenance (BFX01-02) script
+# ---------------------------------------------------------------------------
+
+
+def _load_return_node_maintenance_script() -> ModuleType:
+    """Load the reversible NICo maintenance script for direct unit testing."""
+    return _load_nico_script("breakfix/return_node_maintenance.py", "test_return_node_maintenance")
+
+
+def _maintenance_argv(machine_id: str = "fixture-1", *, allow_mutation: str = "1") -> list[str]:
+    """Build arguments targeting one explicit staging fixture."""
+    return [
+        "return_node_maintenance.py",
+        "--org",
+        "o",
+        "--site-id",
+        "site-1",
+        "--api-base",
+        "http://x",
+        f"--machine-id={machine_id}",
+        f"--allow-mutation={allow_mutation}",
+    ]
+
+
+def test_return_node_maintenance_requires_explicit_fixture(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty fixture ID skips without authenticating or calling NICo."""
+    module = _load_return_node_maintenance_script()
+    calls: list[str] = []
+    monkeypatch.setattr(module, "resolve_auth", lambda: calls.append("auth"))
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv(""))
+
+    assert code == 0
+    assert out["skipped"] is True
+    assert "NICO_BREAKFIX_MACHINE_ID" in out["skip_reason"]
+    assert calls == []
+
+
+def test_return_node_maintenance_requires_mutation_opt_in(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A fixture ID alone remains read-only unless mutation is explicitly enabled."""
+    module = _load_return_node_maintenance_script()
+    calls: list[str] = []
+    monkeypatch.setattr(module, "resolve_auth", lambda: calls.append("auth"))
+
+    code, out = _run_script_main(
+        module,
+        monkeypatch,
+        capsys,
+        _maintenance_argv(allow_mutation=""),
+    )
+
+    assert code == 0
+    assert out["skipped"] is True
+    assert "NICO_BREAKFIX_ALLOW_MUTATION=1" in out["skip_reason"]
+    assert calls == []
+
+
+def test_return_node_maintenance_rejects_wrong_site_without_mutation(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The configured Machine must belong to the configured Site before any PATCH."""
+    module = _load_return_node_maintenance_script()
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(
+        module,
+        "forge_get",
+        lambda *args, **kwargs: {"id": "fixture-1", "siteId": "site-2", "status": "Ready"},
+    )
+    monkeypatch.setattr(module, "forge_patch", lambda *args, **kwargs: patches.append(kwargs["body"]))
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv())
+
+    assert code == 1
+    assert out["success"] is False
+    assert "does not belong" in out["error"]
+    assert patches == []
+
+
+def test_return_node_maintenance_refuses_existing_maintenance_owner(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pre-existing maintenance state is never claimed or restored by this run."""
+    module = _load_return_node_maintenance_script()
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(
+        module,
+        "forge_get",
+        lambda *args, **kwargs: {"id": "fixture-1", "siteId": "site-1", "status": "Maintenance"},
+    )
+    monkeypatch.setattr(module, "forge_patch", lambda *args, **kwargs: patches.append(kwargs["body"]))
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv())
+
+    assert code == 1
+    assert "already in Maintenance" in out["error"]
+    assert patches == []
+
+
+@pytest.mark.parametrize(
+    ("machine_fields", "error_fragment"),
+    [
+        ({"status": "InUse"}, "must be Ready"),
+        ({"status": "Ready", "instanceId": "instance-1"}, "is allocated"),
+        ({"status": "Ready", "tenantId": "tenant-1"}, "is allocated"),
+    ],
+)
+def test_return_node_maintenance_requires_idle_ready_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    machine_fields: dict[str, Any],
+    error_fragment: str,
+) -> None:
+    """Only a Ready Machine with no instance or tenant binding may be mutated."""
+    module = _load_return_node_maintenance_script()
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(
+        module,
+        "forge_get",
+        lambda *args, **kwargs: {"id": "fixture-1", "siteId": "site-1", **machine_fields},
+    )
+    monkeypatch.setattr(module, "forge_patch", lambda *args, **kwargs: patches.append(kwargs["body"]))
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv())
+
+    assert code == 1
+    assert error_fragment in out["error"]
+    assert patches == []
+
+
+def test_return_node_maintenance_verifies_and_restores(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Both the PATCH response and a fresh GET must show Maintenance before cleanup."""
+    module = _load_return_node_maintenance_script()
+    gets = iter(
+        [
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+            {"id": "fixture-1", "siteId": "site-1", "status": "Maintenance"},
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+        ]
+    )
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "forge_get", lambda *args, **kwargs: next(gets))
+
+    def patch_machine(*args: object, **kwargs: Any) -> dict[str, Any]:
+        """Record the request and return NICo's synchronous state."""
+        body = kwargs["body"]
+        patches.append(body)
+        return {"status": "Maintenance" if body["setMaintenanceMode"] else "Initializing"}
+
+    monkeypatch.setattr(module, "forge_patch", patch_machine)
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv())
+
+    assert code == 0
+    assert out["success"] is True
+    assert out["operation"] == {
+        "requested": True,
+        "accepted": True,
+        "machine_id": "fixture-1",
+        "maintenance_mode": "Maintenance",
+        "restored": True,
+    }
+    assert patches[0] == {
+        "setMaintenanceMode": True,
+        "maintenanceMessage": module.MAINTENANCE_MESSAGE,
+    }
+    assert patches[1] == {"setMaintenanceMode": False}
+
+
+def test_return_node_maintenance_rejects_unconfirmed_state_but_restores(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An accepted PATCH is insufficient when the current Machine is not in Maintenance."""
+    module = _load_return_node_maintenance_script()
+    gets = iter(
+        [
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+        ]
+    )
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "forge_get", lambda *args, **kwargs: next(gets))
+
+    def patch_machine(*args: object, **kwargs: Any) -> dict[str, Any]:
+        """Return Maintenance for the request and Initializing for restoration."""
+        patches.append(kwargs["body"])
+        return {"status": "Maintenance" if len(patches) == 1 else "Initializing"}
+
+    monkeypatch.setattr(module, "forge_patch", patch_machine)
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv())
+
+    assert code == 1
+    assert out["operation"]["accepted"] is False
+    assert out["operation"]["restored"] is True
+    assert patches[-1] == {"setMaintenanceMode": False}
+
+
+def test_return_node_maintenance_restores_after_request_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Once the enabling request starts, cleanup runs even when that request errors."""
+    module = _load_return_node_maintenance_script()
+    gets = iter(
+        [
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+        ]
+    )
+    patches: list[dict[str, Any]] = []
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "forge_get", lambda *args, **kwargs: next(gets))
+
+    def patch_machine(*args: object, **kwargs: Any) -> dict[str, Any]:
+        """Fail the enabling request and accept the restoration request."""
+        body = kwargs["body"]
+        patches.append(body)
+        if body["setMaintenanceMode"]:
+            raise URLError("maintenance request failed")
+        return {"status": "Initializing"}
+
+    monkeypatch.setattr(module, "forge_patch", patch_machine)
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv())
+
+    assert code == 1
+    assert "maintenance request failed" in out["error"]
+    assert out["operation"]["restored"] is True
+    assert patches[-1] == {"setMaintenanceMode": False}
+
+
+def test_return_node_maintenance_cleanup_failure_fails_result(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A successful maintenance observation cannot pass when restoration fails."""
+    module = _load_return_node_maintenance_script()
+    gets = iter(
+        [
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+            {"id": "fixture-1", "siteId": "site-1", "status": "Maintenance"},
+        ]
+    )
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "forge_get", lambda *args, **kwargs: next(gets))
+    calls = 0
+
+    def patch_machine(*args: object, **kwargs: Any) -> dict[str, Any]:
+        """Accept maintenance, then fail the restoration request."""
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise URLError("restore failed")
+        return {"status": "Maintenance"}
+
+    monkeypatch.setattr(module, "forge_patch", patch_machine)
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv())
+
+    assert code == 1
+    assert out["operation"]["accepted"] is True
+    assert out["operation"]["restored"] is False
+    assert out["cleanup_errors"] == ["URLError: <urlopen error restore failed>"]
+
+
+def test_return_node_maintenance_requires_exact_ready_restoration(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Leaving Maintenance is insufficient when the fixture has not returned to Ready."""
+    module = _load_return_node_maintenance_script()
+    gets = iter(
+        [
+            {"id": "fixture-1", "siteId": "site-1", "status": "Ready"},
+            {"id": "fixture-1", "siteId": "site-1", "status": "Maintenance"},
+            {"id": "fixture-1", "siteId": "site-1", "status": "Error"},
+        ]
+    )
+    monkeypatch.setattr(module, "RESTORE_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(module, "resolve_auth", lambda: SimpleNamespace(token="t"))
+    monkeypatch.setattr(module, "forge_get", lambda *args, **kwargs: next(gets))
+    monkeypatch.setattr(
+        module,
+        "forge_patch",
+        lambda *args, **kwargs: {"status": "Maintenance" if kwargs["body"]["setMaintenanceMode"] else "Initializing"},
+    )
+
+    code, out = _run_script_main(module, monkeypatch, capsys, _maintenance_argv())
+
+    assert code == 1
+    assert out["operation"]["accepted"] is True
+    assert out["operation"]["restored"] is False
+    assert out["cleanup_errors"] == ["NICo did not restore the fixture to its initial Ready state (current=Error)"]
