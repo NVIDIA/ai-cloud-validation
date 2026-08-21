@@ -24,7 +24,14 @@ def main() -> int:
     return emit_stub(
         "query_bmc_kernel_logs",
         hint="BMC kernel log query",
-        hosts=[{"host_id": "demo-host-001", "kernel_log_available": True}],
+        hosts=[
+            {
+                "host_id": "demo-host-001",
+                "kernel_log_available": True,
+                "log_source": "/redfish/v1/Managers/BMC/LogServices/Journal/Entries",
+                "message_count": 1,
+            }
+        ],
     )
 
 

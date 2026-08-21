@@ -30,11 +30,14 @@ passes, and the requirement stays visibly unproven.
 
 from __future__ import annotations
 
+import re
 from typing import Any, ClassVar
 
 import pytest
 
 from isvtest.core.validation import BaseValidation
+
+_BMC_JOURNAL_SOURCE_RE = re.compile(r"^/redfish/v1/Managers/[^/]+/LogServices/Journal/Entries/?$")
 
 
 def _record_label(record: dict[str, Any], *keys: str) -> str:
@@ -198,7 +201,15 @@ class BmcKernelLogCheck(BaseValidation):
     """Validate BMC kernel log messages are obtainable for a node (BFX03-03).
 
     Step output:
-        success, hosts: list[{host_id, kernel_log_available: bool}]
+        success, hosts: list[{
+            host_id,
+            kernel_log_available: bool,
+            log_source,
+            message_count,
+        }]
+
+    The availability boolean cannot pass by itself. Each host must identify a
+    Manager-scoped BMC Journal Entries source and a positive message count.
     """
 
     description: ClassVar[str] = "Obtain BMC kernel log messages for a node"
@@ -219,12 +230,33 @@ class BmcKernelLogCheck(BaseValidation):
         if len(hosts) < min_hosts:
             self.set_failed(f"Expected at least {min_hosts} host(s), got {len(hosts)}")
             return
-        unavailable = [h for h in hosts if not h.get("kernel_log_available")]
+        malformed = [host for host in hosts if not isinstance(host, dict)]
+        if malformed:
+            self.set_failed(f"BMC kernel log step returned {len(malformed)} malformed host record(s)")
+            return
+        unavailable = [host for host in hosts if not host.get("kernel_log_available")]
         if unavailable:
             labels = ", ".join(_record_label(h, "host_id", "machine_id") for h in unavailable[:3])
             self.set_failed(f"BMC kernel logs unavailable for {len(unavailable)} host(s): {labels}")
             return
-        self.set_passed(f"BMC kernel logs obtainable for {len(hosts)} host(s)")
+        missing_evidence = [host for host in hosts if not self._has_message_evidence(host)]
+        if missing_evidence:
+            labels = ", ".join(_record_label(h, "host_id", "machine_id") for h in missing_evidence[:3])
+            self.set_failed(f"BMC Journal message evidence missing for {len(missing_evidence)} host(s): {labels}")
+            return
+        self.set_passed(f"BMC kernel log messages obtainable for {len(hosts)} host(s)")
+
+    @staticmethod
+    def _has_message_evidence(host: dict[str, Any]) -> bool:
+        """Return whether a host reports non-empty Manager BMC Journal evidence."""
+        host_id = host.get("host_id")
+        if not isinstance(host_id, str) or not host_id.strip():
+            return False
+        count = host.get("message_count")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            return False
+        source = host.get("log_source")
+        return isinstance(source, str) and _BMC_JOURNAL_SOURCE_RE.fullmatch(source) is not None
 
 
 class _OperationCheck(BaseValidation):
