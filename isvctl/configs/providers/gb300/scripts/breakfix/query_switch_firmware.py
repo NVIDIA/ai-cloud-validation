@@ -121,16 +121,21 @@ def _query_tray(host: str) -> dict[str, Any]:
         raise InspectionError("nvfwupd returned no firmware devices")
 
     versions: dict[str, str] = {}
+    incomplete_inventory = False
     for device in devices:
         if not isinstance(device, dict):
             raise InspectionError("nvfwupd returned a malformed firmware device")
         name = str(device.get("AP Name") or "").strip()
         version = str(device.get("Sys Version") or "").strip()
-        if not name or not version:
-            raise InspectionError("nvfwupd returned an incomplete firmware device")
+        if not name:
+            raise InspectionError("nvfwupd returned a firmware device without a name")
+        if not version:
+            incomplete_inventory = True
         versions[name] = version
 
-    primary_version = versions.get("BMC") or versions.get("ASIC") or next(iter(versions.values()))
+    primary_version = (
+        "" if incomplete_inventory else versions.get("BMC") or versions.get("ASIC") or next(iter(versions.values()))
+    )
     return {
         "tray_id": host,
         "firmware_version": primary_version,

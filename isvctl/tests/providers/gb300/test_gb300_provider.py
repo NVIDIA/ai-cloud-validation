@@ -88,6 +88,7 @@ def test_queries_live_shaped_nvfwupd_inventory_read_only(monkeypatch: pytest.Mon
     observed: dict[str, Any] = {}
 
     def fake_run(script: str, *args: str, timeout: int) -> subprocess.CompletedProcess[str]:
+        """Record the helper invocation before returning live-shaped inventory."""
         observed.update(script=script, args=args, timeout=timeout)
         return _completed(json.dumps(LIVE_SHAPED_INVENTORY))
 
@@ -166,8 +167,8 @@ def test_assumed_gb300_without_switch_inventory_fails(
     assert "skipped" not in payload
 
 
-def test_incomplete_nvfwupd_device_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A reported firmware component without a version is not a PASS."""
+def test_incomplete_nvfwupd_device_preserves_failing_tray_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing component version retains the tray identity but cannot PASS."""
     module = _load_script()
     incomplete = {
         "Error Code": 0,
@@ -182,7 +183,30 @@ def test_incomplete_nvfwupd_device_is_rejected(monkeypatch: pytest.MonkeyPatch) 
         lambda *args, **kwargs: _completed(json.dumps(incomplete)),
     )
 
-    with pytest.raises(module.InspectionError, match="incomplete firmware device"):
+    tray = module._query_tray("a05-p01-nvsw-01")
+
+    assert tray == {
+        "tray_id": "a05-p01-nvsw-01",
+        "firmware_version": "",
+        "firmware_versions": {"BMC": "88.0002.1961", "ASIC": ""},
+    }
+    check = NvSwitchFirmwareCheck(config={"step_output": {"success": True, "trays": [tray]}})
+    check.run()
+    assert not check.passed
+    assert "missing firmware_version" in check.message
+
+
+def test_nvfwupd_device_without_a_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unnamed component cannot be represented in the component inventory."""
+    module = _load_script()
+    malformed = {"Error Code": 0, "Firmware Devices": [{"AP Name": "", "Sys Version": "1.2.3"}]}
+    monkeypatch.setattr(
+        module,
+        "_run_privileged",
+        lambda *args, **kwargs: _completed(json.dumps(malformed)),
+    )
+
+    with pytest.raises(module.InspectionError, match="without a name"):
         module._query_tray("a05-p01-nvsw-01")
 
 
