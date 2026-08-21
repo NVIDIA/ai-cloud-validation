@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# BFX04-01: read-only inspection of NVIDIA Fleet Intelligence Agent (GPUd) or
+# NVSentinel. Set BFX04_NODES to comma-separated SSH targets for bare-metal
+# systemd inspection; leave it unset to inspect Kubernetes DaemonSet coverage.
+
+import: ../suites/bare_metal.yaml
+
+version: "1.0"
+
+commands:
+  bare_metal:
+    phases: ["test"]
+    steps:
+      - name: query_node_health_agents
+        phase: test
+        command: "python shared/breakfix/query_node_health_agents.py"
+        args:
+          - "--nodes"
+          - "{{env.BFX04_NODES}}"
+        requires_available_validations:
+          - NodeHealthAgentCheck
+        timeout: 120
+
+tests:
+  description: "Read-only NVIDIA node-health-agent validation"
+  settings:
+    show_skipped_tests: true

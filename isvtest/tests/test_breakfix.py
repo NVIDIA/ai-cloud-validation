@@ -157,6 +157,32 @@ class TestNodeHealthAgentCheck:
         """BFX04-01 needs evidence an agent is running; zero records is not that."""
         assert not _run(NodeHealthAgentCheck, {"success": True, "agents_observable": True, "agents": []}).passed
 
+    def test_passes_when_each_reported_node_has_a_running_agent(self) -> None:
+        """Provider-neutral running records satisfy BFX04-01."""
+        step_output = {
+            "success": True,
+            "agents_observable": True,
+            "agents": [
+                {"node_id": "gpu-1", "agent_name": "fleet-intelligence-agent", "running": True},
+                {"node_id": "gpu-2", "agent_name": "gpu-health-monitor", "running": True},
+            ],
+        }
+        assert _run(NodeHealthAgentCheck, step_output).passed
+
+    def test_fails_when_any_reported_node_lacks_a_running_agent(self) -> None:
+        """One uncovered GPU node prevents a false partial-coverage pass."""
+        step_output = {
+            "success": True,
+            "agents_observable": True,
+            "agents": [
+                {"node_id": "gpu-1", "agent_name": "fleet-intelligence-agent", "running": True},
+                {"node_id": "gpu-2", "agent_name": "GPUd/Sentinel", "running": False},
+            ],
+        }
+        check = _run(NodeHealthAgentCheck, step_output)
+        assert not check.passed
+        assert "gpu-2" in check.message
+
 
 class TestCordonNodeCheck:
     """Cover the BFX01-04 cordon check."""

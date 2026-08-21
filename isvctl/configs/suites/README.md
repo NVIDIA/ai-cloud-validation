@@ -301,6 +301,14 @@ volume. The three test-phase steps all reuse that fixture.
 
 Validations use `kubectl` directly (or a custom CLI via the `KUBECTL` env var): node counts, GPU operator, pod health, NCCL/NIM workloads. Break-fix cordon and GPU reset are optional provider steps.
 
+The focused read-only BFX04-01 overlay is `providers/node-health-agents.yaml`.
+For bare metal, set `BFX04_NODES` to comma-separated SSH targets; each must run
+`fleetintd`, `gpud`, `nvsentinel`, or `gpu-health-monitor`. With no node list,
+the overlay uses Kubernetes and requires an official Fleet Intelligence Agent
+(`fleet-intelligence-agent`) or NVSentinel GPU Health Monitor
+(`gpu-health-monitor`) Ready/Running DaemonSet-owned pod on every detected GPU
+node. Generic DCGM exporter telemetry does not satisfy this requirement.
+
 ### Slurm (`slurm.yaml`)
 
 | Step | Phase | Script |
