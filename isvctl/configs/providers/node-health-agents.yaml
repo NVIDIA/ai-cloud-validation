@@ -17,8 +17,7 @@ commands:
         phase: test
         command: "python shared/breakfix/query_node_health_agents.py"
         args:
-          - "--nodes"
-          - "{{env.BFX04_NODES}}"
+          - "--nodes={{env.BFX04_NODES}}"
         requires_available_validations:
           - NodeHealthAgentCheck
         timeout: 120

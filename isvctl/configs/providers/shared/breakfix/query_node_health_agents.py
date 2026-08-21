@@ -37,11 +37,18 @@ class NodeQueryError(RuntimeError):
     """Raised when a read-only bare-metal node query fails."""
 
 
+class CommandOverrideError(RuntimeError):
+    """Raised when a configured command prefix cannot be parsed."""
+
+
 def _command_override(env_name: str, default: str) -> list[str]:
     """Return a safe configured command prefix or locate its default binary."""
     override = os.environ.get(env_name, "").strip()
     if override:
-        command = shlex.split(override)
+        try:
+            command = shlex.split(override)
+        except ValueError as exc:
+            raise CommandOverrideError(f"Invalid {env_name} command override") from exc
         if command:
             return command
     executable = shutil.which(default)
@@ -312,7 +319,7 @@ def main() -> int:
                 _get_collection("daemonsets.apps", all_namespaces=True),
                 _get_collection("pods", all_namespaces=True),
             )
-    except (KubernetesQueryError, NodeQueryError) as exc:
+    except (CommandOverrideError, KubernetesQueryError, NodeQueryError) as exc:
         result = {
             "success": False,
             "platform": "bare_metal" if args.nodes.strip() else "kubernetes",

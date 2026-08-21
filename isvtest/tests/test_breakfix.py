@@ -157,6 +157,19 @@ class TestNodeHealthAgentCheck:
         """BFX04-01 needs evidence an agent is running; zero records is not that."""
         assert not _run(NodeHealthAgentCheck, {"success": True, "agents_observable": True, "agents": []}).passed
 
+    def test_skips_when_provider_reports_no_gpu_nodes(self) -> None:
+        """The provider's no-GPU payload is an intentional framework skip."""
+        step_output = {
+            "success": True,
+            "skipped": True,
+            "skip_reason": "No GPU nodes detected; BFX04-01 is not applicable",
+            "agents_observable": True,
+            "agents": [],
+        }
+
+        with pytest.raises(pytest.skip.Exception, match="No GPU nodes detected"):
+            _run(NodeHealthAgentCheck, step_output)
+
     def test_passes_when_each_reported_node_has_a_running_agent(self) -> None:
         """Provider-neutral running records satisfy BFX04-01."""
         step_output = {

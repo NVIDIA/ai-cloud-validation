@@ -16,6 +16,8 @@ import pytest
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
+from isvctl.orchestrator.context import Context
+from isvctl.orchestrator.step_executor import StepExecutor
 
 CONFIGS_ROOT = Path(__file__).resolve().parents[1] / "configs"
 SCRIPT = CONFIGS_ROOT / "providers" / "shared" / "breakfix" / "query_node_health_agents.py"
@@ -98,8 +100,19 @@ def test_config_wires_only_read_only_node_health_query() -> None:
     assert len(steps) == 1
     assert steps[0].name == "query_node_health_agents"
     assert steps[0].command == "python shared/breakfix/query_node_health_agents.py"
-    assert steps[0].args == ["--nodes", "{{env.BFX04_NODES}}"]
+    assert steps[0].args == ["--nodes={{env.BFX04_NODES}}"]
     assert steps[0].requires_available_validations == ["NodeHealthAgentCheck"]
+
+
+def test_config_keeps_empty_nodes_value_for_kubernetes_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An absent BFX04_NODES value must not leave a dangling argparse flag."""
+    monkeypatch.delenv("BFX04_NODES", raising=False)
+    config = RunConfig.model_validate(merge_yaml_files([CONFIG]))
+    step = config.get_steps("bare_metal")[0]
+
+    rendered = StepExecutor()._render_args(step.args, Context(config))
+
+    assert rendered == ["--nodes="]
 
 
 @pytest.mark.parametrize("agent_name", ["fleet-intelligence-agent", "gpu-health-monitor"])
@@ -235,3 +248,28 @@ def test_query_failure_is_sanitized(
     payload = json.loads(output)
     assert payload["success"] is False
     assert payload["error_type"] == "node_health_query_failed"
+
+
+@pytest.mark.parametrize(
+    ("env_name", "argv"),
+    [
+        ("KUBECTL", [SCRIPT.name]),
+        ("SSH", [SCRIPT.name, "--nodes", "gpu-1"]),
+    ],
+)
+def test_malformed_command_override_is_structured(
+    env_name: str,
+    argv: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An unmatched quote in a command override emits JSON, not a traceback."""
+    module = _load_script()
+    monkeypatch.setenv(env_name, "unmatched-'")
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert module.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is False
+    assert payload["error_type"] == "node_health_query_failed"
+    assert payload["error"] == f"Invalid {env_name} command override"
