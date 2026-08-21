@@ -210,6 +210,34 @@ def test_nvfwupd_device_without_a_name_is_rejected(monkeypatch: pytest.MonkeyPat
         module._query_tray("a05-p01-nvsw-01")
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("AP Name", 1, "without a name"),
+        ("Sys Version", 1, "malformed firmware version"),
+    ],
+)
+def test_non_string_nvfwupd_fields_are_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: int,
+    message: str,
+) -> None:
+    """Numeric inventory fields cannot be coerced into firmware evidence."""
+    module = _load_script()
+    device = {"AP Name": "BMC", "Sys Version": "1.2.3"}
+    device[field] = value
+    malformed = {"Error Code": 0, "Firmware Devices": [device]}
+    monkeypatch.setattr(
+        module,
+        "_run_privileged",
+        lambda *args, **kwargs: _completed(json.dumps(malformed)),
+    )
+
+    with pytest.raises(module.InspectionError, match=message):
+        module._query_tray("a05-p01-nvsw-01")
+
+
 def test_privileged_failure_does_not_leak_stderr(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

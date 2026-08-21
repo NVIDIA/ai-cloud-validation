@@ -125,10 +125,16 @@ def _query_tray(host: str) -> dict[str, Any]:
     for device in devices:
         if not isinstance(device, dict):
             raise InspectionError("nvfwupd returned a malformed firmware device")
-        name = str(device.get("AP Name") or "").strip()
-        version = str(device.get("Sys Version") or "").strip()
+        raw_name = device.get("AP Name")
+        raw_version = device.get("Sys Version")
+        if not isinstance(raw_name, str):
+            raise InspectionError("nvfwupd returned a firmware device without a name")
+        name = raw_name.strip()
         if not name:
             raise InspectionError("nvfwupd returned a firmware device without a name")
+        if raw_version is not None and not isinstance(raw_version, str):
+            raise InspectionError("nvfwupd returned a malformed firmware version")
+        version = raw_version.strip() if raw_version is not None else ""
         if not version:
             incomplete_inventory = True
         versions[name] = version
