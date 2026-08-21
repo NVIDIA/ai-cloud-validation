@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Explicitly mutating Kubernetes BFX01-04 reference configuration.
+#
+# This uses the current kubectl context and deliberately has no cluster setup
+# or teardown lifecycle. A single-node Minikube context can be selected
+# automatically. Multi-node contexts, including DSX, require an explicit node:
+#
+#   export ISVTEST_INCLUDE_UNRELEASED=1
+#   export ISVTEST_BREAKFIX_ALLOW_MUTATION=1
+#   export ISVTEST_BREAKFIX_NODE=<dedicated-test-node>
+#   isvctl test run -f isvctl/configs/providers/kubernetes-breakfix.yaml \
+#     --label breakfix -- -v -s -k CordonNodeCheck
+
+import: ../suites/k8s.yaml
+
+version: "1.0"
+
+commands:
+  kubernetes:
+    phases: ["test"]
+    steps:
+      - name: cordon_node
+        phase: test
+        command: "python shared/breakfix/cordon_node.py"
+        args:
+          - "--node={{ env.ISVTEST_BREAKFIX_NODE | default('', true) }}"
+        timeout: 1200
+        requires_available_validations:
+          - CordonNodeCheck
+
+tests:
+  description: "Explicit Kubernetes BFX01-04 cordon validation"
+
+  settings:
+    show_skipped_tests: true

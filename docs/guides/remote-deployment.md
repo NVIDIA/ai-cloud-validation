@@ -30,6 +30,8 @@ Set these on the local machine. The upload variables are read here, since
 | `ISV_CLIENT_SECRET` | Required for result upload to ISV Lab Service | locally |
 | `NGC_API_KEY` | Required for NIM model benchmarks | forwarded |
 | `ISVTEST_INCLUDE_UNRELEASED` | Include checks not yet in `released_tests.json` | forwarded |
+| `ISVTEST_BREAKFIX_ALLOW_MUTATION` | Explicitly allow a mutating breakfix validation | forwarded |
+| `ISVTEST_BREAKFIX_NODE` | Dedicated Kubernetes node selected for breakfix validation | forwarded |
 
 Anything else the tests need has to reach the target another way - a config file
 under `isvctl/` travels in the deployment archive, so `-f` overrides are the
@@ -83,6 +85,25 @@ Pass extra pytest arguments after `--`:
 
 ```bash
 uv run isvctl deploy run <target-ip> -f isvctl/configs/suites/slurm.yaml -- -v -s -k "test_name"
+```
+
+### Running the Kubernetes Cordon Breakfix Check
+
+The cordon reference requires explicit mutation consent and an exact dedicated
+node on multi-node clusters. It restores the node's schedulability before the
+run exits only while it still owns the cordon. If another actor changes the
+ownership annotation, the run leaves schedulability unchanged and reports
+`cleanup_errors`; verify the node state after any failed run.
+
+```bash
+ISVTEST_INCLUDE_UNRELEASED=1 \
+ISVTEST_BREAKFIX_ALLOW_MUTATION=1 \
+ISVTEST_BREAKFIX_NODE=<dedicated-test-node> \
+uv run isvctl deploy run <target-ip> \
+  -j <jumphost> -u ubuntu \
+  -f isvctl/configs/providers/kubernetes-breakfix.yaml \
+  --phase test --no-upload \
+  -- -v -s -k CordonNodeCheck
 ```
 
 ### With ISV Lab Service Integration
