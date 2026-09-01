@@ -96,6 +96,21 @@ class BaseValidation(ABC):
         """
         pass
 
+    @classmethod
+    def preflight(cls, config: dict[str, Any]) -> str | None:
+        """Return why a local prerequisite is unmet, or None when runnable.
+
+        The orchestrator evaluates this for every ready check before running a
+        phase's validations, so a missing local prerequisite (a vendored source
+        tree, a required binary) is reported up front instead of after every
+        check ahead of it has finished. The check must still enforce the same
+        prerequisite in ``run()``: this hook only reports, it does not gate.
+        Implementations must be cheap and local: no cluster calls, no network.
+        Return None when the prerequisite is satisfied, or when the check would
+        skip anyway for other reasons.
+        """
+        return None
+
     def run_command(self, cmd: str, timeout: int | None = None, display_cmd: str | None = None) -> CommandResult:
         """Run a command using the configured runner.
 

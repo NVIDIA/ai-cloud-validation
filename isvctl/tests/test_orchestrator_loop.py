@@ -15,6 +15,7 @@
 
 """Tests for orchestrator loop."""
 
+import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from isvctl.orchestrator.loop import (
     _apply_capability_step_gates,
     _entries_missing_from_junit,
     _merge_junit_xmls,
+    _warn_unmet_prerequisites,
     _write_terminal_junit_xml,
 )
 from isvctl.orchestrator.step_executor import (
@@ -77,6 +79,44 @@ def test_explicit_step_requires_gate_unbound_lifecycle_steps() -> None:
 
     assert all(step.skip for step in vm_steps)
     assert all(not step.skip for step in kubernetes_steps)
+
+
+class TestWarnUnmetPrerequisites:
+    """A check's unmet local prerequisite is reported before the phase runs."""
+
+    def _entry(self, name: str, params: dict[str, str]) -> ResolvedEntry:
+        return ResolvedEntry(
+            entry=ValidationEntry(name=name, category="k8s_filesystem", params_template={}),
+            rendered_params=params,
+        )
+
+    def test_missing_vendored_pjdfstest_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path / "absent")
+        entries = [self._entry("K8sPosixComplianceCheck", {"shared_fs_storage_class": "sc-rwx"})]
+
+        with caplog.at_level(logging.WARNING):
+            _warn_unmet_prerequisites(entries)
+
+        assert "make vendor-pjdfstest" in caplog.text
+
+    def test_satisfied_prerequisite_is_quiet(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path)
+        entries = [self._entry("K8sPosixComplianceCheck", {"shared_fs_storage_class": "sc-rwx"})]
+
+        with caplog.at_level(logging.WARNING):
+            _warn_unmet_prerequisites(entries)
+
+        assert caplog.text == ""
+
+    def test_unknown_validation_name_is_ignored(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING):
+            _warn_unmet_prerequisites([self._entry("NoSuchCheck", {})])
+
+        assert caplog.text == ""
 
 
 def test_python_script_path_falls_back_to_current_working_directory(

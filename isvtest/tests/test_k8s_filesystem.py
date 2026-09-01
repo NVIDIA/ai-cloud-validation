@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -34,17 +37,19 @@ from isvtest.validations.k8s_filesystem import (
     K8sFileLockingCheck,
     K8sLargeDirListingFilesCheck,
     K8sPosixComplianceCheck,
+    ListingReport,
     _set_fs_pod_fields,
     append_payload_cmd,
-    count_entries_cmd,
     create_dirs_cmd,
     create_files_cmd,
     flock_hold_command,
     flock_nonblock_cmd,
-    list_dir_quiet_cmd,
+    list_dir_to_file_cmd,
+    parse_listing_report,
     parse_pjdfstest_output,
     read_file_cmd,
     stat_size_mtime_cmd,
+    verify_listing_cmd,
     write_payload_cmd,
 )
 
@@ -156,9 +161,13 @@ class TestSnippets:
         assert "seq 1 500" in cmd
         assert "xargs mkdir" in cmd
 
-    def test_list_and_count(self) -> None:
-        assert list_dir_quiet_cmd("/data/big") == "ls -1A /data/big >/dev/null"
-        assert count_entries_cmd("/data/big") == "find /data/big -mindepth 1 -maxdepth 1 | wc -l"
+    def test_list_dir_to_file_cmd(self) -> None:
+        assert list_dir_to_file_cmd("/data/big", "/data/listing") == "ls -1A /data/big > /data/listing"
+
+    def test_verify_listing_cmd(self) -> None:
+        cmd = verify_listing_cmd("/data/listing", 1000, "f")
+        assert cmd.startswith("awk -v n=1000 -v p=f -v plen=1")
+        assert cmd.endswith("/data/listing")
 
 
 # --------------------------------------------------------------------------
@@ -471,34 +480,156 @@ class TestCrossNodeVisibilityFlow:
         assert check.passed, check._error
 
 
+def _report_lines(
+    *,
+    total: int,
+    matched: int,
+    missing: int = 0,
+    unexpected: int = 0,
+    duplicate: int = 0,
+    missing_samples: str = "",
+    bad_samples: str = "",
+) -> str:
+    """Build the stdout that ``verify_listing_cmd`` produces in the pod."""
+    return (
+        f"total {total}\nmatched {matched}\nmissing {missing}\n"
+        f"unexpected {unexpected}\nduplicate {duplicate}\n"
+        f"bad_samples{bad_samples}\nmissing_samples{missing_samples}\n"
+    )
+
+
+class TestParseListingReport:
+    def test_parses_intact_listing(self) -> None:
+        report = parse_listing_report(_report_lines(total=1000, matched=1000))
+        assert report.error == ""
+        assert report.intact
+        assert (report.total, report.matched) == (1000, 1000)
+
+    def test_parses_discrepancies(self) -> None:
+        report = parse_listing_report(
+            _report_lines(
+                total=1000,
+                matched=998,
+                missing=2,
+                unexpected=1,
+                duplicate=1,
+                missing_samples=" f7 f9",
+                bad_samples=" stray f3",
+            )
+        )
+        assert not report.intact
+        assert report.missing_samples == ["f7", "f9"]
+        assert report.bad_samples == ["stray", "f3"]
+
+    def test_unparseable_output_sets_error(self) -> None:
+        report = parse_listing_report("awk: cannot open listing\n")
+        assert report.error
+        assert not report.intact
+
+
+@pytest.mark.skipif(shutil.which("awk") is None, reason="awk not available")
+class TestVerifyListingAwk:
+    """Exercise the real awk program behind ``verify_listing_cmd``."""
+
+    def _verify(self, tmp_path: Path, names: list[str], count: int, prefix: str = "f") -> ListingReport:
+        listing = tmp_path / "listing"
+        listing.write_text("".join(f"{name}\n" for name in names))
+        completed = subprocess.run(
+            verify_listing_cmd(str(listing), count, prefix),
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 0, completed.stderr
+        return parse_listing_report(completed.stdout)
+
+    def test_exact_match_is_intact(self, tmp_path: Path) -> None:
+        report = self._verify(tmp_path, [f"f{i}" for i in range(1, 11)], count=10)
+        assert report.intact, report
+        assert (report.total, report.matched) == (10, 10)
+
+    def test_reports_missing_names(self, tmp_path: Path) -> None:
+        names = [f"f{i}" for i in range(1, 11) if i not in (3, 8)]
+        report = self._verify(tmp_path, names, count=10)
+        assert not report.intact
+        assert report.missing == 2
+        assert report.missing_samples == ["f3", "f8"]
+
+    def test_reports_unexpected_and_duplicate_names(self, tmp_path: Path) -> None:
+        names = [f"f{i}" for i in range(1, 11)] + ["stray", "f4", "f11"]
+        report = self._verify(tmp_path, names, count=10)
+        assert not report.intact
+        assert report.total == 13
+        assert report.duplicate == 1
+        # "stray" does not match the pattern, "f11" is out of range.
+        assert report.unexpected == 2
+        assert report.bad_samples == ["stray", "f4", "f11"]
+
+    def test_zero_padded_name_is_not_a_match(self, tmp_path: Path) -> None:
+        report = self._verify(tmp_path, ["f1", "f02", "f3"], count=3)
+        assert not report.intact
+        assert report.unexpected == 1
+        assert report.missing_samples == ["f2"]
+
+    def test_large_index_is_compared_exactly(self, tmp_path: Path) -> None:
+        # Guards the sprintf("%d") in the awk program: awk's default CONVFMT
+        # would render 1000000 as "1e+06" and never match the listed name.
+        report = self._verify(tmp_path, ["f1000000"], count=1_000_000)
+        assert report.matched == 1
+        assert report.unexpected == 0
+
+    def test_directory_prefix(self, tmp_path: Path) -> None:
+        report = self._verify(tmp_path, ["d1", "d2"], count=2, prefix="d")
+        assert report.intact, report
+
+
 class TestLargeDirListingFlow:
-    def test_lists_all_entries(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _clear_sc_env(monkeypatch)
+    def _router(self, verify_stdout: str) -> Any:
+        def _side_effect(cmd: str, *args: Any, **kwargs: Any) -> CommandResult:
+            if "get pvc" in cmd:
+                return _ok(stdout=_BOUND_PVC_JSON)
+            if "awk -v n=" in cmd:
+                return _ok(stdout=verify_stdout)
+            return _ok()
+
+        return _side_effect
+
+    def _run(self, verify_stdout: str) -> K8sLargeDirListingFilesCheck:
         check = K8sLargeDirListingFilesCheck(
             config={"shared_fs_storage_class": "sc-rwx", "files_count": 1000, "bind_timeout_s": 5}
         )
-
-        def _side_effect(cmd: str, *args: Any, **kwargs: Any) -> CommandResult:
-            if "create namespace" in cmd or "delete namespace" in cmd:
-                return _ok()
-            if "wait --for=condition=Ready" in cmd:
-                return _ok()
-            if "get pvc" in cmd:
-                return _ok(stdout=_BOUND_PVC_JSON)
-            if "xargs touch" in cmd:
-                return _ok()
-            if "ls -1A" in cmd:
-                return _ok()
-            if "wc -l" in cmd:
-                return _ok(stdout="1000\n")
-            return _ok()
-
-        with _patched_clock(), patch.object(check, "run_command", side_effect=_side_effect):
+        with _patched_clock(), patch.object(check, "run_command", side_effect=self._router(verify_stdout)):
             check.run()
+        return check
+
+    def test_lists_all_entries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_sc_env(monkeypatch)
+        check = self._run(_report_lines(total=1000, matched=1000))
         assert check.passed, check._error
 
     def test_truncated_listing_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
+        check = self._run(_report_lines(total=999, matched=999, missing=1, missing_samples=" f42"))
+        assert not check.passed
+        assert "f42" in check._error
+
+    def test_mismatched_names_fail_despite_correct_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_sc_env(monkeypatch)
+        check = self._run(
+            _report_lines(
+                total=1000,
+                matched=999,
+                missing=1,
+                unexpected=1,
+                missing_samples=" f42",
+                bad_samples=" bogus",
+            )
+        )
+        assert not check.passed
+        assert "bogus" in check._error and "f42" in check._error
+
+    def test_ls_failure_is_reported_as_such(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_sc_env(monkeypatch)
         check = K8sLargeDirListingFilesCheck(
             config={"shared_fs_storage_class": "sc-rwx", "files_count": 1000, "bind_timeout_s": 5}
         )
@@ -506,14 +637,14 @@ class TestLargeDirListingFlow:
         def _side_effect(cmd: str, *args: Any, **kwargs: Any) -> CommandResult:
             if "get pvc" in cmd:
                 return _ok(stdout=_BOUND_PVC_JSON)
-            if "wc -l" in cmd:
-                return _ok(stdout="999\n")  # one short - truncation
+            if "ls -1A" in cmd:
+                return _fail(stderr="ls: value too large for defined data type")
             return _ok()
 
         with _patched_clock(), patch.object(check, "run_command", side_effect=_side_effect):
             check.run()
         assert not check.passed
-        assert "truncation" in check._error
+        assert "ls of directory" in check._error
 
 
 # --------------------------------------------------------------------------
@@ -649,6 +780,38 @@ class TestPosixSkipBehaviour:
             check.run()
         assert check.passed
         assert "Skipped" in check._output
+
+    def test_preflight_reports_missing_vendored_source(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        _clear_sc_env(monkeypatch)
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path / "absent")
+        unmet = K8sPosixComplianceCheck.preflight({"shared_fs_storage_class": "sc-rwx"})
+        assert unmet is not None
+        assert "make vendor-pjdfstest" in unmet
+
+    def test_preflight_quiet_when_vendored_source_present(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _clear_sc_env(monkeypatch)
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path)
+        assert K8sPosixComplianceCheck.preflight({"shared_fs_storage_class": "sc-rwx"}) is None
+
+    def test_preflight_quiet_without_storage_class(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        # No StorageClass means the check skips, so the vendored tree is moot.
+        _clear_sc_env(monkeypatch)
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path / "absent")
+        assert K8sPosixComplianceCheck.preflight({}) is None
+
+    def test_missing_vendored_source_fails_before_any_command(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _clear_sc_env(monkeypatch)
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path / "absent")
+        check = K8sPosixComplianceCheck(config={"shared_fs_storage_class": "sc-rwx"})
+        with patch.object(check, "run_command") as mock_run:
+            check.run()
+        mock_run.assert_not_called()
+        assert not check.passed
+        assert "make vendor-pjdfstest" in check._error
 
     def test_is_podsecurity_denial_detection(self) -> None:
         assert K8sPosixComplianceCheck._is_podsecurity_denial("violates PodSecurity ...")

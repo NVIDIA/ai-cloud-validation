@@ -29,6 +29,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from isvtest.core.discovery import discover_all_tests
 from isvtest.core.resolution import (
     DECLARABLE_CAPABILITIES,
     ErrorReason,
@@ -338,6 +339,21 @@ def _apply_step_validation_gates(steps: list[Any], released_tests: set[str] | No
         )
         gated_steps.append(skipped_step)
     return gated_steps
+
+
+def _warn_unmet_prerequisites(entries: list[ResolvedEntry]) -> None:
+    """Warn about checks whose local prerequisites are unmet, before any of them runs.
+
+    The checks still fail on their own terms when they execute; reporting here
+    means a run does not spend minutes on the checks ahead of them first.
+    """
+    class_map = {cls.__name__: cls for cls in discover_all_tests()}
+    for entry in entries:
+        class_key = resolve_class_key(entry.entry.name, class_map)
+        if class_key is None:
+            continue
+        if unmet := class_map[class_key].preflight(entry.rendered_params or {}):
+            logger.warning("Validation '%s' will fail: %s", entry.entry.name, unmet)
 
 
 def _apply_capability_step_gates(
@@ -674,6 +690,7 @@ class Orchestrator:
                 )
                 ready_entries = [entry for entry in resolved_phase_entries if entry.is_ready]
                 terminal_before_pytest = [entry for entry in resolved_phase_entries if not entry.is_ready]
+                _warn_unmet_prerequisites(ready_entries)
 
                 # Write a per-phase stub for entries pre-resolved to SKIPPED/ERROR.
                 # Suite name matches pytest's so the merger collapses them into one suite.

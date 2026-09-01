@@ -136,6 +136,17 @@ def _fmt_err(text: str, max_len: int = 200) -> str:
     return text.strip()[:max_len]
 
 
+def _shared_sc_from(config: dict[str, Any]) -> str:
+    """Resolve the RWX StorageClass: shared-fs, then NFS, then env fallbacks."""
+    return str(
+        config.get("shared_fs_storage_class")
+        or config.get("nfs_storage_class")
+        or get_k8s_csi_shared_fs_storage_class()
+        or get_k8s_csi_nfs_storage_class()
+        or ""
+    )
+
+
 # --------------------------------------------------------------------------
 # Transport-neutral shell-snippet helpers.
 #
@@ -189,14 +200,118 @@ def create_dirs_cmd(directory: str, count: int, prefix: str = "d") -> str:
     return f"mkdir -p {shlex.quote(directory)} && {names} | xargs mkdir"
 
 
-def list_dir_quiet_cmd(directory: str) -> str:
-    """List ``directory`` discarding output; non-zero exit means ``ls`` errored."""
-    return f"ls -1A {shlex.quote(directory)} >/dev/null"
+def list_dir_to_file_cmd(directory: str, listing_path: str) -> str:
+    """List ``directory`` one entry per line into ``listing_path``.
+
+    Saving the listing keeps the (expensive) directory scan separate from the
+    verification below, so a failing ``ls`` is reported as an ``ls`` error
+    rather than surfacing as thousands of missing names.
+    """
+    return f"ls -1A {shlex.quote(directory)} > {shlex.quote(listing_path)}"
 
 
-def count_entries_cmd(directory: str) -> str:
-    """Count immediate entries under ``directory`` (excludes ``.`` and ``..``)."""
-    return f"find {shlex.quote(directory)} -mindepth 1 -maxdepth 1 | wc -l"
+# awk program behind verify_listing_cmd: one pass over a saved listing,
+# reconstructing each expected name (``<prefix><n>`` for n in 1..count) so
+# names are compared, not just counted. sprintf("%d") avoids awk's CONVFMT
+# rendering large indices in exponent form ("1e+06").
+_VERIFY_LISTING_AWK = """
+{
+    total++
+    i = substr($0, plen + 1) + 0
+    if (i >= 1 && i <= n && $0 == p sprintf("%d", i)) {
+        if (i in seen) { duplicate++ } else { seen[i] = 1; matched++; next }
+    } else {
+        unexpected++
+    }
+    if (bad < lim) { bad_samples = bad_samples " " $0; bad++ }
+}
+END {
+    print "total", total + 0
+    print "matched", matched + 0
+    print "missing", n - (matched + 0)
+    print "unexpected", unexpected + 0
+    print "duplicate", duplicate + 0
+    print "bad_samples" bad_samples
+    for (i = 1; i <= n && c < lim; i++) {
+        if (!(i in seen)) { ms = ms " " p sprintf("%d", i); c++ }
+    }
+    print "missing_samples" ms
+}
+"""
+
+# How many example names to report per kind of discrepancy.
+_LISTING_SAMPLE_LIMIT = 5
+
+
+def verify_listing_cmd(listing_path: str, count: int, prefix: str) -> str:
+    """Compare a saved listing against the ``<prefix>1..<prefix>count`` names created.
+
+    Runs entirely where the listing lives, so verifying a million names costs
+    a handful of summary lines rather than streaming the listing back. Emits
+    ``<key> <value>`` lines for :func:`parse_listing_report`.
+    """
+    return (
+        f"awk -v n={int(count)} -v p={shlex.quote(prefix)} -v plen={len(prefix)} "
+        f"-v lim={_LISTING_SAMPLE_LIMIT} '{_VERIFY_LISTING_AWK}' {shlex.quote(listing_path)}"
+    )
+
+
+# --------------------------------------------------------------------------
+# Directory-listing verification output parsing.
+# --------------------------------------------------------------------------
+
+_LISTING_COUNT_KEYS = ("total", "matched", "missing", "unexpected", "duplicate")
+_LISTING_SAMPLE_KEYS = ("bad_samples", "missing_samples")
+
+
+@dataclass
+class ListingReport:
+    """Parsed result of :func:`verify_listing_cmd`.
+
+    ``error`` is set when the output could not be interpreted at all; otherwise
+    :attr:`intact` reports whether the listed names are exactly the created
+    ones.
+    """
+
+    total: int = 0
+    matched: int = 0
+    missing: int = 0
+    unexpected: int = 0
+    duplicate: int = 0
+    # Example names, capped at _LISTING_SAMPLE_LIMIT each: created but not
+    # listed, and listed but unexpected or listed twice.
+    missing_samples: list[str] = field(default_factory=list)
+    bad_samples: list[str] = field(default_factory=list)
+    error: str = ""
+
+    @property
+    def intact(self) -> bool:
+        """True when every created name was listed exactly once, and nothing else was."""
+        return not (self.error or self.missing or self.unexpected or self.duplicate)
+
+
+def parse_listing_report(output: str) -> ListingReport:
+    """Parse the ``<key> <value>`` summary emitted by :func:`verify_listing_cmd`."""
+    counts: dict[str, int] = {}
+    samples: dict[str, list[str]] = {}
+    for line in output.splitlines():
+        key, _, rest = line.strip().partition(" ")
+        if key in _LISTING_COUNT_KEYS:
+            try:
+                counts[key] = int(rest.strip())
+            except ValueError:
+                continue
+        elif key in _LISTING_SAMPLE_KEYS:
+            samples[key] = rest.split()
+
+    if missing_keys := [key for key in _LISTING_COUNT_KEYS if key not in counts]:
+        return ListingReport(error=f"Could not parse listing verification output (missing {missing_keys})")
+
+    return ListingReport(
+        **counts,
+        missing_samples=samples.get("missing_samples", []),
+        bad_samples=samples.get("bad_samples", []),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -361,13 +476,7 @@ class _K8sSharedFsCheck(BaseValidation):
 
     def _resolve_shared_sc(self) -> str:
         """Resolve the RWX StorageClass: shared-fs, then NFS, then env fallbacks."""
-        return str(
-            self.config.get("shared_fs_storage_class")
-            or self.config.get("nfs_storage_class")
-            or get_k8s_csi_shared_fs_storage_class()
-            or get_k8s_csi_nfs_storage_class()
-            or ""
-        )
+        return _shared_sc_from(self.config)
 
     def _create_namespace(self) -> bool:
         prefix = self.config.get("namespace_prefix", self._DEFAULT_NS_PREFIX)
@@ -938,8 +1047,12 @@ class K8sCrossNodeAttrConsistencyCheck(_K8sCrossNodeCheck):
 class _K8sLargeDirListingBase(_K8sSharedFsCheck):
     """Create many entries in one directory and list them without truncation.
 
+    The listing is then compared name by name against what was created, so a
+    filesystem that lists the right number of entries under the wrong names is
+    caught too.
+
     Subclasses set :attr:`_ENTRY_KIND` (``files`` / ``dirs``), the config key
-    for the count, its default, and the creation snippet.
+    for the count, its default, the entry-name prefix, and the creation snippet.
     """
 
     timeout: ClassVar[int] = 3600
@@ -949,6 +1062,7 @@ class _K8sLargeDirListingBase(_K8sSharedFsCheck):
     _ENTRY_KIND: ClassVar[str] = ""
     _COUNT_KEY: ClassVar[str] = ""
     _DEFAULT_COUNT: ClassVar[int] = 0
+    _PREFIX: ClassVar[str] = ""
 
     @abstractmethod
     def _create_cmd(self, directory: str, count: int) -> str:
@@ -1002,7 +1116,10 @@ class _K8sLargeDirListingBase(_K8sSharedFsCheck):
                 )
                 return
 
-            listing = self._exec(pod, list_dir_quiet_cmd(target_dir), timeout=self.timeout)
+            # Listing path is a sibling of target_dir so saving it cannot alter
+            # the directory under test.
+            listing_path = f"{_DATA_DIR}/bigdir-listing"
+            listing = self._exec(pod, list_dir_to_file_cmd(target_dir, listing_path), timeout=self.timeout)
             if listing.exit_code != 0:
                 self.set_failed(
                     f"ls of directory with {count} {self._ENTRY_KIND} errored: "
@@ -1010,31 +1127,49 @@ class _K8sLargeDirListingBase(_K8sSharedFsCheck):
                 )
                 return
 
-            counted = self._exec(pod, count_entries_cmd(target_dir), timeout=self.timeout)
-            if counted.exit_code != 0:
-                self.set_failed(f"Counting entries failed: {_fmt_err(counted.stderr)}")
+            verified = self._exec(pod, verify_listing_cmd(listing_path, count, self._PREFIX), timeout=self.timeout)
+            if verified.exit_code != 0:
+                self.set_failed(f"Verifying the listing failed: {_fmt_err(verified.stderr or verified.stdout)}")
                 return
-            try:
-                observed = int(counted.stdout.strip())
-            except ValueError:
-                self.set_failed(f"Could not parse entry count: {_fmt_err(counted.stdout)!r}")
+            report = parse_listing_report(verified.stdout)
+            if report.error:
+                self.set_failed(f"{report.error}: {_fmt_err(verified.stdout)!r}")
                 return
 
-            if observed == count:
-                self.set_passed(f"Listed all {count} {self._ENTRY_KIND} without error or truncation")
+            if report.intact:
+                self.set_passed(
+                    f"Listed all {count} {self._ENTRY_KIND} without error or truncation, "
+                    "and every listed name matched what was created"
+                )
             else:
                 self.set_failed(
-                    f"Expected {count} {self._ENTRY_KIND} but listing found {observed} (possible truncation)"
+                    f"Listing of {count} {self._ENTRY_KIND} did not match what was created: "
+                    f"{self._describe_mismatch(report)}"
                 )
         finally:
             self._cleanup_namespace(created)
+
+    @staticmethod
+    def _describe_mismatch(report: ListingReport) -> str:
+        """Summarise a failed listing verification, naming a few offenders."""
+        details = [f"listing held {report.total} entries, {report.matched} of which matched"]
+        if report.missing:
+            details.append(f"{report.missing} created but not listed (e.g. {', '.join(report.missing_samples)})")
+        if report.unexpected:
+            details.append(f"{report.unexpected} unexpected name(s) (e.g. {', '.join(report.bad_samples)})")
+        if report.duplicate:
+            details.append(f"{report.duplicate} name(s) listed more than once")
+        return "; ".join(details)
 
 
 class K8sLargeDirListingFilesCheck(_K8sLargeDirListingBase):
     """List a directory holding a very large number of files.
 
     Config keys (with defaults):
-        files_count: Number of files to create (default: 1,000,000).
+        files_count: Number of files to create (default: 1,000,000 - the
+            acceptance requirement for HSS07-02 / N-013a). Suite wiring lowers
+            it for quick dev-sanity runs; a production validation must use the
+            full 1,000,000.
         shared_fs_storage_class / nfs_storage_class: RWX StorageClass; skipped
             when neither (nor the env fallbacks) is set.
         pvc_size: PVC request size (default: ``10Gi``).
@@ -1049,16 +1184,20 @@ class K8sLargeDirListingFilesCheck(_K8sLargeDirListingBase):
     _ENTRY_KIND = "files"
     _COUNT_KEY = "files_count"
     _DEFAULT_COUNT = 1_000_000
+    _PREFIX = "f"
 
     def _create_cmd(self, directory: str, count: int) -> str:
-        return create_files_cmd(directory, count, prefix="f")
+        return create_files_cmd(directory, count, prefix=self._PREFIX)
 
 
 class K8sLargeDirListingDirsCheck(_K8sLargeDirListingBase):
     """List a directory holding a very large number of subdirectories.
 
     Config keys (with defaults):
-        dirs_count: Number of subdirectories to create (default: 500,000).
+        dirs_count: Number of subdirectories to create (default: 500,000 - the
+            acceptance requirement for HSS07-02 / N-013b). Suite wiring lowers
+            it for quick dev-sanity runs; a production validation must use the
+            full 500,000.
         shared_fs_storage_class / nfs_storage_class: RWX StorageClass; skipped
             when neither (nor the env fallbacks) is set.
         pvc_size: PVC request size (default: ``10Gi``).
@@ -1075,9 +1214,10 @@ class K8sLargeDirListingDirsCheck(_K8sLargeDirListingBase):
     _ENTRY_KIND = "subdirectories"
     _COUNT_KEY = "dirs_count"
     _DEFAULT_COUNT = 500_000
+    _PREFIX = "d"
 
     def _create_cmd(self, directory: str, count: int) -> str:
-        return create_dirs_cmd(directory, count, prefix="d")
+        return create_dirs_cmd(directory, count, prefix=self._PREFIX)
 
 
 # --------------------------------------------------------------------------
@@ -1119,6 +1259,17 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
     _DEFAULT_NS_PREFIX = "isvtest-fs-posix"
     _DEFAULT_PVC_SIZE = "5Gi"
     _DEFAULT_BIND_TIMEOUT_S = 300
+
+    @classmethod
+    def preflight(cls, config: dict[str, Any]) -> str | None:
+        """Report a missing vendored pjdfstest tree before the run starts.
+
+        Only reported when a StorageClass is configured; without one the check
+        skips and the vendored source is irrelevant.
+        """
+        if not _shared_sc_from(config) or _PJDFSTEST_SRC_DIR.is_dir():
+            return None
+        return f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; run `make vendor-pjdfstest`"
 
     @staticmethod
     def _is_podsecurity_denial(text: str) -> bool:
@@ -1162,8 +1313,8 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
         if not sc:
             self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
             return
-        if not _PJDFSTEST_SRC_DIR.is_dir():
-            self.set_failed(f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; run `make vendor-pjdfstest`")
+        if unmet := self.preflight(self.config):
+            self.set_failed(unmet)
             return
 
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
