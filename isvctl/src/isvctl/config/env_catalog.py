@@ -209,6 +209,13 @@ ENV_VARS: tuple[EnvVar, ...] = (
         Requirement.OPTIONAL,
         "optional OIDC scope for NICo client_credentials auth",
     ),
+    # Run:AI compatibility kit (suites/runai.yaml)
+    EnvVar(
+        "RUNAI_COMPAT_KIT_IMAGE",
+        "Run:AI",
+        Requirement.OPTIONAL,
+        "Run:AI compatibility kit image (default nvcr.io/nvidia/runai/runai-compatibility-kit:latest)",
+    ),
 )
 
 
@@ -243,6 +250,7 @@ SECTIONS: tuple[Section, ...] = (
     Section("ngc", "NGC", "NGC_"),
     Section("aws", "AWS", "AWS_"),
     Section("nico", "NICo", "NICO_"),
+    Section("runai", "Run:AI", "RUNAI_"),
 )
 
 _GROUP_TO_SECTION: dict[str, Section] = {s.group: s for s in SECTIONS}
