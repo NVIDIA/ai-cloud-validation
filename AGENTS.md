@@ -198,13 +198,13 @@ forwarded env vars → optional isvreporter upload.
   conflicts), verifies API access, requires a non-empty node inventory, and
   requires at least one Ready node. A failure stops the remaining steps in that
   workflow/use case.
-- `isvctl/configs/suites/k8s-launch-kit/network-operator.yaml` owns only catalog wiring and
-  interpretation for the globally selectable PRD checks. Each check binds to
-  the real step that produced its evidence.
-- `isvctl/configs/suites/k8s-launch-kit/network-operator-use-cases.yaml` composes those shared
-  check classes into six concrete validation tests: RoCE and InfiniBand across
-  SR-IOV, RDMA Shared, and host-device modes. Include only checks applicable to
-  a use case; do not run all checks and hide mismatches as interleaved skips.
+- `isvctl/configs/suites/k8s-launch-kit/network-operator.yaml` is the single
+  frontend-visible Network Operator suite. It owns catalog wiring and
+  interpretation for the globally selectable PRD checks and composes those
+  classes into six concrete validation tests: RoCE and InfiniBand across
+  SR-IOV, RDMA Shared, and host-device modes. Each check binds to the real step
+  that produced its evidence. Include only checks applicable to a use case; do
+  not run all checks and hide mismatches as interleaved skips.
 - `isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml` is the
   production six-use-case configuration. It defaults to real `l8k` and
   `kubectl`, executes each supported fabric/deployment combination as a named

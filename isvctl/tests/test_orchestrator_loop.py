@@ -565,6 +565,41 @@ EOF
         assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
         assert result.phases[2].success is True
 
+    def test_phase_finalizer_skips_when_target_is_not_executable(self, tmp_path: Path) -> None:
+        """A permission failure also proves that no cluster mutation occurred."""
+        marker = tmp_path / "cleaned"
+        cleanup = _write_script(tmp_path, "cleanup.sh", f"#!/bin/sh\ntouch {marker}\n")
+        target = tmp_path / "deploy.sh"
+        target.write_text("#!/bin/sh\nexit 0\n")
+        target.chmod(0o644)
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two"],
+                    continue_after_failure=["case-one"],
+                    steps=[
+                        StepConfig(name="deploy", command=str(target), phase="case-one"),
+                        StepConfig(
+                            name="cleanup",
+                            command=cleanup,
+                            phase="case-one",
+                            finalizer_for="deploy",
+                        ),
+                        StepConfig(name="case_two", command="true", phase="case-two"),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST])
+
+        assert result.success is False
+        assert not marker.exists()
+        assert result.phases[0].details["steps"][0]["attempted"] is False
+        assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
+        assert result.phases[2].success is True
+
     def test_failed_phase_finalizer_blocks_later_independent_phases(self) -> None:
         """A failed cleanup leaves unsafe state and overrides continuation policy."""
         config = RunConfig(

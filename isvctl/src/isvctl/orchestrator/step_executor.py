@@ -433,14 +433,19 @@ class StepExecutor:
                 stderr=e.stderr if isinstance(e.stderr, str) else "",
                 error=f"Command timed out after {step.timeout} seconds",
             )
-        except FileNotFoundError:
+        except OSError as e:
+            error = (
+                f"Command not found: {step.command}"
+                if isinstance(e, FileNotFoundError)
+                else f"Command could not start: {e}"
+            )
             return StepResult(
                 name=step.name,
                 success=False,
                 exit_code=-1,
                 stdout="",
                 stderr="",
-                error=f"Command not found: {step.command}",
+                error=error,
                 attempted=False,
             )
         except Exception as e:

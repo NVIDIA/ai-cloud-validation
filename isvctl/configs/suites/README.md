@@ -216,7 +216,7 @@ its plan item is not platform-scoped.
 | `switch_syslogs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `switch_kernel_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 
-### Network Operator (`k8s-launch-kit/network-operator.yaml`, `k8s-launch-kit/network-operator-use-cases.yaml`)
+### Network Operator (`k8s-launch-kit/network-operator.yaml`)
 
 Plain suite for Kubernetes Launch Kit Network Operator self-validation. The
 generic provider in `providers/k8s-launch-kit/config/provider.yaml` mirrors the real CLI as
@@ -231,18 +231,22 @@ the check skips when that family is disabled or not selected and fails on
 emitted GPU topology or bandwidth errors. State restoration remains deferred
 until Launch Kit provides the required snapshot/restore/verify workflow.
 
-`k8s-launch-kit/network-operator-use-cases.yaml` reuses those global check classes in six
-separate composite tests: RoCE and InfiniBand across SR-IOV, RDMA Shared, and
-host-device deployment modes. Each composite includes only checks applicable to
-that use case, so unrelated fabric/deployment checks do not appear as skips in
-the middle of a run. The Ethernet/RoCE composites carry `ethernet` and `roce`;
-the InfiniBand composites carry `infiniband`. All six also carry `gpudirect`
-because Launch Kit discovery decides whether the GPUDirect family is applicable.
+The same suite reuses those global check classes in six separate composite
+tests: RoCE and InfiniBand across SR-IOV, RDMA Shared, and host-device
+deployment modes. Keeping both forms in one file exposes one frontend suite,
+`network_operator`, rather than a second implementation-detail suite. Each
+composite includes only checks applicable to that use case, so unrelated
+fabric/deployment checks do not appear as skips in the middle of a run. The
+Ethernet/RoCE composites carry `ethernet` and `roce`; the InfiniBand composites
+carry `infiniband`. All six also carry `gpudirect` because Launch Kit discovery
+decides whether the GPUDirect family is applicable.
 
 `providers/k8s-launch-kit/config/network-operator.yaml` is the production
 entrypoint. It uses `l8k` and `kubectl` from `PATH` by default. In one invocation
-it executes the six use-case phases sequentially, each with its own preflight,
-discover, generate, deploy, validate, and evidence directories. The phases are
+it runs `launch_kit_prepare` in `setup`, `launch_kit_verify` in
+`launch-kit-verification`, then executes the six use-case phases sequentially,
+each with its own preflight, discover, generate, validate, and evidence
+directories. The phases are
 independent, so a failed case records a failed overall run but does not prevent
 later cases from producing results. Mock executables exist only under
 `isvctl/tests/providers/k8s_launch_kit/fixtures/` and are injected by tests.
@@ -271,9 +275,10 @@ labels runs all six.
 | `launch_kit_deploy` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k deploy` | raw `documents` (currently empty on success), `argv`, `exit_code`, `artifacts` |
 | `launch_kit_validate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k validate` | raw static, connectivity, and report-path `documents`, `argv`, `exit_code`, `artifacts` |
 
-Those are the generic provider's single-workflow names. The grouped production configuration performs
-prepare and verify in `setup`, then repeats the remaining five operations under
-each custom use-case phase with names such as
+Those are the generic provider's single-workflow names. The grouped production
+configuration performs prepare in `setup` and verify in
+`launch-kit-verification`, then repeats preflight, discover, generate, and
+validate under each custom use-case phase with names such as
 `launch_kit_roce_sriov_preflight` through
 `launch_kit_roce_sriov_validate`.
 

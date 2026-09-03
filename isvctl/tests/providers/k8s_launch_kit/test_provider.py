@@ -60,7 +60,13 @@ def _run_provider(
         capture_output=True,
         text=True,
     )
-    output = json.loads(completed.stdout)
+    try:
+        output = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise AssertionError(
+            f"provider emitted non-JSON stdout (exit {completed.returncode}): "
+            f"stdout={completed.stdout!r} stderr={completed.stderr!r}"
+        ) from error
     assert isinstance(output, dict)
     return completed, output
 
@@ -602,6 +608,20 @@ def test_staged_user_config_is_removed_when_discovery_fails(tmp_path: Path) -> N
     assert not (working_dir / "user-config.yaml").exists()
 
 
+def test_staged_user_config_is_created_with_restricted_permissions(tmp_path: Path) -> None:
+    """Sensitive input is private from the instant its staged file is created."""
+    module = _load_provider_module()
+    source = tmp_path / "customer-cluster-config.yaml"
+    source.write_text("credentials: customer-api-token\n", encoding="utf-8")
+    working_dir = tmp_path / "work"
+    working_dir.mkdir()
+
+    _, staged, _ = module._stage_user_config(str(source), working_dir, [])
+
+    assert staged is not None
+    assert staged.stat().st_mode & 0o777 == 0o600
+
+
 @pytest.mark.parametrize("flag", ["--user-config", "--save-cluster-config"])
 def test_staged_user_config_rejects_conflicting_raw_discovery_paths(tmp_path: Path, flag: str) -> None:
     """The first-class input owns both discovery config paths."""
@@ -1129,7 +1149,7 @@ def test_failed_validate_preserves_documents_and_process_error(tmp_path: Path) -
     """A non-zero l8k result retains every JSON document and a clear exit diagnostic."""
     working_dir = tmp_path / "work"
     artifact_dir = tmp_path / "evidence"
-    _run_workflow(
+    discover, _ = _run_workflow(
         "discover",
         [
             "--fabric",
@@ -1140,12 +1160,14 @@ def test_failed_validate_preserves_documents_and_process_error(tmp_path: Path) -
         working_dir=working_dir,
         artifact_dir=artifact_dir,
     )
-    _run_workflow(
+    assert discover.returncode == 0
+    generate, _ = _run_workflow(
         "generate",
         [],
         working_dir=working_dir,
         artifact_dir=artifact_dir,
     )
+    assert generate.returncode == 0
     env = os.environ.copy()
     env["L8K_MOCK_FAIL"] = "validate:ib_write_bw"
 
