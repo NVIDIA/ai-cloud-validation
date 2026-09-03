@@ -52,6 +52,66 @@ tests:
     return config
 
 
+def test_validation_result_detail_compacts_successful_subtests() -> None:
+    """Successful validations with probes render an aggregate instead of their long message."""
+    detail = test_cli._validation_result_detail(
+        {
+            "passed": True,
+            "skipped": False,
+            "state": "passed",
+            "message": "long; member; output",
+            "subtest_summary": {"total": 6, "passed": 6, "failed": 0, "skipped": 0},
+        }
+    )
+
+    assert detail == "6 subtests passed"
+
+
+def test_validation_result_detail_preserves_failures() -> None:
+    """Failed validations keep their actionable message even when they report probes."""
+    detail = test_cli._validation_result_detail(
+        {
+            "passed": False,
+            "skipped": False,
+            "state": "failed",
+            "message": "RdmaCheck: worker-a -> worker-b timed out",
+            "subtest_summary": {"total": 6, "passed": 5, "failed": 1, "skipped": 0},
+        }
+    )
+
+    assert detail == "RdmaCheck: worker-a -> worker-b timed out"
+
+
+def test_validation_result_detail_counts_successful_runs_with_skips() -> None:
+    """An allowed skipped probe remains visible in the concise success summary."""
+    detail = test_cli._validation_result_detail(
+        {
+            "passed": True,
+            "skipped": False,
+            "state": "passed",
+            "message": "long output",
+            "subtest_summary": {"total": 6, "passed": 5, "failed": 0, "skipped": 1},
+        }
+    )
+
+    assert detail == "6 subtests: 5 passed, 0 failed, 1 skipped"
+
+
+def test_validation_result_detail_derives_total_for_legacy_summaries() -> None:
+    """Older result payloads remain concise when they omit the explicit total."""
+    detail = test_cli._validation_result_detail(
+        {
+            "passed": True,
+            "skipped": False,
+            "state": "passed",
+            "message": "long output",
+            "subtest_summary": {"passed": 5, "failed": 0, "skipped": 1},
+        }
+    )
+
+    assert detail == "6 subtests: 5 passed, 0 failed, 1 skipped"
+
+
 def _write_provider_config(root: Path, provider: str, name: str, suite: str, platform: str) -> Path:
     """Write a minimal provider config importing one suite."""
     config_path = root / "providers" / provider / "config" / name
@@ -127,6 +187,49 @@ def test_test_run_forwards_label_filters(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     assert result.exit_code == 0, result.output
     assert _FakeOrchestrator.captured["include_labels"] == ["gpu", "slow"]
+
+
+def test_orchestration_summary_hides_filtered_validations_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The default summary omits phases containing only selection-filtered checks."""
+    config = _write_config(tmp_path)
+
+    class FilteredOrchestrator(_FakeOrchestrator):
+        """Return one resolution-only phase for a filtered validation."""
+
+        def run(self, **kwargs: Any) -> OrchestratorResult:
+            """Return the synthetic filtered result."""
+            return OrchestratorResult(
+                success=True,
+                phases=[
+                    PhaseResult(
+                        phase=Phase.TEST,
+                        success=True,
+                        message="test phase validations resolved without execution",
+                        details={
+                            "validations": [
+                                {
+                                    "name": "InfiniBandCheck",
+                                    "skipped": True,
+                                    "state": "skipped",
+                                    "skip_reason": "test_excluded",
+                                    "message": "does not match selected label ethernet",
+                                }
+                            ]
+                        },
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(test_cli, "Orchestrator", FilteredOrchestrator)
+
+    result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--label", "ethernet", "--no-upload"])
+
+    assert result.exit_code == 0, result.output
+    assert "InfiniBandCheck" not in result.output
+    assert "TEST                    : test phase validations resolved" not in result.output
 
 
 def test_test_run_uploads_the_complete_catalog_document(

@@ -1,0 +1,704 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Production Network Operator workflow. It invokes the real l8k and kubectl
+# executables inherited from provider.yaml. Test doubles live only under tests/.
+#
+# Usage:
+#   ISVTEST_INCLUDE_UNRELEASED=1 uv run isvctl test run \
+#     -f isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml \
+#     --capability kubernetes --no-upload -- -v
+
+import:
+  - provider.yaml
+  - ../../../suites/k8s-launch-kit/network-operator.yaml
+
+version: "1.0"
+
+# The shared frontend suite also catalogs the individually selectable semantic
+# checks. This grouped production entrypoint reports only the six use cases;
+# each composite executes the applicable semantic checks as named subtests.
+tests:
+  validations:
+    network_operator: []
+
+context:
+  k8s_launch_kit:
+    executable: l8k
+    installation:
+      mode: verify
+      version: ""
+      installer_ref: ""
+      installer_sha256: ""
+      prefix: ""
+    # Optional complete Launch Kit configuration. Every selected use case
+    # stages its own copy before discovery; the source file is never modified.
+    user_config: ""
+    # An empty override means the adapter invokes kubectl from PATH. Users may
+    # replace this with any kubectl-compatible argv list in an overlay.
+    kubectl_command: []
+    environment: {}
+    shared_artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/shared-evidence
+    use_cases:
+      roce_sriov:
+        working_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/roce-sriov/work
+        artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/roce-sriov/evidence
+        discover:
+          arguments:
+            - --fabric
+            - ethernet
+            - --deployment-type
+            - sriov
+        generate:
+          arguments: []
+        validate:
+          arguments: []
+      infiniband_sriov:
+        working_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/infiniband-sriov/work
+        artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/infiniband-sriov/evidence
+        discover:
+          arguments:
+            - --fabric
+            - infiniband
+            - --deployment-type
+            - sriov
+        generate:
+          arguments: []
+        validate:
+          arguments: []
+      roce_rdma_shared:
+        working_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/roce-rdma-shared/work
+        artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/roce-rdma-shared/evidence
+        discover:
+          arguments:
+            - --fabric
+            - ethernet
+            - --deployment-type
+            - rdma_shared
+        generate:
+          arguments: []
+        validate:
+          arguments: []
+      infiniband_rdma_shared:
+        working_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/infiniband-rdma-shared/work
+        artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/infiniband-rdma-shared/evidence
+        discover:
+          arguments:
+            - --fabric
+            - infiniband
+            - --deployment-type
+            - rdma_shared
+        generate:
+          arguments: []
+        validate:
+          arguments: []
+      roce_host_device:
+        working_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/roce-host-device/work
+        artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/roce-host-device/evidence
+        discover:
+          arguments:
+            - --fabric
+            - ethernet
+            - --deployment-type
+            - host_device
+        generate:
+          arguments: []
+        validate:
+          arguments: []
+      infiniband_host_device:
+        working_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/infiniband-host-device/work
+        artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/use-cases/infiniband-host-device/evidence
+        discover:
+          arguments:
+            - --fabric
+            - infiniband
+            - --deployment-type
+            - host_device
+        generate:
+          arguments: []
+        validate:
+          arguments: []
+
+commands:
+  network_operator:
+    phases:
+      - setup
+      - launch-kit-verification
+      - roce-sriov
+      - infiniband-sriov
+      - roce-rdma-shared
+      - infiniband-rdma-shared
+      - roce-host-device
+      - infiniband-host-device
+    continue_after_failure:
+      - roce-sriov
+      - infiniband-sriov
+      - roce-rdma-shared
+      - infiniband-rdma-shared
+      - roce-host-device
+      - infiniband-host-device
+    steps:
+      - name: launch_kit_prepare
+        phase: setup
+        command: python3 ../scripts/adapter.py
+        args:
+          - prepare
+          - --mode
+          - "{{ context.k8s_launch_kit.installation.mode }}"
+          - --executable
+          - "{{ context.k8s_launch_kit.executable }}"
+          - "--version={{ context.k8s_launch_kit.installation.version }}"
+          - "--installer-ref={{ context.k8s_launch_kit.installation.installer_ref }}"
+          - "--installer-sha256={{ context.k8s_launch_kit.installation.installer_sha256 }}"
+          - "--prefix={{ context.k8s_launch_kit.installation.prefix }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.shared_artifact_dir }}"
+        timeout: 900
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+
+      - name: launch_kit_verify
+        phase: launch-kit-verification
+        command: python3 ../scripts/adapter.py
+        args:
+          - verify
+          - --executable
+          - "{{ steps.launch_kit_prepare.executable | default(context.k8s_launch_kit.executable) }}"
+          - "--expected-version={{ context.k8s_launch_kit.installation.version }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.shared_artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+
+      # roce-sriov: preflight -> discover -> generate -> validate
+      - name: launch_kit_roce_sriov_preflight
+        phase: roce-sriov
+        command: python3 ../scripts/adapter.py
+        args:
+          - preflight
+          - --kubectl-command-json
+          - "{{ context.k8s_launch_kit.kubectl_command | tojson }}"
+          - --workflow-arguments-json
+          - "{{ {'discover': context.k8s_launch_kit.use_cases.roce_sriov.discover.arguments, 'generate': context.k8s_launch_kit.use_cases.roce_sriov.generate.arguments, 'validate': context.k8s_launch_kit.use_cases.roce_sriov.validate.arguments} | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceSriovCheck]
+
+      - name: launch_kit_roce_sriov_discover
+        phase: roce-sriov
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - discover
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.discover.arguments | tojson }}"
+          - "--user-config={{ context.k8s_launch_kit.user_config }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceSriovCheck]
+
+      - name: launch_kit_roce_sriov_generate
+        phase: roce-sriov
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - generate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.generate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.artifact_dir }}"
+        timeout: 600
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceSriovCheck]
+
+      - name: launch_kit_roce_sriov_validate
+        phase: roce-sriov
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - validate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.validate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_sriov.artifact_dir }}"
+        timeout: null
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceSriovCheck]
+
+      # infiniband-sriov: preflight -> discover -> generate -> validate
+      - name: launch_kit_infiniband_sriov_preflight
+        phase: infiniband-sriov
+        command: python3 ../scripts/adapter.py
+        args:
+          - preflight
+          - --kubectl-command-json
+          - "{{ context.k8s_launch_kit.kubectl_command | tojson }}"
+          - --workflow-arguments-json
+          - "{{ {'discover': context.k8s_launch_kit.use_cases.infiniband_sriov.discover.arguments, 'generate': context.k8s_launch_kit.use_cases.infiniband_sriov.generate.arguments, 'validate': context.k8s_launch_kit.use_cases.infiniband_sriov.validate.arguments} | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandSriovCheck]
+
+      - name: launch_kit_infiniband_sriov_discover
+        phase: infiniband-sriov
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - discover
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.discover.arguments | tojson }}"
+          - "--user-config={{ context.k8s_launch_kit.user_config }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandSriovCheck]
+
+      - name: launch_kit_infiniband_sriov_generate
+        phase: infiniband-sriov
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - generate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.generate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.artifact_dir }}"
+        timeout: 600
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandSriovCheck]
+
+      - name: launch_kit_infiniband_sriov_validate
+        phase: infiniband-sriov
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - validate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.validate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_sriov.artifact_dir }}"
+        timeout: null
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandSriovCheck]
+
+      # roce-rdma-shared: preflight -> discover -> generate -> validate
+      - name: launch_kit_roce_rdma_shared_preflight
+        phase: roce-rdma-shared
+        command: python3 ../scripts/adapter.py
+        args:
+          - preflight
+          - --kubectl-command-json
+          - "{{ context.k8s_launch_kit.kubectl_command | tojson }}"
+          - --workflow-arguments-json
+          - "{{ {'discover': context.k8s_launch_kit.use_cases.roce_rdma_shared.discover.arguments, 'generate': context.k8s_launch_kit.use_cases.roce_rdma_shared.generate.arguments, 'validate': context.k8s_launch_kit.use_cases.roce_rdma_shared.validate.arguments} | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceRdmaSharedCheck]
+
+      - name: launch_kit_roce_rdma_shared_discover
+        phase: roce-rdma-shared
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - discover
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.discover.arguments | tojson }}"
+          - "--user-config={{ context.k8s_launch_kit.user_config }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceRdmaSharedCheck]
+
+      - name: launch_kit_roce_rdma_shared_generate
+        phase: roce-rdma-shared
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - generate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.generate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.artifact_dir }}"
+        timeout: 600
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceRdmaSharedCheck]
+
+      - name: launch_kit_roce_rdma_shared_validate
+        phase: roce-rdma-shared
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - validate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.validate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_rdma_shared.artifact_dir }}"
+        timeout: null
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceRdmaSharedCheck]
+
+      # infiniband-rdma-shared: preflight -> discover -> generate -> validate
+      - name: launch_kit_infiniband_rdma_shared_preflight
+        phase: infiniband-rdma-shared
+        command: python3 ../scripts/adapter.py
+        args:
+          - preflight
+          - --kubectl-command-json
+          - "{{ context.k8s_launch_kit.kubectl_command | tojson }}"
+          - --workflow-arguments-json
+          - "{{ {'discover': context.k8s_launch_kit.use_cases.infiniband_rdma_shared.discover.arguments, 'generate': context.k8s_launch_kit.use_cases.infiniband_rdma_shared.generate.arguments, 'validate': context.k8s_launch_kit.use_cases.infiniband_rdma_shared.validate.arguments} | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandRdmaSharedCheck]
+
+      - name: launch_kit_infiniband_rdma_shared_discover
+        phase: infiniband-rdma-shared
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - discover
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.discover.arguments | tojson }}"
+          - "--user-config={{ context.k8s_launch_kit.user_config }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandRdmaSharedCheck]
+
+      - name: launch_kit_infiniband_rdma_shared_generate
+        phase: infiniband-rdma-shared
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - generate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.generate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.artifact_dir }}"
+        timeout: 600
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandRdmaSharedCheck]
+
+      - name: launch_kit_infiniband_rdma_shared_validate
+        phase: infiniband-rdma-shared
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - validate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.validate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_rdma_shared.artifact_dir }}"
+        timeout: null
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandRdmaSharedCheck]
+
+      # roce-host-device: preflight -> discover -> generate -> validate
+      - name: launch_kit_roce_host_device_preflight
+        phase: roce-host-device
+        command: python3 ../scripts/adapter.py
+        args:
+          - preflight
+          - --kubectl-command-json
+          - "{{ context.k8s_launch_kit.kubectl_command | tojson }}"
+          - --workflow-arguments-json
+          - "{{ {'discover': context.k8s_launch_kit.use_cases.roce_host_device.discover.arguments, 'generate': context.k8s_launch_kit.use_cases.roce_host_device.generate.arguments, 'validate': context.k8s_launch_kit.use_cases.roce_host_device.validate.arguments} | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceHostDeviceCheck]
+
+      - name: launch_kit_roce_host_device_discover
+        phase: roce-host-device
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - discover
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.discover.arguments | tojson }}"
+          - "--user-config={{ context.k8s_launch_kit.user_config }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceHostDeviceCheck]
+
+      - name: launch_kit_roce_host_device_generate
+        phase: roce-host-device
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - generate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.generate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.artifact_dir }}"
+        timeout: 600
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceHostDeviceCheck]
+
+      - name: launch_kit_roce_host_device_validate
+        phase: roce-host-device
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - validate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.validate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.roce_host_device.artifact_dir }}"
+        timeout: null
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkRoceHostDeviceCheck]
+
+      # infiniband-host-device: preflight -> discover -> generate -> validate
+      - name: launch_kit_infiniband_host_device_preflight
+        phase: infiniband-host-device
+        command: python3 ../scripts/adapter.py
+        args:
+          - preflight
+          - --kubectl-command-json
+          - "{{ context.k8s_launch_kit.kubectl_command | tojson }}"
+          - --workflow-arguments-json
+          - "{{ {'discover': context.k8s_launch_kit.use_cases.infiniband_host_device.discover.arguments, 'generate': context.k8s_launch_kit.use_cases.infiniband_host_device.generate.arguments, 'validate': context.k8s_launch_kit.use_cases.infiniband_host_device.validate.arguments} | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.artifact_dir }}"
+        timeout: 60
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandHostDeviceCheck]
+
+      - name: launch_kit_infiniband_host_device_discover
+        phase: infiniband-host-device
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - discover
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.discover.arguments | tojson }}"
+          - "--user-config={{ context.k8s_launch_kit.user_config }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandHostDeviceCheck]
+
+      - name: launch_kit_infiniband_host_device_generate
+        phase: infiniband-host-device
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - generate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.generate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.artifact_dir }}"
+        timeout: 600
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandHostDeviceCheck]
+
+      - name: launch_kit_infiniband_host_device_validate
+        phase: infiniband-host-device
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ steps.launch_kit_verify.executable }}"
+          - --command
+          - validate
+          - --arguments-json
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.validate.arguments | tojson }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.use_cases.infiniband_host_device.artifact_dir }}"
+        timeout: null
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [EastWestNetworkInfiniBandHostDeviceCheck]

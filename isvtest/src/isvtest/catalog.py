@@ -20,7 +20,7 @@ discover_all_tests() and serializing each BaseValidation subclass's metadata.
 The catalog is version-keyed by the installed isvtest package version.
 
 Suite placement and capability requirements come only from canonical
-``isvctl/configs/suites/*.yaml`` wiring.
+``isvctl/configs/suites/**/*.yaml`` wiring.
 """
 
 import logging
@@ -209,7 +209,7 @@ def _iter_suite_docs() -> Iterator[tuple[Path, dict[str, Any]]]:
     if not configs_dir:
         logger.warning("Could not locate isvctl/configs/ directory")
         return
-    for config_path in sorted((configs_dir / "suites").glob("*.yaml")):
+    for config_path in sorted((configs_dir / "suites").rglob("*.yaml")):
         yield config_path, yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
 

@@ -60,6 +60,7 @@ from typing import Any
 from isvctl.config.output_schemas import get_schema_for_step, validate_output
 from isvctl.config.schema import StepConfig
 from isvctl.orchestrator.context import Context, _create_jinja_env
+from isvctl.orchestrator.process import run_command_process
 from isvctl.redaction import mask_sensitive_args, redact_text
 
 logger = logging.getLogger(__name__)
@@ -199,6 +200,7 @@ class StepResult:
         schema_errors: Schema validation error messages
         validation_results: Results from bound validations
         error: Error message if step failed
+        attempted: Whether the command process was actually started
     """
 
     name: str
@@ -212,6 +214,7 @@ class StepResult:
     schema_errors: list[str] = field(default_factory=list)
     validation_results: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    attempted: bool = True
 
 
 @dataclass
@@ -288,6 +291,7 @@ class StepExecutor:
                         stdout="",
                         stderr="",
                         error="Step skipped",
+                        attempted=False,
                     )
                 )
                 continue
@@ -335,6 +339,7 @@ class StepExecutor:
                 stdout="",
                 stderr="",
                 error=f"Skipped: missing step reference steps.{e.missing_path}",
+                attempted=False,
             )
 
         # Normalize command - replace python/python3 with current interpreter
@@ -378,12 +383,10 @@ class StepExecutor:
         logger.debug(f"Working directory: {cwd}")
 
         try:
-            result = subprocess.run(
+            result = run_command_process(
                 cmd_parts,
                 cwd=cwd,
                 env=env,
-                capture_output=True,
-                text=True,
                 timeout=step.timeout,
             )
 
@@ -430,14 +433,20 @@ class StepExecutor:
                 stderr=e.stderr if isinstance(e.stderr, str) else "",
                 error=f"Command timed out after {step.timeout} seconds",
             )
-        except FileNotFoundError:
+        except OSError as e:
+            error = (
+                f"Command not found: {step.command}"
+                if isinstance(e, FileNotFoundError)
+                else f"Command could not start: {e}"
+            )
             return StepResult(
                 name=step.name,
                 success=False,
                 exit_code=-1,
                 stdout="",
                 stderr="",
-                error=f"Command not found: {step.command}",
+                error=error,
+                attempted=False,
             )
         except Exception as e:
             return StepResult(

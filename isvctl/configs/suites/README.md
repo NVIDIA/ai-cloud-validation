@@ -75,7 +75,11 @@ Suites:
 [`slurm`](slurm.yaml),
 [`control-plane`](control-plane.yaml),
 [`image-registry`](image-registry.yaml),
-[`security`](security.yaml).
+[`security`](security.yaml),
+[`network-operator`](k8s-launch-kit/network-operator.yaml).
+The Network Operator Launch Kit integration is unreleased; see the
+[Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md)
+before running its cluster-mutating workflows.
 For the domain / script-count / AWS-reference overview see the
 [my-isv scaffold README](../providers/my-isv/scripts/README.md#domains).
 
@@ -108,6 +112,11 @@ runs against the group's step output as a subtest, so a failure still names the
 part that broke, and every member runs even after an earlier one fails. A member
 that needs parameters takes them inline (`- CheckName: {...}`); one that does
 not stays a single line.
+
+If a member reports its own subtests, the composite forwards them as
+`MemberName/probe-name`. Successful parents are summarized automatically by
+subtest count in `isvctl` output; failures retain their complete diagnostic
+message. This is shared renderer behavior, not a suite option.
 
 Because a composite has no validation class to borrow from, it declares its own
 `description` (the catalog uses it) and its name must not shadow a class name. A
@@ -206,6 +215,72 @@ its plan item is not platform-scoped.
 | `general_switch_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `switch_syslogs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `switch_kernel_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
+
+### Network Operator (`k8s-launch-kit/network-operator.yaml`)
+
+Plain suite for Kubernetes Launch Kit Network Operator self-validation. The
+generic provider in `providers/k8s-launch-kit/config/provider.yaml` mirrors the real CLI as
+separate verify, prerequisite, discover, generate, deploy, and validate steps.
+It forwards user-supplied argument arrays and does not own Network Operator,
+profile, topology, resource, or validation defaults. The suite binds fifteen
+checks (one prerequisite plus fourteen currently supported PRD areas) directly
+to the command output that proves them.
+
+GPUDirect RDMA is registered from Launch Kit's `gpudirect_dmabuf` result family;
+the check skips when that family is disabled or not selected and fails on
+emitted GPU topology or bandwidth errors. State restoration remains deferred
+until Launch Kit provides the required snapshot/restore/verify workflow.
+
+The same suite reuses those global check classes in six separate composite
+tests: RoCE and InfiniBand across SR-IOV, RDMA Shared, and host-device
+deployment modes. Keeping both forms in one file exposes one frontend suite,
+`network_operator`, rather than a second implementation-detail suite. Each
+composite includes only checks applicable to that use case, so unrelated
+fabric/deployment checks do not appear as skips in the middle of a run. The
+Ethernet/RoCE composites carry `ethernet` and `roce`; the InfiniBand composites
+carry `infiniband`. All six also carry `gpudirect` because Launch Kit discovery
+decides whether the GPUDirect family is applicable.
+
+`providers/k8s-launch-kit/config/network-operator.yaml` is the production
+entrypoint. It uses `l8k` and `kubectl` from `PATH` by default. In one invocation
+it runs `launch_kit_prepare` in `setup`, `launch_kit_verify` in
+`launch-kit-verification`, then executes the six use-case phases sequentially,
+each with its own preflight, discover, generate, validate, and evidence
+directories. The phases are
+independent, so a failed case records a failed overall run but does not prevent
+later cases from producing results. Mock executables exist only under
+`isvctl/tests/providers/k8s_launch_kit/fixtures/` and are injected by tests.
+
+```bash
+ISVTEST_INCLUDE_UNRELEASED=1 uv run isvctl test run \
+  -f isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml \
+  --capability kubernetes --no-upload -- -v
+```
+
+Add `--label ethernet` or `--label infiniband` before `--no-upload` to run only
+that fabric's three workflows. Their steps use
+`requires_selected_validations`, so the other fabric's mutating commands are
+pruned before execution. Use `--label sriov`, `--label rdma_shared`, or
+`--label host_device` to run the matching two-fabric deployment mode. Labels
+compose, so `--label ethernet --label sriov` selects one use case. Omitting
+labels runs all six.
+
+| Step | Phase | Script | Key JSON Fields |
+|------|-------|--------|-----------------|
+| `launch_kit_prepare` | setup | `providers/k8s-launch-kit/scripts/adapter.py prepare` | `installed`, `executable`, `checks.{version,schema}`, `artifacts` |
+| `launch_kit_verify` | test | `providers/k8s-launch-kit/scripts/adapter.py verify` | `executable`, `checks.{version,schema}`, `artifacts` |
+| `launch_kit_kubernetes_preflight` | test | `providers/k8s-launch-kit/scripts/adapter.py preflight` | `server_version`, `node_count`, `ready_node_count`, `checks`, `artifacts` |
+| `launch_kit_discover` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k discover` | raw `documents`, `argv`, `exit_code`, `artifacts` |
+| `launch_kit_generate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k generate` | raw `documents`, `argv`, `exit_code`, `artifacts` |
+| `launch_kit_deploy` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k deploy` | raw `documents` (currently empty on success), `argv`, `exit_code`, `artifacts` |
+| `launch_kit_validate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k validate` | raw static, connectivity, and report-path `documents`, `argv`, `exit_code`, `artifacts` |
+
+Those are the generic provider's single-workflow names. The grouped production
+configuration performs prepare in `setup` and verify in
+`launch-kit-verification`, then repeats preflight, discover, generate, and
+validate under each custom use-case phase with names such as
+`launch_kit_roce_sriov_preflight` through
+`launch_kit_roce_sriov_validate`.
 
 ### VM (`vm.yaml`)
 

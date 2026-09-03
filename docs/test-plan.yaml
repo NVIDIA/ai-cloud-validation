@@ -3377,6 +3377,336 @@ domains:
                 milestone: M5
                 github_issues:
                   - "#220"
+          - description: Network Operator self-validation through Kubernetes Launch Kit
+            tests:
+              - summary: Validate Network Operator deployment health, versions, policies, Multus, secondary networks, and IP pools
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-01
+                status: pending
+                notes: "Production provider integration and unit coverage for ENT-REQ-001, ENT-REQ-009, and ENT-REQ-011"
+              - summary: Validate the SR-IOV policy and profile-specific secondary network resources reported by Launch Kit
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-02
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-005"
+              - summary: Validate pod-to-pod RDMA-CM connectivity across selected rails
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-03
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-002 and ENT-REQ-005"
+              - summary: Validate the exact secondary network resource selected for an Ethernet or RoCE profile
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-04
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-005"
+              - summary: Validate the exact secondary network resource selected for an InfiniBand profile
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-05
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-006"
+              - summary: Validate HostDeviceNetwork readiness for an applicable Ethernet or InfiniBand profile
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-06
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-007"
+              - summary: Validate GPUDirect RDMA DMA-BUF bandwidth between GPU-enabled pod endpoints
+                labels:
+                  - era
+                  - gpudirect
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-07
+                status: pending
+                notes: "Launch Kit gpudirect_dmabuf result-family integration and mock-backed unit coverage for ENT-REQ-008; live GPU qualification remains required"
+              - summary: Validate Launch Kit discovery completed and resolved a fabric and deployment profile
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-08
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-002, ENT-REQ-004, and ENT-REQ-012"
+              - summary: Validate IP pool and profile-specific secondary-network resources plus test DaemonSet readiness
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-09
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-005, ENT-REQ-006, and ENT-REQ-009"
+              - summary: Validate Macvlan or IPoIB network readiness for an applicable RDMA Shared profile
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-10
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-005 and ENT-REQ-006"
+              - summary: Validate source-bound same-rail ICMP connectivity and strict cross-rail isolation
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-11
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-002, ENT-REQ-005, and ENT-REQ-006"
+              - summary: Validate every ib_write_bw result and report its Launch Kit-resolved minimum bandwidth
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-12
+                status: pending
+                notes: "Provider wiring and unit coverage for ENT-REQ-002, ENT-REQ-005, and ENT-REQ-006"
+              - summary: Validate same-rail and cross-rail coverage for a multi-rail Launch Kit profile
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-13
+                status: pending
+                notes: "Provider wiring and unit coverage for Enterprise multi-rail coverage in ENT-REQ-002"
+              - summary: Verify raw phase output, generated files, connectivity results, and Launch Kit reports were preserved
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-15
+                status: pending
+                notes: "Local evidence and framework reporting cover ENT-REQ-013; Labs attachment upload remains required"
+              - summary: Validate a pre-provisioned Ethernet or RoCE SR-IOV Network RDMA profile through Launch Kit
+                labels:
+                  - era
+                  - ethernet
+                  - gpudirect
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - network_operator_use_cases
+                  - roce
+                  - slow
+                  - sriov
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-16
+                status: pending
+                notes: "Validation-only composite use case; the validation path was live-qualified on a two-node Ubuntu 24.04 single-rail cluster, with multi-rail skipped as inapplicable"
+              - summary: Validate a pre-provisioned InfiniBand SR-IOV Network RDMA profile through Launch Kit
+                labels:
+                  - era
+                  - gpudirect
+                  - infiniband
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - network_operator_use_cases
+                  - slow
+                  - sriov
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-17
+                status: pending
+                notes: "Validation-only composite use case: preflight, discover, generate, and validate"
+              - summary: Validate a pre-provisioned Ethernet or RoCE RDMA Shared profile through Launch Kit
+                labels:
+                  - era
+                  - ethernet
+                  - gpudirect
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - network_operator_use_cases
+                  - rdma_shared
+                  - roce
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-18
+                status: pending
+                notes: "Validation-only composite use case: preflight, discover, generate, and validate"
+              - summary: Validate a pre-provisioned InfiniBand or IPoIB RDMA Shared profile through Launch Kit
+                labels:
+                  - era
+                  - gpudirect
+                  - infiniband
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - network_operator_use_cases
+                  - rdma_shared
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-19
+                status: pending
+                notes: "Validation-only composite use case: preflight, discover, generate, and validate"
+              - summary: Validate pre-provisioned Ethernet or RoCE host-device networking on worker VMs through Launch Kit
+                labels:
+                  - era
+                  - ethernet
+                  - gpudirect
+                  - host_device
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - network_operator_use_cases
+                  - roce
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-20
+                status: pending
+                notes: "Validation-only composite use case: preflight, discover, generate, and validate; live VM qualification remains required"
+              - summary: Validate pre-provisioned InfiniBand host-device networking on worker VMs through Launch Kit
+                labels:
+                  - era
+                  - gpudirect
+                  - host_device
+                  - infiniband
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - network_operator_use_cases
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-21
+                status: pending
+                notes: "Validation-only composite use case: preflight, discover, generate, and validate; live VM qualification remains required"
           - description: "K8s Versioning & Compliance"
             tests:
               - summary: Verify support for the three most recent minor releases (N-2)

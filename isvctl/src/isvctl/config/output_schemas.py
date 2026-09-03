@@ -944,6 +944,50 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "additionalProperties": True,
         "description": "Generic schema for unrecognized step names",
     },
+    "k8s_launch_kit": {
+        "type": "object",
+        "required": ["success", "platform", "operation"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "operation": {
+                "type": "string",
+                "enum": [
+                    "prepare",
+                    "verify",
+                    "kubernetes-preflight",
+                    "discover",
+                    "generate",
+                    "deploy",
+                    "validate",
+                    "clean",
+                ],
+                "description": "The actual Launch Kit or provider prerequisite operation",
+            },
+            "executable": {"type": "string"},
+            "argv": {"type": "array", "items": {"type": "string"}},
+            "working_directory": {
+                "type": "string",
+                "description": "Absolute working directory used for the Launch Kit command",
+            },
+            "exit_code": {"type": "integer"},
+            "documents": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Unmodified JSON documents emitted by l8k",
+            },
+            "checks": {
+                "oneOf": [
+                    {"type": "object"},
+                    {"type": "array", "items": {"type": "object"}},
+                ]
+            },
+            "artifacts": {"type": "object"},
+            "error": {"type": "string"},
+            "remediation": {"type": "string"},
+        },
+        "additionalProperties": True,
+        "description": "Transport envelope around an unmodified Kubernetes Launch Kit CLI operation",
+    },
     # =========================================================================
     # Multi-cluster schemas
     # =========================================================================

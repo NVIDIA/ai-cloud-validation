@@ -1,0 +1,285 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Network Operator validation through the Kubernetes Launch Kit CLI.
+#
+# This single frontend-visible suite contains the individual PRD checks and six
+# concrete use cases. Providers own the command sequence and bind these checks
+# to actual l8k command output. The generic provider is
+# ../../providers/k8s-launch-kit/config/provider.yaml.
+
+version: "1.0"
+
+tests:
+  description: "Network Operator self-validation and use cases through Kubernetes Launch Kit"
+
+  settings:
+    show_skipped_tests: false
+
+  validations:
+    network_operator:
+      checks:
+        LaunchKitKubernetesPrerequisiteCheck:
+          step: launch_kit_kubernetes_preflight
+          test_id: "N/A"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "prerequisite", "slow"]
+          requires: [kubernetes]
+
+        LaunchKitDeploymentHealthCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-01"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+
+        LaunchKitSriovReadinessCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-02"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+          discover_output: "{{ steps.launch_kit_discover | tojson }}"
+
+        LaunchKitRdmaConnectivityCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-03"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+
+        LaunchKitRoceCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-04"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+          discover_output: "{{ steps.launch_kit_discover | tojson }}"
+
+        LaunchKitInfiniBandCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-05"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+          discover_output: "{{ steps.launch_kit_discover | tojson }}"
+
+        LaunchKitHostDeviceCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-06"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+          discover_output: "{{ steps.launch_kit_discover | tojson }}"
+
+        LaunchKitGpuDirectRdmaCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-07"
+          labels: ["era", "gpudirect", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+
+        LaunchKitTopologyDiscoveryCheck:
+          step: launch_kit_discover
+          test_id: "K8S42-08"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+
+        LaunchKitSecondaryNetworkCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-09"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+          discover_output: "{{ steps.launch_kit_discover | tojson }}"
+
+        LaunchKitRdmaSharedCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-10"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+          discover_output: "{{ steps.launch_kit_discover | tojson }}"
+
+        LaunchKitIcmpConnectivityCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-11"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+
+        LaunchKitRdmaBandwidthCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-12"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+
+        LaunchKitMultirailCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-13"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+          discover_output: "{{ steps.launch_kit_discover | tojson }}"
+
+        LaunchKitEvidenceCaptureCheck:
+          step: launch_kit_validate
+          test_id: "K8S42-15"
+          labels: ["era", "kubernetes", "ncp", "network_operator", "slow"]
+          requires: [kubernetes]
+          prepare_output: "{{ steps.launch_kit_prepare | default({}) | tojson }}"
+          verify_output: "{{ steps.launch_kit_verify | tojson }}"
+          preflight_output: "{{ steps.launch_kit_kubernetes_preflight | tojson }}"
+          discover_output: "{{ steps.launch_kit_discover | tojson }}"
+          generate_output: "{{ steps.launch_kit_generate | tojson }}"
+          deploy_output: "{{ steps.launch_kit_deploy | tojson }}"
+
+    network_operator_roce_sriov:
+      step: launch_kit_roce_sriov_validate
+      checks:
+        EastWestNetworkRoceSriovCheck:
+          test_id: "K8S42-16"
+          labels: ["era", "ethernet", "gpudirect", "kubernetes", "ncp", "network_operator", "network_operator_use_cases", "roce", "slow", "sriov"]
+          requires: [kubernetes]
+          description: "Ethernet/RoCE with SR-IOV Network RDMA"
+          prepare_output: "{{ steps.launch_kit_prepare | default({}) | tojson }}"
+          verify_output: "{{ steps.launch_kit_verify | tojson }}"
+          preflight_output: "{{ steps.launch_kit_roce_sriov_preflight | tojson }}"
+          discover_output: "{{ steps.launch_kit_roce_sriov_discover | tojson }}"
+          generate_output: "{{ steps.launch_kit_roce_sriov_generate | tojson }}"
+          compose:
+            - LaunchKitKubernetesPrerequisiteCheck
+            - LaunchKitTopologyDiscoveryCheck
+            - LaunchKitDeploymentHealthCheck
+            - LaunchKitRoceCheck
+            - LaunchKitSriovReadinessCheck
+            - LaunchKitSecondaryNetworkCheck
+            - LaunchKitIcmpConnectivityCheck
+            - LaunchKitRdmaConnectivityCheck
+            - LaunchKitRdmaBandwidthCheck
+            - LaunchKitGpuDirectRdmaCheck
+            - LaunchKitMultirailCheck
+            - LaunchKitEvidenceCaptureCheck
+
+    network_operator_infiniband_sriov:
+      step: launch_kit_infiniband_sriov_validate
+      checks:
+        EastWestNetworkInfiniBandSriovCheck:
+          test_id: "K8S42-17"
+          labels: ["era", "gpudirect", "infiniband", "kubernetes", "ncp", "network_operator", "network_operator_use_cases", "slow", "sriov"]
+          requires: [kubernetes]
+          description: "InfiniBand with SR-IOV Network RDMA"
+          prepare_output: "{{ steps.launch_kit_prepare | default({}) | tojson }}"
+          verify_output: "{{ steps.launch_kit_verify | tojson }}"
+          preflight_output: "{{ steps.launch_kit_infiniband_sriov_preflight | tojson }}"
+          discover_output: "{{ steps.launch_kit_infiniband_sriov_discover | tojson }}"
+          generate_output: "{{ steps.launch_kit_infiniband_sriov_generate | tojson }}"
+          compose:
+            - LaunchKitKubernetesPrerequisiteCheck
+            - LaunchKitTopologyDiscoveryCheck
+            - LaunchKitDeploymentHealthCheck
+            - LaunchKitInfiniBandCheck
+            - LaunchKitSriovReadinessCheck
+            - LaunchKitSecondaryNetworkCheck
+            - LaunchKitIcmpConnectivityCheck
+            - LaunchKitRdmaConnectivityCheck
+            - LaunchKitRdmaBandwidthCheck
+            - LaunchKitGpuDirectRdmaCheck
+            - LaunchKitMultirailCheck
+            - LaunchKitEvidenceCaptureCheck
+
+    network_operator_roce_rdma_shared:
+      step: launch_kit_roce_rdma_shared_validate
+      checks:
+        EastWestNetworkRoceRdmaSharedCheck:
+          test_id: "K8S42-18"
+          labels: ["era", "ethernet", "gpudirect", "kubernetes", "ncp", "network_operator", "network_operator_use_cases", "rdma_shared", "roce", "slow"]
+          requires: [kubernetes]
+          description: "Ethernet/RoCE with the RDMA Shared Device Plugin"
+          prepare_output: "{{ steps.launch_kit_prepare | default({}) | tojson }}"
+          verify_output: "{{ steps.launch_kit_verify | tojson }}"
+          preflight_output: "{{ steps.launch_kit_roce_rdma_shared_preflight | tojson }}"
+          discover_output: "{{ steps.launch_kit_roce_rdma_shared_discover | tojson }}"
+          generate_output: "{{ steps.launch_kit_roce_rdma_shared_generate | tojson }}"
+          compose:
+            - LaunchKitKubernetesPrerequisiteCheck
+            - LaunchKitTopologyDiscoveryCheck
+            - LaunchKitDeploymentHealthCheck
+            - LaunchKitRoceCheck
+            - LaunchKitRdmaSharedCheck
+            - LaunchKitSecondaryNetworkCheck
+            - LaunchKitIcmpConnectivityCheck
+            - LaunchKitRdmaConnectivityCheck
+            - LaunchKitRdmaBandwidthCheck
+            - LaunchKitGpuDirectRdmaCheck
+            - LaunchKitMultirailCheck
+            - LaunchKitEvidenceCaptureCheck
+
+    network_operator_infiniband_rdma_shared:
+      step: launch_kit_infiniband_rdma_shared_validate
+      checks:
+        EastWestNetworkInfiniBandRdmaSharedCheck:
+          test_id: "K8S42-19"
+          labels: ["era", "gpudirect", "infiniband", "kubernetes", "ncp", "network_operator", "network_operator_use_cases", "rdma_shared", "slow"]
+          requires: [kubernetes]
+          description: "InfiniBand/IPoIB with the RDMA Shared Device Plugin"
+          prepare_output: "{{ steps.launch_kit_prepare | default({}) | tojson }}"
+          verify_output: "{{ steps.launch_kit_verify | tojson }}"
+          preflight_output: "{{ steps.launch_kit_infiniband_rdma_shared_preflight | tojson }}"
+          discover_output: "{{ steps.launch_kit_infiniband_rdma_shared_discover | tojson }}"
+          generate_output: "{{ steps.launch_kit_infiniband_rdma_shared_generate | tojson }}"
+          compose:
+            - LaunchKitKubernetesPrerequisiteCheck
+            - LaunchKitTopologyDiscoveryCheck
+            - LaunchKitDeploymentHealthCheck
+            - LaunchKitInfiniBandCheck
+            - LaunchKitRdmaSharedCheck
+            - LaunchKitSecondaryNetworkCheck
+            - LaunchKitIcmpConnectivityCheck
+            - LaunchKitRdmaConnectivityCheck
+            - LaunchKitRdmaBandwidthCheck
+            - LaunchKitGpuDirectRdmaCheck
+            - LaunchKitMultirailCheck
+            - LaunchKitEvidenceCaptureCheck
+
+    network_operator_roce_host_device:
+      step: launch_kit_roce_host_device_validate
+      checks:
+        EastWestNetworkRoceHostDeviceCheck:
+          test_id: "K8S42-20"
+          labels: ["era", "ethernet", "gpudirect", "host_device", "kubernetes", "ncp", "network_operator", "network_operator_use_cases", "roce", "slow"]
+          requires: [kubernetes]
+          description: "Ethernet/RoCE host-device networking for worker VMs"
+          prepare_output: "{{ steps.launch_kit_prepare | default({}) | tojson }}"
+          verify_output: "{{ steps.launch_kit_verify | tojson }}"
+          preflight_output: "{{ steps.launch_kit_roce_host_device_preflight | tojson }}"
+          discover_output: "{{ steps.launch_kit_roce_host_device_discover | tojson }}"
+          generate_output: "{{ steps.launch_kit_roce_host_device_generate | tojson }}"
+          compose:
+            - LaunchKitKubernetesPrerequisiteCheck
+            - LaunchKitTopologyDiscoveryCheck
+            - LaunchKitDeploymentHealthCheck
+            - LaunchKitRoceCheck
+            - LaunchKitHostDeviceCheck
+            - LaunchKitSecondaryNetworkCheck
+            - LaunchKitIcmpConnectivityCheck
+            - LaunchKitRdmaConnectivityCheck
+            - LaunchKitRdmaBandwidthCheck
+            - LaunchKitGpuDirectRdmaCheck
+            - LaunchKitMultirailCheck
+            - LaunchKitEvidenceCaptureCheck
+
+    network_operator_infiniband_host_device:
+      step: launch_kit_infiniband_host_device_validate
+      checks:
+        EastWestNetworkInfiniBandHostDeviceCheck:
+          test_id: "K8S42-21"
+          labels: ["era", "gpudirect", "host_device", "infiniband", "kubernetes", "ncp", "network_operator", "network_operator_use_cases", "slow"]
+          requires: [kubernetes]
+          description: "InfiniBand host-device networking for worker VMs"
+          prepare_output: "{{ steps.launch_kit_prepare | default({}) | tojson }}"
+          verify_output: "{{ steps.launch_kit_verify | tojson }}"
+          preflight_output: "{{ steps.launch_kit_infiniband_host_device_preflight | tojson }}"
+          discover_output: "{{ steps.launch_kit_infiniband_host_device_discover | tojson }}"
+          generate_output: "{{ steps.launch_kit_infiniband_host_device_generate | tojson }}"
+          compose:
+            - LaunchKitKubernetesPrerequisiteCheck
+            - LaunchKitTopologyDiscoveryCheck
+            - LaunchKitDeploymentHealthCheck
+            - LaunchKitInfiniBandCheck
+            - LaunchKitHostDeviceCheck
+            - LaunchKitSecondaryNetworkCheck
+            - LaunchKitIcmpConnectivityCheck
+            - LaunchKitRdmaConnectivityCheck
+            - LaunchKitRdmaBandwidthCheck
+            - LaunchKitGpuDirectRdmaCheck
+            - LaunchKitMultirailCheck
+            - LaunchKitEvidenceCaptureCheck

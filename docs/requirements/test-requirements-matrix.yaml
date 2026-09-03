@@ -8,7 +8,7 @@
 #
 # Per mapping:
 #   test_id       - matches docs/test-plan.yaml
-#   requirements  - list of { req_id, source: offtake|reference, coverage: full|partial }
+#   requirements  - list of { req_id, source: <registered source>, coverage: full|partial }
 #   annotations   - free-form (e.g. how this relationship was decided)
 #   notes         - free-form scratch
 #
@@ -2567,4 +2567,264 @@ mappings:
         source: offtake
         coverage: full
     annotations: ''
+    notes: ''
+  - test_id: K8S42-01
+    requirements:
+      - req_id: ENT-REQ-000
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: full
+      - req_id: ENT-REQ-003
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-009
+        source: network-operator-prd
+        coverage: full
+      - req_id: ENT-REQ-011
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Production provider establishes the integration and catalog boundary; mock-backed unit tests exercise it; long-term ownership and typed program policy metadata are not runtime assertions.'
+    notes: ''
+  - test_id: K8S42-02
+    requirements:
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Covers SR-IOV attachment and device readiness; connectivity and bandwidth are separate selectable checks.'
+    notes: ''
+  - test_id: K8S42-03
+    requirements:
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: full
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Reuses the Launch Kit rping matrix for both RoCE and InfiniBand profiles.'
+    notes: ''
+  - test_id: K8S42-04
+    requirements:
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Aggregates the Ethernet and RoCE profile results.'
+    notes: ''
+  - test_id: K8S42-05
+    requirements:
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Checks the profile-specific InfiniBand network kind; device, attachment, and connectivity evidence is split across other checks.'
+    notes: ''
+  - test_id: K8S42-06
+    requirements:
+      - req_id: ENT-REQ-007
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Production wiring and unit fixtures cover both host-device profile contracts; live VM qualification remains required.'
+    notes: ''
+  - test_id: K8S42-07
+    requirements:
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Consumes Launch Kit gpudirect_dmabuf matrix verdicts with endpoint GPU indices, PCI addresses, bandwidth, threshold, and errors; mock-qualified only and still requires live GPUDirect hardware qualification.'
+    notes: ''
+  - test_id: K8S42-08
+    requirements:
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-004
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-012
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Forwards user-owned discover arguments without copying Launch Kit defaults; live prerequisites are documented separately.'
+    notes: ''
+  - test_id: K8S42-09
+    requirements:
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-009
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Checks generated secondary-network, IP pool, Multus attachment, and pod-address evidence.'
+    notes: ''
+  - test_id: K8S42-10
+    requirements:
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Covers Macvlan and IPoIB RDMA Shared profiles.'
+    notes: ''
+  - test_id: K8S42-11
+    requirements:
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Reuses Launch Kit strict ICMP same-rail reachability and cross-rail isolation results.'
+    notes: ''
+  - test_id: K8S42-12
+    requirements:
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Reuses Launch Kit ib_write_bw verdicts and reports the observed and Launch Kit-resolved minimum bandwidth.'
+    notes: ''
+  - test_id: K8S42-13
+    requirements:
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Checks the complete two-rail strict connectivity matrix.'
+    notes: ''
+  - test_id: K8S42-15
+    requirements:
+      - req_id: ENT-REQ-011
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Local evidence and framework reporting are implemented; typed catalog ownership and Labs binary attachment upload remain gaps.'
+    notes: ''
+  - test_id: K8S42-16
+    requirements:
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-003
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Concrete validation-only RoCE SR-IOV discover-generate-validate use case for an ISV-provisioned deployment; the validation path was live-qualified on a two-node Ubuntu 24.04 single-rail cluster, with the multi-rail member skipped as inapplicable.'
+    notes: ''
+  - test_id: K8S42-17
+    requirements:
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-003
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Concrete validation-only InfiniBand SR-IOV discover-generate-validate use case for an ISV-provisioned deployment; mock-qualified only.'
+    notes: ''
+  - test_id: K8S42-18
+    requirements:
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-003
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Concrete validation-only RoCE RDMA Shared discover-generate-validate use case for an ISV-provisioned deployment; mock-qualified only.'
+    notes: ''
+  - test_id: K8S42-19
+    requirements:
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-003
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Concrete validation-only InfiniBand and IPoIB RDMA Shared discover-generate-validate use case for an ISV-provisioned deployment; mock-qualified only.'
+    notes: ''
+  - test_id: K8S42-20
+    requirements:
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-003
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-007
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Concrete validation-only RoCE host-device workflow for an ISV-provisioned deployment; mock-qualified and not yet proven on worker VMs.'
+    notes: ''
+  - test_id: K8S42-21
+    requirements:
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-003
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-007
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Concrete validation-only InfiniBand host-device workflow for an ISV-provisioned deployment; mock-qualified and not yet proven on worker VMs.'
     notes: ''
