@@ -621,7 +621,7 @@ class LaunchKitMultirailCheck(_LaunchKitCheck):
         if len(rails) == 1 and "unknown-rail" not in rails:
             pytest.skip(f"Launch Kit connectivity matrix contains only one rail: {next(iter(rails))}")
         same_rail = [probe for probe in probes if probe["source_rail"] == probe["destination_rail"]]
-        cross_rail = [probe for probe in probes if probe not in same_rail]
+        cross_rail = [probe for probe in probes if probe["source_rail"] != probe["destination_rail"]]
         probes.extend(
             [
                 {"name": "same-rail-coverage", "passed": bool(same_rail), "message": f"rows={len(same_rail)}"},

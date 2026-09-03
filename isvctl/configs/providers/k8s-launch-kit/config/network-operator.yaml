@@ -11,9 +11,16 @@
 
 import:
   - provider.yaml
-  - ../../../suites/k8s-launch-kit/network-operator-use-cases.yaml
+  - ../../../suites/k8s-launch-kit/network-operator.yaml
 
 version: "1.0"
+
+# The shared frontend suite also catalogs the individually selectable semantic
+# checks. This grouped production entrypoint reports only the six use cases;
+# each composite executes the applicable semantic checks as named subtests.
+tests:
+  validations:
+    network_operator: []
 
 context:
   k8s_launch_kit:

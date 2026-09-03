@@ -56,7 +56,7 @@ class TestCatalogDocument:
         suites = build_suite_vocabulary()
         assert "iam" in suites
         assert "network_operator" in suites
-        assert "network_operator_use_cases" in suites
+        assert "network_operator_use_cases" not in suites
         assert "storage" in suites
         assert "kubernetes" not in suites
         assert "vm" not in suites
@@ -115,6 +115,8 @@ class TestBuildCatalog:
             if entry["capability"]:
                 assert entry["requires"] == []
         assert "EastWestNetworkRoceSriovCheck" in names
+        use_case = next(entry for entry in catalog if entry["name"] == "EastWestNetworkRoceSriovCheck")
+        assert use_case["suite"] == "network_operator"
 
     def test_extract_checks_supports_direct_dict_category_form(self, tmp_path) -> None:
         """Direct dict category wiring is included in catalog config scans."""

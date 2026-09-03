@@ -58,16 +58,17 @@ The main files are:
 | Generic provider | `isvctl/configs/providers/k8s-launch-kit/config/provider.yaml` |
 | Network Operator validation workflow | `isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml` |
 | CLI transport | `isvctl/configs/providers/k8s-launch-kit/scripts/adapter.py` |
-| Individual PRD checks | `isvctl/configs/suites/k8s-launch-kit/network-operator.yaml` |
-| Concrete use cases | `isvctl/configs/suites/k8s-launch-kit/network-operator-use-cases.yaml` |
+| Individual PRD checks and concrete use cases | `isvctl/configs/suites/k8s-launch-kit/network-operator.yaml` |
 | Result interpretation | `isvtest/src/isvtest/validations/k8s_launch_kit/checks.py` |
 | Provider tests and mock CLI | `isvctl/tests/providers/k8s_launch_kit/` |
 | Result-check tests | `isvtest/tests/k8s_launch_kit/test_checks.py` |
 | PRD and traceability | `docs/requirements/` |
 
 The provider and suite files are intentionally separate. The provider owns
-process execution and evidence. The suite owns catalog identity, selection,
-and the mapping from step outputs to reusable validation checks.
+process execution and evidence. The single frontend-visible `network_operator`
+suite owns catalog identity, selection, and the mapping from step outputs to
+reusable validation checks. It contains both individually selectable PRD checks
+and the six grouped use cases.
 
 ## Network Operator workflow
 

@@ -223,8 +223,9 @@ def _stage_user_config(
     content = source.read_bytes()
     staged.unlink(missing_ok=True)
     try:
-        staged.write_bytes(content)
-        staged.chmod(0o600)
+        descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
     except OSError:
         staged.unlink(missing_ok=True)
         raise
