@@ -197,6 +197,14 @@ tests:
           test_id: "K8S25-01"
           labels: ["kubernetes", "min_req"]
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
+        K8sGpuOperatorOverrideCheck:
+          test_id: "K8S25-02"
+          labels: ["kubernetes", "min_req"]
+          namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
+          # The version the tenant requires is the one K8sDriverVersionCheck
+          # asserts is installed, so K8S25-02 proves the tenant can get to
+          # exactly the version K8S25-01's stack is expected to be running.
+          driver_version: "{{ steps.setup.kubernetes.driver_version | default('580.82.07') }}"
         K8sGpuLabelsCheck:
           test_id: "N/A"
           labels: ["kubernetes", "gpu"]
