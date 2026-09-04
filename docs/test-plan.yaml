@@ -3368,6 +3368,7 @@ domains:
                 milestone: ""
               - summary: Verify provider-default accelerator operators and drivers can be replaced or overridden with tenant-required versions
                 labels:
+                  - kubernetes
                   - min_req
                 notes: ""
                 req_id: K8S25

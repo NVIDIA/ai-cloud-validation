@@ -3766,7 +3766,7 @@ a|
 | [[K8S25-02]]K8S25-02
 | K8S25
 | https://github.com/NVIDIA/ai-cloud-validation/issues/220[#220]
-| min_req
+| kubernetes, min_req
 |
 | P0
 a| https://github.com/NVIDIA/ai-cloud-validation/issues/220[#220]
