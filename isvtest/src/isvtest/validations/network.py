@@ -1259,6 +1259,136 @@ class NvlinkDomainCheck(BaseValidation):
         self.set_passed(f"NVLink domain for {node_id}: {nvlink_domain_id}")
 
 
+class ImexDomainConnectivityCheck(BaseValidation):
+    """Validate an IMEX domain is operational and every member pair is mutually connected.
+
+    Membership is taken from the nodes that declare ``domain_member``, and
+    pairwise connectivity is computed here from each node's own
+    ``peers_reachable`` list. The provider-reported ``domain.fully_connected``
+    boolean is deliberately ignored, so a one-way fault (node A observes B, but
+    B does not observe A) cannot pass just because the vendor claims the domain
+    is healthy.
+
+    The IMEX service state of each node is carried for diagnostics but not
+    asserted on - service lifecycle is out of scope for this check.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        domain: object with domain_id, state (operational when "up"),
+                expected_members (min 2), and the ignored fully_connected flag
+        nodes: list of {node_id, service_state, domain_member, peers_reachable}
+        nodes_checked / nodes_validated: counts carried for reporting
+    """
+
+    description: ClassVar[str] = "Check IMEX domain is operational and fully, mutually connected"
+
+    def run(self) -> None:
+        """Check IMEX domain state, membership, and pairwise connectivity."""
+        step_output = self.config.get("step_output", {})
+
+        domain = step_output.get("domain")
+        if not isinstance(domain, dict):
+            self.set_failed("`domain` must be an object with domain_id, state, and expected_members")
+            return
+
+        domain_id = domain.get("domain_id")
+        if not _is_non_empty_string(domain_id):
+            self.set_failed("`domain.domain_id` must be a non-empty string")
+            return
+
+        state = domain.get("state")
+        if not _is_non_empty_string(state) or state.strip().lower() != "up":
+            self.set_failed(f"IMEX domain {domain_id} state is {state!r}, expected an operational state ('up')")
+            return
+
+        expected_error = _validate_string_list(domain.get("expected_members"), "expected_members")
+        if expected_error is not None:
+            self.set_failed(expected_error.replace("`fabric.", "`domain."))
+            return
+        expected_members = domain["expected_members"]
+        if len(set(expected_members)) != len(expected_members):
+            self.set_failed(f"IMEX domain {domain_id} `domain.expected_members` contains duplicate node IDs")
+            return
+        if len(expected_members) < 2:
+            # A single-node connectivity matrix is trivially complete, so this
+            # would otherwise pass vacuously - fail naming the environment.
+            self.set_failed(
+                f"IMEX domain {domain_id} has only {len(expected_members)} expected member(s): this environment "
+                "is too small to validate a multi-node NVLink domain, which requires at least two members"
+            )
+            return
+
+        nodes = step_output.get("nodes")
+        if not isinstance(nodes, list):
+            self.set_failed("`nodes` must be a list of per-node domain reports")
+            return
+        for index, node in enumerate(nodes):
+            if not isinstance(node, dict):
+                self.set_failed(f"`nodes[{index}]` must be an object")
+                return
+            if not _is_non_empty_string(node.get("node_id")):
+                self.set_failed(f"`nodes[{index}].node_id` must be a non-empty string")
+                return
+
+        reported = [node["node_id"] for node in nodes if node.get("domain_member") is True]
+        if len(set(reported)) != len(reported):
+            self.set_failed(f"IMEX domain {domain_id} reports duplicate node IDs among its members")
+            return
+
+        expected_set = set(expected_members)
+        reported_set = set(reported)
+        if expected_set != reported_set:
+            missing = sorted(expected_set - reported_set)
+            unexpected = sorted(reported_set - expected_set)
+            details = []
+            if missing:
+                details.append(f"missing: {missing}")
+            if unexpected:
+                # A node we were not allocated appearing in the domain is a
+                # tenancy finding, not just a bookkeeping mismatch.
+                details.append(f"unexpected (possible tenancy issue): {unexpected}")
+            self.set_failed(f"IMEX domain {domain_id} membership mismatch ({'; '.join(details)})")
+            return
+
+        peers_by_node: dict[str, list[str]] = {}
+        for node in nodes:
+            if node.get("domain_member") is not True:
+                continue
+            peers = node.get("peers_reachable")
+            if not isinstance(peers, list):
+                self.set_failed(f"`peers_reachable` for {node['node_id']} must be a list of peer node IDs")
+                return
+            peers_by_node[node["node_id"]] = peers
+
+        # Compute mutual connectivity per pair rather than trusting
+        # domain.fully_connected, so a one-way fault cannot pass.
+        members = sorted(reported_set)
+        faults: list[str] = []
+        for i, node_a in enumerate(members):
+            for node_b in members[i + 1 :]:
+                a_sees_b = node_b in peers_by_node[node_a]
+                b_sees_a = node_a in peers_by_node[node_b]
+                if a_sees_b and b_sees_a:
+                    continue
+                if a_sees_b or b_sees_a:
+                    one_way = f"{node_a}->{node_b}" if a_sees_b else f"{node_b}->{node_a}"
+                    faults.append(f"{node_a}<->{node_b}: one-way only ({one_way})")
+                else:
+                    faults.append(f"{node_a}<->{node_b}: no connectivity observed in either direction")
+
+        if faults:
+            self.set_failed(f"IMEX domain {domain_id} is not fully connected: {'; '.join(faults)}")
+            return
+
+        pair_count = len(members) * (len(members) - 1) // 2
+        self.set_passed(
+            f"IMEX domain {domain_id} is operational with {len(members)} member(s); "
+            f"all {pair_count} pair(s) mutually connected"
+        )
+
+
 class ByoipCheck(BaseValidation):
     """Validate Bring-Your-Own-IP (BYOIP) with non-conflicting custom CIDRs.
 

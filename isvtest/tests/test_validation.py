@@ -44,6 +44,7 @@ from isvtest.validations.network import (
     BackendSwitchFabricCheck,
     ByoipCheck,
     FloatingIpCheck,
+    ImexDomainConnectivityCheck,
     LocalizedDnsCheck,
     NvlinkDomainCheck,
     SgPolicyPropagationTimingCheck,
@@ -1733,6 +1734,226 @@ class TestNvlinkDomainCheck:
         result = v.execute()
         assert result["passed"] is False
         assert "nvlink_domain_id_present" in result["error"]
+
+
+def _imex_node(node_id: str, peers: list[str], *, member: bool = True, service_state: str = "active") -> dict[str, Any]:
+    """Build one per-node entry of the SDN21-01 step output contract."""
+    return {
+        "node_id": node_id,
+        "service_state": service_state,
+        "domain_member": member,
+        "peers_reachable": peers,
+    }
+
+
+def _imex_domain_output(extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build a step_output dict for IMEX domain connectivity tests (2 mutually-connected nodes).
+
+    Shape follows the SDN21-01 step output contract in the issue: a nested
+    ``domain`` object plus a ``nodes`` array of per-node reports.
+    """
+    step_output: dict[str, Any] = {
+        "success": True,
+        "platform": "network",
+        "domain": {
+            "domain_id": "imex-0",
+            "state": "up",
+            "expected_members": ["node-a", "node-b"],
+            # Deliberately true everywhere: the check must never rely on it.
+            "fully_connected": True,
+        },
+        "nodes_checked": 2,
+        "nodes_validated": 2,
+        "nodes": [_imex_node("node-a", ["node-b"]), _imex_node("node-b", ["node-a"])],
+    }
+    if extra:
+        domain_extra = extra.pop("domain", None)
+        if domain_extra is not None:
+            step_output["domain"].update(domain_extra)
+        step_output.update(extra)
+    return {"step_output": step_output}
+
+
+class TestImexDomainConnectivityCheck:
+    """Tests for ImexDomainConnectivityCheck validation (SDN21-01)."""
+
+    def test_all_passed(self) -> None:
+        """Two mutually-connected members with an operational domain passes."""
+        v = ImexDomainConnectivityCheck(config=_imex_domain_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "imex-0" in result["output"]
+
+    def test_missing_domain_object(self) -> None:
+        """Reject output without the contract's `domain` object."""
+        config = _imex_domain_output()
+        del config["step_output"]["domain"]
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "`domain`" in result["error"]
+
+    def test_domain_not_operational(self) -> None:
+        """Reject a domain state other than operational."""
+        config = _imex_domain_output({"domain": {"state": "down"}})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "down" in result["error"]
+
+    def test_state_matched_case_insensitively(self) -> None:
+        """Providers may normalize state casing differently; 'UP' is still operational."""
+        config = _imex_domain_output({"domain": {"state": "UP"}})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is True
+
+    def test_single_node_auto_fails_naming_environment(self) -> None:
+        """A single expected member fails with a message naming the environment as
+        too small - a 1-node connectivity matrix is trivially complete and would
+        otherwise pass vacuously."""
+        config = _imex_domain_output(
+            {
+                "domain": {"expected_members": ["node-a"]},
+                "nodes": [_imex_node("node-a", [])],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "too small" in result["error"]
+        assert "at least two" in result["error"]
+
+    def test_missing_member_fails(self) -> None:
+        """An expected member that never reports membership fails."""
+        config = _imex_domain_output({"nodes": [_imex_node("node-a", []), _imex_node("node-b", [], member=False)]})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "missing" in result["error"]
+
+    def test_unexpected_member_flagged_as_tenancy_finding(self) -> None:
+        """A node we were not allocated appearing in the domain is a tenancy finding."""
+        config = _imex_domain_output(
+            {
+                "nodes": [
+                    _imex_node("node-a", ["node-b", "node-c"]),
+                    _imex_node("node-b", ["node-a", "node-c"]),
+                    _imex_node("node-c", ["node-a", "node-b"]),
+                ]
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "unexpected" in result["error"]
+        assert "tenancy" in result["error"]
+        assert "node-c" in result["error"]
+
+    def test_skipped_payload_skips_instead_of_failing(self) -> None:
+        """An unconfigured run emits skipped=true. BaseValidation.execute() must
+        short-circuit to a pytest skip before run() inspects the payload, so
+        wiring this check into the network suite cannot fail a run that simply
+        has no IMEX cluster to point at."""
+        config = _imex_domain_output(
+            {
+                "skipped": True,
+                "skip_reason": "IMEX domain not configured for this run (no node IDs or SSH key set)",
+                "domain": {"domain_id": "", "state": "", "expected_members": []},
+                "nodes": [],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        with pytest.raises(pytest.skip.Exception, match="not configured"):
+            v.execute()
+
+    def test_duplicate_expected_members_rejected(self) -> None:
+        """A duplicate expected_members entry must not let a single real member
+        satisfy the multi-node minimum via set-collapsing: len(["node-a",
+        "node-a"]) >= 2 while the set has one element, so a 1-node domain could
+        otherwise pass as a valid 2-node one."""
+        config = _imex_domain_output(
+            {
+                "domain": {"expected_members": ["node-a", "node-a"]},
+                "nodes": [_imex_node("node-a", [])],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "duplicate" in result["error"]
+
+    def test_duplicate_reported_members_rejected(self) -> None:
+        """Duplicate node IDs among reporting members must not collapse into the expected set."""
+        config = _imex_domain_output({"nodes": [_imex_node("node-a", ["node-b"]), _imex_node("node-a", ["node-b"])]})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "duplicate" in result["error"]
+
+    def test_one_way_connectivity_fault_detected(self) -> None:
+        """A node reporting a peer that does not report it back must fail, even
+        though domain.fully_connected claims the domain is healthy."""
+        config = _imex_domain_output({"nodes": [_imex_node("node-a", ["node-b"]), _imex_node("node-b", [])]})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "one-way only" in result["error"]
+
+    def test_fully_connected_flag_is_not_trusted(self) -> None:
+        """fully_connected=true must not rescue a domain with no real connectivity."""
+        config = _imex_domain_output(
+            {
+                "domain": {"fully_connected": True},
+                "nodes": [_imex_node("node-a", []), _imex_node("node-b", [])],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "no connectivity observed" in result["error"]
+
+    def test_missing_peers_reachable_fails(self) -> None:
+        """A member without a peers_reachable list must fail explicitly."""
+        node_b = _imex_node("node-b", [])
+        del node_b["peers_reachable"]
+        config = _imex_domain_output({"nodes": [_imex_node("node-a", ["node-b"]), node_b]})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "peers_reachable" in result["error"]
+
+    def test_service_state_is_not_asserted_on(self) -> None:
+        """Service lifecycle is out of scope: a member reporting an unusual
+        service_state still passes as long as membership and connectivity hold."""
+        config = _imex_domain_output(
+            {
+                "nodes": [
+                    _imex_node("node-a", ["node-b"], service_state="degraded"),
+                    _imex_node("node-b", ["node-a"], service_state="active"),
+                ]
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is True
+
+    def test_three_node_domain_all_pairs_checked(self) -> None:
+        """A 3-node fully connected domain verifies all 3 pairs."""
+        config = _imex_domain_output(
+            {
+                "domain": {"expected_members": ["node-a", "node-b", "node-c"]},
+                "nodes": [
+                    _imex_node("node-a", ["node-b", "node-c"]),
+                    _imex_node("node-b", ["node-a", "node-c"]),
+                    _imex_node("node-c", ["node-a", "node-b"]),
+                ],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is True
+        assert "3 pair" in result["output"]
 
 
 class TestValidationResultCapture:

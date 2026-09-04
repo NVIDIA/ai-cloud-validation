@@ -329,6 +329,11 @@ tests:
           labels: ["min_req", "network"]
           requires: [vm, bare_metal]
           step: nvlink_domain
+        ImexDomainConnectivityCheck:
+          test_id: "SDN21-01"
+          labels: ["min_req", "network"]
+          requires: [vm, bare_metal]
+          step: imex_domain
 
     teardown_checks:
       step: teardown

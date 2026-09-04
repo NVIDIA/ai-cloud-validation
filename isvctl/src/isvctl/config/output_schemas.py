@@ -136,6 +136,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "backend_switch_fabric_test": "backend_switch_fabric",
     "nvlink_domain": "nvlink_domain",
     "nvlink_domain_test": "nvlink_domain",
+    "imex_domain": "imex_domain",
+    "imex_domain_test": "imex_domain",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -912,6 +914,75 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "if": {"properties": {"nvlink_supported": {"const": True}}},
         "then": {"required": ["nvlink_domain_id"]},
+        "additionalProperties": True,
+    },
+    "imex_domain": {
+        "type": "object",
+        "required": ["success", "platform", "domain", "nodes"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_domain'"},
+            "domain": {
+                "type": "object",
+                "required": ["domain_id", "state", "expected_members"],
+                "properties": {
+                    "domain_id": {"type": "string", "description": "IMEX domain identifier"},
+                    "state": {
+                        "type": "string",
+                        "description": "Normalized domain state; operational when 'up'",
+                    },
+                    "expected_members": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        # No minItems: the schema describes payload shape, while
+                        # the "at least two members" rule is enforced by
+                        # ImexDomainConnectivityCheck. Requiring 2 here would
+                        # also reject the skipped payload emitted when no IMEX
+                        # domain is configured for the run.
+                        "description": "Node IDs expected to have joined the IMEX domain",
+                    },
+                    "fully_connected": {
+                        "type": "boolean",
+                        "description": (
+                            "Provider-reported aggregate connectivity claim. Carried for reporting only - "
+                            "ImexDomainConnectivityCheck deliberately ignores it and recomputes pairwise "
+                            "connectivity from each node's peers_reachable so a one-way fault cannot pass."
+                        ),
+                    },
+                },
+                "additionalProperties": True,
+                "description": "Domain-level state and expected membership",
+            },
+            "nodes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["node_id"],
+                    "properties": {
+                        "node_id": {"type": "string", "minLength": 1, "description": "Node identifier"},
+                        "service_state": {
+                            "type": "string",
+                            "description": "IMEX service state on the node; reported only, not asserted on",
+                        },
+                        "domain_member": {
+                            "type": "boolean",
+                            "description": "Whether this node reports itself as a member of the domain",
+                        },
+                        "peers_reachable": {
+                            "type": "array",
+                            "items": {"type": "string", "minLength": 1},
+                            "description": "Peer node IDs this node observes as reachable",
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "description": "Per-node domain reports, one per queried member",
+            },
+            "nodes_checked": {"type": "integer", "description": "How many members were queried"},
+            "nodes_validated": {"type": "integer", "description": "How many members returned a usable report"},
+            "skipped": {"type": "boolean", "description": "True when no IMEX domain was configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX domain check was skipped"},
+        },
         "additionalProperties": True,
     },
     "sg_crud": {
