@@ -378,6 +378,23 @@ commands:
         timeout: 900
         output_schema: storage_l3_routing
 
+      # IMEX domain operational + fully connected (SDN21-01). Observes an
+      # already-running IMEX domain over SSH; does not launch nodes or bring
+      # IMEX up (see imex_domain_test.py docstring). Requires an existing
+      # multi-node GPU cluster - point it at one via imex_node_ids/imex_key_file.
+      - name: imex_domain
+        phase: test
+        command: "python3 ../scripts/network/imex_domain_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "{{imex_node_ids | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 120
+        output_schema: imex_domain
+
       # Teardown: Clean up shared VPC from create_network
       - name: teardown
         phase: teardown
@@ -397,3 +414,5 @@ tests:
   settings:
     region: "us-west-2"
     storage_l3_routing_cidr: "{{env.AWS_STORAGE_L3_ROUTING_CIDR | default('', true)}}"
+    imex_node_ids: "{{env.AWS_IMEX_NODE_IDS | default('', true)}}"
+    imex_key_file: "{{env.AWS_IMEX_KEY_FILE | default('', true)}}"

@@ -44,6 +44,7 @@ from isvtest.validations.network import (
     BackendSwitchFabricCheck,
     ByoipCheck,
     FloatingIpCheck,
+    ImexDomainConnectivityCheck,
     LocalizedDnsCheck,
     NvlinkDomainCheck,
     SgPolicyPropagationTimingCheck,
@@ -1733,6 +1734,153 @@ class TestNvlinkDomainCheck:
         result = v.execute()
         assert result["passed"] is False
         assert "nvlink_domain_id_present" in result["error"]
+
+
+def _imex_domain_output(extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build a step_output dict for IMEX domain connectivity tests (2 mutually-connected nodes)."""
+    step_output = {
+        "success": True,
+        "platform": "network",
+        "domain_id": "imex-0",
+        "domain_state": "UP",
+        "expected_members": ["node-a", "node-b"],
+        "members": ["node-a", "node-b"],
+        "reachability": {"node-a": ["node-b"], "node-b": ["node-a"]},
+        "tests": {"domain_queried": {"passed": True}},
+    }
+    if extra:
+        step_output.update(extra)
+    return {"step_output": step_output}
+
+
+class TestImexDomainConnectivityCheck:
+    """Tests for ImexDomainConnectivityCheck validation (SDN21-01)."""
+
+    def test_all_passed(self) -> None:
+        """Two mutually-connected members with domain state UP passes."""
+        v = ImexDomainConnectivityCheck(config=_imex_domain_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "imex-0" in result["output"]
+
+    def test_domain_query_failed(self) -> None:
+        """Reject output when the domain query subtest itself failed."""
+        config = _imex_domain_output({"tests": {"domain_queried": {"passed": False, "error": "ssh timeout"}}})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "domain_queried" in result["error"]
+
+    def test_domain_not_up(self) -> None:
+        """Reject a domain state other than UP."""
+        config = _imex_domain_output({"domain_state": "DOWN"})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "DOWN" in result["error"]
+
+    def test_single_node_auto_fails(self) -> None:
+        """A single expected member auto-fails per the multi-node domain requirement."""
+        config = _imex_domain_output(
+            {
+                "expected_members": ["node-a"],
+                "members": ["node-a"],
+                "reachability": {"node-a": []},
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "at least two" in result["error"]
+
+    def test_membership_mismatch(self) -> None:
+        """Reject output when actual members don't exactly match expected members."""
+        config = _imex_domain_output(
+            {
+                "expected_members": ["node-a", "node-b"],
+                "members": ["node-a", "node-c"],
+                "reachability": {"node-a": ["node-c"], "node-c": ["node-a"]},
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "missing" in result["error"]
+        assert "unexpected" in result["error"]
+
+    def test_duplicate_expected_members_rejected(self) -> None:
+        """A duplicate expected_members entry must not let a single real member
+        satisfy the multi-node minimum via set-collapsing (CodeRabbit regression:
+        len(["node-a", "node-a"]) >= 2 while set(...) has only one element, so a
+        1-node domain could otherwise pass as a valid 2-node one)."""
+        config = _imex_domain_output(
+            {
+                "expected_members": ["node-a", "node-a"],
+                "members": ["node-a"],
+                "reachability": {"node-a": []},
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "duplicate" in result["error"]
+
+    def test_duplicate_members_rejected(self) -> None:
+        """A duplicate `members` entry must not silently collapse into the expected set."""
+        config = _imex_domain_output(
+            {
+                "expected_members": ["node-a", "node-b"],
+                "members": ["node-a", "node-a"],
+                "reachability": {"node-a": []},
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "duplicate" in result["error"]
+
+    def test_one_way_connectivity_fault_detected(self) -> None:
+        """A node reporting a peer that does not report it back must fail, even
+        though a naive single-direction read would look connected."""
+        config = _imex_domain_output({"reachability": {"node-a": ["node-b"], "node-b": []}})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "one-way only" in result["error"]
+
+    def test_no_connectivity_in_either_direction(self) -> None:
+        """Neither node observing the other must fail."""
+        config = _imex_domain_output({"reachability": {"node-a": [], "node-b": []}})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "no connectivity observed" in result["error"]
+
+    def test_missing_reachability_entry(self) -> None:
+        """A member absent from the reachability map must fail explicitly."""
+        config = _imex_domain_output({"reachability": {"node-a": ["node-b"]}})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "node-b" in result["error"]
+
+    def test_three_node_domain_all_pairs_checked(self) -> None:
+        """A 3-node fully connected domain verifies all 3 pairs."""
+        config = _imex_domain_output(
+            {
+                "expected_members": ["node-a", "node-b", "node-c"],
+                "members": ["node-a", "node-b", "node-c"],
+                "reachability": {
+                    "node-a": ["node-b", "node-c"],
+                    "node-b": ["node-a", "node-c"],
+                    "node-c": ["node-a", "node-b"],
+                },
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is True
+        assert "3 pair" in result["output"]
 
 
 class TestValidationResultCapture:

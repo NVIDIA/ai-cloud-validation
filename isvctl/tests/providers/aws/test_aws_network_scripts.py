@@ -2251,3 +2251,129 @@ def test_my_isv_stable_egress_demo_emits_minimal_contract() -> None:
     payload: dict[str, Any] = json.loads(completed.stdout)
     _assert_stable_egress_contract(payload)
     assert payload["tests"]["probe_egress_ip"]["probes"] == 2
+
+
+def _imex_up_payload(node_a_id: str, node_b_id: str, *, hostnames: bool = False) -> str:
+    """Build a real-shaped `nvidia-imex-ctl -N -j -H` UP-domain JSON payload for two nodes.
+
+    Schema confirmed live against `nvidia-imex-ctl -N -j -H` (2026-09-04):
+    every configured member gets an entry (not just the queried node), each
+    with its own `connections` map keyed by "host" (IP only - never a
+    hostname, even when the node's own top-level entry has "hostName" set).
+    """
+    node_a_host, node_a_name = ("10.0.0.1", node_a_id) if hostnames else (node_a_id, "gpu-node-a")
+    node_b_host, node_b_name = ("10.0.0.2", node_b_id) if hostnames else (node_b_id, "gpu-node-b")
+    return json.dumps(
+        {
+            "nodes": {
+                "0": {
+                    "status": "READY",
+                    "host": node_a_host,
+                    "hostName": node_a_name,
+                    "connections": {
+                        "0": {"host": node_a_host, "status": "CONNECTED", "changed": True},
+                        "1": {"host": node_b_host, "status": "CONNECTED", "changed": True},
+                    },
+                },
+                "1": {
+                    "status": "READY",
+                    "host": node_b_host,
+                    "hostName": node_b_name,
+                    "connections": {
+                        "0": {"host": node_a_host, "status": "CONNECTED", "changed": True},
+                        "1": {"host": node_b_host, "status": "CONNECTED", "changed": True},
+                    },
+                },
+            },
+            "timestamp": "9/4/2026 00:00:00.000",
+            "status": "UP",
+        }
+    )
+
+
+def test_imex_parse_matches_queried_ip() -> None:
+    """--node-ids given as IPs: own node found by `host`, peers reported as IPs."""
+    module = _load_network_script("imex_domain_test.py")
+    payload = _imex_up_payload("10.0.0.1", "10.0.0.2")
+
+    domain_state, peers = module._parse_imex_ctl_json(payload, "10.0.0.1")
+
+    assert domain_state == "UP"
+    assert peers == ["10.0.0.2"]
+
+
+def test_imex_parse_matches_queried_hostname() -> None:
+    """--node-ids given as hostnames must still resolve the local node and report
+    peers as hostnames, not the underlying IPs nvidia-imex-ctl reports in
+    `connections` - regression test for a CodeRabbit-flagged bug where hostname
+    -configured domains matched nothing and silently reported zero peers."""
+    module = _load_network_script("imex_domain_test.py")
+    payload = _imex_up_payload("gpu-node-a", "gpu-node-b", hostnames=True)
+
+    domain_state, peers = module._parse_imex_ctl_json(payload, "gpu-node-a")
+
+    assert domain_state == "UP"
+    assert peers == ["gpu-node-b"]
+
+
+def test_imex_parse_down_domain_reports_no_peers() -> None:
+    """A DOWN domain (real payload shape from a version-mismatched daemon) reports
+    the domain state but no peers, rather than crashing or fabricating connectivity."""
+    module = _load_network_script("imex_domain_test.py")
+    payload = json.dumps(
+        {
+            "nodes": {
+                "1": {
+                    "status": "UNAVAILABLE",
+                    "host": "10.0.0.2",
+                    "connections": {
+                        "0": {"host": "10.0.0.1", "status": "INVALID", "changed": False},
+                        "1": {"host": "10.0.0.2", "status": "INVALID", "changed": False},
+                    },
+                    "hostName": "N/A",
+                },
+                "0": {
+                    "status": "UNAVAILABLE",
+                    "host": "10.0.0.1",
+                    "connections": {
+                        "1": {"host": "10.0.0.2", "status": "INVALID", "changed": False},
+                        "0": {"host": "10.0.0.1", "status": "INVALID", "changed": False},
+                    },
+                    "hostName": "gpu-node-a",
+                },
+            },
+            "timestamp": "9/4/2026 00:00:00.000",
+            "status": "DOWN",
+        }
+    )
+
+    domain_state, peers = module._parse_imex_ctl_json(payload, "10.0.0.1")
+
+    assert domain_state == "DOWN"
+    assert peers == []
+
+
+@pytest.mark.parametrize("malformed_payload", ["[]", "null", '{"nodes": []}', '{"nodes": "oops"}'])
+def test_imex_parse_rejects_malformed_payload_shapes(malformed_payload: str) -> None:
+    """A decoded payload that isn't the expected object shape (list, null, or a
+    `nodes` value that isn't an object) must raise ValueError, not AttributeError -
+    CodeRabbit regression: query_node only caught JSONDecodeError, so an
+    AttributeError from `data.get(...)` on a non-dict payload would have escaped
+    ThreadPoolExecutor.map and crashed main() instead of emitting structured JSON."""
+    module = _load_network_script("imex_domain_test.py")
+
+    with pytest.raises(ValueError):
+        module._parse_imex_ctl_json(malformed_payload, "10.0.0.1")
+
+
+def test_imex_query_node_reports_malformed_payload_as_query_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """query_node must convert a zero-exit SSH command returning `[]` into a
+    per-node ok=False error, not raise - so main()'s ThreadPoolExecutor.map
+    still yields structured JSON for every node instead of crashing."""
+    module = _load_network_script("imex_domain_test.py")
+    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (0, "[]", ""))
+
+    result = module.query_node("10.0.0.1", "ubuntu", "/tmp/key.pem", 30)
+
+    assert result["ok"] is False
+    assert "could not parse" in result["error"]
