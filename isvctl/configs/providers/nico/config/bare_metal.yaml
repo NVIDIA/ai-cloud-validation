@@ -21,7 +21,12 @@
 # fabric security, tenant-transition sanitization, attestation, break-fix
 # observability (with documented gaps for mutating workflows), and existing
 # instance inventory checks. Full lifecycle and SSH-host validations remain
-# excluded until those steps are wired for NICo.
+# excluded until those steps are wired for NICo. That includes IMEX domain
+# operational/connectivity validation (SDN21-01): NICo's BMaaS API surface
+# is hardware inventory/lifecycle only and does not expose live host/software
+# telemetry such as `nvidia-imex-ctl` state, so no imex_domain step is wired
+# here (see the AWS and my-isv network.yaml configs for real/template
+# implementations of that check).
 #
 # Architecture:
 #   - verify_ingestion.py compares expected-machine manifest vs discovered

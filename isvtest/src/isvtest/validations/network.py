@@ -1259,6 +1259,118 @@ class NvlinkDomainCheck(BaseValidation):
         self.set_passed(f"NVLink domain for {node_id}: {nvlink_domain_id}")
 
 
+class ImexDomainConnectivityCheck(BaseValidation):
+    """Validate an IMEX domain is operational and every member pair is mutually connected.
+
+    Computes pairwise connectivity independently from the ``reachability`` map
+    instead of trusting a single provider-reported "fully connected" flag, so a
+    one-way fault (node A observes B, but B does not observe A) is caught.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        domain_id: IMEX domain identifier
+        domain_state: Domain state as reported by `nvidia-imex-ctl -N` (must be "UP")
+        expected_members: Node IDs expected to have joined the domain (min 2)
+        members: Node IDs that actually joined the domain
+        reachability: dict of node_id -> list of peer node_ids that node observed
+        tests: dict with domain_queried
+    """
+
+    description: ClassVar[str] = "Check IMEX domain is UP and fully, mutually connected"
+
+    def run(self) -> None:
+        """Check IMEX domain state and pairwise connectivity from step output."""
+        step_output = self.config.get("step_output", {})
+
+        if not check_required_tests(self, ["domain_queried"], "IMEX domain query failed"):
+            return
+
+        domain_id = step_output.get("domain_id")
+        if not _is_non_empty_string(domain_id):
+            self.set_failed("`domain_id` must be a non-empty string")
+            return
+
+        domain_state = step_output.get("domain_state")
+        if domain_state != "UP":
+            self.set_failed(f"IMEX domain {domain_id} state is {domain_state!r}, expected 'UP'")
+            return
+
+        expected_error = _validate_string_list(step_output.get("expected_members"), "expected_members")
+        if expected_error is not None:
+            self.set_failed(expected_error.replace("`fabric.", "`"))
+            return
+        expected_members = step_output["expected_members"]
+        if len(set(expected_members)) != len(expected_members):
+            self.set_failed(f"IMEX domain {domain_id} `expected_members` contains duplicate node IDs")
+            return
+        if len(expected_members) < 2:
+            self.set_failed(
+                f"IMEX domain {domain_id} has only {len(expected_members)} expected member(s); "
+                "a multi-node domain requires at least two"
+            )
+            return
+
+        members_error = _validate_string_list(step_output.get("members"), "members")
+        if members_error is not None:
+            self.set_failed(members_error.replace("`fabric.", "`"))
+            return
+        members = step_output["members"]
+        if len(set(members)) != len(members):
+            self.set_failed(f"IMEX domain {domain_id} `members` contains duplicate node IDs")
+            return
+
+        expected_set = set(expected_members)
+        members_set = set(members)
+        if expected_set != members_set:
+            missing = sorted(expected_set - members_set)
+            unexpected = sorted(members_set - expected_set)
+            details = []
+            if missing:
+                details.append(f"missing: {missing}")
+            if unexpected:
+                details.append(f"unexpected: {unexpected}")
+            self.set_failed(f"IMEX domain {domain_id} membership mismatch ({'; '.join(details)})")
+            return
+
+        reachability = step_output.get("reachability")
+        if not isinstance(reachability, dict):
+            self.set_failed("`reachability` must be an object mapping each member to its observed peers")
+            return
+
+        missing_entries = sorted(member for member in members if member not in reachability)
+        if missing_entries:
+            self.set_failed(f"`reachability` is missing entries for member(s): {missing_entries}")
+            return
+
+        faults: list[str] = []
+        for i, node_a in enumerate(members):
+            peers_a = reachability.get(node_a)
+            if not isinstance(peers_a, list):
+                faults.append(f"{node_a}: reachability entry is not a list")
+                continue
+            for node_b in members[i + 1 :]:
+                peers_b = reachability.get(node_b)
+                a_sees_b = isinstance(peers_b, list) and node_a in peers_b
+                b_sees_a = node_b in peers_a
+                if not (a_sees_b and b_sees_a):
+                    if a_sees_b or b_sees_a:
+                        one_way = f"{node_b}->{node_a}" if a_sees_b else f"{node_a}->{node_b}"
+                        faults.append(f"{node_a}<->{node_b}: one-way only ({one_way})")
+                    else:
+                        faults.append(f"{node_a}<->{node_b}: no connectivity observed in either direction")
+
+        if faults:
+            self.set_failed(f"IMEX domain {domain_id} is not fully connected: {'; '.join(faults)}")
+            return
+
+        pair_count = len(members) * (len(members) - 1) // 2
+        self.set_passed(
+            f"IMEX domain {domain_id} is UP with {len(members)} member(s); all {pair_count} pair(s) mutually connected"
+        )
+
+
 class ByoipCheck(BaseValidation):
     """Validate Bring-Your-Own-IP (BYOIP) with non-conflicting custom CIDRs.
 

@@ -136,6 +136,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "backend_switch_fabric_test": "backend_switch_fabric",
     "nvlink_domain": "nvlink_domain",
     "nvlink_domain_test": "nvlink_domain",
+    "imex_domain": "imex_domain",
+    "imex_domain_test": "imex_domain",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -912,6 +914,43 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "if": {"properties": {"nvlink_supported": {"const": True}}},
         "then": {"required": ["nvlink_domain_id"]},
+        "additionalProperties": True,
+    },
+    "imex_domain": {
+        "type": "object",
+        "required": ["success", "platform", "domain_state", "expected_members", "members", "tests"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_domain'"},
+            "domain_id": {"type": "string", "description": "IMEX domain identifier"},
+            "domain_state": {
+                "type": "string",
+                "description": "Domain state as reported by `nvidia-imex-ctl -N` (e.g. 'UP')",
+            },
+            "expected_members": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 2,
+                "description": "Node IDs expected to have joined the IMEX domain",
+            },
+            "members": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "description": "Node IDs that actually joined the IMEX domain",
+            },
+            "reachability": {
+                "type": "object",
+                "description": "Per-node map of peer node IDs that node observed as reachable",
+            },
+            "tests": {
+                "type": "object",
+                "required": ["domain_queried"],
+                "properties": {
+                    "domain_queried": {"type": "object"},
+                },
+                "description": "IMEX domain query checks",
+            },
+        },
         "additionalProperties": True,
     },
     "sg_crud": {
