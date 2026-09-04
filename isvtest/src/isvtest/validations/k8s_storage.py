@@ -1018,9 +1018,10 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
       Secrets they reference via ``PersistentVolume.spec.csi.*SecretRef``
       and via CSI controller/node pod specs (``envFrom``, ``env.valueFrom``,
       Secret volume mounts). Skipped when no ``CSIDriver`` objects exist.
-    * ``secrets-not-cross-namespace`` - every discovered Secret lives in
-      ``csi_driver_namespaces`` (or ``allowed_workload_namespaces``), never
-      in ``default`` or an unlisted workload namespace.
+    * ``secrets-not-cross-namespace`` - every discovered Secret lives in a
+      namespace where a CSI controller/node pod was actually found, or in
+      ``csi_driver_namespaces``/``allowed_workload_namespaces``, never in
+      ``default`` or an unlisted workload namespace.
     * ``no-shared-cluster-markers`` - no discovered Secret carries any of
       ``forbidden_labels`` or an annotation like
       ``csi.nvidia.com/shared=true``.
@@ -1033,9 +1034,20 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
       configMap, projected, downwardAPI, serviceAccountToken, csi). Any
       ``nfs``/``iscsi``/``persistentVolumeClaim`` volume fails this subtest.
 
+    CSI controller/node pods are discovered cluster-wide (``kubectl get
+    pods --all-namespaces``), filtered by the same sidecar-image heuristic
+    used elsewhere in this module, rather than by a configured namespace
+    list. Most CSI operators (Longhorn, Piraeus, Rook-Ceph, ...) do not
+    install into ``kube-system``; gating discovery on a namespace allowlist
+    let those drivers' controller pods go unseen entirely, silently
+    skipping ``serviceaccount-rbac-scoped`` and reporting a false pass
+    regardless of the ServiceAccount's actual RBAC.
+
     Config keys (with defaults):
-        csi_driver_namespaces: Namespaces where CSI controller/node pods
-            live (default: ``["kube-system"]``).
+        csi_driver_namespaces: Extra namespaces where CSI Secrets are
+            permitted, on top of namespaces where a CSI pod was actually
+            discovered (default: ``["kube-system"]``, kept for backward
+            compatibility with existing provider configs).
         allowed_workload_namespaces: Extra namespaces where CSI Secrets are
             permitted (default: ``[]``).
         forbidden_labels: ``key=value`` label pairs whose presence on a CSI
@@ -1057,8 +1069,6 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
         forbidden_labels_raw = self.config.get("forbidden_labels") or ["shared-across-clusters=true"]
         forbidden_labels = _parse_label_pairs(forbidden_labels_raw)
 
-        permitted_namespaces = set(driver_namespaces) | set(allowed_workload_namespaces)
-
         # Discover CSIDriver objects up front. If none exist we have nothing
         # to validate; the check is skipped so it is safe to enable on
         # clusters without any CSI driver installed.
@@ -1078,13 +1088,26 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
             self.set_passed("Skipped: no CSIDriver objects found")
             return
 
+        # Discover CSI controller/node pods cluster-wide rather than by a
+        # configured namespace allowlist - most CSI operators do not
+        # install into kube-system, and gating discovery on
+        # csi_driver_namespaces let their pods go unseen entirely (see
+        # class docstring).
+        all_pods = self._list_all_pods()
+        if all_pods is None:
+            self.set_failed("Failed to list pods across all namespaces")
+            return
+
         pods_by_ns: dict[str, list[dict[str, Any]]] = {}
-        for ns in driver_namespaces:
-            pods = self._list_pods(ns)
-            if pods is None:
-                self.set_failed(f"Failed to list pods in namespace {ns!r}")
-                return
-            pods_by_ns[ns] = pods
+        for pod in all_pods:
+            if not _pod_has_csi_image(pod):
+                continue
+            ns = str((pod.get("metadata") or {}).get("namespace") or "")
+            if not ns:
+                continue
+            pods_by_ns.setdefault(ns, []).append(pod)
+
+        permitted_namespaces = set(driver_namespaces) | set(allowed_workload_namespaces) | set(pods_by_ns.keys())
 
         pvs = self._list_pvs()
         if pvs is None:
@@ -1257,10 +1280,11 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
             return None
         return _load_items(result.stdout)
 
-    def _list_pods(self, namespace: str) -> list[dict[str, Any]] | None:
-        result = self.run_command(f"{self._kubectl_base} get pods -n {shlex.quote(namespace)} -o json")
+    def _list_all_pods(self) -> list[dict[str, Any]] | None:
+        """List Pods across all namespaces, or ``None`` if the ``kubectl`` command fails."""
+        result = self.run_command(f"{self._kubectl_base} get pods --all-namespaces -o json")
         if result.exit_code != 0:
-            self.log.error("kubectl get pods -n %s failed: %s", namespace, result.stderr.strip())
+            self.log.error("kubectl get pods --all-namespaces failed: %s", result.stderr.strip())
             return None
         return _load_items(result.stdout)
 
