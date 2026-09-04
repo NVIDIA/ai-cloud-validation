@@ -140,7 +140,7 @@ class TestUpdateTestRun:
         "isvctl.reporting.get_environment_config", return_value=("https://api.example.com", "https://ssa.example.com")
     )
     @patch("isvctl.reporting.check_upload_credentials", return_value=(True, "client-id", "client-secret"))
-    def test_forwards_complete_catalog_document(
+    def test_reports_catalog_identity_without_publishing_catalog(
         self,
         _mock_credentials: MagicMock,
         _mock_environment: MagicMock,
@@ -148,10 +148,12 @@ class TestUpdateTestRun:
         mock_upload_catalog: MagicMock,
         _mock_update_run: MagicMock,
     ) -> None:
-        """Automatic result upload preserves all catalog envelope metadata."""
+        """Ordinary runs send identity only; release workflow owns publication."""
         document = {
             "schemaVersion": 2,
             "isvTestVersion": "1.2.3",
+            "catalogDigest": "sha256:abc",
+            "isvTestBuildRef": "v1.2.3-3-gabc1234",
             "capabilities": ["kubernetes", "vm"],
             "suites": ["storage", "iam"],
             "entries": [{"name": "TestA"}],
@@ -166,15 +168,42 @@ class TestUpdateTestRun:
         )
 
         assert result is True
-        mock_upload_catalog.assert_called_once_with(
-            endpoint="https://api.example.com",
-            jwt_token="jwt-token",
-            isv_test_version="1.2.3",
-            entries=[{"name": "TestA"}],
-            schema_version=2,
-            capabilities=["kubernetes", "vm"],
-            suites=["storage", "iam"],
+        mock_upload_catalog.assert_not_called()
+        assert _mock_update_run.call_args.kwargs["isv_test_version"] == "1.2.3"
+        assert _mock_update_run.call_args.kwargs["isv_test_catalog_digest"] == "sha256:abc"
+        assert _mock_update_run.call_args.kwargs["isv_test_build_ref"] == "v1.2.3-3-gabc1234"
+
+    @patch("isvreporter.client.update_test_run")
+    @patch("isvreporter.auth.get_jwt_token", return_value="jwt-token")
+    @patch(
+        "isvctl.reporting.get_environment_config", return_value=("https://api.example.com", "https://ssa.example.com")
+    )
+    @patch("isvctl.reporting.check_upload_credentials", return_value=(True, "client-id", "client-secret"))
+    @patch("isvctl.reporting.build_ref", return_value="v9.9.9-0-greporter")
+    def test_an_unverified_artifact_never_borrows_the_reporting_machine_ref(
+        self,
+        reporter_build_ref: MagicMock,
+        _mock_credentials: MagicMock,
+        _mock_environment: MagicMock,
+        _mock_token: MagicMock,
+        mock_update_run: MagicMock,
+    ) -> None:
+        document = {
+            "isvTestVersion": "1.2.3",
+            "catalogDigest": "sha256:abc",
+            "isvTestBuildRef": None,
+        }
+
+        assert update_test_run(
+            lab_id=7,
+            test_run_id="run-123",
+            success=True,
+            start_time="2026-07-24T12:00:00Z",
+            catalog_document=document,
         )
+
+        assert mock_update_run.call_args.kwargs["isv_test_build_ref"] is None
+        reporter_build_ref.assert_not_called()
 
     def test_envelope_fixture_matches_the_real_catalog_document(self) -> None:
         """Pin the hand-built fixture above to what the producer actually emits.
@@ -188,6 +217,8 @@ class TestUpdateTestRun:
         assert set(catalog_document([], "1.2.3")) == {
             "schemaVersion",
             "isvTestVersion",
+            "catalogDigest",
+            "isvTestBuildRef",
             "capabilities",
             "suites",
             "entries",

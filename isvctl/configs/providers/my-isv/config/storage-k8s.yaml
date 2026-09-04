@@ -31,8 +31,7 @@
 # Point the checks at your StorageClasses via env vars, e.g.:
 #
 #   export K8S_CSI_SHARED_FS_SC=my-isv-rwx
-#   ISVTEST_INCLUDE_UNRELEASED=1 \
-#     uv run isvctl test run \
+#   uv run isvctl test run \
 #       -f isvctl/configs/providers/my-isv/config/storage-k8s.yaml \
 #       --capability kubernetes \
 #       -- -v -s -k "K8sCsi or K8sFile or K8sNfs or StorageProviderApi"

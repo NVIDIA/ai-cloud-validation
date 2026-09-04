@@ -134,32 +134,30 @@ class ResolvedEntriesLoader(FakeLoader):
         return config
 
 
-def test_release_filter_allows_synthesized_key_when_base_is_released() -> None:
-    """Synthesized duplicate keys are kept when their base class is released."""
+def test_configured_synthesized_and_direct_keys_are_all_generated() -> None:
+    """Every configured validation in the checkout is eligible."""
     metafunc = FakeMetafunc()
 
     with (
         patch.object(validation_tests, "ConfigLoader", FakeLoader),
         patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation, UnreleasedValidation]),
-        patch.object(validation_tests, "load_released_test_filter", return_value={"ReleasedValidation"}),
     ):
         validation_tests.pytest_generate_tests(metafunc)
 
-    assert metafunc.ids == ["ReleasedValidation-start_checks"]
+    assert metafunc.ids == ["ReleasedValidation-start_checks", "UnreleasedValidation"]
 
 
-def test_unreleased_configured_variant_is_not_labeled_not_configured() -> None:
-    """Configured variants skipped by release gating are not re-added as unconfigured skips."""
+def test_configured_literal_variant_is_generated() -> None:
+    """A configured literal variant remains eligible."""
     metafunc = FakeMetafunc()
 
     with (
         patch.object(validation_tests, "ConfigLoader", ShowSkippedLiteralVariantLoader),
         patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation]),
-        patch.object(validation_tests, "load_released_test_filter", return_value={"ReleasedValidation"}),
     ):
         validation_tests.pytest_generate_tests(metafunc)
 
-    assert metafunc.ids == ["NO_VALIDATIONS"]
+    assert metafunc.ids == ["ReleasedValidation-experimental"]
 
 
 def test_show_skipped_omits_compose_only_classes() -> None:
@@ -169,63 +167,33 @@ def test_show_skipped_omits_compose_only_classes() -> None:
     with (
         patch.object(validation_tests, "ConfigLoader", ShowSkippedLiteralVariantLoader),
         patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation, ComposeOnlyValidation]),
-        patch.object(
-            validation_tests,
-            "load_released_test_filter",
-            return_value={"ReleasedValidation-experimental", "ComposeOnlyValidation"},
-        ),
     ):
         validation_tests.pytest_generate_tests(metafunc)
 
     assert metafunc.ids == ["ReleasedValidation-experimental"]
 
 
-def test_resolved_entries_bypass_pytest_release_filter_and_show_skipped() -> None:
+def test_resolved_entries_bypass_show_skipped_expansion() -> None:
     """Resolved temp configs execute exactly the entries already selected upstream."""
     metafunc = FakeMetafunc()
 
     with (
         patch.object(validation_tests, "ConfigLoader", ResolvedEntriesLoader),
         patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation, UnreleasedValidation]),
-        patch.object(validation_tests, "load_released_test_filter", return_value={"ReleasedValidation"}),
     ):
         validation_tests.pytest_generate_tests(metafunc)
 
     assert metafunc.ids == ["ReleasedValidation-start_checks", "UnreleasedValidation"]
 
 
-def test_release_filter_allows_synthesized_key_when_full_key_is_released() -> None:
-    """Synthesized duplicate keys are kept when their full key is released."""
-    metafunc = FakeMetafunc()
-
-    with (
-        patch.object(validation_tests, "ConfigLoader", FakeLoader),
-        patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation, UnreleasedValidation]),
-        patch.object(validation_tests, "load_released_test_filter", return_value={"ReleasedValidation-start_checks"}),
-    ):
-        validation_tests.pytest_generate_tests(metafunc)
-
-    assert metafunc.ids == ["ReleasedValidation-start_checks"]
-    assert metafunc.argvalues is not None
-    parameter_values = metafunc.argvalues[0].values
-    assert parameter_values[0] is ReleasedValidation
-    assert parameter_values[1] == {
-        "expected": True,
-        "_category": "start_checks",
-        "inventory": {"instance_id": "i-abc"},
-    }
-    assert parameter_values[2] == "ReleasedValidation-start_checks"
-
-
-def test_release_filter_skips_unreleased_literal_variant() -> None:
-    """Literal configured variants must be released by their full key."""
+def test_literal_configured_variant_is_not_filtered() -> None:
+    """Literal configured variants run without a second eligibility filter."""
     metafunc = FakeMetafunc()
 
     with (
         patch.object(validation_tests, "ConfigLoader", LiteralVariantLoader),
         patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation]),
-        patch.object(validation_tests, "load_released_test_filter", return_value={"ReleasedValidation"}),
     ):
         validation_tests.pytest_generate_tests(metafunc)
 
-    assert metafunc.ids == ["NO_VALIDATIONS"]
+    assert metafunc.ids == ["ReleasedValidation-experimental"]

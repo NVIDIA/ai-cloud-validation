@@ -287,8 +287,6 @@ commands:
       - name: capacity_reservation_grouping
         phase: test
         command: "python3 ../scripts/capacity/reservation_grouping.py"
-        requires_available_validations:
-          - CapacityReservationGroupingCheck
         args:
           - "--region"
           - "{{region}}"
@@ -305,8 +303,6 @@ commands:
       - name: topology_block_atomic_allocation
         phase: test
         command: "python3 ../scripts/capacity/topology_block_atomic_allocation.py"
-        requires_available_validations:
-          - CapacityTopologyBlockAtomicAllocationCheck
         args:
           - "--region"
           - "{{region}}"
@@ -341,8 +337,6 @@ commands:
         phase: teardown
         command: "python3 ../scripts/capacity/topology_block_atomic_allocation.py"
         requires: [vm, bare_metal]
-        requires_available_validations:
-          - CapacityTopologyBlockAtomicAllocationCheck
         args:
           - "--teardown"
           - "--region"
@@ -370,8 +364,6 @@ commands:
         phase: teardown
         command: "python3 ../scripts/capacity/reservation_grouping.py"
         requires: [vm, bare_metal]
-        requires_available_validations:
-          - CapacityReservationGroupingCheck
         args:
           - "--teardown"
           - "--region"

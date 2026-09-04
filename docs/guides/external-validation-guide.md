@@ -26,8 +26,12 @@ Config (YAML) --> Script (any language) --> JSON output --> Validations (asserti
 # From source
 git clone git@github.com:NVIDIA/ai-cloud-validation.git
 cd ai-cloud-validation
+git checkout v0.11.0
 uv sync
 ```
+
+Use the explicit release tag approved for the validation. Cloning `main`
+without selecting a tag is the developer workflow.
 
 ### 2. Create Your Project
 

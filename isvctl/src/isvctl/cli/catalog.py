@@ -21,11 +21,12 @@ Manage the test catalog: build, save, and upload to ISV Lab Service.
 import json
 import logging
 from collections import Counter
+from pathlib import Path
 from typing import Annotated
 
 import typer
-from isvtest.catalog import build_catalog, build_label_file_map, catalog_document, get_catalog_version
-from isvtest.release_manifest import load_released_tests
+from isvreporter.version import build_is_release
+from isvtest.catalog import build_catalog, build_label_file_map, catalog_digest, catalog_document, get_catalog_version
 from rich.console import Console
 from rich.table import Table
 
@@ -49,28 +50,17 @@ def list_cmd(
         bool,
         typer.Option("--json", help="Emit the catalog as JSON instead of a table"),
     ] = False,
-    unreleased: Annotated[
-        bool,
-        typer.Option("--unreleased", help="Show only tests not present in the release manifest"),
-    ] = False,
 ) -> None:
     """List the tests that would be uploaded by `isvctl catalog push`.
 
-    Released tests only by default. Set ``ISVTEST_INCLUDE_UNRELEASED=1`` to
-    include unreleased validations (matches the gate used at run time and by
-    `catalog push`), or use ``--unreleased`` to list only unreleased tests.
+    A checkout's complete catalog is its contract. Tags freeze the complete set
+    they contain, while main remains a developer workflow that runs everything.
 
     Examples:
         isvctl catalog list
         isvctl catalog list --json
-        isvctl catalog list --unreleased
-        ISVTEST_INCLUDE_UNRELEASED=1 isvctl catalog list
     """
-    if unreleased:
-        released_tests = load_released_tests()
-        catalog_entries = [entry for entry in build_catalog(released_only=False) if entry["name"] not in released_tests]
-    else:
-        catalog_entries = build_catalog()
+    catalog_entries = build_catalog()
     catalog_version = get_catalog_version()
 
     if json_output:
@@ -121,15 +111,12 @@ def labels_cmd(
 ) -> None:
     """List every label in the catalog with the number of tests carrying it.
 
-    Released tests only by default. Set ``ISVTEST_INCLUDE_UNRELEASED=1`` to
-    include unreleased validations (matches the gate used at run time). Pass
-    ``--files`` to also list the config file(s) that declare each label.
+    Pass ``--files`` to also list the config file(s) that declare each label.
 
     Examples:
         isvctl catalog labels
         isvctl catalog labels --files
         isvctl catalog labels --json
-        ISVTEST_INCLUDE_UNRELEASED=1 isvctl catalog labels
     """
     counts = Counter(label for entry in build_catalog() for label in (entry.get("labels") or []))
     sorted_counts = sorted(counts.items())
@@ -182,13 +169,24 @@ def push(
             help="Build and save locally without uploading",
         ),
     ] = False,
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            help="Publish an existing catalog artifact instead of generating one",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ] = None,
 ) -> None:
     """Build the test catalog and upload it to ISV Lab Service.
 
     Discovers all validation tests, saves the catalog to
     _output/test_catalog.json, and uploads it to the backend.
-    If the catalog for this version already exists, the upload
-    is skipped.
+    Repeating an identical artifact succeeds; changing its digest or source
+    reference under an existing version is rejected.
 
     Examples:
         isvctl catalog push
@@ -196,16 +194,57 @@ def push(
     """
     setup_logging(verbose)
 
-    print_progress("Building test catalog...")
-    catalog_entries = build_catalog()
-    catalog_version = get_catalog_version()
-    document = catalog_document(catalog_entries, catalog_version)
-    print_progress(f"  {len(catalog_entries)} tests (version: {catalog_version})")
+    if file:
+        print_progress(f"Reading test catalog: {file}")
+        try:
+            document = json.loads(file.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            print_error(f"Cannot read catalog artifact: {exc}")
+            raise typer.Exit(1)
+        catalog_path = file
+    else:
+        print_progress("Building test catalog...")
+        catalog_entries = build_catalog()
+        catalog_version = get_catalog_version()
+        document = catalog_document(catalog_entries, catalog_version)
+        output_dir = get_output_dir()
+        catalog_path = output_dir / "test_catalog.json"
+        catalog_path.write_text(json.dumps(document, indent=2))
+        print_progress(f"  Saved to: {catalog_path}")
 
-    output_dir = get_output_dir()
-    catalog_path = output_dir / "test_catalog.json"
-    catalog_path.write_text(json.dumps(document, indent=2))
-    print_progress(f"  Saved to: {catalog_path}")
+    try:
+        catalog_entries = document["entries"]
+        catalog_version = document["isvTestVersion"]
+        recorded_digest = document["catalogDigest"]
+        reference = document["isvTestBuildRef"]
+        schema_version = document["schemaVersion"]
+        capabilities = document["capabilities"]
+        suites = document["suites"]
+        if not isinstance(catalog_entries, list):
+            raise TypeError("entries must be a list")
+        if not isinstance(catalog_version, str) or not catalog_version:
+            raise ValueError("isvTestVersion is required")
+        if not isinstance(recorded_digest, str):
+            raise TypeError("catalogDigest must be a string")
+        if not isinstance(schema_version, int) or schema_version < 1:
+            raise ValueError("schemaVersion must be a positive integer")
+        if not isinstance(capabilities, list) or not isinstance(suites, list):
+            raise TypeError("capabilities and suites must be lists")
+        if recorded_digest != catalog_digest(document):
+            raise ValueError("catalogDigest does not match the artifact contents")
+        if not isinstance(reference, str) or not reference:
+            raise ValueError("isvTestBuildRef is required")
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        print_error(f"Invalid catalog artifact: {exc}")
+        raise typer.Exit(1)
+
+    print_progress(f"  {len(catalog_entries)} tests (version: {catalog_version}, digest: {recorded_digest})")
+    if build_is_release(catalog_version, reference) is not True:
+        print_error(
+            "Catalog publication requires a clean, zero-distance build reference "
+            f"whose tag matches version {catalog_version}."
+        )
+        raise typer.Exit(1)
 
     if dry_run:
         print_progress("Dry run: saved catalog locally (upload skipped)")
@@ -232,9 +271,11 @@ def push(
         jwt_token=jwt_token,
         isv_test_version=catalog_version,
         entries=catalog_entries,
-        schema_version=document["schemaVersion"],
-        capabilities=document["capabilities"],
-        suites=document["suites"],
+        schema_version=schema_version,
+        capabilities=capabilities,
+        suites=suites,
+        catalog_digest=recorded_digest,
+        isv_test_build_ref=reference,
     ):
         print_progress(typer.style("[OK]", fg=typer.colors.GREEN) + " Catalog push complete")
     else:

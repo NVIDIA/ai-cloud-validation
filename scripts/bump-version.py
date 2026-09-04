@@ -29,7 +29,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import sys
@@ -55,31 +54,6 @@ SEMVER_RE = re.compile(
 )
 
 BUMP_ALIASES = {"fix": "patch", "feat": "minor"}
-
-
-def _release_manifest_path() -> Path:
-    """Return the committed released-test manifest path."""
-    return REPO_ROOT / "isvtest" / "src" / "isvtest" / "released_tests.json"
-
-
-def _load_release_manifest_version(manifest_path: Path) -> str:
-    """Load and validate the released-test manifest version without package imports."""
-    try:
-        data = json.loads(manifest_path.read_text())
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid released test manifest JSON: {exc}") from exc
-
-    if not isinstance(data, dict):
-        raise ValueError("released test manifest must be a JSON object")
-
-    version = data.get("version")
-    tests = data.get("tests")
-    if not isinstance(version, str) or not version:
-        raise ValueError("released test manifest requires non-empty string field 'version'")
-    if not isinstance(tests, list) or not all(isinstance(name, str) and name for name in tests):
-        raise ValueError("released test manifest requires 'tests' to be a list of non-empty strings")
-
-    return version
 
 
 def _parse_core(version: str) -> list[int]:
@@ -252,22 +226,6 @@ def run_changelog_fill() -> None:
         )
 
 
-def refresh_released_tests(new_version: str) -> None:
-    """Refresh the released-test manifest from the current catalog."""
-    try:
-        from isvtest.catalog import build_catalog
-        from isvtest.release_manifest import write_release_manifest
-    except ImportError as exc:
-        print(f"error: cannot refresh released tests: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    catalog = build_catalog(released_only=False)
-    test_names = sorted(entry["name"] for entry in catalog)
-    manifest_path = _release_manifest_path()
-    write_release_manifest(new_version, test_names, manifest_path=manifest_path)
-    print(f"  {manifest_path.relative_to(REPO_ROOT)}: {len(test_names)} released tests")
-
-
 def check(expected: str) -> None:
     """Verify all pyproject.toml files already have the expected version."""
     if not SEMVER_RE.match(expected):
@@ -288,23 +246,6 @@ def check(expected: str) -> None:
             ok = False
         else:
             print(f"  ok {rel}: {actual}")
-
-    manifest_path = _release_manifest_path()
-    rel = manifest_path.relative_to(REPO_ROOT)
-    try:
-        manifest_version = _load_release_manifest_version(manifest_path)
-    except (OSError, ValueError) as exc:
-        print(f"  ERROR {rel}: unreadable ({exc})", file=sys.stderr)
-        ok = False
-    else:
-        if manifest_version != expected:
-            print(
-                f"  MISMATCH {rel}: {manifest_version} (expected {expected})",
-                file=sys.stderr,
-            )
-            ok = False
-        else:
-            print(f"  ok {rel}: {manifest_version}")
 
     if not ok:
         print(
@@ -335,7 +276,6 @@ def main() -> None:
 
     print(f"\nBumping to {new_version}:")
     bump(new_version)
-    refresh_released_tests(new_version)
 
     print("\nRunning uv lock...")
     subprocess.run(["uv", "lock"], cwd=REPO_ROOT, check=True)

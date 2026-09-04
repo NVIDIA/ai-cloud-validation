@@ -90,7 +90,6 @@ def test_nico_provider_wires_the_shared_reference() -> None:
     assert step["command"] == "python ../../shared/breakfix/query_node_health_agents.py"
     assert step["phase"] == "test"
     assert step["timeout"] == 300
-    assert step["requires_available_validations"] == ["NodeHealthAgentCheck"]
     assert step["args"][0] == "--nodes={{health_agent_nodes}}"
     # Sourced from the inventory step, not from the node list, so a partial
     # list cannot be measured against itself.

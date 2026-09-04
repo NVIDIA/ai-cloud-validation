@@ -30,7 +30,6 @@ from isvreporter.client import (
     load_test_run_id,
     report_test_results,
     update_test_run,
-    upload_test_catalog,
 )
 from isvreporter.platform import get_platform_from_config, is_valid_platform, normalize_platform
 from isvreporter.version import get_version
@@ -242,7 +241,7 @@ def update(
         Path | None,
         typer.Option(
             "--test-catalog",
-            help="Path to test catalog JSON file to upload for coverage tracking",
+            help="Path to the execution catalog artifact whose identity should be reported",
         ),
     ] = None,
 ) -> None:
@@ -286,6 +285,7 @@ def update(
     jwt_token = get_jwt_token(ssa_issuer, client_id, client_secret)
 
     # Upload JUnit XML test results first (if provided)
+    results_upload_failed = False
     if junit_xml:
         try:
             typer.echo(f"Reading JUnit XML: {junit_xml}")
@@ -300,31 +300,40 @@ def update(
             )
         except FileNotFoundError:
             typer.echo(f"Warning: JUnit XML file not found: {junit_xml}", err=True)
+        except SystemExit:
+            # report_test_results exits the process on an HTTP or network
+            # failure, and SystemExit is not an Exception, so it used to travel
+            # straight past the handler below and end the command here -- before
+            # the run was closed. This command is what the troubleshooting guide
+            # recommends as the trap that guarantees a run does not stay
+            # STARTED, so a failed upload leaving one STARTED defeated its
+            # entire purpose. The failure is still reported through the exit
+            # code, after the run has been closed.
+            results_upload_failed = True
+            typer.echo("Warning: Failed to upload JUnit XML", err=True)
         except Exception as e:
             typer.echo(f"Warning: Failed to upload JUnit XML: {e}", err=True)
 
-    # Upload test catalog if provided (for coverage tracking)
+    # Read from the catalog rather than from this process: the reporting step of
+    # a split flow can run on a different machine than the one that ran the
+    # tests, and the digest describes the build that produced these results.
+    catalog_digest: str | None = None
+    catalog_build_ref: str | None = None
+    reported_test_version = isv_test_version
+
+    # Read run identity from the artifact produced beside the results. Catalog
+    # publication is a separate release operation (`isvctl catalog push`).
     if test_catalog:
         try:
             typer.echo(f"Reading test catalog: {test_catalog}")
             catalog_data = json.loads(test_catalog.read_text())
-            catalog_version = catalog_data.get("isvTestVersion", isv_test_version or "unknown")
-            catalog_entries = catalog_data.get("entries", [])
-
-            upload_test_catalog(
-                endpoint=endpoint,
-                jwt_token=jwt_token,
-                isv_test_version=catalog_version,
-                entries=catalog_entries,
-                schema_version=catalog_data.get("schemaVersion", 1),
-                # v1 files on disk still say `platforms`.
-                capabilities=catalog_data.get("capabilities") or catalog_data.get("platforms", []),
-                suites=catalog_data.get("suites", []),
-            )
+            catalog_digest = catalog_data.get("catalogDigest")
+            catalog_build_ref = catalog_data.get("isvTestBuildRef")
+            reported_test_version = catalog_data.get("isvTestVersion") or isv_test_version
         except FileNotFoundError:
             typer.echo(f"Warning: Test catalog file not found: {test_catalog}", err=True)
         except Exception as e:
-            typer.echo(f"Warning: Failed to upload test catalog: {e}", err=True)
+            typer.echo(f"Warning: Failed to read test catalog: {e}", err=True)
 
     # Update test run with status and log
     update_test_run(
@@ -337,8 +346,16 @@ def update(
         complete_time=complete_time,
         log_output=log_output,
         isv_software_version=isv_software_version,
-        isv_test_version=isv_test_version,
+        isv_test_version=reported_test_version,
+        isv_test_catalog_digest=catalog_digest,
+        isv_test_build_ref=catalog_build_ref,
     )
+
+    # Raised only now, so the exit code still reports the upload failure while
+    # the run itself has been closed. Deliberately not raised for the other
+    # failure paths above, which have always been warnings that exit zero.
+    if results_upload_failed:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

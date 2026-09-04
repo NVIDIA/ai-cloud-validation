@@ -89,7 +89,7 @@ skip**. Two configs wire this up:
 - `../../config/storage.yaml` — bare-metal shim-only run (no cluster):
 
   ```bash
-  ISVCTL_DEMO_MODE=1 ISVTEST_INCLUDE_UNRELEASED=1 \
+  ISVCTL_DEMO_MODE=1 \
     uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
   ```
 
@@ -99,8 +99,7 @@ skip**. Two configs wire this up:
 
   ```bash
   export K8S_CSI_SHARED_FS_SC=my-isv-rwx
-  ISVTEST_INCLUDE_UNRELEASED=1 \
-    uv run isvctl test run \
+  uv run isvctl test run \
       -f isvctl/configs/providers/my-isv/config/storage-k8s.yaml \
       -- -k "K8sCsi or K8sFile or K8sNfs or StorageProviderApi"
   ```
@@ -146,12 +145,10 @@ The skeleton ships with a `DEMO_MODE = os.environ.get("ISVCTL_DEMO_MODE")
 `AuthenticationError` to make it obvious the backend isn't wired up; demo runs
 return dummy data so the validation passes end-to-end. The optional
 `create_volume` / `delete_volume` stay raising `NotSupportedError` either way
-(volume-provisioning then reports a clean skip). To exercise the storage check
-in demo mode (the new check ships unreleased, so the orchestrator skips it by
-default):
+(volume-provisioning then reports a clean skip). To exercise the storage check in demo mode:
 
 ```bash
-ISVCTL_DEMO_MODE=1 ISVTEST_INCLUDE_UNRELEASED=1 \
+ISVCTL_DEMO_MODE=1 \
   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
 ```
 

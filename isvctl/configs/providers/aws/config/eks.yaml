@@ -69,8 +69,6 @@ commands:
         phase: setup
         command: "../scripts/eks/create_shared_vpc_cluster.sh"
         output_schema: multi_cluster
-        requires_available_validations:
-          - K8sMultiClusterSameVpcCheck
         timeout: 1800
         env:
           TF_AUTO_APPROVE: "true"
@@ -214,8 +212,6 @@ commands:
         args:
           - "--node={{breakfix_node}}"
         timeout: 1200
-        requires_available_validations:
-          - CordonNodeCheck
       - name: teardown
         phase: teardown
         command: "../scripts/eks/teardown.sh"

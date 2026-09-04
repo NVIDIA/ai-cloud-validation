@@ -30,8 +30,7 @@
 # Needs WEKA_ENDPOINTS (or WEKA_ENDPOINT), WEKA_USERNAME, WEKA_PASSWORD and
 # WEKA_FILESYSTEM at runtime:
 #
-#   ISVTEST_INCLUDE_UNRELEASED=1 \
-#     uv run isvctl test run -f isvctl/configs/providers/weka/config/storage.yaml
+#   uv run isvctl test run -f isvctl/configs/providers/weka/config/storage.yaml
 #
 # Tenant = WEKA organization name (defaults to `Root` via WEKA_ORGANIZATION).
 

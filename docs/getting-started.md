@@ -8,15 +8,18 @@ This guide covers installation and basic usage of NVIDIA AI Cloud Validation sui
 
 ## Installation
 
-### Local Development
-
-Clone the repository and install dependencies:
+Clone the repository, select an explicit release, and install dependencies:
 
 ```bash
 git clone https://github.com/NVIDIA/ai-cloud-validation.git
 cd ai-cloud-validation
+git checkout v0.11.0
 uv sync
 ```
+
+Use a newer explicit tag when available. Plain `main` checkouts are intended
+for contributors and run every validation currently present in that branch;
+see the [Local Development Guide](guides/local-development.md).
 
 Verify installation:
 

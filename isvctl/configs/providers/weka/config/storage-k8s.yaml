@@ -32,8 +32,7 @@
 # out with -k):
 #
 #   export K8S_CSI_SHARED_FS_SC=weka-rwx
-#   ISVTEST_INCLUDE_UNRELEASED=1 \
-#     uv run isvctl test run \
+#   uv run isvctl test run \
 #       -f isvctl/configs/providers/weka/config/storage-k8s.yaml \
 #       --capability kubernetes \
 #       -- -v -s -k "K8sCsiDriverHealth or K8sCsiProvisioningModes or K8sCsiStorageTypes or K8sPosixCompliance"

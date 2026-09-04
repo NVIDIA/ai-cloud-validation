@@ -153,14 +153,6 @@
           "title": "Requires",
           "type": "array"
         },
-        "requires_available_validations": {
-          "description": "Validation names that must be available after release filtering for this step to run. Unreleased validations are available only when ISVTEST_INCLUDE_UNRELEASED=1.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Requires Available Validations",
-          "type": "array"
-        },
         "continue_on_failure": {
           "default": false,
           "description": "Continue to next step even if this step fails",

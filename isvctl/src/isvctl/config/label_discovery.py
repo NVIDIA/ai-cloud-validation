@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from isvtest.core.resolution import ValidationEntry, parse_validations, resolve_class_key
+from isvtest.core.resolution import ValidationEntry, parse_validations
 
 from isvctl.config.merger import merge_yaml_files
 
@@ -65,16 +65,8 @@ def discover_provider_label_configs(
     labels: list[str],
     *,
     configs_root: Path,
-    released_tests: set[str] | None = None,
 ) -> list[ProviderConfigMatch]:
-    """Return provider configs whose resolved validation wiring matches all labels.
-
-    A check counts toward a match only if it is also runnable under the release
-    filter, mirroring orchestrator execution: when ``released_tests`` is a set,
-    unreleased checks are ignored so a config is not selected solely on a check
-    that would be skipped at runtime. ``None`` disables the filter (include all),
-    matching ``ISVTEST_INCLUDE_UNRELEASED``.
-    """
+    """Return provider configs whose resolved validation wiring matches all labels."""
     requested = {label for label in labels if label}
     provider_config_dir = configs_root / "providers" / provider / "config"
     matches: list[ProviderConfigMatch] = []
@@ -84,7 +76,6 @@ def discover_provider_label_configs(
             MatchedCheck(category=entry.category, name=entry.name, labels=entry.labels)
             for entry in _iter_config_validations(config_path)
             if requested.issubset(entry.labels)
-            and (released_tests is None or resolve_class_key(entry.name, released_tests) is not None)
         )
         if matched_checks:
             matches.append(ProviderConfigMatch(config_path=config_path, matched_checks=matched_checks))

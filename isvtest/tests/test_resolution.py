@@ -87,7 +87,6 @@ def _resolve(
     include_labels: set[str] | None = None,
     exclude_labels: set[str] | None = None,
     exclude_tests: set[str] | None = None,
-    released_tests: set[str] | None = None,
     render_context: dict[str, Any] | None = None,
     capability: str | None = None,
     skipped_steps: set[str] | None = None,
@@ -101,7 +100,6 @@ def _resolve(
         include_labels=set() if include_labels is None else include_labels,
         exclude_labels=set() if exclude_labels is None else exclude_labels,
         exclude_tests=set() if exclude_tests is None else exclude_tests,
-        released_tests=released_tests,
         render_context={} if render_context is None else render_context,
         capability=capability,
         skipped_steps=set() if skipped_steps is None else skipped_steps,
@@ -151,7 +149,6 @@ def test_a_skipped_step_is_distinguished_from_an_unconfigured_one() -> None:
 @pytest.mark.parametrize(
     ("entry", "kwargs", "expected_reason"),
     [
-        (_entry("NewCheck"), {"released_tests": {"PlainCheck"}}, SkipReason.UNRELEASED),
         (_entry("PlainCheck"), {"exclude_tests": {"PlainCheck"}}, SkipReason.EXCLUDED),
         (_entry("LabelCheck", labels=("accelerator",)), {"exclude_labels": {"accelerator"}}, SkipReason.EXCLUDED),
         (_entry(step="create_cluster"), {"step_phases": {}}, SkipReason.STEP_NOT_CONFIGURED),
@@ -283,7 +280,6 @@ def test_resolve_entries_is_idempotent_from_original_entries() -> None:
         "include_labels": set(),
         "exclude_labels": {"slow"},
         "exclude_tests": set(),
-        "released_tests": None,
         "render_context": {},
     }
 
@@ -309,7 +305,6 @@ def test_resolve_entries_requires_all_include_labels() -> None:
         include_labels={"gpu", "slow"},
         exclude_labels=set(),
         exclude_tests=set(),
-        released_tests=None,
         render_context={},
     )
 
@@ -398,19 +393,6 @@ def test_parse_validations_emits_invalid_for_non_dict_list_items() -> None:
     invalid = [entry for entry in entries if "_invalid_config" in entry.params_template]
     assert len(invalid) == 2, "both malformed list items must surface as <invalid> entries"
     assert all(entry.name == "<invalid>" for entry in invalid)
-
-
-def test_resolve_entries_treats_variant_names_as_released() -> None:
-    """``ClassName-Variant`` resolves against the bare ClassName in the manifest.
-
-    Mirrors the pytest-discovery path's ``_is_released_validation`` so the
-    pre-resolution gate doesn't diverge from runtime test discovery.
-    """
-    entry = _entry("PlainCheck-myCustomVariant")
-
-    resolved = _resolve(entry, released_tests={"PlainCheck"})
-
-    assert resolved.skip_reason is None, "variant of a released class must not be marked UNRELEASED"
 
 
 def test_resolve_entries_warns_when_default_filter_masks_missing_step_field(

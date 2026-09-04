@@ -83,9 +83,8 @@ aws fsx describe-file-systems --max-results 1 --region "$AWS_REGION"
 aws service-quotas get-service-quota \
   --service-code fsx --quota-code L-8F1B9C74 --region "$AWS_REGION"
 
-# Run the storage check (unreleased -> gate env var required):
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
+# Run the storage check:
+uv run isvctl test run \
     -f isvctl/configs/providers/aws/config/eks.yaml
 ```
 
@@ -101,7 +100,6 @@ fallback, not a failure.
 | `api-authentication[...] FAILED ... AuthenticationError` | Missing creds, expired SSO, IAM role missing `servicequotas:GetServiceQuota` | Refresh creds; attach the IAM actions above |
 | `tenant-quota[...] FAILED ... hard_limit_bytes=0` | Wrong `FSX_DEPLOYMENT_TYPE` (account has zero of that tier) | Set `FSX_DEPLOYMENT_TYPE` to match your FSx SC's `parameters.deploymentType` |
 | `Failed to load provider manifest: ... not found` | Working dir is not the repo root | `cd` to repo root before `isvctl test run` |
-| Orchestrator logs `Skipping unreleased validation 'StorageProviderApiCheck'` | `ISVTEST_INCLUDE_UNRELEASED=1` not set | Re-run with the env var |
 | `AWS_REGION must be set` | `AWS_REGION` env var unset | `export AWS_REGION=...` matching the cluster region |
 | `volume-provisioning[...] SKIPPED ... observed 0 ...` | Account has no FSx Lustre filesystems yet | Create a PVC against the FSx StorageClass first, then re-run |
 

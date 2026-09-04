@@ -30,8 +30,7 @@ writing past the hard limit:
 
 Skipped when no manifest provider declares full directory-quota CRUD support,
 no Kubernetes/CSI or native volume-acquisition path is available, or the native
-volume does not return mount instructions. Unreleased —
-run with ``ISVTEST_INCLUDE_UNRELEASED=1``.
+volume does not return mount instructions.
 
 Config keys (with defaults):
     manifest_path: Provider manifest YAML (same as StorageProviderApiCheck).

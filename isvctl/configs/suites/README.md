@@ -51,7 +51,7 @@ on the current system rather than provisioning anything. For example, run
 selected Kubernetes storage probes against the cluster `KUBECTL` selects:
 
 ```bash
-ISVTEST_INCLUDE_UNRELEASED=1 uv run isvctl test run --suite storage \
+uv run isvctl test run --suite storage \
   --capability kubernetes -- \
   -k "K8sNfsMountOptionsCheck or K8sCsiStorageTypesCheck"
 ```

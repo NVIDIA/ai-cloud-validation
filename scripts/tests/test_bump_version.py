@@ -18,8 +18,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
-import sys
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -96,14 +94,6 @@ class TestBumpAndCheck:
             paths.append(p)
         return paths
 
-    @pytest.fixture()
-    def fake_release_manifest(self, tmp_path: Path) -> Path:
-        """Create a fake released-test manifest under the patched repo root."""
-        path = tmp_path / "isvtest" / "src" / "isvtest" / "released_tests.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"version": "0.1.0", "tests": ["ExistingCheck"]}))
-        return path
-
     def test_bump_updates_all_files(self, fake_pyprojects: list[Path], tmp_path: Path) -> None:
         with (
             patch.object(bump_version, "PYPROJECT_FILES", fake_pyprojects),
@@ -129,37 +119,21 @@ class TestBumpAndCheck:
     def test_check_passes_when_matching(
         self,
         fake_pyprojects: list[Path],
-        fake_release_manifest: Path,
         tmp_path: Path,
     ) -> None:
-        """Verify check() succeeds when project files and manifest versions match."""
+        """Verify check() succeeds when project file versions match."""
         with (
             patch.object(bump_version, "PYPROJECT_FILES", fake_pyprojects),
             patch.object(bump_version, "REPO_ROOT", tmp_path),
-        ):
-            bump_version.check("0.1.0")
-
-    def test_check_does_not_import_isvtest_package(
-        self,
-        fake_pyprojects: list[Path],
-        fake_release_manifest: Path,
-        tmp_path: Path,
-    ) -> None:
-        """The tag workflow runs --check on a checkout without installing isvtest."""
-        with (
-            patch.object(bump_version, "PYPROJECT_FILES", fake_pyprojects),
-            patch.object(bump_version, "REPO_ROOT", tmp_path),
-            patch.dict(sys.modules, {"isvtest": None, "isvtest.release_manifest": None}),
         ):
             bump_version.check("0.1.0")
 
     def test_check_fails_on_mismatch(
         self,
         fake_pyprojects: list[Path],
-        fake_release_manifest: Path,
         tmp_path: Path,
     ) -> None:
-        """Ensure check() exits when project and manifest versions do not match."""
+        """Ensure check() exits when project versions do not match."""
         with (
             patch.object(bump_version, "PYPROJECT_FILES", fake_pyprojects),
             patch.object(bump_version, "REPO_ROOT", tmp_path),
@@ -167,80 +141,9 @@ class TestBumpAndCheck:
             with pytest.raises(SystemExit):
                 bump_version.check("9.9.9")
 
-    def test_check_fails_on_manifest_mismatch(
-        self,
-        fake_pyprojects: list[Path],
-        fake_release_manifest: Path,
-        tmp_path: Path,
-    ) -> None:
-        """Ensure check() fails when the release manifest version mismatches."""
-        fake_release_manifest.write_text(json.dumps({"version": "9.9.9", "tests": []}))
-        with (
-            patch.object(bump_version, "PYPROJECT_FILES", fake_pyprojects),
-            patch.object(bump_version, "REPO_ROOT", tmp_path),
-        ):
-            with pytest.raises(SystemExit):
-                bump_version.check("0.1.0")
-
-    def test_check_fails_when_manifest_is_not_a_dict(
-        self,
-        fake_pyprojects: list[Path],
-        fake_release_manifest: Path,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """A non-object manifest should fail cleanly, not raise AttributeError."""
-        fake_release_manifest.write_text(json.dumps(["ExistingCheck"]))
-        with (
-            patch.object(bump_version, "PYPROJECT_FILES", fake_pyprojects),
-            patch.object(bump_version, "REPO_ROOT", tmp_path),
-        ):
-            with pytest.raises(SystemExit):
-                bump_version.check("0.1.0")
-
-        err = capsys.readouterr().err
-        assert "ERROR" in err
-        assert "JSON object" in err
-
-    def test_check_fails_when_manifest_is_unreadable(
-        self,
-        fake_pyprojects: list[Path],
-        fake_release_manifest: Path,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """A missing manifest is reported as ERROR (not MISMATCH)."""
-        fake_release_manifest.unlink()
-        with (
-            patch.object(bump_version, "PYPROJECT_FILES", fake_pyprojects),
-            patch.object(bump_version, "REPO_ROOT", tmp_path),
-        ):
-            with pytest.raises(SystemExit):
-                bump_version.check("0.1.0")
-
-        err = capsys.readouterr().err
-        assert "ERROR" in err
-        assert "unreadable" in err
-
     def test_check_rejects_invalid_semver(self) -> None:
         with pytest.raises(SystemExit):
             bump_version.check("not-a-version")
-
-    def test_refresh_released_tests_writes_current_catalog(self, tmp_path: Path) -> None:
-        """Refreshing releases every catalog entry under the target version."""
-        with (
-            patch.object(bump_version, "REPO_ROOT", tmp_path),
-            patch("isvtest.catalog.build_catalog", return_value=[{"name": "ZCheck"}, {"name": "ACheck"}]) as build,
-            patch("isvtest.release_manifest.write_release_manifest") as write_manifest,
-        ):
-            bump_version.refresh_released_tests("1.2.3")
-
-        build.assert_called_once_with(released_only=False)
-        write_manifest.assert_called_once_with(
-            "1.2.3",
-            ["ACheck", "ZCheck"],
-            manifest_path=tmp_path / "isvtest" / "src" / "isvtest" / "released_tests.json",
-        )
 
 
 # ---------------------------------------------------------------------------

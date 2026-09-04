@@ -108,10 +108,9 @@ include/exclude-label filtering all read them from there. Declare labels ONLY in
 they import (top-level `exclude.labels:` filtering blocks are fine). Sole
 exception: the single-node local providers
 `isvctl/configs/providers/{k3s,microk8s,minikube}.yaml`, which wire host-level
-checks that exist in no suite. Those checks are local-dev tools no ISV runs, so
-they are deliberately absent from the catalog (built from `suites/` only) and
-therefore from `released_tests.json` - run those three configs with
-`ISVTEST_INCLUDE_UNRELEASED=1` or they skip as `unreleased`.
+checks that exist in no suite. Those checks are local-development tools no ISV
+runs, so they are deliberately absent from the catalog (built from `suites/`
+only), but remain runnable from those configs.
 
 Workloads (`isvtest/src/isvtest/workloads/`) are long-running tests (NIM, NCCL,
 stress) labelled `("workload", "slow", ...)` with manifests and helper scripts
@@ -135,18 +134,6 @@ Entry point: `isvreporter/src/isvreporter/main.py` (Typer).
 `isvctl deploy run` → tarball repo (`remote/archive.py`) → SCP through optional
 jumphost (`remote/transfer.py`) → `install.sh` on target → `isvctl test run` with
 forwarded env vars → optional isvreporter upload.
-
-## Files agents must not edit
-
-- `isvtest/src/isvtest/released_tests.json` - release-gating manifest owned
-  by the release process (bumped via `chore: update package versions`). New
-  checks ship unreleased and land here in a separate release commit, not in
-  feature PRs. To exercise an unreleased check end-to-end against a config,
-  run with `ISVTEST_INCLUDE_UNRELEASED=1` (the orchestrator otherwise logs
-  `Skipping unreleased validation '<Name>'` and the new check is a no-op).
-  On a `releases/X.Y.x` maintenance branch this manifest is regenerated from
-  that branch's own catalog, so it legitimately differs from `main`'s - do not
-  "reconcile" it by copying `main`'s version.
 
 ## Directory Layout
 

@@ -23,18 +23,19 @@ Suite placement and capability requirements come only from canonical
 ``isvctl/configs/suites/*.yaml`` wiring.
 """
 
+import hashlib
+import json
 import logging
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import yaml
-from isvreporter.version import get_version
+from isvreporter.version import build_ref, get_version
 
 from isvtest.core.composite import CompositeCheck, is_composite
 from isvtest.core.discovery import discover_all_tests
 from isvtest.core.resolution import DECLARABLE_CAPABILITIES, canonical_suite_name, resolve_class_key
-from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +188,8 @@ def build_label_map() -> dict[str, set[str]]:
 def build_label_file_map() -> dict[str, set[str]]:
     """Map label -> config files (relative to ``isvctl/configs``) that declare it.
 
-    Unlike the catalog this is a raw config scan (not release-gated): it records
-    every suite/provider YAML where a label appears on a check's wiring.
+    This raw config scan records every suite/provider YAML where a label appears
+    on a check's wiring.
     """
     configs_dir = _find_configs_dir()
     if not configs_dir:
@@ -251,15 +252,11 @@ def _build_suite_map() -> dict[str, dict[str, Any]]:
     return suite_map
 
 
-def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
+def build_catalog() -> list[dict[str, Any]]:
     """Discover all validation tests and return structured catalog entries.
 
     Each entry is one suite wiring name. Plain suites carry ``requires`` while
     platform suites carry their ``capability`` key.
-
-    Args:
-        released_only: When True, omit tests that are not in the committed
-            release manifest. Set False only when refreshing that manifest.
 
     Returns:
         List of catalog entry dicts, each containing:
@@ -326,19 +323,6 @@ def build_catalog(*, released_only: bool = True) -> list[dict[str, Any]]:
             }
         )
 
-    if released_only:
-        released_tests = load_released_test_filter()
-        if released_tests is None:
-            logger.info("Including unreleased tests in catalog because %s is enabled", INCLUDE_UNRELEASED_ENV)
-        else:
-            omitted_names = sorted(
-                entry["name"] for entry in catalog if resolve_class_key(entry["name"], released_tests) is None
-            )
-            catalog = [entry for entry in catalog if resolve_class_key(entry["name"], released_tests) is not None]
-            if omitted_names:
-                logger.info("Omitted %d unreleased tests from catalog", len(omitted_names))
-                logger.debug("Unreleased tests omitted from catalog: %s", ", ".join(omitted_names))
-
     logger.info("Built test catalog with %d entries", len(catalog))
     return catalog
 
@@ -392,23 +376,36 @@ def _assert_disjoint_vocabulary(capabilities: list[str], suites: list[str]) -> N
         )
 
 
-def catalog_document(entries: list[dict[str, Any]], version: str) -> dict[str, Any]:
+def catalog_document(
+    entries: list[dict[str, Any]],
+    version: str,
+    *,
+    isv_test_build_ref: str | None = None,
+) -> dict[str, Any]:
     """Wrap catalog ``entries`` in the versioned upload/artifact envelope.
 
     Adds the schema version, the isvtest package version, and the catalog axis
     vocabulary expected by the backend upload contract. The per-entry
     ``labels`` are intentionally not summarized at the top level - a consumer
     can derive the label universe from the entries when needed.
+
+    The build reference and digest travel in the artifact so later reporting or
+    publication steps describe the code that generated it, not the machine that
+    happens to read it.
     """
     capabilities, suites = suite_vocabularies()
     _assert_disjoint_vocabulary(capabilities, suites)
-    return {
+    reference = build_ref() if isv_test_build_ref is None else isv_test_build_ref
+    document = {
         "schemaVersion": CATALOG_SCHEMA_VERSION,
         "isvTestVersion": version,
+        "isvTestBuildRef": reference,
         "capabilities": capabilities,
         "suites": suites,
         "entries": entries,
     }
+    document["catalogDigest"] = catalog_digest(document)
+    return document
 
 
 def get_catalog_version() -> str:
@@ -418,3 +415,35 @@ def get_catalog_version() -> str:
         Version string (e.g. "1.2.3") or "dev" if not installed as a package.
     """
     return get_version("isvtest")
+
+
+def catalog_digest(document: dict[str, Any]) -> str:
+    """Return the SHA-256 identity of the complete public catalog contract.
+
+    Version and source provenance are intentionally excluded. Set-like lists
+    and entries are canonicalized before compact, key-sorted JSON encoding so
+    semantically identical documents digest identically regardless of discovery
+    or YAML ordering.
+    """
+    canonical_entries = []
+    for entry in document.get("entries", []):
+        canonical_entries.append(
+            {
+                "name": entry.get("name", ""),
+                "description": entry.get("description", ""),
+                "labels": sorted(set(entry.get("labels") or [])),
+                "capability": entry.get("capability"),
+                "suite": entry.get("suite", ""),
+                "requires": sorted(set(entry.get("requires") or [])),
+                "test_ids": sorted(set(entry.get("test_ids") or [])),
+            }
+        )
+    canonical_entries.sort(key=lambda entry: json.dumps(entry, sort_keys=True, separators=(",", ":")))
+    contract = {
+        "schemaVersion": document.get("schemaVersion", CATALOG_SCHEMA_VERSION),
+        "capabilities": sorted(set(document.get("capabilities") or [])),
+        "suites": sorted(set(document.get("suites") or [])),
+        "entries": canonical_entries,
+    }
+    payload = json.dumps(contract, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"

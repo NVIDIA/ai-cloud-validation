@@ -66,19 +66,17 @@ def test_discovers_provider_configs_matching_label_through_imports(tmp_path: Pat
     assert [check.name for check in matches[1].matched_checks] == ["VpcFlowLogsCheck"]
 
 
-def test_discovery_excludes_configs_matched_only_by_unreleased_checks(tmp_path: Path) -> None:
-    """A config selected solely on an unreleased check is dropped when the release filter is active."""
+def test_discovery_includes_every_matching_check_in_the_checkout(tmp_path: Path) -> None:
+    """Label discovery uses the same complete test set as runtime execution."""
     configs_root = tmp_path / "configs"
     _write_suite(configs_root, "network.yaml", ["network"], "NetworkCheck")
     _write_suite(configs_root, "observability.yaml", ["network"], "UnreleasedCheck")
     _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml")
     _write_provider_config(configs_root, "aws", "observability.yaml", "observability.yaml")
 
-    matches = discover_provider_label_configs(
-        "aws", ["network"], configs_root=configs_root, released_tests={"NetworkCheck"}
-    )
+    matches = discover_provider_label_configs("aws", ["network"], configs_root=configs_root)
 
-    assert [match.config_path.name for match in matches] == ["network.yaml"]
+    assert [match.config_path.name for match in matches] == ["network.yaml", "observability.yaml"]
     assert [check.name for check in matches[0].matched_checks] == ["NetworkCheck"]
 
 

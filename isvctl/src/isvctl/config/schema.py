@@ -93,13 +93,6 @@ class StepConfig(BaseModel):
             "Capability contexts allowed to run this step. Empty delegates capability gating to bound validations."
         ),
     )
-    requires_available_validations: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Validation names that must be available after release filtering for this step to run. "
-            "Unreleased validations are available only when ISVTEST_INCLUDE_UNRELEASED=1."
-        ),
-    )
     continue_on_failure: bool = Field(default=False, description="Continue to next step even if this step fails")
     phase: str = Field(
         default="setup",

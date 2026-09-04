@@ -25,11 +25,7 @@
 #   WEKA_PASSWORD       Cluster password
 #   WEKA_FILESYSTEM     Filesystem name (e.g. default)
 #
-# StorageProviderApiCheck is unreleased and skipped by default; set
-# ISVTEST_INCLUDE_UNRELEASED=1 to exercise it:
-#
-#   ISVTEST_INCLUDE_UNRELEASED=1 \
-#     uv run isvctl test run \
+#   uv run isvctl test run \
 #       -f isvctl/configs/providers/weka/config/storage.yaml
 
 version: "1.0"
