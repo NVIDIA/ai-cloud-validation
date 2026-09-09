@@ -172,16 +172,6 @@ Document for customer ops; validation suite reads files directly in Phase 1a.
 
 Runtime: mount manifest → set `manifest_path` to mount path; inject Secret as env vars the shim reads.
 
-## Unreleased check gate
-
-`StorageProviderApiCheck` is unreleased. Always:
-
-```bash
-ISVTEST_INCLUDE_UNRELEASED=1
-```
-
-Without it, orchestrator logs `Skipping unreleased validation 'StorageProviderApiCheck'`.
-
 ## Demo mode
 
 While scaffolding:

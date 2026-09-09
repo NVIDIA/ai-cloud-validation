@@ -29,7 +29,6 @@ import typer
 import yaml
 from isvtest.catalog import build_catalog, catalog_document, get_catalog_version
 from isvtest.core.resolution import parse_validations, requirements_satisfied
-from isvtest.release_manifest import load_released_test_filter
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import (
@@ -430,9 +429,7 @@ def run(
             print_error(f"Unknown provider {provider!r}. Available providers: {', '.join(known_providers)}")
             raise typer.Exit(code=1)
 
-        matches = discover_provider_label_configs(
-            provider, labels, configs_root=CONFIGS_ROOT, released_tests=load_released_test_filter()
-        )
+        matches = discover_provider_label_configs(provider, labels, configs_root=CONFIGS_ROOT)
         if not matches:
             known_labels = available_labels(provider, configs_root=CONFIGS_ROOT)
             print_error(
@@ -621,17 +618,20 @@ def run(
                 verbose=verbose,
                 junitxml=str(junitxml),
             )
-            if upload_results:
-                try:
-                    catalog_entries = build_catalog()
-                    catalog_version = get_catalog_version()
-                    test_catalog_document = catalog_document(catalog_entries, catalog_version)
-                    print_progress(f"Built test catalog: {len(catalog_entries)} tests (version: {catalog_version})")
-                    catalog_path = output_dir / "test_catalog.json"
-                    catalog_path.write_text(json.dumps(test_catalog_document, indent=2))
-                    print_progress(f"  Saved test catalog to: {catalog_path}")
-                except Exception as e:
-                    logger.warning("Failed to build test catalog: %s", e)
+            try:
+                catalog_entries = build_catalog()
+                catalog_version = get_catalog_version()
+                test_catalog_document = catalog_document(catalog_entries, catalog_version)
+                digest = test_catalog_document["catalogDigest"]
+                print_progress(
+                    f"Built test catalog identity: {len(catalog_entries)} tests "
+                    f"(version: {catalog_version}, digest: {digest})"
+                )
+                catalog_path = output_dir / "test_catalog.json"
+                catalog_path.write_text(json.dumps(test_catalog_document, indent=2))
+                print_progress(f"  Saved test catalog identity to: {catalog_path}")
+            except Exception as e:
+                logger.warning("Failed to build test catalog identity: %s", e)
         finally:
             sys.stdout, sys.stderr = original_stdout, original_stderr
 

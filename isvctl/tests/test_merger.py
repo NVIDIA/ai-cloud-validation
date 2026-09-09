@@ -548,9 +548,6 @@ class TestImportEndToEnd:
             < step_names.index("teardown")
         )
         assert steps_by_name["create_test_shared_vpc_cluster"]["output_schema"] == "multi_cluster"
-        assert steps_by_name["create_test_shared_vpc_cluster"]["requires_available_validations"] == [
-            "K8sMultiClusterSameVpcCheck"
-        ]
         cpu_create = steps_by_name["create_test_node_pool"]["env"]
         gpu_create = steps_by_name["create_test_gpu_node_pool"]["env"]
         assert cpu_create["NODE_POOL_STATE_FILE"] != gpu_create["NODE_POOL_STATE_FILE"]

@@ -17,8 +17,7 @@
 # Imports the canonical K8s test suite and adds bare-metal host checks
 # for local development and single-node testing.
 #
-# Usage (the on-host checks below need the unreleased gate opened):
-#   export ISVTEST_INCLUDE_UNRELEASED=1
+# Usage:
 #   isvctl test run -f isvctl/configs/providers/minikube.yaml
 #   isvctl test run -f isvctl/configs/providers/minikube.yaml -- -v -s
 
@@ -51,9 +50,8 @@ tests:
       checks:
         # On-host NVIDIA-stack checks (BMAAS-XX-08 "Verify NVIDIA hardware",
         # already covered by the bare_metal suite's GPU checks); N/A here.
-        # Local-dev only - no ISV runs these, so they stay out of the suites,
-        # which keeps them out of the catalog and out of released_tests.json.
-        # They skip as "unreleased" unless ISVTEST_INCLUDE_UNRELEASED=1.
+        # Local-dev only - no ISV runs these, so they stay out of the suites
+        # and therefore out of the published catalog.
         BmDriverInstalled:
           test_id: "N/A"
           labels: ["bare_metal"]

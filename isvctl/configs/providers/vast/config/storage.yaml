@@ -24,11 +24,7 @@
 #   VAST_TOKEN          API token  (or VAST_USERNAME + VAST_PASSWORD)
 #   VAST_STORAGE_PATH   Root export path (e.g. /exports/k8s)
 #
-# StorageProviderApiCheck is unreleased and skipped by default; set
-# ISVTEST_INCLUDE_UNRELEASED=1 to exercise it:
-#
-#   ISVTEST_INCLUDE_UNRELEASED=1 \
-#     uv run isvctl test run \
+#   uv run isvctl test run \
 #       -f isvctl/configs/providers/vast/config/storage.yaml
 
 version: "1.0"

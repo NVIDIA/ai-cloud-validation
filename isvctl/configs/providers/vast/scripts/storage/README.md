@@ -149,9 +149,8 @@ export VAST_STORAGE_PATH=/exports/k8s     # match your StorageClass root_export
 curl -sS -H "Authorization: Api-Token $VAST_TOKEN" \
   "https://$VAST_ENDPOINT/api/quotas/" | python3 -m json.tool | head -40
 
-# Run the storage checks (unreleased -> gate env var required):
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
+# Run the storage checks:
+uv run isvctl test run \
     -f isvctl/configs/providers/vast/config/storage.yaml
 ```
 
@@ -172,8 +171,7 @@ run over `kubectl` against the existing cluster (no VMS access needed):
 # CSI + filesystem checks only (no VAST creds required):
 export K8S_CSI_SHARED_FS_SC=vast-nfs \
        K8S_CSI_NFS_SC=vast-nfs
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
+uv run isvctl test run \
     -f isvctl/configs/providers/vast/config/storage-k8s.yaml \
     -- -v -s -k "K8sCsi or K8sFile or K8sNfs"
 ```
@@ -185,8 +183,7 @@ to the selection (or running everything) also loads the shim, which needs the
 ```bash
 export VAST_ENDPOINT=vms.example.com VAST_TOKEN=<token> \
        VAST_STORAGE_PATH=/exports/k8s
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
+uv run isvctl test run \
     -f isvctl/configs/providers/vast/config/storage-k8s.yaml \
     -- -v -s -k "K8sCsi or K8sFile or K8sNfs or StorageProviderApi"
 ```
@@ -245,8 +242,7 @@ tests:
 ```
 
 ```bash
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
+uv run isvctl test run \
     -f isvctl/configs/providers/vast/config/storage-k8s.yaml \
     -f quota-reuse.yaml \
     -- -v -s -k "StorageDirectoryQuotaEnforcement"
@@ -271,7 +267,6 @@ env vars.  Each provider entry gets its own `build_api()` call.
 | `volume-provisioning[...] SKIPPED ... observed 0 ...` | No PVCs provisioned against the VAST StorageClass | Create a PVC first, then re-run |
 | `VAST_ENDPOINT must be set` | Env var unset | `export VAST_ENDPOINT=...` |
 | `VAST_STORAGE_PATH must be set` | Env var unset | `export VAST_STORAGE_PATH=...` |
-| Orchestrator logs `Skipping unreleased validation 'StorageProviderApiCheck'` | `ISVTEST_INCLUDE_UNRELEASED=1` not set | Re-run with the env var |
 
 ## See also
 

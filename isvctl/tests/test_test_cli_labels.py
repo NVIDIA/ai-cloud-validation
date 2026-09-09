@@ -129,18 +129,20 @@ def test_test_run_forwards_label_filters(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert _FakeOrchestrator.captured["include_labels"] == ["gpu", "slow"]
 
 
-def test_test_run_uploads_the_complete_catalog_document(
+def test_test_run_reports_and_saves_the_complete_catalog_identity(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """The automatic result path forwards the same complete catalog it saves."""
+    """The result path forwards the same identity artifact it saves."""
     config = _write_config(tmp_path)
     output_dir = tmp_path / "_output"
     output_dir.mkdir()
     document = {
         "schemaVersion": 2,
         "isvTestVersion": "1.2.3",
-        "platforms": ["kubernetes", "vm"],
+        "isvTestBuildRef": "v1.2.3-0-gdeadbee",
+        "catalogDigest": "sha256:" + "a" * 64,
+        "capabilities": ["kubernetes", "vm"],
         "suites": ["storage"],
         "entries": [{"name": "TestA"}],
     }
@@ -260,7 +262,6 @@ def test_provider_label_discovery_dispatches_each_matching_config(
     _write_provider_config(configs_root, "aws", "iam.yaml", "iam.yaml", "iam")
     _FakeOrchestrator.captured = {}
     _FakeOrchestrator.calls = []
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
     monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
     monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
 
@@ -285,7 +286,6 @@ def test_provider_label_discovery_dry_run_prints_plan_without_running(
     _write_provider_config(configs_root, "aws", "network.yaml", "network.yaml", "network")
     _write_provider_config(configs_root, "aws", "observability.yaml", "observability.yaml", "observability")
     _FakeOrchestrator.calls = []
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
     monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
     monkeypatch.setattr(test_cli, "Orchestrator", _FakeOrchestrator)
 

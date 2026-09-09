@@ -104,8 +104,8 @@ define run_demo
 	@echo "=========================================="
 	@echo "Demo test: $(1)$(if $(2), --capability $(2),)"
 	@echo "=========================================="
-	@echo "Running cmd: ISVCTL_DEMO_MODE=1 ISVTEST_INCLUDE_UNRELEASED=1 uv run isvctl test run -f isvctl/configs/providers/my-isv/config/$(1).yaml$(if $(2), --capability $(2),)"
-	@ISVCTL_DEMO_MODE=1 ISVTEST_INCLUDE_UNRELEASED=1 uv run isvctl test run \
+	@echo "Running cmd: ISVCTL_DEMO_MODE=1 uv run isvctl test run -f isvctl/configs/providers/my-isv/config/$(1).yaml$(if $(2), --capability $(2),)"
+	@ISVCTL_DEMO_MODE=1 uv run isvctl test run \
 		-f isvctl/configs/providers/my-isv/config/$(1).yaml \
 		$(if $(2),--capability $(2),)
 endef

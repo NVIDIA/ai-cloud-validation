@@ -4,7 +4,7 @@
 """Tests for what a deploy forwards to the remote test run."""
 
 import pytest
-from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV
+from isvreporter.version import BUILD_REF_ENV
 
 from isvctl.cli.deploy import _pytest_passthrough, _remote_env_assignments
 
@@ -24,27 +24,29 @@ def test_passthrough_quotes_a_multi_word_expression() -> None:
     assert _pytest_passthrough(["-k", "A or B"]) == "-- -k 'A or B'"
 
 
-def test_release_gate_reaches_the_remote_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without this the remote run silently skips every unreleased check."""
+def test_source_reference_reaches_the_remote_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The archive excludes .git, so source identity must be forwarded first."""
     monkeypatch.delenv("NGC_NIM_API_KEY", raising=False)
     monkeypatch.setenv("NGC_API_KEY", "secret key")
-    monkeypatch.setenv(INCLUDE_UNRELEASED_ENV, "1")
+    monkeypatch.setenv(BUILD_REF_ENV, "v1.2.3-2-gabc1234")
 
-    assert _remote_env_assignments() == f"NGC_API_KEY='secret key' {INCLUDE_UNRELEASED_ENV}=1"
+    assert _remote_env_assignments() == "NGC_API_KEY='secret key' ISVTEST_BUILD_REF=v1.2.3-2-gabc1234"
 
 
 def test_ngc_key_alias_is_forwarded_under_the_canonical_name(monkeypatch: pytest.MonkeyPatch) -> None:
     """The target reads NGC_API_KEY, whichever name it was supplied under here."""
     monkeypatch.delenv("NGC_API_KEY", raising=False)
-    monkeypatch.delenv(INCLUDE_UNRELEASED_ENV, raising=False)
+    monkeypatch.delenv(BUILD_REF_ENV, raising=False)
     monkeypatch.setenv("NGC_NIM_API_KEY", "nim-key")
+    monkeypatch.setattr("isvctl.cli.deploy.build_ref", lambda: None)
 
     assert _remote_env_assignments() == "NGC_API_KEY=nim-key"
 
 
 def test_nothing_is_forwarded_when_nothing_is_set(monkeypatch: pytest.MonkeyPatch) -> None:
     """An empty assignment list must not leave a stray token on the command line."""
-    for name in ("NGC_API_KEY", "NGC_NIM_API_KEY", INCLUDE_UNRELEASED_ENV):
+    for name in ("NGC_API_KEY", "NGC_NIM_API_KEY", BUILD_REF_ENV):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("isvctl.cli.deploy.build_ref", lambda: None)
 
     assert _remote_env_assignments() == ""

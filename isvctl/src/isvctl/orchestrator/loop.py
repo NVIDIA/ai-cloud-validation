@@ -39,11 +39,9 @@ from isvtest.core.resolution import (
     get_entry_phase,
     parse_validations,
     requirements_satisfied,
-    resolve_class_key,
     resolve_entries,
 )
 from isvtest.main import run_validations_via_pytest
-from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 from isvctl.config.schema import RunConfig, StepConfig
 from isvctl.orchestrator.commands import CommandExecutor
@@ -316,30 +314,6 @@ def _has_explicit_pytest_selection(extra_pytest_args: list[str] | None) -> bool:
     )
 
 
-def _apply_step_validation_gates(steps: list[Any], released_tests: set[str] | None) -> list[Any]:
-    """Mark steps skipped when their required validations are unavailable."""
-    if released_tests is None:
-        return steps
-
-    gated_steps: list[Any] = []
-    for step in steps:
-        required_validations = getattr(step, "requires_available_validations", [])
-        unavailable = [
-            validation for validation in required_validations if resolve_class_key(validation, released_tests) is None
-        ]
-        if not unavailable:
-            gated_steps.append(step)
-            continue
-        skipped_step = step.model_copy(update={"skip": True})
-        logger.info(
-            "Skipping step '%s' because required validation(s) are unavailable: %s",
-            skipped_step.name,
-            ", ".join(unavailable),
-        )
-        gated_steps.append(skipped_step)
-    return gated_steps
-
-
 def _apply_capability_step_gates(
     steps: list[Any],
     validation_entries: list[ValidationEntry],
@@ -518,11 +492,6 @@ class Orchestrator:
                     ],
                 )
 
-        released_tests = load_released_test_filter()
-        if released_tests is None:
-            logger.info(f"Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled")
-
-        steps = _apply_step_validation_gates(steps, released_tests)
         all_validations = {}
         if self.config.tests and self.config.tests.validations:
             all_validations = self.config.tests.validations
@@ -670,7 +639,6 @@ class Orchestrator:
                     set(self._include_labels),
                     resolution_exclude_labels,
                     set(exclude_tests),
-                    released_tests,
                 )
                 ready_entries = [entry for entry in resolved_phase_entries if entry.is_ready]
                 terminal_before_pytest = [entry for entry in resolved_phase_entries if not entry.is_ready]
@@ -739,7 +707,6 @@ class Orchestrator:
                     set(self._include_labels),
                     resolution_exclude_labels,
                     set(exclude_tests),
-                    released_tests,
                     config_phases,
                 )
                 for index, resolved_entry in terminal_remaining:
@@ -848,7 +815,6 @@ class Orchestrator:
         include_labels: set[str],
         exclude_labels: set[str],
         exclude_tests: set[str],
-        released_tests: set[str] | None,
     ) -> list[ResolvedEntry]:
         """Resolve validation entries against the current orchestration context."""
         step_outputs = self.context.get_accumulated_context().get("steps", {})
@@ -860,7 +826,6 @@ class Orchestrator:
             include_labels=include_labels,
             exclude_labels=exclude_labels,
             exclude_tests=exclude_tests,
-            released_tests=released_tests,
             render_context=self.context.get_accumulated_context(),
             capability=self._capability,
             skipped_steps=self._skipped_steps,
@@ -873,7 +838,6 @@ class Orchestrator:
         include_labels: set[str],
         exclude_labels: set[str],
         exclude_tests: set[str],
-        released_tests: set[str] | None,
         config_phases: list[str],
     ) -> list[tuple[int, ResolvedEntry]]:
         """Resolve entries left after the phase loop and terminalize ready entries."""
@@ -883,7 +847,6 @@ class Orchestrator:
             include_labels,
             exclude_labels,
             exclude_tests,
-            released_tests,
         )
         step_phases = self.context.get_all_step_phases()
         terminal_entries: list[tuple[int, ResolvedEntry]] = []

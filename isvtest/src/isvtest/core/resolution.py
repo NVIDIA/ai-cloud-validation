@@ -84,7 +84,6 @@ class SkipReason(StrEnum):
     STEP_NO_OUTPUT = "step_no_output"  # step ran but produced no JSON output
     STEP_NOT_CONFIGURED = "step_not_configured"  # step the entry binds to isn't in the platform's step list
     STEP_SKIPPED = "step_skipped"  # step is configured but carries skip: true
-    UNRELEASED = "unreleased"  # not in released_tests.json (gated until release)
     CAPABILITY_REQUIREMENT = "capability_requirement"  # declared capabilities do not satisfy ``requires``
 
 
@@ -249,7 +248,6 @@ def resolve_entries(
     include_labels: AbstractSet[str],
     exclude_labels: AbstractSet[str],
     exclude_tests: AbstractSet[str],
-    released_tests: AbstractSet[str] | None,
     render_context: Mapping[str, Any],
     capability: str | None = None,
     skipped_steps: AbstractSet[str] = frozenset(),
@@ -264,7 +262,6 @@ def resolve_entries(
         include_labels: Validation labels required by CLI selection. All requested labels must be present.
         exclude_labels: Validation labels excluded by config.
         exclude_tests: Validation names excluded by config.
-        released_tests: Released test manifest, or None when unreleased checks are included.
         render_context: Jinja context for validation parameter rendering.
         capability: Declared capability context (a single platform), or None to disable requirement filtering.
         skipped_steps: Steps the config declares with ``skip: true``. They are absent from
@@ -281,19 +278,6 @@ def resolve_entries(
         config_error = _validate_entry_shape(entry)
         if config_error:
             resolved.append(_error(entry, ErrorReason.INVALID_CONFIG, config_error))
-            continue
-
-        # Variant-aware match: a configured ``ClassName-Variant`` is considered
-        # released when the bare ``ClassName`` is in the manifest, mirroring the
-        # pytest-discovery path (``_is_released_validation`` in test_validations).
-        if released_tests is not None and resolve_class_key(entry.name, released_tests) is None:
-            resolved.append(
-                _skip(
-                    entry,
-                    SkipReason.UNRELEASED,
-                    f"validation '{entry.name}' is not in released_tests.json",
-                )
-            )
             continue
 
         if entry.name in exclude_tests:

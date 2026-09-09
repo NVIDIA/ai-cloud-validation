@@ -161,7 +161,7 @@ def test_wizard_never_prompts_flags(isolated_env: Path) -> None:
     # Bare wizard walks every persistable var; flags must not appear.
     result = runner.invoke(app, [], input="\n" * _PERSISTABLE_PROMPTS)
     assert result.exit_code == 0, result.stdout
-    for flag in ("KUBECTL", "ISVCTL_DEMO_MODE", "ISVTEST_INCLUDE_UNRELEASED", "AWS_SKIP_TEARDOWN", "Flags"):
+    for flag in ("KUBECTL", "ISVCTL_DEMO_MODE", "AWS_SKIP_TEARDOWN", "Flags"):
         assert flag not in result.stdout
 
 

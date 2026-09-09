@@ -35,8 +35,8 @@ a known generic set and requiring a ``test_id`` on everything else.
 Correctness beyond these heuristics needs a human: ``--review`` emits a
 class -> test_id -> plan-summary table for eyeballing.
 
-Offline: reads the committed test plan, the in-repo catalog, and the release
-manifest. No network access required.
+Offline: reads the committed test plan and in-repo catalog. No network access
+required.
 
 Usage:
     python3 scripts/test_plan_coverage.py            # coverage report
@@ -110,11 +110,11 @@ def load_plan(path: Path = PLAN_PATH) -> dict[str, dict[str, Any]]:
 
 
 def catalog_entries() -> list[dict[str, Any]]:
-    """Return all catalog entries (released + unreleased) with name/labels/test_ids."""
+    """Return all catalog entries with name, labels, and test IDs."""
     # Deferred: importing build_catalog pulls in validation discovery (~1s).
     from isvtest.catalog import build_catalog
 
-    return build_catalog(released_only=False)
+    return build_catalog()
 
 
 def real_test_ids(entry: dict[str, Any]) -> list[str]:
@@ -293,19 +293,6 @@ def class_test_id_map(entries: list[dict[str, Any]] | None = None) -> dict[str, 
     return {e["name"]: real_test_ids(e) for e in entries if real_test_ids(e)}
 
 
-def released_names() -> set[str]:
-    """Return the set of released validation class names."""
-    # Deferred: only needed for coverage reports, not for --check guardrails.
-    from isvtest.release_manifest import load_released_tests
-
-    return load_released_tests()
-
-
-def _is_released(name: str, released: set[str]) -> bool:
-    """Return whether ``name`` (or its variant base ``Name-suffix``) is released."""
-    return name in released or name.split("-")[0] in released
-
-
 def integrity_errors(plan_ids: set[str], class_map: dict[str, list[str]]) -> list[str]:
     """Errors for classes declaring a ``test_id`` absent from the plan (typo/stale)."""
     errors: list[str] = []
@@ -358,19 +345,14 @@ def run_guardrails(
 def build_coverage(
     plan_entries: dict[str, dict[str, Any]],
     class_map: dict[str, list[str]],
-    released: set[str],
 ) -> dict[str, Any]:
-    """Compute coverage statistics joining the plan, classes, and release manifest."""
+    """Compute coverage statistics joining the plan and validation catalog."""
     test_id_to_classes: dict[str, list[str]] = defaultdict(list)
     for name, tids in class_map.items():
         for tid in tids:
             test_id_to_classes[tid].append(name)
 
     covered = {t for t in plan_entries if test_id_to_classes.get(t)}
-    covered_released = {
-        t for t in plan_entries if any(_is_released(c, released) for c in test_id_to_classes.get(t, []))
-    }
-
     uncovered = [_plan_item_summary(tid, plan_entries[tid]) for tid in plan_entries if tid not in covered]
     # Surface scheduled, high-priority gaps first; unscheduled items (blank
     # milestone/priority) sort last via the "~" sentinel (sorts after digits).
@@ -379,7 +361,6 @@ def build_coverage(
     return {
         "plan_test_ids": len(plan_entries),
         "plan_test_ids_covered": len(covered),
-        "plan_test_ids_covered_by_released_class": len(covered_released),
         "classes_with_test_ids": len(class_map),
         "test_id_to_classes": {t: sorted(c) for t, c in sorted(test_id_to_classes.items())},
         "uncovered": uncovered,
@@ -404,7 +385,6 @@ def render_markdown(coverage: dict[str, Any], plan_entries: dict[str, dict[str, 
         "",
         f"- Test-plan items: **{coverage['plan_test_ids']}**",
         f"- Covered by \u22651 class: **{coverage['plan_test_ids_covered']}**",
-        f"- Covered by a released class: **{coverage['plan_test_ids_covered_by_released_class']}**",
         f"- Validation classes declaring `test_ids`: **{coverage['classes_with_test_ids']}**",
         "",
         "## Covered test IDs",
@@ -488,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     if all_errors:
         sys.stderr.write("WARNING (run with --check in CI):\n  " + "\n  ".join(all_errors) + "\n")
 
-    coverage = build_coverage(plan_entries, class_map, released_names())
+    coverage = build_coverage(plan_entries, class_map)
 
     if args.json:
         Path(args.json).write_text(json.dumps(coverage, indent=2) + "\n")
@@ -508,14 +488,12 @@ def main(argv: list[str] | None = None) -> int:
 def _print_summary(coverage: dict[str, Any]) -> None:
     """Print the headline coverage numbers, column-aligned and self-explanatory.
 
-    The first block is all out of the same denominator (every test ID in the
-    plan); ``released`` is a subset of ``implemented``. The trailing line is a
-    separate count of *checks*, not plan items, and is called out as such to
-    avoid mixing the two units.
+    The first block uses every test ID in the plan as its denominator. The
+    trailing line is a separate count of *checks*, not plan items, and is
+    called out as such to avoid mixing the two units.
     """
     total = coverage["plan_test_ids"]
     implemented = coverage["plan_test_ids_covered"]
-    released = coverage["plan_test_ids_covered_by_released_class"]
     gap = len(coverage["uncovered"])
     checks = coverage["classes_with_test_ids"]
 
@@ -525,7 +503,6 @@ def _print_summary(coverage: dict[str, Any]) -> None:
     rows = [
         ("Plan items (every test ID in the plan)", total, ""),
         ("Implemented (>=1 check maps to it)", implemented, pct(implemented)),
-        ("...of which released (shipped to users)", released, pct(released)),
         ("Not yet implemented (the gap)", gap, pct(gap)),
     ]
     label_w = max(len(label) for label, _, _ in rows)

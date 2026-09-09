@@ -29,7 +29,6 @@ Set these on the local machine. The upload variables are read here, since
 | `ISV_CLIENT_ID` | Required for result upload to ISV Lab Service | locally |
 | `ISV_CLIENT_SECRET` | Required for result upload to ISV Lab Service | locally |
 | `NGC_API_KEY` | Required for NIM model benchmarks | forwarded |
-| `ISVTEST_INCLUDE_UNRELEASED` | Include checks not yet in `released_tests.json` | forwarded |
 
 Anything else the tests need has to reach the target another way - a config file
 under `isvctl/` travels in the deployment archive, so `-f` overrides are the

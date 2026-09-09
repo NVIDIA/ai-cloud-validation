@@ -72,8 +72,6 @@ commands:
         args:
           - "--node={{breakfix_node}}"
         timeout: 1200
-        requires_available_validations:
-          - CordonNodeCheck
 
 tests:
   description: "my-isv Kubernetes platform suite (real cluster required)"

@@ -288,7 +288,7 @@ Use patterns from the reference READMEs:
 Uses the existing `my-isv/config/storage.yaml` harness:
 
 ```bash
-ISVCTL_DEMO_MODE=1 ISVTEST_INCLUDE_UNRELEASED=1 \
+ISVCTL_DEMO_MODE=1 \
   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
 ```
 
@@ -317,8 +317,7 @@ Run only when the user wants end-to-end `StorageProviderApiCheck` validation.
 Requires an existing `storage.yaml` or a k8s config with `manifest_path` set.
 
 ```bash
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
+uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
 ```
 
 For K8s-integrated runs, add a `StorageProviderApiCheck` override to the
@@ -334,7 +333,6 @@ volume-provisioning[<name>] SKIPPED: create_volume not implemented; observed N C
 
 | Symptom | Fix |
 | ------- | --- |
-| `Skipping unreleased validation 'StorageProviderApiCheck'` | Set `ISVTEST_INCLUDE_UNRELEASED=1` |
 | `AuthenticationError` on health_check | Fix creds / network / IAM |
 | `hard_limit_bytes=0` | Wrong quota source or empty tenant |
 | `observed 0 ... via list_volumes` | Create a PVC against the StorageClass first |
@@ -354,8 +352,7 @@ Only after Phase 5 passes. Import the storage suite
 - `k8s_filesystem` checks (`K8sFileLockingCheck`, `K8sCrossNodeWriteVisibilityCheck`, …) and `node_selector` (literal dict) when CSI requires labeled nodes
 
 ```bash
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run -f isvctl/configs/providers/my-isv/config/<k8s-or-storage-config>.yaml
+uv run isvctl test run -f isvctl/configs/providers/my-isv/config/<k8s-or-storage-config>.yaml
 ```
 
 ---
@@ -366,10 +363,9 @@ ISVTEST_INCLUDE_UNRELEASED=1 \
 2. **One method at a time** — implement `properties` + `__init__`, then `health_check`, then `get_tenant_quota`, then volume methods.
 3. **Ask before assuming** — especially CSI vs API provisioning, tenant model, quota semantics.
 4. **Match reference style** — env-driven config, tight IAM/API surface, `NotSupportedError` for CSI-owned lifecycle.
-5. **Do not edit** `isvtest/src/isvtest/released_tests.json`.
-6. **Do not add setup scripts** — this skill does not author provider orchestration steps.
-7. **Document env vars** in `scripts/storage/README.md` when the stub is done (in-scope).
-8. **Test harness on request** — create `storage.yaml` or k8s `manifest_path` overrides only when the user wants to run checks.
+5. **Do not add setup scripts** — this skill does not author provider orchestration steps.
+6. **Document env vars** in `scripts/storage/README.md` when the stub is done (in-scope).
+7. **Test harness on request** — create `storage.yaml` or k8s `manifest_path` overrides only when the user wants to run checks.
 
 ## Additional resources
 

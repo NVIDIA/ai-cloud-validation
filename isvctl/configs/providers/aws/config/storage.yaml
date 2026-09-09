@@ -29,10 +29,8 @@
 # The EKS fixture reuses Terraform state when present but will provision a
 # cluster when none exists; teardown_cluster always runs so that path cannot
 # leak. Set AWS_SKIP_TEARDOWN=true to preserve the cluster across runs.
-# HSS checks ship unreleased; run with ISVTEST_INCLUDE_UNRELEASED=1.
-#
 # Usage:
-#   AWS_REGION=us-west-2 ISVTEST_INCLUDE_UNRELEASED=1 \
+#   AWS_REGION=us-west-2 \
 #     uv run isvctl test run -f isvctl/configs/providers/aws/config/storage.yaml
 #
 # Required IAM Permissions (block volume):
@@ -156,10 +154,6 @@ commands:
       - name: home_directory_storage
         phase: test
         command: "python3 ../scripts/storage/home_directory_storage_test.py"
-        requires_available_validations:
-          - DirectoryFilesystemQuotaCheck
-          - DirectoryUsageAccountingCheck
-          - DirectoryNfsAvailabilityCheck
         args:
           - "--region"
           - "{{region}}"
@@ -176,8 +170,6 @@ commands:
       - name: provision_storage
         phase: test
         command: "python ../scripts/storage/provision_storage_test.py"
-        requires_available_validations:
-          - HssStorageProvisioningCheck
         args: ["--region", "{{region}}", "--capacity-gib", "1200"]
         # 1800 (create) + 900 (delete) + slack.
         timeout: 3000
@@ -185,8 +177,6 @@ commands:
       - name: multiple_filesystems
         phase: test
         command: "python ../scripts/storage/multiple_filesystems_test.py"
-        requires_available_validations:
-          - HssMultipleFilesystemsCheck
         args: ["--region", "{{region}}", "--count", "2", "--max-fs-tib", "50"]
         # 2x1800 (creates) + 2x900 (per-filesystem delete waits) + slack.
         timeout: 5700
@@ -194,8 +184,6 @@ commands:
       - name: live_expansion
         phase: test
         command: "python ../scripts/storage/live_expansion_test.py"
-        requires_available_validations:
-          - HssLiveExpansionCheck
         args: ["--region", "{{region}}"]
         # 1800 (create) + 3600 (capacity scale) + 900 (delete) + slack.
         timeout: 6600
@@ -203,8 +191,6 @@ commands:
       - name: root_squash
         phase: test
         command: "python ../scripts/storage/root_squash_test.py"
-        requires_available_validations:
-          - HssRootSquashCheck
         args: ["--region", "{{region}}"]
         # 1800 (create) + 2x600 (squash toggles) + 900 (delete) + slack.
         timeout: 4200

@@ -26,7 +26,6 @@ from isvtest.core.discovery import discover_all_tests
 from isvtest.core.resolution import ADAPTER_HANDLED_CATEGORIES, resolve_class_key
 from isvtest.core.runners import LocalRunner
 from isvtest.core.validation import BaseValidation
-from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV, load_released_test_filter
 
 if TYPE_CHECKING:
     from isvtest.testing.subtests import SubTests
@@ -86,24 +85,6 @@ def _resolve_validation_class(
     return test_classes_map[key] if key is not None else None
 
 
-def _is_released_validation(
-    validation_name: str,
-    validation_config: Any,
-    target_class: type[BaseValidation],
-    released_tests: set[str],
-) -> bool:
-    """Return whether a configured validation is allowed by the release manifest."""
-    if validation_name in released_tests:
-        return True
-
-    return (
-        target_class.__name__ in released_tests
-        and isinstance(validation_config, dict)
-        and "_category" in validation_config
-        and validation_name.startswith(f"{target_class.__name__}-")
-    )
-
-
 def _suggest_similar_tests(name: str, available: list[str], max_suggestions: int = 3) -> list[str]:
     """Find test names similar to the given name."""
     # Try difflib for fuzzy matching
@@ -139,7 +120,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         filtering_enabled = False
         resolution_preapplied = False
         show_skipped = False
-        released_tests: set[str] | None = None
 
         try:
             config_file_arg = metafunc.config.getoption("--config", default=None)
@@ -165,13 +145,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         except (ImportError, FileNotFoundError, ValueError, AttributeError, OSError):
             pass
 
-        if not resolution_preapplied:
-            released_tests = load_released_test_filter()
-            if released_tests is None:
-                sys.stderr.write(
-                    f"\n\033[33mInfo:\033[0m Including unreleased validations because {INCLUDE_UNRELEASED_ENV} is enabled.\n"
-                )
-
         # Create parameters with markers
         params = []
         ids = []
@@ -187,13 +160,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 target_class = _resolve_validation_class(validation_name, validation_config, test_classes_map)
                 if target_class is not None:
                     configured_classes.add(target_class.__name__)
-
-                if target_class is not None and released_tests is not None and not resolution_preapplied:
-                    if not _is_released_validation(validation_name, validation_config, target_class, released_tests):
-                        sys.stderr.write(
-                            f"\n\033[33mInfo:\033[0m Skipping unreleased validation: '{validation_name}'.\n"
-                        )
-                        continue
 
                 if target_class:
                     pytest_marks = _pytest_marks_for_validation(metafunc.config, validation_config)
@@ -223,9 +189,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             # 2. Add skipped tests for classes NOT in config (if show_skipped)
             if show_skipped and not resolution_preapplied:
                 for cls_name, cls in test_classes_map.items():
-                    if released_tests is not None and cls_name not in released_tests:
-                        continue
-
                     # If class was not configured by exact or variant match, treat it as skipped.
                     if cls_name not in configured_classes and not getattr(cls, "compose_only", False):
                         pytest_marks = _pytest_marks_for_validation(metafunc.config)
@@ -238,9 +201,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         else:
             # No filtering, run all discovered tests with empty config
             for cls in test_classes:
-                if released_tests is not None and cls.__name__ not in released_tests:
-                    continue
-
                 pytest_marks = _pytest_marks_for_validation(metafunc.config)
                 params.append(pytest.param(cls, {"inventory": cluster_inventory}, cls.__name__, marks=pytest_marks))
                 ids.append(cls.__name__)

@@ -201,9 +201,8 @@ export WEKA_INSECURE_SKIP_VERIFY=1   # if using cluster-internal TLS
 uv run python .cursor/skills/storage-api-stub-authoring/scripts/probe_shim.py \
   --manifest isvctl/configs/providers/weka/config/storage-provider-manifest.yaml
 
-# Full check (unreleased -> gate env var required):
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
+# Full check:
+uv run isvctl test run \
     -f isvctl/configs/providers/weka/config/storage.yaml
 ```
 
@@ -213,8 +212,7 @@ data), run the K8s config with the shared-fs StorageClass set:
 
 ```bash
 export K8S_CSI_SHARED_FS_SC=weka-rwx
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
+uv run isvctl test run \
     -f isvctl/configs/providers/weka/config/storage-k8s.yaml \
     -- -v -s -k "StorageDirectoryQuotaEnforcement"
 ```
@@ -250,7 +248,6 @@ EOF
 | `AuthenticationError` | Wrong creds or org | Verify with `POST /api/v2/login` from a client pod |
 | `hard_limit_bytes=0` | Wrong filesystem name | Check `WEKA_FILESYSTEM` matches `filesystemName` on the StorageClass |
 | `observed 0 ... via list_volumes` | No filesystems visible to the organization | Create a PVC against your WEKA RWX StorageClass |
-| `Skipping unreleased validation` | Gate env unset | Set `ISVTEST_INCLUDE_UNRELEASED=1` |
 
 ## See also
 

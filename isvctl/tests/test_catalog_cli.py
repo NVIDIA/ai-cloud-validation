@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from isvtest.catalog import catalog_digest
 from typer.testing import CliRunner
 
 from isvctl.cli.catalog import app
@@ -164,19 +165,10 @@ def test_catalog_labels_files_option_adds_files() -> None:
     ]
 
 
-def test_catalog_list_unreleased_json() -> None:
-    """`catalog list --unreleased` emits only entries missing from the release manifest."""
-    with (
-        patch("isvctl.cli.catalog.build_catalog", return_value=_FAKE_ENTRIES) as build_catalog,
-        patch("isvctl.cli.catalog.load_released_tests", return_value={"AlphaCheck"}),
-        patch("isvctl.cli.catalog.get_catalog_version", return_value="1.2.3"),
-    ):
-        result = runner.invoke(app, ["list", "--unreleased", "--json"])
-
-    assert result.exit_code == 0, result.output
-    build_catalog.assert_called_once_with(released_only=False)
-    payload = json.loads(result.output)
-    assert payload["entries"] == _FAKE_ENTRIES[1:]
+def test_catalog_list_has_no_unreleased_mode() -> None:
+    """A checkout always exposes its complete test set."""
+    result = runner.invoke(app, ["list", "--unreleased"])
+    assert result.exit_code != 0
 
 
 @pytest.mark.parametrize("flag", ["--dry-run", "--no-upload"])
@@ -186,6 +178,8 @@ def test_catalog_push_dry_run_saves_without_upload(flag: str, tmp_path: Path, mo
     with (
         patch("isvctl.cli.catalog.build_catalog", return_value=_FAKE_ENTRIES),
         patch("isvctl.cli.catalog.get_catalog_version", return_value="1.2.3"),
+        patch("isvtest.catalog.build_ref", return_value="v1.2.3-0-gdeadbee"),
+        patch("isvctl.cli.catalog.build_is_release", return_value=True),
         patch("isvctl.reporting.check_upload_credentials") as check_creds,
     ):
         result = runner.invoke(app, ["push", flag])
@@ -197,3 +191,40 @@ def test_catalog_push_dry_run_saves_without_upload(flag: str, tmp_path: Path, mo
     payload = json.loads(catalog_path.read_text(encoding="utf-8"))
     assert payload["entries"] == _FAKE_ENTRIES
     assert "Dry run: saved catalog locally" in result.output
+
+
+def test_catalog_push_file_uploads_the_artifact_identity(tmp_path: Path) -> None:
+    """Controlled publication reads, validates, and forwards one saved artifact."""
+    artifact = {
+        "schemaVersion": 2,
+        "isvTestVersion": "1.2.3",
+        "isvTestBuildRef": "v1.2.3-0-gdeadbee",
+        "capabilities": ["kubernetes"],
+        "suites": ["storage"],
+        "entries": _FAKE_ENTRIES,
+    }
+    artifact["catalogDigest"] = catalog_digest(artifact)
+    artifact_path = tmp_path / "release-catalog.json"
+    artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with (
+        patch("isvctl.cli.catalog.build_is_release", return_value=True),
+        patch("isvctl.reporting.check_upload_credentials", return_value=(True, "id", "secret")),
+        patch("isvctl.reporting.get_environment_config", return_value=("https://service", "https://ssa")),
+        patch("isvreporter.auth.get_jwt_token", return_value="token"),
+        patch("isvreporter.client.upload_test_catalog", return_value=True) as upload,
+    ):
+        result = runner.invoke(app, ["push", "--file", str(artifact_path)])
+
+    assert result.exit_code == 0, result.output
+    upload.assert_called_once_with(
+        endpoint="https://service",
+        jwt_token="token",
+        isv_test_version="1.2.3",
+        entries=_FAKE_ENTRIES,
+        schema_version=2,
+        capabilities=["kubernetes"],
+        suites=["storage"],
+        catalog_digest=artifact["catalogDigest"],
+        isv_test_build_ref="v1.2.3-0-gdeadbee",
+    )

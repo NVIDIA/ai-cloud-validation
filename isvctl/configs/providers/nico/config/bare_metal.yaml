@@ -531,8 +531,6 @@ commands:
         args:
           - "--nodes={{health_agent_nodes}}"
           - "--expected-nodes={{steps.query_fleet_inventory.nodes | selectattr('gpu_count', 'greaterthan', 0) | list | length}}"
-        requires_available_validations:
-          - NodeHealthAgentCheck
         timeout: 300
 
       - name: query_planned_notifications

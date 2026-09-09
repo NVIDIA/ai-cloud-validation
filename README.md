@@ -33,8 +33,12 @@ Install:
 ```bash
 git clone https://github.com/NVIDIA/ai-cloud-validation.git
 cd ai-cloud-validation
+git checkout v0.11.0
 uv sync
 ```
+
+ISV validation runs should use an explicit release tag. A checkout of `main`
+is the developer workflow and runs the evolving test set in that branch.
 
 Configure credentials:
 

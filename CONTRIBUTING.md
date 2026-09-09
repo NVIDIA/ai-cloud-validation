@@ -164,14 +164,6 @@ uv run isvctl test run -f isvctl/configs/providers/k3s.yaml
 
 See the [Local Development Guide](docs/guides/local-development.md) for MicroK8s, Minikube, and k3s setup.
 
-### Validating an Unreleased Test Locally
-
-New validations are gated by `released_tests.json` until the next release
-bump. To exercise a new check end-to-end before that, set
-`ISVTEST_INCLUDE_UNRELEASED=1` (see [Releasing](#releasing) for the full
-workflow). Without it the orchestrator logs `Skipping unreleased validation
-'<Name>'` and the check is a no-op.
-
 ## Pull Request Process
 
 1. **Fork** the [upstream repository](https://github.com/NVIDIA/ai-cloud-validation) and create a branch from `main`.
@@ -295,11 +287,9 @@ The project follows [semver](https://semver.org/) but is still pre-1.0
   maintenance branch instead of `main` (see [Out-of-Band
   Releases](#out-of-band-releases)).
 
-External operators only run the **released** tests - the set pinned by
-`isvtest/src/isvtest/released_tests.json` at each tag - so every tag has a
-fixed, reproducible test set. `make bump-*` regenerates that manifest from
-the current validation catalog as part of the bump (see the next section),
-which is how unreleased validations on `main` become released at a tag.
+Every checkout runs all validations wired by its configuration. A release tag
+therefore freezes the complete test set in that commit, while `main` remains
+the developer workflow and runs everything currently present there.
 
 ### Version Bumping
 
@@ -312,13 +302,9 @@ make bump-major             # 0.4.2 -> 1.0.0
 make bump VERSION=1.2.3     # Explicit version
 ```
 
-The script updates all `pyproject.toml` files, refreshes
-`isvtest/src/isvtest/released_tests.json` from the current validation
-catalog, and runs `uv lock`. [`CHANGELOG.md`](CHANGELOG.md) is populated
-separately by `make changelog-fill` after the release tag exists (see the
-next section). Newly added validations are not run by client configs
-until they appear in that `released_tests.json` manifest, so adding tests
-to `main` and releasing them are separate steps.
+The script updates all `pyproject.toml` files and runs `uv lock`.
+[`CHANGELOG.md`](CHANGELOG.md) is populated separately by
+`make changelog-fill` after the release tag exists (see the next section).
 
 ### Changelog
 
@@ -344,21 +330,15 @@ For per-milestone stakeholder overviews (e.g. quarterly summaries),
 `scripts/generate_release_notes.py` fetches issues and PRs attached to a
 GitHub milestone — that is a separate tool with a different purpose.
 
-When validating unreleased tests locally from `main`, disable that release
-filter explicitly:
-
-```bash
-ISVTEST_INCLUDE_UNRELEASED=1 uv run isvctl test run -f config.yaml
-ISVTEST_INCLUDE_UNRELEASED=1 uv run isvtest test --config config.yaml
-```
-
 ### Creating a Release Tag
 
 After bumping, open a PR, review, and merge. Then the repo maintainers will create a tag:
 
 1. Go to **Actions** > **Create version tag** in GitHub
 2. Enter the version (e.g. `1.0.0`, without leading `v`)
-3. The workflow verifies all `pyproject.toml` files match, then creates and pushes `v1.0.0`
+3. The workflow verifies all package versions, creates `v1.0.0`, then builds the
+   catalog from that tagged commit and publishes it to staging
+4. After production approval, the catalog is published to production
 
 The workflow tags whichever branch it is dispatched from, and only `main` or a
 `releases/**` branch is accepted. It will not re-cut an existing tag - tags are
@@ -393,9 +373,6 @@ Conventions:
 - Workflows run from the branch they are on, so a branch cut from an older tag
   carries that tag's CI config. Add `releases/**` to the `push` triggers in
   `.github/workflows/ci.yaml` on the branch, or its tip is never tested.
-- `released_tests.json` is regenerated from the release branch's catalog, so a
-  cherry-picked validation ships there while staying unreleased on `main` until
-  the next `main` bump. Run the bump on the branch; never cherry-pick it.
 - Confirm the version is free first - a bump can reach `main` without a tag
   ever being cut, which burns the number.
 
