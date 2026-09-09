@@ -25,6 +25,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import yaml
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "reqtrace.py"
 _spec = importlib.util.spec_from_file_location("reqtrace", _SCRIPT)
 assert _spec and _spec.loader
@@ -55,6 +57,37 @@ def test_sources_and_ids_resolve() -> None:
 def test_coverage_runs() -> None:
     """`coverage` should execute cleanly."""
     assert reqtrace.coverage() == 0
+
+
+def test_actor_metadata_is_required(tmp_path: Path) -> None:
+    """Missing and unknown actor values are rejected."""
+    path = tmp_path / "test-plan.yaml"
+    plan = {
+        "domains": [
+            {
+                "components": [
+                    {
+                        "capabilities": [
+                            {
+                                "tests": [
+                                    {"test_id": "GOOD-01", "actor": "tenant"},
+                                    {"test_id": "MISSING-01"},
+                                    {"test_id": "BAD-01", "actor": "customer"},
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+    path.write_text(yaml.safe_dump(plan), encoding="utf-8")
+
+    errors = reqtrace.plan_actor_errors(path)
+
+    assert len(errors) == 2
+    assert any("MISSING-01" in error for error in errors)
+    assert any("BAD-01" in error for error in errors)
 
 
 def test_duplicate_source_name_is_rejected() -> None:

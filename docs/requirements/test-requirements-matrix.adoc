@@ -2454,7 +2454,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S05-01]]K8S05-01
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Create a K8s Instance using the software platform (CLI, Terraform)
+| Create a K8s Instance using the software platform API/CLI
 | K8S05
 | offtake
 | full
@@ -2463,7 +2463,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S38-01]]K8S38-01
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Run through all the steps of the k8s lifecycle management, including user-initated CP update
+| As a tenant, exercise the complete managed Kubernetes control plane lifecycle through the tenant-facing API/CLI, including requesting a supported control plane version update and observing provider-reported status through completion.
 | K8S38
 | reference
 | full
@@ -2838,14 +2838,14 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
-| [[K8S37-01]]K8S37-01
+| [[K8S28-01]]K8S28-01
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Verify the managed K8s service meets standard Kubernetes performance tests to max cluster size
-| K8S37
-| reference
+| Verify the managed Kubernetes service meets standard Kubernetes performance and control plane SLO targets at up to 5,000 nodes or the provider's declared maximum cluster size, whichever is smaller
+| K8S28
+| offtake
 | full
-|
+| Legacy test IDs: K8S-XX-09, K8S37-01.
 
 | [[K8S26-01]]K8S26-01
 | Workload Orchestration

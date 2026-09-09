@@ -31,11 +31,15 @@ adoc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(adoc)
 
 
-def _plan(github_issues: list[str]) -> dict[str, Any]:
+def _plan(github_issues: list[str], actor: str | None = "tenant") -> dict[str, Any]:
     """Build a minimal test-plan dict containing one test's ``github_issues`` wiring."""
     return {
         "domains": [
-            {"components": [{"capabilities": [{"tests": [{"test_id": "X-1", "github_issues": github_issues}]}]}]}
+            {
+                "components": [
+                    {"capabilities": [{"tests": [{"test_id": "X-1", "actor": actor, "github_issues": github_issues}]}]}
+                ]
+            }
         ]
     }
 
@@ -64,3 +68,10 @@ def test_validate_rejects_non_bare_issue_reference() -> None:
 def test_validate_accepts_bare_issue_reference() -> None:
     """A bare '#N' reference is valid."""
     adoc.validate_test_plan(_plan(["#40"]))
+
+
+@pytest.mark.parametrize("actor", [None, "customer", ["tenant"]])
+def test_validate_rejects_missing_or_invalid_actor(actor: Any) -> None:
+    """Every canonical test must have exactly one supported actor value."""
+    with pytest.raises(SystemExit, match="actor must be one of"):
+        adoc.validate_test_plan(_plan(["#40"], actor))

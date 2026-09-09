@@ -2058,13 +2058,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
-  - test_id: K8S37-01
+  - test_id: K8S28-01
     requirements:
-      - req_id: K8S37
-        source: reference
+      - req_id: K8S28
+        source: offtake
         coverage: full
-    annotations: ''
-    notes: ''
+    annotations: 'Former reference requirement K8S37 was consolidated into the canonical offtake K8S28 requirement.'
+    notes: 'Legacy test IDs: K8S-XX-09, K8S37-01.'
   - test_id: K8S26-01
     requirements:
       - req_id: K8S26

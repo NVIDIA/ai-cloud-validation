@@ -69,7 +69,7 @@
 | K8S05 | Lifecycle Management - control plane | API/CLI/Terraform Provider for CRUD provisioning; <30 min control plane bring-up. | #2, #5, #6 | active |
 | K8S06 | Lifecycle Management - node pool | API/CLI/Terraform for CRUD provisioning ( e.g., create node pool, update node pool, delete node pool, scale a node pool to a target count). Must be able to specify node type (specific CPU or GPU instance type) including CPU-only node pools with high-performance networking for data movement and ingest workloads Ability to specify default node labels and node taints within a node pool when a node joins the cluster. When down-scaling a node pool, ability to down-scale bad/specific nodes. | add | active |
 | K8S07 | API Server Metrics | Share API Server metrics in a Prometheus scrapable format to allow NVIDIA to measure API Server SLO |  | active |
-| K8S08 | Versioning | Provider-managed control plane upgrade processes. | INFO | active |
+| K8S08 | Versioning | The platform operator shall own and execute provider-managed control plane upgrade processes, including routine maintenance and security updates. The operator shall define the supported upgrade policy and transitions, expose upgrade status, and notify affected tenants. This requirement concerns operator-driven maintenance; it does not cover a tenant requesting a control plane version update through the tenant-facing service API. | INFO | active |
 | K8S09 | Zero-Downtime Upgrades | Minor version control plane updates without app downtime or maintenance windows. | INFO | active |
 | K8S10 | Node Upgrades | user-initiated rolling updates respecting pod disruption budgets. | TBD | active |
 | K8S11 | HA Control Plane | Redundant architecture with etcd separation. | INFO | active |

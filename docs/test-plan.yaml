@@ -36,6 +36,7 @@ domains:
                   - "#38"
                 req_id: BOOT01
                 test_id: BOOT01-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: CRUD an OS install configuration (e.g. iPXE config like Carbide)
@@ -47,6 +48,7 @@ domains:
                   - "#39"
                 req_id: BOOT01
                 test_id: BOOT01-02
+                actor: tenant
                 status: published
                 notes: ""
                 labels:
@@ -62,6 +64,7 @@ domains:
                   - "#40"
                 req_id: BOOT03
                 test_id: BOOT03-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: CRUD (get, list, create, delete) custom OS images for fast boot (raw, qcow2, img, etc) for BM/VM
@@ -74,6 +77,7 @@ domains:
                   - "#104"
                 req_id: BOOT03
                 test_id: BOOT03-02
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Check that an OS image can be installed on a BMaaS system
@@ -89,6 +93,7 @@ domains:
                   - "#41"
                 req_id: BOOT01
                 test_id: BOOT01-03
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Check that an OS install configuration can be installed on a BMaaS system
@@ -103,6 +108,7 @@ domains:
                   - "#43"
                 req_id: BOOT01
                 test_id: BOOT01-04
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Check that a VM image can be installed onto a VMaaS system
@@ -117,6 +123,7 @@ domains:
                   - "#44"
                 req_id: BOOT01
                 test_id: BOOT01-05
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Verify that an OS image (iso file) with full NVIDIA support is readily available
@@ -124,6 +131,7 @@ domains:
                 milestone: M4
                 req_id: IMG01
                 test_id: IMG01-01
+                actor: tenant
                 legacy_ids: [IMG-XX-01]
                 status: approved
                 notes: ""
@@ -132,6 +140,7 @@ domains:
                 milestone: M4
                 req_id: IMG02
                 test_id: IMG02-01
+                actor: tenant
                 legacy_ids: [IMG-XX-02]
                 status: approved
                 notes: ""
@@ -140,6 +149,7 @@ domains:
                 milestone: M4
                 req_id: IMG03
                 test_id: IMG03-01
+                actor: tenant
                 legacy_ids: [IMG-XX-03]
                 status: approved
                 notes: ""
@@ -155,6 +165,7 @@ domains:
                 milestone: M4
                 req_id: AUTH01
                 test_id: AUTH01-01
+                actor: tenant
                 legacy_ids: [AUTH-XX-01]
                 status: approved
                 notes: ""
@@ -162,6 +173,7 @@ domains:
                 milestone: M6
                 req_id: AUTH02
                 test_id: AUTH02-01
+                actor: tenant
                 legacy_ids: [AUTH-XX-02]
                 status: published
                 priority: P1
@@ -174,6 +186,7 @@ domains:
                 milestone: M5
                 req_id: AUTH03
                 test_id: AUTH03-01
+                actor: tenant
                 legacy_ids: [AUTH-XX-03]
                 status: approved
                 priority: P1
@@ -202,6 +215,7 @@ domains:
                   - "#21"
                 req_id: IAM01
                 test_id: IAM01-01
+                actor: tenant
                 legacy_ids: [IAM-XX-01]
                 status: published
                 notes: ""
@@ -216,6 +230,7 @@ domains:
                   - "#23"
                 req_id: IAM02
                 test_id: IAM02-01
+                actor: tenant
                 legacy_ids: [IAM-XX-02]
                 status: published
                 notes: ""
@@ -226,6 +241,7 @@ domains:
                 milestone: M5
                 req_id: IAM03
                 test_id: IAM03-01
+                actor: tenant
                 legacy_ids: [IAM-XX-03]
                 status: approved
                 notes: ""
@@ -247,6 +263,7 @@ domains:
                   - "#131"
                 req_id: IPAM01
                 test_id: IPAM01-01
+                actor: tenant
                 legacy_ids: [CP-XX-01]
                 status: published
                 notes: ""
@@ -262,6 +279,7 @@ domains:
                   - "#132"
                 req_id: IPAM02
                 test_id: IPAM02-01
+                actor: tenant
                 legacy_ids: [CP-XX-02]
                 status: published
                 notes: ""
@@ -279,6 +297,7 @@ domains:
                 milestone: M4
                 req_id: NETMGMT01
                 test_id: NETMGMT01-01
+                actor: operator
                 legacy_ids: [NETMGMT-XX-01]
                 status: pending
                 notes: ""
@@ -293,6 +312,7 @@ domains:
                 milestone: M4
                 req_id: RESDB01
                 test_id: RESDB01-01
+                actor: operator
                 legacy_ids: [RESDB-XX-01]
                 status: pending
                 notes: ""
@@ -315,6 +335,7 @@ domains:
                   - "#27"
                 req_id: CP03
                 test_id: CP03-01
+                actor: tenant
                 legacy_ids: [CP-XX-03]
                 status: published
                 notes: ""
@@ -325,6 +346,7 @@ domains:
                 milestone: M5
                 req_id: CP04
                 test_id: CP04-01
+                actor: operator
                 legacy_ids: [CP-XX-04]
                 status: approved
                 notes: ""
@@ -339,6 +361,7 @@ domains:
                   - "#28"
                 req_id: CP05
                 test_id: CP05-01
+                actor: tenant
                 legacy_ids: [CP-XX-05]
                 status: published
                 notes: ""
@@ -358,6 +381,7 @@ domains:
                   - "#29"
                 req_id: CP06
                 test_id: CP06-01
+                actor: tenant
                 legacy_ids: [CP-XX-06]
                 status: published
                 notes: ""
@@ -370,6 +394,7 @@ domains:
                   - "#30"
                 req_id: CP07
                 test_id: CP07-01
+                actor: tenant
                 legacy_ids: [CP-XX-07]
                 status: published
                 notes: ""
@@ -385,6 +410,7 @@ domains:
                   - "#31"
                 req_id: CP08
                 test_id: CP08-01
+                actor: tenant
                 legacy_ids: [CP-XX-08]
                 status: published
                 notes: ""
@@ -401,6 +427,7 @@ domains:
                   - "#33"
                 req_id: CP09
                 test_id: CP09-01
+                actor: tenant
                 legacy_ids: [CP-XX-09]
                 status: published
                 notes: ""
@@ -416,6 +443,7 @@ domains:
                   - "#34"
                 req_id: CP10
                 test_id: CP10-01
+                actor: tenant
                 legacy_ids: [CP-XX-10]
                 status: published
                 notes: ""
@@ -432,6 +460,7 @@ domains:
                   - "#35"
                 req_id: CP11
                 test_id: CP11-01
+                actor: tenant
                 legacy_ids: [CP-XX-11]
                 status: published
                 notes: ""
@@ -448,6 +477,7 @@ domains:
                   - "#133"
                 req_id: HWING01
                 test_id: HWING01-01
+                actor: operator
                 legacy_ids: [HWING-XX-01]
                 status: published
                 notes: ""
@@ -461,6 +491,7 @@ domains:
                 milestone: M4
                 req_id: HWING02
                 test_id: HWING02-01
+                actor: operator
                 legacy_ids: [HWING-XX-02]
                 status: approved
                 notes: ""
@@ -475,6 +506,7 @@ domains:
                 milestone: M6
                 req_id: SEC22
                 test_id: SEC22-01
+                actor: operator
                 status: published
                 notes: ""
                 github_issues:
@@ -490,6 +522,7 @@ domains:
                 milestone: M5
                 req_id: ATTEST01
                 test_id: ATTEST01-01
+                actor: operator
                 legacy_ids: [ATTEST-XX-01]
                 status: approved
                 notes: ""
@@ -502,6 +535,7 @@ domains:
                 milestone: M6
                 req_id: SEC22
                 test_id: SEC22-02
+                actor: operator
                 status: published
                 notes: ""
                 github_issues:
@@ -513,6 +547,7 @@ domains:
                 milestone: M5
                 req_id: ATTEST02
                 test_id: ATTEST02-01
+                actor: operator
                 legacy_ids: [ATTEST-XX-02]
                 status: published
                 notes: ""
@@ -528,6 +563,7 @@ domains:
                 milestone: M4
                 req_id: CNP09
                 test_id: CNP09-01
+                actor: operator
                 status: approved
                 notes: ""
               - summary: Verify all firmware is cryptographically signed and attested during boot
@@ -544,11 +580,13 @@ domains:
                   - "#259"
                 req_id: CNP09
                 test_id: CNP09-02
+                actor: operator
                 status: published
               - summary: TPM Secure Boot in BIOS
                 notes: REVIEW
                 req_id: SEC22
                 test_id: SEC22-03
+                actor: operator
                 status: pending
                 milestone: M9
                 priority: P0
@@ -568,6 +606,7 @@ domains:
                   - "#49"
                 req_id: CNP01
                 test_id: CNP01-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: "Supports the basic lifecycle of Bare Metal nodes, following the standard CRUD pattern"
@@ -581,6 +620,7 @@ domains:
                   - "#52"
                 req_id: CNP01, CNP04
                 test_id: CNP01-02
+                actor: tenant
                 status: published
               - summary: Delete a Bare Metal node
                 labels:
@@ -593,6 +633,7 @@ domains:
                   - "#53"
                 req_id: CNP01
                 test_id: CNP01-03
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Confirm sanitization on delete - Tenant View
@@ -609,6 +650,7 @@ domains:
                   - "#47"
                 req_id: SEC21
                 test_id: SEC21-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Confirm sanitization on delete - Low Level
@@ -626,6 +668,7 @@ domains:
                   - "#134"
                 req_id: SEC21
                 test_id: SEC21-02
+                actor: operator
                 status: published
                 notes: ""
               - summary: Topology-based placement
@@ -640,12 +683,14 @@ domains:
                   - "#105"
                 req_id: CNP01
                 test_id: CNP01-04
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Node attached storage
                 notes: REVIEW
                 req_id: BMAAS01
                 test_id: BMAAS01-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-01]
                 status: pending
                 priority: P2
@@ -654,6 +699,7 @@ domains:
                 notes: REVIEW
                 req_id: BMAAS02
                 test_id: BMAAS02-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-02]
                 status: pending
                 priority: P2
@@ -671,6 +717,7 @@ domains:
                   - "#56"
                 req_id: BMAAS03
                 test_id: BMAAS03-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-03]
                 status: published
                 notes: ""
@@ -688,6 +735,7 @@ domains:
                   - "#57"
                 req_id: CNP01
                 test_id: CNP01-05
+                actor: tenant
                 status: published
                 notes: ""
               - summary: A running node can be power-cycled in case of issue
@@ -702,6 +750,7 @@ domains:
                   - "#135"
                 req_id: CNP01
                 test_id: CNP01-06
+                actor: tenant
                 status: published
                 notes: ""
               - summary: "DEPRECATED: A node can be reinstalled from its configured stock operating system"
@@ -714,6 +763,7 @@ domains:
                   - "#69"
                 req_id: BMAAS04
                 test_id: BMAAS04-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-04]
                 status: published
                 notes: ""
@@ -730,6 +780,7 @@ domains:
                   - "#106"
                 req_id: CNP01
                 test_id: CNP01-07
+                actor: tenant
                 status: published
               - summary: Support for cloud-init and instance metadata discovery via link-local addresses (e.g. 169.254.169.254) or virtual devices (Bare Metal)
                 labels:
@@ -744,6 +795,7 @@ domains:
                   - "#113"
                 req_id: BOOT02
                 test_id: BOOT02-01
+                actor: tenant
                 status: published
               - summary: A powered off node can be powered back on
                 labels:
@@ -758,6 +810,7 @@ domains:
                   - "#108"
                 req_id: CNP01
                 test_id: CNP01-08
+                actor: tenant
                 status: published
               - summary: Support for user-defined tags/labels and cloud-init metadata on instances. (Bare Metal)
                 labels:
@@ -769,6 +822,7 @@ domains:
                 milestone: M3 .5
                 req_id: CNP05
                 test_id: CNP05-01
+                actor: tenant
                 status: published
                 priority: P0
                 github_issues:
@@ -786,6 +840,7 @@ domains:
                   - "#136"
                 req_id: BMAAS05
                 test_id: BMAAS05-01
+                actor: operator
                 legacy_ids: [BMAAS-XX-05]
                 status: published
                 notes: ""
@@ -801,6 +856,7 @@ domains:
                   - "#60"
                 req_id: BMAAS06
                 test_id: BMAAS06-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-06]
                 status: published
                 notes: ""
@@ -818,6 +874,7 @@ domains:
                 milestone: M5
                 req_id: BMAAS07
                 test_id: BMAAS07-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-07]
                 status: published
                 github_issues:
@@ -837,6 +894,7 @@ domains:
                   - "#114"
                 req_id: CNP06
                 test_id: CNP06-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Verify NVIDIA hardware
@@ -848,6 +906,7 @@ domains:
                   - "#61"
                 req_id: BMAAS08
                 test_id: BMAAS08-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-08]
                 status: published
                 notes: ""
@@ -871,6 +930,7 @@ domains:
                   - "#68"
                 req_id: BMAAS09
                 test_id: BMAAS09-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-09]
                 status: published
                 notes: ""
@@ -892,6 +952,7 @@ domains:
                   - "#82"
                 req_id: BMAAS10
                 test_id: BMAAS10-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-10]
                 status: published
               - summary: NCCL tests
@@ -909,6 +970,7 @@ domains:
                   - "#65"
                 req_id: BMAAS11
                 test_id: BMAAS11-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-11]
                 status: published
                 notes: ""
@@ -928,6 +990,7 @@ domains:
                   - "#66"
                 req_id: BMAAS12
                 test_id: BMAAS12-01
+                actor: tenant
                 legacy_ids: [BMAAS-XX-12]
                 status: published
               - summary: Verify that serial console output is logged and queryable for at least 1 month of history
@@ -941,6 +1004,7 @@ domains:
                   - "#258"
                 req_id: CNP06
                 test_id: CNP06-02
+                actor: tenant
                 status: published
           - description: Stable Identifiers
             tests:
@@ -957,6 +1021,7 @@ domains:
                   - "#185"
                 req_id: CNP08
                 test_id: CNP08-01
+                actor: tenant
                 status: published
               - summary: Verify that a BM node's ID does not change after a maintenance/reprovision event
                 labels:
@@ -968,6 +1033,7 @@ domains:
                 github_issues: []
                 req_id: CNP08
                 test_id: CNP08-02
+                actor: provider-dependent
                 status: pending
       - name: "Compute Service: VMaaS"
         capabilities:
@@ -985,6 +1051,7 @@ domains:
                   - "#42"
                 req_id: CNP01
                 test_id: CNP01-09
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Get info about a specific VM node, including if it is ready for use
@@ -999,6 +1066,7 @@ domains:
                   - "#51"
                 req_id: CNP01, CNP04
                 test_id: CNP01-10
+                actor: tenant
                 status: published
               - summary: Get a list of all VM nodes in a VPC
                 labels:
@@ -1012,6 +1080,7 @@ domains:
                   - "#45"
                 req_id: CNP01
                 test_id: CNP01-11
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Delete a VM node
@@ -1025,6 +1094,7 @@ domains:
                   - "#46"
                 req_id: CNP01
                 test_id: CNP01-12
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Confirm sanitization on delete
@@ -1038,6 +1108,7 @@ domains:
                   - "#47"
                 req_id: SEC21
                 test_id: SEC21-03
+                actor: tenant
                 status: published
                 notes: ""
           - description: Once created, VM nodes can be accessed for usage, and have the high level support controls of reboot, reinstall
@@ -1049,6 +1120,7 @@ domains:
                 milestone: M0
                 req_id: VMAAS01
                 test_id: VMAAS01-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-01]
                 status: approved
                 notes: ""
@@ -1062,6 +1134,7 @@ domains:
                 milestone: M0
                 req_id: CNP01
                 test_id: CNP01-13
+                actor: tenant
                 status: approved
                 notes: ""
                 labels:
@@ -1073,6 +1146,7 @@ domains:
                 milestone: M1
                 req_id: VMAAS02
                 test_id: VMAAS02-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-02]
                 status: pending
                 notes: ""
@@ -1089,6 +1163,7 @@ domains:
                   - "#110"
                 req_id: CNP01
                 test_id: CNP01-14
+                actor: tenant
                 status: published
               - summary: A powered off VM can be started
                 labels:
@@ -1103,6 +1178,7 @@ domains:
                   - "#111"
                 req_id: CNP01
                 test_id: CNP01-15
+                actor: tenant
                 status: published
               - summary: Support for user-defined tags/labels and cloud-init metadata on instances. (VM)
                 labels:
@@ -1117,6 +1193,7 @@ domains:
                   - "#112"
                 req_id: CNP05
                 test_id: CNP05-02
+                actor: tenant
                 status: published
               - summary: Support for cloud-init and instance metadata discovery via link-local addresses (e.g. 169.254.169.254) or virtual devices (VM)
                 labels:
@@ -1129,6 +1206,7 @@ domains:
                   - "#113"
                 req_id: BOOT02
                 test_id: BOOT02-02
+                actor: tenant
                 status: published
                 notes: ""
           - description: Quota should be enforced
@@ -1137,6 +1215,7 @@ domains:
                 priority: P2
                 req_id: VMAAS03
                 test_id: VMAAS03-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-03]
                 status: approved
                 notes: ""
@@ -1145,6 +1224,7 @@ domains:
                 priority: P2
                 req_id: VMAAS04
                 test_id: VMAAS04-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-04]
                 status: approved
                 notes: ""
@@ -1160,6 +1240,7 @@ domains:
                   - "#55"
                 req_id: VMAAS05
                 test_id: VMAAS05-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-05]
                 status: published
                 notes: ""
@@ -1175,6 +1256,7 @@ domains:
                   - "#59"
                 req_id: VMAAS06
                 test_id: VMAAS06-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-06]
                 status: published
                 notes: ""
@@ -1191,6 +1273,7 @@ domains:
                   - "#62"
                 req_id: VMAAS07
                 test_id: VMAAS07-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-07]
                 status: published
                 notes: ""
@@ -1205,6 +1288,7 @@ domains:
                 milestone: M1
                 req_id: VMAAS08
                 test_id: VMAAS08-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-08]
                 status: approved
                 notes: ""
@@ -1218,6 +1302,7 @@ domains:
                   - "#67"
                 req_id: VMAAS09
                 test_id: VMAAS09-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-09]
                 status: published
                 labels:
@@ -1231,6 +1316,7 @@ domains:
                 milestone: M5
                 req_id: VMAAS10
                 test_id: VMAAS10-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-10]
                 status: approved
                 notes: ""
@@ -1243,6 +1329,7 @@ domains:
                 milestone: M0
                 req_id: VMAAS11
                 test_id: VMAAS11-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-11]
                 status: approved
                 notes: ""
@@ -1253,6 +1340,7 @@ domains:
                 milestone: M1
                 req_id: VMAAS12
                 test_id: VMAAS12-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-12]
                 status: approved
                 notes: ""
@@ -1267,6 +1355,7 @@ domains:
                 milestone: M5
                 req_id: VMAAS13
                 test_id: VMAAS13-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-13]
                 status: approved
                 notes: ""
@@ -1280,6 +1369,7 @@ domains:
                 milestone: M5
                 req_id: VMAAS14
                 test_id: VMAAS14-01
+                actor: tenant
                 legacy_ids: [VMAAS-XX-14]
                 status: approved
                 notes: ""
@@ -1295,6 +1385,7 @@ domains:
                   - "#114"
                 req_id: CNP06
                 test_id: CNP06-03
+                actor: tenant
                 status: published
                 notes: ""
           - description: Stable Identifiers
@@ -1310,6 +1401,7 @@ domains:
                   - "#198"
                 req_id: CNP08
                 test_id: CNP08-03
+                actor: tenant
                 status: published
               - summary: Verify that a VM's ID does not change after a live migration or maintenance event
                 labels:
@@ -1320,6 +1412,7 @@ domains:
                 github_issues: []
                 req_id: CNP08
                 test_id: CNP08-04
+                actor: provider-dependent
                 status: pending
           - description: VM Hardening
             tests:
@@ -1336,6 +1429,7 @@ domains:
                   - "#256"
                 req_id: CNP01
                 test_id: CNP01-16
+                actor: tenant
                 status: published
               - summary: Verify USB, clipboard, and unnecessary virtual devices are disabled
                 labels:
@@ -1349,6 +1443,7 @@ domains:
                   - "#257"
                 req_id: CNP01
                 test_id: CNP01-17
+                actor: tenant
                 status: published
       - name: SDN Controller
         capabilities:
@@ -1366,6 +1461,7 @@ domains:
                   - "#11"
                 req_id: SDN01
                 test_id: SDN01-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Retrieve a VPC
@@ -1380,6 +1476,7 @@ domains:
                   - "#12"
                 req_id: SDN01
                 test_id: SDN01-02
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Update a VPC
@@ -1394,6 +1491,7 @@ domains:
                   - "#13"
                 req_id: SDN01
                 test_id: SDN01-03
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Delete a VPC
@@ -1408,6 +1506,7 @@ domains:
                   - "#14"
                 req_id: SDN01
                 test_id: SDN01-04
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Verify that a VPC has an exclusive subnet
@@ -1419,6 +1518,7 @@ domains:
                   - "#16"
                 req_id: SDN04
                 test_id: SDN04-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Verify that nodes in two VPCs cannot communicate over the N/S (TAN) network
@@ -1435,6 +1535,7 @@ domains:
                   - "#18"
                 req_id: SDN04
                 test_id: SDN04-02
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Verify that nodes in two VPCs cannot communicate over the E/W (CIN) network
@@ -1448,6 +1549,7 @@ domains:
                   - "#18"
                 req_id: SDN04
                 test_id: SDN04-03
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Support non-conflicting Bring-Your-Own-IP (including 7.0.0.0/8)
@@ -1460,6 +1562,7 @@ domains:
                   - "#115"
                 req_id: NET03, SDN01
                 test_id: NET03-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Support Stable Private IP allocations, where if a VM crashes and restarts the same IP address remains pinned until the node is deleted
@@ -1472,6 +1575,7 @@ domains:
                   - "#116"
                 req_id: SDN11
                 test_id: SDN11-01
+                actor: tenant
                 legacy_ids: [SDN-XX-01]
                 status: published
                 notes: ""
@@ -1485,6 +1589,7 @@ domains:
                   - "#117"
                 req_id: SDN05
                 test_id: SDN05-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: "Localized DNS: Support for custom, localized DNS settings to enable internal domain resolution to private endpoints (e.g. storage endpoints)"
@@ -1497,6 +1602,7 @@ domains:
                   - "#118"
                 req_id: SDN06
                 test_id: SDN06-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: "Support for VPC peering with full bandwidth and no \"hairpin\" routing."
@@ -1509,6 +1615,7 @@ domains:
                   - "#119"
                 req_id: SDN07
                 test_id: SDN07-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: Create a Security Group
@@ -1519,6 +1626,7 @@ domains:
                 notes: ""
                 req_id: SDN02, SDN03
                 test_id: SDN02-01
+                actor: tenant
                 status: published
                 priority: P0
                 github_issues:
@@ -1534,6 +1642,7 @@ domains:
                 notes: ""
                 req_id: SDN02, SDN03
                 test_id: SDN02-02
+                actor: tenant
                 status: published
                 priority: P0
                 github_issues:
@@ -1547,6 +1656,7 @@ domains:
                 notes: ""
                 req_id: SDN02, SDN03
                 test_id: SDN02-03
+                actor: tenant
                 status: published
                 priority: P0
                 github_issues:
@@ -1560,6 +1670,7 @@ domains:
                 notes: ""
                 req_id: SDN02, SDN03
                 test_id: SDN02-04
+                actor: tenant
                 status: published
                 priority: P0
                 github_issues:
@@ -1574,6 +1685,7 @@ domains:
                   - "#19"
                 req_id: CNP03
                 test_id: CNP03-01
+                actor: tenant
                 status: published
                 notes: ""
               - summary: "NVLink: Create a new partition; verify success response with partition key."
@@ -1582,6 +1694,7 @@ domains:
                 milestone: M4
                 req_id: SDN12
                 test_id: SDN12-01
+                actor: tenant
                 legacy_ids: [SDN-XX-02]
                 status: approved
                 notes: ""
@@ -1592,6 +1705,7 @@ domains:
                 milestone: M4
                 req_id: SDN13
                 test_id: SDN13-01
+                actor: tenant
                 legacy_ids: [SDN-XX-03]
                 status: approved
                 notes: ""
@@ -1602,6 +1716,7 @@ domains:
                 milestone: M4
                 req_id: SDN14
                 test_id: SDN14-01
+                actor: tenant
                 legacy_ids: [SDN-XX-04]
                 status: approved
                 notes: ""
@@ -1612,6 +1727,7 @@ domains:
                 milestone: M4
                 req_id: SDN15
                 test_id: SDN15-01
+                actor: tenant
                 legacy_ids: [SDN-XX-05]
                 status: approved
                 notes: ""
@@ -1622,6 +1738,7 @@ domains:
                 milestone: M4
                 req_id: SDN16
                 test_id: SDN16-01
+                actor: tenant
                 legacy_ids: [SDN-XX-06]
                 status: approved
                 notes: ""
@@ -1632,6 +1749,7 @@ domains:
                 milestone: M4
                 req_id: SDN17
                 test_id: SDN17-01
+                actor: tenant
                 legacy_ids: [SDN-XX-07]
                 status: approved
                 notes: ""
@@ -1642,6 +1760,7 @@ domains:
                 milestone: M4
                 req_id: SDN18
                 test_id: SDN18-01
+                actor: tenant
                 legacy_ids: [SDN-XX-08]
                 status: approved
                 notes: ""
@@ -1652,6 +1771,7 @@ domains:
                 milestone: M4
                 req_id: SDN19
                 test_id: SDN19-01
+                actor: tenant
                 legacy_ids: [SDN-XX-09]
                 status: approved
                 notes: ""
@@ -1662,6 +1782,7 @@ domains:
                 milestone: M4
                 req_id: SDN20
                 test_id: SDN20-01
+                actor: tenant
                 legacy_ids: [SDN-XX-10]
                 status: approved
                 notes: ""
@@ -1672,6 +1793,7 @@ domains:
                 milestone: M4
                 req_id: SDN21
                 test_id: SDN21-01
+                actor: tenant
                 legacy_ids: [SDN-XX-11]
                 status: approved
                 notes: ""
@@ -1682,6 +1804,7 @@ domains:
                 milestone: M4
                 req_id: SDN22
                 test_id: SDN22-01
+                actor: tenant
                 legacy_ids: [SDN-XX-12]
                 status: approved
                 notes: ""
@@ -1692,6 +1815,7 @@ domains:
                 milestone: M4
                 req_id: SDN23
                 test_id: SDN23-01
+                actor: tenant
                 legacy_ids: [SDN-XX-13]
                 status: approved
                 notes: ""
@@ -1702,6 +1826,7 @@ domains:
                 milestone: M4
                 req_id: SDN24
                 test_id: SDN24-01
+                actor: tenant
                 legacy_ids: [SDN-XX-14]
                 status: approved
                 notes: ""
@@ -1712,6 +1837,7 @@ domains:
                 milestone: M4
                 req_id: SDN25
                 test_id: SDN25-01
+                actor: tenant
                 legacy_ids: [SDN-XX-15]
                 status: approved
                 notes: ""
@@ -1722,6 +1848,7 @@ domains:
                 milestone: M4
                 req_id: SDN26
                 test_id: SDN26-01
+                actor: tenant
                 legacy_ids: [SDN-XX-16]
                 status: approved
                 notes: ""
@@ -1732,6 +1859,7 @@ domains:
                 milestone: M4
                 req_id: SDN27
                 test_id: SDN27-01
+                actor: tenant
                 legacy_ids: [SDN-XX-17]
                 status: approved
                 notes: ""
@@ -1740,6 +1868,7 @@ domains:
                 notes: REVIEW
                 req_id: SDN28
                 test_id: SDN28-01
+                actor: provider-dependent
                 legacy_ids: [SDN-XX-18]
                 status: pending
                 priority: ""
@@ -1758,6 +1887,7 @@ domains:
                   - "#281"
                 req_id: SDN02
                 test_id: SDN02-05
+                actor: tenant
                 status: published
               - summary: Verify security group rules can be scoped at node level
                 labels:
@@ -1771,6 +1901,7 @@ domains:
                   - "#282"
                 req_id: SDN02
                 test_id: SDN02-06
+                actor: tenant
                 status: published
               - summary: Verify security group rules can be scoped at subnet/tenant level
                 labels:
@@ -1784,6 +1915,7 @@ domains:
                   - "#283"
                 req_id: SDN02
                 test_id: SDN02-07
+                actor: tenant
                 status: published
               - summary: Measure and verify policy propagation timing is within acceptable bounds
                 labels:
@@ -1797,6 +1929,7 @@ domains:
                   - "#284"
                 req_id: SDN02
                 test_id: SDN02-08
+                actor: tenant
                 status: published
               - summary: Verify security group rules can be scoped at K8s API service level
                 labels:
@@ -1810,6 +1943,7 @@ domains:
                   - "#285"
                 req_id: SDN02
                 test_id: SDN02-09
+                actor: tenant
                 status: published
           - description: All-to-All Storage Routing
             tests:
@@ -1824,6 +1958,7 @@ domains:
                   - "#289"
                 req_id: SDN08
                 test_id: SDN08-01
+                actor: tenant
                 status: published
           - description: Port Security
             tests:
@@ -1839,6 +1974,7 @@ domains:
                   - "#286"
                 req_id: SDN02
                 test_id: SDN02-10
+                actor: tenant
                 status: published
           - description: Network Infrastructure Observability
             tests:
@@ -1853,6 +1989,7 @@ domains:
                   - "#290"
                 req_id: SDN09
                 test_id: SDN09-01
+                actor: tenant
                 status: published
               - summary: Verify logging captures latency/performance fluctuations
                 labels:
@@ -1865,6 +2002,7 @@ domains:
                   - "#291"
                 req_id: SDN09
                 test_id: SDN09-02
+                actor: tenant
                 status: published
               - summary: Verify a detailed audit trail exists for all configuration changes to network filtering rules
                 labels:
@@ -1878,6 +2016,7 @@ domains:
                   - "#292"
                 req_id: SDN09
                 test_id: SDN09-03
+                actor: tenant
                 status: published
       - name: Metadata Service
         capabilities:
@@ -1891,6 +2030,7 @@ domains:
                 milestone: M4
                 req_id: META01
                 test_id: META01-01
+                actor: provider-dependent
                 legacy_ids: [META-XX-01]
                 status: approved
                 notes: ""
@@ -1904,6 +2044,7 @@ domains:
                 milestone: M4
                 req_id: CTRL01
                 test_id: CTRL01-01
+                actor: tenant
                 legacy_ids: [CTRL-XX-01]
                 status: approved
                 notes: ""
@@ -1914,6 +2055,7 @@ domains:
                   - min_req
                 req_id: CAP02
                 test_id: CAP02-01
+                actor: tenant
                 status: approved
                 notes: ""
                 priority: P1
@@ -1927,6 +2069,7 @@ domains:
                   - min_req
                 req_id: CAP03
                 test_id: CAP03-01
+                actor: tenant
                 status: approved
                 notes: ""
                 priority: P1
@@ -1945,6 +2088,7 @@ domains:
                   - "#205"
                 req_id: CNP08
                 test_id: CNP08-05
+                actor: tenant
                 status: pending
       - name: Load Balancing
         capabilities:
@@ -1957,6 +2101,7 @@ domains:
                   - LimitedEnv
                 req_id: LB01
                 test_id: LB01-01
+                actor: tenant
                 legacy_ids: [LB-XX-01]
                 status: approved
                 notes: ""
@@ -1966,6 +2111,7 @@ domains:
                   - LimitedEnv
                 req_id: LB02
                 test_id: LB02-01
+                actor: tenant
                 legacy_ids: [LB-XX-02]
                 status: approved
                 notes: ""
@@ -1974,6 +2120,7 @@ domains:
               - summary: Verify that nodes can be marked as down or up (for rolling deployments/etc)
                 req_id: LB03
                 test_id: LB03-01
+                actor: tenant
                 legacy_ids: [LB-XX-03]
                 status: approved
                 notes: ""
@@ -1984,6 +2131,7 @@ domains:
                   - LimitedEnv
                 req_id: LB04
                 test_id: LB04-01
+                actor: tenant
                 legacy_ids: [LB-XX-04]
                 status: approved
                 notes: ""
@@ -2003,6 +2151,7 @@ domains:
                   - LimitedEnv
                 req_id: BFX04
                 test_id: BFX04-01
+                actor: tenant
                 legacy_ids: [BFX-XX-01]
                 status: approved
                 notes: ""
@@ -2017,6 +2166,7 @@ domains:
                   - LimitedEnv
                 req_id: BFX05
                 test_id: BFX05-01
+                actor: tenant
                 legacy_ids: [BFX-XX-02]
                 status: approved
                 notes: ""
@@ -2032,6 +2182,7 @@ domains:
                   - LimitedEnv
                 req_id: BFX06
                 test_id: BFX06-01
+                actor: tenant
                 legacy_ids: [BFX-XX-03]
                 status: approved
                 notes: ""
@@ -2053,6 +2204,7 @@ domains:
                   - "#206"
                 req_id: BFX01
                 test_id: BFX01-01
+                actor: both
                 status: pending
               - summary: Return an individual node to the provider for maintenance via the API
                 labels:
@@ -2066,6 +2218,7 @@ domains:
                   - "#207"
                 req_id: BFX01
                 test_id: BFX01-02
+                actor: both
                 status: pending
               - summary: Return a rack to the provider for maintenance via the API
                 labels:
@@ -2079,6 +2232,7 @@ domains:
                   - "#208"
                 req_id: BFX01
                 test_id: BFX01-03
+                actor: both
                 status: pending
               - summary: Cordon a node (mark unschedulable); verify no new workloads are placed; verify existing workloads continue
                 labels:
@@ -2092,6 +2246,7 @@ domains:
                   - "#209"
                 req_id: BFX01
                 test_id: BFX01-04
+                actor: tenant
                 status: pending
               - summary: Request a host replacement when health thresholds are breached; verify the node is removed from the pool
                 labels:
@@ -2105,6 +2260,7 @@ domains:
                   - "#210"
                 req_id: BFX01
                 test_id: BFX01-05
+                actor: both
                 status: pending
               - summary: Report an individual node to the provider for maintenance via the API
                 labels:
@@ -2118,6 +2274,7 @@ domains:
                   - "#610"
                 req_id: BFX01
                 test_id: BFX01-06
+                actor: both
                 status: pending
           - description: Breakfix Events Query
             tests:
@@ -2133,6 +2290,7 @@ domains:
                   - "#211"
                 req_id: BFX02
                 test_id: BFX02-01
+                actor: tenant
                 status: pending
               - summary: Query retirement notices for a node/rack
                 labels:
@@ -2146,6 +2304,7 @@ domains:
                   - "#212"
                 req_id: BFX02
                 test_id: BFX02-02
+                actor: tenant
                 status: pending
               - summary: Query historical repair status for a node
                 labels:
@@ -2159,6 +2318,7 @@ domains:
                   - "#213"
                 req_id: BFX02
                 test_id: BFX02-03
+                actor: tenant
                 status: pending
           - description: Breakfix Diagnostics
             tests:
@@ -2174,6 +2334,7 @@ domains:
                   - "#320"
                 req_id: BFX03
                 test_id: BFX03-01
+                actor: tenant
                 status: pending
               - summary: Inspect firmware versions of NV switch trays
                 labels:
@@ -2187,6 +2348,7 @@ domains:
                   - "#214"
                 req_id: BFX03
                 test_id: BFX03-02
+                actor: tenant
                 status: pending
               - summary: Query a node's log history through a telemetry endpoint
                 labels:
@@ -2200,6 +2362,7 @@ domains:
                   - "#215"
                 req_id: BFX03
                 test_id: BFX03-03
+                actor: tenant
                 status: pending
   - name: Data Services
     components:
@@ -2219,6 +2382,7 @@ domains:
                   - "#327"
                 req_id: HSS01
                 test_id: HSS01-01
+                actor: tenant
                 status: published
               - summary: Verify authentication to the storage management API with the configured credential (basic auth or bearer token)
                 labels:
@@ -2230,6 +2394,7 @@ domains:
                   - "#505"
                 req_id: HSS01
                 test_id: HSS01-02
+                actor: tenant
                 status: pending
               - summary: Verify the volume provisioning API provisions a volume of the requested size within NVIDIA's tenant
                 labels:
@@ -2241,6 +2406,7 @@ domains:
                   - "#506"
                 req_id: HSS01
                 test_id: HSS01-03
+                actor: tenant
                 status: pending
               - summary: Verify QoS — provisioned throughput meets requested minimum bandwidth and IOPS
                 labels:
@@ -2253,6 +2419,7 @@ domains:
                   - "#328"
                 req_id: HSS02
                 test_id: HSS02-01
+                actor: tenant
                 status: published
               - summary: Verify K8s CSI integration for storage
                 labels:
@@ -2264,6 +2431,7 @@ domains:
                   - "#329"
                 req_id: HSS03, K8S23
                 test_id: HSS03-01
+                actor: tenant
                 status: published
               - summary: Verify the CSI controller Deployment and node DaemonSet pods are running and healthy
                 labels:
@@ -2275,6 +2443,7 @@ domains:
                   - "#486"
                 req_id: HSS03
                 test_id: HSS03-02
+                actor: tenant
                 status: published
               - summary: Verify the CSIDriver object is registered for the NCP provisioner
                 labels:
@@ -2286,6 +2455,7 @@ domains:
                   - "#487"
                 req_id: HSS03
                 test_id: HSS03-03
+                actor: tenant
                 status: published
               - summary: Verify at least one StorageClass references the NCP CSI provisioner
                 labels:
@@ -2297,6 +2467,7 @@ domains:
                   - "#488"
                 req_id: HSS03
                 test_id: HSS03-04
+                actor: tenant
                 status: published
               - summary: Verify a PVC against the NCP StorageClass reaches Bound and creates a PV
                 labels:
@@ -2308,6 +2479,7 @@ domains:
                   - "#489"
                 req_id: HSS03, K8S23
                 test_id: HSS03-05
+                actor: tenant
                 status: published
               - summary: Verify the provisioned PV capacity is >= the PVC request
                 labels:
@@ -2319,6 +2491,7 @@ domains:
                   - "#490"
                 req_id: HSS03, K8S23
                 test_id: HSS03-06
+                actor: tenant
                 status: published
               - summary: Verify a pod can mount the PVC and read back data it wrote
                 labels:
@@ -2330,6 +2503,7 @@ domains:
                   - "#491"
                 req_id: HSS03, K8S23
                 test_id: HSS03-07
+                actor: tenant
                 status: published
               - summary: Verify multiple concurrent PVCs bind to distinct PVs
                 labels:
@@ -2341,6 +2515,7 @@ domains:
                   - "#492"
                 req_id: HSS03, K8S23
                 test_id: HSS03-08
+                actor: tenant
                 status: published
               - summary: Verify quota limits can be set on user workloads/volumes
                 labels:
@@ -2352,6 +2527,7 @@ domains:
                   - "#330"
                 req_id: HSS04
                 test_id: HSS04-01
+                actor: tenant
                 status: published
               - summary: Verify a functional API reports tenant-level storage utilization and quota
                 labels:
@@ -2363,6 +2539,7 @@ domains:
                   - "#507"
                 req_id: HSS04
                 test_id: HSS04-02
+                actor: tenant
                 status: pending
               - summary: Verify a functional API lists the quotas configured within the NVIDIA tenancy
                 labels:
@@ -2374,6 +2551,7 @@ domains:
                   - "#508"
                 req_id: HSS04
                 test_id: HSS04-03
+                actor: tenant
                 status: pending
               - summary: Verify a functional API returns utilization against a given quota by ID
                 labels:
@@ -2385,6 +2563,7 @@ domains:
                   - "#509"
                 req_id: HSS04
                 test_id: HSS04-04
+                actor: tenant
                 status: pending
               - summary: Verify reported quota consumption reflects data written to the filesystem
                 labels:
@@ -2396,6 +2575,7 @@ domains:
                   - "#510"
                 req_id: HSS04
                 test_id: HSS04-05
+                actor: tenant
                 status: pending
               - summary: Verify non-disruptive upgrades (NVIDIA can defer maintenance up to 2 weeks)
                 labels:
@@ -2408,11 +2588,13 @@ domains:
                   - "#331"
                 req_id: HSS05
                 test_id: HSS05-01
+                actor: both
                 status: published
               - summary: "Storage: Config/default/access to network provided storage"
                 notes: REVIEW
                 req_id: STOR01
                 test_id: STOR01-01
+                actor: tenant
                 legacy_ids: [STOR-XX-01]
                 status: pending
                 priority: ""
@@ -2430,6 +2612,7 @@ domains:
                   - "#326"
                 req_id: DIR02
                 test_id: DIR02-01
+                actor: tenant
                 status: pending
               - summary: Verify POSIX filesystem compliance via the applicable pjdfstest suites
                 labels:
@@ -2443,6 +2626,7 @@ domains:
                   - "#494"
                 req_id: DIR02
                 test_id: DIR02-02
+                actor: tenant
                 status: published
               - summary: Verify configurable filesystem-wide quota limits
                 labels:
@@ -2455,6 +2639,7 @@ domains:
                   - "#324"
                 req_id: DIR01
                 test_id: DIR01-01
+                actor: tenant
                 status: pending
               - summary: Verify usage accounting for uid/gids
                 labels:
@@ -2467,6 +2652,7 @@ domains:
                   - "#325"
                 req_id: DIR01
                 test_id: DIR01-02
+                actor: tenant
                 status: pending
           - description: Data Movement
             tests:
@@ -2480,6 +2666,7 @@ domains:
                   - "#263"
                 req_id: DMS01
                 test_id: DMS01-01
+                actor: provider-dependent
                 status: published
               - summary: Verify dedicated CPU nodes are available for data mover with high-performance networking
                 labels:
@@ -2491,6 +2678,7 @@ domains:
                   - "#264"
                 req_id: DMS02
                 test_id: DMS02-01
+                actor: tenant
                 status: published
               - summary: Verify the same filesystem mounted on GPU nodes is accessible from data mover nodes
                 labels:
@@ -2502,6 +2690,7 @@ domains:
                   - "#265"
                 req_id: DMS03
                 test_id: DMS03-01
+                actor: tenant
                 status: published
               - summary: Verify stable egress IP for allowlisting access to NVIDIA services
                 labels:
@@ -2514,6 +2703,7 @@ domains:
                   - "#266"
                 req_id: DMS05
                 test_id: DMS05-01
+                actor: tenant
                 status: published
           - description: DGXC-Managed Storage Deployment
             tests:
@@ -2530,6 +2720,7 @@ domains:
                   - "#358"
                 req_id: STG02
                 test_id: STG02-01
+                actor: tenant
                 status: pending
               - summary: Verify stable IP assignment for storage nodes across lifecycle operations
                 labels:
@@ -2544,6 +2735,7 @@ domains:
                   - "#359"
                 req_id: STG03
                 test_id: STG03-01
+                actor: tenant
                 status: pending
               - summary: Verify out-of-band failure detection (device, network, memory, drive)
                 labels:
@@ -2558,6 +2750,7 @@ domains:
                   - "#360"
                 req_id: STG04
                 test_id: STG04-01
+                actor: tenant
                 status: pending
               - summary: Verify topology observability — visibility into failure domains for physical diversity
                 labels:
@@ -2571,6 +2764,7 @@ domains:
                   - "#361"
                 req_id: STG05
                 test_id: STG05-01
+                actor: tenant
                 status: pending
           - description: Storage Security
             tests:
@@ -2586,6 +2780,7 @@ domains:
                   - "#296"
                 req_id: SEC04
                 test_id: SEC04-01
+                actor: tenant
                 status: published
               - summary: Verify multi-tenant isolation — quota listings contain only paths within the tenant's namespace
                 labels:
@@ -2598,6 +2793,7 @@ domains:
                   - "#511"
                 req_id: SEC04
                 test_id: SEC04-03
+                actor: tenant
                 status: pending
           - description: RDMA Memory Protection
             tests:
@@ -2612,6 +2808,7 @@ domains:
                   - "#332"
                 req_id: HSS06
                 test_id: HSS06-01
+                actor: tenant
                 status: published
       - name: Parallel File System Services
         capabilities:
@@ -2628,6 +2825,7 @@ domains:
                   - "#333"
                 req_id: HSS07
                 test_id: HSS07-01
+                actor: tenant
                 status: published
               - summary: Verify large-directory listing of 1,000,000 files and 500,000 subdirectories without error or truncation
                 labels:
@@ -2641,6 +2839,7 @@ domains:
                   - "#499"
                 req_id: HSS07
                 test_id: HSS07-02
+                actor: tenant
                 status: published
               - summary: "Verify multiple filesystems can exist within total capacity (minimum FS size <= 50 TiB)"
                 labels:
@@ -2653,6 +2852,7 @@ domains:
                   - "#334"
                 req_id: HSS09
                 test_id: HSS09-01
+                actor: tenant
                 status: published
               - summary: Verify live filesystem expansion (capacity, inodes, IO, metadata)
                 labels:
@@ -2665,6 +2865,7 @@ domains:
                   - "#335"
                 req_id: HSS10
                 test_id: HSS10-01
+                actor: tenant
                 status: published
               - summary: Verify PVC expansion grows PV capacity and pod-visible size (if supported)
                 labels:
@@ -2676,6 +2877,7 @@ domains:
                   - "#493"
                 req_id: HSS10
                 test_id: HSS10-02
+                actor: tenant
                 status: published
               - summary: Verify uid/gid/project-id soft and hard quotas with enforcement
                 labels:
@@ -2688,6 +2890,7 @@ domains:
                   - "#336"
                 req_id: HSS12
                 test_id: HSS12-01
+                actor: tenant
                 status: published
               - summary: Verify root-squash can be enabled and disabled at any time
                 labels:
@@ -2700,6 +2903,7 @@ domains:
                   - "#337"
                 req_id: HSS13
                 test_id: HSS13-01
+                actor: tenant
                 status: published
               - summary: Verify the filesystem can be mounted with flock
                 labels:
@@ -2712,6 +2916,7 @@ domains:
                   - "#338"
                 req_id: HSS14
                 test_id: HSS14-01
+                actor: tenant
                 status: published
               - summary: Verify flock() locking behavior is correct across pods on the same PVC
                 labels:
@@ -2724,6 +2929,7 @@ domains:
                   - "#495"
                 req_id: HSS14
                 test_id: HSS14-02
+                actor: tenant
                 status: published
               - summary: Verify changelog/audit data is accessible (tracking by uid/gid, file/dir operations)
                 labels:
@@ -2736,6 +2942,7 @@ domains:
                   - "#339"
                 req_id: HSS15
                 test_id: HSS15-01
+                actor: tenant
                 status: published
               - summary: Verify client multipathing to all storage servers
                 labels:
@@ -2748,6 +2955,7 @@ domains:
                   - "#340"
                 req_id: HSS18
                 test_id: HSS18-01
+                actor: tenant
                 status: published
               - summary: Verify a file written on one node is visible with correct content on another node within 1 second
                 labels:
@@ -2760,6 +2968,7 @@ domains:
                   - "#496"
                 req_id: HSS17
                 test_id: HSS17-01
+                actor: tenant
                 status: published
               - summary: Verify file size and mtime changes on one node are reflected on another within the attribute-cache window
                 labels:
@@ -2772,6 +2981,7 @@ domains:
                   - "#497"
                 req_id: HSS17
                 test_id: HSS17-02
+                actor: tenant
                 status: published
               - summary: Verify NFS mounts use the expected version (e.g. vers=4.1), nconnect value, transport protocol (proto=rdma or proto=tcp), and readahead tuning
                 labels:
@@ -2787,6 +2997,7 @@ domains:
                   - "#503"
                 req_id: HSS11
                 test_id: HSS11-01
+                actor: tenant
                 status: published
               - summary: Verify required vendor/DKMS kernel modules are installed on all GPU and CPU nodes
                 labels:
@@ -2799,6 +3010,7 @@ domains:
                   - "#504"
                 req_id: HSS11
                 test_id: HSS11-04
+                actor: tenant
                 status: published
       - name: Object Storage Service
         capabilities:
@@ -2816,6 +3028,7 @@ domains:
                   - "#262"
                 req_id: DATASVC01
                 test_id: DATASVC01-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-01]
                 status: published
       - name: Block Storage Services
@@ -2833,6 +3046,7 @@ domains:
                   - "#272"
                 req_id: K8S23
                 test_id: K8S23-01
+                actor: tenant
                 status: published
               - summary: Verify volume snapshots
                 labels:
@@ -2845,6 +3059,7 @@ domains:
                   - "#321"
                 req_id: DATASVC02
                 test_id: DATASVC02-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-02]
                 status: published
               - summary: Verify volume resizing
@@ -2858,6 +3073,7 @@ domains:
                   - "#322"
                 req_id: DATASVC03
                 test_id: DATASVC03-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-03]
                 status: published
               - summary: Verify persistent block volumes survive instance restarts
@@ -2871,6 +3087,7 @@ domains:
                   - "#323"
                 req_id: DATASVC04
                 test_id: DATASVC04-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-04]
                 status: published
       - name: Cache Services
@@ -2884,6 +3101,7 @@ domains:
                   - LimitedEnv
                 req_id: DATASVC05
                 test_id: DATASVC05-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-05]
                 status: pending
                 notes: ""
@@ -2899,6 +3117,7 @@ domains:
                   - LimitedEnv
                 req_id: DATASVC06
                 test_id: DATASVC06-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-06]
                 status: pending
                 notes: ""
@@ -2914,6 +3133,7 @@ domains:
                   - LimitedEnv
                 req_id: DATASVC07
                 test_id: DATASVC07-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-07]
                 status: pending
                 notes: ""
@@ -2930,6 +3150,7 @@ domains:
                 milestone: M4
                 req_id: DATASVC08
                 test_id: DATASVC08-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-08]
                 status: pending
                 notes: ""
@@ -2942,6 +3163,7 @@ domains:
                 priority: P2
                 req_id: DATASVC09
                 test_id: DATASVC09-01
+                actor: tenant
                 legacy_ids: [DATASVC-XX-09]
                 status: pending
                 notes: ""
@@ -2959,6 +3181,7 @@ domains:
                 milestone: M0
                 req_id: SLURM01
                 test_id: SLURM01-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-01]
                 status: published
               - summary: SlurmInfoAvailable
@@ -2969,6 +3192,7 @@ domains:
                 milestone: M0
                 req_id: SLURM02
                 test_id: SLURM02-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-02]
                 status: published
                 labels:
@@ -2981,6 +3205,7 @@ domains:
                 milestone: M0
                 req_id: SLURM03
                 test_id: SLURM03-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-03]
                 status: published
                 labels:
@@ -2993,6 +3218,7 @@ domains:
                 milestone: M0
                 req_id: SLURM04
                 test_id: SLURM04-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-04]
                 status: published
                 labels:
@@ -3005,6 +3231,7 @@ domains:
                 milestone: M0
                 req_id: SLURM05
                 test_id: SLURM05-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-05]
                 status: published
                 labels:
@@ -3017,6 +3244,7 @@ domains:
                 milestone: M0
                 req_id: SLURM06
                 test_id: SLURM06-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-06]
                 status: published
                 labels:
@@ -3029,6 +3257,7 @@ domains:
                 milestone: M0
                 req_id: SLURM07
                 test_id: SLURM07-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-07]
                 status: published
                 labels:
@@ -3044,6 +3273,7 @@ domains:
                 milestone: M0
                 req_id: SLURM08
                 test_id: SLURM08-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-08]
                 status: published
                 labels:
@@ -3059,6 +3289,7 @@ domains:
                 milestone: M0
                 req_id: SLURM09
                 test_id: SLURM09-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-09]
                 status: published
                 labels:
@@ -3073,6 +3304,7 @@ domains:
                 milestone: M0
                 req_id: SLURM10
                 test_id: SLURM10-01
+                actor: tenant
                 legacy_ids: [SLURM-XX-10]
                 status: published
       - name: Managed Kubernetes Control Plane
@@ -3080,7 +3312,7 @@ domains:
           - description: Tenant-isolated Kubernetes control planes for managing k8s workloads. does placement, networking, lifecyle mgmt.
             example: AWS EKS, GCP GKE
             tests:
-              - summary: Create a K8s Instance using the software platform (CLI, Terraform)
+              - summary: Create a K8s Instance using the software platform API/CLI
                 labels:
                   - kubernetes
                   - min_req
@@ -3091,22 +3323,25 @@ domains:
                 milestone: M0
                 req_id: K8S05
                 test_id: K8S05-01
+                actor: tenant
                 status: published
           - description: Full lifecycle management
             tests:
-              - summary: Run through all the steps of the k8s lifecycle management, including user-initated CP update
+              - summary: As a tenant, exercise the complete managed Kubernetes control plane lifecycle through the tenant-facing API/CLI, including requesting a supported control plane version update and observing provider-reported status through completion.
                 labels:
                   - min_req
                 milestone: M4
                 req_id: K8S38
                 test_id: K8S38-01
+                actor: both
                 legacy_ids: [K8S-XX-01]
                 status: approved
-                notes: ""
+                notes: "Cross-role: the tenant requests lifecycle operations; the platform operator executes the managed control plane update. Application continuity is tested separately by K8S09-01."
                 priority: ""
               - summary: The control plane should automatically add more capacity when load increases
                 req_id: K8S41
                 test_id: K8S41-01
+                actor: both
                 legacy_ids: [SEC23-01]
                 status: pending
                 notes: ""
@@ -3117,6 +3352,7 @@ domains:
                   - min_req
                 req_id: K8S27
                 test_id: K8S27-01
+                actor: tenant
                 status: pending
                 notes: ""
                 priority: P2
@@ -3131,6 +3367,7 @@ domains:
                 milestone: M4
                 req_id: K8S14
                 test_id: K8S14-01
+                actor: both
                 status: approved
                 notes: ""
                 priority: ""
@@ -3144,6 +3381,7 @@ domains:
                 milestone: M0
                 req_id: K8S39
                 test_id: K8S39-01
+                actor: tenant
                 legacy_ids: [K8S-XX-02]
                 status: published
               - summary: K8s Nim Inference
@@ -3154,6 +3392,7 @@ domains:
                 milestone: M0
                 req_id: K8S40
                 test_id: K8S40-01
+                actor: tenant
                 legacy_ids: [K8S-XX-03]
                 status: published
                 labels:
@@ -3169,6 +3408,7 @@ domains:
                 milestone: M0
                 req_id: K8S32
                 test_id: K8S32-01
+                actor: tenant
                 legacy_ids: [K8S-XX-04]
                 status: published
                 labels:
@@ -3188,6 +3428,7 @@ domains:
                 priority: P0
                 req_id: K8S33
                 test_id: K8S33-01
+                actor: tenant
                 legacy_ids: [K8S-XX-05]
                 status: approved
                 notes: ""
@@ -3200,6 +3441,7 @@ domains:
                 notes: k8s05
                 req_id: K8S34
                 test_id: K8S34-01
+                actor: tenant
                 legacy_ids: [K8S-XX-06]
                 status: approved
                 priority: P0
@@ -3212,6 +3454,7 @@ domains:
                 notes: k8s06/22
                 req_id: K8S24
                 test_id: K8S24-01
+                actor: tenant
                 status: approved
                 priority: P0
                 milestone: ""
@@ -3226,6 +3469,7 @@ domains:
                 notes: k8s01
                 req_id: K8S01
                 test_id: K8S01-01
+                actor: tenant
                 status: published
                 priority: P0
                 github_issues:
@@ -3238,6 +3482,7 @@ domains:
                   - min_req
                 req_id: K8S17
                 test_id: K8S17-01
+                actor: tenant
                 status: approved
                 notes: ""
                 priority: ""
@@ -3251,6 +3496,7 @@ domains:
                 notes: k8s19
                 req_id: K8S21
                 test_id: K8S21-01
+                actor: tenant
                 status: published
                 priority: P1
                 github_issues:
@@ -3264,6 +3510,7 @@ domains:
                 notes: K8s16
                 req_id: K8S35
                 test_id: K8S35-01
+                actor: tenant
                 legacy_ids: [K8S-XX-07]
                 status: approved
                 priority: P1
@@ -3277,6 +3524,7 @@ domains:
                 notes: K8s20
                 req_id: K8S22
                 test_id: K8S22-01
+                actor: tenant
                 status: published
                 priority: P0
                 github_issues:
@@ -3290,6 +3538,7 @@ domains:
                 notes: K8s21
                 req_id: K8S23
                 test_id: K8S23-02
+                actor: tenant
                 status: approved
                 priority: ""
                 milestone: ""
@@ -3299,6 +3548,7 @@ domains:
                 notes: K8s21
                 req_id: K8S23
                 test_id: K8S23-03
+                actor: tenant
                 status: approved
                 priority: ""
                 milestone: ""
@@ -3314,6 +3564,7 @@ domains:
                   - "#273"
                 req_id: K8S23
                 test_id: K8S23-04
+                actor: tenant
                 status: published
               - summary: Verify CSI supports both static and dynamic provisioning via PVs and PVCs
                 labels:
@@ -3327,6 +3578,7 @@ domains:
                   - "#274"
                 req_id: K8S23
                 test_id: K8S23-05
+                actor: tenant
                 status: published
               - summary: Verify CSI credentials are tenant cluster scoped (no cross-cluster access)
                 labels:
@@ -3340,6 +3592,7 @@ domains:
                   - "#275"
                 req_id: K8S23
                 test_id: K8S23-06
+                actor: tenant
                 status: published
               - summary: Verify APIs to query storage usage against overall cluster quota with per-PVC/Volume breakdown
                 labels:
@@ -3353,6 +3606,7 @@ domains:
                   - "#276"
                 req_id: K8S23
                 test_id: K8S23-07
+                actor: tenant
                 status: published
           - description: NVIDIA Operator support
             tests:
@@ -3363,6 +3617,7 @@ domains:
                 notes: K8S23
                 req_id: K8S25
                 test_id: K8S25-01
+                actor: tenant
                 status: approved
                 priority: P0
                 milestone: ""
@@ -3372,6 +3627,7 @@ domains:
                 notes: ""
                 req_id: K8S25
                 test_id: K8S25-02
+                actor: both
                 status: pending
                 priority: P0
                 milestone: M5
@@ -3388,6 +3644,7 @@ domains:
                 github_issues: []
                 req_id: K8S02
                 test_id: K8S02-01
+                actor: tenant
                 status: pending
               - summary: Verify automated control plane security patching with no/minimal downtime
                 labels:
@@ -3398,6 +3655,7 @@ domains:
                 github_issues: []
                 req_id: K8S02
                 test_id: K8S02-02
+                actor: operator
                 status: pending
           - description: Zero-Downtime Upgrades
             tests:
@@ -3410,6 +3668,7 @@ domains:
                 github_issues: []
                 req_id: K8S09
                 test_id: K8S09-01
+                actor: tenant
                 status: pending
               - summary: Perform a rolling node upgrade and verify disruption budgets are respected
                 labels:
@@ -3420,6 +3679,7 @@ domains:
                 github_issues: []
                 req_id: K8S10
                 test_id: K8S10-01
+                actor: tenant
                 status: pending
           - description: HA Control Plane
             tests:
@@ -3432,6 +3692,7 @@ domains:
                 github_issues: []
                 req_id: K8S11
                 test_id: K8S11-01
+                actor: operator
                 status: pending
           - description: "Backup & Disaster Recovery"
             tests:
@@ -3444,6 +3705,7 @@ domains:
                 github_issues: []
                 req_id: K8S12
                 test_id: K8S12-01
+                actor: operator
                 status: pending
           - description: K8s Access Controls
             tests:
@@ -3458,6 +3720,7 @@ domains:
                   - "#271"
                 req_id: K8S15
                 test_id: K8S15-01
+                actor: tenant
                 status: published
           - description: K8s Encryption
             tests:
@@ -3470,6 +3733,7 @@ domains:
                 github_issues: []
                 req_id: K8S19
                 test_id: K8S19-01
+                actor: operator
                 status: pending
           - description: Certificate Management
             tests:
@@ -3484,6 +3748,7 @@ domains:
                   - "#301"
                 req_id: SEC09
                 test_id: SEC09-01
+                actor: operator
                 status: published
               - summary: Verify support for both provider-managed and customer-managed keys
                 labels:
@@ -3496,6 +3761,7 @@ domains:
                   - "#302"
                 req_id: SEC09
                 test_id: SEC09-02
+                actor: both
                 status: published
           - description: Autoscaling
             tests:
@@ -3510,6 +3776,7 @@ domains:
                   - "#267"
                 req_id: K8S36
                 test_id: K8S36-01
+                actor: tenant
                 legacy_ids: [K8S-XX-08]
                 status: published
           - description: Kubernetes Security Response
@@ -3523,6 +3790,7 @@ domains:
                 github_issues: []
                 req_id: K8S04
                 test_id: K8S04-01
+                actor: operator
                 status: pending
           - description: Node Pool Lifecycle Management
             tests:
@@ -3539,6 +3807,7 @@ domains:
                   - "#221"
                 req_id: K8S06
                 test_id: K8S06-01
+                actor: tenant
                 status: published
               - summary: Update a K8s node pool (e.g., scale to a target count)
                 labels:
@@ -3553,6 +3822,7 @@ domains:
                   - "#222"
                 req_id: K8S06
                 test_id: K8S06-02
+                actor: tenant
                 status: published
               - summary: Delete a K8s node pool
                 labels:
@@ -3566,6 +3836,7 @@ domains:
                   - "#223"
                 req_id: K8S06
                 test_id: K8S06-03
+                actor: tenant
                 status: published
               - summary: Verify default node labels and taints can be specified when a node joins the cluster via node pool
                 labels:
@@ -3577,6 +3848,7 @@ domains:
                   - "#224"
                 req_id: K8S06
                 test_id: K8S06-04
+                actor: tenant
                 status: published
           - description: API Server Metrics
             tests:
@@ -3591,6 +3863,7 @@ domains:
                   - "#225"
                 req_id: K8S07
                 test_id: K8S07-01
+                actor: both
                 status: published
           - description: Public OIDC Endpoint
             tests:
@@ -3605,6 +3878,7 @@ domains:
                   - "#226"
                 req_id: K8S17
                 test_id: K8S17-02
+                actor: tenant
                 legacy_ids: [K8S18-01]
                 status: published
           - description: K8s Control Plane Logging
@@ -3620,26 +3894,29 @@ domains:
                   - "#227"
                 req_id: K8S20
                 test_id: K8S20-01
+                actor: both
                 status: published
           - description: K8s Performance
             tests:
-              - summary: Verify the managed K8s service meets standard Kubernetes performance tests to max cluster size
+              - summary: Verify the managed Kubernetes service meets standard Kubernetes performance and control plane SLO targets at up to 5,000 nodes or the provider's declared maximum cluster size, whichever is smaller
                 labels:
                   - min_req
                 priority: P0
                 milestone: M5
-                notes: ""
+                notes: "Consolidates the duplicate reference requirement and former test K8S37-01 into the canonical offtake K8S28 requirement."
                 github_issues:
                   - "#268"
-                req_id: K8S37
-                test_id: K8S37-01
-                legacy_ids: [K8S-XX-09]
+                req_id: K8S28
+                test_id: K8S28-01
+                actor: tenant
+                legacy_ids: [K8S-XX-09, K8S37-01]
                 status: pending
           - description: Multi-Cluster Support
             tests:
               - summary: Support multiple clusters in the same tenancy and in the same VPC
                 req_id: K8S26
                 test_id: K8S26-01
+                actor: tenant
                 labels:
                   - kubernetes
                   - min_req
@@ -3660,6 +3937,7 @@ domains:
                   - MiniCloud
                 req_id: POWER01
                 test_id: POWER01-01
+                actor: operator
                 legacy_ids: [POWER-XX-01]
                 status: approved
                 notes: ""
@@ -3675,6 +3953,7 @@ domains:
                 priority: P2
                 req_id: APIGW01
                 test_id: APIGW01-01
+                actor: tenant
                 legacy_ids: [APIGW-XX-01]
                 status: approved
                 notes: ""
@@ -3687,6 +3966,7 @@ domains:
                 priority: P2
                 req_id: AICP01
                 test_id: AICP01-01
+                actor: tenant
                 legacy_ids: [AICP-XX-01]
                 status: approved
                 notes: ""
@@ -3702,6 +3982,7 @@ domains:
                 milestone: M5
                 req_id: WEBUI01
                 test_id: WEBUI01-01
+                actor: tenant
                 legacy_ids: [WEBUI-XX-01]
                 status: approved
                 notes: ""
@@ -3719,6 +4000,7 @@ domains:
                 milestone: M0
                 req_id: OBS01
                 test_id: OBS01-01
+                actor: both
                 legacy_ids: [OBS-XX-01]
                 status: published
               - summary: Logging information about the control plane is available
@@ -3729,6 +4011,7 @@ domains:
                 milestone: M0
                 req_id: OBS02
                 test_id: OBS02-01
+                actor: both
                 legacy_ids: [OBS-XX-02]
                 status: published
               - summary: Logging information from instances
@@ -3739,6 +4022,7 @@ domains:
                 milestone: M0
                 req_id: OBS03
                 test_id: OBS03-01
+                actor: both
                 legacy_ids: [OBS-XX-03]
                 status: published
               - summary: Alerts can be issued by the system in case of problems
@@ -3749,6 +4033,7 @@ domains:
                 milestone: M0
                 req_id: OBS04
                 test_id: OBS04-01
+                actor: both
                 legacy_ids: [OBS-XX-04]
                 status: published
           - description: Telemetry Delivery
@@ -3764,6 +4049,7 @@ domains:
                   - "#342"
                 req_id: OBS05
                 test_id: OBS05-01
+                actor: both
                 legacy_ids: [OBS-XX-05]
                 status: published
           - description: Network Telemetry
@@ -3780,6 +4066,7 @@ domains:
                   - "#343"
                 req_id: OBS06
                 test_id: OBS06-01
+                actor: both
                 legacy_ids: [OBS-XX-06]
                 status: published
               - summary: Verify telemetry is available for East-West (back-end / GPU interconnect) network
@@ -3794,6 +4081,7 @@ domains:
                   - "#344"
                 req_id: OBS07
                 test_id: OBS07-01
+                actor: both
                 legacy_ids: [OBS-XX-07]
                 status: published
               - summary: Verify telemetry is available for Management network
@@ -3808,6 +4096,7 @@ domains:
                   - "#345"
                 req_id: OBS08
                 test_id: OBS08-01
+                actor: both
                 legacy_ids: [OBS-XX-08]
                 status: published
               - summary: Verify telemetry is available for NVSwitch Fabric (GB200+)
@@ -3822,6 +4111,7 @@ domains:
                   - "#346"
                 req_id: OBS09
                 test_id: OBS09-01
+                actor: both
                 legacy_ids: [OBS-XX-09]
                 status: published
               - summary: Verify telemetry is available for Host network (NIC-level)
@@ -3836,6 +4126,7 @@ domains:
                   - "#347"
                 req_id: OBS10
                 test_id: OBS10-01
+                actor: both
                 legacy_ids: [OBS-XX-10]
                 status: published
           - description: Required Logs
@@ -3851,6 +4142,7 @@ domains:
                   - "#348"
                 req_id: OBS11
                 test_id: OBS11-01
+                actor: both
                 legacy_ids: [OBS-XX-11]
                 status: published
               - summary: Verify Subnet Manager logs are available (where applicable)
@@ -3864,6 +4156,7 @@ domains:
                   - "#349"
                 req_id: OBS12
                 test_id: OBS12-01
+                actor: both
                 legacy_ids: [OBS-XX-12]
                 status: published
               - summary: Verify UFM Event logs are available
@@ -3877,6 +4170,7 @@ domains:
                   - "#350"
                 req_id: OBS13
                 test_id: OBS13-01
+                actor: both
                 legacy_ids: [OBS-XX-13]
                 status: published
               - summary: Verify general switch logs are available
@@ -3891,6 +4185,7 @@ domains:
                   - "#351"
                 req_id: OBS14
                 test_id: OBS14-01
+                actor: both
                 legacy_ids: [OBS-XX-14]
                 status: published
               - summary: Verify switch syslogs are available
@@ -3905,6 +4200,7 @@ domains:
                   - "#352"
                 req_id: OBS15
                 test_id: OBS15-01
+                actor: both
                 legacy_ids: [OBS-XX-15]
                 status: published
               - summary: Verify switch kernel logs are available
@@ -3919,6 +4215,7 @@ domains:
                   - "#353"
                 req_id: OBS16
                 test_id: OBS16-01
+                actor: both
                 legacy_ids: [OBS-XX-16]
                 status: published
               - summary: Verify BMC SEL logs are available
@@ -3933,6 +4230,7 @@ domains:
                   - "#354"
                 req_id: OBS17
                 test_id: OBS17-01
+                actor: both
                 legacy_ids: [OBS-XX-17]
                 status: published
               - summary: Verify host syslogs are available
@@ -3947,6 +4245,7 @@ domains:
                   - "#355"
                 req_id: OBS18
                 test_id: OBS18-01
+                actor: both
                 legacy_ids: [OBS-XX-18]
                 status: published
               - summary: Verify VPC Flow logs (all ingress/egress traffic) are available
@@ -3961,6 +4260,7 @@ domains:
                   - "#356"
                 req_id: OBS19
                 test_id: OBS19-01
+                actor: both
                 legacy_ids: [OBS-XX-19]
                 status: published
       - name: Telemetry / Data Lakes
@@ -3973,6 +4273,7 @@ domains:
                   - LimitedEnv
                 req_id: TELEM01
                 test_id: TELEM01-01
+                actor: both
                 legacy_ids: [TELEM-XX-01]
                 status: approved
                 notes: ""
@@ -3989,6 +4290,7 @@ domains:
                   - "#120"
                 req_id: TELEM02
                 test_id: TELEM02-01
+                actor: tenant
                 legacy_ids: [TELEM-XX-02]
                 status: published
               - summary: Read only access to a VM serial console
@@ -4003,6 +4305,7 @@ domains:
                   - "#121"
                 req_id: TELEM03
                 test_id: TELEM03-01
+                actor: tenant
                 legacy_ids: [TELEM-XX-03]
                 status: published
           - description: BMC/Redfish Telemetry
@@ -4020,6 +4323,7 @@ domains:
                   - "#362"
                 req_id: TELEM04
                 test_id: TELEM04-01
+                actor: both
                 legacy_ids: [TELEM-XX-04]
                 status: published
           - description: Storage Telemetry
@@ -4035,6 +4339,7 @@ domains:
                   - "#363"
                 req_id: TELEM05
                 test_id: TELEM05-01
+                actor: both
                 legacy_ids: [TELEM-XX-05]
                 status: approved
               - summary: Verify storage performance metrics are available (bandwidth, IOPS, latency)
@@ -4048,6 +4353,7 @@ domains:
                   - "#364"
                 req_id: TELEM06
                 test_id: TELEM06-01
+                actor: both
                 legacy_ids: [TELEM-XX-06]
                 status: approved
           - description: NVLink Switch Telemetry
@@ -4063,6 +4369,7 @@ domains:
                   - "#365"
                 req_id: TELEM07
                 test_id: TELEM07-01
+                actor: both
                 legacy_ids: [TELEM-XX-07]
                 status: approved
               - summary: Verify NVLink metrics are available from the switch perspective (port-level counters, error rates)
@@ -4076,6 +4383,7 @@ domains:
                   - "#366"
                 req_id: TELEM08
                 test_id: TELEM08-01
+                actor: both
                 legacy_ids: [TELEM-XX-08]
                 status: approved
   - name: "Security & Identity"
@@ -4096,6 +4404,7 @@ domains:
                   - "#306"
                 req_id: SEC12
                 test_id: SEC12-01
+                actor: operator
                 status: published
               - summary: Verify BMC interfaces are not reachable from tenant networks
                 labels:
@@ -4109,6 +4418,7 @@ domains:
                   - "#307"
                 req_id: SEC12
                 test_id: SEC12-02
+                actor: tenant
                 status: published
               - summary: Verify IPMI is disabled; Redfish over TLS is used with AAA
                 labels:
@@ -4122,6 +4432,7 @@ domains:
                   - "#260"
                 req_id: CNP10
                 test_id: CNP10-01
+                actor: operator
                 status: published
               - summary: Verify BMC is only accessible via a hardened bastion (jumphost) server; direct public/corporate network access is blocked
                 labels:
@@ -4135,6 +4446,7 @@ domains:
                   - "#308"
                 req_id: SEC12
                 test_id: SEC12-03
+                actor: operator
                 status: published
           - description: Network Traffic Encryption
             tests:
@@ -4150,6 +4462,7 @@ domains:
                   - "#309"
                 req_id: SEC13
                 test_id: SEC13-01
+                actor: tenant
                 status: pending
           - description: Edge Security
             tests:
@@ -4165,6 +4478,7 @@ domains:
                   - "#311"
                 req_id: SEC14
                 test_id: SEC14-01
+                actor: both
                 status: published
               - summary: Verify insecure protocols (HTTP, SSLv3, TLSv1) are disabled
                 labels:
@@ -4178,6 +4492,7 @@ domains:
                   - "#310"
                 req_id: SEC13
                 test_id: SEC13-02
+                actor: tenant
                 status: published
           - description: InfiniBand Security
             tests:
@@ -4195,6 +4510,7 @@ domains:
                   - "#287"
                 req_id: SDN04
                 test_id: SDN04-04
+                actor: operator
                 status: published
               - summary: "Verify IB keys are configured: P_Key, Management Key, Aggregation Management Key, VendorSpecific Key, CongestionControl Key, Node2Node Key, Manager2Node Key"
                 labels:
@@ -4210,12 +4526,14 @@ domains:
                   - "#288"
                 req_id: SDN04
                 test_id: SDN04-05
+                actor: operator
                 status: published
           - description: Tenancy Isolation
             tests:
               - summary: Verify hard physical or logical isolation between tenants for network, data, compute, and storage resources
                 req_id: SEC11
                 test_id: SEC11-01
+                actor: tenant
                 labels:
                   - iam
                   - min_req
@@ -4243,6 +4561,7 @@ domains:
                   - "#293"
                 req_id: SEC01
                 test_id: SEC01-01
+                actor: tenant
                 status: published
           - description: In-Cluster Authentication
             tests:
@@ -4258,6 +4577,7 @@ domains:
                   - "#294"
                 req_id: SEC06
                 test_id: SEC06-01
+                actor: tenant
                 legacy_ids: [SEC02-01]
                 status: published
           - description: External Service Authentication
@@ -4274,6 +4594,7 @@ domains:
                   - "#295"
                 req_id: SEC03
                 test_id: SEC03-01
+                actor: tenant
                 status: published
           - description: Admin Interface Security
             tests:
@@ -4289,6 +4610,7 @@ domains:
                   - "#298"
                 req_id: SEC07
                 test_id: SEC07-01
+                actor: operator
                 status: published
       - name: Authorization
         capabilities:
@@ -4306,6 +4628,7 @@ domains:
                   - "#297"
                 req_id: SEC04
                 test_id: SEC04-02
+                actor: tenant
                 status: published
       - name: "Audit & Logging"
         capabilities:
@@ -4322,6 +4645,7 @@ domains:
                   - "#299"
                 req_id: SEC08
                 test_id: SEC08-01
+                actor: operator
                 status: published
               - summary: Verify audit logs are retained for at least 30 days
                 labels:
@@ -4334,6 +4658,7 @@ domains:
                   - "#300"
                 req_id: SEC08
                 test_id: SEC08-02
+                actor: operator
                 status: published
       - name: "Hardware Security & Compliance"
         capabilities:
@@ -4352,6 +4677,7 @@ domains:
                   - "#312"
                 req_id: SEC21
                 test_id: SEC21-04
+                actor: operator
                 status: published
               - summary: Verify SRAM/GPU memory is sanitized between tenants
                 labels:
@@ -4367,6 +4693,7 @@ domains:
                   - "#313"
                 req_id: SEC21
                 test_id: SEC21-05
+                actor: operator
                 status: published
               - summary: Verify TPM and BIOS are reset during tenant transitions or hardware replacement
                 labels:
@@ -4382,6 +4709,7 @@ domains:
                   - "#314"
                 req_id: SEC21, SEC22
                 test_id: SEC21-06
+                actor: operator
                 status: published
           - description: At-Rest Encryption
             tests:
@@ -4394,6 +4722,7 @@ domains:
                 github_issues: []
                 req_id: SEC20
                 test_id: SEC20-01
+                actor: operator
                 status: pending
           - description: Key Management
             tests:
@@ -4408,6 +4737,7 @@ domains:
                   - "#303"
                 req_id: SEC09, SEC10
                 test_id: SEC09-03
+                actor: operator
                 status: published
               - summary: Verify support for Customer Managed Keys (BYOK)
                 labels:
@@ -4422,6 +4752,7 @@ domains:
                   - "#304"
                 req_id: SEC09
                 test_id: SEC09-04
+                actor: tenant
                 status: published
   - name: Network Transport
     components:
@@ -4440,6 +4771,7 @@ domains:
                   - "#278"
                 req_id: NET01
                 test_id: NET01-01
+                actor: tenant
                 status: published
       - name: NVLink Domain API
         capabilities:
@@ -4456,6 +4788,7 @@ domains:
                   - "#279"
                 req_id: NET02
                 test_id: NET02-02
+                actor: tenant
                 status: published
       - name: Transport Connectivity
         capabilities:
@@ -4471,6 +4804,7 @@ domains:
                   - "#280"
                 req_id: NET04
                 test_id: NET04-01
+                actor: tenant
                 status: pending
           - description: DGXC Storage Interconnect
             tests:
@@ -4483,6 +4817,7 @@ domains:
                 github_issues: []
                 req_id: NET05
                 test_id: NET05-01
+                actor: tenant
                 status: pending
               - summary: Verify end-to-end MACsec encryption (fail-closed)
                 labels:
@@ -4493,6 +4828,7 @@ domains:
                 github_issues: []
                 req_id: NET05
                 test_id: NET05-02
+                actor: both
                 status: pending
           - description: Cluster Internet Access
             tests:
@@ -4505,6 +4841,7 @@ domains:
                 github_issues: []
                 req_id: NET06
                 test_id: NET06-01
+                actor: tenant
                 status: pending
               - summary: Verify redundant upstream paths for internet connectivity
                 labels:
@@ -4515,6 +4852,7 @@ domains:
                 github_issues: []
                 req_id: NET06
                 test_id: NET06-02
+                actor: operator
                 status: pending
   - name: "Capacity & Fleet Management"
     components:
@@ -4534,6 +4872,7 @@ domains:
                   - "#251"
                 req_id: CAP01
                 test_id: CAP01-01
+                actor: tenant
                 status: published
       - name: Capacity Reservations
         capabilities:
@@ -4552,6 +4891,7 @@ domains:
                   - "#252"
                 req_id: CAP04
                 test_id: CAP04-01
+                actor: tenant
                 status: published
               - summary: Verify atomic allocation of a topology block as a single unit
                 labels:
@@ -4566,6 +4906,7 @@ domains:
                   - "#253"
                 req_id: CAP04
                 test_id: CAP04-02
+                actor: tenant
                 status: published
       - name: Unified Health APIs
         capabilities:
@@ -4583,6 +4924,7 @@ domains:
                   - "#254"
                 req_id: CAP05
                 test_id: CAP05-01
+                actor: tenant
                 status: published
               - summary: Verify primitive-level health aggregation (cluster, nodegroup, or reservation level)
                 labels:
@@ -4596,6 +4938,7 @@ domains:
                   - "#255"
                 req_id: CAP05
                 test_id: CAP05-02
+                actor: tenant
                 status: published
   - name: Benchmarking
     components:
@@ -4608,6 +4951,7 @@ domains:
                   - min_req
                 req_id: BM01
                 test_id: BM01-01
+                actor: tenant
                 status: pending
                 notes: ""
                 priority: ""
@@ -4616,6 +4960,7 @@ domains:
                 notes: REVIEW
                 req_id: BENCH01
                 test_id: BENCH01-01
+                actor: provider-dependent
                 legacy_ids: [BENCH-XX-01]
                 status: pending
                 priority: P2
@@ -4624,6 +4969,7 @@ domains:
                 notes: REVIEW
                 req_id: BENCH02
                 test_id: BENCH02-01
+                actor: provider-dependent
                 legacy_ids: [BENCH-XX-02]
                 status: pending
                 priority: ""
@@ -4638,4 +4984,5 @@ domains:
                   - "#249"
                 req_id: BM01
                 test_id: BM01-02
+                actor: tenant
                 status: published

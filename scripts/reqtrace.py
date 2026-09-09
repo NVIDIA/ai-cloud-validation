@@ -49,6 +49,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_PLAN = REPO_ROOT / "docs" / "test-plan.yaml"
 REQ_DIR = REPO_ROOT / "docs" / "requirements"
 MATRIX_DOC = REQ_DIR / "test-requirements-matrix.yaml"
+VALID_ACTORS = {"tenant", "operator", "both", "provider-dependent"}
 
 
 def _load(path: Path) -> Any:
@@ -68,6 +69,21 @@ def load_plan_test_ids(path: Path) -> set[str]:
                     if tid:
                         ids.add(tid)
     return ids
+
+
+def plan_actor_errors(path: Path) -> list[str]:
+    """Require one canonical actor classification on every test-plan entry."""
+    errors: list[str] = []
+    data = _load(path)
+    for domain in data.get("domains", []):
+        for comp in domain.get("components", []):
+            for cap in comp.get("capabilities", []):
+                for test in cap.get("tests", []):
+                    tid = test.get("test_id", "<no test_id>")
+                    actor = test.get("actor")
+                    if not isinstance(actor, str) or actor not in VALID_ACTORS:
+                        errors.append(f"test {tid!r}: actor must be one of {sorted(VALID_ACTORS)}, got {actor!r}")
+    return errors
 
 
 def discover_source_files() -> list[tuple[str, Path]]:
@@ -186,6 +202,7 @@ def validate() -> int:
     warnings: list[str] = []
 
     plan_ids = load_plan_test_ids(TEST_PLAN)
+    errors.extend(plan_actor_errors(TEST_PLAN))
     source_files = discover_source_files()
     if not source_files:
         errors.append("no source requirement listings found in docs/requirements/")
