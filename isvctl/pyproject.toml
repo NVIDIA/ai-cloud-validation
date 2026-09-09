@@ -1,6 +1,6 @@
 [project]
 name = "isvctl"
-version = "0.11.0"
+version = "0.12.0"
 description = "ISV Lab controller for cluster lifecycle orchestration"
 readme = "README.md"
 license = "Apache-2.0"
