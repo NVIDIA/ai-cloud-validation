@@ -313,6 +313,24 @@ The shared cordon reference skips without changing cluster state unless
 
 Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job scheduling.
 
+### Run:AI (`runai.yaml`)
+
+| Step | Phase | Script | Key JSON Fields |
+|------|-------|--------|-----------------|
+| `preflight_compatibility_kit` | setup | `providers/shared/run_compatibility_kit.py --preflight` | `image` |
+| `run_compatibility_kit` | test | `providers/shared/run_compatibility_kit.py` | `tests.compatibility.{passed,message,error,failed_tests}` |
+| `cleanup_compatibility_kit` | teardown | `providers/shared/run_compatibility_kit.py --cleanup` | — |
+
+Runs the prebuilt Run:AI compatibility kit container (its own E2E suite) against
+the cluster the kubeconfig points at, then asserts the kit's verdict. Needs a
+docker CLI and a kubeconfig on the isvctl host; both steps report skipped when
+either is missing. The kit publishes to NVIDIA NGC without guest access: the
+default image `nvcr.io/nvidia/runai/runai-compatibility-kit:latest` pull
+authenticates with `NGC_API_KEY`; override via `RUNAI_COMPAT_KIT_IMAGE`, e.g.
+with a locally built `runai/certification-kit:latest` (no credentials needed).
+The kit's artifact package (Allure report, CSV, submission zip) lands in the
+`kit_results_dir` setting.
+
 ### Control Plane (`control-plane.yaml`)
 
 | Step | Phase | Script | Key JSON Fields |
