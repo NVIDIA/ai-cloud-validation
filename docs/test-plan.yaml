@@ -1744,6 +1744,9 @@ domains:
                 notes: ""
                 priority: ""
               - summary: "IMEX: Assert nvidia-imex and nvidia-imex-ctl packages are installed and nvidia-imex.service unit is registered with systemd."
+                labels:
+                  - min_req
+                  - network
                 dependencies:
                   - LimitedEnv
                 milestone: M4

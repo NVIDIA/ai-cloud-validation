@@ -138,6 +138,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "nvlink_domain_test": "nvlink_domain",
     "imex_domain": "imex_domain",
     "imex_domain_test": "imex_domain",
+    "imex_service": "imex_service",
+    "imex_service_test": "imex_service",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -982,6 +984,59 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "nodes_validated": {"type": "integer", "description": "How many members returned a usable report"},
             "skipped": {"type": "boolean", "description": "True when no IMEX domain was configured for the run"},
             "skip_reason": {"type": "string", "description": "Why the IMEX domain check was skipped"},
+        },
+        "additionalProperties": True,
+    },
+    "imex_service": {
+        "type": "object",
+        "required": ["success", "platform", "nodes"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_service'"},
+            "nodes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["node_id"],
+                    "properties": {
+                        "node_id": {"type": "string", "minLength": 1, "description": "Node identifier"},
+                        "in_nvlink_allocation": {
+                            "type": "boolean",
+                            "description": (
+                                "Whether the node belongs to a multi-node NVLink allocation. Set from the "
+                                "allocation, not the node's self-report, so a node cannot opt itself out of scope."
+                            ),
+                        },
+                        "service_present": {
+                            "type": "boolean",
+                            "description": "Whether the IMEX daemon ships in the delivered node image",
+                        },
+                        "control_tooling_present": {
+                            "type": "boolean",
+                            "description": "Whether the IMEX control tooling is present and invocable",
+                        },
+                        "service_registration": {
+                            "type": "string",
+                            "enum": ["loaded", "masked", "not_found", "error"],
+                            "description": (
+                                "Normalized service-manager registration state, queried from the manager rather "
+                                "than the filesystem. Only 'loaded' passes; 'masked' is a deployment-model mismatch."
+                            ),
+                        },
+                        "boot_disposition": {
+                            "type": "string",
+                            "enum": ["enabled", "disabled", "static", "none", "unknown"],
+                            "description": "Normalized boot disposition, reported as evidence and never asserted on",
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "description": "Per-node IMEX service/tooling reports",
+            },
+            "nodes_checked": {"type": "integer", "description": "How many nodes were examined"},
+            "nodes_validated": {"type": "integer", "description": "How many nodes returned a usable report"},
+            "skipped": {"type": "boolean", "description": "True when no nodes were configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX service check was skipped"},
         },
         "additionalProperties": True,
     },

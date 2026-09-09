@@ -1850,7 +1850,7 @@ a|
 | [[SDN17-01]]SDN17-01
 | SDN17
 |
-|
+| min_req, network
 | tenant
 |
 |
