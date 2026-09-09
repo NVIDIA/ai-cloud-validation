@@ -1788,6 +1788,9 @@ domains:
                 notes: ""
                 priority: ""
               - summary: "IMEX: After all nodes start IMEX, query domain state via nvidia-imex-ctl -N and assert state is UP, fully connected matrix"
+                labels:
+                  - min_req
+                  - network
                 dependencies:
                   - LimitedEnv
                 milestone: M4

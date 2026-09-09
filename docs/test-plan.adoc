@@ -1910,7 +1910,7 @@ a|
 | [[SDN21-01]]SDN21-01
 | SDN21
 |
-|
+| min_req, network
 | tenant
 |
 |

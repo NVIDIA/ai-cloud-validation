@@ -22,6 +22,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
@@ -2251,3 +2253,305 @@ def test_my_isv_stable_egress_demo_emits_minimal_contract() -> None:
     payload: dict[str, Any] = json.loads(completed.stdout)
     _assert_stable_egress_contract(payload)
     assert payload["tests"]["probe_egress_ip"]["probes"] == 2
+
+
+def _imex_up_payload(node_a_id: str, node_b_id: str, *, hostnames: bool = False) -> str:
+    """Build a real-shaped `nvidia-imex-ctl -N -j -H` UP-domain JSON payload for two nodes.
+
+    Schema confirmed live against `nvidia-imex-ctl -N -j -H` (2026-09-04):
+    every configured member gets an entry (not just the queried node), each
+    with its own `connections` map keyed by "host" (IP only - never a
+    hostname, even when the node's own top-level entry has "hostName" set).
+    """
+    node_a_host, node_a_name = ("10.0.0.1", node_a_id) if hostnames else (node_a_id, "gpu-node-a")
+    node_b_host, node_b_name = ("10.0.0.2", node_b_id) if hostnames else (node_b_id, "gpu-node-b")
+    return json.dumps(
+        {
+            "nodes": {
+                "0": {
+                    "status": "READY",
+                    "host": node_a_host,
+                    "hostName": node_a_name,
+                    "connections": {
+                        "0": {"host": node_a_host, "status": "CONNECTED", "changed": True},
+                        "1": {"host": node_b_host, "status": "CONNECTED", "changed": True},
+                    },
+                },
+                "1": {
+                    "status": "READY",
+                    "host": node_b_host,
+                    "hostName": node_b_name,
+                    "connections": {
+                        "0": {"host": node_a_host, "status": "CONNECTED", "changed": True},
+                        "1": {"host": node_b_host, "status": "CONNECTED", "changed": True},
+                    },
+                },
+            },
+            "timestamp": "9/4/2026 00:00:00.000",
+            "status": "UP",
+        }
+    )
+
+
+def test_imex_parse_matches_queried_ip() -> None:
+    """--node-ids given as IPs: own node found by `host`, peers reported as IPs."""
+    module = _load_network_script("imex_domain_test.py")
+    payload = _imex_up_payload("10.0.0.1", "10.0.0.2")
+
+    domain_state, own_status, peers = module._parse_imex_ctl_json(payload, "10.0.0.1")
+
+    assert domain_state == "UP"
+    assert own_status == "READY"
+    assert peers == ["10.0.0.2"]
+
+
+def test_imex_parse_matches_queried_hostname() -> None:
+    """--node-ids given as hostnames must still resolve the local node and report
+    peers as hostnames, not the underlying IPs nvidia-imex-ctl reports in
+    `connections` - regression test for a CodeRabbit-flagged bug where hostname
+    -configured domains matched nothing and silently reported zero peers."""
+    module = _load_network_script("imex_domain_test.py")
+    payload = _imex_up_payload("gpu-node-a", "gpu-node-b", hostnames=True)
+
+    domain_state, own_status, peers = module._parse_imex_ctl_json(payload, "gpu-node-a")
+
+    assert domain_state == "UP"
+    assert own_status == "READY"
+    assert peers == ["gpu-node-b"]
+
+
+def test_imex_parse_down_domain_reports_no_peers() -> None:
+    """A DOWN domain (real payload shape from a version-mismatched daemon) reports
+    the domain state but no peers, rather than crashing or fabricating connectivity."""
+    module = _load_network_script("imex_domain_test.py")
+    payload = json.dumps(
+        {
+            "nodes": {
+                "1": {
+                    "status": "UNAVAILABLE",
+                    "host": "10.0.0.2",
+                    "connections": {
+                        "0": {"host": "10.0.0.1", "status": "INVALID", "changed": False},
+                        "1": {"host": "10.0.0.2", "status": "INVALID", "changed": False},
+                    },
+                    "hostName": "N/A",
+                },
+                "0": {
+                    "status": "UNAVAILABLE",
+                    "host": "10.0.0.1",
+                    "connections": {
+                        "1": {"host": "10.0.0.2", "status": "INVALID", "changed": False},
+                        "0": {"host": "10.0.0.1", "status": "INVALID", "changed": False},
+                    },
+                    "hostName": "gpu-node-a",
+                },
+            },
+            "timestamp": "9/4/2026 00:00:00.000",
+            "status": "DOWN",
+        }
+    )
+
+    domain_state, own_status, peers = module._parse_imex_ctl_json(payload, "10.0.0.1")
+
+    assert domain_state == "DOWN"
+    # A down daemon reports itself UNAVAILABLE, which maps to service_state
+    # "inactive" and domain_member false in the emitted contract.
+    assert own_status == "UNAVAILABLE"
+    assert module._service_state(own_status) == "inactive"
+    assert peers == []
+
+
+@pytest.mark.parametrize("malformed_payload", ["[]", "null", '{"nodes": []}', '{"nodes": "oops"}'])
+def test_imex_parse_rejects_malformed_payload_shapes(malformed_payload: str) -> None:
+    """A decoded payload that isn't the expected object shape (list, null, or a
+    `nodes` value that isn't an object) must raise ValueError, not AttributeError -
+    CodeRabbit regression: query_node only caught JSONDecodeError, so an
+    AttributeError from `data.get(...)` on a non-dict payload would have escaped
+    ThreadPoolExecutor.map and crashed main() instead of emitting structured JSON."""
+    module = _load_network_script("imex_domain_test.py")
+
+    with pytest.raises(ValueError):
+        module._parse_imex_ctl_json(malformed_payload, "10.0.0.1")
+
+
+def test_imex_query_node_reports_malformed_payload_as_query_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """query_node must convert a zero-exit SSH command returning `[]` into a
+    per-node ok=False error, not raise - so main()'s ThreadPoolExecutor.map
+    still yields structured JSON for every node instead of crashing."""
+    module = _load_network_script("imex_domain_test.py")
+    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (0, "[]", ""))
+
+    result = module.query_node("10.0.0.1", "ubuntu", "/tmp/key.pem", 30)
+
+    assert result["ok"] is False
+    assert "could not parse" in result["error"]
+
+
+def test_imex_query_members_returns_one_result_per_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every requested host must appear in the result map, keyed by host."""
+    module = _load_network_script("imex_domain_test.py")
+    payload = _imex_up_payload("10.0.0.1", "10.0.0.2")
+    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (0, payload, ""))
+
+    results = module.query_members(
+        ["10.0.0.1", "10.0.0.2"], user="ubuntu", key_file="/tmp/key.pem", timeout=30, deadline=90
+    )
+
+    assert set(results) == {"10.0.0.1", "10.0.0.2"}
+    assert results["10.0.0.1"]["peers"] == ["10.0.0.2"]
+    assert results["10.0.0.2"]["peers"] == ["10.0.0.1"]
+
+
+def test_imex_query_members_reports_unfinished_hosts_on_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hosts that do not answer within the overall deadline must come back as
+    timed-out query errors, so main() still emits the full JSON contract instead
+    of the orchestrator killing the process at its step timeout with no output."""
+    module = _load_network_script("imex_domain_test.py")
+
+    def _hang(host: str, *_args: Any, **_kwargs: Any) -> tuple[int, str, str]:
+        if host == "10.0.0.2":
+            time.sleep(5)
+        return (0, _imex_up_payload("10.0.0.1", "10.0.0.2"), "")
+
+    monkeypatch.setattr(module, "ssh_run", _hang)
+
+    results = module.query_members(
+        ["10.0.0.1", "10.0.0.2"], user="ubuntu", key_file="/tmp/key.pem", timeout=30, deadline=1
+    )
+
+    assert set(results) == {"10.0.0.1", "10.0.0.2"}
+    assert results["10.0.0.1"]["ok"] is True
+    assert results["10.0.0.2"]["ok"] is False
+    assert "deadline" in results["10.0.0.2"]["error"]
+
+
+def test_imex_query_members_caps_concurrency(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Concurrency must stay capped so a large domain does not fan out into one
+    ssh process per member."""
+    module = _load_network_script("imex_domain_test.py")
+    hosts = [f"10.0.0.{n}" for n in range(1, 41)]
+    payload = _imex_up_payload("10.0.0.1", "10.0.0.2")
+
+    lock = threading.Lock()
+    live = 0
+    peak = 0
+
+    def _tracked(*_args: Any, **_kwargs: Any) -> tuple[int, str, str]:
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        time.sleep(0.01)
+        with lock:
+            live -= 1
+        return (0, payload, "")
+
+    monkeypatch.setattr(module, "ssh_run", _tracked)
+
+    results = module.query_members(hosts, user="ubuntu", key_file="/tmp/key.pem", timeout=30, deadline=90)
+
+    assert len(results) == len(hosts)
+    assert peak <= module.MAX_PARALLEL_QUERIES
+
+
+def _run_imex_script(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run the AWS imex_domain_test.py script with a clean env (no AWS_IMEX_* set)."""
+    script = AWS_NETWORK_SCRIPTS / "imex_domain_test.py"
+    return subprocess.run(
+        [sys.executable, str(script), *args],
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", "")},
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param(["--region", "us-west-2"], id="nothing-configured"),
+        pytest.param(["--region", "us-west-2", "--key-file", "/tmp/key.pem"], id="key-only"),
+    ],
+)
+def test_imex_skips_when_domain_not_configured(args: list[str]) -> None:
+    """SDN21-01 needs a pre-existing multi-node IMEX cluster, which a normal AWS
+    network run does not provision. When the run is not pointed at one, the step
+    must skip cleanly (exit 0 + skipped payload) instead of failing the whole
+    network run - CodeRabbit regression: the step is wired unconditionally, so
+    exiting 1 here broke every AWS network run not specifically testing IMEX."""
+    completed = _run_imex_script(*args)
+
+    assert completed.returncode == 0, completed.stderr
+    payload: dict[str, Any] = json.loads(completed.stdout)
+    assert payload["success"] is True
+    assert payload["skipped"] is True
+    assert "not configured" in payload["skip_reason"]
+
+
+def test_imex_skipped_payload_matches_output_schema() -> None:
+    """The skipped payload must still satisfy the wired imex_domain schema, or the
+    orchestrator flags a schema failure on an intentionally-skipped step."""
+    from isvctl.config.output_schemas import validate_output
+
+    completed = _run_imex_script("--region", "us-west-2")
+    payload: dict[str, Any] = json.loads(completed.stdout)
+
+    is_valid, errors = validate_output(payload, "imex_domain")
+    assert is_valid, errors
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param(["--node-ids", "node-a", "--key-file", "/tmp/key.pem"], id="single-node"),
+        pytest.param(["--node-ids", "node-a,node-b"], id="no-key-file"),
+    ],
+)
+def test_imex_partial_configuration_still_fails(args: list[str]) -> None:
+    """A partially configured run means someone pointed this at a cluster and got
+    it wrong - that must stay a hard error rather than silently skipping."""
+    completed = _run_imex_script("--region", "us-west-2", *args)
+
+    assert completed.returncode == 1
+    payload: dict[str, Any] = json.loads(completed.stdout)
+    assert payload["success"] is False
+    assert payload.get("skipped") is not True
+    assert payload["error"]
+
+
+def test_imex_emits_sdn21_step_output_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The script must emit the SDN21-01 contract shape from the issue: a nested
+    `domain` object plus a `nodes` array of per-node reports, not a flat payload."""
+    module = _load_network_script("imex_domain_test.py")
+    payload = _imex_up_payload("10.0.0.1", "10.0.0.2")
+    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (0, payload, ""))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["imex_domain_test.py", "--region", "us-west-2", "--node-ids", "10.0.0.1,10.0.0.2", "--key-file", "/tmp/k.pem"],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 0
+    assert emitted["domain"]["domain_id"]
+    assert emitted["domain"]["state"] == "up"
+    assert emitted["domain"]["expected_members"] == ["10.0.0.1", "10.0.0.2"]
+    assert emitted["domain"]["fully_connected"] is True
+    assert emitted["nodes_checked"] == 2
+    assert emitted["nodes_validated"] == 2
+    assert [n["node_id"] for n in emitted["nodes"]] == ["10.0.0.1", "10.0.0.2"]
+    for node in emitted["nodes"]:
+        assert node["service_state"] == "active"
+        assert node["domain_member"] is True
+        assert node["peers_reachable"]
+    # no leftovers from the old hand-rolled shape
+    assert "reachability" not in emitted
+    assert "members" not in emitted

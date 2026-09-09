@@ -342,6 +342,17 @@ commands:
         timeout: 60
         output_schema: nvlink_domain
 
+      - name: imex_domain
+        phase: test
+        command: "python ../scripts/network/imex_domain_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "compute-node-1,compute-node-2"
+        timeout: 60
+        output_schema: imex_domain
+
       - name: teardown
         phase: teardown
         command: "python ../scripts/network/teardown.py"
