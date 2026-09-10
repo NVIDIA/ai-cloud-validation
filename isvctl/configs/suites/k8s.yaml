@@ -150,6 +150,21 @@ tests:
           labels: ["kubernetes", "min_req"]
           step: create_test_shared_vpc_cluster
 
+    # Control-plane size pinning (K8S27-01). Only runs for providers that
+    # implement pin_control_plane and bind this check to that step; a managed
+    # offering exposing no control-plane sizing knob has nothing to wire, and
+    # the check skips as step_not_configured rather than passing.
+    #
+    # The step pins the control plane and reports requested_instance_count
+    # alongside the instance_count it delivered; the check corroborates that
+    # count against the API server endpoints the cluster itself registers.
+    k8s_control_plane_size:
+      checks:
+        K8sControlPlaneSizePinnedCheck:
+          test_id: "K8S27-01"
+          labels: ["kubernetes", "min_req"]
+          step: pin_control_plane
+
     kubernetes:
       checks:
         K8sNodeCountCheck:
