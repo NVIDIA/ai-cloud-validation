@@ -6,7 +6,8 @@
 
 Values in this file are fixed mock output, not AI Cloud Validation defaults.
 The provider passes only real l8k arguments and receives the same distinct
-stdout forms used by version, schema, discover, generate, deploy, validate, and clean.
+stdout forms used by version, schema, discover, generate, deploy, validate,
+clean, and sosreport.
 """
 
 from __future__ import annotations
@@ -70,6 +71,11 @@ _VALUE_FLAGS: dict[str, set[str]] = {
         "--user-config",
         "--network-operator-namespace",
         "--keep-helm-chart",
+        "--output",
+    },
+    "sosreport": {
+        "--kubeconfig",
+        "--output-dir",
         "--output",
     },
 }
@@ -508,7 +514,7 @@ def _run_schema() -> int:
             "description": "CLI tool for deploying NVIDIA cloud-native networking solutions on Kubernetes",
             "commands": {
                 command: {"description": f"Mock l8k {command}", "example": f"l8k {command}"}
-                for command in ("discover", "generate", "deploy", "validate", "clean", "schema")
+                for command in ("discover", "generate", "deploy", "validate", "clean", "sosreport", "schema")
             },
             "phases": ["discover", "generate", "deploy"],
             "fabrics": sorted({str(value["fabric"]) for value in fixture["scenarios"].values()}),
@@ -667,6 +673,22 @@ def _run_clean(flags: dict[str, str]) -> int:
     return 0
 
 
+def _run_sosreport(flags: dict[str, str]) -> int:
+    """Mock the current text-streaming ``l8k sosreport`` command."""
+    output_dir = Path(flags.get("--output-dir", "./sosreport")).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    archive = output_dir / "network-operator-sosreport.tar.gz"
+    archive.write_text("mock Network Operator diagnostic archive\n", encoding="utf-8")
+    print("Collecting sosreport from cluster...")
+    print(f"  Output:     {output_dir}")
+    fail, _ = _failure("sosreport")
+    if fail:
+        print("Error: sosreport collection failed", file=sys.stderr)
+        return 3
+    print(f"\nSosreport collected: {output_dir}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Execute one mocked Launch Kit command."""
     args = list(sys.argv[1:] if argv is None else argv)
@@ -694,6 +716,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_deploy(flags)
         if command == "validate":
             return _run_validate(flags)
+        if command == "sosreport":
+            return _run_sosreport(flags)
         return _run_clean(flags)
     except (KeyError, OSError, TypeError, ValueError, yaml.YAMLError) as exc:
         result, exit_code = _structured_error(command, str(exc))

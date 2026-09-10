@@ -8,7 +8,7 @@
 | Path | Purpose |
 |---|---|
 | `config/provider.yaml` | Generic provider mirroring the full Launch Kit workflow |
-| `config/network-operator.yaml` | One-step validation of an ISV-provisioned Network Operator deployment |
+| `config/network-operator.yaml` | Connectivity validation plus always-run diagnostics for an ISV-provisioned Network Operator deployment |
 | `scripts/adapter.py` | Thin process and JSON evidence transport |
 
 Executable mocks and pinned scenarios are test-only and live under
@@ -31,11 +31,21 @@ outer watchdogs.
 ## Network Operator provider
 
 `config/network-operator.yaml` intentionally does not import the generic
-provider. It defines one test step and executes only:
+provider. It defines one catalog-owning test step:
 
 ```text
 l8k validate --user-config <file> --deployment-files <directory> --output json
 ```
+
+After validation is attempted, a linked finalizer always executes:
+
+```text
+l8k sosreport --output-dir <artifact-dir>/sosreport
+```
+
+Sosreport runs after both successful and failed validation commands and after
+the connectivity assertion. It is diagnostic evidence, not another catalog
+test. Its failure is reported as a separate teardown result.
 
 The cluster, Network Operator deployment, complete Launch Kit config, rendered
 deployment directory, and installed `l8k` binary are prerequisites. There are
@@ -55,14 +65,23 @@ reported automatically.
 
 ## Adapter contract
 
-For every workflow invocation, `adapter.py`:
+For every structured workflow invocation, `adapter.py`:
 
 1. resolves the configured executable;
 2. adds `--output json` unless the caller already selected JSON;
 3. executes exactly one Launch Kit command;
 4. preserves stdout, stderr, argv, exit code, and duration;
 5. parses concatenated JSON objects without renaming their fields;
-6. returns one provider envelope containing the raw documents and artifact paths.
+6. copies the HTML file advertised by a validation `reportPath` into the
+   provider evidence directory;
+7. returns one provider envelope containing the raw documents and artifact paths.
+
+For `sosreport`, the adapter does not force JSON because the current Launch Kit
+command streams text output. It defaults `--output-dir` to the provider evidence
+directory, records that directory as an artifact, and still returns the same
+structured provider envelope. The installed Launch Kit must make its
+`kubectl-netop_sosreport` helper available under the Launch Kit installation
+prefix.
 
 Semantic assertions belong in
 `isvtest.validations.k8s_launch_kit`, not the transport.

@@ -57,7 +57,7 @@ Pre-built configs are provided in `isvctl/configs/`:
 | `providers/aws/config/iam.yaml` | AWS IAM user lifecycle |
 | `providers/aws/config/eks.yaml` | AWS EKS with GPU nodes |
 | `providers/k8s-launch-kit/config/provider.yaml` | Generic Kubernetes Launch Kit workflow |
-| `providers/k8s-launch-kit/config/network-operator.yaml` | Six Network Operator Launch Kit use cases |
+| `providers/k8s-launch-kit/config/network-operator.yaml` | Launch Kit connectivity validation with post-run sosreport collection |
 | `suites/k8s.yaml` | Standard Kubernetes cluster |
 | `suites/k8s-launch-kit/*.yaml` | Launch Kit-specific Network Operator catalog wiring |
 | `suites/slurm.yaml` | Slurm HPC cluster |

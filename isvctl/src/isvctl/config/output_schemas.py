@@ -1031,6 +1031,7 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                     "deploy",
                     "validate",
                     "clean",
+                    "sosreport",
                 ],
                 "description": "The actual Launch Kit or provider prerequisite operation",
             },
@@ -1045,6 +1046,10 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "type": "array",
                 "items": {"type": "object"},
                 "description": "Unmodified JSON documents emitted by l8k",
+            },
+            "sosreport_output_directory": {
+                "type": "string",
+                "description": "Absolute directory selected for l8k sosreport output",
             },
             "checks": {
                 "oneOf": [

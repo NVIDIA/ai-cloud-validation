@@ -219,11 +219,12 @@ its plan item is not platform-scoped.
 ### Network Operator (`k8s-launch-kit/network-operator.yaml`)
 
 The Network Operator suite contains one catalog entry,
-`LaunchKitConnectivityCheck`. Its production provider invokes only `l8k
-validate` with a caller-supplied complete `user_config` and existing
-`deployment_files` directory. The Kubernetes cluster, Network Operator
-deployment, Launch Kit installation, configuration, and generated manifests
-are prerequisites.
+`LaunchKitConnectivityCheck`. Its production provider invokes `l8k validate`
+with a caller-supplied complete `user_config` and existing `deployment_files`
+directory, then invokes `l8k sosreport` as an always-run linked finalizer. The
+Kubernetes cluster, Network Operator deployment, Launch Kit installation
+(including its sosreport helper), configuration, and generated manifests are
+prerequisites.
 
 Fabric, deployment type, enabled checks, and GPUDirect applicability are not
 modeled as suite labels or separate tests. Every
@@ -242,7 +243,8 @@ uv run isvctl test run \
 
 | Step | Phase | Script | Key JSON Fields |
 |------|-------|--------|-----------------|
-| `launch_kit_validate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k validate` | raw `documents`, `argv`, `exit_code`, `duration_seconds`, `artifacts` |
+| `launch_kit_validate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k validate` | raw `documents`, `argv`, `exit_code`, `duration_seconds`, `artifacts.validation_report` |
+| `launch_kit_sosreport` | test finalizer | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k sosreport` | `argv`, `exit_code`, `duration_seconds`, `sosreport_output_directory`, `artifacts` |
 
 The generic `providers/k8s-launch-kit/config/provider.yaml` remains available
 to consumers that need the full Launch Kit lifecycle. See the

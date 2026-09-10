@@ -5,11 +5,12 @@
 """Thin AI Cloud Validation transport for the Kubernetes Launch Kit CLI.
 
 The provider deliberately exposes the real Launch Kit operations. It forwards
-user-supplied arguments verbatim and adds ``--output json`` so stdout can be
-preserved as structured evidence. Discovery can stage a complete user config
-transiently. Validation can bind an existing complete user config and rendered
-deployment directory directly. Launch Kit remains the owner of command flags,
-configuration schema, and defaults.
+user-supplied arguments verbatim and requests structured output from commands
+that implement it. Discovery can stage a complete user config transiently.
+Validation can bind an existing complete user config and rendered deployment
+directory directly. Its emitted HTML report and sosreport output are retained
+below the provider artifact directory. Launch Kit remains the owner of command
+flags, configuration schema, and defaults.
 """
 
 from __future__ import annotations
@@ -31,9 +32,11 @@ from pathlib import Path
 from typing import Any
 
 _WORKFLOW_COMMANDS = ("discover", "generate", "deploy", "validate", "clean")
+_RUN_COMMANDS = (*_WORKFLOW_COMMANDS, "sosreport")
 _INSTALLER_URL = "https://raw.githubusercontent.com/NVIDIA/k8s-launch-kit/{ref}/scripts/install.sh"
 _STAGED_USER_CONFIG = "user-config.yaml"
 _DISCOVERED_CLUSTER_CONFIG = "cluster-config.yaml"
+_VALIDATION_REPORT_NAME = "k8s-launch-kit-validation-report.html"
 
 
 def _parse_json_value(raw: str, source: str, expected_type: type[Any]) -> Any:
@@ -103,6 +106,67 @@ def _with_json_output(arguments: list[str]) -> list[str]:
             return result
     result.extend(["--output", "json"])
     return result
+
+
+def _bind_sosreport_output(arguments: list[str], *, working_dir: Path, artifact_dir: Path) -> tuple[list[str], Path]:
+    """Resolve the sosreport output directory and default it to retained evidence."""
+    result = list(arguments)
+    output_dir: Path | None = None
+    index = 0
+    while index < len(result):
+        token = result[index]
+        if token == "--output-dir":
+            if index + 1 >= len(result) or not result[index + 1]:
+                raise ValueError("--output-dir requires a non-empty value")
+            output_dir = Path(result[index + 1]).expanduser()
+            index += 2
+            continue
+        if token.startswith("--output-dir="):
+            value = token.partition("=")[2]
+            if not value:
+                raise ValueError("--output-dir requires a non-empty value")
+            output_dir = Path(value).expanduser()
+        index += 1
+
+    if output_dir is None:
+        output_dir = artifact_dir / "sosreport"
+        result.extend(["--output-dir", str(output_dir)])
+    elif not output_dir.is_absolute():
+        output_dir = (working_dir / output_dir).resolve()
+
+    return result, output_dir.resolve()
+
+
+def _retain_validation_report(
+    documents: list[dict[str, Any]],
+    *,
+    working_dir: Path,
+    artifact_dir: Path,
+) -> Path | None:
+    """Copy the HTML report advertised by Launch Kit into retained evidence."""
+    report_value = next(
+        (
+            document["reportPath"]
+            for document in reversed(documents)
+            if isinstance(document.get("reportPath"), str) and document["reportPath"]
+        ),
+        None,
+    )
+    if report_value is None:
+        return None
+
+    source = Path(report_value).expanduser()
+    if not source.is_absolute():
+        source = working_dir / source
+    source = source.resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"Launch Kit HTML validation report not found: {source}")
+
+    destination = (artifact_dir / _VALIDATION_REPORT_NAME).resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source != destination:
+        shutil.copy2(source, destination)
+    return destination
 
 
 def _structured_error(documents: list[dict[str, Any]]) -> str | None:
@@ -296,8 +360,12 @@ def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     working_dir = Path(args.working_dir).expanduser().resolve()
     working_dir.mkdir(parents=True, exist_ok=True)
     artifact_dir = Path(args.artifact_dir).expanduser().resolve()
+    retained_validation_report = artifact_dir / _VALIDATION_REPORT_NAME
+    if args.command == "validate":
+        retained_validation_report.unlink(missing_ok=True)
     staged_user_config: Path | None = None
     user_config_metadata_path: Path | None = None
+    sosreport_output_dir: Path | None = None
     try:
         if args.command == "validate" and args.deployment_files is not None:
             arguments = _bind_validate_inputs(args.user_config, args.deployment_files, arguments)
@@ -311,7 +379,14 @@ def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
             )
             user_config_metadata_path = artifact_dir / "inputs" / "user-config.json"
             _write_json(user_config_metadata_path, user_config_metadata)
-        arguments = _with_json_output(arguments)
+        if args.command == "sosreport":
+            arguments, sosreport_output_dir = _bind_sosreport_output(
+                arguments,
+                working_dir=working_dir,
+                artifact_dir=artifact_dir,
+            )
+        else:
+            arguments = _with_json_output(arguments)
         argv = [str(executable), args.command, *arguments]
         result = _run_process(argv, cwd=working_dir, env=environment)
     finally:
@@ -320,20 +395,44 @@ def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     artifacts = _record_process(artifact_dir / "commands" / args.command, argv, result)
     if user_config_metadata_path is not None:
         artifacts["user_config"] = str(user_config_metadata_path)
+    if sosreport_output_dir is not None and sosreport_output_dir.exists():
+        artifacts["sosreport"] = str(sosreport_output_dir)
 
     parse_error: str | None = None
-    try:
-        documents = _parse_json_stream(str(result["stdout"]), f"l8k {args.command} stdout")
-    except ValueError as exc:
+    if args.command == "sosreport":
+        # The current sosreport command accepts the global --output flag but
+        # streams human-readable helper output in both modes. Preserve it as a
+        # process artifact and let this adapter provide the structured envelope.
         documents = []
-        parse_error = str(exc)
+    else:
+        try:
+            documents = _parse_json_stream(str(result["stdout"]), f"l8k {args.command} stdout")
+        except ValueError as exc:
+            documents = []
+            parse_error = str(exc)
 
-    success = result["exit_code"] == 0 and parse_error is None
+    report_retention_error: str | None = None
+    if args.command == "validate" and parse_error is None:
+        try:
+            retained_report = _retain_validation_report(
+                documents,
+                working_dir=working_dir,
+                artifact_dir=artifact_dir,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            retained_report = None
+            report_retention_error = f"failed to retain Launch Kit HTML validation report: {exc}"
+        if retained_report is not None:
+            artifacts["validation_report"] = str(retained_report)
+
+    success = result["exit_code"] == 0 and parse_error is None and report_retention_error is None
     error = parse_error or _structured_error(documents)
-    if not success and error is None:
+    if result["exit_code"] != 0 and error is None:
         error = f"l8k {args.command} exited with code {result['exit_code']}"
         if excerpt := _stderr_excerpt(str(result["stderr"])):
             error = f"{error}: {excerpt}"
+    if report_retention_error is not None:
+        error = f"{error}; {report_retention_error}" if error else report_retention_error
     envelope: dict[str, Any] = {
         "success": success,
         "platform": "kubernetes",
@@ -346,6 +445,8 @@ def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "documents": documents,
         "artifacts": artifacts,
     }
+    if sosreport_output_dir is not None:
+        envelope["sosreport_output_directory"] = str(sosreport_output_dir)
     if error:
         envelope["error"] = error
     excerpt = _stderr_excerpt(str(result["stderr"]))
@@ -726,7 +827,7 @@ def _parser() -> argparse.ArgumentParser:
 
     run = subparsers.add_parser("run", help="Run one real Launch Kit workflow command")
     run.add_argument("--executable", required=True)
-    run.add_argument("--command", choices=_WORKFLOW_COMMANDS, required=True)
+    run.add_argument("--command", choices=_RUN_COMMANDS, required=True)
     run.add_argument("--arguments-json", required=True)
     run.add_argument("--user-config", default="")
     run.add_argument("--deployment-files", default=None)

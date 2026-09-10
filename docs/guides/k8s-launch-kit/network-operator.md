@@ -5,13 +5,22 @@
 
 ## Scope
 
-The Network Operator suite performs one operation:
+The Network Operator suite performs one validation operation:
 
 ```text
 l8k validate --user-config <complete-config> --deployment-files <rendered-directory>
 ```
 
-It reports the connectivity matrix produced by Launch Kit. It does not install
+It reports the connectivity matrix produced by Launch Kit. After that command
+is attempted, an always-run linked finalizer invokes:
+
+```text
+l8k sosreport --output-dir <artifact-directory>/sosreport
+```
+
+The diagnostic command runs whether validation passes, returns an error, or
+produces a failing connectivity matrix. It is evidence collection, not a
+second catalog test. The suite does not install
 or verify the `l8k` binary, discover topology, generate manifests, deploy
 Network Operator, run a separate Kubernetes preflight, or clean cluster state.
 
@@ -30,13 +39,17 @@ model in AI Cloud Validation.
 
 ```text
 Network Operator provider YAML
-  -> one isvctl test step
+  -> validation step
      -> adapter.py
         -> l8k validate --user-config ... --deployment-files ... --output json
-        -> retained argv, stdout, stderr, exit code, and duration
+        -> retained argv, stdout, stderr, exit code, duration, and HTML report
   -> Network Operator suite YAML
      -> LaunchKitConnectivityCheck
         -> one subtest for every Launch Kit connectivity row
+  -> linked finalizer, after the connectivity assertion
+     -> adapter.py
+        -> l8k sosreport --output-dir .../evidence/sosreport
+        -> retained diagnostic directory, stdout, stderr, exit code, and duration
   -> console and JUnit results
 ```
 
@@ -55,6 +68,13 @@ The generic provider in
 `isvctl/configs/providers/k8s-launch-kit/config/provider.yaml` still mirrors the
 complete Launch Kit lifecycle for other consumers. The Network Operator
 entrypoint does not import it, so none of those lifecycle steps are inherited.
+
+The `l8k` installation must also make the upstream
+`kubectl-netop_sosreport` helper available to `l8k sosreport`. Validate this
+once with a direct `l8k sosreport --output-dir <temporary-directory>` call. If
+Launch Kit reports that the script is missing, install the helper below the
+same installation prefix at `share/l8k/scripts/kubectl-netop_sosreport` before
+running the suite.
 
 ## Inputs
 
@@ -125,6 +145,12 @@ by the user. This prevents an independent isvctl watchdog from terminating a
 valid large matrix before Launch Kit's bounded checks finish. An enclosing CI
 job may still impose an overall job timeout.
 
+The `launch_kit_sosreport` finalizer has a 30-minute orchestration watchdog.
+Unlike connectivity validation, the current Launch Kit sosreport command does
+not calculate its own total deadline. A timeout or sosreport command error is
+reported as a separate `test-teardown` orchestration failure; it does not
+replace the connectivity test result.
+
 ## Results and errors
 
 `LaunchKitConnectivityCheck` finds the `connectivity.PingResults` array in the
@@ -145,6 +171,10 @@ matrix is present, or when the matrix contains no results. A command that fails
 before producing connectivity output retains its provider error in the
 validation and JUnit output.
 
+The sosreport finalizer runs after this assertion. If sosreport itself fails,
+the connectivity result remains intact and the overall orchestration reports
+the diagnostic-collection failure separately.
+
 ## Evidence
 
 The adapter writes:
@@ -153,18 +183,35 @@ The adapter writes:
 _output/k8s-launch-kit/network-operator/
   work/
   evidence/
+    k8s-launch-kit-validation-report.html
     commands/validate/
       command.json
       stdout.txt
       stderr.log
+    commands/sosreport/
+      command.json
+      stdout.txt
+      stderr.log
+    sosreport/
+      ... files produced by the Network Operator sosreport helper ...
 ```
 
 `command.json` records the resolved argv, exit code, and duration. `stdout.txt`
 contains Launch Kit's complete JSON stream, including static validation,
 connectivity, and report-path documents; `stderr.log` retains CLI progress and
-diagnostics. The adapter also registers these paths in the provider step output.
-The Launch Kit HTML report remains at the `reportPath` emitted by Launch Kit,
-normally below the supplied deployment directory.
+diagnostics. The adapter uses the emitted `reportPath` as the authoritative
+source, copies the HTML file to
+`evidence/k8s-launch-kit-validation-report.html`, and registers the copied path
+as the `validation_report` artifact. The original report remains at the path
+written by Launch Kit, normally below the supplied deployment directory. A
+report emitted for a failed connectivity matrix is copied in the same way. If
+Launch Kit advertises a report that cannot be read, the provider returns an
+evidence-retention error instead of silently reusing an older report.
+
+The sosreport command currently streams human-readable output even when the
+global `--output` flag is available. The adapter therefore preserves that
+stream in `commands/sosreport/stdout.txt` and emits its own normal structured
+step envelope; it does not attempt to reinterpret the diagnostic contents.
 
 ## PRD boundary
 

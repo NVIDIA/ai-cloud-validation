@@ -179,12 +179,16 @@ forwarded env vars → optional isvreporter upload.
   `timeout: null` so Launch Kit owns the automatically calculated or
   user-supplied matrix deadline.
 - `config/network-operator.yaml` is deliberately independent of the generic
-  lifecycle provider. It runs exactly one test step:
-  `l8k validate --user-config <file> --deployment-files <directory>`.
+  lifecycle provider. It runs exactly one catalog-owning test step:
+  `l8k validate --user-config <file> --deployment-files <directory>`, followed
+  by a linked same-phase finalizer that always invokes `l8k sosreport` after an
+  attempted validation. Sosreport is evidence collection, not another test.
   The installed binary, reachable Kubernetes cluster, reconciled Network
   Operator deployment, complete Launch Kit config, and rendered deployment
-  files are prerequisites. Do not add prepare, verify, preflight, discover,
-  generate, deploy, clean, or finalizer steps to this entrypoint.
+  files are prerequisites. The installation must also expose Launch Kit's
+  `kubectl-netop_sosreport` helper. Do not add prepare, verify, preflight,
+  discover, generate, deploy, clean, or unrelated finalizer steps to this
+  entrypoint.
 - The Network Operator provider inputs are `executable`, `user_config`,
   `deployment_files`, `working_dir`, `artifact_dir`, and a string-only
   `environment` mapping. Both input paths are resolved and checked before
@@ -203,9 +207,15 @@ forwarded env vars → optional isvreporter upload.
   The provider binds its step with `requires_selected_validations` so command
   failures remain owned by the catalog validation and appear in structured
   reporting.
-- The adapter adds only `--output json`, wraps the unmodified concatenated
-  JSON documents, and records argv, cwd, stdout, stderr, exit code, and timing.
-  Do not invent a `selfValidation` result or reinterpret Launch Kit's verdict.
+- The adapter adds only `--output json` to commands that emit structured
+  output, wraps the unmodified concatenated JSON documents, and records argv,
+  cwd, stdout, stderr, exit code, and timing. For `validate`, use the emitted
+  `reportPath` as the authoritative HTML report source and copy it to
+  `<artifact_dir>/k8s-launch-kit-validation-report.html`. `l8k sosreport` is
+  text-streaming; default its `--output-dir` to the provider evidence directory,
+  retain that directory as an artifact, and wrap the command without parsing
+  its output. Do not invent a `selfValidation` result or reinterpret Launch
+  Kit's verdict.
 - The generic provider retains installation, Kubernetes preflight, and cleanup
   support for other consumers. `l8k clean` remains its only supported deletion
   path; never reproduce Launch Kit cleanup with kubectl.
