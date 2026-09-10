@@ -164,6 +164,10 @@ tests:
           test_id: "K8S27-01"
           labels: ["kubernetes", "min_req"]
           step: pin_control_plane
+          # The pin is a setup-phase act; hold the check back to the test phase
+          # so the endpoint count it reads is a later sample than the one the
+          # step reported, and a size that has since drifted is caught.
+          phase: test
 
     kubernetes:
       checks:

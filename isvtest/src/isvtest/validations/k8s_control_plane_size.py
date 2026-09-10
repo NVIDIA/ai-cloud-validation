@@ -42,10 +42,10 @@ class K8sControlPlaneSizePinnedCheck(BaseValidation):
     Taking that report at face value would let a provider certify by asserting
     its own compliance, so the delivered count is corroborated against the
     cluster itself: the ``kubernetes`` Service in ``default`` carries one
-    endpoint address per registered API server. Two things make that
-    corroboration worth having. It is an independent measurement, and because
-    the validation runs in the test phase it is also a *later* one - a count
-    that has drifted since the pin step reported it shows up here.
+    endpoint address per registered API server. That measurement is
+    independent of the provider, and the suite holds this check back to the
+    test phase while the pin runs during setup, so it is also a later sample -
+    a size that has drifted since the step reported it shows up here.
 
     The comparison is deliberately one-sided. A provider that fronts its API
     servers with a single load-balanced address publishes one endpoint however
