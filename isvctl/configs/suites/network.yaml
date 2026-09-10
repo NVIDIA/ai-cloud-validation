@@ -334,6 +334,11 @@ tests:
           labels: ["min_req", "network"]
           requires: [vm, bare_metal]
           step: imex_domain
+        ImexServicePresenceCheck:
+          test_id: "SDN17-01"
+          labels: ["min_req", "network"]
+          requires: [vm, bare_metal]
+          step: imex_service
 
     teardown_checks:
       step: teardown

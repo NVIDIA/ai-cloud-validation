@@ -106,22 +106,21 @@ import argparse
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from common.ssh_utils import ssh_run
+from common.imex import (
+    DEFAULT_DEADLINE_SECONDS,
+    DEFAULT_SSH_USER,
+    DEFAULT_TIMEOUT_SECONDS,
+    config_gate,
+    parse_node_ids,
+    run_remote,
+    sweep_nodes,
+)
 
-DEFAULT_SSH_USER = "ubuntu"
 IMEX_CTL_COMMAND = "sudo nvidia-imex-ctl -N -j -H"
-# Cap simultaneous ssh processes so a large IMEX domain does not fan out into
-# hundreds of them at once.
-MAX_PARALLEL_QUERIES = 16
-# Overall sweep deadline. Kept well under the wired step timeout so this script
-# always wins the race and prints its JSON contract instead of being killed.
-DEFAULT_DEADLINE_SECONDS = 90
 
 
 def _parse_imex_ctl_json(output: str, queried_host: str) -> tuple[str, str, list[str]]:
@@ -214,9 +213,10 @@ def _service_state(own_status: str) -> str:
 
 def query_node(host: str, user: str, key_file: str, timeout: int) -> dict[str, Any]:
     """SSH into a single node and query its IMEX domain view."""
-    exit_code, stdout, stderr = ssh_run(host, user, key_file, IMEX_CTL_COMMAND, timeout=timeout)
-    if exit_code != 0:
-        return {"host": host, "ok": False, "error": stderr.strip() or f"exit code {exit_code}"}
+    result = run_remote(host, user, key_file, IMEX_CTL_COMMAND, timeout)
+    if not result["ok"]:
+        return result
+    stdout = result["stdout"]
 
     try:
         domain_state, own_status, peers = _parse_imex_ctl_json(stdout, host)
@@ -230,49 +230,6 @@ def query_node(host: str, user: str, key_file: str, timeout: int) -> dict[str, A
         "own_status": own_status,
         "peers": peers,
     }
-
-
-def query_members(
-    hosts: list[str],
-    *,
-    user: str,
-    key_file: str,
-    timeout: int,
-    deadline: int,
-) -> dict[str, dict[str, Any]]:
-    """Query every member concurrently, always returning one result per host.
-
-    Concurrency is capped (rather than one thread per member) so a large domain
-    does not fan out into hundreds of simultaneous ssh processes. That cap means
-    wall-clock time is roughly ``ceil(len(hosts) / MAX_PARALLEL_QUERIES) *
-    timeout``, which for a big domain of unresponsive nodes could otherwise run
-    past the orchestrator's step timeout and get this process killed before it
-    prints anything. So the whole sweep is also bounded by ``deadline``: members
-    that have not answered by then are reported as timed-out query errors and
-    the caller still emits the full structured JSON contract.
-    """
-    results: dict[str, dict[str, Any]] = {}
-    pool = ThreadPoolExecutor(max_workers=min(len(hosts), MAX_PARALLEL_QUERIES))
-    try:
-        futures = {pool.submit(query_node, host, user, key_file, timeout): host for host in hosts}
-        try:
-            for future in as_completed(futures, timeout=deadline):
-                results[futures[future]] = future.result()
-        except FuturesTimeoutError:
-            pass
-        for future, host in futures.items():
-            if host not in results:
-                future.cancel()
-                results[host] = {
-                    "host": host,
-                    "ok": False,
-                    "error": f"query did not complete within the {deadline}s deadline",
-                }
-    finally:
-        # Do not block on stragglers - each in-flight ssh_run is already bounded
-        # by its own per-node timeout, and queued work is dropped outright.
-        pool.shutdown(wait=False, cancel_futures=True)
-    return results
 
 
 def main() -> int:
@@ -290,21 +247,23 @@ def main() -> int:
         help="SSH private key file for the node(s)",
     )
     parser.add_argument("--ssh-user", default=os.environ.get("AWS_IMEX_SSH_USER", DEFAULT_SSH_USER))
-    parser.add_argument("--domain-id", default=os.environ.get("AWS_IMEX_DOMAIN_ID", ""))
-    parser.add_argument("--timeout", type=int, default=30, help="Per-node SSH command timeout (seconds)")
+    parser.add_argument(
+        "--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS, help="Per-node SSH command timeout (seconds)"
+    )
     parser.add_argument(
         "--deadline",
         type=int,
         default=DEFAULT_DEADLINE_SECONDS,
         help=(
-            "Overall deadline for querying every member (seconds). Members that have not answered by then are "
+            "Overall deadline for sweeping every node (seconds). Nodes that have not answered by then are "
             "reported as timed out so structured JSON is still emitted, rather than the orchestrator killing "
             "this process at its step timeout with no output."
         ),
     )
+    parser.add_argument("--domain-id", default=os.environ.get("AWS_IMEX_DOMAIN_ID", ""))
     args = parser.parse_args()
 
-    expected_members = [node_id.strip() for node_id in args.node_ids.split(",") if node_id.strip()]
+    expected_members = parse_node_ids(args.node_ids)
 
     result: dict[str, Any] = {
         "success": False,
@@ -322,41 +281,28 @@ def main() -> int:
         "nodes": [],
     }
 
-    # SDN21-01 needs a pre-existing multi-node IMEX cluster, which a normal AWS
-    # network run does not provision. When the run simply has not been pointed
-    # at one, skip rather than fail - otherwise wiring this step would break
-    # every network run that isn't specifically testing IMEX. A partially
-    # configured run is still a hard error: it means someone tried to point this
-    # at a cluster and got it wrong, which should not pass silently.
-    if not expected_members and not args.key_file:
-        result["success"] = True
-        result["skipped"] = True
-        result["skip_reason"] = "IMEX domain not configured for this run (no node IDs or SSH key set)"
+    # An unconfigured run skips; a partially configured one is a hard error.
+    gate = config_gate(expected_members, args.key_file, subject="IMEX domain")
+    if gate is not None:
+        result.update(gate)
+        if "skip_reason" in gate:
+            result["success"] = True
+            result["skipped"] = True
+            print(json.dumps(result, indent=2))
+            return 0
         print(json.dumps(result, indent=2))
-        return 0
+        return 1
 
-    if not expected_members:
-        result["success"] = True
-        result["skipped"] = True
-        result["skip_reason"] = "IMEX domain not configured for this run (no node IDs set)"
-        print(json.dumps(result, indent=2))
-        return 0
-
+    # Specific to the domain check: a single-node domain is trivially complete,
+    # so it is a misconfiguration rather than something to assert against.
     if len(expected_members) < 2:
         result["error"] = "--node-ids must list at least two expected IMEX domain members"
         print(json.dumps(result, indent=2))
         return 1
 
-    if not args.key_file:
-        result["error"] = "--key-file (or AWS_IMEX_KEY_FILE) is required to SSH into domain members"
-        print(json.dumps(result, indent=2))
-        return 1
-
-    results_by_host = query_members(
+    results_by_host = sweep_nodes(
         expected_members,
-        user=args.ssh_user,
-        key_file=args.key_file,
-        timeout=args.timeout,
+        lambda host: query_node(host, args.ssh_user, args.key_file, args.timeout),
         deadline=args.deadline,
     )
 
