@@ -2379,7 +2379,7 @@ def test_imex_query_node_reports_malformed_payload_as_query_error(monkeypatch: p
     per-node ok=False error, not raise - so main()'s ThreadPoolExecutor.map
     still yields structured JSON for every node instead of crashing."""
     module = _load_network_script("imex_domain_test.py")
-    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (0, "[]", ""))
+    monkeypatch.setattr(module, "run_remote", lambda h, *a, **k: {"host": h, "ok": True, "stdout": "[]"})
 
     result = module.query_node("10.0.0.1", "ubuntu", "/tmp/key.pem", 30)
 
@@ -2387,56 +2387,66 @@ def test_imex_query_node_reports_malformed_payload_as_query_error(monkeypatch: p
     assert "could not parse" in result["error"]
 
 
-def test_imex_query_members_returns_one_result_per_host(monkeypatch: pytest.MonkeyPatch) -> None:
+def _load_common_module(module_name: str) -> ModuleType:
+    """Load a provider-local helper from aws/scripts/common as a module.
+
+    The helper imports its siblings as ``common.*``, exactly as the scripts do,
+    so the scripts directory has to be importable first - otherwise this only
+    works by accident after some other test has loaded a script.
+    """
+    scripts_root = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts"
+    if str(scripts_root) not in sys.path:
+        sys.path.insert(0, str(scripts_root))
+    script_path = scripts_root / "common" / module_name
+    spec = importlib.util.spec_from_file_location(f"test_common_{script_path.stem}", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# The node sweep, the CLI options and the under-configured gate are shared by
+# both IMEX checks (SDN17-01 and SDN21-01), so they are tested once here rather
+# than duplicated per script.
+
+
+def test_imex_sweep_returns_one_result_per_host() -> None:
     """Every requested host must appear in the result map, keyed by host."""
-    module = _load_network_script("imex_domain_test.py")
-    payload = _imex_up_payload("10.0.0.1", "10.0.0.2")
-    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (0, payload, ""))
+    imex = _load_common_module("imex.py")
 
-    results = module.query_members(
-        ["10.0.0.1", "10.0.0.2"], user="ubuntu", key_file="/tmp/key.pem", timeout=30, deadline=90
-    )
+    results = imex.sweep_nodes(["h1", "h2"], lambda host: {"host": host, "ok": True}, deadline=90)
 
-    assert set(results) == {"10.0.0.1", "10.0.0.2"}
-    assert results["10.0.0.1"]["peers"] == ["10.0.0.2"]
-    assert results["10.0.0.2"]["peers"] == ["10.0.0.1"]
+    assert set(results) == {"h1", "h2"}
+    assert all(r["ok"] for r in results.values())
 
 
-def test_imex_query_members_reports_unfinished_hosts_on_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_imex_sweep_reports_unfinished_hosts_on_deadline() -> None:
     """Hosts that do not answer within the overall deadline must come back as
-    timed-out query errors, so main() still emits the full JSON contract instead
+    timed-out errors, so the caller still emits its full JSON contract instead
     of the orchestrator killing the process at its step timeout with no output."""
-    module = _load_network_script("imex_domain_test.py")
+    imex = _load_common_module("imex.py")
 
-    def _hang(host: str, *_args: Any, **_kwargs: Any) -> tuple[int, str, str]:
-        if host == "10.0.0.2":
+    def _query(host: str) -> dict[str, Any]:
+        if host == "slow":
             time.sleep(5)
-        return (0, _imex_up_payload("10.0.0.1", "10.0.0.2"), "")
+        return {"host": host, "ok": True}
 
-    monkeypatch.setattr(module, "ssh_run", _hang)
+    results = imex.sweep_nodes(["fast", "slow"], _query, deadline=1, action="probe")
 
-    results = module.query_members(
-        ["10.0.0.1", "10.0.0.2"], user="ubuntu", key_file="/tmp/key.pem", timeout=30, deadline=1
-    )
-
-    assert set(results) == {"10.0.0.1", "10.0.0.2"}
-    assert results["10.0.0.1"]["ok"] is True
-    assert results["10.0.0.2"]["ok"] is False
-    assert "deadline" in results["10.0.0.2"]["error"]
+    assert results["fast"]["ok"] is True
+    assert results["slow"]["ok"] is False
+    assert "probe did not complete within the 1s deadline" in results["slow"]["error"]
 
 
-def test_imex_query_members_caps_concurrency(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Concurrency must stay capped so a large domain does not fan out into one
-    ssh process per member."""
-    module = _load_network_script("imex_domain_test.py")
-    hosts = [f"10.0.0.{n}" for n in range(1, 41)]
-    payload = _imex_up_payload("10.0.0.1", "10.0.0.2")
-
+def test_imex_sweep_caps_concurrency() -> None:
+    """Concurrency stays capped so a large fleet does not fan out into one ssh
+    process per node."""
+    imex = _load_common_module("imex.py")
     lock = threading.Lock()
     live = 0
     peak = 0
 
-    def _tracked(*_args: Any, **_kwargs: Any) -> tuple[int, str, str]:
+    def _query(host: str) -> dict[str, Any]:
         nonlocal live, peak
         with lock:
             live += 1
@@ -2444,14 +2454,53 @@ def test_imex_query_members_caps_concurrency(monkeypatch: pytest.MonkeyPatch) ->
         time.sleep(0.01)
         with lock:
             live -= 1
-        return (0, payload, "")
+        return {"host": host, "ok": True}
 
-    monkeypatch.setattr(module, "ssh_run", _tracked)
-
-    results = module.query_members(hosts, user="ubuntu", key_file="/tmp/key.pem", timeout=30, deadline=90)
+    hosts = [f"h{n}" for n in range(40)]
+    results = imex.sweep_nodes(hosts, _query, deadline=90)
 
     assert len(results) == len(hosts)
-    assert peak <= module.MAX_PARALLEL_QUERIES
+    assert peak <= imex.MAX_PARALLEL_QUERIES
+
+
+def test_imex_sweep_handles_empty_host_list() -> None:
+    """An empty sweep must not raise (ThreadPoolExecutor rejects max_workers=0)."""
+    imex = _load_common_module("imex.py")
+
+    assert imex.sweep_nodes([], lambda host: {"host": host, "ok": True}, deadline=90) == {}
+
+
+@pytest.mark.parametrize(
+    ("node_ids", "key_file", "expected"),
+    [
+        pytest.param([], "", "skip", id="nothing-configured"),
+        pytest.param([], "/tmp/k.pem", "skip", id="key-only"),
+        pytest.param(["n1"], "", "error", id="nodes-without-key"),
+        pytest.param(["n1"], "/tmp/k.pem", None, id="fully-configured"),
+    ],
+)
+def test_imex_config_gate(node_ids: list[str], key_file: str, expected: str | None) -> None:
+    """An unconfigured run skips so it cannot break unrelated network runs, but a
+    partially configured one stays a hard error - that means someone aimed the
+    check at a cluster and got it wrong, which should not pass silently."""
+    imex = _load_common_module("imex.py")
+
+    gate = imex.config_gate(node_ids, key_file, subject="IMEX domain")
+
+    if expected is None:
+        assert gate is None
+    elif expected == "skip":
+        assert "skip_reason" in gate
+        assert "not configured" in gate["skip_reason"]
+    else:
+        assert "error" in gate
+
+
+def test_imex_parse_node_ids_trims_and_drops_blanks() -> None:
+    """Node ID parsing is shared, so both checks accept the same spellings."""
+    imex = _load_common_module("imex.py")
+
+    assert imex.parse_node_ids(" n1 , ,n2,") == ["n1", "n2"]
 
 
 def _run_imex_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -2525,7 +2574,7 @@ def test_imex_emits_sdn21_step_output_contract(monkeypatch: pytest.MonkeyPatch) 
     `domain` object plus a `nodes` array of per-node reports, not a flat payload."""
     module = _load_network_script("imex_domain_test.py")
     payload = _imex_up_payload("10.0.0.1", "10.0.0.2")
-    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (0, payload, ""))
+    monkeypatch.setattr(module, "run_remote", lambda h, *a, **k: {"host": h, "ok": True, "stdout": payload})
     monkeypatch.setattr(
         sys,
         "argv",
@@ -2641,7 +2690,9 @@ def test_imex_service_unreachable_node_stays_in_scope(monkeypatch: pytest.Monkey
     """A node that cannot be reached must not silently drop out of the asserted
     set - it stays in scope and is reported as an error registration."""
     module = _load_network_script("imex_service_test.py")
-    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (255, "", "connection refused"))
+    monkeypatch.setattr(
+        module, "run_remote", lambda h, *a, **k: {"host": h, "ok": False, "error": "connection refused"}
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -2667,7 +2718,9 @@ def test_imex_service_unreachable_node_stays_in_scope(monkeypatch: pytest.Monkey
 def test_imex_service_emits_sdn17_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     """The script emits the SDN17-01 contract shape from the issue."""
     module = _load_network_script("imex_service_test.py")
-    monkeypatch.setattr(module, "ssh_run", lambda *a, **k: (0, _imex_probe_output(), ""))
+    monkeypatch.setattr(
+        module, "run_remote", lambda h, *a, **k: {"host": h, "ok": True, "stdout": _imex_probe_output()}
+    )
     monkeypatch.setattr(
         sys,
         "argv",

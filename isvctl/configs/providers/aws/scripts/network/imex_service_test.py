@@ -49,20 +49,23 @@ import argparse
 import json
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from common.ssh_utils import ssh_run
+from common.imex import (
+    DEFAULT_DEADLINE_SECONDS,
+    DEFAULT_SSH_USER,
+    DEFAULT_TIMEOUT_SECONDS,
+    config_gate,
+    parse_node_ids,
+    run_remote,
+    sweep_nodes,
+)
 
-DEFAULT_SSH_USER = "ubuntu"
 DEFAULT_SERVICE = "nvidia-imex.service"
 DEFAULT_DAEMON_BIN = "nvidia-imex"
 DEFAULT_CTL_BIN = "nvidia-imex-ctl"
-MAX_PARALLEL_QUERIES = 16
-DEFAULT_DEADLINE_SECONDS = 90
 
 _LOAD_STATES = {"loaded": "loaded", "masked": "masked", "not-found": "not_found"}
 _BOOT_STATES = {"enabled", "disabled", "static", "masked"}
@@ -116,48 +119,10 @@ def _parse_probe(output: str) -> dict[str, Any]:
 
 def query_node(host: str, user: str, key_file: str, timeout: int, probe: str) -> dict[str, Any]:
     """SSH into one node and probe for the IMEX service and its tooling."""
-    exit_code, stdout, stderr = ssh_run(host, user, key_file, probe, timeout=timeout)
-    if exit_code != 0:
-        return {"host": host, "ok": False, "error": stderr.strip() or f"exit code {exit_code}"}
-    return {"host": host, "ok": True, **_parse_probe(stdout)}
-
-
-def query_nodes(
-    hosts: list[str],
-    *,
-    user: str,
-    key_file: str,
-    timeout: int,
-    deadline: int,
-    probe: str,
-) -> dict[str, dict[str, Any]]:
-    """Probe every node concurrently, always returning one result per host.
-
-    Concurrency is capped so a large allocation does not fan out into one ssh
-    process per node, and the whole sweep is bounded by ``deadline`` so an
-    unresponsive fleet still yields structured JSON instead of being killed at
-    the orchestrator's step timeout.
-    """
-    results: dict[str, dict[str, Any]] = {}
-    pool = ThreadPoolExecutor(max_workers=min(len(hosts), MAX_PARALLEL_QUERIES))
-    try:
-        futures = {pool.submit(query_node, host, user, key_file, timeout, probe): host for host in hosts}
-        try:
-            for future in as_completed(futures, timeout=deadline):
-                results[futures[future]] = future.result()
-        except FuturesTimeoutError:
-            pass
-        for future, host in futures.items():
-            if host not in results:
-                future.cancel()
-                results[host] = {
-                    "host": host,
-                    "ok": False,
-                    "error": f"probe did not complete within the {deadline}s deadline",
-                }
-    finally:
-        pool.shutdown(wait=False, cancel_futures=True)
-    return results
+    result = run_remote(host, user, key_file, probe, timeout)
+    if not result["ok"]:
+        return result
+    return {"host": host, "ok": True, **_parse_probe(result["stdout"])}
 
 
 def main() -> int:
@@ -169,8 +134,25 @@ def main() -> int:
         default=os.environ.get("AWS_IMEX_NODE_IDS", ""),
         help="Comma-separated SSH-reachable node IDs covered by the allocation",
     )
-    parser.add_argument("--key-file", default=os.environ.get("AWS_IMEX_KEY_FILE", ""))
+    parser.add_argument(
+        "--key-file",
+        default=os.environ.get("AWS_IMEX_KEY_FILE", ""),
+        help="SSH private key file for the node(s)",
+    )
     parser.add_argument("--ssh-user", default=os.environ.get("AWS_IMEX_SSH_USER", DEFAULT_SSH_USER))
+    parser.add_argument(
+        "--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS, help="Per-node SSH command timeout (seconds)"
+    )
+    parser.add_argument(
+        "--deadline",
+        type=int,
+        default=DEFAULT_DEADLINE_SECONDS,
+        help=(
+            "Overall deadline for sweeping every node (seconds). Nodes that have not answered by then are "
+            "reported as timed out so structured JSON is still emitted, rather than the orchestrator killing "
+            "this process at its step timeout with no output."
+        ),
+    )
     parser.add_argument("--service", default=os.environ.get("AWS_IMEX_SERVICE", DEFAULT_SERVICE))
     parser.add_argument("--daemon-bin", default=DEFAULT_DAEMON_BIN, help="IMEX daemon binary probed by role")
     parser.add_argument("--control-bin", default=DEFAULT_CTL_BIN, help="IMEX control tool probed by role")
@@ -183,11 +165,9 @@ def main() -> int:
             "node's own NVLink self-report, so a node cannot opt itself out of scope."
         ),
     )
-    parser.add_argument("--timeout", type=int, default=30, help="Per-node SSH command timeout (seconds)")
-    parser.add_argument("--deadline", type=int, default=DEFAULT_DEADLINE_SECONDS, help="Overall sweep deadline")
     args = parser.parse_args()
 
-    node_ids = [node_id.strip() for node_id in args.node_ids.split(",") if node_id.strip()]
+    node_ids = parse_node_ids(args.node_ids)
 
     result: dict[str, Any] = {
         "success": False,
@@ -199,37 +179,24 @@ def main() -> int:
         "nodes": [],
     }
 
-    # A normal AWS network run does not provision an NVLink allocation, so an
-    # unconfigured run skips rather than failing every unrelated network run.
-    # A partially configured one stays a hard error - that means someone aimed
-    # this at a cluster and got it wrong, which should not pass silently.
-    if not node_ids and not args.key_file:
-        result["success"] = True
-        result["skipped"] = True
-        result["skip_reason"] = "IMEX nodes not configured for this run (no node IDs or SSH key set)"
-        print(json.dumps(result, indent=2))
-        return 0
-
-    if not node_ids:
-        result["success"] = True
-        result["skipped"] = True
-        result["skip_reason"] = "IMEX nodes not configured for this run (no node IDs set)"
-        print(json.dumps(result, indent=2))
-        return 0
-
-    if not args.key_file:
-        result["error"] = "--key-file (or AWS_IMEX_KEY_FILE) is required to SSH into the nodes"
+    # An unconfigured run skips; a partially configured one is a hard error.
+    gate = config_gate(node_ids, args.key_file, subject="IMEX nodes")
+    if gate is not None:
+        result.update(gate)
+        if "skip_reason" in gate:
+            result["success"] = True
+            result["skipped"] = True
+            print(json.dumps(result, indent=2))
+            return 0
         print(json.dumps(result, indent=2))
         return 1
 
     probe = _probe_command(args.service, args.daemon_bin, args.control_bin)
-    results_by_host = query_nodes(
+    results_by_host = sweep_nodes(
         node_ids,
-        user=args.ssh_user,
-        key_file=args.key_file,
-        timeout=args.timeout,
+        lambda host: query_node(host, args.ssh_user, args.key_file, args.timeout, probe),
         deadline=args.deadline,
-        probe=probe,
+        action="probe",
     )
 
     nodes: list[dict[str, Any]] = []
