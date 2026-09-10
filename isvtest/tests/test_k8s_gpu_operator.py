@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -90,9 +89,14 @@ NVIDIA_DRIVER = {"metadata": {"name": "gpu-driver"}, "spec": {"version": "550.54
 
 NO_SUCH_RESOURCE = 'error: the server doesn\'t have a resource type "nvidiadrivers"'
 
-# Eight authorization answers: patch/update/delete/create on the driver
-# configuration, then patch/update on Deployments and DaemonSets.
-ALL_ALLOWED = [_ok("yes")] * 8
+GET_CLUSTER_POLICY = "get clusterpolicies.nvidia.com"
+GET_NVIDIA_DRIVER = "get nvidiadrivers.nvidia.com"
+DRY_RUN = "--dry-run=server"
+
+
+def _found(*objects: dict[str, object]) -> CommandResult:
+    """Return a ``kubectl get -o json`` list response."""
+    return _ok(json.dumps({"items": list(objects)}))
 
 
 def _override_check(**config: str) -> K8sGpuOperatorOverrideCheck:
@@ -100,13 +104,22 @@ def _override_check(**config: str) -> K8sGpuOperatorOverrideCheck:
     return K8sGpuOperatorOverrideCheck(config={"namespace": "gpu-operator", "driver_version": "580.82.07", **config})
 
 
-def _run(check: K8sGpuOperatorOverrideCheck, responses: list[CommandResult]) -> list[str]:
-    """Run the check against canned kubectl responses and return the commands it issued."""
-    queue: Iterator[CommandResult] = iter(responses)
+def _run(check: K8sGpuOperatorOverrideCheck, responses: dict[str, CommandResult]) -> list[str]:
+    """Run the check, answering each kubectl command from the first matching fragment.
+
+    Commands no fragment matches answer ``yes``, so a test states only the
+    responses it is about - every other authorization probe is allowed.
+    """
+
+    def respond(command: str, *_args: object, **_kwargs: object) -> CommandResult:
+        for fragment, result in responses.items():
+            if fragment in command:
+                return result
+        return _ok("yes")
 
     with (
         patch("isvtest.validations.k8s_gpu_operator.get_kubectl_base_shell", return_value="kubectl"),
-        patch.object(check, "run_command", side_effect=lambda *a, **k: next(queue)) as mock_run,
+        patch.object(check, "run_command", side_effect=respond) as mock_run,
     ):
         check.run()
 
@@ -120,20 +133,16 @@ def test_override_passes_when_admission_keeps_the_tenant_driver_version() -> Non
 
     commands = _run(
         check,
-        [
-            _ok(json.dumps({"items": [CLUSTER_POLICY]})),
-            *ALL_ALLOWED,
-            _ok(json.dumps(admitted)),
-        ],
+        {GET_CLUSTER_POLICY: _found(CLUSTER_POLICY), DRY_RUN: _ok(json.dumps(admitted))},
     )
 
     assert check.passed, check.message
-    assert "accepts '580.82.07'" in check.message
+    assert "accepts a write of '580.82.07'" in check.message
     assert "currently '550.54.15'" in check.message
     assert commands[0] == "kubectl get clusterpolicies.nvidia.com -o json"
-    assert commands[1] == "kubectl auth can-i patch clusterpolicies.nvidia.com"
-    assert commands[5] == "kubectl auth can-i patch deployments.apps -n gpu-operator"
-    assert commands[7] == "kubectl auth can-i patch daemonsets.apps -n gpu-operator"
+    assert "kubectl auth can-i patch clusterpolicies.nvidia.com" in commands
+    assert "kubectl auth can-i patch deployments.apps -n gpu-operator" in commands
+    assert "kubectl auth can-i patch daemonsets.apps -n gpu-operator" in commands
     # The override must never be persisted: admission runs it, the cluster keeps
     # the provider default.
     assert commands[-1] == (
@@ -149,12 +158,11 @@ def test_override_falls_back_to_nvidiadriver_when_clusterpolicy_is_absent() -> N
 
     commands = _run(
         check,
-        [
-            _ok(json.dumps({"items": []})),
-            _ok(json.dumps({"items": [NVIDIA_DRIVER]})),
-            *ALL_ALLOWED,
-            _ok(json.dumps(admitted)),
-        ],
+        {
+            GET_CLUSTER_POLICY: _found(),
+            GET_NVIDIA_DRIVER: _found(NVIDIA_DRIVER),
+            DRY_RUN: _ok(json.dumps(admitted)),
+        },
     )
 
     assert check.passed, check.message
@@ -169,7 +177,7 @@ def test_override_fails_when_no_driver_configuration_exists() -> None:
     """With no operator-managed driver version there is no override to prove."""
     check = _override_check()
 
-    _run(check, [_ok(json.dumps({"items": []})), _fail(stderr=NO_SUCH_RESOURCE)])
+    _run(check, {GET_CLUSTER_POLICY: _found(), GET_NVIDIA_DRIVER: _fail(stderr=NO_SUCH_RESOURCE)})
 
     assert not check.passed
     assert "No GPU Operator driver configuration found" in check.message
@@ -181,10 +189,10 @@ def test_override_fails_when_the_driver_configuration_query_errors() -> None:
 
     _run(
         check,
-        [
-            _fail(stderr="The connection to the server 10.0.0.1:6443 was refused"),
-            _fail(stderr=NO_SUCH_RESOURCE),
-        ],
+        {
+            GET_CLUSTER_POLICY: _fail(stderr="The connection to the server 10.0.0.1:6443 was refused"),
+            GET_NVIDIA_DRIVER: _fail(stderr=NO_SUCH_RESOURCE),
+        },
     )
 
     assert not check.passed
@@ -195,10 +203,11 @@ def test_override_fails_when_the_driver_configuration_query_errors() -> None:
 def test_override_fails_when_a_required_verb_is_denied() -> None:
     """A provider that locks the driver configuration down via RBAC fails."""
     check = _override_check()
-    answers = list(ALL_ALLOWED)
-    answers[2] = _fail("no", exit_code=1)
 
-    _run(check, [_ok(json.dumps({"items": [CLUSTER_POLICY]})), *answers])
+    _run(
+        check,
+        {GET_CLUSTER_POLICY: _found(CLUSTER_POLICY), "can-i delete clusterpolicies.nvidia.com": _fail("no")},
+    )
 
     assert not check.passed
     assert "cannot delete clusterpolicies.nvidia.com" in check.message
@@ -207,10 +216,8 @@ def test_override_fails_when_a_required_verb_is_denied() -> None:
 def test_override_fails_when_the_operator_workloads_are_read_only() -> None:
     """Replacing the operator means rewriting its workloads in its own namespace."""
     check = _override_check()
-    answers = list(ALL_ALLOWED)
-    answers[6] = _fail("no", exit_code=1)
 
-    _run(check, [_ok(json.dumps({"items": [CLUSTER_POLICY]})), *answers])
+    _run(check, {GET_CLUSTER_POLICY: _found(CLUSTER_POLICY), "can-i patch daemonsets.apps": _fail("no")})
 
     assert not check.passed
     assert "cannot patch daemonsets.apps in gpu-operator" in check.message
@@ -219,10 +226,14 @@ def test_override_fails_when_the_operator_workloads_are_read_only() -> None:
 def test_override_fails_when_an_authorization_probe_is_inconclusive() -> None:
     """A probe that answers neither yes nor no is an error, not a silent pass."""
     check = _override_check()
-    answers = list(ALL_ALLOWED)
-    answers[0] = _fail(stderr="error: unknown flag: --subresource")
 
-    _run(check, [_ok(json.dumps({"items": [CLUSTER_POLICY]})), *answers])
+    _run(
+        check,
+        {
+            GET_CLUSTER_POLICY: _found(CLUSTER_POLICY),
+            "can-i patch clusterpolicies.nvidia.com": _fail(stderr="error: unknown flag: --subresource"),
+        },
+    )
 
     assert not check.passed
     assert "was inconclusive" in check.message
@@ -234,11 +245,10 @@ def test_override_fails_when_admission_rejects_the_version() -> None:
 
     _run(
         check,
-        [
-            _ok(json.dumps({"items": [CLUSTER_POLICY]})),
-            *ALL_ALLOWED,
-            _fail(stderr='admission webhook "gpu-policy.provider.example" denied the request'),
-        ],
+        {
+            GET_CLUSTER_POLICY: _found(CLUSTER_POLICY),
+            DRY_RUN: _fail(stderr='admission webhook "gpu-policy.provider.example" denied the request'),
+        },
     )
 
     assert not check.passed
@@ -250,14 +260,7 @@ def test_override_fails_when_admission_pins_the_provider_default_version() -> No
     """A mutating webhook may accept the write and quietly restore its own version."""
     check = _override_check()
 
-    _run(
-        check,
-        [
-            _ok(json.dumps({"items": [CLUSTER_POLICY]})),
-            *ALL_ALLOWED,
-            _ok(json.dumps(CLUSTER_POLICY)),
-        ],
-    )
+    _run(check, {GET_CLUSTER_POLICY: _found(CLUSTER_POLICY), DRY_RUN: _ok(json.dumps(CLUSTER_POLICY))})
 
     assert not check.passed
     assert "Admission kept the provider-default driver version" in check.message
@@ -271,16 +274,11 @@ def test_override_probes_a_neighbouring_version_when_the_required_one_is_install
 
     commands = _run(
         check,
-        [
-            _ok(json.dumps({"items": [CLUSTER_POLICY]})),
-            *ALL_ALLOWED,
-            _ok(json.dumps(admitted)),
-        ],
+        {GET_CLUSTER_POLICY: _found(CLUSTER_POLICY), DRY_RUN: _ok(json.dumps(admitted))},
     )
 
     assert check.passed, check.message
-    assert "already holds the tenant-required '550.54.15'" in check.message
-    assert "accepts a change to '550.54.16'" in check.message
+    assert "accepts a write of '550.54.16'" in check.message
     assert commands[-1] == (
         "kubectl patch clusterpolicies.nvidia.com cluster-policy --type=merge "
         '--patch \'{"spec": {"driver": {"version": "550.54.16"}}}\' --dry-run=server -o json'
@@ -291,14 +289,7 @@ def test_override_fails_when_the_installed_version_is_pinned_against_any_change(
     """A no-op write must not pass: admission returning the current version is a failure."""
     check = _override_check(driver_version="550.54.15")
 
-    _run(
-        check,
-        [
-            _ok(json.dumps({"items": [CLUSTER_POLICY]})),
-            *ALL_ALLOWED,
-            _ok(json.dumps(CLUSTER_POLICY)),
-        ],
-    )
+    _run(check, {GET_CLUSTER_POLICY: _found(CLUSTER_POLICY), DRY_RUN: _ok(json.dumps(CLUSTER_POLICY))})
 
     assert not check.passed
     assert "Admission kept the provider-default driver version" in check.message

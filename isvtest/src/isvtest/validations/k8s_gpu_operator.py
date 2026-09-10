@@ -22,13 +22,15 @@ import pytest
 from isvtest.config.settings import get_k8s_gpu_operator_namespace
 from isvtest.core.k8s import (
     KubectlParseError,
+    command_detail,
     get_kubectl_base_shell,
+    is_resource_absent,
     kubectl_items_or_fail,
+    names_from_items,
     parse_kubectl_json,
     parse_kubectl_json_items,
     pod_status_reason,
 )
-from isvtest.core.runners import CommandResult
 from isvtest.core.validation import BaseValidation
 
 
@@ -143,39 +145,26 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
         discovered = self._discover_driver_config(kubectl_base)
         if discovered is None:
             return
-        kind, config_object = discovered
+        kind, name, current_version = discovered
 
-        name = str((config_object.get("metadata") or {}).get("name") or "")
-        if not name:
-            self.set_failed(f"{kind.resource} object has no metadata.name")
+        if not self._tenant_can_replace_operator(kubectl_base, kind, namespace):
             return
 
-        denials = self._authorization_denials(kubectl_base, kind, namespace)
-        if denials is None:
-            return
-        if denials:
-            self.set_failed(
-                f"Tenant is not authorized to replace the provider-default GPU Operator: {'; '.join(denials)}"
-            )
-            return
+        self._verify_override_admitted(kubectl_base, kind, name, driver_version, current_version)
 
-        self._verify_override_admitted(
-            kubectl_base,
-            kind,
-            name,
-            driver_version,
-            _dig(config_object, kind.version_path),
-        )
+    def _discover_driver_config(self, kubectl_base: str) -> tuple[_DriverConfigKind, str, str] | None:
+        """Return the kind, object name, and configured version of the driver config.
 
-    def _discover_driver_config(self, kubectl_base: str) -> tuple[_DriverConfigKind, dict[str, Any]] | None:
-        """Return the first driver configuration object found, or mark the check failed."""
+        Returns ``None`` after marking the check failed when no kind is present
+        or a query failed for a reason other than the kind being absent.
+        """
         query_errors: list[str] = []
 
         for kind in DRIVER_CONFIG_KINDS:
             result = self.run_command(f"{kubectl_base} get {shlex.quote(kind.resource)} -o json")
             if result.exit_code != 0:
-                if not _is_absent(result.stderr):
-                    query_errors.append(f"{kind.resource}: {_detail(result)}")
+                if not is_resource_absent(result.stderr):
+                    query_errors.append(f"{kind.resource}: {command_detail(result)}")
                 continue
             try:
                 items = parse_kubectl_json_items(result, kind.resource)
@@ -183,7 +172,7 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
                 self.set_failed(str(exc))
                 return None
             if items:
-                return kind, items[0]
+                return kind, names_from_items(items)[0], _dig(items[0], kind.version_path)
 
         if query_errors:
             self.set_failed("Unable to query the GPU Operator driver configuration: " + "; ".join(query_errors))
@@ -196,13 +185,13 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
         )
         return None
 
-    def _authorization_denials(
+    def _tenant_can_replace_operator(
         self,
         kubectl_base: str,
         kind: _DriverConfigKind,
         namespace: str,
-    ) -> list[str] | None:
-        """Return denied operations, or ``None`` after marking a probe failure."""
+    ) -> bool:
+        """Return True when every override route is authorized, marking failures itself."""
         probes = [(verb, kind.resource, "") for verb in CONFIG_VERBS]
         probes += [(verb, resource, namespace) for resource in WORKLOAD_RESOURCES for verb in WORKLOAD_VERBS]
 
@@ -222,9 +211,15 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
                 denials.append(f"cannot {verb} {resource}" + (f" in {scope}" if scope else ""))
                 continue
 
-            self.set_failed(f"Authorization probe for '{verb} {resource}' was inconclusive: {_detail(result)}")
-            return None
-        return denials
+            self.set_failed(f"Authorization probe for '{verb} {resource}' was inconclusive: {command_detail(result)}")
+            return False
+
+        if denials:
+            self.set_failed(
+                f"Tenant is not authorized to replace the provider-default GPU Operator: {'; '.join(denials)}"
+            )
+            return False
+        return True
 
     def _verify_override_admitted(
         self,
@@ -247,7 +242,7 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
         )
         if result.exit_code != 0:
             self.set_failed(
-                f"Admission rejected driver version '{requested}' on {kind.resource}/{name}: {_detail(result)}"
+                f"Admission rejected driver version '{requested}' on {kind.resource}/{name}: {command_detail(result)}"
             )
             return
 
@@ -267,16 +262,9 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
             )
             return
 
-        if requested == driver_version:
-            self.set_passed(
-                f"Tenant can override the provider-default driver: {kind.resource}/{name} {version_path} "
-                f"accepts '{driver_version}' (currently '{current_version or 'unset'}')"
-            )
-            return
-
         self.set_passed(
-            f"Tenant can override the GPU Operator driver: {kind.resource}/{name} {version_path} already "
-            f"holds the tenant-required '{driver_version}' and accepts a change to '{requested}'"
+            f"Tenant can override the provider-default driver: {kind.resource}/{name} {version_path} "
+            f"accepts a write of '{requested}' (currently '{current_version or 'unset'}')"
         )
 
 
@@ -304,18 +292,3 @@ def _nested(path: tuple[str, ...], value: str) -> dict[str, Any]:
     for key in reversed(path):
         body = {key: body}
     return body
-
-
-def _is_absent(stderr: str) -> bool:
-    """Return True when kubectl reports the resource type or object is simply not there."""
-    lowered = (stderr or "").lower()
-    return (
-        "doesn't have a resource type" in lowered
-        or "could not find the requested resource" in lowered
-        or "notfound" in lowered.replace(" ", "")
-    )
-
-
-def _detail(result: CommandResult) -> str:
-    """Return the most informative line from a failed kubectl invocation."""
-    return (result.stderr or result.stdout or f"exit {result.exit_code}").strip()
