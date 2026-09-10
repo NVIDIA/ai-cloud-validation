@@ -279,6 +279,7 @@ def test_override_probes_a_neighbouring_version_when_the_required_one_is_install
 
     assert check.passed, check.message
     assert "accepts a write of '550.54.16'" in check.message
+    assert "tenant-required '550.54.15' is already installed" in check.message
     assert commands[-1] == (
         "kubectl patch clusterpolicies.nvidia.com cluster-policy --type=merge "
         '--patch \'{"spec": {"driver": {"version": "550.54.16"}}}\' --dry-run=server -o json'

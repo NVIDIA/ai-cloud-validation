@@ -262,9 +262,12 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
             )
             return
 
+        # A probed neighbouring version is one nobody asked for, so name the
+        # tenant-required version rather than leave it out of the report.
+        probed = "" if requested == driver_version else f"; tenant-required '{driver_version}' is already installed"
         self.set_passed(
             f"Tenant can override the provider-default driver: {kind.resource}/{name} {version_path} "
-            f"accepts a write of '{requested}' (currently '{current_version or 'unset'}')"
+            f"accepts a write of '{requested}' (currently '{current_version or 'unset'}'){probed}"
         )
 
 
