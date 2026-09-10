@@ -209,7 +209,7 @@ class K8sCrdWebhookCheck(BaseValidation):
         for attempt in range(attempts):
             proc = self._run_apply(manifest, timeout=self._apply_timeout(deadline))
             if proc.returncode != 0:
-                last_detail = _process_detail(proc)
+                last_detail = command_detail(proc)
             else:
                 result = self.run_command(
                     f"{self._kubectl_base} get {shlex.quote(self._names.resource)} mutated "
@@ -251,7 +251,7 @@ class K8sCrdWebhookCheck(BaseValidation):
         deadline = time.monotonic() + self._wait_timeout
         for attempt in range(attempts):
             proc = self._run_apply(manifest, timeout=self._apply_timeout(deadline))
-            detail = _process_detail(proc)
+            detail = command_detail(proc)
             if proc.returncode != 0:
                 if expected in detail:
                     return True
@@ -284,7 +284,7 @@ class K8sCrdWebhookCheck(BaseValidation):
         """Apply a manifest and mark the validation failed on kubectl errors."""
         proc = self._run_apply(manifest)
         if proc.returncode != 0:
-            self.set_failed(f"kubectl apply failed for {label}: {_process_detail(proc)}")
+            self.set_failed(f"kubectl apply failed for {label}: {command_detail(proc)}")
             return False
         return True
 
@@ -593,8 +593,3 @@ def _generate_cert_bundle(dns_names: list[str]) -> _CertBundle:
 def _b64(data: bytes) -> str:
     """Return base64-encoded text for Kubernetes byte fields."""
     return base64.b64encode(data).decode("ascii")
-
-
-def _process_detail(proc: subprocess.CompletedProcess[str]) -> str:
-    """Return the most useful stderr/stdout detail from a completed process."""
-    return (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()

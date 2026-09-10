@@ -367,7 +367,7 @@ def command_detail(result: KubectlJsonResult) -> str:
     exit_code = getattr(result, "exit_code", None)
     if exit_code is None:
         exit_code = getattr(result, "returncode", None)
-    return (result.stderr or result.stdout or f"exit {exit_code}").strip()
+    return (result.stderr or "").strip() or (result.stdout or "").strip() or f"exit {exit_code}"
 
 
 def is_resource_absent(stderr: str) -> bool:
