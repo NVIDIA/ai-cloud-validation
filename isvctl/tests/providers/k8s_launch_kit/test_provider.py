@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 import yaml
-from isvtest.core.resolution import ErrorReason, State
+from isvtest.core.resolution import State
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.output_schemas import validate_output
@@ -78,6 +78,7 @@ def _run_workflow(
     working_dir: Path,
     artifact_dir: Path,
     user_config: Path | None = None,
+    deployment_files: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
     """Run a mocked l8k workflow command through the generic transport."""
@@ -98,6 +99,8 @@ def _run_workflow(
     ]
     if user_config is not None:
         provider_arguments.extend(["--user-config", str(user_config)])
+    if deployment_files is not None:
+        provider_arguments.extend(["--deployment-files", str(deployment_files)])
     return _run_provider(*provider_arguments, env=env)
 
 
@@ -105,12 +108,24 @@ def _mocked_network_operator_config(tmp_path: Path) -> RunConfig:
     """Load production wiring, then inject test-owned executables and paths."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
     context = merged["context"]["k8s_launch_kit"]
+    user_config = tmp_path / "cluster-config.yaml"
+    user_config.write_text(
+        """networkOperator:
+  selectedRelease: "26.4"
+profile:
+  fabric: ethernet
+  deployment: sriov
+clusterConfig: []
+""",
+        encoding="utf-8",
+    )
+    deployment_files = tmp_path / "deployment"
+    deployment_files.mkdir()
     context["executable"] = str(_MOCK_L8K)
-    context["kubectl_command"] = [sys.executable, str(_MOCK_KUBECTL)]
-    context["shared_artifact_dir"] = str(tmp_path / "shared-evidence")
-    for name, use_case in context["use_cases"].items():
-        use_case["working_dir"] = str(tmp_path / "use-cases" / name / "work")
-        use_case["artifact_dir"] = str(tmp_path / "use-cases" / name / "evidence")
+    context["user_config"] = str(user_config)
+    context["deployment_files"] = str(deployment_files)
+    context["working_dir"] = str(tmp_path / "work")
+    context["artifact_dir"] = str(tmp_path / "evidence")
     return RunConfig.model_validate(merged)
 
 
@@ -185,51 +200,38 @@ def test_generic_provider_has_no_launch_kit_domain_defaults() -> None:
 
 
 def test_network_operator_provider_defaults_to_real_cli_tools() -> None:
-    """The shipped use-case provider cannot select repository test doubles."""
+    """The shipped provider contains one real, validation-only workflow."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
     config = RunConfig.model_validate(merged)
     context = merged["context"]["k8s_launch_kit"]
 
-    assert context["executable"] == "l8k"
-    assert context["installation"]["installer_ref"] == ""
-    assert context["installation"]["installer_sha256"] == ""
-    assert context["user_config"] == ""
-    assert context["kubectl_command"] == []
+    assert context == {
+        "executable": "l8k",
+        "user_config": "",
+        "deployment_files": "",
+        "working_dir": "../../../../../_output/k8s-launch-kit/network-operator/work",
+        "artifact_dir": "../../../../../_output/k8s-launch-kit/network-operator/evidence",
+        "environment": {},
+    }
     assert "mock" not in json.dumps(merged).lower()
     assert "poc" not in json.dumps(merged).lower()
-    assert len(config.commands["network_operator"].steps) == 26
-    assert config.commands["network_operator"].phases[-1] == "infiniband-host-device"
-    discover_steps = [step for step in config.commands["network_operator"].steps if step.name.endswith("_discover")]
-    assert len(discover_steps) == 6
-    assert all("--user-config={{ context.k8s_launch_kit.user_config }}" in step.args for step in discover_steps)
-    prepare_step = next(step for step in config.commands["network_operator"].steps if step.name == "launch_kit_prepare")
-    assert "--installer-ref={{ context.k8s_launch_kit.installation.installer_ref }}" in prepare_step.args
-    assert "--installer-sha256={{ context.k8s_launch_kit.installation.installer_sha256 }}" in prepare_step.args
-    use_case_steps = config.commands["network_operator"].steps[2:]
-    assert all(not step.name.endswith(("_deploy", "_clean")) for step in use_case_steps)
-    assert all(step.finalizer_for is None for step in use_case_steps)
+    command = config.commands["network_operator"]
+    assert command.phases == ["test"]
+    assert [step.name for step in command.steps] == ["launch_kit_validate"]
+    step = command.steps[0]
+    assert step.timeout is None
+    assert "--user-config={{ context.k8s_launch_kit.user_config }}" in step.args
+    assert "--deployment-files={{ context.k8s_launch_kit.deployment_files }}" in step.args
+    assert step.requires_selected_validations == ["LaunchKitConnectivityCheck"]
 
 
-def test_network_operator_workflows_use_launch_kit_default_paths() -> None:
-    """Grouped use cases leave config and deployment paths to Launch Kit."""
+def test_network_operator_suite_has_one_catalog_check() -> None:
+    """Fabric and deployment choices are prerequisites, not test entries."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
-    use_cases = merged["context"]["k8s_launch_kit"]["use_cases"]
-    default_path_flags = {
-        "--user-config",
-        "--deployment-files",
-        "--save-cluster-config",
-        "--save-deployment-files",
-    }
+    checks = merged["tests"]["validations"]["network_operator"]["checks"]
 
-    for use_case in use_cases.values():
-        all_arguments = {
-            argument for phase in ("discover", "generate", "validate") for argument in use_case[phase]["arguments"]
-        }
-        assert default_path_flags.isdisjoint(all_arguments)
-        assert set(use_case) == {"working_dir", "artifact_dir", "discover", "generate", "validate"}
-        assert use_case["discover"]["arguments"][0] == "--fabric"
-        assert use_case["generate"]["arguments"] == []
-        assert use_case["validate"]["arguments"] == []
+    assert list(checks) == ["LaunchKitConnectivityCheck"]
+    assert checks["LaunchKitConnectivityCheck"]["test_id"] == "K8S42-01"
 
 
 def test_kubectl_defaults_to_the_real_binary() -> None:
@@ -840,309 +842,154 @@ def test_preflight_rejects_conflicting_workflow_kubeconfigs(tmp_path: Path) -> N
     assert "different kubeconfigs" in output["error"]
 
 
-def test_network_operator_provider_runs_end_to_end(tmp_path: Path, monkeypatch: Any) -> None:
-    """The production configuration executes all six named use cases in order."""
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
+def test_network_operator_provider_runs_only_validate(tmp_path: Path) -> None:
+    """The production configuration invokes one validation over prerequisite inputs."""
     config = _mocked_network_operator_config(tmp_path)
 
     result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
-        phases=[Phase.SETUP, Phase.TEST],
+        phases=[Phase.TEST],
         capability="kubernetes",
     )
 
     assert result.success is True
-    expected_use_cases = [
-        "roce_sriov",
-        "infiniband_sriov",
-        "roce_rdma_shared",
-        "infiniband_rdma_shared",
-        "roce_host_device",
-        "infiniband_host_device",
-    ]
-    expected_steps = ["launch_kit_prepare", "launch_kit_verify"]
-    for use_case in expected_use_cases:
-        expected_steps.extend(
-            f"launch_kit_{use_case}_{operation}" for operation in ("preflight", "discover", "generate", "validate")
-        )
-    assert list(result.inventory) == expected_steps
-    expected_phase_names = ["setup", "launch-kit-verification"] + [
-        use_case.replace("_", "-") for use_case in expected_use_cases
-    ]
-    assert [phase.name for phase in result.phases] == expected_phase_names
-    for use_case in expected_use_cases:
-        phase_name = use_case.replace("_", "-")
-        test_phase = next(phase for phase in result.phases if phase.name == phase_name)
-        assert test_phase.phase is Phase.TEST
-        assert [step["name"].rsplit("_", 1)[-1] for step in test_phase.details["steps"]] == [
-            "preflight",
-            "discover",
-            "generate",
-            "validate",
-        ]
-    states = {entry.entry.name: entry.state for entry in result.validations}
-    assert states == {
-        "EastWestNetworkRoceSriovCheck": State.PASSED,
-        "EastWestNetworkInfiniBandSriovCheck": State.PASSED,
-        "EastWestNetworkRoceRdmaSharedCheck": State.PASSED,
-        "EastWestNetworkInfiniBandRdmaSharedCheck": State.PASSED,
-        "EastWestNetworkRoceHostDeviceCheck": State.PASSED,
-        "EastWestNetworkInfiniBandHostDeviceCheck": State.PASSED,
-    }
-    expected_subtest_counts = {
-        "EastWestNetworkRoceSriovCheck": 121,
-        "EastWestNetworkInfiniBandSriovCheck": 121,
-        "EastWestNetworkRoceRdmaSharedCheck": 116,
-        "EastWestNetworkInfiniBandRdmaSharedCheck": 116,
-        "EastWestNetworkRoceHostDeviceCheck": 116,
-        "EastWestNetworkInfiniBandHostDeviceCheck": 116,
-    }
-    for entry in result.validations:
-        assert entry.subtest_summary.passed == expected_subtest_counts[entry.entry.name]
-        assert entry.subtest_summary.failed == 0
-        assert entry.subtest_summary.skipped == 0
-    for use_case in expected_use_cases:
-        assert (tmp_path / "use-cases" / use_case / "work" / "cluster-config.yaml").is_file()
+    assert list(result.inventory) == ["launch_kit_validate"]
+    assert [phase.name for phase in result.phases] == ["test"]
+    assert len(result.validations) == 1
+    validation = result.validations[0]
+    assert validation.entry.name == "LaunchKitConnectivityCheck"
+    assert validation.state is State.PASSED
+    assert validation.subtest_summary.passed == 32
+    assert validation.subtest_summary.failed == 0
+    assert validation.subtest_summary.skipped == 0
+
+    argv = result.inventory["launch_kit_validate"]["argv"]
+    assert argv[1] == "validate"
+    assert argv[argv.index("--user-config") + 1] == str((tmp_path / "cluster-config.yaml").resolve())
+    assert argv[argv.index("--deployment-files") + 1] == str((tmp_path / "deployment").resolve())
+    assert argv[-2:] == ["--output", "json"]
+
+
+def test_network_operator_provider_expands_input_paths(tmp_path: Path, monkeypatch: Any) -> None:
+    """Tilde inputs are resolved before they are supplied to Launch Kit."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    user_config = tmp_path / "l8k" / "cluster-config.yaml"
+    user_config.parent.mkdir()
+    user_config.write_text(
+        "profile:\n  fabric: ethernet\n  deployment: sriov\n",
+        encoding="utf-8",
+    )
+    deployment_files = tmp_path / "l8k" / "deployment"
+    deployment_files.mkdir()
+
+    completed, output = _run_workflow(
+        "validate",
+        [],
+        working_dir=tmp_path / "work",
+        artifact_dir=tmp_path / "evidence",
+        user_config=Path("~/l8k/cluster-config.yaml"),
+        deployment_files=Path("~/l8k/deployment"),
+    )
+
+    assert completed.returncode == 0
+    assert output["argv"][output["argv"].index("--user-config") + 1] == str(user_config)
+    assert output["argv"][output["argv"].index("--deployment-files") + 1] == str(deployment_files)
 
 
 @pytest.mark.parametrize(
-    ("label", "selected_use_cases", "excluded_use_cases"),
+    ("user_config", "deployment_files", "expected"),
     [
-        (
-            "ethernet",
-            ["roce_sriov", "roce_rdma_shared", "roce_host_device"],
-            ["infiniband_sriov", "infiniband_rdma_shared", "infiniband_host_device"],
-        ),
-        (
-            "infiniband",
-            ["infiniband_sriov", "infiniband_rdma_shared", "infiniband_host_device"],
-            ["roce_sriov", "roce_rdma_shared", "roce_host_device"],
-        ),
-        (
-            "sriov",
-            ["roce_sriov", "infiniband_sriov"],
-            ["roce_rdma_shared", "infiniband_rdma_shared", "roce_host_device", "infiniband_host_device"],
-        ),
-        (
-            "rdma_shared",
-            ["roce_rdma_shared", "infiniband_rdma_shared"],
-            ["roce_sriov", "infiniband_sriov", "roce_host_device", "infiniband_host_device"],
-        ),
-        (
-            "host_device",
-            ["roce_host_device", "infiniband_host_device"],
-            ["roce_sriov", "infiniband_sriov", "roce_rdma_shared", "infiniband_rdma_shared"],
-        ),
-        (
-            "gpudirect",
-            [
-                "roce_sriov",
-                "infiniband_sriov",
-                "roce_rdma_shared",
-                "infiniband_rdma_shared",
-                "roce_host_device",
-                "infiniband_host_device",
-            ],
-            [],
-        ),
-        (
-            ["ethernet", "sriov"],
-            ["roce_sriov"],
-            [
-                "infiniband_sriov",
-                "roce_rdma_shared",
-                "infiniband_rdma_shared",
-                "roce_host_device",
-                "infiniband_host_device",
-            ],
-        ),
+        (None, "deployment", "user_config is required"),
+        ("cluster-config.yaml", None, "--user-config requires --deployment-files"),
     ],
 )
-def test_network_operator_provider_grouping_label_prunes_unselected_workflows(
+def test_validate_requires_both_prerequisite_inputs(
     tmp_path: Path,
-    monkeypatch: Any,
-    label: str | list[str],
-    selected_use_cases: list[str],
-    excluded_use_cases: list[str],
+    user_config: str | None,
+    deployment_files: str | None,
+    expected: str,
 ) -> None:
-    """A grouping label runs only the matching validation workflows."""
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
-    config = _mocked_network_operator_config(tmp_path)
+    """Partial prerequisite input fails before Launch Kit execution."""
+    config_path = tmp_path / "cluster-config.yaml"
+    config_path.write_text("profile: {}\n", encoding="utf-8")
+    deployment_path = tmp_path / "deployment"
+    deployment_path.mkdir()
 
-    result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
-        phases=[Phase.SETUP, Phase.TEST],
-        include_labels=[label] if isinstance(label, str) else label,
-        capability="kubernetes",
+    completed, output = _run_workflow(
+        "validate",
+        [],
+        working_dir=tmp_path / "work",
+        artifact_dir=tmp_path / "evidence",
+        user_config=config_path if user_config is not None else None,
+        deployment_files=deployment_path if deployment_files is not None else None,
     )
 
-    assert result.success is True
-    inventory_names = set(result.inventory)
-    for use_case in selected_use_cases:
-        assert f"launch_kit_{use_case}_validate" in inventory_names
-        assert f"launch_kit_{use_case}_deploy" not in inventory_names
-        assert f"launch_kit_{use_case}_clean" not in inventory_names
-        assert (tmp_path / "use-cases" / use_case / "work" / "cluster-config.yaml").is_file()
-    for use_case in excluded_use_cases:
-        assert not any(name.startswith(f"launch_kit_{use_case}_") for name in inventory_names)
-        assert not (tmp_path / "use-cases" / use_case / "work" / "cluster-config.yaml").exists()
+    assert completed.returncode == 1
+    assert output["success"] is False
+    assert expected in output["error"]
 
 
-def test_network_operator_stages_user_config_only_for_selected_use_cases(
-    tmp_path: Path,
-    monkeypatch: Any,
-) -> None:
-    """Each selected use case receives and removes an isolated user-config copy."""
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
-    source = tmp_path / "customer-cluster-config.yaml"
-    source_contents = """networkOperator:
-  selectedRelease: "26.4"
-profile:
-  fabric: ethernet
-  deployment: sriov
-clusterConfig: []
-"""
-    source.write_text(source_contents, encoding="utf-8")
-    config = _mocked_network_operator_config(tmp_path)
-    config.context["k8s_launch_kit"]["user_config"] = str(source)
+def test_validate_rejects_duplicate_path_flags(tmp_path: Path) -> None:
+    """Dedicated inputs cannot silently conflict with raw Launch Kit arguments."""
+    user_config = tmp_path / "cluster-config.yaml"
+    user_config.write_text("profile: {}\n", encoding="utf-8")
+    deployment_files = tmp_path / "deployment"
+    deployment_files.mkdir()
 
-    result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
-        phases=[Phase.TEST],
-        include_labels=["ethernet", "sriov"],
-        capability="kubernetes",
+    completed, output = _run_workflow(
+        "validate",
+        ["--user-config", "other.yaml"],
+        working_dir=tmp_path / "work",
+        artifact_dir=tmp_path / "evidence",
+        user_config=user_config,
+        deployment_files=deployment_files,
     )
 
-    selected_work = tmp_path / "use-cases" / "roce_sriov" / "work"
-    selected_evidence = tmp_path / "use-cases" / "roce_sriov" / "evidence"
-    assert result.success is True
-    assert source.read_text(encoding="utf-8") == source_contents
-    assert not (selected_work / "user-config.yaml").exists()
-    assert (selected_work / "cluster-config.yaml").is_file()
-    metadata = json.loads((selected_evidence / "inputs" / "user-config.json").read_text(encoding="utf-8"))
-    assert metadata["sha256"] == hashlib.sha256(source_contents.encode()).hexdigest()
-    assert metadata["retained"] is False
-    discover = result.inventory["launch_kit_roce_sriov_discover"]
-    assert discover["argv"][discover["argv"].index("--user-config") + 1] == str(
-        (selected_work / "user-config.yaml").resolve()
-    )
-    for use_case in (
-        "infiniband_sriov",
-        "roce_rdma_shared",
-        "infiniband_rdma_shared",
-        "roce_host_device",
-        "infiniband_host_device",
-    ):
-        assert not (tmp_path / "use-cases" / use_case / "work" / "user-config.yaml").exists()
+    assert completed.returncode == 1
+    assert "cannot be combined with raw flag(s): --user-config" in output["error"]
 
 
-def test_network_operator_provider_test_phase_verifies_without_setup(tmp_path: Path, monkeypatch: Any) -> None:
-    """A test-only run verifies the configured binary instead of requiring setup output."""
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
-    config = _mocked_network_operator_config(tmp_path)
-
-    result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
-        phases=[Phase.TEST],
-        capability="kubernetes",
-    )
-
-    assert result.success is True
-    assert "launch_kit_prepare" not in result.inventory
-    assert result.inventory["launch_kit_verify"]["success"] is True
-    assert all(entry.state is State.PASSED for entry in result.validations)
-
-
-def test_network_operator_workflow_never_invokes_deploy_or_clean(tmp_path: Path, monkeypatch: Any) -> None:
-    """The validation suite must not mutate or delete the ISV-managed deployment."""
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
-    monkeypatch.setenv("L8K_MOCK_FAIL", "deploy")
-    config = _mocked_network_operator_config(tmp_path)
-
-    result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
-        phases=[Phase.TEST],
-        include_labels=["ethernet", "sriov"],
-        capability="kubernetes",
-    )
-
-    assert result.success is True
-    assert list(result.inventory) == [
-        "launch_kit_verify",
-        "launch_kit_roce_sriov_preflight",
-        "launch_kit_roce_sriov_discover",
-        "launch_kit_roce_sriov_generate",
-        "launch_kit_roce_sriov_validate",
-    ]
-    assert not any(name.endswith(("_deploy", "_clean")) for name in result.inventory)
-    assert all(phase.phase is not Phase.TEARDOWN for phase in result.phases)
-
-
-def test_kubernetes_preflight_failure_stops_before_discovery(tmp_path: Path, monkeypatch: Any) -> None:
-    """An unreachable cluster blocks each use case before discovery without hiding later cases."""
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
-    monkeypatch.setenv("L8K_MOCK_KUBERNETES_FAIL", "1")
-    config = _mocked_network_operator_config(tmp_path)
-
-    result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(capability="kubernetes")
-
-    assert result.success is False
-    assert list(result.inventory) == [
-        "launch_kit_prepare",
-        "launch_kit_verify",
-        "launch_kit_roce_sriov_preflight",
-        "launch_kit_infiniband_sriov_preflight",
-        "launch_kit_roce_rdma_shared_preflight",
-        "launch_kit_infiniband_rdma_shared_preflight",
-        "launch_kit_roce_host_device_preflight",
-        "launch_kit_infiniband_host_device_preflight",
-    ]
-    assert all(entry.state is State.ERROR for entry in result.validations)
-    assert all(entry.error_reason is ErrorReason.STEP_FAILED for entry in result.validations)
-    assert all("preflight" in entry.message for entry in result.validations)
-    assert not list((tmp_path / "use-cases").glob("*/work/cluster-config.yaml"))
-    assert not list((tmp_path / "use-cases").glob("*/evidence/commands/discover"))
-
-
-def test_failed_validate_is_reported_without_cluster_cleanup(tmp_path: Path, monkeypatch: Any) -> None:
-    """A validation failure is reported while the ISV-managed deployment remains untouched."""
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
+def test_failed_connectivity_is_a_junit_failure(tmp_path: Path, monkeypatch: Any) -> None:
+    """A failed Launch Kit matrix row is retained as a test failure in JUnit."""
     monkeypatch.setenv("L8K_MOCK_FAIL", "validate:ib_write_bw")
     config = _mocked_network_operator_config(tmp_path)
     junit_path = tmp_path / "junit.xml"
 
     result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
         phases=[Phase.TEST],
-        include_labels=["ethernet", "sriov"],
         capability="kubernetes",
         junitxml=str(junit_path),
     )
 
     assert result.success is False
-    assert list(result.inventory)[-1] == "launch_kit_roce_sriov_validate"
-    assert not any(name.endswith(("_deploy", "_clean")) for name in result.inventory)
+    assert list(result.inventory) == ["launch_kit_validate"]
     assert result.validations[0].state is State.FAILED
+    assert result.validations[0].subtest_summary.failed == 1
     case = next(
         case
         for case in ET.parse(junit_path).getroot().iter("testcase")
-        if case.get("name") == "EastWestNetworkRoceSriovCheck"
+        if case.get("name") == "LaunchKitConnectivityCheck"
     )
     assert case.find("failure") is not None
     assert case.find("error") is None
     assert case.find("skipped") is None
 
 
-def test_failed_use_case_continues_to_next_selected_validation(tmp_path: Path, monkeypatch: Any) -> None:
-    """Independent pre-provisioned use cases continue after an earlier validation fails."""
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
-    monkeypatch.setenv("L8K_MOCK_FAIL", "validate:ib_write_bw")
-    config = _mocked_network_operator_config(tmp_path)
+def test_missing_prerequisites_are_a_step_error(tmp_path: Path) -> None:
+    """An unset prerequisite produces an actionable validation error."""
+    merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
+    merged["context"]["k8s_launch_kit"]["executable"] = str(_MOCK_L8K)
+    merged["context"]["k8s_launch_kit"]["working_dir"] = str(tmp_path / "work")
+    merged["context"]["k8s_launch_kit"]["artifact_dir"] = str(tmp_path / "evidence")
+    config = RunConfig.model_validate(merged)
 
     result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
         phases=[Phase.TEST],
-        include_labels=["sriov"],
         capability="kubernetes",
     )
 
     assert result.success is False
-    assert "launch_kit_roce_sriov_validate" in result.inventory
-    assert "launch_kit_infiniband_sriov_validate" in result.inventory
-    assert not any(name.endswith(("_deploy", "_clean")) for name in result.inventory)
+    assert result.validations[0].state is State.FAILED
+    assert "user_config is required" in result.validations[0].message
 
 
 def test_failed_validate_preserves_documents_and_process_error(tmp_path: Path) -> None:

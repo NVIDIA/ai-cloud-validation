@@ -114,9 +114,10 @@ class TestBuildCatalog:
             assert isinstance(entry["requires"], list)
             if entry["capability"]:
                 assert entry["requires"] == []
-        assert "EastWestNetworkRoceSriovCheck" in names
-        use_case = next(entry for entry in catalog if entry["name"] == "EastWestNetworkRoceSriovCheck")
-        assert use_case["suite"] == "network_operator"
+        assert "LaunchKitConnectivityCheck" in names
+        launch_kit = next(entry for entry in catalog if entry["name"] == "LaunchKitConnectivityCheck")
+        assert launch_kit["suite"] == "network_operator"
+        assert launch_kit["test_ids"] == ["K8S42-01"]
 
     def test_extract_checks_supports_direct_dict_category_form(self, tmp_path) -> None:
         """Direct dict category wiring is included in catalog config scans."""

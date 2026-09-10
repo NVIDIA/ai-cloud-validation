@@ -117,7 +117,6 @@ def test_selected_validation_gate_prunes_unselected_lifecycle_steps() -> None:
         include_labels=set(),
         exclude_labels=set(),
         exclude_tests=set(),
-        released_tests=None,
         capability=None,
     )
     ethernet_steps = _apply_selected_validation_gates(
@@ -126,7 +125,6 @@ def test_selected_validation_gate_prunes_unselected_lifecycle_steps() -> None:
         include_labels={"ethernet"},
         exclude_labels=set(),
         exclude_tests=set(),
-        released_tests=None,
         capability=None,
     )
 
@@ -767,9 +765,8 @@ EOF
         assert [entry.entry.name for entry in result.validations] == ["K8sCsiStorageTypesCheck"]
         assert result.validations[0].state is State.PASSED
 
-    def test_config_without_commands_reports_failed_live_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_config_without_commands_reports_failed_live_validation(self) -> None:
         """A failed commandless validation returns a failed result instead of reading command policy."""
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
         config = RunConfig(
             tests=ValidationConfig(
                 validations={
@@ -947,10 +944,8 @@ EOF
     def test_failed_owned_step_is_reported_as_validation_error(
         self,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """An early workflow failure cannot become a harmless missing-output skip."""
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
         failing_step = _write_script(
             tmp_path,
             "deploy.sh",
