@@ -25,9 +25,9 @@ def test_generic_validate_delegates_timeout_to_launch_kit() -> None:
     assert validate_steps[0]["timeout"] is None
 
 
-def test_network_operator_validates_delegate_timeout_to_launch_kit() -> None:
-    """Every grouped use case must leave its validation deadline to l8k."""
-    validate_steps = [step for step in _steps("network-operator.yaml") if step["name"].endswith("_validate")]
+def test_network_operator_validate_delegates_timeout_to_launch_kit() -> None:
+    """The one Network Operator validation leaves its deadline to l8k."""
+    validate_steps = [step for step in _steps("network-operator.yaml") if step["name"] == "launch_kit_validate"]
 
-    assert len(validate_steps) == 6
-    assert all(step["timeout"] is None for step in validate_steps)
+    assert len(validate_steps) == 1
+    assert validate_steps[0]["timeout"] is None

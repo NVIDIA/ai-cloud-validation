@@ -96,13 +96,6 @@ class StepConfig(BaseModel):
             "Capability contexts allowed to run this step. Empty delegates capability gating to bound validations."
         ),
     )
-    requires_available_validations: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Validation names that must be available after release filtering for this step to run. "
-            "Unreleased validations are available only when ISVTEST_INCLUDE_UNRELEASED=1."
-        ),
-    )
     requires_selected_validations: list[str] = Field(
         default_factory=list,
         description=(
@@ -234,7 +227,6 @@ class PlatformCommands(BaseModel):
                 raise ValueError(f"step '{finalizer.name}' cannot finalize finalizer step '{target.name}'")
             gate_fields = (
                 "requires",
-                "requires_available_validations",
                 "requires_selected_validations",
             )
             mismatched_gates = [

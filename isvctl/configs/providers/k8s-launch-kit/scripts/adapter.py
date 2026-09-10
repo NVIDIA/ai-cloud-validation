@@ -6,11 +6,10 @@
 
 The provider deliberately exposes the real Launch Kit operations. It forwards
 user-supplied arguments verbatim and adds ``--output json`` so stdout can be
-preserved as structured evidence. When a complete user config is supplied, the
-discover operation also stages it transiently in the working directory, binds
-Launch Kit's native ``--user-config`` and ``--save-cluster-config`` flags, and
-removes the staged input after discovery. Launch Kit remains the owner of
-command flags, configuration schema, and defaults.
+preserved as structured evidence. Discovery can stage a complete user config
+transiently. Validation can bind an existing complete user config and rendered
+deployment directory directly. Launch Kit remains the owner of command flags,
+configuration schema, and defaults.
 """
 
 from __future__ import annotations
@@ -250,6 +249,43 @@ def _stage_user_config(
     )
 
 
+def _bind_validate_inputs(
+    user_config_value: str,
+    deployment_files_value: str,
+    arguments: list[str],
+) -> list[str]:
+    """Bind required, pre-existing Launch Kit validation inputs."""
+    if not user_config_value:
+        raise ValueError("context.k8s_launch_kit.user_config is required for Network Operator validation")
+    if not deployment_files_value:
+        raise ValueError("context.k8s_launch_kit.deployment_files is required for Network Operator validation")
+
+    conflicting_flags = [
+        flag
+        for flag in ("--user-config", "--deployment-files")
+        if any(token == flag or token.startswith(f"{flag}=") for token in arguments)
+    ]
+    if conflicting_flags:
+        raise ValueError(
+            "dedicated Launch Kit validation inputs cannot be combined with raw flag(s): "
+            + ", ".join(conflicting_flags)
+        )
+
+    user_config = Path(user_config_value).expanduser().resolve()
+    if not user_config.is_file():
+        raise FileNotFoundError(f"Launch Kit user config not found: {user_config}")
+    deployment_files = Path(deployment_files_value).expanduser().resolve()
+    if not deployment_files.is_dir():
+        raise FileNotFoundError(f"Launch Kit deployment directory not found: {deployment_files}")
+    return [
+        *arguments,
+        "--user-config",
+        str(user_config),
+        "--deployment-files",
+        str(deployment_files),
+    ]
+
+
 def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     """Invoke exactly one real Launch Kit workflow command."""
     executable = _resolve_executable(args.executable)
@@ -263,9 +299,11 @@ def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     staged_user_config: Path | None = None
     user_config_metadata_path: Path | None = None
     try:
-        if args.user_config:
+        if args.command == "validate" and args.deployment_files is not None:
+            arguments = _bind_validate_inputs(args.user_config, args.deployment_files, arguments)
+        elif args.user_config:
             if args.command != "discover":
-                raise ValueError("--user-config is supported only with the discover workflow command")
+                raise ValueError("--user-config requires --deployment-files for the validate workflow command")
             arguments, staged_user_config, user_config_metadata = _stage_user_config(
                 args.user_config,
                 working_dir,
@@ -691,6 +729,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--command", choices=_WORKFLOW_COMMANDS, required=True)
     run.add_argument("--arguments-json", required=True)
     run.add_argument("--user-config", default="")
+    run.add_argument("--deployment-files", default=None)
     run.add_argument("--environment-json", default="{}")
     run.add_argument("--working-dir", required=True)
     run.add_argument("--artifact-dir", required=True)
@@ -713,7 +752,7 @@ def main(argv: list[str] | None = None) -> int:
         envelope = {
             "success": False,
             "platform": "kubernetes",
-            "operation": args.action,
+            "operation": args.command if args.action == "run" else args.action,
             "error": str(exc),
         }
         exit_code = 1

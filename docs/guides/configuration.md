@@ -243,8 +243,7 @@ Each step defines a command to execute:
 | `finalizer_for` | No | Run as linked teardown after the named step's phase when that command was attempted |
 | `output_schema` | No | Schema name for output validation |
 | `requires` | No | Capability contexts this step runs in (see [Capabilities](#capabilities-and-requires)) |
-| `requires_available_validations` | No | Validation names that must be available after release filtering |
-| `requires_selected_validations` | No | Configured validation names that must remain selected after release, capability, label, and suite-exclusion filtering; failed steps become errors on these owning validations |
+| `requires_selected_validations` | No | Configured validation names that must remain selected after capability, label, and suite-exclusion filtering; failed steps become errors on these owning validations |
 
 The timeout is an orchestration watchdog, not a provider-specific setting. Set
 it to `null` only when the invoked tool owns a bounded deadline; isvctl will
@@ -364,8 +363,8 @@ tests:
 With no label filter, the validation is selected and the step runs. With
 `--label ethernet`, it also runs; with `--label infiniband`, the step is
 skipped before execution. Every listed validation must be configured and
-selected. The gate also honors the release manifest, capability requirements,
-`tests.exclude.tests`, and effective label exclusions.
+selected. The gate also honors capability requirements, `tests.exclude.tests`,
+and effective label exclusions.
 
 The same list is the reporting ownership edge for the lifecycle step. If a
 selected step fails before its validation can run, each listed validation is
@@ -374,10 +373,6 @@ an early deploy or setup failure from being misreported as a harmless
 `step_no_output` skip merely because a later validation step was never reached.
 The error message names the failed step and retains its redacted command
 diagnostic.
-
-`requires_available_validations` is narrower: it only prevents a step from
-running when its named checks are absent from the release manifest. Retain it
-for providers that only need release gating.
 
 Pytest `-k` and `-m` expressions are evaluated inside pytest and therefore do
 not drive `requires_selected_validations`. Use framework `--label` filtering
@@ -767,7 +762,7 @@ not register or invoke that class directly. The YAML key creates one catalog
 test and runs every listed validation member. Each member is reported as a
 subtest. If a member reports its own probes through `report_subtest()`, those
 probes are retained with qualified names such as
-`LaunchKitRdmaConnectivityCheck/rping/worker-a->worker-b/rail-0->rail-1`.
+`ConnectivityCheck/rping/worker-a->worker-b/rail-0->rail-1`.
 This avoids collisions between members and keeps the full probe tree in pytest
 and JUnit output.
 
