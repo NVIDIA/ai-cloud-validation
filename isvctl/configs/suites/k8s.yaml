@@ -197,6 +197,11 @@ tests:
           test_id: "K8S25-01"
           labels: ["kubernetes", "min_req"]
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
+        K8sGpuOperatorOverrideCheck:
+          test_id: "K8S25-02"
+          labels: ["kubernetes", "min_req"]
+          namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
+          driver_version: "{{ steps.setup.kubernetes.driver_version | default('580.82.07') }}"
         K8sGpuLabelsCheck:
           test_id: "N/A"
           labels: ["kubernetes", "gpu"]

@@ -56,6 +56,7 @@ from isvtest.config.settings import (
 )
 from isvtest.core.k8s import (
     KubectlParseError,
+    command_detail,
     get_kubectl_base_shell,
     get_kubectl_command,
     parse_kubectl_json,
@@ -118,7 +119,7 @@ def _get_pvc_json(run_command, kubectl_base: str, namespace: str, pvc_name: str)
     cmd = f"{kubectl_base} get pvc {shlex.quote(pvc_name)} -n {shlex.quote(namespace)} -o json"
     result = run_command(cmd)
     if result.exit_code != 0:
-        return None, result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
+        return None, command_detail(result)
     try:
         return parse_kubectl_json(result, f"PVC {pvc_name!r}"), ""
     except KubectlParseError as exc:
@@ -217,11 +218,7 @@ def _collect_storage_diagnostics(
                 break
             try:
                 result = run_command(command, timeout=min(_DIAGNOSTIC_COMMAND_TIMEOUT, max(1, int(remaining))))
-                output = (
-                    result.stdout
-                    if result.exit_code == 0
-                    else (result.stderr or result.stdout or f"command exited {result.exit_code}")
-                )
+                output = result.stdout if result.exit_code == 0 else command_detail(result)
             except Exception as exc:
                 output = f"diagnostic command failed: {type(exc).__name__}: {exc}"
             sections.append(_bounded_diagnostic_section(section_label, output))

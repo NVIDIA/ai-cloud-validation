@@ -362,6 +362,28 @@ def kubectl_items_or_empty(
         return []
 
 
+def command_detail(result: KubectlJsonResult) -> str:
+    """Return the most informative detail from a failed kubectl invocation."""
+    exit_code = getattr(result, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(result, "returncode", None)
+    return (result.stderr or "").strip() or (result.stdout or "").strip() or f"exit {exit_code}"
+
+
+def is_resource_absent(stderr: str) -> bool:
+    """Return True when kubectl reports the resource type or object is simply not there.
+
+    Covers both spellings: an API group the cluster does not serve (no CRD
+    installed) and a NotFound for an object within a served group.
+    """
+    lowered = (stderr or "").lower()
+    return (
+        "doesn't have a resource type" in lowered
+        or "could not find the requested resource" in lowered
+        or "notfound" in lowered.replace(" ", "")
+    )
+
+
 def names_from_items(items: list[dict[str, Any]]) -> list[str]:
     """Extract ``.metadata.name`` values from a list of Kubernetes API objects."""
     names: list[str] = []
