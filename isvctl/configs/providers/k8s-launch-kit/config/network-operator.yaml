@@ -3,8 +3,9 @@
 
 # Network Operator connectivity validation for an ISV-provisioned cluster.
 # The complete Launch Kit configuration and rendered deployment directory are
-# prerequisites. This provider invokes only:
+# prerequisites. This provider validates them, then always collects diagnostics:
 #   l8k validate --user-config <file> --deployment-files <directory>
+#   l8k sosreport --output-dir <artifact-dir>/sosreport
 
 import:
   - ../../../suites/k8s-launch-kit/network-operator.yaml
@@ -49,3 +50,28 @@ commands:
         output_schema: k8s_launch_kit
         requires: [kubernetes]
         requires_selected_validations: [LaunchKitConnectivityCheck]
+
+      # A linked same-phase finalizer runs after the connectivity assertion even
+      # when validate exits nonzero. It is not a separate catalog test.
+      - name: launch_kit_sosreport
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ context.k8s_launch_kit.executable }}"
+          - --command
+          - sosreport
+          - --arguments-json
+          - "[]"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [LaunchKitConnectivityCheck]
+        finalizer_for: launch_kit_validate

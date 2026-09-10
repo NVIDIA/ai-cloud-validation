@@ -31,3 +31,11 @@ def test_network_operator_validate_delegates_timeout_to_launch_kit() -> None:
 
     assert len(validate_steps) == 1
     assert validate_steps[0]["timeout"] is None
+
+
+def test_network_operator_sosreport_has_a_bounded_watchdog() -> None:
+    """Diagnostic collection must not hang the orchestration indefinitely."""
+    sosreport_steps = [step for step in _steps("network-operator.yaml") if step["name"] == "launch_kit_sosreport"]
+
+    assert len(sosreport_steps) == 1
+    assert sosreport_steps[0]["timeout"] == 1800

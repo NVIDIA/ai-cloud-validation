@@ -200,7 +200,7 @@ def test_generic_provider_has_no_launch_kit_domain_defaults() -> None:
 
 
 def test_network_operator_provider_defaults_to_real_cli_tools() -> None:
-    """The shipped provider contains one real, validation-only workflow."""
+    """The shipped provider validates once and always collects diagnostics."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
     config = RunConfig.model_validate(merged)
     context = merged["context"]["k8s_launch_kit"]
@@ -217,12 +217,17 @@ def test_network_operator_provider_defaults_to_real_cli_tools() -> None:
     assert "poc" not in json.dumps(merged).lower()
     command = config.commands["network_operator"]
     assert command.phases == ["test"]
-    assert [step.name for step in command.steps] == ["launch_kit_validate"]
-    step = command.steps[0]
-    assert step.timeout is None
-    assert "--user-config={{ context.k8s_launch_kit.user_config }}" in step.args
-    assert "--deployment-files={{ context.k8s_launch_kit.deployment_files }}" in step.args
-    assert step.requires_selected_validations == ["LaunchKitConnectivityCheck"]
+    assert [step.name for step in command.steps] == ["launch_kit_validate", "launch_kit_sosreport"]
+    validate_step, sosreport_step = command.steps
+    assert validate_step.timeout is None
+    assert "--user-config={{ context.k8s_launch_kit.user_config }}" in validate_step.args
+    assert "--deployment-files={{ context.k8s_launch_kit.deployment_files }}" in validate_step.args
+    assert validate_step.requires_selected_validations == ["LaunchKitConnectivityCheck"]
+    assert sosreport_step.timeout == 1800
+    assert sosreport_step.phase == "test"
+    assert sosreport_step.finalizer_for == "launch_kit_validate"
+    assert sosreport_step.requires == validate_step.requires
+    assert sosreport_step.requires_selected_validations == validate_step.requires_selected_validations
 
 
 def test_network_operator_suite_has_one_catalog_check() -> None:
@@ -494,6 +499,10 @@ def test_provider_runs_the_real_launch_kit_workflow_shape(tmp_path: Path) -> Non
     assert test_container["resources"]["limits"]["nvidia.com/gpu"] == "2"
     assert outputs["deploy"]["documents"] == []
     assert len(outputs["validate"]["documents"]) == 3
+    source_report = working_dir / "deployment" / "k8s-launch-kit-validation-report.html"
+    retained_report = artifact_dir / "k8s-launch-kit-validation-report.html"
+    assert outputs["validate"]["artifacts"]["validation_report"] == str(retained_report)
+    assert retained_report.read_bytes() == source_report.read_bytes()
     families = {row["Family"] for row in outputs["validate"]["documents"][1]["connectivity"]["PingResults"]}
     assert families == {"icmp", "rping", "ib_write_bw", "gpudirect_dmabuf"}
     assert outputs["clean"]["documents"][0]["cleanup"] == {
@@ -503,7 +512,31 @@ def test_provider_runs_the_real_launch_kit_workflow_shape(tmp_path: Path) -> Non
         "keepHelmChart": False,
     }
     assert (working_dir / "cluster-config.yaml").is_file()
-    assert (working_dir / "deployment" / "k8s-launch-kit-validation-report.html").is_file()
+    assert source_report.is_file()
+
+
+def test_sosreport_preserves_text_output_and_registers_its_directory(tmp_path: Path) -> None:
+    """The adapter retains the text-only sosreport contract as structured evidence."""
+    working_dir = tmp_path / "work"
+    artifact_dir = tmp_path / "evidence"
+
+    completed, output = _run_workflow(
+        "sosreport",
+        [],
+        working_dir=working_dir,
+        artifact_dir=artifact_dir,
+    )
+
+    assert completed.returncode == 0
+    assert output["success"] is True
+    assert output["operation"] == "sosreport"
+    assert output["documents"] == []
+    assert output["argv"][1:] == ["sosreport", "--output-dir", str(artifact_dir / "sosreport")]
+    assert output["sosreport_output_directory"] == str(artifact_dir / "sosreport")
+    assert output["artifacts"]["sosreport"] == str(artifact_dir / "sosreport")
+    assert (artifact_dir / "sosreport" / "network-operator-sosreport.tar.gz").is_file()
+    assert "Sosreport collected" in Path(output["artifacts"]["stdout"]).read_text(encoding="utf-8")
+    assert validate_output(output, "k8s_launch_kit") == (True, [])
 
 
 def test_discover_stages_user_config_transiently_without_retaining_secrets(tmp_path: Path) -> None:
@@ -842,8 +875,8 @@ def test_preflight_rejects_conflicting_workflow_kubeconfigs(tmp_path: Path) -> N
     assert "different kubeconfigs" in output["error"]
 
 
-def test_network_operator_provider_runs_only_validate(tmp_path: Path) -> None:
-    """The production configuration invokes one validation over prerequisite inputs."""
+def test_network_operator_provider_runs_validate_then_sosreport(tmp_path: Path) -> None:
+    """The production configuration validates once and then collects diagnostics."""
     config = _mocked_network_operator_config(tmp_path)
 
     result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
@@ -852,8 +885,8 @@ def test_network_operator_provider_runs_only_validate(tmp_path: Path) -> None:
     )
 
     assert result.success is True
-    assert list(result.inventory) == ["launch_kit_validate"]
-    assert [phase.name for phase in result.phases] == ["test"]
+    assert list(result.inventory) == ["launch_kit_validate", "launch_kit_sosreport"]
+    assert [phase.name for phase in result.phases] == ["test", "test-teardown"]
     assert len(result.validations) == 1
     validation = result.validations[0]
     assert validation.entry.name == "LaunchKitConnectivityCheck"
@@ -867,6 +900,32 @@ def test_network_operator_provider_runs_only_validate(tmp_path: Path) -> None:
     assert argv[argv.index("--user-config") + 1] == str((tmp_path / "cluster-config.yaml").resolve())
     assert argv[argv.index("--deployment-files") + 1] == str((tmp_path / "deployment").resolve())
     assert argv[-2:] == ["--output", "json"]
+    report = tmp_path / "evidence" / "k8s-launch-kit-validation-report.html"
+    assert result.inventory["launch_kit_validate"]["artifacts"]["validation_report"] == str(report)
+    assert report.is_file()
+    sosreport = result.inventory["launch_kit_sosreport"]
+    assert sosreport["argv"][1:] == ["sosreport", "--output-dir", str(tmp_path / "evidence" / "sosreport")]
+    assert Path(sosreport["artifacts"]["sosreport"]).is_dir()
+
+
+def test_sosreport_failure_does_not_replace_connectivity_result(tmp_path: Path, monkeypatch: Any) -> None:
+    """Diagnostic failure is separate while the connectivity assertion stays passed."""
+    monkeypatch.setenv("L8K_MOCK_FAIL", "sosreport")
+    config = _mocked_network_operator_config(tmp_path)
+
+    result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
+        phases=[Phase.TEST],
+        capability="kubernetes",
+    )
+
+    assert result.success is False
+    assert result.validations[0].state is State.PASSED
+    assert [(phase.name, phase.success) for phase in result.phases] == [
+        ("test", True),
+        ("test-teardown", False),
+    ]
+    assert result.inventory["launch_kit_sosreport"]["success"] is False
+    assert "sosreport collection failed" in result.inventory["launch_kit_sosreport"]["error"]
 
 
 def test_network_operator_provider_expands_input_paths(tmp_path: Path, monkeypatch: Any) -> None:
@@ -961,7 +1020,11 @@ def test_failed_connectivity_is_a_junit_failure(tmp_path: Path, monkeypatch: Any
     )
 
     assert result.success is False
-    assert list(result.inventory) == ["launch_kit_validate"]
+    assert list(result.inventory) == ["launch_kit_validate", "launch_kit_sosreport"]
+    report = tmp_path / "evidence" / "k8s-launch-kit-validation-report.html"
+    assert result.inventory["launch_kit_validate"]["artifacts"]["validation_report"] == str(report)
+    assert report.is_file()
+    assert (tmp_path / "evidence" / "sosreport" / "network-operator-sosreport.tar.gz").is_file()
     assert result.validations[0].state is State.FAILED
     assert result.validations[0].subtest_summary.failed == 1
     case = next(
@@ -988,6 +1051,8 @@ def test_missing_prerequisites_are_a_step_error(tmp_path: Path) -> None:
     )
 
     assert result.success is False
+    assert list(result.inventory) == ["launch_kit_validate", "launch_kit_sosreport"]
+    assert (tmp_path / "evidence" / "sosreport" / "network-operator-sosreport.tar.gz").is_file()
     assert result.validations[0].state is State.FAILED
     assert "user_config is required" in result.validations[0].message
 
@@ -1030,4 +1095,41 @@ def test_failed_validate_preserves_documents_and_process_error(tmp_path: Path) -
     assert output["success"] is False
     assert len(output["documents"]) == 3
     assert "l8k validate exited with code 4" in output["error"]
+    assert Path(output["artifacts"]["validation_report"]).is_file()
     assert Path(output["artifacts"]["stdout"]).read_text(encoding="utf-8")
+
+
+def test_missing_advertised_validation_report_is_an_evidence_error(tmp_path: Path) -> None:
+    """A stale report cannot satisfy a new Launch Kit reportPath document."""
+    missing_report = tmp_path / "missing-validation-report.html"
+    executable = tmp_path / "l8k"
+    executable.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{{\"reportPath\":\"{missing_report}\"}}'\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    artifact_dir = tmp_path / "evidence"
+    retained_report = artifact_dir / "k8s-launch-kit-validation-report.html"
+    retained_report.parent.mkdir(parents=True)
+    retained_report.write_text("stale report\n", encoding="utf-8")
+
+    completed, output = _run_provider(
+        "run",
+        "--executable",
+        str(executable),
+        "--command",
+        "validate",
+        "--arguments-json",
+        "[]",
+        "--working-dir",
+        str(tmp_path / "work"),
+        "--artifact-dir",
+        str(artifact_dir),
+    )
+
+    assert completed.returncode == 1
+    assert output["success"] is False
+    assert "failed to retain Launch Kit HTML validation report" in output["error"]
+    assert str(missing_report) in output["error"]
+    assert "validation_report" not in output["artifacts"]
+    assert not retained_report.exists()
