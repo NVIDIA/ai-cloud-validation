@@ -118,7 +118,9 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
       patch runs with ``--dry-run=server``, so RBAC and every mutating and
       validating webhook evaluate it but nothing is persisted. Reading the
       version back off the returned object is what catches a provider webhook
-      that accepts the write and pins the version anyway.
+      that accepts the write and pins the version anyway. When the cluster
+      already runs the tenant-required version the patch would change nothing,
+      so a neighbouring version is requested to keep admission under test.
 
     Config:
         driver_version: Tenant-required driver version to attempt. Skips when
@@ -233,14 +235,19 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
         current_version: str,
     ) -> None:
         """Dry-run the version override server-side and confirm admission keeps it."""
-        patch = json.dumps(_nested(kind.version_path, driver_version))
+        # Requesting the version already configured writes nothing, so admission
+        # would return it untouched and the check would pass without a version
+        # ever having been overridden. Probe with a neighbouring version instead.
+        requested = driver_version if driver_version != current_version else _next_version(current_version)
+
+        patch = json.dumps(_nested(kind.version_path, requested))
         result = self.run_command(
             f"{kubectl_base} patch {shlex.quote(kind.resource)} {shlex.quote(name)} "
             f"--type=merge --patch {shlex.quote(patch)} --dry-run=server -o json"
         )
         if result.exit_code != 0:
             self.set_failed(
-                f"Admission rejected driver version '{driver_version}' on {kind.resource}/{name}: {_detail(result)}"
+                f"Admission rejected driver version '{requested}' on {kind.resource}/{name}: {_detail(result)}"
             )
             return
 
@@ -252,17 +259,24 @@ class K8sGpuOperatorOverrideCheck(BaseValidation):
 
         version_path = ".".join(kind.version_path)
         admitted_version = _dig(admitted, kind.version_path)
-        if admitted_version != driver_version:
+        if admitted_version != requested:
             self.set_failed(
-                f"Admission kept the provider-default driver version: requested '{driver_version}' at "
+                f"Admission kept the provider-default driver version: requested '{requested}' at "
                 f"{version_path} on {kind.resource}/{name}, admitted object reports "
                 f"'{admitted_version or 'unset'}'"
             )
             return
 
+        if requested == driver_version:
+            self.set_passed(
+                f"Tenant can override the provider-default driver: {kind.resource}/{name} {version_path} "
+                f"accepts '{driver_version}' (currently '{current_version or 'unset'}')"
+            )
+            return
+
         self.set_passed(
-            f"Tenant can override the provider-default driver: {kind.resource}/{name} {version_path} "
-            f"accepts '{driver_version}' (currently '{current_version or 'unset'}')"
+            f"Tenant can override the GPU Operator driver: {kind.resource}/{name} {version_path} already "
+            f"holds the tenant-required '{driver_version}' and accepts a change to '{requested}'"
         )
 
 
@@ -274,6 +288,14 @@ def _dig(obj: dict[str, Any], path: tuple[str, ...]) -> str:
             return ""
         current = current.get(key)
     return current if isinstance(current, str) else ""
+
+
+def _next_version(version: str) -> str:
+    """Return ``version`` with its trailing number incremented."""
+    head, separator, tail = version.rpartition(".")
+    if tail.isdigit():
+        return f"{head}{separator}{int(tail) + 1}"
+    return f"{version}.1"
 
 
 def _nested(path: tuple[str, ...], value: str) -> dict[str, Any]:

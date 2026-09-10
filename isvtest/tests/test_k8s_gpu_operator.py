@@ -264,6 +264,47 @@ def test_override_fails_when_admission_pins_the_provider_default_version() -> No
     assert "admitted object reports '550.54.15'" in check.message
 
 
+def test_override_probes_a_neighbouring_version_when_the_required_one_is_installed() -> None:
+    """Requesting the version already set would prove nothing, so the probe moves off it."""
+    check = _override_check(driver_version="550.54.15")
+    admitted = {"metadata": {"name": "cluster-policy"}, "spec": {"driver": {"version": "550.54.16"}}}
+
+    commands = _run(
+        check,
+        [
+            _ok(json.dumps({"items": [CLUSTER_POLICY]})),
+            *ALL_ALLOWED,
+            _ok(json.dumps(admitted)),
+        ],
+    )
+
+    assert check.passed, check.message
+    assert "already holds the tenant-required '550.54.15'" in check.message
+    assert "accepts a change to '550.54.16'" in check.message
+    assert commands[-1] == (
+        "kubectl patch clusterpolicies.nvidia.com cluster-policy --type=merge "
+        '--patch \'{"spec": {"driver": {"version": "550.54.16"}}}\' --dry-run=server -o json'
+    )
+
+
+def test_override_fails_when_the_installed_version_is_pinned_against_any_change() -> None:
+    """A no-op write must not pass: admission returning the current version is a failure."""
+    check = _override_check(driver_version="550.54.15")
+
+    _run(
+        check,
+        [
+            _ok(json.dumps({"items": [CLUSTER_POLICY]})),
+            *ALL_ALLOWED,
+            _ok(json.dumps(CLUSTER_POLICY)),
+        ],
+    )
+
+    assert not check.passed
+    assert "Admission kept the provider-default driver version" in check.message
+    assert "requested '550.54.16'" in check.message
+
+
 def test_override_skips_without_a_tenant_required_version() -> None:
     """With no target version configured there is nothing to override to."""
     check = _override_check(driver_version="")
