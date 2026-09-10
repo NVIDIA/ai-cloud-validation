@@ -33,7 +33,13 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, get_kubectl_command, parse_kubectl_json
+from isvtest.core.k8s import (
+    KubectlParseError,
+    command_detail,
+    get_kubectl_base_shell,
+    get_kubectl_command,
+    parse_kubectl_json,
+)
 from isvtest.core.validation import BaseValidation
 
 _MANIFEST_PATH = Path(__file__).parent / "manifests" / "k8s" / "crd_webhook.yaml"
@@ -159,13 +165,13 @@ class K8sCrdWebhookCheck(BaseValidation):
         namespace = shlex.quote(self._names.namespace)
         result = self.run_command(f"{self._kubectl_base} create namespace {namespace}")
         if result.exit_code != 0:
-            self.set_failed(f"Failed to create namespace {self._names.namespace}: {_command_detail(result)}")
+            self.set_failed(f"Failed to create namespace {self._names.namespace}: {command_detail(result)}")
             return False
 
         label = shlex.quote(f"{_LABEL_KEY}={self._names.suffix}")
         label_result = self.run_command(f"{self._kubectl_base} label namespace {namespace} {label} --overwrite")
         if label_result.exit_code != 0:
-            self.set_failed(f"Failed to label namespace {self._names.namespace}: {_command_detail(label_result)}")
+            self.set_failed(f"Failed to label namespace {self._names.namespace}: {command_detail(label_result)}")
             return False
         return True
 
@@ -178,7 +184,7 @@ class K8sCrdWebhookCheck(BaseValidation):
         )
         result = self.run_command(cmd, timeout=self._wait_timeout + 30)
         if result.exit_code != 0:
-            self.set_failed(f"Webhook deployment did not become Available: {_command_detail(result)}")
+            self.set_failed(f"Webhook deployment did not become Available: {command_detail(result)}")
             return False
         return True
 
@@ -190,7 +196,7 @@ class K8sCrdWebhookCheck(BaseValidation):
         )
         result = self.run_command(cmd, timeout=self._wait_timeout + 30)
         if result.exit_code != 0:
-            self.set_failed(f"CustomResourceDefinition did not become Established: {_command_detail(result)}")
+            self.set_failed(f"CustomResourceDefinition did not become Established: {command_detail(result)}")
             return False
         return True
 
@@ -210,7 +216,7 @@ class K8sCrdWebhookCheck(BaseValidation):
                     f"-n {shlex.quote(self._names.namespace)} -o json"
                 )
                 if result.exit_code != 0:
-                    last_detail = _command_detail(result)
+                    last_detail = command_detail(result)
                 else:
                     try:
                         payload = parse_kubectl_json(result, "mutated custom resource")
@@ -484,7 +490,7 @@ class K8sCrdWebhookCheck(BaseValidation):
             self.log.warning("%s cleanup raised: %s", label, exc)
             return
         if result.exit_code != 0:
-            self.log.warning("%s cleanup failed: %s", label, _command_detail(result))
+            self.log.warning("%s cleanup failed: %s", label, command_detail(result))
 
 
 def _load_template_docs() -> list[dict[str, Any]]:
@@ -592,8 +598,3 @@ def _b64(data: bytes) -> str:
 def _process_detail(proc: subprocess.CompletedProcess[str]) -> str:
     """Return the most useful stderr/stdout detail from a completed process."""
     return (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()
-
-
-def _command_detail(result: Any) -> str:
-    """Return the most useful stderr/stdout detail from a command result."""
-    return (result.stderr or result.stdout or f"exit code {result.exit_code}").strip()
