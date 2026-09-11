@@ -3699,7 +3699,7 @@ a|
 | [[K8S27-01]]K8S27-01
 | K8S27
 | https://github.com/NVIDIA/ai-cloud-validation/issues/217[#217]
-| min_req
+| kubernetes, min_req
 | tenant
 |
 | P2

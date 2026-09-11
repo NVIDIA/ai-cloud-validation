@@ -150,6 +150,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     # Multi-cluster operations
     "create_test_shared_vpc_cluster": "multi_cluster",
     "destroy_test_shared_vpc_cluster": "teardown",
+    # Control-plane size pinning
+    "pin_control_plane": "control_plane_size",
 }
 
 # Common fields present in all outputs
@@ -1114,6 +1116,32 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "type": "string",
                 "enum": ["cpu", "gpu"],
                 "description": "Informational node pool flavor",
+            },
+        },
+        "additionalProperties": True,
+    },
+    # =========================================================================
+    # Control-plane size pinning schemas
+    # =========================================================================
+    "control_plane_size": {
+        "type": "object",
+        "required": [
+            "success",
+            "platform",
+            "requested_instance_count",
+            "instance_count",
+        ],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "requested_instance_count": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Control-plane instance count the tenant pinned",
+            },
+            "instance_count": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Control-plane instance count the provider runs after the pin",
             },
         },
         "additionalProperties": True,
