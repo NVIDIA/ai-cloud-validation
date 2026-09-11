@@ -63,7 +63,7 @@ commands:
         args:
           - "--instance-count={{control_plane_instance_count}}"
         output_schema: control_plane_size
-        timeout: 1800
+        timeout: 900
 
       # Break-fix actions (BFX01). Demo stubs until real cluster APIs are wired.
       - name: reset_gpus

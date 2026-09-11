@@ -54,9 +54,7 @@ class K8sControlPlaneSizePinnedCheck(BaseValidation):
     its own compliance, so the delivered count is corroborated against the
     cluster itself: the ``kubernetes`` Service in ``default`` carries one
     endpoint per registered API server. That measurement is independent of the
-    provider, and the suite holds this check back to the test phase while the
-    pin runs during setup, so it is also a later sample - a size that has
-    drifted since the step reported it shows up here.
+    provider.
 
     The comparison is deliberately one-sided. A provider that fronts its API
     servers with a single load-balanced address publishes one endpoint however
@@ -120,14 +118,15 @@ class K8sControlPlaneSizePinnedCheck(BaseValidation):
             )
             return
 
-        if registered < requested:
-            corroboration = (
-                f"{registered} API server endpoint(s) are registered, which a load-balanced API address cannot "
-                f"distinguish from {requested}"
-            )
-        else:
-            corroboration = f"{registered} API server endpoint(s) are registered, matching the pin"
-        self.set_passed(f"Control plane is pinned at {requested} instance(s); {corroboration}")
+        corroboration = (
+            "matching the pin"
+            if registered == requested
+            else f"which a load-balanced API address cannot distinguish from {requested}"
+        )
+        self.set_passed(
+            f"Control plane is pinned at {requested} instance(s); "
+            f"{registered} API server endpoint(s) are registered, {corroboration}"
+        )
 
     def _registered_apiservers(self) -> int | None:
         """Return the API server endpoint count, or ``None`` after marking the check failed.
@@ -170,13 +169,10 @@ class K8sControlPlaneSizePinnedCheck(BaseValidation):
         except KubectlParseError as exc:
             return None, str(exc)
 
-        counts = _ready_endpoints_per_family(items)
-        if not counts:
+        count = _ready_endpoint_count(items)
+        if count == 0:
             return None, NO_ENDPOINTS_REASON
-        # A dual-stack Service is backed by one slice family per address type,
-        # each enumerating every API server once, so the families are
-        # alternative views of the same instances rather than additions to it.
-        return max(counts.values()), ""
+        return count, ""
 
     def _count_via_endpoints(self, kubectl_base: str) -> tuple[int | None, str]:
         """Count ready API servers from the deprecated v1 Endpoints object.
@@ -203,8 +199,8 @@ def _command_error(result: CommandResult) -> str:
     return result.stderr.strip() or result.stdout.strip() or f"exit {result.exit_code}"
 
 
-def _ready_endpoints_per_family(items: list[dict[str, Any]]) -> dict[str, int]:
-    """Return the distinct ready endpoint count per address family across EndpointSlices.
+def _ready_endpoint_count(items: list[dict[str, Any]]) -> int:
+    """Return the number of distinct ready API server endpoints across EndpointSlices.
 
     One family's endpoints can be sharded over several slices, so addresses are
     pooled per family before being counted.
@@ -221,7 +217,10 @@ def _ready_endpoints_per_family(items: list[dict[str, Any]]) -> dict[str, int]:
             address = _ready_address(endpoint)
             if address:
                 addresses.add(address)
-    return {family: len(addresses) for family, addresses in per_family.items() if addresses}
+    # A dual-stack Service is backed by one slice family per address type, each
+    # enumerating every API server once, so the families are alternative views
+    # of the same instances rather than additions to it.
+    return max((len(addresses) for addresses in per_family.values()), default=0)
 
 
 def _ready_address(endpoint: dict[str, Any]) -> str:
@@ -243,21 +242,23 @@ def _ready_address(endpoint: dict[str, Any]) -> str:
 def _endpoint_addresses(payload: dict[str, Any]) -> set[str]:
     """Return the distinct ready endpoint addresses across an Endpoints object's subsets."""
     addresses: set[str] = set()
-    subsets = payload.get("subsets")
-    if not isinstance(subsets, list):
-        return addresses
-    for subset in subsets:
+    for subset in payload.get("subsets") or []:
         if not isinstance(subset, dict):
             continue
         for address in subset.get("addresses") or []:
-            if isinstance(address, dict) and isinstance(address.get("ip"), str) and address["ip"].strip():
-                addresses.add(address["ip"].strip())
+            if not isinstance(address, dict):
+                continue
+            ip = address.get("ip")
+            if isinstance(ip, str) and ip.strip():
+                addresses.add(ip.strip())
     return addresses
 
 
 def _instance_count(value: Any) -> int | None:
     """Return ``value`` as a non-negative int, rejecting bools and non-integers.
 
+    The ``control_plane_size`` output schema already declares both counts as
+    integers, so this is a second line of defence rather than the contract.
     Decimal strings are accepted so a provider script emitting ``"3"`` is not
     treated as a broken contract.
     """
@@ -265,8 +266,6 @@ def _instance_count(value: Any) -> int | None:
         return None
     if isinstance(value, int):
         return value if value >= 0 else None
-    if isinstance(value, float):
-        return int(value) if value.is_integer() and value >= 0 else None
     if isinstance(value, str) and value.strip().isdecimal():
         return int(value.strip())
     return None

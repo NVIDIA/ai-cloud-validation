@@ -77,11 +77,13 @@ def _run(
     step_output: Any,
     slices: CommandResult | None = None,
     endpoints: CommandResult | None = None,
-) -> K8sControlPlaneSizePinnedCheck:
+) -> tuple[K8sControlPlaneSizePinnedCheck, list[str]]:
     """Run the check, answering the EndpointSlice probe and its Endpoints fallback.
 
-    The fallback defaults to a refusal so a test exercising the EndpointSlice
-    path cannot pass by silently falling through to Endpoints.
+    Returns the check alongside the kubectl commands it issued, so a test can
+    assert which probes ran. The fallback defaults to a refusal so a test
+    exercising the EndpointSlice path cannot pass by silently falling through
+    to Endpoints.
     """
     check = K8sControlPlaneSizePinnedCheck(config={"step_output": step_output})
     responses = {
@@ -93,23 +95,22 @@ def _run(
         patch.object(check, "run_command", side_effect=lambda command, **_: responses[command]) as mock_run,
     ):
         check.run()
-    check.commands_run = [call[0][0] for call in mock_run.call_args_list]  # type: ignore[attr-defined]
-    return check
+    return check, [call[0][0] for call in mock_run.call_args_list]
 
 
 def test_passes_when_registered_apiservers_match_the_pin() -> None:
     """A pin the provider delivered and the cluster corroborates exactly passes."""
-    check = _run(_step_output())
+    check, commands = _run(_step_output())
 
     assert check.passed, check.message
     assert "pinned at 3 instance(s)" in check.message
     assert "matching the pin" in check.message
-    assert check.commands_run == [SLICES_COMMAND]
+    assert commands == [SLICES_COMMAND]
 
 
 def test_passes_when_a_load_balanced_api_address_hides_instances() -> None:
     """One endpoint behind a fronted API address cannot contradict a larger pin."""
-    check = _run(_step_output(), slices=_ok(_slices(_slice("10.0.0.1"))))
+    check, _ = _run(_step_output(), slices=_ok(_slices(_slice("10.0.0.1"))))
 
     assert check.passed, check.message
     assert "load-balanced" in check.message
@@ -117,7 +118,7 @@ def test_passes_when_a_load_balanced_api_address_hides_instances() -> None:
 
 def test_fails_when_more_apiservers_are_registered_than_pinned() -> None:
     """Extra registered API servers cannot be explained by fronting, so the pin is not held."""
-    check = _run(
+    check, _ = _run(
         _step_output(),
         slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"))),
     )
@@ -129,16 +130,16 @@ def test_fails_when_more_apiservers_are_registered_than_pinned() -> None:
 
 def test_fails_when_the_provider_delivered_a_different_count() -> None:
     """A delivered count that differs from the request is not a pin, and needs no probe."""
-    check = _run(_step_output(instance_count=2))
+    check, commands = _run(_step_output(instance_count=2))
 
     assert not check.passed
     assert "requested 3 instance(s) and the provider reports 2" in check.message
-    assert check.commands_run == []
+    assert commands == []
 
 
 def test_counts_each_dual_stack_address_family_once() -> None:
     """A dual-stack Service lists every API server per family, so families are not additive."""
-    check = _run(
+    check, _ = _run(
         _step_output(),
         slices=_ok(
             _slices(
@@ -154,7 +155,7 @@ def test_counts_each_dual_stack_address_family_once() -> None:
 
 def test_pools_endpoints_sharded_across_slices_of_one_family() -> None:
     """One family's endpoints may span several slices, which together describe the instances."""
-    check = _run(
+    check, _ = _run(
         _step_output(),
         slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2"), _slice("10.0.0.3"))),
     )
@@ -165,7 +166,7 @@ def test_pools_endpoints_sharded_across_slices_of_one_family() -> None:
 
 def test_ignores_endpoints_that_are_not_ready() -> None:
     """An API server withdrawn from service is not registered capacity."""
-    check = _run(
+    check, _ = _run(
         _step_output(requested_instance_count=2, instance_count=2),
         slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2"), _slice("10.0.0.3", ready=False))),
     )
@@ -176,7 +177,7 @@ def test_ignores_endpoints_that_are_not_ready() -> None:
 
 def test_counts_an_endpoint_that_states_no_ready_condition() -> None:
     """The EndpointSlice API defines an absent ready condition as ready."""
-    check = _run(_step_output(), slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2", "10.0.0.3", ready=None))))
+    check, _ = _run(_step_output(), slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2", "10.0.0.3", ready=None))))
 
     assert check.passed, check.message
     assert "matching the pin" in check.message
@@ -184,7 +185,7 @@ def test_counts_an_endpoint_that_states_no_ready_condition() -> None:
 
 def test_falls_back_to_endpoints_when_endpointslices_are_refused() -> None:
     """A cluster or RBAC grant that only answers on Endpoints still yields the measurement."""
-    check = _run(
+    check, commands = _run(
         _step_output(),
         slices=_fail(stderr="Error from server (Forbidden): endpointslices is forbidden"),
         endpoints=_ok(_endpoints("10.0.0.1", "10.0.0.2", "10.0.0.3")),
@@ -192,19 +193,19 @@ def test_falls_back_to_endpoints_when_endpointslices_are_refused() -> None:
 
     assert check.passed, check.message
     assert "matching the pin" in check.message
-    assert check.commands_run == [SLICES_COMMAND, ENDPOINTS_COMMAND]
+    assert commands == [SLICES_COMMAND, ENDPOINTS_COMMAND]
 
 
 def test_falls_back_to_endpoints_when_no_slices_back_the_service() -> None:
     """An empty slice list is inconclusive rather than proof of an empty control plane."""
-    check = _run(
+    check, commands = _run(
         _step_output(),
         slices=_ok(json.dumps({"items": []})),
         endpoints=_ok(_endpoints("10.0.0.1", "10.0.0.2", "10.0.0.3")),
     )
 
     assert check.passed, check.message
-    assert check.commands_run == [SLICES_COMMAND, ENDPOINTS_COMMAND]
+    assert commands == [SLICES_COMMAND, ENDPOINTS_COMMAND]
 
 
 def test_counts_distinct_addresses_across_endpoints_subsets() -> None:
@@ -218,7 +219,7 @@ def test_counts_distinct_addresses_across_endpoints_subsets() -> None:
         }
     )
 
-    check = _run(_step_output(), slices=_fail(stderr="no EndpointSlice support"), endpoints=_ok(payload))
+    check, _ = _run(_step_output(), slices=_fail(stderr="no EndpointSlice support"), endpoints=_ok(payload))
 
     assert check.passed, check.message
     assert "3 API server endpoint(s)" in check.message
@@ -226,23 +227,23 @@ def test_counts_distinct_addresses_across_endpoints_subsets() -> None:
 
 def test_accepts_counts_emitted_as_decimal_strings() -> None:
     """A provider script emitting counts as strings still satisfies the contract."""
-    check = _run(_step_output(requested_instance_count="3", instance_count="3"))
+    check, _ = _run(_step_output(requested_instance_count="3", instance_count="3"))
 
     assert check.passed, check.message
 
 
 def test_fails_when_the_pin_step_reported_failure() -> None:
     """A pin that did not happen is reported with the step's own error."""
-    check = _run(_step_output(success=False, error="control-plane resize quota exceeded"))
+    check, commands = _run(_step_output(success=False, error="control-plane resize quota exceeded"))
 
     assert not check.passed
     assert "control-plane resize quota exceeded" in check.message
-    assert check.commands_run == []
+    assert commands == []
 
 
 def test_fails_without_step_output() -> None:
     """An unbound check has no pin to verify."""
-    check = _run(None)
+    check, _ = _run(None)
 
     assert not check.passed
     assert "Missing step_output" in check.message
@@ -251,7 +252,7 @@ def test_fails_without_step_output() -> None:
 @pytest.mark.parametrize("requested", [0, -1, True, "three", None, 2.5])
 def test_fails_on_an_unusable_requested_count(requested: Any) -> None:
     """The requested count has to be a real instance count for the pin to mean anything."""
-    check = _run(_step_output(requested_instance_count=requested))
+    check, _ = _run(_step_output(requested_instance_count=requested))
 
     assert not check.passed
     assert "requested_instance_count" in check.message
@@ -262,7 +263,7 @@ def test_fails_when_the_delivered_count_is_missing() -> None:
     output = _step_output()
     output.pop("instance_count")
 
-    check = _run(output)
+    check, _ = _run(output)
 
     assert not check.passed
     assert "instance_count" in check.message
@@ -270,7 +271,7 @@ def test_fails_when_the_delivered_count_is_missing() -> None:
 
 def test_fails_when_both_endpoint_probes_are_refused() -> None:
     """Losing the independent measurement leaves only the provider's own report."""
-    check = _run(
+    check, _ = _run(
         _step_output(),
         slices=_fail(stderr="Error from server (Forbidden): endpointslices is forbidden"),
         endpoints=_fail(stderr='Error from server (Forbidden): endpoints "kubernetes" is forbidden'),
@@ -284,7 +285,7 @@ def test_fails_when_both_endpoint_probes_are_refused() -> None:
 
 def test_fails_when_both_endpoint_payloads_are_malformed() -> None:
     """Unparseable probe output is inconclusive, not a pass."""
-    check = _run(_step_output(), slices=_ok("not json"), endpoints=_ok("not json"))
+    check, _ = _run(_step_output(), slices=_ok("not json"), endpoints=_ok("not json"))
 
     assert not check.passed
     assert "Failed to parse" in check.message
@@ -292,7 +293,7 @@ def test_fails_when_both_endpoint_payloads_are_malformed() -> None:
 
 def test_fails_when_no_apiserver_endpoints_are_registered_anywhere() -> None:
     """A Service backing no ready endpoints corroborates nothing."""
-    check = _run(
+    check, _ = _run(
         _step_output(),
         slices=_ok(_slices(_slice())),
         endpoints=_ok(json.dumps({"subsets": []})),
