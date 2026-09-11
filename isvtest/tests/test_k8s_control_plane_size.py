@@ -26,6 +26,7 @@ import pytest
 from isvtest.core.runners import CommandResult
 from isvtest.validations.k8s_control_plane_size import K8sControlPlaneSizePinnedCheck
 
+SLICES_COMMAND = "kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes -o json"
 ENDPOINTS_COMMAND = "kubectl get endpoints kubernetes -n default -o json"
 
 
@@ -37,6 +38,22 @@ def _ok(stdout: str = "", stderr: str = "") -> CommandResult:
 def _fail(stdout: str = "", stderr: str = "", exit_code: int = 1) -> CommandResult:
     """Return a failed ``CommandResult``."""
     return CommandResult(exit_code=exit_code, stdout=stdout, stderr=stderr, duration=0.0)
+
+
+def _slice(*ips: str, family: str = "IPv4", ready: bool | None = True) -> dict[str, Any]:
+    """Return one EndpointSlice publishing an endpoint per ``ips`` entry."""
+    endpoint: list[dict[str, Any]] = []
+    for ip in ips:
+        record: dict[str, Any] = {"addresses": [ip]}
+        if ready is not None:
+            record["conditions"] = {"ready": ready}
+        endpoint.append(record)
+    return {"addressType": family, "endpoints": endpoint}
+
+
+def _slices(*slices: dict[str, Any]) -> str:
+    """Return a kubectl EndpointSlice list payload wrapping ``slices``."""
+    return json.dumps({"items": list(slices)})
 
 
 def _endpoints(*ips: str) -> str:
@@ -56,13 +73,24 @@ def _step_output(**overrides: Any) -> dict[str, Any]:
     return output
 
 
-def _run(step_output: Any, endpoints: CommandResult | None = None) -> K8sControlPlaneSizePinnedCheck:
-    """Run the check against ``step_output``, answering the endpoints probe with ``endpoints``."""
+def _run(
+    step_output: Any,
+    slices: CommandResult | None = None,
+    endpoints: CommandResult | None = None,
+) -> K8sControlPlaneSizePinnedCheck:
+    """Run the check, answering the EndpointSlice probe and its Endpoints fallback.
+
+    The fallback defaults to a refusal so a test exercising the EndpointSlice
+    path cannot pass by silently falling through to Endpoints.
+    """
     check = K8sControlPlaneSizePinnedCheck(config={"step_output": step_output})
-    response = endpoints if endpoints is not None else _ok(_endpoints("10.0.0.1", "10.0.0.2", "10.0.0.3"))
+    responses = {
+        SLICES_COMMAND: slices if slices is not None else _ok(_slices(_slice("10.0.0.1", "10.0.0.2", "10.0.0.3"))),
+        ENDPOINTS_COMMAND: endpoints if endpoints is not None else _fail(stderr="Endpoints was not expected"),
+    }
     with (
         patch("isvtest.validations.k8s_control_plane_size.get_kubectl_base_shell", return_value="kubectl"),
-        patch.object(check, "run_command", return_value=response) as mock_run,
+        patch.object(check, "run_command", side_effect=lambda command, **_: responses[command]) as mock_run,
     ):
         check.run()
     check.commands_run = [call[0][0] for call in mock_run.call_args_list]  # type: ignore[attr-defined]
@@ -76,12 +104,12 @@ def test_passes_when_registered_apiservers_match_the_pin() -> None:
     assert check.passed, check.message
     assert "pinned at 3 instance(s)" in check.message
     assert "matching the pin" in check.message
-    assert check.commands_run == [ENDPOINTS_COMMAND]
+    assert check.commands_run == [SLICES_COMMAND]
 
 
 def test_passes_when_a_load_balanced_api_address_hides_instances() -> None:
     """One endpoint behind a fronted API address cannot contradict a larger pin."""
-    check = _run(_step_output(), endpoints=_ok(_endpoints("10.0.0.1")))
+    check = _run(_step_output(), slices=_ok(_slices(_slice("10.0.0.1"))))
 
     assert check.passed, check.message
     assert "load-balanced" in check.message
@@ -89,7 +117,10 @@ def test_passes_when_a_load_balanced_api_address_hides_instances() -> None:
 
 def test_fails_when_more_apiservers_are_registered_than_pinned() -> None:
     """Extra registered API servers cannot be explained by fronting, so the pin is not held."""
-    check = _run(_step_output(), endpoints=_ok(_endpoints("10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4")))
+    check = _run(
+        _step_output(),
+        slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"))),
+    )
 
     assert not check.passed
     assert "not held at 3 instance(s)" in check.message
@@ -105,8 +136,79 @@ def test_fails_when_the_provider_delivered_a_different_count() -> None:
     assert check.commands_run == []
 
 
-def test_counts_distinct_addresses_across_subsets() -> None:
-    """Addresses repeated across subsets describe one API server each, not several."""
+def test_counts_each_dual_stack_address_family_once() -> None:
+    """A dual-stack Service lists every API server per family, so families are not additive."""
+    check = _run(
+        _step_output(),
+        slices=_ok(
+            _slices(
+                _slice("10.0.0.1", "10.0.0.2", "10.0.0.3"),
+                _slice("fd00::1", "fd00::2", "fd00::3", family="IPv6"),
+            )
+        ),
+    )
+
+    assert check.passed, check.message
+    assert "3 API server endpoint(s)" in check.message
+
+
+def test_pools_endpoints_sharded_across_slices_of_one_family() -> None:
+    """One family's endpoints may span several slices, which together describe the instances."""
+    check = _run(
+        _step_output(),
+        slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2"), _slice("10.0.0.3"))),
+    )
+
+    assert check.passed, check.message
+    assert "3 API server endpoint(s)" in check.message
+
+
+def test_ignores_endpoints_that_are_not_ready() -> None:
+    """An API server withdrawn from service is not registered capacity."""
+    check = _run(
+        _step_output(requested_instance_count=2, instance_count=2),
+        slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2"), _slice("10.0.0.3", ready=False))),
+    )
+
+    assert check.passed, check.message
+    assert "2 API server endpoint(s)" in check.message
+
+
+def test_counts_an_endpoint_that_states_no_ready_condition() -> None:
+    """The EndpointSlice API defines an absent ready condition as ready."""
+    check = _run(_step_output(), slices=_ok(_slices(_slice("10.0.0.1", "10.0.0.2", "10.0.0.3", ready=None))))
+
+    assert check.passed, check.message
+    assert "matching the pin" in check.message
+
+
+def test_falls_back_to_endpoints_when_endpointslices_are_refused() -> None:
+    """A cluster or RBAC grant that only answers on Endpoints still yields the measurement."""
+    check = _run(
+        _step_output(),
+        slices=_fail(stderr="Error from server (Forbidden): endpointslices is forbidden"),
+        endpoints=_ok(_endpoints("10.0.0.1", "10.0.0.2", "10.0.0.3")),
+    )
+
+    assert check.passed, check.message
+    assert "matching the pin" in check.message
+    assert check.commands_run == [SLICES_COMMAND, ENDPOINTS_COMMAND]
+
+
+def test_falls_back_to_endpoints_when_no_slices_back_the_service() -> None:
+    """An empty slice list is inconclusive rather than proof of an empty control plane."""
+    check = _run(
+        _step_output(),
+        slices=_ok(json.dumps({"items": []})),
+        endpoints=_ok(_endpoints("10.0.0.1", "10.0.0.2", "10.0.0.3")),
+    )
+
+    assert check.passed, check.message
+    assert check.commands_run == [SLICES_COMMAND, ENDPOINTS_COMMAND]
+
+
+def test_counts_distinct_addresses_across_endpoints_subsets() -> None:
+    """On the fallback path, addresses repeated across subsets describe one API server each."""
     payload = json.dumps(
         {
             "subsets": [
@@ -116,7 +218,7 @@ def test_counts_distinct_addresses_across_subsets() -> None:
         }
     )
 
-    check = _run(_step_output(), endpoints=_ok(payload))
+    check = _run(_step_output(), slices=_fail(stderr="no EndpointSlice support"), endpoints=_ok(payload))
 
     assert check.passed, check.message
     assert "3 API server endpoint(s)" in check.message
@@ -166,29 +268,35 @@ def test_fails_when_the_delivered_count_is_missing() -> None:
     assert "instance_count" in check.message
 
 
-def test_fails_when_the_endpoints_probe_is_refused() -> None:
+def test_fails_when_both_endpoint_probes_are_refused() -> None:
     """Losing the independent measurement leaves only the provider's own report."""
     check = _run(
         _step_output(),
+        slices=_fail(stderr="Error from server (Forbidden): endpointslices is forbidden"),
         endpoints=_fail(stderr='Error from server (Forbidden): endpoints "kubernetes" is forbidden'),
     )
 
     assert not check.passed
     assert "Could not count registered API servers" in check.message
-    assert "Forbidden" in check.message
+    assert "endpointslices is forbidden" in check.message
+    assert 'endpoints "kubernetes" is forbidden' in check.message
 
 
-def test_fails_when_the_endpoints_payload_is_malformed() -> None:
+def test_fails_when_both_endpoint_payloads_are_malformed() -> None:
     """Unparseable probe output is inconclusive, not a pass."""
-    check = _run(_step_output(), endpoints=_ok("not json"))
+    check = _run(_step_output(), slices=_ok("not json"), endpoints=_ok("not json"))
 
     assert not check.passed
     assert "Failed to parse" in check.message
 
 
-def test_fails_when_no_apiserver_endpoints_are_registered() -> None:
-    """An Endpoints object with no addresses corroborates nothing."""
-    check = _run(_step_output(), endpoints=_ok(json.dumps({"subsets": []})))
+def test_fails_when_no_apiserver_endpoints_are_registered_anywhere() -> None:
+    """A Service backing no ready endpoints corroborates nothing."""
+    check = _run(
+        _step_output(),
+        slices=_ok(_slices(_slice())),
+        endpoints=_ok(json.dumps({"subsets": []})),
+    )
 
     assert not check.passed
-    assert "registers no API server endpoints" in check.message
+    assert "registers no ready API server endpoints" in check.message

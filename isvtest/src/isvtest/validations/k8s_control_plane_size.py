@@ -19,7 +19,13 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, parse_kubectl_json
+from isvtest.core.k8s import (
+    KubectlParseError,
+    get_kubectl_base_shell,
+    parse_kubectl_json,
+    parse_kubectl_json_items,
+)
+from isvtest.core.runners import CommandResult
 from isvtest.core.validation import BaseValidation
 
 # The ``kubernetes`` Service in ``default`` is maintained by the API servers
@@ -28,6 +34,11 @@ from isvtest.core.validation import BaseValidation
 # tenant gets on a managed control plane.
 APISERVER_SERVICE = "kubernetes"
 APISERVER_NAMESPACE = "default"
+
+# EndpointSlices carry the name of the Service they back as a label.
+SERVICE_NAME_LABEL = "kubernetes.io/service-name"
+
+NO_ENDPOINTS_REASON = "registers no ready API server endpoints"
 
 
 class K8sControlPlaneSizePinnedCheck(BaseValidation):
@@ -42,10 +53,10 @@ class K8sControlPlaneSizePinnedCheck(BaseValidation):
     Taking that report at face value would let a provider certify by asserting
     its own compliance, so the delivered count is corroborated against the
     cluster itself: the ``kubernetes`` Service in ``default`` carries one
-    endpoint address per registered API server. That measurement is
-    independent of the provider, and the suite holds this check back to the
-    test phase while the pin runs during setup, so it is also a later sample -
-    a size that has drifted since the step reported it shows up here.
+    endpoint per registered API server. That measurement is independent of the
+    provider, and the suite holds this check back to the test phase while the
+    pin runs during setup, so it is also a later sample - a size that has
+    drifted since the step reported it shows up here.
 
     The comparison is deliberately one-sided. A provider that fronts its API
     servers with a single load-balanced address publishes one endpoint however
@@ -123,31 +134,110 @@ class K8sControlPlaneSizePinnedCheck(BaseValidation):
 
         The count is the independent half of the proof, so a probe that cannot
         be answered leaves only the provider's own report and fails rather than
-        passing on it.
+        passing on it. EndpointSlice is asked first because the v1 Endpoints
+        API is deprecated from Kubernetes 1.33; Endpoints remains the fallback
+        for clusters, or RBAC grants, that only answer there.
         """
         kubectl_base = get_kubectl_base_shell()
+        count, slice_error = self._count_via_endpoint_slices(kubectl_base)
+        if count is not None:
+            return count
+
+        count, endpoints_error = self._count_via_endpoints(kubectl_base)
+        if count is not None:
+            return count
+
+        self.set_failed(
+            f"Could not count registered API servers for {APISERVER_NAMESPACE}/{APISERVER_SERVICE} - "
+            f"EndpointSlice: {slice_error}; Endpoints: {endpoints_error}"
+        )
+        return None
+
+    def _count_via_endpoint_slices(self, kubectl_base: str) -> tuple[int | None, str]:
+        """Count ready API servers from the EndpointSlices backing the Service.
+
+        Returns the count, or ``None`` alongside the reason it is unavailable.
+        """
+        result = self.run_command(
+            f"{kubectl_base} get endpointslices -n {APISERVER_NAMESPACE} "
+            f"-l {SERVICE_NAME_LABEL}={APISERVER_SERVICE} -o json"
+        )
+        if result.exit_code != 0:
+            return None, _command_error(result)
+
+        try:
+            items = parse_kubectl_json_items(result, f"{APISERVER_NAMESPACE}/{APISERVER_SERVICE} endpointslices")
+        except KubectlParseError as exc:
+            return None, str(exc)
+
+        counts = _ready_endpoints_per_family(items)
+        if not counts:
+            return None, NO_ENDPOINTS_REASON
+        # A dual-stack Service is backed by one slice family per address type,
+        # each enumerating every API server once, so the families are
+        # alternative views of the same instances rather than additions to it.
+        return max(counts.values()), ""
+
+    def _count_via_endpoints(self, kubectl_base: str) -> tuple[int | None, str]:
+        """Count ready API servers from the deprecated v1 Endpoints object.
+
+        Returns the count, or ``None`` alongside the reason it is unavailable.
+        """
         result = self.run_command(f"{kubectl_base} get endpoints {APISERVER_SERVICE} -n {APISERVER_NAMESPACE} -o json")
         if result.exit_code != 0:
-            self.set_failed(
-                f"Could not count registered API servers from {APISERVER_NAMESPACE}/{APISERVER_SERVICE}: "
-                f"{result.stderr.strip() or result.stdout.strip() or f'exit {result.exit_code}'}"
-            )
-            return None
+            return None, _command_error(result)
 
         try:
             payload = parse_kubectl_json(result, f"{APISERVER_NAMESPACE}/{APISERVER_SERVICE} endpoints")
         except KubectlParseError as exc:
-            self.set_failed(str(exc))
-            return None
+            return None, str(exc)
 
         addresses = _endpoint_addresses(payload)
         if not addresses:
-            self.set_failed(
-                f"{APISERVER_NAMESPACE}/{APISERVER_SERVICE} registers no API server endpoints, so the pinned "
-                "control-plane size cannot be corroborated"
-            )
-            return None
-        return len(addresses)
+            return None, NO_ENDPOINTS_REASON
+        return len(addresses), ""
+
+
+def _command_error(result: CommandResult) -> str:
+    """Return the most informative line a failed kubectl invocation produced."""
+    return result.stderr.strip() or result.stdout.strip() or f"exit {result.exit_code}"
+
+
+def _ready_endpoints_per_family(items: list[dict[str, Any]]) -> dict[str, int]:
+    """Return the distinct ready endpoint count per address family across EndpointSlices.
+
+    One family's endpoints can be sharded over several slices, so addresses are
+    pooled per family before being counted.
+    """
+    per_family: dict[str, set[str]] = {}
+    for item in items:
+        family = item.get("addressType")
+        if not isinstance(family, str) or not family.strip():
+            continue
+        addresses = per_family.setdefault(family.strip(), set())
+        for endpoint in item.get("endpoints") or []:
+            if not isinstance(endpoint, dict):
+                continue
+            address = _ready_address(endpoint)
+            if address:
+                addresses.add(address)
+    return {family: len(addresses) for family, addresses in per_family.items() if addresses}
+
+
+def _ready_address(endpoint: dict[str, Any]) -> str:
+    """Return an EndpointSlice endpoint's identifying address, or ``""`` if it is not serving.
+
+    ``conditions.ready`` only withholds an endpoint when explicitly ``false`` -
+    the API defines an absent value as ready. Only the first address is
+    meaningful to consumers, so it stands for the instance.
+    """
+    conditions = endpoint.get("conditions")
+    if isinstance(conditions, dict) and conditions.get("ready") is False:
+        return ""
+    for address in endpoint.get("addresses") or []:
+        if isinstance(address, str) and address.strip():
+            return address.strip()
+    return ""
 
 
 def _endpoint_addresses(payload: dict[str, Any]) -> set[str]:
