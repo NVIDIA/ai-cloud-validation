@@ -1,0 +1,77 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Network Operator connectivity validation for an ISV-provisioned cluster.
+# The complete Launch Kit configuration and rendered deployment directory are
+# prerequisites. This provider validates them, then always collects diagnostics:
+#   l8k validate --user-config <file> --deployment-files <directory>
+#   l8k sosreport --output-dir <artifact-dir>/sosreport
+
+import:
+  - ../../../suites/k8s-launch-kit/network-operator.yaml
+
+version: "1.0"
+
+context:
+  k8s_launch_kit:
+    executable: l8k
+    user_config: ""
+    deployment_files: ""
+    working_dir: ../../../../../_output/k8s-launch-kit/network-operator/work
+    artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/evidence
+    environment: {}
+
+commands:
+  network_operator:
+    phases: [test]
+    steps:
+      - name: launch_kit_validate
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ context.k8s_launch_kit.executable }}"
+          - --command
+          - validate
+          - --arguments-json
+          - "[]"
+          - "--user-config={{ context.k8s_launch_kit.user_config }}"
+          - "--deployment-files={{ context.k8s_launch_kit.deployment_files }}"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        # Launch Kit calculates the connectivity-matrix budget or honors the
+        # timeout configured by the user, so it owns this command's deadline.
+        timeout: null
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [LaunchKitConnectivityCheck]
+
+      # A linked same-phase finalizer runs after the connectivity assertion even
+      # when validate exits nonzero. It is not a separate catalog test.
+      - name: launch_kit_sosreport
+        phase: test
+        command: python3 ../scripts/adapter.py
+        args:
+          - run
+          - --executable
+          - "{{ context.k8s_launch_kit.executable }}"
+          - --command
+          - sosreport
+          - --arguments-json
+          - "[]"
+          - --environment-json
+          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - --working-dir
+          - "{{ context.k8s_launch_kit.working_dir }}"
+          - --artifact-dir
+          - "{{ context.k8s_launch_kit.artifact_dir }}"
+        timeout: 1800
+        output_schema: k8s_launch_kit
+        requires: [kubernetes]
+        requires_selected_validations: [LaunchKitConnectivityCheck]
+        finalizer_for: launch_kit_validate

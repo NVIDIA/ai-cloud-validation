@@ -3636,6 +3636,24 @@ domains:
                 milestone: M5
                 github_issues:
                   - "#220"
+          - description: Network Operator connectivity validation through Kubernetes Launch Kit
+            tests:
+              - summary: Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+                labels:
+                  - era
+                  - kubernetes
+                  - ncp
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: K8S42
+                test_id: K8S42-01
+                actor: operator
+                status: pending
+                notes: "One l8k validate invocation consumes a complete user config and rendered deployment directory; topology, deployment readiness, and selected connectivity families are prerequisites"
           - description: "K8s Versioning & Compliance"
             tests:
               - summary: Verify support for the three most recent minor releases (N-2)

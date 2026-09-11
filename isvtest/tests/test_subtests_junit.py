@@ -23,9 +23,12 @@ from typing import cast
 from isvtest.testing.subtests import SubTestReport, _inject_subtests_into_junit
 
 
-def _parent_junit(tmp_path: Path, parent_name: str) -> Path:
+def _parent_junit(tmp_path: Path, parent_name: str, *, reported_tests: int = 1) -> Path:
     """Write a minimal pytest-style JUnit with a single parent testcase."""
-    suite = ET.Element("testsuite", attrib={"name": "phase", "tests": "1", "skipped": "0", "failures": "0"})
+    suite = ET.Element(
+        "testsuite",
+        attrib={"name": "phase", "tests": str(reported_tests), "skipped": "0", "failures": "0"},
+    )
     ET.SubElement(suite, "testcase", attrib={"name": parent_name, "classname": "", "time": "0.000"})
     path = tmp_path / "junit.xml"
     ET.ElementTree(suite).write(path, encoding="utf-8", xml_declaration=True)
@@ -92,3 +95,18 @@ def test_skipped_subtest_falls_back_when_longrepr_is_missing(tmp_path: Path) -> 
     skipped = subtest_case.find("skipped")
     assert skipped is not None
     assert skipped.get("message") == "Subtest noisy-subtest skipped"
+
+
+def test_injected_subtests_reconcile_precounted_junit_totals(tmp_path: Path) -> None:
+    """pytest's pre-counted subtest report must not be counted again after injection."""
+    junit = _parent_junit(tmp_path, "ParentCheck", reported_tests=2)
+    report = _stub_report("::ParentCheck", "probe", failed=True, longrepr="probe failed")
+
+    _inject_subtests_into_junit(junit, cast(list[SubTestReport], [report]))
+
+    suite = ET.parse(junit).getroot()
+    assert len(suite.findall("testcase")) == 2
+    assert suite.get("tests") == "2"
+    assert suite.get("failures") == "1"
+    assert suite.get("errors") == "0"
+    assert suite.get("skipped") == "0"

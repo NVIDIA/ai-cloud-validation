@@ -77,7 +77,8 @@ Entry point: `isvctl/src/isvctl/main.py` (Typer).
 
 - `cli/` - subcommands (`test`, `deploy`, `clean`, `docs`, `report`)
 - `orchestrator/` - `loop.py` (phase loop), `step_executor.py` (step + validation
-  execution, supports `best_effort` mode), `commands.py` (timeouts), `context.py`
+  execution, supports `best_effort` mode), `commands.py` (legacy command model),
+  `process.py` (shared subprocess and process-group timeout handling), `context.py`
   (Jinja2 with missing-reference warnings)
 - `config/` - `schema.py` (Pydantic), `output_schemas.py` (per-step JSON schemas),
   `merger.py` (multi-file merge)
@@ -139,7 +140,9 @@ forwarded env vars → optional isvreporter upload.
 
 - Workspace root `pyproject.toml` defines members; each package has its own
   `pyproject.toml`; all source under `src/`.
-- `isvctl/configs/suites/` - provider-agnostic test contracts.
+- `isvctl/configs/suites/` - provider-agnostic test contracts. Discovery is
+  recursive, so related domain suites may be grouped in a subdirectory; YAML
+  filename stems must remain globally unique.
 - `isvctl/configs/providers/<name>/` - one folder per provider (`aws/`, `my-isv/`, ...):
   - `config/` - YAML wiring (imports a suite, supplies commands)
   - `scripts/` - executable scripts (Python/Bash) that do the work, organized by
@@ -159,6 +162,72 @@ forwarded env vars → optional isvreporter upload.
 - **`aws/`** - fully implemented reference using boto3/Terraform.
   `aws/scripts/common/` provides `ec2`, `errors` (with `delete_with_retry`),
   `ssh_utils.wait_for_ssh`, `serial_console`, `vpc`.
+
+### Network Operator / Kubernetes Launch Kit
+
+- All provider-owned Launch Kit files live under
+  `isvctl/configs/providers/k8s-launch-kit/`: provider YAML in `config/`,
+  executable transport in `scripts/`, and implementation documentation in
+  `README.md`. Test doubles live only under
+  `isvctl/tests/providers/k8s_launch_kit/fixtures/`; product configuration
+  must never reference them.
+- `config/provider.yaml` is the generic provider. Its public API mirrors the
+  Launch Kit lifecycle: prepare, verify, Kubernetes preflight, discover,
+  generate, deploy, validate, and clean. Workflow settings are raw argument
+  arrays; do not model or duplicate Launch Kit flags, schema, or defaults.
+  Discovery can stage a complete `user_config`. Its validate step uses
+  `timeout: null` so Launch Kit owns the automatically calculated or
+  user-supplied matrix deadline.
+- `config/network-operator.yaml` is deliberately independent of the generic
+  lifecycle provider. It runs exactly one catalog-owning test step:
+  `l8k validate --user-config <file> --deployment-files <directory>`, followed
+  by a linked same-phase finalizer that always invokes `l8k sosreport` after an
+  attempted validation. Sosreport is evidence collection, not another test.
+  The installed binary, reachable Kubernetes cluster, reconciled Network
+  Operator deployment, complete Launch Kit config, and rendered deployment
+  files are prerequisites. The installation must also expose Launch Kit's
+  `kubectl-netop_sosreport` helper. Do not add prepare, verify, preflight,
+  discover, generate, deploy, clean, or unrelated finalizer steps to this
+  entrypoint.
+- The Network Operator provider inputs are `executable`, `user_config`,
+  `deployment_files`, `working_dir`, `artifact_dir`, and a string-only
+  `environment` mapping. Both input paths are resolved and checked before
+  execution, then supplied through Launch Kit's real CLI flags. The adapter
+  must not copy, merge, interpret, or modify them.
+- `isvctl/configs/suites/k8s-launch-kit/network-operator.yaml` contains one
+  catalog test, `LaunchKitConnectivityCheck`. There are no fabric, deployment,
+  or connectivity-family use-case tests. Those choices come from the complete
+  Launch Kit config and current cluster state.
+- `isvtest/validations/k8s_launch_kit/checks.py` consumes only
+  `connectivity.PingResults`. Every emitted row becomes a subtest with its
+  family, endpoints, and rails. Preserve bandwidth, GPU, stderr, and error
+  details when present. Do not require a fixed family list: disabled families
+  are absent without skips, and explicit new families pass through.
+- A missing or empty connectivity matrix fails rather than passing vacuously.
+  The provider binds its step with `requires_selected_validations` so command
+  failures remain owned by the catalog validation and appear in structured
+  reporting.
+- The adapter adds only `--output json` to commands that emit structured
+  output, wraps the unmodified concatenated JSON documents, and records argv,
+  cwd, stdout, stderr, exit code, and timing. For `validate`, use the emitted
+  `reportPath` as the authoritative HTML report source and copy it to
+  `<artifact_dir>/k8s-launch-kit-validation-report.html`. `l8k sosreport` is
+  text-streaming; default its `--output-dir` to the provider evidence directory,
+  retain that directory as an artifact, and wrap the command without parsing
+  its output. Do not invent a `selfValidation` result or reinterpret Launch
+  Kit's verdict.
+- The generic provider retains installation, Kubernetes preflight, and cleanup
+  support for other consumers. `l8k clean` remains its only supported deletion
+  path; never reproduce Launch Kit cleanup with kubectl.
+- Mock-backed provider coverage loads the production YAML and injects
+  test-owned executables in memory. Result interpretation tests live under
+  `isvtest/tests/k8s_launch_kit/`.
+- The structured PRD source is
+  `docs/requirements/network-operator-readiness-requirements.yaml`. Keep its
+  traceability edges in `docs/requirements/test-requirements-matrix.yaml`,
+  document the prerequisite boundary in
+  `docs/guides/k8s-launch-kit/network-operator.md`, and regenerate committed
+  views with `make plan`.
 
 ## Environment Variables
 

@@ -8,7 +8,7 @@
 #
 # Per mapping:
 #   test_id       - matches docs/test-plan.yaml
-#   requirements  - list of { req_id, source: offtake|reference, coverage: full|partial }
+#   requirements  - list of { req_id, source: <registered source>, coverage: full|partial }
 #   annotations   - free-form (e.g. how this relationship was decided)
 #   notes         - free-form scratch
 #
@@ -2567,4 +2567,38 @@ mappings:
         source: offtake
         coverage: full
     annotations: ''
+    notes: ''
+  - test_id: K8S42-01
+    requirements:
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: full
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-004
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-007
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-011
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-012
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Runs one l8k validate command and reports every emitted connectivity row. Cluster provisioning, topology discovery, manifest generation, deployment health, applicability, and state restoration are prerequisites outside this suite. Catalog wiring, local command evidence, and JUnit reporting are implemented; AI Cloud Labs binary attachment upload remains a gap.'
     notes: ''
