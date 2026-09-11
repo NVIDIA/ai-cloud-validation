@@ -619,7 +619,7 @@ The purpose of this requirement is to provide a connection from DGXC GPU cluster
 
 The following diagram shows Private Cloud Interconnect with VIF and BGP for CorpIT access.
 
-![Corporate network connectivity diagram](docs/ncp/nvidia-requirements-for-ai-clouds/assets/images/nrac-corpnet-connectivity.png)
+![Corporate network connectivity diagram](./images/nrac-corpnet-connectivity.png)
 
 #### Connection to DGXC Storage
 
@@ -631,7 +631,7 @@ The purpose of this requirement is to enable high-bandwidth, end-to-end MACsec-e
 
 The following diagram shows the storage connectivity path between the DGXC GPU clusters and NVIDIA DGXC object storage.
 
-![Storage connectivity diagram](docs/ncp/nvidia-requirements-for-ai-clouds/assets/images/nrac-storage-connectivity.png)
+![Storage connectivity diagram](./images/nrac-storage-connectivity.png)
 
 #### Cluster Local Internet Access
 
@@ -643,7 +643,7 @@ The purpose of this requirement is to provide DGXC GPU clusters within the NCP e
 
 The following diagram shows public internet access for DGXC-hosted services.
 
-![Internet access diagram](docs/ncp/nvidia-requirements-for-ai-clouds/assets/images/nrac-internet-access.png)
+![Internet access diagram](./images/nrac-internet-access.png)
 
 ### Capacity and Fleet Management
 
