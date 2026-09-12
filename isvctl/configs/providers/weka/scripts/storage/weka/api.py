@@ -1005,8 +1005,24 @@ def _parse_user_uid(user: str) -> int:
 
 
 def _row_uid(row: dict[str, Any]) -> int:
-    """Return the numeric UID from a WEKA quota row."""
-    return int(row.get("uid_or_gid") or 0)
+    """Return the numeric UID from a WEKA user-quota row.
+
+    The 5.1.26 vendor shape carries ``uid_or_gid``. Observed 5.1.31 rows omit
+    that field and encode the uid in ``quota_id`` as ``USER:<uid>`` instead.
+    """
+    raw = row.get("uid_or_gid")
+    if raw is not None and raw != "":
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            pass
+    qid = str(row.get("quota_id") or "").strip()
+    if qid.upper().startswith("USER:"):
+        try:
+            return int(qid.split(":", 1)[1])
+        except ValueError:
+            pass
+    raise ValidationError(f"WEKA user-quota row missing uid (quota_id={qid!r}, uid_or_gid={raw!r})")
 
 
 def _user_quota_path(fs_uid: str) -> str:
