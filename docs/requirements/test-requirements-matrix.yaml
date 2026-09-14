@@ -863,6 +863,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: SDN17-02
+    requirements:
+      - req_id: SDN17
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: The Kubernetes DRA reading of SDN17; SDN17-01 covers the host reading.
   - test_id: SDN18-01
     requirements:
       - req_id: SDN18

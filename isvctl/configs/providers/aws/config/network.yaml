@@ -415,6 +415,18 @@ commands:
         timeout: 300
         output_schema: imex_service
 
+      # Compute-domain capability on a DRA cluster (SDN17-02). The Kubernetes
+      # half of SDN17 reads cluster objects only, so the shared reference is
+      # provider-neutral and AWS wires it as-is. Gated on kubernetes: a
+      # `--capability vm` network run has no cluster to read. Point KUBECTL (or
+      # the ambient kubeconfig) at the cluster under test.
+      - name: imex_compute_domain
+        phase: test
+        command: "python3 ../../shared/network/imex_compute_domain_test.py"
+        requires: [kubernetes]
+        timeout: 120
+        output_schema: imex_compute_domain
+
       # Teardown: Clean up shared VPC from create_network
       - name: teardown
         phase: teardown

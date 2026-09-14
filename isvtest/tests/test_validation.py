@@ -44,6 +44,7 @@ from isvtest.validations.network import (
     BackendSwitchFabricCheck,
     ByoipCheck,
     FloatingIpCheck,
+    ImexComputeDomainCapabilityCheck,
     ImexDomainConnectivityCheck,
     ImexServicePresenceCheck,
     LocalizedDnsCheck,
@@ -2097,6 +2098,164 @@ class TestImexServicePresenceCheck:
         config["step_output"]["skip_reason"] = "IMEX nodes not configured for this run (no node IDs set)"
         v = ImexServicePresenceCheck(config=config)
         with pytest.raises(pytest.skip.Exception, match="not configured"):
+            v.execute()
+
+
+def _compute_domain_node(
+    node_id: str,
+    *,
+    clique: bool = True,
+    published: bool = True,
+) -> dict[str, Any]:
+    """Build one per-node entry of the SDN17-02 step output contract."""
+    return {
+        "node_id": node_id,
+        "clique_labelled": clique,
+        "compute_domain_resources_published": published,
+    }
+
+
+def _compute_domain_output(
+    nodes: list[dict[str, Any]] | None = None,
+    *,
+    device_classes: bool = True,
+    mode: str = "driver",
+) -> dict[str, Any]:
+    """Build a step_output dict for compute-domain capability tests."""
+    nodes = [_compute_domain_node("node-a"), _compute_domain_node("node-b")] if nodes is None else nodes
+    return {
+        "step_output": {
+            "success": True,
+            "platform": "kubernetes",
+            "device_classes_registered": device_classes,
+            "daemon_ownership_mode": mode,
+            "nodes_checked": len(nodes),
+            "nodes_validated": len(nodes),
+            "nodes": nodes,
+        }
+    }
+
+
+class TestImexComputeDomainCapabilityCheck:
+    """Tests for ImexComputeDomainCapabilityCheck validation (SDN17-02)."""
+
+    def test_all_passed(self) -> None:
+        """Registered device classes plus published resources on every node passes."""
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "2 clique-labelled GPU node(s)" in result["output"]
+
+    def test_unregistered_device_classes_fail(self) -> None:
+        """Device classes are asserted cluster-wide, not per node."""
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output(device_classes=False))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "device classes are not registered cluster-wide" in result["error"]
+
+    def test_missing_device_classes_key_fails(self) -> None:
+        """An absent `device_classes_registered` is not read as registered."""
+        config = _compute_domain_output()
+        del config["step_output"]["device_classes_registered"]
+        v = ImexComputeDomainCapabilityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "device classes are not registered cluster-wide" in result["error"]
+
+    def test_unpublished_node_fails(self) -> None:
+        """A clique node whose plugin published nothing fails, and is named."""
+        nodes = [_compute_domain_node("node-a"), _compute_domain_node("node-b", published=False)]
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output(nodes))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "node-b" in result["error"]
+        assert "publishes no compute-domain resources" in result["error"]
+        assert "node-a" not in result["error"]
+
+    def test_missing_publication_key_fails(self) -> None:
+        """An absent publication field is not read as published."""
+        node = _compute_domain_node("node-a")
+        del node["compute_domain_resources_published"]
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output([node]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "publishes no compute-domain resources" in result["error"]
+
+    def test_zero_asserted_nodes_fails(self) -> None:
+        """An 8-node run that asserts against none of them must FAIL rather than
+        report nodes_checked: 8 and pass vacuously."""
+        nodes = [_compute_domain_node(f"node-{n}", clique=False) for n in range(8)]
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output(nodes))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "none carrying the NVLink clique label" in result["error"]
+
+    def test_empty_node_list_fails(self) -> None:
+        """No GPU nodes at all is a failure, not a vacuous pass."""
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output([]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "No nodes were asserted against" in result["error"]
+
+    def test_unlabelled_gpu_node_fails_rather_than_leaving_scope(self) -> None:
+        """A GPU node in scope without the clique label FAILS: it must not be
+        able to report its way out of being tested."""
+        nodes = [_compute_domain_node("node-a"), _compute_domain_node("node-b", clique=False)]
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output(nodes))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "node-b" in result["error"]
+        assert "carries no NVLink clique label" in result["error"]
+
+    def test_reported_validated_count_is_not_trusted(self) -> None:
+        """The asserted count is recomputed here, so a provider claiming every
+        node validated cannot cover for nodes that published nothing."""
+        nodes = [_compute_domain_node("node-a", published=False), _compute_domain_node("node-b", published=False)]
+        config = _compute_domain_output(nodes)
+        config["step_output"]["nodes_validated"] = 2
+        v = ImexComputeDomainCapabilityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "failed on 2 count(s)" in result["error"]
+
+    @pytest.mark.parametrize("mode", ["driver", "host"])
+    def test_daemon_ownership_mode_is_not_asserted_on(self, mode: str) -> None:
+        """Both ownership modes pass; the mode is surfaced as evidence only."""
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output(mode=mode))
+        result = v.execute()
+        assert result["passed"] is True
+        assert f"IMEX daemon ownership: {mode}" in result["output"]
+
+    def test_missing_ownership_mode_still_passes(self) -> None:
+        """A payload without the evidence field is not failed for it."""
+        config = _compute_domain_output()
+        del config["step_output"]["daemon_ownership_mode"]
+        v = ImexComputeDomainCapabilityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is True
+        assert "IMEX daemon ownership" not in result["output"]
+
+    def test_malformed_nodes_rejected(self) -> None:
+        """A non-list `nodes` value is rejected rather than raising."""
+        v = ImexComputeDomainCapabilityCheck(config={"step_output": {"nodes": "oops"}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "`nodes` must be a list" in result["error"]
+
+    def test_malformed_node_entry_rejected(self) -> None:
+        """A node entry without a usable identity is rejected."""
+        v = ImexComputeDomainCapabilityCheck(config=_compute_domain_output([{"clique_labelled": True}]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "`nodes[0].node_id` must be a non-empty string" in result["error"]
+
+    def test_skipped_payload_skips_instead_of_failing(self) -> None:
+        """A cluster advertising no multi-node NVLink capability is out of scope."""
+        config = _compute_domain_output([])
+        config["step_output"]["skipped"] = True
+        config["step_output"]["skip_reason"] = "Cluster advertises no multi-node NVLink capability through the driver"
+        v = ImexComputeDomainCapabilityCheck(config=config)
+        with pytest.raises(pytest.skip.Exception, match="no multi-node NVLink capability"):
             v.execute()
 
 

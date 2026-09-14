@@ -1485,6 +1485,105 @@ class ImexServicePresenceCheck(BaseValidation):
         )
 
 
+class ImexComputeDomainCapabilityCheck(BaseValidation):
+    """Validate compute-domain capability is present on a cluster (DRA model).
+
+    Asserts two cluster-side facts: the resource-allocation driver's
+    compute-domain device classes are registered cluster-wide, and every GPU
+    node in the NVLink clique publishes compute-domain resources through the
+    driver's per-node plugin. The published resource is the evidence, not a
+    running pod - the resource exists only once the plugin registered with the
+    node agent and published successfully, which a pod in a Running state does
+    not establish.
+
+    Scope is set by the allocation or by the cluster's advertised multi-node
+    NVLink capability, never by a node's self-report, so ``nodes`` carries every
+    GPU node in that scope and one arriving without the NVLink clique label
+    fails rather than dropping out of the set - otherwise a node could report
+    its way out of being tested. An empty clique-labelled set fails for the same
+    reason: it is how the check would otherwise succeed vacuously on a cluster
+    with no NVLink nodes at all. The asserted-node count is recomputed here from
+    the reports rather than read from ``nodes_validated``, so a run that
+    examines eight nodes and skips all eight cannot pass.
+
+    Nothing is asserted about the state of any host IMEX daemon. The driver
+    supports two ownership modes, and an active host daemon is a defect under
+    one and a requirement under the other, so ``daemon_ownership_mode`` is
+    carried as evidence only.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        device_classes_registered: whether the driver's compute-domain device
+            classes are registered cluster-wide
+        daemon_ownership_mode: normalized "driver" or "host", evidence only
+        nodes: list of {node_id, clique_labelled,
+               compute_domain_resources_published}
+        nodes_checked / nodes_validated: counts carried for reporting
+    """
+
+    description: ClassVar[str] = "Check compute-domain capability is present cluster-side without tenant installation"
+
+    def run(self) -> None:
+        """Check compute-domain device classes and per-node resource publication."""
+        step_output = self.config.get("step_output", {})
+
+        nodes = step_output.get("nodes")
+        if not isinstance(nodes, list):
+            self.set_failed("`nodes` must be a list of per-node compute-domain reports")
+            return
+
+        for index, node in enumerate(nodes):
+            if not isinstance(node, dict):
+                self.set_failed(f"`nodes[{index}]` must be an object")
+                return
+            if not _is_non_empty_string(node.get("node_id")):
+                self.set_failed(f"`nodes[{index}].node_id` must be a non-empty string")
+                return
+
+        clique_nodes = [node for node in nodes if node.get("clique_labelled") is True]
+        if not clique_nodes:
+            # Reporting the examined count instead of the asserted one is how a
+            # cluster with no NVLink nodes passes this check, so fail loudly.
+            self.set_failed(
+                f"No nodes were asserted against: {len(nodes)} GPU node(s) reported, none carrying the NVLink "
+                "clique label. Scope is set by the allocation or the cluster's advertised multi-node NVLink "
+                "capability, so zero asserted nodes is a failure rather than a pass"
+            )
+            return
+
+        failures: list[str] = []
+        if step_output.get("device_classes_registered") is not True:
+            failures.append("the driver's compute-domain device classes are not registered cluster-wide")
+
+        for node in nodes:
+            node_id = node["node_id"]
+            if node.get("clique_labelled") is not True:
+                failures.append(
+                    f"{node_id}: GPU node in scope carries no NVLink clique label - a node in a multi-node "
+                    "NVLink cluster cannot report its way out of scope"
+                )
+            elif node.get("compute_domain_resources_published") is not True:
+                failures.append(f"{node_id}: the driver's per-node plugin publishes no compute-domain resources")
+
+        if failures:
+            self.set_failed(
+                f"Compute-domain capability checks failed on {len(failures)} count(s): {'; '.join(failures)}"
+            )
+            return
+
+        # The ownership mode decides whether a host IMEX daemon should be
+        # running, which this check does not assert either way, so it is only
+        # ever reported.
+        mode = step_output.get("daemon_ownership_mode")
+        evidence = f" (IMEX daemon ownership: {mode})" if _is_non_empty_string(mode) else ""
+        self.set_passed(
+            f"Compute-domain device classes are registered and all {len(clique_nodes)} clique-labelled GPU "
+            f"node(s) publish compute-domain resources{evidence}"
+        )
+
+
 class ByoipCheck(BaseValidation):
     """Validate Bring-Your-Own-IP (BYOIP) with non-conflicting custom CIDRs.
 
