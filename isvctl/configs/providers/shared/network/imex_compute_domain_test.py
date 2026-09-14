@@ -45,7 +45,6 @@ assertion cannot certify itself.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
@@ -80,14 +79,6 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS = 15.0
 
 class ComputeDomainProbeError(RuntimeError):
     """Raised when the compute-domain capability cannot be read from the cluster."""
-
-
-class ProviderArgumentParser(argparse.ArgumentParser):
-    """Raise provider errors instead of exiting without a JSON result."""
-
-    def error(self, message: str) -> None:
-        """Convert invalid arguments into the provider failure path."""
-        raise ComputeDomainProbeError(f"Invalid arguments: {message}")
 
 
 def _kubectl_command() -> list[str]:
@@ -198,25 +189,26 @@ def _is_gpu_node(node: dict[str, Any]) -> bool:
         return False
 
 
+def _node_name(node: dict[str, Any]) -> str:
+    """Return the node's name, or an empty string when it carries none."""
+    name = node.get("metadata", {}).get("name")
+    return name if isinstance(name, str) else ""
+
+
 def _scoped_nodes(kubectl: list[str]) -> list[dict[str, Any]]:
     """Return every GPU node the cluster accounts for, in name order.
 
     Scope comes from the cluster's own GPU accounting rather than from a node's
     view of its NVLink support, so a clique-less GPU node is still examined.
     """
-    by_name: dict[str, dict[str, Any]] = {}
-    for node in _items(kubectl, "nodes"):
-        name = node.get("metadata", {}).get("name")
-        if isinstance(name, str) and name and _is_gpu_node(node):
-            by_name[name] = node
-    return [by_name[name] for name in sorted(by_name)]
+    scoped = [node for node in _items(kubectl, "nodes") if _node_name(node) and _is_gpu_node(node)]
+    return sorted(scoped, key=_node_name)
 
 
 def _node_report(node: dict[str, Any], published: set[str]) -> dict[str, Any]:
     """Return one per-node entry of the SDN17-02 contract."""
-    metadata = node.get("metadata", {})
-    name = metadata.get("name")
-    labels = metadata.get("labels") or {}
+    name = _node_name(node)
+    labels = node.get("metadata", {}).get("labels") or {}
     clique = labels.get(CLIQUE_LABEL) if isinstance(labels, dict) else None
     return {
         "node_id": name,
@@ -259,9 +251,7 @@ def _probe(kubectl: list[str]) -> dict[str, Any]:
 
 def main() -> int:
     """Emit one structured SDN17-02 result for the cluster under test."""
-    parser = ProviderArgumentParser(description="Read compute-domain capability from the Kubernetes cluster API")
     try:
-        parser.parse_args()
         result = _probe(_kubectl_command())
     except ComputeDomainProbeError as exc:
         result = {

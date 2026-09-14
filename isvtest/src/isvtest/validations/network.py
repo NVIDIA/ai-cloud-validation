@@ -1135,6 +1135,23 @@ def _is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _validate_node_reports(value: object, kind: str) -> str | None:
+    """Return an error message if value is not a list of per-node reports.
+
+    Every per-node contract in this module carries the same shape - a list of
+    objects each identified by a non-empty ``node_id`` - so the guard lives here
+    rather than being restated by each check.
+    """
+    if not isinstance(value, list):
+        return f"`nodes` must be a list of per-node {kind} reports"
+    for index, node in enumerate(value):
+        if not isinstance(node, dict):
+            return f"`nodes[{index}]` must be an object"
+        if not _is_non_empty_string(node.get("node_id")):
+            return f"`nodes[{index}].node_id` must be a non-empty string"
+    return None
+
+
 def _validate_string_list(value: object, field_name: str) -> str | None:
     """Return an error message if value is not a non-empty list of strings."""
     if not isinstance(value, list):
@@ -1321,16 +1338,9 @@ class ImexDomainConnectivityCheck(BaseValidation):
             return
 
         nodes = step_output.get("nodes")
-        if not isinstance(nodes, list):
-            self.set_failed("`nodes` must be a list of per-node domain reports")
+        if error := _validate_node_reports(nodes, "domain"):
+            self.set_failed(error)
             return
-        for index, node in enumerate(nodes):
-            if not isinstance(node, dict):
-                self.set_failed(f"`nodes[{index}]` must be an object")
-                return
-            if not _is_non_empty_string(node.get("node_id")):
-                self.set_failed(f"`nodes[{index}].node_id` must be a non-empty string")
-                return
 
         reported = [node["node_id"] for node in nodes if node.get("domain_member") is True]
         if len(set(reported)) != len(reported):
@@ -1425,17 +1435,9 @@ class ImexServicePresenceCheck(BaseValidation):
         step_output = self.config.get("step_output", {})
 
         nodes = step_output.get("nodes")
-        if not isinstance(nodes, list):
-            self.set_failed("`nodes` must be a list of per-node IMEX service reports")
+        if error := _validate_node_reports(nodes, "IMEX service"):
+            self.set_failed(error)
             return
-
-        for index, node in enumerate(nodes):
-            if not isinstance(node, dict):
-                self.set_failed(f"`nodes[{index}]` must be an object")
-                return
-            if not _is_non_empty_string(node.get("node_id")):
-                self.set_failed(f"`nodes[{index}].node_id` must be a non-empty string")
-                return
 
         in_scope = [node for node in nodes if node.get("in_nvlink_allocation") is True]
         if not in_scope:
@@ -1530,20 +1532,11 @@ class ImexComputeDomainCapabilityCheck(BaseValidation):
         step_output = self.config.get("step_output", {})
 
         nodes = step_output.get("nodes")
-        if not isinstance(nodes, list):
-            self.set_failed("`nodes` must be a list of per-node compute-domain reports")
+        if error := _validate_node_reports(nodes, "compute-domain"):
+            self.set_failed(error)
             return
 
-        for index, node in enumerate(nodes):
-            if not isinstance(node, dict):
-                self.set_failed(f"`nodes[{index}]` must be an object")
-                return
-            if not _is_non_empty_string(node.get("node_id")):
-                self.set_failed(f"`nodes[{index}].node_id` must be a non-empty string")
-                return
-
-        clique_nodes = [node for node in nodes if node.get("clique_labelled") is True]
-        if not clique_nodes:
+        if not any(node.get("clique_labelled") is True for node in nodes):
             # Reporting the examined count instead of the asserted one is how a
             # cluster with no NVLink nodes passes this check, so fail loudly.
             self.set_failed(
@@ -1578,8 +1571,10 @@ class ImexComputeDomainCapabilityCheck(BaseValidation):
         # ever reported.
         mode = step_output.get("daemon_ownership_mode")
         evidence = f" (IMEX daemon ownership: {mode})" if _is_non_empty_string(mode) else ""
+        # Every node is clique-labelled by this point: an unlabelled one is a
+        # failure above rather than a node that left the asserted set.
         self.set_passed(
-            f"Compute-domain device classes are registered and all {len(clique_nodes)} clique-labelled GPU "
+            f"Compute-domain device classes are registered and all {len(nodes)} clique-labelled GPU "
             f"node(s) publish compute-domain resources{evidence}"
         )
 
