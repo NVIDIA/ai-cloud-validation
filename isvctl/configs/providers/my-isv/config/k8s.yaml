@@ -54,6 +54,17 @@ commands:
         command: "../scripts/k8s/teardown.sh"
         timeout: 30
 
+      # Control-plane size pinning (K8S27-01). Drop this step if your managed
+      # offering exposes no control-plane sizing knob - K8sControlPlaneSizePinnedCheck
+      # then skips instead of reporting a pin nobody can make.
+      - name: pin_control_plane
+        phase: setup
+        command: "python3 ../scripts/k8s/pin_control_plane.py"
+        args:
+          - "--instance-count={{control_plane_instance_count}}"
+        output_schema: control_plane_size
+        timeout: 900
+
       # Break-fix actions (BFX01). Demo stubs until real cluster APIs are wired.
       - name: reset_gpus
         phase: test
@@ -79,3 +90,6 @@ tests:
     region: ""
     machine_id: ""
     breakfix_node: "{{env.ISVTEST_BREAKFIX_NODE | default('', true)}}"
+    # Control-plane instance count to pin (K8S27-01). Set this to the size that
+    # carries the load limit you are certifying for.
+    control_plane_instance_count: 3

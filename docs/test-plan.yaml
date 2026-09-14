@@ -3352,6 +3352,7 @@ domains:
                 milestone: ""
               - summary: Pin Control Plane instances to a specific count to handle a particular load-limit
                 labels:
+                  - kubernetes
                   - min_req
                 req_id: K8S27
                 test_id: K8S27-01
