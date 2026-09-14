@@ -1389,6 +1389,102 @@ class ImexDomainConnectivityCheck(BaseValidation):
         )
 
 
+class ImexServicePresenceCheck(BaseValidation):
+    """Validate IMEX ships in the delivered node image (host model).
+
+    Asserts, per node, that the IMEX daemon and its control tooling are present
+    and that the service is *registered with the node's service manager* - the
+    manager reporting a loaded definition, not a unit file sitting on disk.
+
+    Scope is set by the allocation, not by the node: nodes the provider marks
+    with ``in_nvlink_allocation`` are asserted against. A node must not be able
+    to self-report its way out of scope, so the provider is responsible for
+    setting that flag from the allocation rather than from the node's own view
+    of its NVLink support.
+
+    Zero nodes asserted against is a failure, not a pass - an eight-node run
+    that asserts against none of them is a vacuous pass otherwise.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        nodes: list of {node_id, in_nvlink_allocation, service_present,
+               control_tooling_present, service_registration, boot_disposition}
+        nodes_checked / nodes_validated: counts carried for reporting
+    """
+
+    description: ClassVar[str] = "Check IMEX service and tooling ship in the node image"
+
+    #: Only a loaded definition passes. ``masked`` is a deployment-model
+    #: mismatch rather than a missing package, so it is called out separately.
+    _REGISTRATION_STATES: ClassVar[frozenset[str]] = frozenset({"loaded", "masked", "not_found", "error"})
+
+    def run(self) -> None:
+        """Check IMEX service/tooling presence and service-manager registration."""
+        step_output = self.config.get("step_output", {})
+
+        nodes = step_output.get("nodes")
+        if not isinstance(nodes, list):
+            self.set_failed("`nodes` must be a list of per-node IMEX service reports")
+            return
+
+        for index, node in enumerate(nodes):
+            if not isinstance(node, dict):
+                self.set_failed(f"`nodes[{index}]` must be an object")
+                return
+            if not _is_non_empty_string(node.get("node_id")):
+                self.set_failed(f"`nodes[{index}].node_id` must be a non-empty string")
+                return
+
+        in_scope = [node for node in nodes if node.get("in_nvlink_allocation") is True]
+        if not in_scope:
+            # Counting examined nodes instead of asserted ones is exactly how a
+            # run that skipped everything reports a pass, so fail loudly here.
+            self.set_failed(
+                f"No nodes were asserted against: {len(nodes)} node(s) reported, none marked as part of a "
+                "multi-node NVLink allocation. Scope is set by the allocation, so zero asserted nodes is a "
+                "failure rather than a pass"
+            )
+            return
+
+        failures: list[str] = []
+        for node in in_scope:
+            node_id = node["node_id"]
+
+            if node.get("service_present") is not True:
+                failures.append(f"{node_id}: IMEX service not present in the node image")
+            if node.get("control_tooling_present") is not True:
+                failures.append(f"{node_id}: IMEX control tooling not present or not invocable")
+
+            registration = node.get("service_registration")
+            if not _is_non_empty_string(registration) or registration not in self._REGISTRATION_STATES:
+                failures.append(
+                    f"{node_id}: `service_registration` must be one of "
+                    f"{sorted(self._REGISTRATION_STATES)}, got {registration!r}"
+                )
+            elif registration == "masked":
+                failures.append(
+                    f"{node_id}: IMEX service is masked with the node's service manager - a deployment-model "
+                    "mismatch rather than a missing package"
+                )
+            elif registration != "loaded":
+                failures.append(f"{node_id}: service manager reports registration {registration!r}, expected 'loaded'")
+
+        if failures:
+            self.set_failed(f"IMEX host-model checks failed on {len(failures)} count(s): {'; '.join(failures)}")
+            return
+
+        # Boot disposition is evidence only - whether IMEX starts at boot is
+        # explicitly out of scope, so it is reported and never asserted on.
+        dispositions = sorted({str(node.get("boot_disposition")) for node in in_scope if node.get("boot_disposition")})
+        evidence = f" (boot disposition: {', '.join(dispositions)})" if dispositions else ""
+        self.set_passed(
+            f"IMEX service and control tooling present and registered on all {len(in_scope)} "
+            f"in-scope node(s) of {len(nodes)} reported{evidence}"
+        )
+
+
 class ByoipCheck(BaseValidation):
     """Validate Bring-Your-Own-IP (BYOIP) with non-conflicting custom CIDRs.
 

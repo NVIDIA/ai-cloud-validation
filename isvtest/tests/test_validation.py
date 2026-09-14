@@ -45,6 +45,7 @@ from isvtest.validations.network import (
     ByoipCheck,
     FloatingIpCheck,
     ImexDomainConnectivityCheck,
+    ImexServicePresenceCheck,
     LocalizedDnsCheck,
     NvlinkDomainCheck,
     SgPolicyPropagationTimingCheck,
@@ -1954,6 +1955,149 @@ class TestImexDomainConnectivityCheck:
         result = v.execute()
         assert result["passed"] is True
         assert "3 pair" in result["output"]
+
+
+def _imex_service_node(
+    node_id: str,
+    *,
+    in_alloc: bool = True,
+    service: bool = True,
+    tooling: bool = True,
+    registration: str = "loaded",
+    boot: str = "disabled",
+) -> dict[str, Any]:
+    """Build one per-node entry of the SDN17-01 step output contract."""
+    return {
+        "node_id": node_id,
+        "in_nvlink_allocation": in_alloc,
+        "service_present": service,
+        "control_tooling_present": tooling,
+        "service_registration": registration,
+        "boot_disposition": boot,
+    }
+
+
+def _imex_service_output(nodes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Build a step_output dict for IMEX service presence tests."""
+    nodes = [_imex_service_node("node-a"), _imex_service_node("node-b")] if nodes is None else nodes
+    return {
+        "step_output": {
+            "success": True,
+            "platform": "network",
+            "nodes_checked": len(nodes),
+            "nodes_validated": len(nodes),
+            "nodes": nodes,
+        }
+    }
+
+
+class TestImexServicePresenceCheck:
+    """Tests for ImexServicePresenceCheck validation (SDN17-01)."""
+
+    def test_all_passed(self) -> None:
+        """Service and tooling present and registered on every in-scope node passes."""
+        v = ImexServicePresenceCheck(config=_imex_service_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "2 in-scope node(s)" in result["output"]
+
+    def test_zero_asserted_nodes_fails(self) -> None:
+        """An 8-node run that asserts against none of them must FAIL, not report
+        nodes_checked: 8 and pass vacuously."""
+        nodes = [_imex_service_node(f"node-{n}", in_alloc=False) for n in range(8)]
+        v = ImexServicePresenceCheck(config=_imex_service_output(nodes))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "none marked as part of a multi-node NVLink allocation" in result["error"]
+
+    def test_empty_node_list_fails(self) -> None:
+        """No nodes at all is a failure, not a pass."""
+        v = ImexServicePresenceCheck(config=_imex_service_output([]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "No nodes were asserted against" in result["error"]
+
+    def test_missing_service_fails(self) -> None:
+        """A node without the IMEX daemon in its image fails."""
+        v = ImexServicePresenceCheck(
+            config=_imex_service_output([_imex_service_node("node-a"), _imex_service_node("node-b", service=False)])
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "node-b" in result["error"]
+        assert "service not present" in result["error"]
+
+    def test_missing_control_tooling_fails(self) -> None:
+        """A node without invocable control tooling fails."""
+        v = ImexServicePresenceCheck(
+            config=_imex_service_output([_imex_service_node("node-a", tooling=False), _imex_service_node("node-b")])
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "control tooling not present" in result["error"]
+
+    def test_masked_service_fails_as_deployment_mismatch(self) -> None:
+        """A masked definition FAILS, and is reported as a deployment-model
+        mismatch rather than a missing package."""
+        v = ImexServicePresenceCheck(config=_imex_service_output([_imex_service_node("node-a", registration="masked")]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "masked" in result["error"]
+        assert "deployment-model mismatch" in result["error"]
+
+    @pytest.mark.parametrize("registration", ["not_found", "error"])
+    def test_unregistered_service_fails(self, registration: str) -> None:
+        """Only a loaded definition passes; a unit file the manager never loaded does not."""
+        v = ImexServicePresenceCheck(
+            config=_imex_service_output([_imex_service_node("node-a", registration=registration)])
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "expected 'loaded'" in result["error"]
+
+    def test_unknown_registration_value_rejected(self) -> None:
+        """A registration value outside the normalized enum is rejected."""
+        v = ImexServicePresenceCheck(config=_imex_service_output([_imex_service_node("node-a", registration="active")]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "service_registration" in result["error"]
+
+    def test_out_of_scope_nodes_not_asserted(self) -> None:
+        """Nodes outside the allocation are not asserted against, so their state
+        cannot fail the run as long as at least one in-scope node is checked."""
+        nodes = [
+            _imex_service_node("node-a"),
+            _imex_service_node("node-b", in_alloc=False, service=False, registration="not_found"),
+        ]
+        v = ImexServicePresenceCheck(config=_imex_service_output(nodes))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "1 in-scope node(s) of 2 reported" in result["output"]
+
+    def test_boot_disposition_is_not_asserted_on(self) -> None:
+        """Boot disposition is out of scope: a disabled service still passes, and
+        the value is surfaced as evidence."""
+        nodes = [_imex_service_node("node-a", boot="disabled"), _imex_service_node("node-b", boot="static")]
+        v = ImexServicePresenceCheck(config=_imex_service_output(nodes))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "boot disposition" in result["output"]
+
+    def test_malformed_nodes_rejected(self) -> None:
+        """A non-list `nodes` value is rejected rather than raising."""
+        v = ImexServicePresenceCheck(config={"step_output": {"nodes": "oops"}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "`nodes` must be a list" in result["error"]
+
+    def test_skipped_payload_skips_instead_of_failing(self) -> None:
+        """An unconfigured run skips rather than failing the whole network run."""
+        config = _imex_service_output([])
+        config["step_output"]["skipped"] = True
+        config["step_output"]["skip_reason"] = "IMEX nodes not configured for this run (no node IDs set)"
+        v = ImexServicePresenceCheck(config=config)
+        with pytest.raises(pytest.skip.Exception, match="not configured"):
+            v.execute()
 
 
 class TestValidationResultCapture:

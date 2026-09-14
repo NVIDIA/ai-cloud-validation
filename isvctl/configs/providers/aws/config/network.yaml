@@ -399,6 +399,22 @@ commands:
         timeout: 300
         output_schema: imex_domain
 
+      # IMEX ships in the delivered node image (SDN17-01). Host-model check:
+      # daemon + control tooling present and registered with the node's service
+      # manager. Reuses the same node list/key as the domain check above.
+      - name: imex_service
+        phase: test
+        command: "python3 ../scripts/network/imex_service_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "{{imex_node_ids | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 300
+        output_schema: imex_service
+
       # Teardown: Clean up shared VPC from create_network
       - name: teardown
         phase: teardown
