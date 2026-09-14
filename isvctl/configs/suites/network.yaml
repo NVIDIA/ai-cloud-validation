@@ -343,11 +343,14 @@ tests:
         # installation" requirement, read as cluster objects instead of as
         # packages on a host. Gated on kubernetes so a vm/bare_metal run of this
         # suite neither runs it nor provisions a cluster for it.
+        #
+        # No `step:`. Everything asserted is a cluster object and none of it is
+        # a provider's to report, so the check reads the cluster API itself and
+        # every provider with a cluster gets it without wiring anything.
         ImexComputeDomainCapabilityCheck:
           test_id: "SDN17-02"
           labels: ["kubernetes", "min_req", "network"]
           requires: [kubernetes]
-          step: imex_compute_domain
 
     teardown_checks:
       step: teardown

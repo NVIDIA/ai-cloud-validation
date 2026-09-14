@@ -190,7 +190,6 @@ its plan item is not platform-scoped.
 | `nvlink_domain` | test | `providers/my-isv/scripts/network/nvlink_domain_test.py` | NVLink domain ID when the node supports NVLink |
 | `imex_domain` | test | `providers/my-isv/scripts/network/imex_domain_test.py` | `domain.{domain_id,state,expected_members}`, `nodes[].{node_id,domain_member,peers_reachable}` (SDN21-01) |
 | `imex_service` | test | `providers/my-isv/scripts/network/imex_service_test.py` | `nodes[].{node_id,in_nvlink_allocation,service_present,control_tooling_present,service_registration}` (SDN17-01) |
-| `imex_compute_domain` | test | `providers/shared/network/imex_compute_domain_test.py` | `device_classes_registered`, `daemon_ownership_mode`, `nodes[].{node_id,clique_labelled,compute_domain_resources_published}` -- cluster-API only, no SSH and no IMEX tooling; skips when the cluster advertises no multi-node NVLink capability through the driver (SDN17-02) |
 | `teardown` | teardown | `providers/my-isv/scripts/network/teardown.py` | VPC cleanup |
 
 ### Observability (`observability.yaml`)

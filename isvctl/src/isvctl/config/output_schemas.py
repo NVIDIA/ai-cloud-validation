@@ -140,8 +140,6 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "imex_domain_test": "imex_domain",
     "imex_service": "imex_service",
     "imex_service_test": "imex_service",
-    "imex_compute_domain": "imex_compute_domain",
-    "imex_compute_domain_test": "imex_compute_domain",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -1041,62 +1039,6 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "nodes_validated": {"type": "integer", "description": "How many nodes returned a usable report"},
             "skipped": {"type": "boolean", "description": "True when no nodes were configured for the run"},
             "skip_reason": {"type": "string", "description": "Why the IMEX service check was skipped"},
-        },
-        "additionalProperties": True,
-    },
-    "imex_compute_domain": {
-        "type": "object",
-        "required": ["success", "platform", "nodes"],
-        "properties": {
-            **COMMON_PROPERTIES,
-            "test_name": {"type": "string", "description": "Always 'imex_compute_domain'"},
-            "device_classes_registered": {
-                "type": "boolean",
-                "description": (
-                    "Whether the resource-allocation driver's compute-domain device classes are registered cluster-wide"
-                ),
-            },
-            "daemon_ownership_mode": {
-                "type": "string",
-                "enum": ["driver", "host"],
-                "description": (
-                    "Which side owns the IMEX daemon lifecycle. Reported as evidence and never asserted on: an "
-                    "active host daemon is a defect under one mode and a requirement under the other."
-                ),
-            },
-            "nodes": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["node_id"],
-                    "properties": {
-                        "node_id": {"type": "string", "minLength": 1, "description": "Node identifier"},
-                        "clique_labelled": {
-                            "type": "boolean",
-                            "description": (
-                                "Whether the node carries the NVLink clique label. Every GPU node in scope is "
-                                "reported, so a false value fails rather than removing the node from the set."
-                            ),
-                        },
-                        "compute_domain_resources_published": {
-                            "type": "boolean",
-                            "description": (
-                                "Whether the driver's per-node plugin has published compute-domain resources for "
-                                "this node. Read from the published resource, not from a running pod."
-                            ),
-                        },
-                    },
-                    "additionalProperties": True,
-                },
-                "description": "Per-node compute-domain reports, one per GPU node in scope",
-            },
-            "nodes_checked": {"type": "integer", "description": "How many GPU nodes were examined"},
-            "nodes_validated": {"type": "integer", "description": "How many nodes satisfied both per-node facts"},
-            "skipped": {
-                "type": "boolean",
-                "description": "True when the cluster advertises no multi-node NVLink capability through the driver",
-            },
-            "skip_reason": {"type": "string", "description": "Why the compute-domain check was skipped"},
         },
         "additionalProperties": True,
     },
