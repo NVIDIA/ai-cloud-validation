@@ -415,6 +415,23 @@ commands:
         timeout: 300
         output_schema: imex_service
 
+      # IMEX runs unaided, persists, and self-heals (SDN18-01).
+      # DESTRUCTIVE: kills a running IMEX daemon, so point this only at an idle
+      # or drained domain. Timeout covers the script's own recovery bound plus
+      # the arrival/kill/restore round trips.
+      - name: imex_resilience
+        phase: test
+        command: "python3 ../scripts/network/imex_resilience_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "{{imex_resilience_node | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 300
+        output_schema: imex_resilience
+
       # Teardown: Clean up shared VPC from create_network
       - name: teardown
         phase: teardown
@@ -436,3 +453,5 @@ tests:
     storage_l3_routing_cidr: "{{env.AWS_STORAGE_L3_ROUTING_CIDR | default('', true)}}"
     imex_node_ids: "{{env.AWS_IMEX_NODE_IDS | default('', true)}}"
     imex_key_file: "{{env.AWS_IMEX_KEY_FILE | default('', true)}}"
+    # Single node for the destructive SDN18-01 check; unset means it skips.
+    imex_resilience_node: "{{env.AWS_IMEX_RESILIENCE_NODE | default('', true)}}"

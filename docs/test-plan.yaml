@@ -1774,6 +1774,9 @@ domains:
                 status: approved
                 priority: P0
               - summary: "IMEX: Start nvidia-imex via systemctl start nvidia-imex and assert the service reaches active/ready state."
+                labels:
+                  - min_req
+                  - network
                 dependencies:
                   - LimitedEnv
                 milestone: M4
