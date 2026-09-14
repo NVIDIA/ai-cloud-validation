@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, parse_kubectl_json
+from isvtest.core.k8s import KubectlParseError, command_detail, get_kubectl_base_shell, parse_kubectl_json
 from isvtest.core.validation import BaseValidation
 from isvtest.utils.checks import truncate
 
@@ -304,7 +304,7 @@ class K8sApiNetworkAclCheck(BaseValidation):
         """
         result = self.run_command(authorized_probe_cmd, timeout=probe_timeout_s)
         if result.exit_code != 0:
-            detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
+            detail = command_detail(result)
             snippet = truncate(authorized_probe_cmd)
             self.set_failed(
                 f"Authorized probe failed (cmd: {snippet}): {detail}. A failing "
@@ -337,7 +337,7 @@ class K8sApiNetworkAclCheck(BaseValidation):
         # found". Treating them as an ACL-enforced pass would hide a broken
         # probe and yield false assurance.
         if result.exit_code in (126, 127):
-            detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
+            detail = command_detail(result)
             self.set_failed(
                 f"Unauthorized probe could not execute (cmd: {snippet}): "
                 f"{detail}. Fix the probe tooling/command and re-run.{targets}"

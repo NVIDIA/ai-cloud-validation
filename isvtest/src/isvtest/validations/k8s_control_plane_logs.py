@@ -18,7 +18,12 @@ from __future__ import annotations
 import shlex
 from typing import Any, ClassVar
 
-from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, parse_kubectl_json_items
+from isvtest.core.k8s import (
+    KubectlParseError,
+    command_detail,
+    get_kubectl_base_shell,
+    parse_kubectl_json_items,
+)
 from isvtest.core.validation import BaseValidation
 from isvtest.utils.checks import truncate
 
@@ -300,7 +305,7 @@ class K8sControlPlaneLogsCheck(BaseValidation):
 
             result = self.run_command(cmd)
             if result.exit_code != 0:
-                detail = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
+                detail = command_detail(result)
                 if path == "kubectl":
                     failures.append(f"{label}: kubectl logs failed: {detail}")
                 else:
@@ -338,7 +343,7 @@ class K8sControlPlaneLogsCheck(BaseValidation):
         cmd = f"{kubectl_base} get pods -n {shlex.quote(namespace)} -o json"
         result = self.run_command(cmd)
         if result.exit_code != 0:
-            probe_error = result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
+            probe_error = command_detail(result)
             return {}, probe_error
 
         try:
