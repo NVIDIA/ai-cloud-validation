@@ -104,6 +104,11 @@ class TarArchive:
 
         cmd.append(str(output))
 
+        # bsdtar (macOS default tar) stores extended attributes such as
+        # com.apple.provenance in pax headers, which makes GNU tar on the remote
+        # host warn once per file during extraction.
+        cmd.append("--no-xattrs")
+
         # Add exclude patterns
         for pattern in excludes:
             cmd.extend(["--exclude", pattern])
