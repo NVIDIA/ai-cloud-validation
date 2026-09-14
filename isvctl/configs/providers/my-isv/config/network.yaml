@@ -371,7 +371,10 @@ commands:
         phase: test
         command: "python ../../shared/network/imex_compute_domain_test.py"
         requires: [kubernetes]
-        timeout: 120
+        # Above the probe's own worst case (4 bounded kubectl calls x 30s), so a
+        # degraded cluster still yields the script's structured failure JSON
+        # rather than being killed mid-run by the step timeout.
+        timeout: 180
         output_schema: imex_compute_domain
 
       - name: teardown
