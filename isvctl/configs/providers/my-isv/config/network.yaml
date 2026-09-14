@@ -364,6 +364,16 @@ commands:
         timeout: 60
         output_schema: imex_service
 
+      # SDN17-02 is read entirely from the cluster API, so the shared reference
+      # is provider-neutral and there is nothing here for an ISV to fill in.
+      # Gated on kubernetes: a `--capability vm` run has no cluster to read.
+      - name: imex_compute_domain
+        phase: test
+        command: "python ../../shared/network/imex_compute_domain_test.py"
+        requires: [kubernetes]
+        timeout: 120
+        output_schema: imex_compute_domain
+
       - name: teardown
         phase: teardown
         command: "python ../scripts/network/teardown.py"

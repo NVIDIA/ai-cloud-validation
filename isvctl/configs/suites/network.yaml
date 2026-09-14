@@ -339,6 +339,15 @@ tests:
           labels: ["min_req", "network"]
           requires: [vm, bare_metal]
           step: imex_service
+        # The Kubernetes half of SDN17: the same "IMEX without tenant
+        # installation" requirement, read as cluster objects instead of as
+        # packages on a host. Gated on kubernetes so a vm/bare_metal run of this
+        # suite neither runs it nor provisions a cluster for it.
+        ImexComputeDomainCapabilityCheck:
+          test_id: "SDN17-02"
+          labels: ["kubernetes", "min_req", "network"]
+          requires: [kubernetes]
+          step: imex_compute_domain
 
     teardown_checks:
       step: teardown

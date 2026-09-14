@@ -1757,6 +1757,22 @@ domains:
                 status: approved
                 notes: ""
                 priority: ""
+              - summary: "IMEX (Kubernetes DRA): On a cluster offering multi-node NVLink through the resource-allocation driver, assert the compute-domain device classes are registered and every GPU node in an NVLink clique publishes compute-domain resources through the driver's per-node plugin, without tenant installation."
+                labels:
+                  - kubernetes
+                  - min_req
+                  - network
+                dependencies:
+                  - LimitedEnv
+                milestone: M9
+                notes: The Kubernetes half of SDN17, asserting cluster objects rather than packages on a host. Says nothing about any host IMEX daemon - the driver's two ownership modes disagree on whether one should be running.
+                github_issues:
+                  - "#598"
+                req_id: SDN17
+                test_id: SDN17-02
+                actor: tenant
+                status: approved
+                priority: P0
               - summary: "IMEX: Start nvidia-imex via systemctl start nvidia-imex and assert the service reaches active/ready state."
                 dependencies:
                   - LimitedEnv
