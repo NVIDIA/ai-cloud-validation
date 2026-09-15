@@ -2097,6 +2097,11 @@ def _peer_view(payload: dict[str, Any], observer_address: str, target_address: s
     reporting it gone: a shrunk domain is reconfigured without it. That reading
     is only taken from a daemon that reports itself ready, since an empty peer
     map on an unhealthy daemon says nothing about the peer.
+
+    Nodes are matched by address alone, since both addresses come from what the
+    domain published for those nodes. The tool also reports a hostname, but a
+    peer's connection entry carries only the address, so an address is the one
+    identity both sides of this comparison always have.
     """
     domain_state = str(payload.get("status") or "").strip().lower()
     nodes_raw = payload.get("nodes")
@@ -2135,6 +2140,12 @@ def _unclean_exit_reason(pod: dict[str, Any], baseline_restarts: int) -> str | N
     Restarts are counted against the baseline taken before the departure was
     requested, so a daemon that restarted at some point earlier in the cluster's
     life is not held against the shutdown under observation.
+
+    Only the container's *current* terminated state is read, never
+    ``lastState``: that one describes an earlier run of the container, so a
+    daemon OOM-killed hours before the check ran would otherwise be reported as
+    having been forced out now. An earlier run that ended badly and was
+    restarted shows up as a restart count instead.
     """
     for status in (pod.get("status") or {}).get("containerStatuses") or []:
         if not isinstance(status, dict):
@@ -2144,8 +2155,7 @@ def _unclean_exit_reason(pod: dict[str, Any], baseline_restarts: int) -> str | N
         if isinstance(restarts, int) and restarts > baseline_restarts:
             return f"{container} restarted {restarts - baseline_restarts} more time(s) while shutting down"
         state = status.get("state") if isinstance(status.get("state"), dict) else {}
-        last = status.get("lastState") if isinstance(status.get("lastState"), dict) else {}
-        terminated = state.get("terminated") or last.get("terminated")
+        terminated = state.get("terminated")
         if not isinstance(terminated, dict):
             continue
         code = terminated.get("exitCode")

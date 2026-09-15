@@ -519,6 +519,27 @@ def test_restarts_from_before_the_departure_are_not_held_against_it() -> None:
     assert check.passed, check.message
 
 
+def test_an_earlier_bad_exit_is_not_read_as_this_shutdown_being_forced() -> None:
+    """A daemon OOM-killed hours before the check ran carries that in
+    lastState, and a pod caught mid-shutdown has not terminated yet. Reading
+    lastState there would report a clean removal as a forced one."""
+    cluster = _Cluster(baseline_restarts=1)
+    original = cluster._daemon
+
+    def caught_before_exiting(node: str) -> dict[str, Any] | None:
+        pod = original(node)
+        if pod is not None:
+            container = pod["status"]["containerStatuses"][0]
+            container["state"] = {"running": {}}
+            container["lastState"] = {"terminated": {"exitCode": 137, "reason": "OOMKilled"}}
+        return pod
+
+    with patch.object(cluster, "_daemon", side_effect=caught_before_exiting):
+        check = _run(cluster)
+
+    assert check.passed, check.message
+
+
 def test_a_departure_that_never_takes_effect_fails() -> None:
     """Nothing can be said about what peers observed while the departing node
     is still serving the domain, so the departure is confirmed first."""
