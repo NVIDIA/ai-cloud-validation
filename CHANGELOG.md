@@ -30,6 +30,27 @@ Workflow:
 > attached to a milestone. The file you are reading now is the canonical
 > per-tag changelog.
 
+## [0.13.0] - 2026-09-15
+
+### Added
+
+- **IMEX availability, connectivity, and resilience validations** ([#621](https://github.com/NVIDIA/ai-cloud-validation/pull/621), [#627](https://github.com/NVIDIA/ai-cloud-validation/pull/627), [#631](https://github.com/NVIDIA/ai-cloud-validation/pull/631), [#633](https://github.com/NVIDIA/ai-cloud-validation/pull/633), [#634](https://github.com/NVIDIA/ai-cloud-validation/pull/634))
+  Adds SDN17-01/02 and SDN21-01 coverage for preinstalled host tooling, Kubernetes DRA compute-domain availability, and mutual connectivity across every domain member. SDN18-01 verifies host-managed boot persistence and recovery, while SDN18-02 verifies driver-managed recovery.
+- **Tenant-controlled GPU Operator driver overrides** ([#618](https://github.com/NVIDIA/ai-cloud-validation/pull/618))
+  Adds `K8sGpuOperatorOverrideCheck` (K8S25-02) to verify that tenants can replace provider-default GPU drivers through authorized, admission-approved configuration changes without mutating the cluster during validation.
+- **Pinned Kubernetes control-plane sizing** ([#628](https://github.com/NVIDIA/ai-cloud-validation/pull/628))
+  Adds `K8sControlPlaneSizePinnedCheck` (K8S27-01) to confirm the provider delivered the requested control-plane size and to detect clusters that register more ready API servers than the tenant's pin allows.
+
+### Fixed
+
+- **Portable macOS deployment archives** ([#632](https://github.com/NVIDIA/ai-cloud-validation/pull/632))
+  Deployment archives created on macOS no longer include extended file attributes that produce warnings when extracted on Linux hosts.
+
+### Internal
+
+- Update the NVIDIA Requirements for AI Clouds reference to v2.4 ([#629](https://github.com/NVIDIA/ai-cloud-validation/pull/629)).
+- Clarify test and pre-commit verification commands for contributors ([#635](https://github.com/NVIDIA/ai-cloud-validation/pull/635)).
+
 ## [0.12.0] - 2026-09-09
 
 ### Added
