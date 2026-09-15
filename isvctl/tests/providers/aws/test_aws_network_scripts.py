@@ -3177,3 +3177,493 @@ def test_imex_resilience_rejects_recovery_observed_after_the_deadline(monkeypatc
     assert rc == 1
     assert emitted["operations"]["recovery"]["domain_member"] is False
     assert emitted["operations"]["recovery"]["elapsed_seconds"] > 10
+
+
+# --- SDN19-01: deliberate node departure ---------------------------------------
+
+
+def _imex_domain_payload(
+    target_conn: str = "CONNECTED",
+    *,
+    domain_status: str = "DEGRADED",
+    observer_status: str = "READY",
+) -> str:
+    """Build a `nvidia-imex-ctl -N -j` payload shaped like real observed output.
+
+    Defaults mirror a live healthy 2-node AWS domain: the domain reports
+    DEGRADED even while both members are up, and each node reports its peer
+    UNAVAILABLE while their connections are CONNECTED. Those two quirks are why
+    availability is read from the observer's own connections map, and why
+    survivor health is read from the observer's own status rather than the
+    domain-level one.
+    """
+    return json.dumps(
+        {
+            "nodes": {
+                "0": {
+                    "status": observer_status,
+                    "host": "10.0.0.2",
+                    "hostName": "node-b",
+                    "connections": {
+                        "0": {"host": "10.0.0.2", "status": "CONNECTED"},
+                        "1": {"host": "10.0.0.1", "status": target_conn},
+                    },
+                },
+                "1": {"status": "UNAVAILABLE", "host": "10.0.0.1", "hostName": "node-a", "connections": {}},
+            },
+            "status": domain_status,
+        }
+    )
+
+
+def _target_ready_payload() -> str:
+    """A payload in which the target node reports itself an operational member."""
+    return json.dumps(
+        {
+            "nodes": {
+                "0": {"status": "READY", "host": "10.0.0.1", "hostName": "node-a", "connections": {}},
+                "1": {"status": "READY", "host": "10.0.0.2", "hostName": "node-b", "connections": {}},
+            },
+            "status": "DEGRADED",
+        }
+    )
+
+
+def test_imex_departure_reads_availability_from_observer_connections() -> None:
+    """Availability comes from the observer's own connection to the target.
+
+    The peer's node-level status is not usable: on a live 2-node domain each node
+    reported its peer UNAVAILABLE while both daemons were up and connected, so
+    matching on it would report the target gone before it was ever stopped.
+    """
+    module = _load_network_script("imex_departure_test.py")
+
+    connected = _imex_domain_payload("CONNECTED")
+    assert module._peer_view(connected, "10.0.0.2", "10.0.0.1") == "available"
+
+    gone = _imex_domain_payload("RECOVERING")
+    assert module._peer_view(gone, "10.0.0.2", "10.0.0.1") == "unavailable"
+
+
+def test_imex_departure_peer_view_resolves_target_by_hostname() -> None:
+    """The target may be named by hostname while connections carry only IPs."""
+    module = _load_network_script("imex_departure_test.py")
+
+    payload = _imex_domain_payload("RECOVERING")
+    assert module._peer_view(payload, "node-b", "node-a") == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param("not json", id="unparseable"),
+        pytest.param("[]", id="not-an-object"),
+        pytest.param('{"nodes": "oops"}', id="nodes-not-an-object"),
+        pytest.param('{"nodes": {}}', id="observer-absent"),
+    ],
+)
+def test_imex_departure_peer_view_unknown_on_unusable_output(payload: str) -> None:
+    """Output that cannot answer the question maps to `unknown`, never to a
+    guess in either direction."""
+    module = _load_network_script("imex_departure_test.py")
+
+    assert module._peer_view(payload, "10.0.0.2", "10.0.0.1") == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("target_conn", "expected"),
+    [
+        pytest.param("CONNECTED", "available", id="connected"),
+        pytest.param("RECOVERING", "unavailable", id="recovering-observed-live-after-a-stop"),
+        pytest.param("INVALID", "unavailable", id="invalid"),
+        pytest.param("NEVER", "unavailable", id="never-connected"),
+    ],
+)
+def test_imex_departure_peer_view_maps_connection_states(target_conn: str, expected: str) -> None:
+    """Only CONNECTED is available. A deliberate stop was observed live to move
+    the observer's link to RECOVERING, which persists rather than settling to
+    INVALID, so anything other than CONNECTED counts as gone."""
+    module = _load_network_script("imex_departure_test.py")
+
+    payload = _imex_domain_payload(target_conn)
+    assert module._peer_view(payload, "10.0.0.2", "10.0.0.1") == expected
+
+
+def test_imex_departure_survivors_operational_ignores_domain_status() -> None:
+    """Survivor health must not be read from the domain-level status.
+
+    Observed live: a healthy 2-node domain reports DEGRADED, and still reports
+    DEGRADED after a member departs - so that field cannot tell "a node left"
+    from "the domain fell over", which is the distinction being asserted.
+    """
+    module = _load_network_script("imex_departure_test.py")
+
+    # Departed target, domain DEGRADED throughout - survivors are still fine.
+    healthy = _imex_domain_payload("RECOVERING", domain_status="DEGRADED", observer_status="READY")
+    assert module._survivors_operational(healthy, "10.0.0.2", "10.0.0.1") is True
+
+    # Same DEGRADED domain status, but the observer itself is no longer ready.
+    collapsed = _imex_domain_payload("RECOVERING", domain_status="DEGRADED", observer_status="UNAVAILABLE")
+    assert module._survivors_operational(collapsed, "10.0.0.2", "10.0.0.1") is False
+
+
+def test_imex_departure_survivors_operational_requires_other_members_connected() -> None:
+    """A survivor that lost its link to another *surviving* member is not
+    operational, even though the departed node is expected to be gone."""
+    module = _load_network_script("imex_departure_test.py")
+
+    payload = json.dumps(
+        {
+            "nodes": {
+                "0": {
+                    "status": "READY",
+                    "host": "10.0.0.2",
+                    "hostName": "node-b",
+                    "connections": {
+                        "0": {"host": "10.0.0.2", "status": "CONNECTED"},
+                        "1": {"host": "10.0.0.1", "status": "RECOVERING"},  # departed, expected
+                        "2": {"host": "10.0.0.3", "status": "INVALID"},  # another survivor, not expected
+                    },
+                },
+                "1": {"status": "UNAVAILABLE", "host": "10.0.0.1", "hostName": "node-a", "connections": {}},
+                "2": {"status": "READY", "host": "10.0.0.3", "hostName": "node-c", "connections": {}},
+            },
+            "status": "DEGRADED",
+        }
+    )
+    assert module._survivors_operational(payload, "10.0.0.2", "10.0.0.1") is False
+
+
+def test_imex_departure_stops_gracefully_never_kills(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stimulus is a graceful stop. A kill is the opposite test (SDN18-01),
+    where a supervisor is expected to bring the daemon back."""
+    module = _load_network_script("imex_departure_test.py")
+    issued: list[str] = []
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a clean stop followed by the observer noticing the departure."""
+        issued.append(command)
+        if "systemctl stop" in command:
+            return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\n"}
+        if "systemctl start" in command:
+            return {"host": host, "ok": True, "stdout": ""}
+        if "ACTIVE=" in command and "OUT=" in command:
+            # Target sample: active and a member both before the stop and after
+            # restoration. `_imex_domain_payload` reports node-a READY when it
+            # is the one being asked about.
+            return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
+        return {"host": host, "ok": True, "stdout": _imex_domain_payload("RECOVERING")}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_departure_test.py",
+            "--region",
+            "r",
+            "--target-node",
+            "10.0.0.1",
+            "--observer-node",
+            "10.0.0.2",
+            "--key-file",
+            "/tmp/k.pem",
+        ],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 0
+    assert any("systemctl stop" in c for c in issued)
+    assert not any("pkill" in c or "kill -9" in c for c in issued), "a kill is the wrong stimulus here"
+    assert emitted["operations"]["stop"] == {"requested": True, "clean_exit": True}
+    assert emitted["operations"]["peer_convergence"]["target_reported"] == "unavailable"
+    assert emitted["operations"]["restore"]["restored_to"] == "active"
+
+
+def test_imex_departure_restores_even_when_stop_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Restoration is mandatory on every path that may have stopped the service,
+    so a stop that did not land cleanly still puts the node back."""
+    module = _load_network_script("imex_departure_test.py")
+    issued: list[str] = []
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a stop that leaves the service in an unexpected state."""
+        issued.append(command)
+        if "systemctl stop" in command:
+            return {"host": host, "ok": True, "stdout": "ACTIVE=failed\n"}
+        if "systemctl start" in command:
+            return {"host": host, "ok": True, "stdout": ""}
+        return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_departure_test.py",
+            "--region",
+            "r",
+            "--target-node",
+            "10.0.0.1",
+            "--observer-node",
+            "10.0.0.2",
+            "--key-file",
+            "/tmp/k.pem",
+        ],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert emitted["operations"]["stop"]["clean_exit"] is False
+    assert any("systemctl start" in c for c in issued), "expected restoration despite the failed stop"
+    assert emitted["operations"]["restore"]["restored_to"] == "active"
+
+
+def test_imex_departure_requires_both_ends_named() -> None:
+    """This stops a service, so neither the target nor the observer is inferred."""
+    script = AWS_NETWORK_SCRIPTS / "imex_departure_test.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), "--region", "r", "--target-node", "n1", "--key-file", "/tmp/k.pem"],
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", "")},
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 1
+    assert "must both name a node" in json.loads(completed.stdout)["error"]
+
+
+def test_imex_departure_rejects_observing_from_the_stopped_node() -> None:
+    """The observer has to be a survivor, not the node being stopped."""
+    script = AWS_NETWORK_SCRIPTS / "imex_departure_test.py"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--region",
+            "r",
+            "--target-node",
+            "n1",
+            "--observer-node",
+            "n1",
+            "--key-file",
+            "/tmp/k.pem",
+        ],
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", "")},
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 1
+    assert "must be a surviving member" in json.loads(completed.stdout)["error"]
+
+
+def test_imex_departure_skips_when_not_configured() -> None:
+    """An unconfigured run skips cleanly instead of failing unrelated network runs."""
+    script = AWS_NETWORK_SCRIPTS / "imex_departure_test.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), "--region", "r"],
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", "")},
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload: dict[str, Any] = json.loads(completed.stdout)
+    assert payload["skipped"] is True
+    assert "not configured" in payload["skip_reason"]
+
+
+def test_imex_departure_rejects_ambiguous_node_lists() -> None:
+    """Silently taking the first of several would aim a destructive stop at an
+    ambiguous node, so both ends must name exactly one."""
+    script = AWS_NETWORK_SCRIPTS / "imex_departure_test.py"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--region",
+            "r",
+            "--target-node",
+            "n1,n2",
+            "--observer-node",
+            "n3",
+            "--key-file",
+            "/tmp/k.pem",
+        ],
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", "")},
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 1
+    assert "exactly one node" in json.loads(completed.stdout)["error"]
+
+
+def test_imex_departure_refuses_target_that_was_already_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An already-inactive service satisfies "inactive" after the stop, so the run
+    could report a departure it never caused - and starting it afterwards would
+    not be restoring its prior state either."""
+    module = _load_network_script("imex_departure_test.py")
+    issued: list[str] = []
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a target that is already stopped on arrival."""
+        issued.append(command)
+        return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\nOUT=\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_departure_test.py",
+            "--region",
+            "r",
+            "--target-node",
+            "10.0.0.1",
+            "--observer-node",
+            "10.0.0.2",
+            "--key-file",
+            "/tmp/k.pem",
+        ],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert emitted["operations"]["prior_state"]["service_state"] == "inactive"
+    assert not any("systemctl stop" in c for c in issued), "must not stop a service that was already down"
+    assert "no departure to cause" in emitted["error"]
+
+
+def test_imex_departure_polls_restoration_rather_than_sampling_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rejoining the domain is not instantaneous. A single early sample would
+    report a restoration that did in fact succeed as having failed."""
+    module = _load_network_script("imex_departure_test.py")
+    samples = {"n": 0}
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a target that only rejoins the domain on the third sample."""
+        if "systemctl stop" in command:
+            return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\n"}
+        if "systemctl start" in command:
+            return {"host": host, "ok": True, "stdout": ""}
+        if "ACTIVE=" in command and "OUT=" in command:
+            samples["n"] += 1
+            if samples["n"] == 1:  # prior-state probe: healthy
+                return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
+            if samples["n"] < 4:  # still coming back
+                return {"host": host, "ok": True, "stdout": "ACTIVE=activating\nOUT=\n"}
+            return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
+        return {"host": host, "ok": True, "stdout": _imex_domain_payload("RECOVERING")}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(module, "RESTORE_POLL_SECONDS", 0)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_departure_test.py",
+            "--region",
+            "r",
+            "--target-node",
+            "10.0.0.1",
+            "--observer-node",
+            "10.0.0.2",
+            "--key-file",
+            "/tmp/k.pem",
+        ],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 0
+    assert emitted["operations"]["restore"] == {"restored_to": "active", "domain_member": True}
+
+
+def test_imex_departure_failed_restoration_fails_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Restoration gates reported success: this check deliberately degrades the
+    domain, so converging peers are not enough if the node was left down."""
+    module = _load_network_script("imex_departure_test.py")
+    samples = {"n": 0}
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a target that never comes back after the stop."""
+        if "systemctl stop" in command:
+            return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\n"}
+        if "systemctl start" in command:
+            return {"host": host, "ok": True, "stdout": ""}
+        if "ACTIVE=" in command and "OUT=" in command:
+            samples["n"] += 1
+            if samples["n"] == 1:
+                return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
+            return {"host": host, "ok": True, "stdout": "ACTIVE=failed\nOUT=\n"}
+        return {"host": host, "ok": True, "stdout": _imex_domain_payload("RECOVERING")}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(module, "RESTORE_POLL_SECONDS", 0)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_departure_test.py",
+            "--region",
+            "r",
+            "--target-node",
+            "10.0.0.1",
+            "--observer-node",
+            "10.0.0.2",
+            "--key-file",
+            "/tmp/k.pem",
+            "--restore-timeout",
+            "1",
+        ],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert emitted["operations"]["peer_convergence"]["target_reported"] == "unavailable"
+    assert emitted["success"] is False
+    assert "was left" in emitted["error"]

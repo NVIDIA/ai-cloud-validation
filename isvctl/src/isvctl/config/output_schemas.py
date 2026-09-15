@@ -142,6 +142,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "imex_service_test": "imex_service",
     "imex_resilience": "imex_resilience",
     "imex_resilience_test": "imex_resilience",
+    "imex_departure": "imex_departure",
+    "imex_departure_test": "imex_departure",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -1133,6 +1135,98 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             },
             "skipped": {"type": "boolean", "description": "True when no node was configured for the run"},
             "skip_reason": {"type": "string", "description": "Why the IMEX resilience check was skipped"},
+        },
+        "additionalProperties": True,
+    },
+    "imex_departure": {
+        "type": "object",
+        # Only the universal fields are required. Like imex_resilience this
+        # check reports in stages, so a skipped run or a failure before peer
+        # convergence must still validate and let the check attribute it.
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_departure'"},
+            "target_node": {"type": "string", "description": "Node whose service was stopped"},
+            "operations": {
+                "type": "object",
+                "properties": {
+                    "prior_state": {
+                        "type": "object",
+                        "description": (
+                            "The target's state before anything was disturbed. Recorded so an already-stopped "
+                            "node cannot report a departure the check never caused."
+                        ),
+                        "properties": {
+                            "service_state": {"type": "string", "description": "Service state before the stop"},
+                            "domain_member": {
+                                "type": "boolean",
+                                "description": "Whether the target was an operational domain member before the stop",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "stop": {
+                        "type": "object",
+                        "properties": {
+                            "requested": {
+                                "type": "boolean",
+                                "description": "Whether a deliberate stop was requested via the service manager",
+                            },
+                            "clean_exit": {
+                                "type": "boolean",
+                                "description": "Whether the service shut down cleanly rather than being killed",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "peer_convergence": {
+                        "type": "object",
+                        "properties": {
+                            "observed_from": {
+                                "type": "string",
+                                "description": "Surviving member the observation was made from",
+                            },
+                            "target_reported": {
+                                "type": "string",
+                                "enum": ["available", "unavailable", "unknown"],
+                                "description": (
+                                    "Normalized peer view of the stopped node. The provider script maps vendor "
+                                    "state onto this enum so the validation never substring-matches raw output."
+                                ),
+                            },
+                            "elapsed_seconds": {
+                                "type": "number",
+                                "minimum": 0,
+                                "description": "Time for the surviving member to observe the departure",
+                            },
+                            "surviving_members_operational": {
+                                "type": "boolean",
+                                "description": "Whether the domain stayed operational among the remaining members",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "restore": {
+                        "type": "object",
+                        "description": "Mandatory teardown evidence that the departed node was put back",
+                        "properties": {
+                            "restored_to": {
+                                "type": "string",
+                                "description": "Service state the node was left in; must be 'active' to pass",
+                            },
+                            "domain_member": {
+                                "type": "boolean",
+                                "description": "Whether the restored node is an operational domain member again",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                },
+                "additionalProperties": True,
+            },
+            "skipped": {"type": "boolean", "description": "True when no nodes were configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX departure check was skipped"},
         },
         "additionalProperties": True,
     },

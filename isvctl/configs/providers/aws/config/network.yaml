@@ -432,6 +432,25 @@ commands:
         timeout: 300
         output_schema: imex_resilience
 
+      # Domain members observe a deliberate node departure (SDN19-01).
+      # DESTRUCTIVE: stops IMEX on one member, leaving the domain a member
+      # short until restore. Takes its own target/observer settings so wiring
+      # the read-only IMEX checks never implicitly arms this one.
+      - name: imex_departure
+        phase: test
+        command: "python3 ../scripts/network/imex_departure_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--target-node"
+          - "{{imex_departure_target | default('', true)}}"
+          - "--observer-node"
+          - "{{imex_departure_observer | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 300
+        output_schema: imex_departure
+
       # Teardown: Clean up shared VPC from create_network
       - name: teardown
         phase: teardown
@@ -455,3 +474,6 @@ tests:
     imex_key_file: "{{env.AWS_IMEX_KEY_FILE | default('', true)}}"
     # Single node for the destructive SDN18-01 check; unset means it skips.
     imex_resilience_node: "{{env.AWS_IMEX_RESILIENCE_NODE | default('', true)}}"
+    # Target/observer pair for the destructive SDN19-01 check; unset means it skips.
+    imex_departure_target: "{{env.AWS_IMEX_DEPARTURE_TARGET | default('', true)}}"
+    imex_departure_observer: "{{env.AWS_IMEX_DEPARTURE_OBSERVER | default('', true)}}"

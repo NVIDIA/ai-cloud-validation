@@ -1664,6 +1664,146 @@ class ImexServiceResilienceCheck(BaseValidation):
         )
 
 
+class ImexNodeDepartureCheck(BaseValidation):
+    """Validate domain members observe a deliberate node departure.
+
+    The complement of ImexServiceResilienceCheck: there an unexpected kill must
+    be *recovered from*, here a deliberate stop must be *noticed*. The two
+    stimuli have opposite correct behaviours, which is why they are separate
+    checks - a supervisor that restarted this stop would be wrong.
+
+    Two failure modes are reported distinctly because they are different
+    defects: peers that never notice the departure have stale membership, while
+    a domain that stops being operational among the survivors is fragile.
+
+    ``target_reported`` is a normalized enum supplied by the provider script, so
+    nothing here substring-matches raw vendor output.
+
+    Config:
+        step_output: The step output to check
+        convergence_timeout_seconds: Optional bound on peer convergence
+
+    Step output:
+        target_node: The node whose service was stopped
+        operations: stop, peer_convergence, restore
+    """
+
+    description: ClassVar[str] = "Check peers observe a deliberate IMEX node departure"
+
+    _REPORTED_STATES: ClassVar[frozenset[str]] = frozenset({"available", "unavailable", "unknown"})
+
+    def run(self) -> None:
+        """Check the stop was clean, peers converged, and the domain survived."""
+        step_output = self.config.get("step_output", {})
+
+        target = step_output.get("target_node")
+        if not _is_non_empty_string(target):
+            self.set_failed("`target_node` must be a non-empty string")
+            return
+
+        operations = step_output.get("operations")
+        if not isinstance(operations, dict):
+            self.set_failed("`operations` must be an object with stop, peer_convergence and restore")
+            return
+
+        stop = operations.get("stop")
+        if not isinstance(stop, dict):
+            self.set_failed("`operations.stop` must be an object")
+            return
+        if stop.get("requested") is not True:
+            self.set_failed(f"{target}: a deliberate stop was never requested, so there is no departure to observe")
+            return
+        if stop.get("clean_exit") is not True:
+            self.set_failed(
+                f"{target}: the service did not shut down cleanly when stopped through the node service manager"
+            )
+            return
+
+        convergence = operations.get("peer_convergence")
+        if not isinstance(convergence, dict):
+            self.set_failed("`operations.peer_convergence` must be an object")
+            return
+
+        observed_from = convergence.get("observed_from")
+        if not _is_non_empty_string(observed_from):
+            self.set_failed("`peer_convergence.observed_from` must name the surviving node that observed the departure")
+            return
+
+        elapsed = convergence.get("elapsed_seconds")
+        if not isinstance(elapsed, int | float) or isinstance(elapsed, bool) or elapsed < 0:
+            self.set_failed(
+                f"{target}: `peer_convergence.elapsed_seconds` must be a non-negative number, got {elapsed!r}"
+            )
+            return
+
+        reported = convergence.get("target_reported")
+        if reported not in self._REPORTED_STATES:
+            self.set_failed(
+                f"{target}: `peer_convergence.target_reported` must be one of {sorted(self._REPORTED_STATES)}, "
+                f"got {reported!r}"
+            )
+            return
+
+        # The two defects below are reported separately on purpose. Peers that
+        # never noticed and a domain that fell over are both failures, but one
+        # indicts membership bookkeeping and the other indicts resilience, and
+        # collapsing them into one message would send someone to the wrong code.
+        if reported != "unavailable":
+            detail = (
+                "still reports it as available" if reported == "available" else "cannot say whether it is available"
+            )
+            self.set_failed(
+                f"{target}: after a deliberate stop, surviving member {observed_from} {detail} after {elapsed}s - "
+                "the departure went unnoticed, which is stale membership rather than a fragile domain"
+            )
+            return
+
+        if convergence.get("surviving_members_operational") is not True:
+            self.set_failed(
+                f"{target}: surviving member {observed_from} noticed the departure after {elapsed}s, but the domain "
+                "stopped being operational among the remaining members - removing one node collapsed the domain "
+                "rather than degrading it"
+            )
+            return
+
+        timeout = self.config.get("convergence_timeout_seconds")
+        if isinstance(timeout, int | float) and not isinstance(timeout, bool) and elapsed > timeout:
+            self.set_failed(
+                f"{target}: surviving member {observed_from} did notice the departure, but only after {elapsed}s, "
+                f"beyond the {timeout}s convergence bound"
+            )
+            return
+
+        # This check deliberately leaves the domain a member short, so putting
+        # the node back is mandatory rather than best-effort: passing while the
+        # domain is still degraded would hide the damage behind a green result.
+        restore = operations.get("restore")
+        if not isinstance(restore, dict) or not restore:
+            self.set_failed(
+                f"{target}: peers converged, but the run reported no restoration evidence, so it cannot be shown "
+                "the domain was put back after this destructive check"
+            )
+            return
+        restored_to = restore.get("restored_to")
+        if restored_to != "active":
+            self.set_failed(
+                f"{target}: peers converged, but restoration left the service {restored_to!r} rather than active, "
+                "so the domain is still a member short"
+            )
+            return
+        if restore.get("domain_member") is not True:
+            self.set_failed(
+                f"{target}: peers converged, but after restoration the node is not an operational domain member, "
+                "so the domain is still a member short"
+            )
+            return
+
+        self.set_passed(
+            f"{target} was stopped cleanly and surviving member {observed_from} reported it unavailable after "
+            f"{elapsed}s, with the domain still operational among the survivors; node restored to {restored_to}"
+        )
+
+
 # The driver's own CRD. Its presence is what makes a cluster's multi-node NVLink
 # capability "advertised" for scoping purposes.
 COMPUTE_DOMAIN_CRD = "computedomains.resource.nvidia.com"
