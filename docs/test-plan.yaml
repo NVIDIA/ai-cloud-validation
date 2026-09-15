@@ -1784,6 +1784,23 @@ domains:
                 status: approved
                 notes: ""
                 priority: ""
+              - summary: "IMEX (Kubernetes DRA): On a cluster where the resource-allocation driver owns the IMEX daemon, assert every node of an allocated compute domain runs a driver-started daemon and is a ready domain member, then terminate one daemon in place and assert the driver restores that node to ready membership unaided within a bounded time."
+                labels:
+                  - kubernetes
+                  - min_req
+                  - network
+                  - slow
+                dependencies:
+                  - LimitedEnv
+                milestone: M9
+                notes: The Kubernetes DRA reading of SDN18, asserting cluster objects rather than a host service unit. Destructive - allocates a compute domain, deletes a daemon inside it, and releases the domain afterwards, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service, read from the mode the driver declares rather than from the absence of a daemon.
+                github_issues:
+                  - "#623"
+                req_id: SDN18
+                test_id: SDN18-02
+                actor: tenant
+                status: approved
+                priority: P1
               - summary: "IMEX: Stop nvidia-imex via systemctl stop nvidia-imex and assert clean shutdown (other nodes show disabled node status)."
                 dependencies:
                   - LimitedEnv

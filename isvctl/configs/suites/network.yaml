@@ -351,6 +351,15 @@ tests:
           test_id: "SDN17-02"
           labels: ["kubernetes", "min_req", "network"]
           requires: [kubernetes]
+        # Destructive: allocates a compute domain, deletes one of the driver's
+        # daemons inside it, and releases the domain afterwards. Labelled slow
+        # because it waits out domain formation and then recovery. Like
+        # SDN17-02 it carries no `step:` - the mutation and every observation
+        # are cluster API operations, none of them a provider's to perform.
+        ImexDaemonRecoveryCheck:
+          test_id: "SDN18-02"
+          labels: ["kubernetes", "min_req", "network", "slow"]
+          requires: [kubernetes]
 
     teardown_checks:
       step: teardown

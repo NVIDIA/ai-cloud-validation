@@ -24,7 +24,10 @@ from __future__ import annotations
 import ipaddress
 import math
 import re
-from typing import TYPE_CHECKING, Any, ClassVar
+import shlex
+import time
+import uuid
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 if TYPE_CHECKING:
     import paramiko
@@ -34,7 +37,9 @@ import pytest
 from isvtest.core.k8s import (
     command_detail,
     get_kubectl_base_shell,
+    kubectl_items_or_empty,
     kubectl_items_or_fail,
+    kubectl_payload_or_none,
     names_from_items,
 )
 from isvtest.core.ssh import (
@@ -1581,7 +1586,7 @@ class ImexComputeDomainCapabilityCheck(BaseValidation):
 
     def run(self) -> None:
         """Read compute-domain capability from the cluster and assert on it."""
-        if not self._multi_node_nvlink_advertised():
+        if not _multi_node_nvlink_advertised(self):
             return
 
         device_classes = self._compute_domain_device_classes()
@@ -1637,42 +1642,16 @@ class ImexComputeDomainCapabilityCheck(BaseValidation):
             f"(IMEX daemon ownership: {_ownership_mode(device_classes)})"
         )
 
-    def _multi_node_nvlink_advertised(self) -> bool:
-        """Return whether the cluster advertises multi-node NVLink through the driver.
-
-        Skips outright when it does not. An unserved API group is an empty
-        successful listing, so a failed read is a cluster the check could not
-        reach - which must never be mistaken for a cluster that offers no
-        multi-node NVLink, and fails instead.
-        """
-        result = self.run_command(
-            get_kubectl_base_shell("api-resources", f"--api-group={VENDOR_API_GROUP}", "-o", "name")
-        )
-        if result.exit_code != 0:
-            self.set_failed(f"Failed to read the {VENDOR_API_GROUP} API group: {command_detail(result)}")
-            return False
-        if COMPUTE_DOMAIN_CRD not in result.stdout.split():
-            pytest.skip(
-                "Cluster advertises no multi-node NVLink capability through the driver "
-                f"({COMPUTE_DOMAIN_CRD} is not registered)"
-            )
-        return True
-
-    def _items(self, resource: str) -> list[dict[str, Any]] | None:
-        """Return one cluster-scoped listing, or None after failing the check."""
-        result = self.run_command(get_kubectl_base_shell("get", resource, "-o", "json"))
-        return kubectl_items_or_fail(self, result, resource)
-
     def _compute_domain_device_classes(self) -> list[str] | None:
         """Return the registered compute-domain device class names."""
-        items = self._items(DEVICE_CLASS_RESOURCE)
+        items = _listing(self, DEVICE_CLASS_RESOURCE)
         if items is None:
             return None
         return [name for name in names_from_items(items) if COMPUTE_DOMAIN_ROLE.fullmatch(name)]
 
     def _publishing_nodes(self) -> set[str] | None:
         """Return the nodes the compute-domain per-node plugin has published for."""
-        items = self._items(RESOURCE_SLICE_RESOURCE)
+        items = _listing(self, RESOURCE_SLICE_RESOURCE)
         if items is None:
             return None
         published: set[str] = set()
@@ -1693,7 +1672,7 @@ class ImexComputeDomainCapabilityCheck(BaseValidation):
         node's view of its NVLink support, so a clique-less GPU node is still
         examined.
         """
-        items = self._items("nodes")
+        items = _listing(self, "nodes")
         if items is None:
             return None
         return [node for node in items if _is_gpu_node(node)]
@@ -1717,6 +1696,571 @@ def _ownership_mode(device_classes: list[str]) -> str:
     channel class alone. Evidence only - no assertion rests on this.
     """
     return "driver" if any("daemon" in name for name in device_classes) else "host"
+
+
+def _multi_node_nvlink_advertised(validation: BaseValidation) -> bool:
+    """Return whether the cluster advertises multi-node NVLink through the driver.
+
+    Skips outright when it does not. An unserved API group is an empty
+    successful listing, so a failed read is a cluster the check could not
+    reach - which must never be mistaken for a cluster that offers no
+    multi-node NVLink, and fails instead.
+    """
+    result = validation.run_command(
+        get_kubectl_base_shell("api-resources", f"--api-group={VENDOR_API_GROUP}", "-o", "name")
+    )
+    if result.exit_code != 0:
+        validation.set_failed(f"Failed to read the {VENDOR_API_GROUP} API group: {command_detail(result)}")
+        return False
+    if COMPUTE_DOMAIN_CRD not in result.stdout.split():
+        pytest.skip(
+            "Cluster advertises no multi-node NVLink capability through the driver "
+            f"({COMPUTE_DOMAIN_CRD} is not registered)"
+        )
+    return True
+
+
+def _listing(validation: BaseValidation, resource: str, *args: str) -> list[dict[str, Any]] | None:
+    """Return one ``kubectl get`` listing, or None after failing the validation."""
+    result = validation.run_command(get_kubectl_base_shell("get", resource, *args, "-o", "json"))
+    return kubectl_items_or_fail(validation, result, resource)
+
+
+# The compute-domain half of the driver, as cluster objects.
+COMPUTE_DOMAIN_RESOURCE = "computedomains.resource.nvidia.com"
+COMPUTE_DOMAIN_API_VERSION = "resource.nvidia.com/v1beta1"
+
+# The controller stamps every object it creates for a domain with that domain's
+# UID, which is what ties a daemon pod back to one ComputeDomain.
+COMPUTE_DOMAIN_LABEL = "resource.nvidia.com/computeDomain"
+
+# The chart plumbs the configured ownership mode onto the controller as an
+# environment variable. Reading it there is the driver declaring which daemon
+# lifecycle it implements - a different thing from looking at what is running.
+COMPUTE_DOMAIN_CONTROLLER_COMMAND = "compute-domain-controller"
+IMEX_MODE_ENV = "IMEX_MODE"
+DRIVER_MANAGED_MODE = "driverManaged"
+HOST_MANAGED_MODE = "hostManaged"
+
+READY = "Ready"
+
+# Namespaces are DNS-1123 labels, and an image reference carries no whitespace
+# or quoting. Both are rejected before they reach a manifest rather than being
+# quoted into one.
+_DNS_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+_IMAGE_REFERENCE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$")
+
+_COMPUTE_DOMAIN_MANIFEST = """\
+apiVersion: {api_version}
+kind: ComputeDomain
+metadata:
+  name: {name}
+  namespace: {namespace}
+spec:
+  numNodes: 0
+  channel:
+    resourceClaimTemplate:
+      name: {name}-channel
+"""
+
+# One claiming pod per clique node. The driver places no daemon until a channel
+# claim is prepared, so this is what gives the check a subject at all - see
+# _claim_channels. The container only has to hold its claim open, so it sleeps;
+# nothing is asserted about it.
+_CHANNEL_CLAIM_MANIFEST = """\
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {name}-claim
+  namespace: {namespace}
+spec:
+  selector:
+    matchLabels:
+      app: {name}-claim
+  template:
+    metadata:
+      labels:
+        app: {name}-claim
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: {clique_label}
+                operator: Exists
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: claim
+        image: {image}
+        command: ["sh", "-c", "sleep {hold_seconds}"]
+        resources:
+          claims:
+          - name: imex-channel
+      resourceClaims:
+      - name: imex-channel
+        resourceClaimTemplateName: {name}-channel
+"""
+
+
+class _DomainState(NamedTuple):
+    """One observation of a compute domain and the daemons serving it.
+
+    ``members`` maps a node the domain accounts for to the readiness the domain
+    reports for it; ``daemons`` maps a node to the domain's daemon pod there.
+    The two are read separately on purpose - a node the domain calls ready with
+    no daemon behind it is a defect, not a rounding error.
+    """
+
+    uid: str
+    members: dict[str, str]
+    daemons: dict[str, dict[str, Any]]
+
+
+def _pod_node(pod: dict[str, Any]) -> str:
+    """Return the node a pod is bound to, or an empty string when unbound."""
+    node = (pod.get("spec") or {}).get("nodeName")
+    return node if isinstance(node, str) else ""
+
+
+def _pod_is_ready(pod: dict[str, Any]) -> bool:
+    """Return whether a pod reports a Ready condition."""
+    conditions = (pod.get("status") or {}).get("conditions") or []
+    return any(
+        isinstance(condition, dict) and condition.get("type") == READY and condition.get("status") == "True"
+        for condition in conditions
+    )
+
+
+def _live_daemons_by_node(pods: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Return the domain's daemon pod per node, skipping pods being torn down.
+
+    A terminating pod must never stand in for the replacement a recovery poll
+    is waiting on, which is the whole reason the deletion timestamp is honoured
+    here rather than the pod phase.
+    """
+    by_node: dict[str, dict[str, Any]] = {}
+    for pod in pods:
+        metadata = pod.get("metadata") or {}
+        if not isinstance(metadata, dict) or metadata.get("deletionTimestamp"):
+            continue
+        node = _pod_node(pod)
+        if node:
+            by_node[node] = pod
+    return by_node
+
+
+def _container_env(container: dict[str, Any], name: str) -> str | None:
+    """Return a container's literal value for ``name``, or None when unset."""
+    for entry in container.get("env") or []:
+        if isinstance(entry, dict) and entry.get("name") == name:
+            value = entry.get("value")
+            return value if isinstance(value, str) else None
+    return None
+
+
+class ImexDaemonRecoveryCheck(BaseValidation):
+    """Validate the driver-managed IMEX daemon runs unaided and recovers (DRA model).
+
+    Asserts two things about an allocated compute domain: every node the domain
+    accounts for is served by a running daemon *and* reported as a ready
+    member, with nothing the test started; and that killing one of those
+    daemons is repaired by the driver, back to ready membership, unaided and
+    within a bounded time.
+
+    Allocating the domain and running a workload in it are the tenant's
+    documented actions, and are setup here. Starting an IMEX daemon is not: the
+    daemons exist because the driver created them in response to that, so the
+    check never starts, restarts, or repairs one. A domain that does not come
+    up on its own fails rather than being nursed into shape.
+
+    The allocation is a compute domain *and* a claiming pod per clique node,
+    because a domain on its own has no daemons to assert against: the driver's
+    per-domain DaemonSet selects on a node label the kubelet plugin applies
+    while preparing a channel claim, so an unclaimed domain keeps a DaemonSet
+    of size zero indefinitely.
+
+    Membership is read from what the domain reports about a node, not from the
+    daemon pod's phase. A replacement pod that reaches Running but never
+    rejoins the domain is the exact defect this exists to catch, so the two are
+    observed separately and reported separately: never rescheduled indicts the
+    controller, rescheduled but never a ready member indicts domain formation.
+
+    Scope is the domain's own accounting of its nodes. Zero members is a
+    failure rather than a vacuous pass, and a member that recovery could not be
+    asserted against is not quietly dropped from the count.
+
+    Termination is a deletion of the daemon in place. The node is never
+    cordoned, drained, or removed from the domain - those are deliberate
+    departures, which a correct controller declines to repair, so a
+    departure-based reading of this test would fail on a healthy cluster.
+
+    Population is clusters where the driver owns the daemon lifecycle, read
+    from the mode the driver declares. A cluster configured to defer to an
+    operator-run host daemon creates no per-domain daemon and so has no subject
+    here, and skips. Nothing is asserted about any host daemon, including where
+    one legitimately exists.
+
+    This check is destructive: it allocates a compute domain, deletes a daemon
+    inside it, and releases the domain afterwards. Run it on an idle cluster.
+
+    Config:
+        namespace: Namespace to allocate the compute domain in (default "default")
+        image: Image for the claiming pods (default "busybox:1.36"); it only
+            has to hold a channel claim open
+        formation_timeout_seconds: Bound on the domain coming up (default 300)
+        recovery_timeout_seconds: Bound on recovery; derived from the observed
+            formation time when unset
+    """
+
+    description: ClassVar[str] = "Check the driver-managed IMEX daemon runs unaided and recovers after termination"
+
+    #: Recovering one node cannot reasonably be slower than forming the whole
+    #: domain, so the recovery budget is derived from the formation this run
+    #: observed rather than picked round. The floor covers a domain that formed
+    #: almost instantly, where a small multiple of it would be no budget at all.
+    _RECOVERY_BUDGET_MULTIPLIER: ClassVar[float] = 2.0
+    _RECOVERY_FLOOR_SECONDS: ClassVar[int] = 60
+    _POLL_INTERVAL_SECONDS: ClassVar[int] = 5
+    _READ_TIMEOUT_SECONDS: ClassVar[int] = 30
+
+    def run(self) -> None:
+        """Allocate a compute domain, kill one daemon, and assert it is restored."""
+        if not _multi_node_nvlink_advertised(self):
+            return
+
+        mode = self._declared_ownership_mode()
+        if mode is None:
+            return
+        if mode == HOST_MANAGED_MODE:
+            pytest.skip(
+                "Driver defers the IMEX daemon to an operator-run host service "
+                f"({IMEX_MODE_ENV}={HOST_MANAGED_MODE}), so it owns no daemon to assert on"
+            )
+
+        namespace = self.config.get("namespace", "default")
+        if not (isinstance(namespace, str) and _DNS_LABEL.fullmatch(namespace)):
+            self.set_failed(f"`namespace` must be a DNS-1123 label, got {namespace!r}")
+            return
+
+        image = self.config.get("image", "busybox:1.36")
+        if not (isinstance(image, str) and _IMAGE_REFERENCE.fullmatch(image)):
+            self.set_failed(f"`image` must be an image reference, got {image!r}")
+            return
+
+        formation_timeout = self._parse_positive_int("formation_timeout_seconds", default=300)
+        if formation_timeout is None:
+            return
+
+        name = f"isv-sdn18-02-{uuid.uuid4().hex[:8]}"
+        if not self._apply(
+            _COMPUTE_DOMAIN_MANIFEST.format(api_version=COMPUTE_DOMAIN_API_VERSION, name=name, namespace=namespace),
+            f"compute domain {name}",
+        ):
+            return
+        try:
+            if self._claim_channels(namespace, name, image, formation_timeout):
+                self._assert_unaided_recovery(namespace, name, formation_timeout)
+        finally:
+            self._release(namespace, name)
+
+    def _declared_ownership_mode(self) -> str | None:
+        """Return the daemon ownership mode the driver declares, or None on failure.
+
+        The mode is read from the controller's own configuration. The absence
+        of a daemon is deliberately not consulted: a broken driver-owned
+        deployment looks exactly like a cluster that never had one, and
+        inferring from it would report the first as the second.
+        """
+        deployments = _listing(self, "deployments", "--all-namespaces")
+        if deployments is None:
+            return None
+
+        for deployment in deployments:
+            containers = ((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}
+            for container in containers.get("containers") or []:
+                if not isinstance(container, dict):
+                    continue
+                if COMPUTE_DOMAIN_CONTROLLER_COMMAND not in (container.get("command") or []):
+                    continue
+                # A driver predating the mode being configurable declares none,
+                # and driver-managed is the only lifecycle it implements.
+                declared = _container_env(container, IMEX_MODE_ENV) or DRIVER_MANAGED_MODE
+                if declared not in (DRIVER_MANAGED_MODE, HOST_MANAGED_MODE):
+                    self.set_failed(
+                        f"Driver declares an unrecognised IMEX daemon ownership mode {declared!r}, "
+                        f"expected one of {DRIVER_MANAGED_MODE!r} or {HOST_MANAGED_MODE!r}"
+                    )
+                    return None
+                return declared
+
+        self.set_failed(
+            "Could not establish the IMEX daemon ownership mode: no compute-domain controller was found to "
+            "declare one. The mode has to come from the driver's own configuration, since the absence of a "
+            "daemon is not evidence that the driver defers to a host-managed one"
+        )
+        return None
+
+    def _apply(self, manifest: str, what: str) -> bool:
+        """Create one object from a manifest, or fail the check naming it."""
+        apply = get_kubectl_base_shell("apply", "-f", "-")
+        result = self.run_command(f"printf '%s' {shlex.quote(manifest)} | {apply}", timeout=self._READ_TIMEOUT_SECONDS)
+        if result.exit_code != 0:
+            self.set_failed(f"Failed to create {what}: {command_detail(result)}")
+            return False
+        return True
+
+    def _claim_channels(self, namespace: str, name: str, image: str, formation_timeout: int) -> bool:
+        """Run one claiming pod per clique node so the driver places daemons.
+
+        Without a prepared channel claim the driver's per-domain DaemonSet
+        selects on a node label nobody has set and stays at size zero however
+        long the check waits, leaving the domain with no daemons to assert
+        against. These pods only hold their claims open - nothing is asserted
+        about them, and they are expected to sit in ContainerCreating until the
+        daemon on their node reports ready.
+        """
+        return self._apply(
+            _CHANNEL_CLAIM_MANIFEST.format(
+                name=name,
+                namespace=namespace,
+                image=image,
+                clique_label=CLIQUE_LABEL,
+                # Outlast the worst case the check itself allows - formation
+                # plus a recovery budget of twice it - so a claim never lapses
+                # mid-run and takes the daemons down with it, while still
+                # expiring on its own if this process is killed outright.
+                hold_seconds=formation_timeout * 4,
+            ),
+            f"channel claims for compute domain {name}",
+        )
+
+    def _release(self, namespace: str, name: str) -> None:
+        """Delete the claims and the domain, failing a passing check on leftovers.
+
+        Teardown is mandatory rather than best-effort: the check created these,
+        and leaving them behind changes what the next run observes. The claims
+        go first so no daemon is still holding a prepared channel when the
+        domain is removed. An already-failing check keeps its own message,
+        which is the more useful one.
+        """
+        leftovers: list[str] = []
+        for resource, obj in (("daemonset", f"{name}-claim"), (COMPUTE_DOMAIN_RESOURCE, name)):
+            result = self.run_command(
+                get_kubectl_base_shell("delete", resource, obj, "-n", namespace, "--ignore-not-found=true"),
+                timeout=self._READ_TIMEOUT_SECONDS,
+            )
+            if result.exit_code != 0:
+                leftovers.append(f"{resource}/{obj}: {command_detail(result)}")
+
+        if leftovers and self.passed:
+            self.set_failed(f"Could not release what the check created: {'; '.join(leftovers)}")
+
+    def _assert_unaided_recovery(self, namespace: str, name: str, formation_timeout: int) -> None:
+        """Assert unaided presence, then terminate one daemon and assert recovery."""
+        formed = self._await_formation(namespace, name, formation_timeout)
+        if formed is None:
+            return
+        state, formation_seconds = formed
+
+        self.report_subtest(
+            "unaided_presence",
+            True,
+            f"All {len(state.members)} domain member(s) served by a running daemon and reported ready "
+            f"{formation_seconds:.0f}s after allocation, none started by the test",
+            duration=formation_seconds,
+        )
+
+        target = sorted(state.members)[0]
+        target_uid = ((state.daemons[target].get("metadata") or {}).get("uid")) or ""
+        if not self._terminate(namespace, state.daemons[target]):
+            return
+
+        budget = self._recovery_budget(formation_seconds)
+        if budget is None:
+            return
+        self._await_recovery(namespace, name, target, target_uid, budget, len(state.members))
+
+    def _recovery_budget(self, formation_seconds: float) -> int | None:
+        """Return the recovery timeout, derived from formation unless configured."""
+        if self.config.get("recovery_timeout_seconds") is not None:
+            return self._parse_positive_int("recovery_timeout_seconds", default=0)
+        derived = int(formation_seconds * self._RECOVERY_BUDGET_MULTIPLIER)
+        return max(self._RECOVERY_FLOOR_SECONDS, derived)
+
+    def _terminate(self, namespace: str, pod: dict[str, Any]) -> bool:
+        """Delete one daemon in place, confirming the termination took effect.
+
+        The node itself is left alone. Cordoning, draining, or shrinking the
+        domain would be a deliberate departure, which a correct controller does
+        not repair.
+        """
+        metadata = pod.get("metadata") or {}
+        pod_name = metadata.get("name") or ""
+        pod_namespace = metadata.get("namespace") or namespace
+        result = self.run_command(
+            get_kubectl_base_shell("delete", "pod", pod_name, "-n", pod_namespace, "--wait=true"),
+            timeout=self._READ_TIMEOUT_SECONDS,
+        )
+        if result.exit_code != 0:
+            self.set_failed(f"Failed to terminate daemon {pod_name}: {command_detail(result)}")
+            return False
+        self.report_subtest("terminate", True, f"Deleted daemon {pod_name} in place")
+        return True
+
+    def _await_formation(self, namespace: str, name: str, timeout: int) -> tuple[_DomainState, float] | None:
+        """Wait for every domain member to be served by a ready daemon.
+
+        Returns the settled state and how long it took, which is the observed
+        reconciliation baseline the recovery budget is derived from. A domain
+        that never gets there fails: a daemon not running on arrival indicts
+        the driver deployment, and is not a setup step for the check to repair.
+        """
+        deadline = time.monotonic() + timeout
+        started = time.monotonic()
+        detail = "the domain reported no members"
+        while True:
+            state, error = self._observe(namespace, name)
+            if state is not None:
+                if not state.members:
+                    detail = "the domain reported no members, so there was nothing to assert against"
+                else:
+                    unserved = sorted(node for node in state.members if node not in state.daemons)
+                    unready = sorted(
+                        node
+                        for node, status in state.members.items()
+                        if node in state.daemons and (status != READY or not _pod_is_ready(state.daemons[node]))
+                    )
+                    if not unserved and not unready:
+                        return state, time.monotonic() - started
+                    detail = _formation_detail(unserved, unready)
+            else:
+                detail = error
+
+            if time.monotonic() >= deadline:
+                self.set_failed(
+                    f"Compute domain {name} did not come up unaided within {timeout}s: {detail}. The driver "
+                    "is responsible for starting these daemons, so this indicts the driver deployment"
+                )
+                return None
+            time.sleep(self._POLL_INTERVAL_SECONDS)
+
+    def _await_recovery(
+        self,
+        namespace: str,
+        name: str,
+        target: str,
+        terminated_uid: str,
+        timeout: int,
+        members: int,
+    ) -> None:
+        """Wait for the terminated daemon to be replaced and rejoin the domain."""
+        deadline = time.monotonic() + timeout
+        started = time.monotonic()
+        rescheduled_at: float | None = None
+        while True:
+            state, error = self._observe(namespace, name)
+            elapsed = time.monotonic() - started
+            if state is not None:
+                replacement = state.daemons.get(target, {})
+                replacement_uid = ((replacement.get("metadata") or {}).get("uid")) or ""
+                rescheduled = bool(replacement_uid) and replacement_uid != terminated_uid
+                if rescheduled and rescheduled_at is None:
+                    rescheduled_at = elapsed
+                if rescheduled and _pod_is_ready(replacement) and state.members.get(target) == READY:
+                    self._report_recovered(target, elapsed, rescheduled_at or elapsed, members, timeout)
+                    return
+
+            if time.monotonic() >= deadline:
+                self._report_not_recovered(target, rescheduled_at, timeout, error if state is None else "")
+                return
+            time.sleep(self._POLL_INTERVAL_SECONDS)
+
+    def _report_recovered(self, target: str, elapsed: float, rescheduled_at: float, members: int, budget: int) -> None:
+        """Record a successful recovery, with the elapsed time the ticket asks for."""
+        self.report_subtest("daemon_rescheduled", True, f"{target}: replacement daemon ready", duration=rescheduled_at)
+        self.report_subtest("domain_member", True, f"{target}: ready member again", duration=elapsed)
+        self.set_passed(
+            f"All {members} domain member(s) ran a driver-started daemon on arrival, and {target} was "
+            f"restored to ready domain membership {elapsed:.0f}s after its daemon was terminated "
+            f"(budget {budget}s), with no intervention"
+        )
+
+    def _report_not_recovered(self, target: str, rescheduled_at: float | None, budget: int, read_error: str) -> None:
+        """Fail a recovery that ran out of budget, naming what did not happen.
+
+        The two failures indict different components, so they never share a
+        message: a daemon that was never put back is the controller's, and one
+        that came back but never rejoined is domain formation's.
+        """
+        if rescheduled_at is None:
+            self.report_subtest("daemon_rescheduled", False, f"{target}: no replacement daemon within {budget}s")
+            reason = (
+                f"the driver never rescheduled a daemon onto {target} within {budget}s, which indicts the controller"
+            )
+        else:
+            self.report_subtest(
+                "daemon_rescheduled", True, f"{target}: replacement daemon appeared", duration=rescheduled_at
+            )
+            self.report_subtest("domain_member", False, f"{target}: never became a ready member again")
+            reason = (
+                f"a replacement daemon appeared on {target} after {rescheduled_at:.0f}s but the node never "
+                f"became a ready domain member within {budget}s, which indicts domain formation rather than "
+                "the controller"
+            )
+        detail = f" (last read: {read_error})" if read_error else ""
+        self.set_failed(f"IMEX daemon termination on {target} was not repaired unaided: {reason}{detail}")
+
+    def _observe(self, namespace: str, name: str) -> tuple[_DomainState | None, str]:
+        """Read the domain and its daemons once.
+
+        Returns ``(state, "")`` on success, or ``(None, error)`` when the
+        cluster could not be read. A read failure mid-poll is not fatal on its
+        own - the surrounding deadline decides that - but it is carried so a
+        timeout can name it instead of reporting a bare elapsed time.
+        """
+        result = self.run_command(
+            get_kubectl_base_shell("get", COMPUTE_DOMAIN_RESOURCE, name, "-n", namespace, "-o", "json"),
+            timeout=self._READ_TIMEOUT_SECONDS,
+        )
+        if result.exit_code != 0:
+            return None, f"could not read compute domain {name}: {command_detail(result)}"
+        domain = kubectl_payload_or_none(result)
+        if domain is None:
+            return None, f"could not parse compute domain {name}"
+
+        uid = ((domain.get("metadata") or {}).get("uid")) or ""
+        if not uid:
+            return None, f"compute domain {name} carries no UID to match its daemons by"
+
+        members: dict[str, str] = {}
+        for node in (domain.get("status") or {}).get("nodes") or []:
+            if isinstance(node, dict) and _is_non_empty_string(node.get("name")):
+                members[str(node["name"])] = str(node.get("status") or "")
+
+        pods = self.run_command(
+            get_kubectl_base_shell(
+                "get", "pods", "--all-namespaces", "-l", f"{COMPUTE_DOMAIN_LABEL}={uid}", "-o", "json"
+            ),
+            timeout=self._READ_TIMEOUT_SECONDS,
+        )
+        if pods.exit_code != 0:
+            return None, f"could not read the daemons of compute domain {name}: {command_detail(pods)}"
+        items = kubectl_items_or_empty(pods)
+        return _DomainState(uid=uid, members=members, daemons=_live_daemons_by_node(items)), ""
+
+
+def _formation_detail(unserved: list[str], unready: list[str]) -> str:
+    """Describe which members are missing a daemon and which are not yet ready."""
+    parts = []
+    if unserved:
+        parts.append(f"no daemon on {', '.join(unserved)}")
+    if unready:
+        parts.append(f"not ready on {', '.join(unready)}")
+    return "; ".join(parts)
 
 
 class ByoipCheck(BaseValidation):
