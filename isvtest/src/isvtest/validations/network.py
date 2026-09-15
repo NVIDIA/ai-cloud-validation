@@ -27,6 +27,7 @@ import re
 import shlex
 import time
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ from isvtest.core.k8s import (
     kubectl_items_or_fail,
     kubectl_payload_or_none,
     names_from_items,
+    render_k8s_manifest,
 )
 from isvtest.core.ssh import (
     get_failed_subtests,
@@ -1726,10 +1728,6 @@ def _listing(validation: BaseValidation, resource: str, *args: str) -> list[dict
     return kubectl_items_or_fail(validation, result, resource)
 
 
-# The compute-domain half of the driver, as cluster objects.
-COMPUTE_DOMAIN_RESOURCE = "computedomains.resource.nvidia.com"
-COMPUTE_DOMAIN_API_VERSION = "resource.nvidia.com/v1beta1"
-
 # The controller stamps every object it creates for a domain with that domain's
 # UID, which is what ties a daemon pod back to one ComputeDomain.
 COMPUTE_DOMAIN_LABEL = "resource.nvidia.com/computeDomain"
@@ -1744,66 +1742,44 @@ HOST_MANAGED_MODE = "hostManaged"
 
 READY = "Ready"
 
-# Namespaces are DNS-1123 labels, and an image reference carries no whitespace
-# or quoting. Both are rejected before they reach a manifest rather than being
-# quoted into one.
-_DNS_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
-_IMAGE_REFERENCE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/@-]*$")
+_MANIFEST_DIR = Path(__file__).parent / "manifests" / "k8s"
+_COMPUTE_DOMAIN_MANIFEST = _MANIFEST_DIR / "imex_compute_domain.yaml"
+_CHANNEL_CLAIM_MANIFEST = _MANIFEST_DIR / "imex_channel_claim.yaml"
 
-_COMPUTE_DOMAIN_MANIFEST = """\
-apiVersion: {api_version}
-kind: ComputeDomain
-metadata:
-  name: {name}
-  namespace: {namespace}
-spec:
-  numNodes: 0
-  channel:
-    resourceClaimTemplate:
-      name: {name}-channel
-"""
+# BusyBox only has to hold a channel claim open; override via the ``image``
+# config key for air-gapped clusters that mirror to a private registry.
+_DEFAULT_IMAGE = "busybox:1.36"
 
-# One claiming pod per clique node. The driver places no daemon until a channel
-# claim is prepared, so this is what gives the check a subject at all - see
-# _claim_channels. The container only has to hold its claim open, so it sleeps;
-# nothing is asserted about it.
-_CHANNEL_CLAIM_MANIFEST = """\
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: {name}-claim
-  namespace: {namespace}
-spec:
-  selector:
-    matchLabels:
-      app: {name}-claim
-  template:
-    metadata:
-      labels:
-        app: {name}-claim
-    spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: {clique_label}
-                operator: Exists
-      tolerations:
-      - key: nvidia.com/gpu
-        operator: Exists
-        effect: NoSchedule
-      containers:
-      - name: claim
-        image: {image}
-        command: ["sh", "-c", "sleep {hold_seconds}"]
-        resources:
-          claims:
-          - name: imex-channel
-      resourceClaims:
-      - name: imex-channel
-        resourceClaimTemplateName: {name}-channel
-"""
+
+def _set_compute_domain_fields(doc: dict[str, Any], *, name: str, namespace: str) -> dict[str, Any]:
+    """Mutate a parsed compute-domain manifest in place."""
+    doc["metadata"] = {"name": name, "namespace": namespace}
+    doc["spec"]["channel"]["resourceClaimTemplate"]["name"] = f"{name}-channel"
+    return doc
+
+
+def _set_channel_claim_fields(
+    doc: dict[str, Any], *, name: str, namespace: str, image: str, hold_seconds: int
+) -> dict[str, Any]:
+    """Mutate a parsed channel-claim manifest in place.
+
+    Names the DaemonSet and its pods after the domain they claim a channel of,
+    pins them to the clique nodes, and sets how long each pod holds its claim.
+    """
+    claim = f"{name}-claim"
+    doc["metadata"] = {"name": claim, "namespace": namespace}
+    spec = doc["spec"]
+    spec["selector"]["matchLabels"]["app"] = claim
+    template = spec["template"]
+    template["metadata"]["labels"]["app"] = claim
+    pod = template["spec"]
+    terms = pod["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"]
+    terms[0]["matchExpressions"][0]["key"] = CLIQUE_LABEL
+    container = pod["containers"][0]
+    container["image"] = image
+    container["command"] = ["sh", "-c", f"sleep {hold_seconds}"]
+    pod["resourceClaims"][0]["resourceClaimTemplateName"] = f"{name}-channel"
+    return doc
 
 
 class _DomainState(NamedTuple):
@@ -1815,7 +1791,6 @@ class _DomainState(NamedTuple):
     no daemon behind it is a defect, not a rounding error.
     """
 
-    uid: str
     members: dict[str, str]
     daemons: dict[str, dict[str, Any]]
 
@@ -1860,6 +1835,16 @@ def _container_env(container: dict[str, Any], name: str) -> str | None:
             value = entry.get("value")
             return value if isinstance(value, str) else None
     return None
+
+
+def _formation_detail(unserved: list[str], unready: list[str]) -> str:
+    """Describe which members are missing a daemon and which are not yet ready."""
+    parts = []
+    if unserved:
+        parts.append(f"no daemon on {', '.join(unserved)}")
+    if unready:
+        parts.append(f"not ready on {', '.join(unready)}")
+    return "; ".join(parts)
 
 
 class ImexDaemonRecoveryCheck(BaseValidation):
@@ -1909,7 +1894,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
 
     Config:
         namespace: Namespace to allocate the compute domain in (default "default")
-        image: Image for the claiming pods (default "busybox:1.36"); it only
+        image: Image for the claiming pods (default busybox); it only
             has to hold a channel claim open
         formation_timeout_seconds: Bound on the domain coming up (default 300)
         recovery_timeout_seconds: Bound on recovery; derived from the observed
@@ -1946,25 +1931,19 @@ class ImexDaemonRecoveryCheck(BaseValidation):
                 f"({IMEX_MODE_ENV}={HOST_MANAGED_MODE}), so it owns no daemon to assert on"
             )
 
-        namespace = self.config.get("namespace", "default")
-        if not (isinstance(namespace, str) and _DNS_LABEL.fullmatch(namespace)):
-            self.set_failed(f"`namespace` must be a DNS-1123 label, got {namespace!r}")
-            return
-
-        image = self.config.get("image", "busybox:1.36")
-        if not (isinstance(image, str) and _IMAGE_REFERENCE.fullmatch(image)):
-            self.set_failed(f"`image` must be an image reference, got {image!r}")
-            return
+        namespace = str(self.config.get("namespace", "default"))
+        image = str(self.config.get("image", _DEFAULT_IMAGE))
 
         formation_timeout = self._parse_positive_int("formation_timeout_seconds", default=300)
         if formation_timeout is None:
             return
 
         name = f"isv-sdn18-02-{uuid.uuid4().hex[:8]}"
-        if not self._apply(
-            _COMPUTE_DOMAIN_MANIFEST.format(api_version=COMPUTE_DOMAIN_API_VERSION, name=name, namespace=namespace),
-            f"compute domain {name}",
-        ):
+        domain = render_k8s_manifest(
+            _COMPUTE_DOMAIN_MANIFEST,
+            lambda doc: _set_compute_domain_fields(doc, name=name, namespace=namespace),
+        )
+        if not self._apply(domain, f"compute domain {name}"):
             return
         try:
             if self._claim_channels(namespace, name, image, formation_timeout):
@@ -1985,8 +1964,8 @@ class ImexDaemonRecoveryCheck(BaseValidation):
             return None
 
         for deployment in deployments:
-            containers = ((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}
-            for container in containers.get("containers") or []:
+            pod_spec = ((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}
+            for container in pod_spec.get("containers") or []:
                 if not isinstance(container, dict):
                     continue
                 if COMPUTE_DOMAIN_CONTROLLER_COMMAND not in (container.get("command") or []):
@@ -2028,20 +2007,21 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         about them, and they are expected to sit in ContainerCreating until the
         daemon on their node reports ready.
         """
-        return self._apply(
-            _CHANNEL_CLAIM_MANIFEST.format(
+        claims = render_k8s_manifest(
+            _CHANNEL_CLAIM_MANIFEST,
+            lambda doc: _set_channel_claim_fields(
+                doc,
                 name=name,
                 namespace=namespace,
                 image=image,
-                clique_label=CLIQUE_LABEL,
                 # Outlast the worst case the check itself allows - formation
                 # plus a recovery budget of twice it - so a claim never lapses
                 # mid-run and takes the daemons down with it, while still
                 # expiring on its own if this process is killed outright.
                 hold_seconds=formation_timeout * 4,
             ),
-            f"channel claims for compute domain {name}",
         )
+        return self._apply(claims, f"channel claims for compute domain {name}")
 
     def _release(self, namespace: str, name: str) -> None:
         """Delete the claims and the domain, failing a passing check on leftovers.
@@ -2053,7 +2033,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         which is the more useful one.
         """
         leftovers: list[str] = []
-        for resource, obj in (("daemonset", f"{name}-claim"), (COMPUTE_DOMAIN_RESOURCE, name)):
+        for resource, obj in (("daemonset", f"{name}-claim"), (COMPUTE_DOMAIN_CRD, name)):
             result = self.run_command(
                 get_kubectl_base_shell("delete", resource, obj, "-n", namespace, "--ignore-not-found=true"),
                 timeout=self._DELETE_TIMEOUT_SECONDS,
@@ -2079,7 +2059,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
             duration=formation_seconds,
         )
 
-        target = sorted(state.members)[0]
+        target = min(state.members)
         target_uid = ((state.daemons[target].get("metadata") or {}).get("uid")) or ""
         if not self._terminate(namespace, state.daemons[target]):
             return
@@ -2092,7 +2072,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
     def _recovery_budget(self, formation_seconds: float) -> int | None:
         """Return the recovery timeout, derived from formation unless configured."""
         if self.config.get("recovery_timeout_seconds") is not None:
-            return self._parse_positive_int("recovery_timeout_seconds", default=0)
+            return self._parse_positive_int("recovery_timeout_seconds", default=self._RECOVERY_FLOOR_SECONDS)
         derived = int(formation_seconds * self._RECOVERY_BUDGET_MULTIPLIER)
         return max(self._RECOVERY_FLOOR_SECONDS, derived)
 
@@ -2116,6 +2096,10 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         self.report_subtest("terminate", True, f"Deleted daemon {pod_name} in place")
         return True
 
+    def _sleep_until(self, deadline: float) -> None:
+        """Sleep one poll interval, never past the deadline the caller is holding."""
+        time.sleep(min(self._POLL_INTERVAL_SECONDS, max(0.0, deadline - time.monotonic())))
+
     def _await_formation(self, namespace: str, name: str, timeout: int) -> tuple[_DomainState, float] | None:
         """Wait for every domain member to be served by a ready daemon.
 
@@ -2126,7 +2110,6 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         """
         deadline = time.monotonic() + timeout
         started = time.monotonic()
-        detail = "the domain reported no members"
         while True:
             state, error = self._observe(namespace, name)
             if state is not None:
@@ -2151,7 +2134,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
                     "is responsible for starting these daemons, so this indicts the driver deployment"
                 )
                 return None
-            time.sleep(self._POLL_INTERVAL_SECONDS)
+            self._sleep_until(deadline)
 
     def _await_recovery(
         self,
@@ -2172,17 +2155,17 @@ class ImexDaemonRecoveryCheck(BaseValidation):
             if state is not None:
                 replacement = state.daemons.get(target, {})
                 replacement_uid = ((replacement.get("metadata") or {}).get("uid")) or ""
-                rescheduled = bool(replacement_uid) and replacement_uid != terminated_uid
-                if rescheduled and rescheduled_at is None:
-                    rescheduled_at = elapsed
-                if rescheduled and _pod_is_ready(replacement) and state.members.get(target) == READY:
-                    self._report_recovered(target, elapsed, rescheduled_at or elapsed, members, timeout)
-                    return
+                if bool(replacement_uid) and replacement_uid != terminated_uid:
+                    if rescheduled_at is None:
+                        rescheduled_at = elapsed
+                    if _pod_is_ready(replacement) and state.members.get(target) == READY:
+                        self._report_recovered(target, elapsed, rescheduled_at, members, timeout)
+                        return
 
             if time.monotonic() >= deadline:
                 self._report_not_recovered(target, rescheduled_at, timeout, error if state is None else "")
                 return
-            time.sleep(self._POLL_INTERVAL_SECONDS)
+            self._sleep_until(deadline)
 
     def _report_recovered(self, target: str, elapsed: float, rescheduled_at: float, members: int, budget: int) -> None:
         """Record a successful recovery, with the elapsed time the ticket asks for."""
@@ -2228,7 +2211,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         timeout can name it instead of reporting a bare elapsed time.
         """
         result = self.run_command(
-            get_kubectl_base_shell("get", COMPUTE_DOMAIN_RESOURCE, name, "-n", namespace, "-o", "json"),
+            get_kubectl_base_shell("get", COMPUTE_DOMAIN_CRD, name, "-n", namespace, "-o", "json"),
             timeout=self._READ_TIMEOUT_SECONDS,
         )
         if result.exit_code != 0:
@@ -2244,7 +2227,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         members: dict[str, str] = {}
         for node in (domain.get("status") or {}).get("nodes") or []:
             if isinstance(node, dict) and _is_non_empty_string(node.get("name")):
-                members[str(node["name"])] = str(node.get("status") or "")
+                members[node["name"]] = str(node.get("status") or "")
 
         pods = self.run_command(
             get_kubectl_base_shell(
@@ -2255,17 +2238,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         if pods.exit_code != 0:
             return None, f"could not read the daemons of compute domain {name}: {command_detail(pods)}"
         items = kubectl_items_or_empty(pods)
-        return _DomainState(uid=uid, members=members, daemons=_live_daemons_by_node(items)), ""
-
-
-def _formation_detail(unserved: list[str], unready: list[str]) -> str:
-    """Describe which members are missing a daemon and which are not yet ready."""
-    parts = []
-    if unserved:
-        parts.append(f"no daemon on {', '.join(unserved)}")
-    if unready:
-        parts.append(f"not ready on {', '.join(unready)}")
-    return "; ".join(parts)
+        return _DomainState(members=members, daemons=_live_daemons_by_node(items)), ""
 
 
 class ByoipCheck(BaseValidation):

@@ -25,11 +25,14 @@ only when the check sleeps.
 from __future__ import annotations
 
 import json
+import shlex
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+import yaml
 
+from isvtest.core.k8s import get_kubectl_base_shell
 from isvtest.core.runners import CommandResult
 from isvtest.validations.network import ImexDaemonRecoveryCheck
 
@@ -45,6 +48,11 @@ def _ok(stdout: str = "", stderr: str = "") -> CommandResult:
 def _fail(stdout: str = "", stderr: str = "", exit_code: int = 1) -> CommandResult:
     """Return a failed ``CommandResult``."""
     return CommandResult(exit_code=exit_code, stdout=stdout, stderr=stderr, duration=0.0)
+
+
+def _manifest_of(command: str) -> str:
+    """Return the manifest ``command`` pipes into ``kubectl apply``."""
+    return shlex.split(command)[2]
 
 
 class _Clock:
@@ -277,14 +285,31 @@ def test_claim_image_is_configurable() -> None:
     assert "image: registry.k8s.io/e2e-test-images/agnhost:2.47" in claim
 
 
-def test_invalid_image_is_rejected_before_any_manifest() -> None:
-    """An image reference carries no whitespace or quoting."""
+def test_domain_is_allocated_in_the_configured_namespace() -> None:
+    """Both objects the check creates land in the namespace it was given."""
     cluster = _Cluster()
-    check = _run(cluster, image="busybox:1.36 && rm -rf /")
+    _run(cluster, namespace="isv-validation")
 
-    assert not check.passed
-    assert "must be an image reference" in check.message
-    assert not cluster.allocated
+    created = [c for c in cluster.commands if c.startswith("printf")]
+    assert [yaml.safe_load(_manifest_of(c))["metadata"]["namespace"] for c in created] == [
+        "isv-validation",
+        "isv-validation",
+    ]
+
+
+def test_config_values_are_serialized_not_interpolated() -> None:
+    """Config reaches the cluster as a serialized document, so a value that
+    would be syntax in a text template is carried as a scalar rather than
+    escaping into the manifest or the shell around it."""
+    cluster = _Cluster()
+    hostile = "busybox:1.36 && rm -rf /"
+    _run(cluster, image=hostile)
+
+    claim = next(c for c in cluster.commands if c.startswith("printf") and "kind: DaemonSet" in c)
+    # The manifest is one shell word; nothing in it survives as a command.
+    assert shlex.split(claim)[3:] == ["|", *shlex.split(get_kubectl_base_shell("apply", "-f", "-"))]
+    pod = yaml.safe_load(_manifest_of(claim))["spec"]["template"]["spec"]
+    assert pod["containers"][0]["image"] == hostile
 
 
 def test_missing_compute_domain_crd_skips() -> None:
@@ -297,16 +322,11 @@ def test_missing_compute_domain_crd_skips() -> None:
 
 
 def test_host_managed_mode_has_no_subject_and_skips() -> None:
-    """A driver deferring to an operator-run host daemon owns no daemon here."""
-    with pytest.raises(pytest.skip.Exception, match="operator-run host service"):
-        _run(_Cluster(mode="hostManaged"))
-
-
-def test_host_managed_mode_allocates_nothing() -> None:
-    """The skip happens before the domain is created, so an out-of-scope
+    """A driver deferring to an operator-run host daemon owns no daemon here,
+    and the skip happens before the domain is created, so an out-of-scope
     cluster is never mutated on the way to finding that out."""
     cluster = _Cluster(mode="hostManaged")
-    with pytest.raises(pytest.skip.Exception):
+    with pytest.raises(pytest.skip.Exception, match="operator-run host service"):
         _run(cluster)
 
     assert not cluster.allocated
@@ -515,13 +535,3 @@ def test_unreadable_deployments_listing_fails() -> None:
 
     assert not check.passed
     assert "forbidden" in check.message
-
-
-def test_invalid_namespace_is_rejected_before_any_manifest() -> None:
-    """A namespace is a DNS-1123 label; anything else never reaches a manifest."""
-    cluster = _Cluster()
-    check = _run(cluster, namespace="Not A Namespace")
-
-    assert not check.passed
-    assert "must be a DNS-1123 label" in check.message
-    assert not cluster.allocated
