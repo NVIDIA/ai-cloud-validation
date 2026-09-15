@@ -1926,6 +1926,11 @@ class ImexDaemonRecoveryCheck(BaseValidation):
     _RECOVERY_FLOOR_SECONDS: ClassVar[int] = 60
     _POLL_INTERVAL_SECONDS: ClassVar[int] = 5
     _READ_TIMEOUT_SECONDS: ClassVar[int] = 30
+    #: Deletions here wait for completion, so they cannot share the read
+    #: timeout: a pod's default termination grace period is 30s by itself, and
+    #: the domain is removed behind a finalizer. Bounded, but well clear of
+    #: both, so a slow-but-healthy teardown is not reported as a failure.
+    _DELETE_TIMEOUT_SECONDS: ClassVar[int] = 120
 
     def run(self) -> None:
         """Allocate a compute domain, kill one daemon, and assert it is restored."""
@@ -2051,7 +2056,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         for resource, obj in (("daemonset", f"{name}-claim"), (COMPUTE_DOMAIN_RESOURCE, name)):
             result = self.run_command(
                 get_kubectl_base_shell("delete", resource, obj, "-n", namespace, "--ignore-not-found=true"),
-                timeout=self._READ_TIMEOUT_SECONDS,
+                timeout=self._DELETE_TIMEOUT_SECONDS,
             )
             if result.exit_code != 0:
                 leftovers.append(f"{resource}/{obj}: {command_detail(result)}")
@@ -2103,7 +2108,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         pod_namespace = metadata.get("namespace") or namespace
         result = self.run_command(
             get_kubectl_base_shell("delete", "pod", pod_name, "-n", pod_namespace, "--wait=true"),
-            timeout=self._READ_TIMEOUT_SECONDS,
+            timeout=self._DELETE_TIMEOUT_SECONDS,
         )
         if result.exit_code != 0:
             self.set_failed(f"Failed to terminate daemon {pod_name}: {command_detail(result)}")

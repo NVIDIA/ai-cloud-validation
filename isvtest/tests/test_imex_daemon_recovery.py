@@ -110,6 +110,7 @@ class _Cluster:
     # -- cluster state ----------------------------------------------------
 
     def _member_status(self, node: str) -> str:
+        """Return the readiness the domain reports for ``node``."""
         if node in self.unserved:
             return "NotReady"
         if self._domain_polls <= self.ready_after_polls:
@@ -119,6 +120,7 @@ class _Cluster:
         return "Ready"
 
     def _daemon(self, node: str) -> dict[str, Any] | None:
+        """Return the domain's daemon pod on ``node``, or None when it has none."""
         if node in self.unserved:
             return None
         ready = self._domain_polls > self.ready_after_polls
@@ -171,6 +173,7 @@ class _Cluster:
         raise AssertionError(f"unexpected command: {command}")
 
     def _deployments(self) -> str:
+        """Return the deployment listing that declares the ownership mode, as JSON."""
         if not self.controller:
             return json.dumps({"items": []})
         env = [{"name": "IMEX_MODE", "value": self.mode}] if self.mode is not None else []
@@ -182,6 +185,7 @@ class _Cluster:
         return json.dumps({"items": [deployment]})
 
     def _domain(self) -> str:
+        """Return the compute domain and its per-node membership, as JSON."""
         nodes = [
             {"name": node, "cliqueID": "fabric-1.3", "ipAddress": "10.0.0.1", "status": self._member_status(node)}
             for node in self.nodes
@@ -189,6 +193,7 @@ class _Cluster:
         return json.dumps({"metadata": {"uid": DOMAIN_UID}, "status": {"nodes": nodes}})
 
     def _pods(self) -> str:
+        """Return the domain's daemon pods as a JSON listing."""
         pods = [pod for pod in (self._daemon(node) for node in self.nodes) if pod is not None]
         return json.dumps({"items": pods})
 
