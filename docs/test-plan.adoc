@@ -331,7 +331,7 @@ a|
 | pending
 |
 
-.145+| Infrastructure and Data Services
+.146+| Infrastructure and Data Services
 .9+| Control Plane accessible
 .9+| Control plane can be accessed
 .9+|
@@ -1511,9 +1511,9 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/257[#257]
 | published
 |
 
-.46+| SDN Controller
-.36+| Controls software-defined networking overlays and fabric behavior to match the compute-on-demand requirements. Enables network segmentation, isolation, dynamic network configuration, and security groups.
-.36+|
+.47+| SDN Controller
+.37+| Controls software-defined networking overlays and fabric behavior to match the compute-on-demand requirements. Enables network segmentation, isolation, dynamic network configuration, and security groups.
+.37+|
 | [[SDN01-01]]SDN01-01
 | SDN01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/11[#11]
@@ -1919,6 +1919,21 @@ a|
 | M4
 |
 | IMEX: Stop nvidia-imex via systemctl stop nvidia-imex and assert clean shutdown (other nodes show disabled node status).
+| approved
+|
+
+| [[SDN19-02]]SDN19-02
+| SDN19
+| https://github.com/NVIDIA/ai-cloud-validation/issues/624[#624]
+| kubernetes, min_req, network, slow
+| tenant
+| The Kubernetes DRA reading of SDN19, asserting cluster objects rather than a host service unit. The departure is a shrink of the domain - withdrawing one node's channel claim - because a drain leaves the driver's DaemonSet pods running and would report a departure that never happened. What peers observed is read from a surviving daemon's own report, never from the domain's record of the departed node, so stale controller bookkeeping is not mistaken for members noticing. Destructive - removes a node from a live domain, restores it, and releases the domain afterwards, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service.
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/624[#624]
+| LimitedEnv
+| M9
+|
+| IMEX (Kubernetes DRA): Remove one node from an allocated compute domain on purpose, and assert its driver-managed daemon exits cleanly, a surviving member reports the node unavailable within a bounded time, and the domain stays operational among the nodes that remain.
 | approved
 |
 

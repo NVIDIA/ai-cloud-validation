@@ -368,6 +368,15 @@ tests:
           test_id: "SDN18-02"
           labels: ["kubernetes", "min_req", "network", "slow"]
           requires: [kubernetes]
+        # Destructive in the other direction: takes a node out of the domain on
+        # purpose and asserts the surviving members notice, rather than that the
+        # driver puts it back. Same wiring shape as SDN18-02 - no step, since
+        # withdrawing a channel claim and reading what a surviving daemon
+        # reports are both cluster API operations.
+        ImexDomainDepartureCheck:
+          test_id: "SDN19-02"
+          labels: ["kubernetes", "min_req", "network", "slow"]
+          requires: [kubernetes]
 
     teardown_checks:
       step: teardown
