@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# One channel-claiming pod per clique node, for ImexDaemonRecoveryCheck
+# (SDN18-02).
+#
+# Loaded and mutated by the check; placeholder values keep this file valid
+# YAML. Runtime code patches the name, namespace, image, clique label key, and
+# how long each pod holds its claim open.
+#
+# The driver places no IMEX daemon until a channel claim is prepared, so these
+# pods are what give the check a subject at all. They only have to hold their
+# claims open, so they sleep; nothing is asserted about them, and they are
+# expected to sit in ContainerCreating until the daemon on their node reports
+# ready.
+#
+# Scheduling scope is the clique-label affinity alone. Tolerating every taint
+# on top of it cannot widen that scope, and keeps a tenant's own node taints
+# from stranding the claims - which the check would otherwise have to report
+# as the driver failing to start a daemon.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: placeholder-claim
+  namespace: placeholder
+spec:
+  selector:
+    matchLabels:
+      app: placeholder-claim
+  template:
+    metadata:
+      labels:
+        app: placeholder-claim
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: placeholder
+                    operator: Exists
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: claim
+          image: placeholder
+          command: ["sh", "-c", "sleep 0"]
+          resources:
+            claims:
+              - name: imex-channel
+      resourceClaims:
+        - name: imex-channel
+          resourceClaimTemplateName: placeholder-channel

@@ -331,7 +331,7 @@ a|
 | pending
 |
 
-.144+| Infrastructure and Data Services
+.145+| Infrastructure and Data Services
 .9+| Control Plane accessible
 .9+| Control plane can be accessed
 .9+|
@@ -1511,9 +1511,9 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/257[#257]
 | published
 |
 
-.45+| SDN Controller
-.35+| Controls software-defined networking overlays and fabric behavior to match the compute-on-demand requirements. Enables network segmentation, isolation, dynamic network configuration, and security groups.
-.35+|
+.46+| SDN Controller
+.36+| Controls software-defined networking overlays and fabric behavior to match the compute-on-demand requirements. Enables network segmentation, isolation, dynamic network configuration, and security groups.
+.36+|
 | [[SDN01-01]]SDN01-01
 | SDN01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/11[#11]
@@ -1889,6 +1889,21 @@ a|
 | M4
 |
 | IMEX: Start nvidia-imex via systemctl start nvidia-imex and assert the service reaches active/ready state.
+| approved
+|
+
+| [[SDN18-02]]SDN18-02
+| SDN18
+| https://github.com/NVIDIA/ai-cloud-validation/issues/623[#623]
+| kubernetes, min_req, network, slow
+| tenant
+| The Kubernetes DRA reading of SDN18, asserting cluster objects rather than a host service unit. Destructive - allocates a compute domain, deletes a daemon inside it, and releases the domain afterwards, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service, read from the mode the driver declares rather than from the absence of a daemon.
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/623[#623]
+| LimitedEnv
+| M9
+|
+| IMEX (Kubernetes DRA): On a cluster where the resource-allocation driver owns the IMEX daemon, assert every node of an allocated compute domain runs a driver-started daemon and is a ready domain member, then terminate one daemon in place and assert the driver restores that node to ready membership unaided within a bounded time.
 | approved
 |
 
