@@ -3504,4 +3504,94 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[K8S42-01]]K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-001
+| network-operator-prd
+| full
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-002
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-004
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-005
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-006
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-007
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-008
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-011
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-012
+| network-operator-prd
+| partial
+|
+
+| K8S42-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Run the Launch Kit connectivity matrix against an ISV-provisioned Network Operator deployment
+| ENT-REQ-013
+| network-operator-prd
+| partial
+|
+
 |===
