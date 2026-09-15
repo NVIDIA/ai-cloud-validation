@@ -451,6 +451,24 @@ commands:
         timeout: 300
         output_schema: imex_departure
 
+      # IMEX rejoins its domain after a node reboot (SDN20-01).
+      # DESTRUCTIVE and SLOW: reboots the node and waits out boot plus domain
+      # rejoin. Takes its own single-node setting so wiring the read-only IMEX
+      # checks never implicitly arms it. Step timeout covers the script's own
+      # SSH-return and rejoin bounds with headroom.
+      - name: imex_reboot
+        phase: test
+        command: "python3 ../scripts/network/imex_reboot_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "{{imex_reboot_node | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 1200
+        output_schema: imex_reboot
+
       # Teardown: Clean up shared VPC from create_network
       - name: teardown
         phase: teardown
@@ -477,3 +495,5 @@ tests:
     # Target/observer pair for the destructive SDN19-01 check; unset means it skips.
     imex_departure_target: "{{env.AWS_IMEX_DEPARTURE_TARGET | default('', true)}}"
     imex_departure_observer: "{{env.AWS_IMEX_DEPARTURE_OBSERVER | default('', true)}}"
+    # Single node for the destructive, slow SDN20-01 reboot; unset means it skips.
+    imex_reboot_node: "{{env.AWS_IMEX_REBOOT_NODE | default('', true)}}"

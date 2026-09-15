@@ -1819,6 +1819,10 @@ domains:
                 notes: ""
                 priority: ""
               - summary: "IMEX: Enable IMEX at boot with systemctl enable nvidia-imex, reboot, and confirm IMEX starts automatically."
+                labels:
+                  - min_req
+                  - network
+                  - slow
                 dependencies:
                   - LimitedEnv
                 milestone: M4
