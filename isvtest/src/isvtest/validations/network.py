@@ -2778,7 +2778,9 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
 
     def _report_departed(self, target: str, elapsed: float, unclean: str | None) -> bool:
         """Record the departure, failing when the daemon did not go quietly."""
-        self.report_subtest("departure", True, f"{target}: daemon stopped", duration=elapsed)
+        self.report_subtest(
+            "departure", True, f"{target}: daemon stopped after its channel claim was withdrawn", duration=elapsed
+        )
         if unclean is not None:
             self.report_subtest("clean_exit", False, f"{target}: {unclean}")
             self.set_failed(
