@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# One channel-claiming pod per clique node, for ImexDaemonRecoveryCheck
-# (SDN18-02).
+# One channel-claiming pod per clique node, for the checks that allocate a
+# compute domain (SDN18-02, SDN19-02).
 #
 # Loaded and mutated by the check; placeholder values keep this file valid
-# YAML. Runtime code patches the name, namespace, image, clique label key, and
-# how long each pod holds its claim open.
+# YAML. Runtime code patches the name, namespace, image, and how long each pod
+# holds its claim open, and replaces the node affinity wholesale - SDN19-02
+# shrinks the domain by patching that same affinity, so both come from one
+# place in the code rather than from here.
 #
 # The driver places no IMEX daemon until a channel claim is prepared, so these
 # pods are what give the check a subject at all. They only have to hold their

@@ -1815,6 +1815,23 @@ domains:
                 status: approved
                 notes: ""
                 priority: ""
+              - summary: "IMEX (Kubernetes DRA): Remove one node from an allocated compute domain on purpose, and assert its driver-managed daemon exits cleanly, a surviving member reports the node unavailable within a bounded time, and the domain stays operational among the nodes that remain."
+                labels:
+                  - kubernetes
+                  - min_req
+                  - network
+                  - slow
+                dependencies:
+                  - LimitedEnv
+                milestone: M9
+                notes: The Kubernetes DRA reading of SDN19, asserting cluster objects rather than a host service unit. The departure is a shrink of the domain - withdrawing one node's channel claim - because a drain leaves the driver's DaemonSet pods running and would report a departure that never happened. What peers observed is read from a surviving daemon's own report, never from the domain's record of the departed node, so stale controller bookkeeping is not mistaken for members noticing. Destructive - removes a node from a live domain, restores it, and releases the domain afterwards, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service.
+                github_issues:
+                  - "#624"
+                req_id: SDN19
+                test_id: SDN19-02
+                actor: tenant
+                status: approved
+                priority: P1
               - summary: "IMEX: Enable IMEX at boot with systemctl enable nvidia-imex, reboot, and confirm IMEX starts automatically."
                 dependencies:
                   - LimitedEnv

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Compute domain allocated by ImexDaemonRecoveryCheck (SDN18-02).
+# Compute domain allocated by the checks that need one (SDN18-02, SDN19-02).
 #
 # Loaded and mutated by the check; placeholder values keep this file valid
 # YAML. Runtime code patches the name, namespace, and channel template name.
