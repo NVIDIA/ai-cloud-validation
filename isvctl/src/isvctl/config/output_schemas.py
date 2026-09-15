@@ -140,6 +140,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "imex_domain_test": "imex_domain",
     "imex_service": "imex_service",
     "imex_service_test": "imex_service",
+    "imex_resilience": "imex_resilience",
+    "imex_resilience_test": "imex_resilience",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -1039,6 +1041,98 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "nodes_validated": {"type": "integer", "description": "How many nodes returned a usable report"},
             "skipped": {"type": "boolean", "description": "True when no nodes were configured for the run"},
             "skip_reason": {"type": "string", "description": "Why the IMEX service check was skipped"},
+        },
+        "additionalProperties": True,
+    },
+    "imex_resilience": {
+        "type": "object",
+        # Only the universal fields are required. This check reports in stages -
+        # an unconfigured run emits an empty node_id and no operations, and an
+        # arrival or termination failure emits only the operations it reached.
+        # Requiring the full shape here would fail those payloads at schema
+        # validation, before the validator could skip the run or report which
+        # stage failed. Stage requirements are enforced by
+        # ImexServiceResilienceCheck, which is where the attribution lives.
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_resilience'"},
+            "node_id": {"type": "string", "description": "Node under test; empty on a skipped run"},
+            "operations": {
+                "type": "object",
+                "properties": {
+                    "unaided_presence": {
+                        "type": "object",
+                        "properties": {
+                            "running_on_arrival": {
+                                "type": "boolean",
+                                "description": "Whether IMEX was already running when the check arrived",
+                            },
+                            "domain_member": {
+                                "type": "boolean",
+                                "description": "Whether the node was an operational domain member on arrival",
+                            },
+                            "started_by_test": {
+                                "type": "boolean",
+                                "description": (
+                                    "Must be false. Recorded so the unaided observation is auditable - the check "
+                                    "observes a running service and never starts one."
+                                ),
+                            },
+                            "boot_persistence_configured": {
+                                "type": "boolean",
+                                "description": "Whether the service is configured to return after a node restart",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "terminate": {
+                        "type": "object",
+                        "properties": {
+                            "method": {
+                                "type": "string",
+                                "enum": ["kill"],
+                                "description": (
+                                    "Only an outright kill is valid. A supervisor is expected not to restart a "
+                                    "graceful stop, so a stop would fail on a correct node."
+                                ),
+                            },
+                            "confirmed": {
+                                "type": "boolean",
+                                "description": "Whether the daemon was confirmed terminated before recovery timing",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "recovery": {
+                        "type": "object",
+                        "properties": {
+                            "domain_member": {
+                                "type": "boolean",
+                                "description": "Whether the node returned to operational domain membership",
+                            },
+                            "elapsed_seconds": {
+                                "type": "number",
+                                "minimum": 0,
+                                "description": "Observed recovery time, reported on pass and on fail",
+                            },
+                            "operator_intervention": {
+                                "type": "boolean",
+                                "description": "Must be false - recovery has to be automatic",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "restore": {
+                        "type": "object",
+                        "description": "Teardown evidence that prior state was put back",
+                        "additionalProperties": True,
+                    },
+                },
+                "additionalProperties": True,
+            },
+            "skipped": {"type": "boolean", "description": "True when no node was configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX resilience check was skipped"},
         },
         "additionalProperties": True,
     },

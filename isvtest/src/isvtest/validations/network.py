@@ -1495,6 +1495,168 @@ class ImexServicePresenceCheck(BaseValidation):
         )
 
 
+class ImexServiceResilienceCheck(BaseValidation):
+    """Validate IMEX runs unaided, persists across restart, and self-heals.
+
+    Three properties, reported separately because they indict different things:
+
+    * running on arrival with the node already an operational domain member,
+      and ``started_by_test`` false so the observation is auditable. Not
+      running on arrival is a failure that indicts provisioning - it is never
+      a setup step for this check to repair.
+    * boot persistence read back as configured, which indicts the image.
+    * after the daemon is killed outright, the node returns to operational
+      domain membership within a bounded time and without operator
+      intervention, which indicts supervision.
+
+    The termination must be a kill, not a graceful stop: a well-behaved
+    supervisor deliberately does not restart an intentional stop, so a
+    stop-based version of this check fails on correct nodes.
+
+    Config:
+        step_output: The step output to check
+        recovery_timeout_seconds: Optional bound on the observed recovery
+
+    Step output:
+        node_id: The node under test
+        operations: unaided_presence, terminate, recovery, restore
+    """
+
+    description: ClassVar[str] = "Check IMEX runs unaided, persists, and self-heals"
+
+    def run(self) -> None:
+        """Check unaided presence, boot persistence, and automatic recovery."""
+        step_output = self.config.get("step_output", {})
+
+        node_id = step_output.get("node_id")
+        if not _is_non_empty_string(node_id):
+            self.set_failed("`node_id` must be a non-empty string")
+            return
+
+        operations = step_output.get("operations")
+        if not isinstance(operations, dict):
+            self.set_failed("`operations` must be an object with unaided_presence, terminate and recovery")
+            return
+
+        presence = operations.get("unaided_presence")
+        if not isinstance(presence, dict):
+            self.set_failed("`operations.unaided_presence` must be an object")
+            return
+
+        # Nothing may have been started by the test - the whole point is that
+        # the service was already up on arrival.
+        if presence.get("started_by_test") is not False:
+            self.set_failed(
+                f"{node_id}: `started_by_test` must be reported false - this check observes a service that was "
+                "already running and must never start it"
+            )
+            return
+
+        if presence.get("running_on_arrival") is not True:
+            self.set_failed(
+                f"{node_id}: IMEX was not running on arrival, which indicts provisioning. The service is expected "
+                "to be running unaided; starting it here would invalidate the check rather than repair the node"
+            )
+            return
+
+        if presence.get("domain_member") is not True:
+            self.set_failed(
+                f"{node_id}: node was not an operational domain member on arrival, which indicts provisioning"
+            )
+            return
+
+        if presence.get("boot_persistence_configured") is not True:
+            self.set_failed(
+                f"{node_id}: IMEX is not configured to return after a node restart, which indicts the image"
+            )
+            return
+
+        terminate = operations.get("terminate")
+        if not isinstance(terminate, dict):
+            self.set_failed("`operations.terminate` must be an object")
+            return
+        # A graceful stop would be the wrong stimulus entirely: supervisors are
+        # expected not to restart a deliberate stop, so a stop here would make a
+        # correct node look broken.
+        if terminate.get("method") != "kill":
+            self.set_failed(
+                f"{node_id}: termination method must be 'kill', got {terminate.get('method')!r}. A graceful stop "
+                "is not a valid stimulus - a correct supervisor will not restart one"
+            )
+            return
+        if terminate.get("confirmed") is not True:
+            self.set_failed(f"{node_id}: termination was not confirmed, so recovery cannot be attributed to it")
+            return
+
+        recovery = operations.get("recovery")
+        if not isinstance(recovery, dict):
+            self.set_failed("`operations.recovery` must be an object")
+            return
+
+        elapsed = recovery.get("elapsed_seconds")
+        if not isinstance(elapsed, int | float) or isinstance(elapsed, bool) or elapsed < 0:
+            self.set_failed(f"{node_id}: `recovery.elapsed_seconds` must be a non-negative number, got {elapsed!r}")
+            return
+
+        if recovery.get("operator_intervention") is not False:
+            self.set_failed(
+                f"{node_id}: recovery required operator intervention after {elapsed}s, so the node did not self-heal"
+            )
+            return
+
+        if recovery.get("domain_member") is not True:
+            # Elapsed time is reported on failure too, so a node that never came
+            # back is distinguishable from one that came back just too late.
+            self.set_failed(
+                f"{node_id}: node did not return to operational domain membership within {elapsed}s after the "
+                "daemon was killed, which indicts supervision"
+            )
+            return
+
+        timeout = self.config.get("recovery_timeout_seconds")
+        if isinstance(timeout, int | float) and not isinstance(timeout, bool) and elapsed > timeout:
+            self.set_failed(
+                f"{node_id}: node rejoined the domain but took {elapsed}s, beyond the {timeout}s recovery bound"
+            )
+            return
+
+        # This check is destructive, so a run that recovered but then failed to
+        # put the node back must not report success - that would leave the node
+        # unavailable behind a green result. Absent restore evidence is not
+        # gated on; only evidence that restoration actually failed.
+        # This check is destructive, so passing requires positive evidence that
+        # the node was put back. By this point termination was confirmed and
+        # recovery succeeded, so the producer has necessarily attempted
+        # restoration - absent or negative evidence here means the run may have
+        # left the node unavailable behind a green result.
+        restore = operations.get("restore")
+        if not isinstance(restore, dict) or not restore:
+            self.set_failed(
+                f"{node_id}: the node self-healed, but the run reported no restoration evidence, so it cannot be "
+                "shown the node was left available after this destructive check"
+            )
+            return
+        restored_to = restore.get("restored_to")
+        if restored_to != "active":
+            self.set_failed(
+                f"{node_id}: the node self-healed, but restoration left the service {restored_to!r} rather "
+                "than active, so this destructive check would leave the node unavailable"
+            )
+            return
+        if restore.get("domain_member") is not True:
+            self.set_failed(
+                f"{node_id}: the node self-healed, but after restoration it is not an operational domain "
+                "member, so this destructive check would leave the node unavailable"
+            )
+            return
+        restored = f"; restored to {restored_to}"
+
+        self.set_passed(
+            f"{node_id}: IMEX was running unaided and an operational domain member, is configured to persist "
+            f"across restart, and rejoined the domain {elapsed}s after being killed{restored}"
+        )
+
+
 # The driver's own CRD. Its presence is what makes a cluster's multi-node NVLink
 # capability "advertised" for scoping purposes.
 COMPUTE_DOMAIN_CRD = "computedomains.resource.nvidia.com"

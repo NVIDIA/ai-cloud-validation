@@ -2762,3 +2762,418 @@ def test_imex_service_skips_when_not_configured() -> None:
     payload: dict[str, Any] = json.loads(completed.stdout)
     assert payload["skipped"] is True
     assert "not configured" in payload["skip_reason"]
+
+
+# --- SDN18-01: IMEX resilience -------------------------------------------------
+
+
+def test_imex_resilience_arrival_probe_reads_manager_not_filesystem() -> None:
+    """Arrival state is read from the service manager, and the domain-membership
+    probe is a plain grep - it runs inside a shell substitution over SSH, where
+    piping through a remote interpreter is a reliable source of quoting breakage."""
+    module = _load_network_script("imex_resilience_test.py")
+
+    probe = module._arrival_command("nvidia-imex.service", "nvidia-imex")
+
+    assert "systemctl is-active nvidia-imex.service" in probe
+    assert "systemctl show nvidia-imex.service -p UnitFileState" in probe
+    assert "systemctl show nvidia-imex.service -p Restart" in probe
+    assert "nvidia-imex-ctl -N -j" in probe
+    assert "python3 -c" not in probe
+
+
+@pytest.mark.parametrize(
+    ("unit_file_state", "expected"),
+    [
+        pytest.param("enabled", True, id="enabled"),
+        pytest.param("enabled-runtime", False, id="enabled-runtime-lives-under-run-and-is-erased-by-reboot"),
+        pytest.param("static", False, id="static-does-not-prove-the-boot-target-pulls-it-in"),
+        pytest.param("disabled", False, id="disabled"),
+        pytest.param("masked", False, id="masked"),
+        pytest.param("", False, id="unreported"),
+    ],
+)
+def test_imex_resilience_boot_persistence_readback(unit_file_state: str, expected: bool) -> None:
+    """Boot persistence is read back from the manager's own enablement state."""
+    module = _load_network_script("imex_resilience_test.py")
+
+    assert module._boot_persistence_configured(unit_file_state) is expected
+
+
+def test_imex_resilience_kills_rather_than_stops(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stimulus must be a kill. A correct supervisor deliberately does not
+    restart a graceful stop, so `systemctl stop` would fail good nodes."""
+    module = _load_network_script("imex_resilience_test.py")
+    issued: list[str] = []
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a healthy node: running on arrival, then replaced after the kill."""
+        issued.append(command)
+        if "ACTIVE=" in command and "PID=" in command:
+            return {
+                "host": host,
+                "ok": True,
+                "stdout": "ACTIVE=active\nPID=123\nBOOT=enabled\nRESTART=always\nMEMBER=yes\n",
+            }
+        if "pkill" in command:
+            return {"host": host, "ok": True, "stdout": ""}
+        return {"host": host, "ok": True, "stdout": "PID=456\nMEMBER=yes\nACTIVE=active\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["imex_resilience_test.py", "--region", "r", "--node-ids", "n1", "--key-file", "/tmp/k.pem"],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 0
+    assert any("pkill -9" in c for c in issued), "expected an outright kill"
+    assert not any("systemctl stop" in c for c in issued), "a graceful stop is the wrong stimulus"
+    assert emitted["operations"]["terminate"] == {"method": "kill", "confirmed": True}
+    assert emitted["operations"]["unaided_presence"]["started_by_test"] is False
+    assert emitted["operations"]["recovery"]["domain_member"] is True
+    assert emitted["operations"]["restore"]["restored_to"] == "active"
+
+
+def test_imex_resilience_never_starts_a_stopped_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A node that arrives not running must fail without being repaired - starting
+    it would destroy the very property under test, and it indicts provisioning."""
+    module = _load_network_script("imex_resilience_test.py")
+    issued: list[str] = []
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a node that arrives with IMEX already stopped."""
+        issued.append(command)
+        return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\nPID=\nBOOT=enabled\nRESTART=no\nMEMBER=no\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["imex_resilience_test.py", "--region", "r", "--node-ids", "n1", "--key-file", "/tmp/k.pem"],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert not any("systemctl start" in c or "systemctl restart" in c for c in issued)
+    assert not any("pkill" in c for c in issued), "must not kill a service that was already down"
+    assert emitted["operations"]["unaided_presence"]["running_on_arrival"] is False
+
+
+def test_imex_resilience_reports_elapsed_when_node_never_returns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On a node with no restart policy the daemon never comes back. Elapsed time
+    is still reported, and prior state is restored despite the failure."""
+    module = _load_network_script("imex_resilience_test.py")
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake an unsupervised node: killed daemon never returns."""
+        if "ACTIVE=" in command and "PID=" in command and "BOOT=" in command:
+            return {
+                "host": host,
+                "ok": True,
+                "stdout": "ACTIVE=active\nPID=123\nBOOT=enabled\nRESTART=no\nMEMBER=yes\n",
+            }
+        if "pkill" in command:
+            return {"host": host, "ok": True, "stdout": ""}
+        if "systemctl restart" in command:
+            return {"host": host, "ok": True, "stdout": "ACTIVE=active\nMEMBER=yes\n"}
+        return {"host": host, "ok": True, "stdout": "PID=\nMEMBER=no\n"}  # never recovers
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(module, "RECOVERY_POLL_SECONDS", 0)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_resilience_test.py",
+            "--region",
+            "r",
+            "--node-ids",
+            "n1",
+            "--key-file",
+            "/tmp/k.pem",
+            "--recovery-timeout",
+            "1",
+        ],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    recovery = emitted["operations"]["recovery"]
+    assert recovery["domain_member"] is False
+    assert recovery["elapsed_seconds"] >= 0
+    assert recovery["operator_intervention"] is False
+    assert "restart policy: no" in emitted["error"]
+    # Destructive check: prior state must be put back even on failure.
+    assert emitted["operations"]["restore"]["restored_to"] == "active"
+
+
+def test_imex_resilience_skips_when_not_configured() -> None:
+    """An unconfigured run skips cleanly instead of failing unrelated network runs."""
+    script = AWS_NETWORK_SCRIPTS / "imex_resilience_test.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), "--region", "us-west-2"],
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", "")},
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload: dict[str, Any] = json.loads(completed.stdout)
+    assert payload["skipped"] is True
+    assert "not configured" in payload["skip_reason"]
+
+
+def test_imex_resilience_accepts_fast_supervisor_replacing_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A supervisor fast enough to replace the daemon inside the post-kill settle
+    window must count as confirmed-killed and recovered, not as a failed kill.
+
+    Regression: treating any live PID as proof the kill failed rejected exactly
+    the well-supervised nodes this check exists to pass.
+    """
+    module = _load_network_script("imex_resilience_test.py")
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a supervisor that has already replaced the process post-kill."""
+        if "BOOT=" in command:
+            return {
+                "host": host,
+                "ok": True,
+                "stdout": "ACTIVE=active\nPID=111\nBOOT=enabled\nRESTART=always\nMEMBER=yes\n",
+            }
+        if "pkill" in command:
+            # New PID already present in the settle window, domain already back.
+            return {"host": host, "ok": True, "stdout": "PID=222\nMEMBER=yes\n"}
+        return {"host": host, "ok": True, "stdout": "ACTIVE=active\nMEMBER=yes\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["imex_resilience_test.py", "--region", "r", "--node-ids", "n1", "--key-file", "/tmp/k.pem"],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 0
+    assert emitted["operations"]["terminate"]["confirmed"] is True
+    assert emitted["operations"]["recovery"]["domain_member"] is True
+
+
+def test_imex_resilience_rejects_kill_that_left_original_pid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If the SAME pid is still running, the kill genuinely did not land."""
+    module = _load_network_script("imex_resilience_test.py")
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a daemon that survived the kill with its original pid."""
+        if "BOOT=" in command:
+            return {
+                "host": host,
+                "ok": True,
+                "stdout": "ACTIVE=active\nPID=111\nBOOT=enabled\nRESTART=no\nMEMBER=yes\n",
+            }
+        return {"host": host, "ok": True, "stdout": "PID=111\nMEMBER=yes\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["imex_resilience_test.py", "--region", "r", "--node-ids", "n1", "--key-file", "/tmp/k.pem"],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert emitted["operations"]["terminate"]["confirmed"] is False
+    assert "could not confirm" in emitted["error"]
+
+
+def test_imex_resilience_times_recovery_from_before_the_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Elapsed is measured from the kill request, so the round trip and settle
+    are inside the window rather than silently extending the recovery bound."""
+    module = _load_network_script("imex_resilience_test.py")
+    clock = {"t": 0.0}
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a node whose kill round trip burns 5s before recovery is observed."""
+        if "BOOT=" in command:
+            return {
+                "host": host,
+                "ok": True,
+                "stdout": "ACTIVE=active\nPID=111\nBOOT=enabled\nRESTART=always\nMEMBER=yes\n",
+            }
+        if "pkill" in command:
+            clock["t"] += 5.0  # SSH round trip + the remote settle sleep
+            return {"host": host, "ok": True, "stdout": "PID=222\nMEMBER=yes\n"}
+        return {"host": host, "ok": True, "stdout": "ACTIVE=active\nMEMBER=yes\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["imex_resilience_test.py", "--region", "r", "--node-ids", "n1", "--key-file", "/tmp/k.pem"],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    # Would be 0.0 if timing started after the kill returned.
+    assert emitted["operations"]["recovery"]["elapsed_seconds"] == 5.0
+
+
+def test_imex_resilience_restores_even_when_termination_unconfirmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`run_remote` can fail after the remote shell already ran pkill - an SSH
+    disconnect or command timeout. Bailing out there would leave the daemon down,
+    so the destructive check must still restore before reporting the failure.
+    """
+    module = _load_network_script("imex_resilience_test.py")
+    issued: list[str] = []
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake an SSH failure on the kill round trip, after pkill may have landed."""
+        issued.append(command)
+        if "BOOT=" in command:
+            return {
+                "host": host,
+                "ok": True,
+                "stdout": "ACTIVE=active\nPID=111\nBOOT=enabled\nRESTART=always\nMEMBER=yes\n",
+            }
+        if "pkill" in command:
+            return {"host": host, "ok": False, "error": "connection closed by remote host"}
+        return {"host": host, "ok": True, "stdout": "ACTIVE=active\nMEMBER=yes\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["imex_resilience_test.py", "--region", "r", "--node-ids", "n1", "--key-file", "/tmp/k.pem"],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert emitted["operations"]["terminate"]["confirmed"] is False
+    # The node must not be abandoned in whatever state the failed kill left it.
+    assert any("systemctl restart" in c for c in issued), "expected restoration despite the failed kill"
+    assert emitted["operations"]["restore"]["restored_to"] == "active"
+    assert emitted["operations"]["restore"]["domain_member"] is True
+
+
+def test_imex_resilience_refuses_multiple_nodes() -> None:
+    """This check kills a daemon, so it must never silently pick one of several
+    nodes to do that to - the node is named deliberately, one per run."""
+    script = AWS_NETWORK_SCRIPTS / "imex_resilience_test.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), "--region", "r", "--node-ids", "n1,n2", "--key-file", "/tmp/k.pem"],
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", "")},
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 1
+    payload: dict[str, Any] = json.loads(completed.stdout)
+    assert "exactly one node" in payload["error"]
+
+
+def test_imex_resilience_rejects_recovery_observed_after_the_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A probe can itself take up to the SSH timeout, so a result landing after
+    the bound must not be accepted - that would report success past the very
+    deadline the bound exists to enforce."""
+    module = _load_network_script("imex_resilience_test.py")
+    clock = {"t": 0.0}
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake a recovery probe that only returns well after the deadline."""
+        if "BOOT=" in command:
+            return {
+                "host": host,
+                "ok": True,
+                "stdout": "ACTIVE=active\nPID=111\nBOOT=enabled\nRESTART=always\nMEMBER=yes\n",
+            }
+        if "pkill" in command:
+            return {"host": host, "ok": True, "stdout": "PID=\nMEMBER=no\n"}
+        if "systemctl restart" in command:
+            return {"host": host, "ok": True, "stdout": "ACTIVE=active\nMEMBER=yes\n"}
+        clock["t"] += 90.0  # probe overruns the 10s bound before answering
+        return {"host": host, "ok": True, "stdout": "PID=222\nMEMBER=yes\n"}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_resilience_test.py",
+            "--region",
+            "r",
+            "--node-ids",
+            "n1",
+            "--key-file",
+            "/tmp/k.pem",
+            "--recovery-timeout",
+            "10",
+        ],
+    )
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert emitted["operations"]["recovery"]["domain_member"] is False
+    assert emitted["operations"]["recovery"]["elapsed_seconds"] > 10

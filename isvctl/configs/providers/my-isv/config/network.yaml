@@ -364,6 +364,18 @@ commands:
         timeout: 60
         output_schema: imex_service
 
+      # DESTRUCTIVE: kills a running IMEX daemon (SDN18-01). Idle/drained only.
+      - name: imex_resilience
+        phase: test
+        command: "python ../scripts/network/imex_resilience_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "compute-node-1"
+        timeout: 120
+        output_schema: imex_resilience
+
       - name: teardown
         phase: teardown
         command: "python ../scripts/network/teardown.py"

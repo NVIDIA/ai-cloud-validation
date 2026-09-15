@@ -1880,7 +1880,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/598[#598]
 | [[SDN18-01]]SDN18-01
 | SDN18
 |
-|
+| min_req, network
 | tenant
 |
 |

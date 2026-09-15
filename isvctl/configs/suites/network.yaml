@@ -339,6 +339,14 @@ tests:
           labels: ["min_req", "network"]
           requires: [vm, bare_metal]
           step: imex_service
+        ImexServiceResilienceCheck:
+          test_id: "SDN18-01"
+          labels: ["min_req", "network"]
+          requires: [vm, bare_metal]
+          step: imex_resilience
+          # Enforced here as well as in the producer, so a run that observes
+          # recovery late cannot report success past the bound.
+          recovery_timeout_seconds: 60
         # The Kubernetes half of SDN17: the same "IMEX without tenant
         # installation" requirement, read as cluster objects instead of as
         # packages on a host. Gated on kubernetes so a vm/bare_metal run of this
