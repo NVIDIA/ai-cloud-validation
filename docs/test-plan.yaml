@@ -1805,6 +1805,9 @@ domains:
                 status: approved
                 priority: P1
               - summary: "IMEX: Stop nvidia-imex via systemctl stop nvidia-imex and assert clean shutdown (other nodes show disabled node status)."
+                labels:
+                  - min_req
+                  - network
                 dependencies:
                   - LimitedEnv
                 milestone: M4

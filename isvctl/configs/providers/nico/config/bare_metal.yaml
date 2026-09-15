@@ -23,10 +23,12 @@
 # instance inventory checks. Full lifecycle and SSH-host validations remain
 # excluded until those steps are wired for NICo. That includes the IMEX checks -
 # domain connectivity (SDN21-01), service/tooling presence (SDN17-01) and
-# service resilience (SDN18-01): NICo's BMaaS API surface is hardware
+# service resilience (SDN18-01) and node departure (SDN19-01): NICo's BMaaS
+# API surface is hardware
 # inventory/lifecycle only and does not expose live host/software telemetry such
 # as `nvidia-imex-ctl` state or the node's service-manager registration, so no
-# imex_domain, imex_service or imex_resilience step is wired here (see the AWS
+# imex_domain, imex_service, imex_resilience or imex_departure step is wired
+# here (see the AWS
 # and my-isv network.yaml configs for real/template implementations).
 #
 # Architecture:

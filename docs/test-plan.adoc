@@ -1910,7 +1910,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/623[#623]
 | [[SDN19-01]]SDN19-01
 | SDN19
 |
-|
+| min_req, network
 | tenant
 |
 |

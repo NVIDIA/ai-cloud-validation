@@ -376,6 +376,20 @@ commands:
         timeout: 120
         output_schema: imex_resilience
 
+      # DESTRUCTIVE: removes a node from a live domain (SDN19-01). Idle/drained only.
+      - name: imex_departure
+        phase: test
+        command: "python ../scripts/network/imex_departure_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--target-node"
+          - "compute-node-1"
+          - "--observer-node"
+          - "compute-node-2"
+        timeout: 120
+        output_schema: imex_departure
+
       - name: teardown
         phase: teardown
         command: "python ../scripts/network/teardown.py"
