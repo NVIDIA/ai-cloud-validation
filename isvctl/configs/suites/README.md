@@ -188,6 +188,8 @@ its plan item is not platform-scoped.
 | `peering_test` | test | `providers/my-isv/scripts/network/peering_test.py` | Cross-VPC connectivity |
 | `backend_switch_fabric` | test | `providers/my-isv/scripts/network/backend_switch_fabric_test.py` | Backend leaf, spine, and core switch IDs |
 | `nvlink_domain` | test | `providers/my-isv/scripts/network/nvlink_domain_test.py` | NVLink domain ID when the node supports NVLink |
+| `imex_domain` | test | `providers/my-isv/scripts/network/imex_domain_test.py` | `domain.{domain_id,state,expected_members}`, `nodes[].{node_id,domain_member,peers_reachable}` (SDN21-01) |
+| `imex_service` | test | `providers/my-isv/scripts/network/imex_service_test.py` | `nodes[].{node_id,in_nvlink_allocation,service_present,control_tooling_present,service_registration}` (SDN17-01) |
 | `teardown` | teardown | `providers/my-isv/scripts/network/teardown.py` | VPC cleanup |
 
 ### Observability (`observability.yaml`)

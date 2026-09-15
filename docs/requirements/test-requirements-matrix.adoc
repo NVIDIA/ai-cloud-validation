@@ -1137,6 +1137,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[SDN17-02]]SDN17-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): On a cluster offering multi-node NVLink through the resource-allocation driver, assert the compute-domain device classes are registered and every GPU node in an NVLink clique publishes compute-domain resources through the driver's per-node plugin, without tenant installation.
+| SDN17
+| reference
+| full
+| The Kubernetes DRA reading of SDN17; SDN17-01 covers the host reading.
+
 | [[SDN18-01]]SDN18-01
 | Infrastructure and Data Services
 | SDN Controller

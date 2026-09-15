@@ -24,11 +24,19 @@ from __future__ import annotations
 import ipaddress
 import math
 import re
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     import paramiko
 
+import pytest
+
+from isvtest.core.k8s import (
+    command_detail,
+    get_kubectl_base_shell,
+    kubectl_items_or_fail,
+    names_from_items,
+)
 from isvtest.core.ssh import (
     get_failed_subtests,
     get_ssh_client,
@@ -1135,6 +1143,23 @@ def _is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _validate_node_reports(value: object, kind: str) -> str | None:
+    """Return an error message if value is not a list of per-node reports.
+
+    Every per-node contract in this module carries the same shape - a list of
+    objects each identified by a non-empty ``node_id`` - so the guard lives here
+    rather than being restated by each check.
+    """
+    if not isinstance(value, list):
+        return f"`nodes` must be a list of per-node {kind} reports"
+    for index, node in enumerate(value):
+        if not isinstance(node, dict):
+            return f"`nodes[{index}]` must be an object"
+        if not _is_non_empty_string(node.get("node_id")):
+            return f"`nodes[{index}].node_id` must be a non-empty string"
+    return None
+
+
 def _validate_string_list(value: object, field_name: str) -> str | None:
     """Return an error message if value is not a non-empty list of strings."""
     if not isinstance(value, list):
@@ -1321,16 +1346,9 @@ class ImexDomainConnectivityCheck(BaseValidation):
             return
 
         nodes = step_output.get("nodes")
-        if not isinstance(nodes, list):
-            self.set_failed("`nodes` must be a list of per-node domain reports")
+        if error := _validate_node_reports(nodes, "domain"):
+            self.set_failed(error)
             return
-        for index, node in enumerate(nodes):
-            if not isinstance(node, dict):
-                self.set_failed(f"`nodes[{index}]` must be an object")
-                return
-            if not _is_non_empty_string(node.get("node_id")):
-                self.set_failed(f"`nodes[{index}].node_id` must be a non-empty string")
-                return
 
         reported = [node["node_id"] for node in nodes if node.get("domain_member") is True]
         if len(set(reported)) != len(reported):
@@ -1425,17 +1443,9 @@ class ImexServicePresenceCheck(BaseValidation):
         step_output = self.config.get("step_output", {})
 
         nodes = step_output.get("nodes")
-        if not isinstance(nodes, list):
-            self.set_failed("`nodes` must be a list of per-node IMEX service reports")
+        if error := _validate_node_reports(nodes, "IMEX service"):
+            self.set_failed(error)
             return
-
-        for index, node in enumerate(nodes):
-            if not isinstance(node, dict):
-                self.set_failed(f"`nodes[{index}]` must be an object")
-                return
-            if not _is_non_empty_string(node.get("node_id")):
-                self.set_failed(f"`nodes[{index}].node_id` must be a non-empty string")
-                return
 
         in_scope = [node for node in nodes if node.get("in_nvlink_allocation") is True]
         if not in_scope:
@@ -1483,6 +1493,230 @@ class ImexServicePresenceCheck(BaseValidation):
             f"IMEX service and control tooling present and registered on all {len(in_scope)} "
             f"in-scope node(s) of {len(nodes)} reported{evidence}"
         )
+
+
+# The driver's own CRD. Its presence is what makes a cluster's multi-node NVLink
+# capability "advertised" for scoping purposes.
+COMPUTE_DOMAIN_CRD = "computedomains.resource.nvidia.com"
+VENDOR_API_GROUP = "resource.nvidia.com"
+
+# Device classes and per-node drivers are matched by role: a compute-domain name
+# under the vendor's suffix. The exact names move with the driver version, the
+# role they play does not.
+COMPUTE_DOMAIN_ROLE = re.compile(r"^compute-domain[a-z0-9.-]*\.nvidia\.com$")
+
+# Set by GPU feature discovery on nodes that belong to an NVLink clique; its
+# value names the clique.
+CLIQUE_LABEL = "nvidia.com/gpu.clique"
+# GPU accounting. A DRA-only cluster need not expose the extended resource at
+# all, so the feature-discovery label counts as well.
+GPU_RESOURCE = "nvidia.com/gpu"
+GPU_PRESENT_LABEL = "nvidia.com/gpu.present"
+
+DEVICE_CLASS_RESOURCE = "deviceclasses.resource.k8s.io"
+RESOURCE_SLICE_RESOURCE = "resourceslices.resource.k8s.io"
+
+
+def _node_labels(node: dict[str, Any]) -> dict[str, Any]:
+    """Return a node's labels, or an empty mapping when it carries none."""
+    labels = node.get("metadata", {}).get("labels")
+    return labels if isinstance(labels, dict) else {}
+
+
+def _node_name(node: dict[str, Any]) -> str:
+    """Return the node's name, or an empty string when it carries none."""
+    name = node.get("metadata", {}).get("name")
+    return name if isinstance(name, str) else ""
+
+
+def _is_gpu_node(node: dict[str, Any]) -> bool:
+    """Return whether the cluster accounts for GPUs on this node."""
+    if _node_labels(node).get(GPU_PRESENT_LABEL) == "true":
+        return True
+    allocatable = node.get("status", {}).get("allocatable") or {}
+    if not isinstance(allocatable, dict):
+        return False
+    try:
+        return int(allocatable.get(GPU_RESOURCE, 0)) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+class ImexComputeDomainCapabilityCheck(BaseValidation):
+    """Validate compute-domain capability is present on a cluster (DRA model).
+
+    Asserts two cluster-side facts: the resource-allocation driver's
+    compute-domain device classes are registered cluster-wide, and every GPU
+    node in the NVLink clique publishes compute-domain resources through the
+    driver's per-node plugin. The published resource is the evidence, not a
+    running pod - the resource exists only once the plugin registered with the
+    node agent and published successfully, which a pod in a Running state does
+    not establish.
+
+    Everything asserted is a cluster object, so the check reads the cluster API
+    directly rather than through a provider step. Nothing here is provider
+    specific and nothing is a provider's to report, which is also why no node
+    list is accepted: scope must not be a provider's choice.
+
+    Scope is every GPU node the cluster accounts for, never a node's
+    self-report, so a GPU node arriving without the NVLink clique label fails
+    rather than dropping out of the set - otherwise a node could report its way
+    out of being tested. An empty clique-labelled set fails for the same
+    reason: it is how the check would otherwise succeed vacuously on a cluster
+    with no NVLink nodes at all.
+
+    Nothing is asserted about the state of any host IMEX daemon. The driver
+    supports two ownership modes, and an active host daemon is a defect under
+    one and a requirement under the other, so the observed mode is reported as
+    evidence only.
+
+    A cluster that advertises no multi-node NVLink capability through the
+    driver (the ComputeDomain CRD is not registered) is out of scope for
+    SDN17-02 rather than failing it, and skips. That gate is deliberately a
+    different object from the device classes the check asserts on, so the
+    assertion cannot certify itself.
+    """
+
+    description: ClassVar[str] = "Check compute-domain capability is present cluster-side without tenant installation"
+
+    def run(self) -> None:
+        """Read compute-domain capability from the cluster and assert on it."""
+        if not self._multi_node_nvlink_advertised():
+            return
+
+        device_classes = self._compute_domain_device_classes()
+        if device_classes is None:
+            return
+
+        published = self._publishing_nodes()
+        if published is None:
+            return
+
+        nodes = self._gpu_nodes()
+        if nodes is None:
+            return
+
+        reports = [_node_report(node, published) for node in sorted(nodes, key=_node_name) if _node_name(node)]
+
+        if not any(report["clique_labelled"] for report in reports):
+            # Reporting the examined count instead of the asserted one is how a
+            # cluster with no NVLink nodes passes this check, so fail loudly.
+            self.set_failed(
+                f"No nodes were asserted against: {len(reports)} GPU node(s) reported, none carrying the NVLink "
+                "clique label. Scope is the cluster's own GPU accounting, so zero asserted nodes is a failure "
+                "rather than a pass"
+            )
+            return
+
+        failures: list[str] = []
+        if not device_classes:
+            failures.append("the driver's compute-domain device classes are not registered cluster-wide")
+
+        for report in reports:
+            if not report["clique_labelled"]:
+                failures.append(
+                    f"{report['node_id']}: GPU node in scope carries no NVLink clique label - a node in a "
+                    "multi-node NVLink cluster cannot report its way out of scope"
+                )
+            elif not report["published"]:
+                failures.append(
+                    f"{report['node_id']}: the driver's per-node plugin publishes no compute-domain resources"
+                )
+
+        if failures:
+            self.set_failed(
+                f"Compute-domain capability checks failed on {len(failures)} count(s): {'; '.join(failures)}"
+            )
+            return
+
+        # Every node is clique-labelled by this point: an unlabelled one is a
+        # failure above rather than a node that left the asserted set.
+        self.set_passed(
+            f"Compute-domain device classes are registered and all {len(reports)} clique-labelled GPU "
+            f"node(s) publish compute-domain resources "
+            f"(IMEX daemon ownership: {_ownership_mode(device_classes)})"
+        )
+
+    def _multi_node_nvlink_advertised(self) -> bool:
+        """Return whether the cluster advertises multi-node NVLink through the driver.
+
+        Skips outright when it does not. An unserved API group is an empty
+        successful listing, so a failed read is a cluster the check could not
+        reach - which must never be mistaken for a cluster that offers no
+        multi-node NVLink, and fails instead.
+        """
+        result = self.run_command(
+            get_kubectl_base_shell("api-resources", f"--api-group={VENDOR_API_GROUP}", "-o", "name")
+        )
+        if result.exit_code != 0:
+            self.set_failed(f"Failed to read the {VENDOR_API_GROUP} API group: {command_detail(result)}")
+            return False
+        if COMPUTE_DOMAIN_CRD not in result.stdout.split():
+            pytest.skip(
+                "Cluster advertises no multi-node NVLink capability through the driver "
+                f"({COMPUTE_DOMAIN_CRD} is not registered)"
+            )
+        return True
+
+    def _items(self, resource: str) -> list[dict[str, Any]] | None:
+        """Return one cluster-scoped listing, or None after failing the check."""
+        result = self.run_command(get_kubectl_base_shell("get", resource, "-o", "json"))
+        return kubectl_items_or_fail(self, result, resource)
+
+    def _compute_domain_device_classes(self) -> list[str] | None:
+        """Return the registered compute-domain device class names."""
+        items = self._items(DEVICE_CLASS_RESOURCE)
+        if items is None:
+            return None
+        return [name for name in names_from_items(items) if COMPUTE_DOMAIN_ROLE.fullmatch(name)]
+
+    def _publishing_nodes(self) -> set[str] | None:
+        """Return the nodes the compute-domain per-node plugin has published for."""
+        items = self._items(RESOURCE_SLICE_RESOURCE)
+        if items is None:
+            return None
+        published: set[str] = set()
+        for slice_ in items:
+            spec = slice_.get("spec")
+            if not isinstance(spec, dict):
+                continue
+            driver = spec.get("driver")
+            node_name = spec.get("nodeName")
+            if isinstance(driver, str) and COMPUTE_DOMAIN_ROLE.fullmatch(driver) and isinstance(node_name, str):
+                published.add(node_name)
+        return published
+
+    def _gpu_nodes(self) -> list[dict[str, Any]] | None:
+        """Return every GPU node the cluster accounts for.
+
+        Scope comes from the cluster's own GPU accounting rather than from a
+        node's view of its NVLink support, so a clique-less GPU node is still
+        examined.
+        """
+        items = self._items("nodes")
+        if items is None:
+            return None
+        return [node for node in items if _is_gpu_node(node)]
+
+
+def _node_report(node: dict[str, Any], published: set[str]) -> dict[str, Any]:
+    """Return one node's compute-domain facts as the check asserts on them."""
+    clique = _node_labels(node).get(CLIQUE_LABEL)
+    return {
+        "node_id": _node_name(node),
+        "clique_labelled": bool(isinstance(clique, str) and clique.strip()),
+        "published": _node_name(node) in published,
+    }
+
+
+def _ownership_mode(device_classes: list[str]) -> str:
+    """Return the observed IMEX daemon ownership mode.
+
+    The driver runs the daemons itself only where it also offers a device class
+    for them; a cluster whose daemons are managed on the host registers the
+    channel class alone. Evidence only - no assertion rests on this.
+    """
+    return "driver" if any("daemon" in name for name in device_classes) else "host"
 
 
 class ByoipCheck(BaseValidation):
