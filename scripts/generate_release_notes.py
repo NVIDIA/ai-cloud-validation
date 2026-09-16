@@ -94,6 +94,7 @@ class IssueInfo:
     is_pr: bool
     labels: list[str]
     draft: bool = False
+    body: str = ""
     closing_prs: list[PullRequestRef] = field(default_factory=list)
 
 
@@ -286,7 +287,41 @@ def parse_issue(issue_data: dict[str, Any]) -> IssueInfo:
         is_pr=is_pr,
         labels=[label["name"] for label in issue_data.get("labels", [])],
         draft=issue_data.get("draft", False) if is_pr else False,
+        body=issue_data.get("body") or "",
     )
+
+
+def _mentioned_issue_numbers(body: str, issue_numbers: set[int]) -> list[int]:
+    """Issue numbers referenced in a PR body, restricted to the milestone's own issues."""
+    referenced = {int(number) for number in re.findall(r"#(\d+)", body)}
+    return sorted(referenced & issue_numbers)
+
+
+def link_prs_to_issues(items: list[IssueInfo], closing: dict[int, list[PullRequestRef]]) -> list[IssueInfo]:
+    """Move implementing PRs onto their issue's line and drop them as separate items.
+
+    GitHub's closing links are authoritative. A PR that referenced its issue in
+    prose instead of using a closing keyword declares no link at all, so fall
+    back to the issue numbers mentioned in its body - restricted to this
+    milestone's issues, which keeps references to unrelated work out.
+    """
+    issues_by_number = {item.number: item for item in items if not item.is_pr}
+    for issue in issues_by_number.values():
+        issue.closing_prs = list(closing.get(issue.number, []))
+
+    linked = {pr.number for issue in issues_by_number.values() for pr in issue.closing_prs}
+
+    for item in items:
+        if not item.is_pr or item.number in linked:
+            continue
+        for number in _mentioned_issue_numbers(item.body, set(issues_by_number)):
+            issues_by_number[number].closing_prs.append(PullRequestRef(number=item.number, url=item.url))
+            linked.add(item.number)
+
+    for issue in issues_by_number.values():
+        issue.closing_prs.sort(key=lambda pr: pr.number)
+
+    return [item for item in items if not (item.is_pr and item.number in linked)]
 
 
 def generate_markdown(
@@ -485,14 +520,10 @@ def main() -> int:
         if issue_items:
             print("Resolving implementing pull requests...", file=sys.stderr)
             closing = api.get_closing_prs(milestone_info.org, milestone_info.repo, [i.number for i in issue_items])
-            linked: set[int] = set()
-            for item in issue_items:
-                item.closing_prs = closing.get(item.number, [])
-                linked.update(pr.number for pr in item.closing_prs)
-            # A milestoned PR already shown on its issue's line would otherwise appear twice.
-            issues = [i for i in issues if not (i.is_pr and i.number in linked)]
+            listed = len(issues)
+            issues = link_prs_to_issues(issues, closing)
             if args.verbose:
-                print(f"  Linked {len(linked)} pull requests to issues", file=sys.stderr)
+                print(f"  Linked {listed - len(issues)} pull requests to issues", file=sys.stderr)
 
         if len(issues) == 0 and milestone_data.get("closed_issues", 0) > 0:
             print(
