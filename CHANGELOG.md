@@ -34,8 +34,8 @@ Workflow:
 
 ### Added
 
-- **IMEX availability, connectivity, and resilience validations** ([#621](https://github.com/NVIDIA/ai-cloud-validation/pull/621), [#627](https://github.com/NVIDIA/ai-cloud-validation/pull/627), [#631](https://github.com/NVIDIA/ai-cloud-validation/pull/631), [#633](https://github.com/NVIDIA/ai-cloud-validation/pull/633), [#634](https://github.com/NVIDIA/ai-cloud-validation/pull/634))
-  Adds SDN17-01/02 and SDN21-01 coverage for preinstalled host tooling, Kubernetes DRA compute-domain availability, and mutual connectivity across every domain member. SDN18-01 verifies host-managed boot persistence and recovery, while SDN18-02 verifies driver-managed recovery.
+- **IMEX availability, connectivity, and resilience validations** ([#621](https://github.com/NVIDIA/ai-cloud-validation/pull/621), [#627](https://github.com/NVIDIA/ai-cloud-validation/pull/627), [#631](https://github.com/NVIDIA/ai-cloud-validation/pull/631), [#633](https://github.com/NVIDIA/ai-cloud-validation/pull/633), [#634](https://github.com/NVIDIA/ai-cloud-validation/pull/634), [#636](https://github.com/NVIDIA/ai-cloud-validation/pull/636), [#639](https://github.com/NVIDIA/ai-cloud-validation/pull/639))
+  Adds SDN17-01/02 and SDN21-01 coverage for preinstalled host tooling, Kubernetes DRA compute-domain availability, and mutual connectivity across every domain member. SDN18-01 verifies host-managed boot persistence and recovery, while SDN18-02 verifies driver-managed recovery. SDN19-01 verifies that surviving peers observe a deliberate node departure, and SDN20-01 verifies that IMEX returns to service and rejoins its domain after an unassisted reboot.
 - **Tenant-controlled GPU Operator driver overrides** ([#618](https://github.com/NVIDIA/ai-cloud-validation/pull/618))
   Adds `K8sGpuOperatorOverrideCheck` (K8S25-02) to verify that tenants can replace provider-default GPU drivers through authorized, admission-approved configuration changes without mutating the cluster during validation.
 - **Pinned Kubernetes control-plane sizing** ([#628](https://github.com/NVIDIA/ai-cloud-validation/pull/628))
