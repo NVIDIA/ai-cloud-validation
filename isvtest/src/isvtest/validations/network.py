@@ -2414,15 +2414,30 @@ class _ComputeDomainCheck(BaseValidation):
         """Delete the claims and the domain, failing a passing check on leftovers.
 
         Teardown is mandatory rather than best-effort: the check created these,
-        and leaving them behind changes what the next run observes. The claims
-        go first so no daemon is still holding a prepared channel when the
-        domain is removed. An already-failing check keeps its own message,
-        which is the more useful one.
+        and leaving them behind changes what the next run observes. An
+        already-failing check keeps its own message, which is the more useful
+        one.
+
+        The claims go first so no daemon is still holding a prepared channel
+        when the domain is removed, and the DaemonSet is deleted in the
+        foreground so that ordering is real: deleting it in the background -
+        the default - returns as soon as the DaemonSet object is gone, while
+        its pods, and the claims those pods own, are still terminating. The
+        domain would then be removed underneath them, which is the case the
+        driver warns turns into a deletion wedged behind its own finalizers.
+
+        A domain is still removed when the claims could not be, because the
+        two are not equally bad to strand: a leftover domain is what the next
+        run's formation wait collides with.
         """
         leftovers: list[str] = []
-        for resource, obj in (("daemonset", _claim_daemonset(name)), (COMPUTE_DOMAIN_CRD, name)):
+        deletions = (
+            ("daemonset", _claim_daemonset(name), ("--cascade=foreground",)),
+            (COMPUTE_DOMAIN_CRD, name, ()),
+        )
+        for resource, obj, flags in deletions:
             result = self.run_command(
-                get_kubectl_base_shell("delete", resource, obj, "-n", namespace, "--ignore-not-found=true"),
+                get_kubectl_base_shell("delete", resource, obj, "-n", namespace, "--ignore-not-found=true", *flags),
                 timeout=self._DELETE_TIMEOUT_SECONDS,
             )
             if result.exit_code != 0:
