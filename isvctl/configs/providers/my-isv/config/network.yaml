@@ -390,6 +390,21 @@ commands:
         timeout: 120
         output_schema: imex_departure
 
+      # DESTRUCTIVE and SLOW: reboots a node (SDN20-01). Idle/drained only.
+      - name: imex_reboot
+        phase: test
+        command: "python ../scripts/network/imex_reboot_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "compute-node-1"
+        # Above the suite's 900s rejoin bound: a real implementation waits out
+        # SSH recovery and domain rejoin, and the executor would otherwise kill
+        # it before it could emit its JSON.
+        timeout: 1200
+        output_schema: imex_reboot
+
       - name: teardown
         phase: teardown
         command: "python ../scripts/network/teardown.py"

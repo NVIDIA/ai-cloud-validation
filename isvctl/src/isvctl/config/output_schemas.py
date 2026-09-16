@@ -144,6 +144,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "imex_resilience_test": "imex_resilience",
     "imex_departure": "imex_departure",
     "imex_departure_test": "imex_departure",
+    "imex_reboot": "imex_reboot",
+    "imex_reboot_test": "imex_reboot",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -1227,6 +1229,75 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             },
             "skipped": {"type": "boolean", "description": "True when no nodes were configured for the run"},
             "skip_reason": {"type": "string", "description": "Why the IMEX departure check was skipped"},
+        },
+        "additionalProperties": True,
+    },
+    "imex_reboot": {
+        "type": "object",
+        # Only the universal fields are required: this check reports in stages,
+        # so a skipped run or a failure before the node came back must still
+        # validate and let the check attribute it.
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_reboot'"},
+            "node_id": {"type": "string", "description": "Node that was rebooted"},
+            "prior_state": {
+                "type": "object",
+                "description": (
+                    "The node's state before the reboot. Recorded so a node that was not already an active "
+                    "domain member cannot report a rejoin it never performed."
+                ),
+                "properties": {
+                    "service_state": {"type": "string", "description": "Service state before the reboot"},
+                    "domain_member": {
+                        "type": "boolean",
+                        "description": "Whether the node was an operational domain member before the reboot",
+                    },
+                },
+                "additionalProperties": True,
+            },
+            "persistence_configured": {
+                "type": "boolean",
+                "description": "Whether IMEX was set to start at boot before the reboot",
+            },
+            "reboot_confirmed": {
+                "type": "boolean",
+                "description": (
+                    "Whether the reboot was affirmatively confirmed by uptime going backwards. Reachability "
+                    "alone is not evidence, since a node that never rebooted is reachable too."
+                ),
+            },
+            "uptime_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Uptime observed after the reboot",
+            },
+            "post_reboot": {
+                "type": "object",
+                "properties": {
+                    "service_ready": {
+                        "type": "boolean",
+                        "description": "Whether the IMEX service returned to service after boot",
+                    },
+                    "domain_member": {
+                        "type": "boolean",
+                        "description": "Whether the node rejoined its domain",
+                    },
+                    "elapsed_seconds": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Boot to domain membership, reported on pass and on fail",
+                    },
+                    "intervention_required": {
+                        "type": "boolean",
+                        "description": "Must be false - the return has to be unassisted",
+                    },
+                },
+                "additionalProperties": True,
+            },
+            "skipped": {"type": "boolean", "description": "True when no node was configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX reboot check was skipped"},
         },
         "additionalProperties": True,
     },

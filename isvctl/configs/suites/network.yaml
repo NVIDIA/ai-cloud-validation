@@ -355,6 +355,18 @@ tests:
           # Enforced here as well as in the producer, so a run that observes
           # convergence late cannot report success past the bound.
           convergence_timeout_seconds: 60
+        # Destructive and slow: reboots one member and waits out boot plus
+        # domain rejoin, which on bare-metal GB200-class hardware is minutes.
+        # Carries min_req alongside slow so the trait label cannot drop it from
+        # a certification run - the suite excludes no labels by default.
+        ImexRebootRejoinCheck:
+          test_id: "SDN20-01"
+          labels: ["min_req", "network", "slow"]
+          requires: [vm, bare_metal]
+          step: imex_reboot
+          # Enforced here as well as in the producer, so a run that rejoins
+          # very late cannot report success past the bound.
+          rejoin_timeout_seconds: 900
         # The Kubernetes half of SDN17: the same "IMEX without tenant
         # installation" requirement, read as cluster objects instead of as
         # packages on a host. Gated on kubernetes so a vm/bare_metal run of this

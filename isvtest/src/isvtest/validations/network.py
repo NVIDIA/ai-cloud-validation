@@ -1150,6 +1150,21 @@ def _is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _is_non_negative_number(value: object) -> bool:
+    """Return True when value is a real, finite, non-negative number.
+
+    Finiteness is checked explicitly because NaN slips through every obvious
+    guard: ``json.loads`` accepts the JSON literal ``NaN``, jsonschema treats it
+    as a valid ``number`` and its ``minimum`` keyword does not reject it, and
+    both ``nan < 0`` and ``nan > bound`` are False - so a NaN duration would
+    pass a range check and a timeout check alike. Bools are excluded because
+    they are ints in Python and a timing field is never meant to be one.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return math.isfinite(value) and value >= 0
+
+
 def _validate_node_reports(value: object, kind: str) -> str | None:
     """Return an error message if value is not a list of per-node reports.
 
@@ -1601,7 +1616,7 @@ class ImexServiceResilienceCheck(BaseValidation):
             return
 
         elapsed = recovery.get("elapsed_seconds")
-        if not isinstance(elapsed, int | float) or isinstance(elapsed, bool) or elapsed < 0:
+        if not _is_non_negative_number(elapsed):
             self.set_failed(f"{node_id}: `recovery.elapsed_seconds` must be a non-negative number, got {elapsed!r}")
             return
 
@@ -1730,7 +1745,7 @@ class ImexNodeDepartureCheck(BaseValidation):
             return
 
         elapsed = convergence.get("elapsed_seconds")
-        if not isinstance(elapsed, int | float) or isinstance(elapsed, bool) or elapsed < 0:
+        if not _is_non_negative_number(elapsed):
             self.set_failed(
                 f"{target}: `peer_convergence.elapsed_seconds` must be a non-negative number, got {elapsed!r}"
             )
@@ -1801,6 +1816,114 @@ class ImexNodeDepartureCheck(BaseValidation):
         self.set_passed(
             f"{target} was stopped cleanly and surviving member {observed_from} reported it unavailable after "
             f"{elapsed}s, with the domain still operational among the survivors; node restored to {restored_to}"
+        )
+
+
+class ImexRebootRejoinCheck(BaseValidation):
+    """Validate IMEX returns and rejoins its domain after an unassisted reboot.
+
+    Where SDN17-01 reads back that boot persistence is *configured*, this proves
+    it by actually rebooting. The pass condition is deliberately strict: a node
+    shipped with IMEX not set to start at boot fails here, because shipping it
+    enabled is the provider obligation being checked.
+
+    The reboot itself must be affirmatively confirmed by uptime going backwards
+    across it. Reachability is not evidence - a node that never went down is
+    reachable too, so a check that inferred the reboot from a successful SSH
+    would pass without anything having been proven.
+
+    Config:
+        step_output: The step output to check
+        rejoin_timeout_seconds: Optional bound on boot-to-domain-membership
+
+    Step output:
+        node_id: The node that was rebooted
+        persistence_configured: Whether IMEX was set to start at boot
+        reboot_confirmed: Whether uptime confirmed the reboot actually happened
+        uptime_seconds: Uptime observed after the reboot
+        post_reboot: dict with service_ready, domain_member, elapsed_seconds,
+                     intervention_required
+    """
+
+    description: ClassVar[str] = "Check IMEX rejoins its domain after a node reboot"
+
+    def run(self) -> None:
+        """Check the reboot was real and IMEX came back and rejoined unaided."""
+        step_output = self.config.get("step_output", {})
+
+        node_id = step_output.get("node_id")
+        if not _is_non_empty_string(node_id):
+            self.set_failed("`node_id` must be a non-empty string")
+            return
+
+        # Checked before anything else: this is the assertion the whole test
+        # rests on, and a run that cannot prove the node went down proves
+        # nothing at all about what happens when it comes back.
+        if step_output.get("reboot_confirmed") is not True:
+            self.set_failed(
+                f"{node_id}: the reboot was not affirmatively confirmed. Uptime must be shown to have gone "
+                "backwards across it - reachability is not evidence, since a node that never rebooted is "
+                "reachable too"
+            )
+            return
+
+        uptime = step_output.get("uptime_seconds")
+        if not _is_non_negative_number(uptime):
+            self.set_failed(f"{node_id}: `uptime_seconds` must be a non-negative number, got {uptime!r}")
+            return
+
+        post = step_output.get("post_reboot")
+        if not isinstance(post, dict):
+            self.set_failed("`post_reboot` must be an object with service_ready, domain_member and elapsed_seconds")
+            return
+
+        elapsed = post.get("elapsed_seconds")
+        if not _is_non_negative_number(elapsed):
+            self.set_failed(f"{node_id}: `post_reboot.elapsed_seconds` must be a non-negative number, got {elapsed!r}")
+            return
+
+        # Reported on every failure path below, so a platform that technically
+        # recovers but takes far too long is visible rather than hidden behind a
+        # bare pass/fail.
+        if post.get("intervention_required") is not False:
+            self.set_failed(
+                f"{node_id}: IMEX needed intervention to come back after the reboot ({elapsed}s elapsed), so it "
+                "did not return to service unassisted"
+            )
+            return
+
+        # Asserted affirmatively, not only as an explanation when the service
+        # failed to come back. A node that is running while not enabled at boot
+        # has not demonstrated the property under test - it may have returned
+        # because something else started it - and shipping IMEX enabled is the
+        # provider obligation this check exists to verify.
+        if step_output.get("persistence_configured") is not True:
+            self.set_failed(
+                f"{node_id}: IMEX is not configured to start at boot, which fails this check by design - "
+                "shipping it enabled is the provider obligation being verified by rebooting"
+            )
+            return
+
+        if post.get("service_ready") is not True:
+            self.set_failed(f"{node_id}: IMEX did not come back after the reboot within {elapsed}s")
+            return
+
+        if post.get("domain_member") is not True:
+            self.set_failed(
+                f"{node_id}: IMEX came back after the reboot but had not rejoined its domain after {elapsed}s"
+            )
+            return
+
+        timeout = self.config.get("rejoin_timeout_seconds")
+        if isinstance(timeout, int | float) and not isinstance(timeout, bool) and elapsed > timeout:
+            self.set_failed(
+                f"{node_id}: IMEX rejoined its domain, but only after {elapsed}s, beyond the {timeout}s bound"
+            )
+            return
+
+        self.set_passed(
+            f"{node_id} rebooted (uptime {uptime}s) and IMEX returned to service and rejoined its domain "
+            f"unassisted after {elapsed}s"
         )
 
 
