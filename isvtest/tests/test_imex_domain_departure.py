@@ -517,6 +517,18 @@ def test_the_daemons_config_is_looked_for_where_an_older_driver_kept_it() -> Non
     assert any(f" -c {LEGACY_CONFIG} " in command for command in attempted)
 
 
+def test_the_config_location_that_answered_is_not_probed_for_again() -> None:
+    """The peer view is read on every poll of two separate waits, so re-probing
+    every location each time costs a guaranteed-failing exec per poll, each
+    carrying the read timeout. A cluster does not move its config mid-run."""
+    cluster = _Cluster(accepted_config=LEGACY_CONFIG)
+    _run(cluster)
+
+    execs = [command for command in cluster.commands if command.startswith("kubectl exec")]
+    assert len(execs) > 2, "needs more than one peer-view read for the question to mean anything"
+    assert sum(f" -c {MODERN_CONFIG} " in command for command in execs) == 1
+
+
 def test_a_daemon_reporting_a_degraded_domain_is_not_a_failure() -> None:
     """The driver pre-sizes a domain's config to the largest one it supports, so
     every unclaimed slot counts against the domain-wide status and a healthy

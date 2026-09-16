@@ -3019,10 +3019,11 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
                 timeout=self._READ_TIMEOUT_SECONDS,
             )
             if result.exit_code != 0:
-                # The first location is the one a current driver uses, so its
-                # failure is the one worth reporting: a later path failing says
-                # only that the driver did not use that layout either, which
-                # would bury a daemon that could not be reached at all.
+                # The first location tried is the one most likely to be this
+                # driver's - remembered if one has answered, the current layout
+                # otherwise - so its failure is the one worth reporting. A later
+                # path failing says only that the driver did not use that layout
+                # either, which would bury a daemon that could not be reached.
                 detail = detail or command_detail(result)
                 continue
             self._imex_config_path = config_path
