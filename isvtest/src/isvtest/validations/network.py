@@ -1989,13 +1989,12 @@ def _claim_affinity(exclude_node: str | None = None) -> dict[str, Any]:
     return {"nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [term]}}}
 
 
-def _set_channel_claim_fields(
-    doc: dict[str, Any], *, name: str, namespace: str, image: str, hold_seconds: int
-) -> dict[str, Any]:
+def _set_channel_claim_fields(doc: dict[str, Any], *, name: str, namespace: str, image: str) -> dict[str, Any]:
     """Mutate a parsed channel-claim manifest in place.
 
     Names the DaemonSet and its pods after the domain they claim a channel of,
-    pins them to the clique nodes, and sets how long each pod holds its claim.
+    and pins them to the clique nodes. How long they hold their claims is not
+    a parameter: they hold them for as long as the pods exist.
     """
     claim = _claim_daemonset(name)
     doc["metadata"] = {"name": claim, "namespace": namespace}
@@ -2007,7 +2006,6 @@ def _set_channel_claim_fields(
     pod["affinity"] = _claim_affinity()
     container = pod["containers"][0]
     container["image"] = image
-    container["command"] = ["sh", "-c", f"sleep {hold_seconds}"]
     pod["resourceClaims"][0]["resourceClaimTemplateName"] = _channel_template(name)
     return doc
 
@@ -2333,7 +2331,7 @@ class _ComputeDomainCheck(BaseValidation):
         if not self._apply(domain, f"compute domain {name}"):
             return
         try:
-            if self._claim_channels(namespace, name, image, formation_timeout):
+            if self._claim_channels(namespace, name, image):
                 self._assert_on_domain(namespace, name, formation_timeout)
         finally:
             self._release(namespace, name)
@@ -2388,7 +2386,7 @@ class _ComputeDomainCheck(BaseValidation):
             return False
         return True
 
-    def _claim_channels(self, namespace: str, name: str, image: str, formation_timeout: int) -> bool:
+    def _claim_channels(self, namespace: str, name: str, image: str) -> bool:
         """Run one claiming pod per clique node so the driver places daemons.
 
         Without a prepared channel claim the driver's per-domain DaemonSet
@@ -2397,20 +2395,18 @@ class _ComputeDomainCheck(BaseValidation):
         against. These pods only hold their claims open - nothing is asserted
         about them, and they are expected to sit in ContainerCreating until the
         daemon on their node reports ready.
+
+        They hold for as long as they exist, rather than for a computed
+        duration. A claim is released when its pod is deleted, which is how the
+        SDN19-02 shrink withdraws one, and a DaemonSet pod is required to run
+        ``restartPolicy: Always`` - so a container that merely exits is
+        restarted in place and releases nothing. Ending these pods is
+        ``_release``'s job, and it is mandatory rather than best-effort
+        precisely because no timeout does it for us.
         """
         claims = render_k8s_manifest(
             _CHANNEL_CLAIM_MANIFEST,
-            lambda doc: _set_channel_claim_fields(
-                doc,
-                name=name,
-                namespace=namespace,
-                image=image,
-                # Outlast the worst case the check itself allows - formation
-                # plus a derived budget of twice it - so a claim never lapses
-                # mid-run and takes the daemons down with it, while still
-                # expiring on its own if this process is killed outright.
-                hold_seconds=formation_timeout * 4,
-            ),
+            lambda doc: _set_channel_claim_fields(doc, name=name, namespace=namespace, image=image),
         )
         return self._apply(claims, f"channel claims for compute domain {name}")
 
