@@ -53,6 +53,18 @@ def _address(node: str) -> str:
     return f"10.0.0.{node.rsplit('-', 1)[-1]}"
 
 
+def _dns(index: int) -> str:
+    """Return the name the driver's daemons peer over for a node's index."""
+    return f"compute-domain-daemon-{index:04d}"
+
+
+#: Where the current driver keeps the config its daemons read, and where the
+#: control tool looks when it is not told. Only the first is a real location on
+#: a current driver; the second is what an older one used.
+MODERN_CONFIG = "/imexd/imexd.cfg"
+LEGACY_CONFIG = "/etc/nvidia-imex/config.cfg"
+
+
 class _Clock:
     """A monotonic clock that only advances when the check sleeps."""
 
@@ -84,11 +96,15 @@ class _Cluster:
         nodes: tuple[str, ...] = ("gpu-1", "gpu-2"),
         mode: str | None = "driverManaged",
         controller: bool = True,
-        addressed: bool = True,
+        indexed: bool = True,
+        duplicate_index: bool = False,
+        cliques: dict[str, str] | None = None,
         departure_polls: int = 1,
         notice_polls: int = 0,
         peer_still_connected: bool = False,
         notice_as_invalid: bool = False,
+        peered_before_departure: bool = True,
+        unpeered_status: str = "VERSION_MISMATCH",
         exit_code: int = 0,
         baseline_restarts: int = 0,
         shutdown_restarts: int = 0,
@@ -96,8 +112,11 @@ class _Cluster:
         reschedule_after_departure: bool = False,
         broken_survivor: str | None = None,
         keep_departed_member: bool = False,
-        domain_state: str = "UP",
+        domain_state: str = "DEGRADED",
         observer_status: str = "READY",
+        observer_unready_after_shrink: bool = False,
+        padded_slots: int = 3,
+        accepted_config: str = MODERN_CONFIG,
         restore_polls: int = 0,
         api_resources: CommandResult | None = None,
         deployments: CommandResult | None = None,
@@ -105,16 +124,21 @@ class _Cluster:
         patch_result: CommandResult | None = None,
         restore_patch_result: CommandResult | None = None,
         exec_result: CommandResult | None = None,
+        exec_fails_after_shrink: bool = False,
         delete_domain_result: CommandResult | None = None,
     ) -> None:
         self.nodes = nodes
         self.mode = mode
         self.controller = controller
-        self.addressed = addressed
+        self.indexed = indexed
+        self.duplicate_index = duplicate_index
+        self.cliques = cliques or {}
         self.departure_polls = departure_polls
         self.notice_polls = notice_polls
         self.peer_still_connected = peer_still_connected
         self.notice_as_invalid = notice_as_invalid
+        self.peered_before_departure = peered_before_departure
+        self.unpeered_status = unpeered_status
         self.exit_code = exit_code
         self.baseline_restarts = baseline_restarts
         self.shutdown_restarts = shutdown_restarts
@@ -124,6 +148,10 @@ class _Cluster:
         self.keep_departed_member = keep_departed_member
         self.domain_state = domain_state
         self.observer_status = observer_status
+        self.observer_unready_after_shrink = observer_unready_after_shrink
+        self.padded_slots = padded_slots
+        self.accepted_config = accepted_config
+        self.exec_fails_after_shrink = exec_fails_after_shrink
         self.restore_polls = restore_polls
         self.api_resources = api_resources
         self.deployments = deployments
@@ -160,6 +188,19 @@ class _Cluster:
         if self._shrunk_at is None or self._restored_at is not None:
             return None
         return self.excluded
+
+    @property
+    def target(self) -> str:
+        """Return the node the check will take out of the domain."""
+        return min(self.nodes)
+
+    def _index(self, node: str) -> int:
+        """Return the stable index the domain publishes for ``node``."""
+        return 0 if self.duplicate_index else self.nodes.index(node)
+
+    def _clique(self, node: str) -> str:
+        """Return the NVLink partition ``node`` belongs to."""
+        return self.cliques.get(node, "fabric-1.3")
 
     def _target_daemon_state(self, node: str) -> str:
         """Return what the departing node's daemon is doing: running/going/gone."""
@@ -234,13 +275,28 @@ class _Cluster:
         if command.startswith("kubectl get pods"):
             return _ok(self._pods())
         if command.startswith("kubectl exec"):
-            return self.exec_result if self.exec_result is not None else _ok(self._imex_report())
+            return self._exec(command)
         if command.startswith("kubectl delete daemonset"):
             return _ok()
         if command.startswith("kubectl delete computedomains"):
             self.released = True
             return self.delete_domain_result if self.delete_domain_result is not None else _ok()
         raise AssertionError(f"unexpected command: {command}")
+
+    def _exec(self, command: str) -> CommandResult:
+        """Answer one exec, accepting only the config path this driver wrote.
+
+        The tool reads a config to learn the domain at all, and refuses any path
+        it cannot open - so a cluster only answers when asked about the location
+        its own driver version uses.
+        """
+        if f" -c {self.accepted_config} " not in command:
+            return _fail(stderr=f"Unable to open configuration file at {self.accepted_config}")
+        if self.exec_result is not None:
+            return self.exec_result
+        if self.exec_fails_after_shrink and self._departed is not None:
+            return _fail(stderr="container not found")
+        return _ok(self._imex_report())
 
     def _patch(self, command: str) -> CommandResult:
         """Apply a claim-scope patch, recording which nodes it now selects."""
@@ -274,12 +330,18 @@ class _Cluster:
         return json.dumps({"items": [deployment]})
 
     def _domain(self) -> str:
-        """Return the compute domain and its per-node membership, as JSON."""
+        """Return the compute domain and its per-node membership, as JSON.
+
+        The address is published as a real domain publishes it, even though
+        nothing reads it: the daemons peer over generated names instead, and a
+        check that matched on the address would find nothing.
+        """
         nodes = [
             {
                 "name": node,
-                "cliqueID": "fabric-1.3",
-                **({"ipAddress": _address(node)} if self.addressed else {}),
+                "cliqueID": self._clique(node),
+                "ipAddress": _address(node),
+                **({"index": self._index(node)} if self.indexed else {}),
                 "status": self._member_status(node),
             }
             for node in self._members()
@@ -294,29 +356,59 @@ class _Cluster:
     def _imex_report(self) -> str:
         """Return a surviving daemon's own report of the domain, as JSON.
 
-        Shaped like `nvidia-imex-ctl -N -j -H`: an entry per configured member,
-        each carrying its own `connections` map keyed by address.
+        Shaped like `nvidia-imex-ctl -N -j -H` asked of a driver-managed
+        daemon: entries keyed by each node's stable index, peers named
+        `compute-domain-daemon-NNNN` with the address carried as a hostname
+        instead, and the slots the driver pre-sized the domain to that no node
+        ever claimed - which is why a healthy domain calls itself DEGRADED.
         """
         departed = self._departed
         connected = [node for node in self.nodes if node != departed]
         if departed is not None and (self.peer_still_connected or self._since_shrink <= self._notice_at):
             connected.append(departed)
 
+        slots = len(self.nodes) + self.padded_slots
         entries: dict[str, Any] = {}
         for index, node in enumerate(self.nodes):
-            peers = {
-                str(peer_index): {"host": _address(peer), "status": "CONNECTED", "changed": True}
-                for peer_index, peer in enumerate(connected)
-            }
-            if departed is not None and self.notice_as_invalid and departed not in connected:
-                peers[str(len(peers))] = {"host": _address(departed), "status": "INVALID", "changed": True}
+            peers: dict[str, Any] = {}
+            for peer_index, peer in enumerate(self.nodes):
+                status = self._peer_status(peer, connected)
+                if status is not None:
+                    peers[str(peer_index)] = {"host": _dns(peer_index), "status": status, "changed": True}
             entries[str(index)] = {
-                "status": self.observer_status if node != departed else "UNAVAILABLE",
-                "host": _address(node),
-                "hostName": node,
+                "status": self._own_status(node, departed),
+                "host": _dns(index),
                 "connections": peers,
+                "version": "595.58.03",
+                "hostName": _address(node),
+            }
+        for index in range(len(self.nodes), slots):
+            entries[str(index)] = {
+                "status": "UNAVAILABLE",
+                "host": _dns(index),
+                "connections": {
+                    str(peer): {"host": _dns(peer), "status": "INVALID", "changed": False} for peer in range(slots)
+                },
+                "version": "",
+                "hostName": "N/A",
             }
         return json.dumps({"nodes": entries, "timestamp": "9/15/2026 00:00:00.000", "status": self.domain_state})
+
+    def _peer_status(self, peer: str, connected: list[str]) -> str | None:
+        """Return what a daemon reports about ``peer``, or None when it dropped it."""
+        if not self.peered_before_departure and peer == self.target:
+            return self.unpeered_status
+        if peer in connected:
+            return "CONNECTED"
+        return "INVALID" if self.notice_as_invalid else None
+
+    def _own_status(self, node: str, departed: str | None) -> str:
+        """Return the readiness a node's own daemon reports for itself."""
+        if node == departed:
+            return "UNAVAILABLE"
+        if departed is not None and self.observer_unready_after_shrink:
+            return "UNAVAILABLE"
+        return self.observer_status
 
     @property
     def _notice_at(self) -> int:
@@ -389,6 +481,7 @@ def test_departure_observed_by_a_surviving_peer_passes() -> None:
     assert "gpu-2 reported it unavailable" in check.message
     assert "still operational among the surviving members" in check.message
     assert _subtests(check) == {
+        "peer_baseline": True,
         "departure": True,
         "clean_exit": True,
         "departure_upheld": True,
@@ -430,7 +523,30 @@ def test_what_peers_observed_is_read_from_a_surviving_daemon() -> None:
 
     execs = [command for command in cluster.commands if command.startswith("kubectl exec")]
     assert execs
-    assert execs[0].endswith("daemon-gpu-2 -- nvidia-imex-ctl -N -j -H")
+    assert execs[0].endswith(f"daemon-gpu-2 -- nvidia-imex-ctl -c {MODERN_CONFIG} -N -j -H")
+
+
+def test_the_daemons_config_is_looked_for_where_an_older_driver_kept_it() -> None:
+    """The driver moved its config between versions, and the tool's own default
+    is the older location. A check that knew only one would report a cluster it
+    could not read as a cluster whose peers said nothing."""
+    cluster = _Cluster(accepted_config=LEGACY_CONFIG)
+    check = _run(cluster)
+
+    assert check.passed, check.message
+    attempted = [command for command in cluster.commands if command.startswith("kubectl exec")]
+    assert any(f" -c {MODERN_CONFIG} " in command for command in attempted)
+    assert any(f" -c {LEGACY_CONFIG} " in command for command in attempted)
+
+
+def test_a_daemon_reporting_a_degraded_domain_is_not_a_failure() -> None:
+    """The driver pre-sizes a domain's config to the largest one it supports, so
+    every unclaimed slot counts against the domain-wide status and a healthy
+    domain calls itself DEGRADED. Reading that status would fail every run."""
+    check = _run(_Cluster(domain_state="DEGRADED", padded_slots=16))
+
+    assert check.passed, check.message
+    assert _subtests(check)["peer_convergence"] is True
 
 
 def test_a_domain_still_listing_the_departed_node_is_not_a_failure() -> None:
@@ -570,23 +686,89 @@ def test_a_single_member_domain_fails_as_too_small() -> None:
     assert "too small" in check.message
 
 
-def test_a_domain_publishing_no_address_fails_readably() -> None:
-    """Without an address there is no way to recognise the departed node in a
-    surviving daemon's report of its peers."""
-    check = _run(_Cluster(addressed=False))
+def test_a_domain_publishing_no_index_fails_readably() -> None:
+    """The index is what a node is called in a daemon's report of its peers, so
+    without one there is no way to recognise the node that departed."""
+    check = _run(_Cluster(indexed=False))
 
     assert not check.passed
-    assert "publishes no address for gpu-1, gpu-2" in check.message
+    assert "publishes no index for gpu-1, gpu-2" in check.message
+
+
+def test_a_domain_publishing_one_index_for_two_nodes_fails() -> None:
+    """A driver too old to publish indices reports 0 for every node, which would
+    silently compare the observer against itself."""
+    check = _run(_Cluster(duplicate_index=True))
+
+    assert not check.passed
+    assert "publishes index 0 for both gpu-1 and gpu-2" in check.message
+
+
+def test_the_observer_is_taken_from_the_departing_nodes_clique() -> None:
+    """Daemons are configured with the members of their own NVLink partition and
+    no others, so a pair straddling two would report nothing about each other
+    however the domain behaved."""
+    cluster = _Cluster(nodes=("gpu-1", "gpu-2", "gpu-3"), cliques={"gpu-2": "fabric-9.9"})
+    check = _run(cluster)
+
+    assert check.passed, check.message
+    assert "gpu-3 reported it unavailable" in check.message
+    execs = [command for command in cluster.commands if command.startswith("kubectl exec")]
+    assert all("daemon-gpu-3" in command for command in execs)
+
+
+def test_a_clique_with_no_surviving_member_fails_as_too_small() -> None:
+    """A domain large enough to have peers is not large enough if none of them
+    share the departing node's partition."""
+    check = _run(_Cluster(nodes=("gpu-1", "gpu-2"), cliques={"gpu-2": "fabric-9.9"}))
+
+    assert not check.passed
+    assert "no surviving member in gpu-1's NVLink partition" in check.message
+    assert "too small" in check.message
 
 
 def test_an_unreadable_peer_view_fails_rather_than_passing() -> None:
     """A view that could not be read is a check that never made its
     observation, not a departure nobody objected to."""
-    check = _run(_Cluster(exec_result=_fail(stderr="container not found")), convergence_timeout_seconds=30)
+    check = _run(_Cluster(exec_fails_after_shrink=True), convergence_timeout_seconds=30)
 
     assert not check.passed
     assert "Could not establish what gpu-2 reports about the departed node gpu-1" in check.message
     assert "container not found" in check.message
+
+
+def test_a_domain_whose_members_never_peered_fails_before_removing_anything() -> None:
+    """A peer that never had the node connected reports it unavailable from the
+    outset, so without a baseline a domain that never peered at all would read
+    as a departure promptly observed."""
+    cluster = _Cluster(peered_before_departure=False)
+    check = _run(cluster, convergence_timeout_seconds=30)
+
+    assert not check.passed
+    assert "gpu-2 never reported gpu-1 as available in the 30s before the departure was requested" in check.message
+    assert "cannot validate the property" in check.message
+    assert _subtests(check)["peer_baseline"] is False
+    assert not cluster.patches, "nothing should be removed from a domain that cannot answer the question"
+
+
+def test_the_baseline_names_the_reason_peers_never_connected() -> None:
+    """The tool tells a peer that dropped apart from one it refused to talk to,
+    and a run that cannot say which is far harder to act on."""
+    check = _run(_Cluster(peered_before_departure=False), convergence_timeout_seconds=30)
+
+    assert "VERSION_MISMATCH" in check.message
+
+
+def test_an_observer_that_never_reports_itself_ready_fails_the_baseline() -> None:
+    """Nothing can be established from a daemon that is not ready itself, and
+    the domain must not be degraded on the way to finding that out."""
+    cluster = _Cluster(observer_status="UNAVAILABLE")
+    check = _run(cluster, convergence_timeout_seconds=30)
+
+    assert not check.passed
+    assert "gpu-2 never reported gpu-1 as available" in check.message
+    assert "does not report its own daemon as READY" in check.message
+    assert not cluster.patches
 
 
 def test_a_peer_reporting_the_node_invalid_reads_as_unavailable() -> None:
@@ -597,23 +779,26 @@ def test_a_peer_reporting_the_node_invalid_reads_as_unavailable() -> None:
     assert check.passed, check.message
 
 
-def test_a_surviving_daemon_reporting_its_domain_down_fails() -> None:
-    """Noticing the departure is not enough: the domain has to keep working
-    among the members that remain, as those members see it."""
-    check = _run(_Cluster(domain_state="DOWN"), convergence_timeout_seconds=30)
-
-    assert not check.passed
-    assert "its own view of the domain was 'down'" in check.message
-    assert "expected to stay operational" in check.message
-
-
 def test_a_peer_map_from_an_unready_daemon_is_not_evidence() -> None:
     """An empty peer map on an unhealthy daemon says nothing about the peer, so
     it must not be read as that daemon reporting the node gone."""
-    check = _run(_Cluster(observer_status="UNAVAILABLE"), convergence_timeout_seconds=30)
+    check = _run(_Cluster(observer_unready_after_shrink=True), convergence_timeout_seconds=30)
 
     assert not check.passed
     assert "Could not establish what gpu-2 reports" in check.message
+
+
+def test_a_peer_reporting_the_node_gone_while_unready_itself_fails() -> None:
+    """Noticing the departure is not enough: an account of it is only worth
+    taking from a daemon that is a healthy surviving member."""
+    check = _run(
+        _Cluster(observer_unready_after_shrink=True, notice_as_invalid=True),
+        convergence_timeout_seconds=30,
+    )
+
+    assert not check.passed
+    assert "never reported its own daemon as READY" in check.message
+    assert _subtests(check)["peer_convergence"] is False
 
 
 def test_the_node_is_put_back_after_a_successful_departure() -> None:

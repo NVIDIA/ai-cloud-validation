@@ -1908,13 +1908,25 @@ READY = "Ready"
 
 # The daemon's own view of the domain, which is the same view SDN21-01 reads on
 # a host - asked here of the daemon the driver placed inside the domain. Schema
-# confirmed live for SDN21-01: `status` is the domain state, `nodes` carries an
-# entry per configured member, and each entry's `connections` map is that
-# node's own report of its peers, keyed by address.
-IMEX_CTL_COMMAND: tuple[str, ...] = ("nvidia-imex-ctl", "-N", "-j", "-H")
+# confirmed live: `nodes` carries an entry per configured member, and each
+# entry's `connections` map is that node's own report of its peers.
+#
+# The config has to be named explicitly. The tool's default location is where a
+# host installation keeps it, which is where SDN21-01 reads it from, but the
+# driver writes its own somewhere else entirely - and moved it between versions.
+# Newest layout first; the second is both the older driver's location and the
+# tool's own default.
+IMEX_CTL_BINARY = "nvidia-imex-ctl"
+IMEX_CTL_ARGS: tuple[str, ...] = ("-N", "-j", "-H")
+IMEX_CTL_CONFIG_PATHS: tuple[str, ...] = ("/imexd/imexd.cfg", "/etc/nvidia-imex/config.cfg")
 IMEX_NODE_READY = "READY"
 IMEX_PEER_CONNECTED = "CONNECTED"
-IMEX_DOMAIN_UP = "up"
+
+# Inside a driver-managed domain the daemons peer over names built from each
+# node's stable index within its clique, not over addresses. A peer's connection
+# entry carries that name alone, so the index the domain publishes for a node is
+# the only identity both sides of a comparison share.
+IMEX_DAEMON_DNS_NAME_FORMAT = "compute-domain-daemon-%04d"
 
 # Normalized vocabulary for what a surviving member reports about a peer, so no
 # assertion ever substring-matches raw tool output.
@@ -1996,15 +2008,18 @@ class _DomainState(NamedTuple):
     The two are read separately on purpose - a node the domain calls ready with
     no daemon behind it is a defect, not a rounding error.
 
-    ``addresses`` maps a member to the address the domain published for it,
+    ``indices`` maps a member to the stable index the domain published for it,
     which is how a node named by the cluster is matched to the same node in a
-    daemon's own report of its peers. ``departing`` maps a node to a daemon pod
-    on its way out, kept apart from ``daemons`` so a pod already being torn
-    down can never stand in for a running one.
+    daemon's own report of its peers, and ``cliques`` maps it to the NVLink
+    partition it sits in, since daemons are only configured with the members of
+    their own. ``departing`` maps a node to a daemon pod on its way out, kept
+    apart from ``daemons`` so a pod already being torn down can never stand in
+    for a running one.
     """
 
     members: dict[str, str]
-    addresses: dict[str, str]
+    indices: dict[str, int]
+    cliques: dict[str, str]
     daemons: dict[str, dict[str, Any]]
     departing: dict[str, dict[str, Any]]
 
@@ -2070,21 +2085,29 @@ def _container_env(container: dict[str, Any], name: str) -> str | None:
 
 
 class _PeerView(NamedTuple):
-    """What one surviving daemon reports about the domain and about a peer.
+    """What one surviving daemon reports about a peer and about itself.
 
     ``target_reported`` is the normalized vocabulary rather than anything the
-    tool printed. ``domain_state`` and ``observer_ready`` are the reporting
-    daemon's account of its own health, which is what separates a peer that
-    noticed a departure from a domain that fell apart around it.
+    tool printed, and is the only field any assertion reads. ``observer_ready``
+    is the reporting daemon's account of its own health, which is what separates
+    a peer that noticed a departure from a daemon whose report means nothing.
+    ``target_status`` carries the raw peer status through for diagnostics only -
+    the tool distinguishes a peer that dropped from one it refused to talk to,
+    and a run that cannot say which is far harder to act on.
     """
 
-    domain_state: str
     observer_ready: bool
     target_reported: str
+    target_status: str
 
 
-def _peer_view(payload: dict[str, Any], observer_address: str, target_address: str) -> _PeerView:
-    """Reduce one daemon's domain report to what it says about ``target_address``.
+def _daemon_dns_name(index: int) -> str:
+    """Return the name the driver's daemons peer over for a node's index."""
+    return IMEX_DAEMON_DNS_NAME_FORMAT % index
+
+
+def _peer_view(payload: dict[str, Any], observer_index: int, target_index: int) -> _PeerView:
+    """Reduce one daemon's domain report to what it says about the target node.
 
     Only the reporting node's *own* entry is consulted. The payload carries an
     entry for every configured member, but the entries for other nodes are
@@ -2098,30 +2121,37 @@ def _peer_view(payload: dict[str, Any], observer_address: str, target_address: s
     is only taken from a daemon that reports itself ready, since an empty peer
     map on an unhealthy daemon says nothing about the peer.
 
-    Nodes are matched by address alone, since both addresses come from what the
-    domain published for those nodes. The tool also reports a hostname, but a
-    peer's connection entry carries only the address, so an address is the one
-    identity both sides of this comparison always have.
+    Nodes are matched by the name built from the index the domain published for
+    them. A host installation's daemons peer over addresses, which is what
+    SDN21-01 matches on, but the driver's peer over generated names, and a
+    connection entry carries only the name - so the address the domain also
+    publishes is no use here.
+
+    The payload's domain-wide status is deliberately not read. The driver sizes
+    a domain's config to the largest one it supports, so every slot no node has
+    claimed counts against that status and a healthy domain reports itself
+    degraded. Whether the domain still holds together is read cluster-side
+    instead, and whether this daemon's report carries weight is read from its
+    own entry.
     """
-    domain_state = str(payload.get("status") or "").strip().lower()
     nodes_raw = payload.get("nodes")
     nodes = [node for node in nodes_raw.values() if isinstance(node, dict)] if isinstance(nodes_raw, dict) else []
 
-    own = next((node for node in nodes if node.get("host") == observer_address), None)
+    own = next((node for node in nodes if node.get("host") == _daemon_dns_name(observer_index)), None)
     if own is None:
-        return _PeerView(domain_state, False, PEER_UNKNOWN)
+        return _PeerView(False, PEER_UNKNOWN, "")
 
     observer_ready = own.get("status") == IMEX_NODE_READY
     connections_raw = own.get("connections")
     connections = list(connections_raw.values()) if isinstance(connections_raw, dict) else []
-    entry = next((peer for peer in connections if isinstance(peer, dict) and peer.get("host") == target_address), None)
+    target_name = _daemon_dns_name(target_index)
+    entry = next((peer for peer in connections if isinstance(peer, dict) and peer.get("host") == target_name), None)
     if entry is not None:
-        reported = PEER_AVAILABLE if entry.get("status") == IMEX_PEER_CONNECTED else PEER_UNAVAILABLE
-    elif observer_ready:
-        reported = PEER_UNAVAILABLE
-    else:
-        reported = PEER_UNKNOWN
-    return _PeerView(domain_state, observer_ready, reported)
+        status = str(entry.get("status") or "")
+        reported = PEER_AVAILABLE if status == IMEX_PEER_CONNECTED else PEER_UNAVAILABLE
+        return _PeerView(observer_ready, reported, status)
+    reported = PEER_UNAVAILABLE if observer_ready else PEER_UNKNOWN
+    return _PeerView(observer_ready, reported, "")
 
 
 def _restart_count(pod: dict[str, Any]) -> int:
@@ -2453,12 +2483,16 @@ class _ComputeDomainCheck(BaseValidation):
             return None, f"compute domain {name} carries no UID to match its daemons by"
 
         members: dict[str, str] = {}
-        addresses: dict[str, str] = {}
+        indices: dict[str, int] = {}
+        cliques: dict[str, str] = {}
         for node in (domain.get("status") or {}).get("nodes") or []:
             if isinstance(node, dict) and _is_non_empty_string(node.get("name")):
                 members[node["name"]] = str(node.get("status") or "")
-                if _is_non_empty_string(node.get("ipAddress")):
-                    addresses[node["name"]] = node["ipAddress"]
+                index = node.get("index")
+                if isinstance(index, int) and not isinstance(index, bool):
+                    indices[node["name"]] = index
+                if _is_non_empty_string(node.get("cliqueID")):
+                    cliques[node["name"]] = node["cliqueID"]
 
         pods = self.run_command(
             get_kubectl_base_shell(
@@ -2472,7 +2506,8 @@ class _ComputeDomainCheck(BaseValidation):
         return (
             _DomainState(
                 members=members,
-                addresses=addresses,
+                indices=indices,
+                cliques=cliques,
                 daemons=_live_daemons_by_node(items),
                 departing=_departing_daemons_by_node(items),
             ),
@@ -2638,6 +2673,13 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
     reports that node as unavailable within a bounded time, and the domain goes
     on working among the nodes that remain.
 
+    The surviving member has to report the departing node as connected *before*
+    it is removed, or none of that means anything: a peer that never had the
+    node connected reports it unavailable from the outset, so a domain whose
+    members never managed to peer at all would read as a departure promptly
+    observed. That baseline is what makes the later reading a change this check
+    caused rather than a state it inherited.
+
     The departure is a shrink of the domain, requested by withdrawing that
     node's channel claim. Draining the node would not produce one: the claim
     holder and the driver's daemon are both DaemonSet pods, which a drain
@@ -2698,22 +2740,35 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
             return
 
         target = min(state.members)
-        observer = min(node for node in state.members if node != target)
-        # Addresses are captured now, not read back later: a shrunk domain stops
+        observer = self._pick_observer(state, name, target)
+        if observer is None:
+            return
+        # Indices are captured now, not read back later: a shrunk domain stops
         # publishing the departed node, which is exactly when the check needs to
         # recognise it in a surviving daemon's report of its peers.
-        unaddressed = sorted(node for node in (target, observer) if node not in state.addresses)
-        if unaddressed:
+        unindexed = sorted(node for node in (target, observer) if node not in state.indices)
+        if unindexed:
             self.set_failed(
-                f"Compute domain {name} publishes no address for {', '.join(unaddressed)}, so a surviving "
+                f"Compute domain {name} publishes no index for {', '.join(unindexed)}, so a surviving "
                 "member's report of its peers cannot be matched back to the node that departed"
             )
             return
-        target_address = state.addresses[target]
-        observer_address = state.addresses[observer]
+        target_index = state.indices[target]
+        observer_index = state.indices[observer]
+        # A driver too old to publish indices reports 0 for every node, which
+        # would silently compare the observer against itself.
+        if target_index == observer_index:
+            self.set_failed(
+                f"Compute domain {name} publishes index {target_index} for both {target} and {observer}, so the "
+                "two cannot be told apart in a surviving member's report of its peers"
+            )
+            return
 
         budget = self._derived_budget("convergence_timeout_seconds", formation_seconds)
         if budget is None:
+            return
+
+        if not self._await_peer_baseline(namespace, name, target, observer, target_index, observer_index, budget):
             return
 
         baseline_restarts = _restart_count(state.daemons[target])
@@ -2721,11 +2776,29 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
             return
         try:
             if self._await_clean_departure(namespace, name, target, baseline_restarts, budget):
-                self._await_peer_convergence(
-                    namespace, name, target, observer, target_address, observer_address, budget
-                )
+                self._await_peer_convergence(namespace, name, target, observer, target_index, observer_index, budget)
         finally:
             self._restore(namespace, name, target, budget)
+
+    def _pick_observer(self, state: _DomainState, name: str, target: str) -> str | None:
+        """Choose the surviving member that watches ``target`` leave.
+
+        Taken from the departing node's own clique, because the driver
+        configures each daemon with the members of its NVLink partition and no
+        others: a pair straddling two partitions reports nothing about each
+        other however the domain behaves, so it would fail every run on a
+        perfectly healthy multi-clique domain.
+        """
+        clique = state.cliques.get(target)
+        peers = sorted(node for node in state.members if node != target and state.cliques.get(node) == clique)
+        if not peers:
+            self.set_failed(
+                f"Compute domain {name} accounts for no surviving member in {target}'s NVLink partition: the "
+                "departure has to be observed from a node configured to peer with the one that left, so this "
+                "environment is too small to validate the property rather than one where it holds"
+            )
+            return None
+        return peers[0]
 
     def _patch_claim_scope(self, namespace: str, name: str, exclude: str | None) -> str | None:
         """Repoint the channel claims at a new set of nodes, returning any error."""
@@ -2800,20 +2873,74 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
         self.report_subtest("clean_exit", True, f"{target}: daemon exited without restarting or being killed")
         return True
 
+    def _await_peer_baseline(
+        self,
+        namespace: str,
+        name: str,
+        target: str,
+        observer: str,
+        target_index: int,
+        observer_index: int,
+        timeout: int,
+    ) -> bool:
+        """Wait for the observer to report the target connected, before removing it.
+
+        Bounded rather than read once, because the domain reports a node ready
+        as soon as its own daemon is, which can be a little ahead of that daemon
+        having peered with everyone.
+        """
+        deadline = time.monotonic() + timeout
+        view = _PeerView(False, PEER_UNKNOWN, "")
+        read_error = f"{observer}'s daemon was never reachable to ask"
+        while True:
+            state, error = self._observe(namespace, name)
+            if state is not None and observer in state.daemons:
+                view, read_error = self._read_peer_view(state, observer, target_index, observer_index)
+                if view.observer_ready and view.target_reported == PEER_AVAILABLE:
+                    self.report_subtest("peer_baseline", True, f"{observer} reports {target} as {PEER_AVAILABLE}")
+                    return True
+            elif error:
+                read_error = error
+
+            if time.monotonic() >= deadline:
+                self._report_no_baseline(target, observer, timeout, view, read_error)
+                return False
+            self._sleep_until(deadline)
+
+    def _report_no_baseline(self, target: str, observer: str, budget: int, view: _PeerView, read_error: str) -> None:
+        """Fail a domain whose members never peered, before degrading it.
+
+        Named as an environment that cannot answer the question rather than as
+        a departure gone wrong: nothing has been removed yet, and a domain whose
+        members never connected is a broken domain, which is SDN21-01's subject
+        and not this one's.
+        """
+        if not view.observer_ready:
+            detail = read_error or f"it does not report its own daemon as {IMEX_NODE_READY}"
+        else:
+            named = f" ({view.target_status})" if view.target_status else ""
+            detail = f"it reports {target} as {view.target_reported}{named}"
+        self.report_subtest("peer_baseline", False, f"{observer}: {target} was never reported {PEER_AVAILABLE}")
+        self.set_failed(
+            f"{observer} never reported {target} as {PEER_AVAILABLE} in the {budget}s before the departure was "
+            f"requested: {detail}. A node its peers never saw connected cannot be observed leaving, so this "
+            "domain cannot validate the property rather than being one where it fails"
+        )
+
     def _await_peer_convergence(
         self,
         namespace: str,
         name: str,
         target: str,
         observer: str,
-        target_address: str,
-        observer_address: str,
+        target_index: int,
+        observer_index: int,
         timeout: int,
     ) -> None:
         """Wait for a surviving member to report the departed node as unavailable."""
         deadline = time.monotonic() + timeout
         started = time.monotonic()
-        view = _PeerView("", False, PEER_UNKNOWN)
+        view = _PeerView(False, PEER_UNKNOWN, "")
         operational, collapse = True, ""
         read_error = f"{observer}'s daemon was never reachable to ask"
         while True:
@@ -2825,8 +2952,8 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
                     return
                 operational, collapse = _survivors_operational(state, target)
                 if observer in state.daemons:
-                    view, read_error = self._read_peer_view(state, observer, target_address, observer_address)
-                if view.target_reported == PEER_UNAVAILABLE and operational and view.domain_state == IMEX_DOMAIN_UP:
+                    view, read_error = self._read_peer_view(state, observer, target_index, observer_index)
+                if view.target_reported == PEER_UNAVAILABLE and view.observer_ready and operational:
                     self._report_converged(target, observer, elapsed, timeout)
                     return
             elif error:
@@ -2838,27 +2965,46 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
             self._sleep_until(deadline)
 
     def _read_peer_view(
-        self, state: _DomainState, observer: str, target_address: str, observer_address: str
+        self, state: _DomainState, observer: str, target_index: int, observer_index: int
     ) -> tuple[_PeerView, str]:
-        """Ask a surviving member's own daemon what it reports about the domain."""
+        """Ask a surviving member's own daemon what it reports about the domain.
+
+        Each known config location is tried in turn, and the first the tool
+        accepts is the answer: where the driver keeps it moved between versions,
+        and a check that only knew one of them would report a cluster it could
+        not read as a cluster whose peers said nothing.
+        """
         metadata = state.daemons[observer].get("metadata") or {}
-        result = self.run_command(
-            get_kubectl_base_shell(
-                "exec",
-                "-n",
-                str(metadata.get("namespace") or ""),
-                str(metadata.get("name") or ""),
-                "--",
-                *IMEX_CTL_COMMAND,
-            ),
-            timeout=self._READ_TIMEOUT_SECONDS,
-        )
-        if result.exit_code != 0:
-            return _PeerView("", False, PEER_UNKNOWN), f"could not ask {observer}'s daemon: {command_detail(result)}"
-        payload = kubectl_payload_or_none(result)
-        if payload is None:
-            return _PeerView("", False, PEER_UNKNOWN), f"could not parse {observer}'s report of the domain"
-        return _peer_view(payload, observer_address, target_address), ""
+        pod_namespace = str(metadata.get("namespace") or "")
+        pod_name = str(metadata.get("name") or "")
+        detail = ""
+        for config_path in IMEX_CTL_CONFIG_PATHS:
+            result = self.run_command(
+                get_kubectl_base_shell(
+                    "exec",
+                    "-n",
+                    pod_namespace,
+                    pod_name,
+                    "--",
+                    IMEX_CTL_BINARY,
+                    "-c",
+                    config_path,
+                    *IMEX_CTL_ARGS,
+                ),
+                timeout=self._READ_TIMEOUT_SECONDS,
+            )
+            if result.exit_code != 0:
+                # The first location is the one a current driver uses, so its
+                # failure is the one worth reporting: a later path failing says
+                # only that the driver did not use that layout either, which
+                # would bury a daemon that could not be reached at all.
+                detail = detail or command_detail(result)
+                continue
+            payload = kubectl_payload_or_none(result)
+            if payload is None:
+                return _PeerView(False, PEER_UNKNOWN, ""), f"could not parse {observer}'s report of the domain"
+            return _peer_view(payload, observer_index, target_index), ""
+        return _PeerView(False, PEER_UNKNOWN, ""), f"could not ask {observer}'s daemon: {detail}"
 
     def _report_rescheduled(self, target: str, name: str) -> None:
         """Fail a driver that puts a daemon back on a node that was removed.
@@ -2933,12 +3079,12 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
             )
             return
         self.report_subtest(
-            "peer_convergence", False, f"{observer} reports {target} gone but its own domain state as not up"
+            "peer_convergence", False, f"{observer} reports {target} gone but does not report itself ready"
         )
         self.set_failed(
-            f"{observer} reported the departed node {target} as {PEER_UNAVAILABLE}, but its own view of the "
-            f"domain was {view.domain_state or PEER_UNKNOWN!r} rather than {IMEX_DOMAIN_UP!r} within {budget}s. "
-            "The domain is expected to stay operational among the members that remain"
+            f"{observer} reported the departed node {target} as {PEER_UNAVAILABLE}, but never reported its own "
+            f"daemon as {IMEX_NODE_READY} within {budget}s. A daemon that is not ready itself is not a surviving "
+            "member whose account of a departure can be taken"
         )
 
     def _restore(self, namespace: str, name: str, target: str, timeout: int) -> None:
