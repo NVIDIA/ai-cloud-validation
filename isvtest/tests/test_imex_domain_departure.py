@@ -100,11 +100,9 @@ class _Cluster:
         duplicate_index: bool = False,
         cliques: dict[str, str] | None = None,
         departure_polls: int = 1,
-        notice_polls: int = 0,
         peer_still_connected: bool = False,
         notice_as_invalid: bool = False,
         peered_before_departure: bool = True,
-        unpeered_status: str = "VERSION_MISMATCH",
         exit_code: int = 0,
         baseline_restarts: int = 0,
         shutdown_restarts: int = 0,
@@ -119,13 +117,10 @@ class _Cluster:
         accepted_config: str = MODERN_CONFIG,
         restore_polls: int = 0,
         api_resources: CommandResult | None = None,
-        deployments: CommandResult | None = None,
         apply_result: CommandResult | None = None,
         patch_result: CommandResult | None = None,
         restore_patch_result: CommandResult | None = None,
-        exec_result: CommandResult | None = None,
         exec_fails_after_shrink: bool = False,
-        delete_domain_result: CommandResult | None = None,
     ) -> None:
         self.nodes = nodes
         self.mode = mode
@@ -134,11 +129,9 @@ class _Cluster:
         self.duplicate_index = duplicate_index
         self.cliques = cliques or {}
         self.departure_polls = departure_polls
-        self.notice_polls = notice_polls
         self.peer_still_connected = peer_still_connected
         self.notice_as_invalid = notice_as_invalid
         self.peered_before_departure = peered_before_departure
-        self.unpeered_status = unpeered_status
         self.exit_code = exit_code
         self.baseline_restarts = baseline_restarts
         self.shutdown_restarts = shutdown_restarts
@@ -154,12 +147,9 @@ class _Cluster:
         self.exec_fails_after_shrink = exec_fails_after_shrink
         self.restore_polls = restore_polls
         self.api_resources = api_resources
-        self.deployments = deployments
         self.apply_result = apply_result
         self.patch_result = patch_result
         self.restore_patch_result = restore_patch_result
-        self.exec_result = exec_result
-        self.delete_domain_result = delete_domain_result
 
         self.commands: list[str] = []
         self.patches: list[dict[str, Any]] = []
@@ -222,8 +212,6 @@ class _Cluster:
         """Return the readiness the domain reports for ``node``."""
         if node == self.broken_survivor and self._departed is not None:
             return "NotReady"
-        if node == self.excluded and self._departed is not None:
-            return "Ready"
         return "Ready"
 
     def _members(self) -> list[str]:
@@ -262,7 +250,7 @@ class _Cluster:
         if "api-resources" in command:
             return self.api_resources if self.api_resources is not None else _ok("computedomains.resource.nvidia.com\n")
         if command.startswith("kubectl get deployments"):
-            return self.deployments if self.deployments is not None else _ok(self._deployments())
+            return _ok(self._deployments())
         if command.startswith("printf"):
             if "kind: ComputeDomain" in command:
                 self.allocated = True
@@ -280,7 +268,7 @@ class _Cluster:
             return _ok()
         if command.startswith("kubectl delete computedomains"):
             self.released = True
-            return self.delete_domain_result if self.delete_domain_result is not None else _ok()
+            return _ok()
         raise AssertionError(f"unexpected command: {command}")
 
     def _exec(self, command: str) -> CommandResult:
@@ -292,8 +280,6 @@ class _Cluster:
         """
         if f" -c {self.accepted_config} " not in command:
             return _fail(stderr=f"Unable to open configuration file at {self.accepted_config}")
-        if self.exec_result is not None:
-            return self.exec_result
         if self.exec_fails_after_shrink and self._departed is not None:
             return _fail(stderr="container not found")
         return _ok(self._imex_report())
@@ -364,7 +350,7 @@ class _Cluster:
         """
         departed = self._departed
         connected = [node for node in self.nodes if node != departed]
-        if departed is not None and (self.peer_still_connected or self._since_shrink <= self._notice_at):
+        if departed is not None and (self.peer_still_connected or self._since_shrink <= self.departure_polls):
             connected.append(departed)
 
         slots = len(self.nodes) + self.padded_slots
@@ -397,7 +383,7 @@ class _Cluster:
     def _peer_status(self, peer: str, connected: list[str]) -> str | None:
         """Return what a daemon reports about ``peer``, or None when it dropped it."""
         if not self.peered_before_departure and peer == self.target:
-            return self.unpeered_status
+            return "VERSION_MISMATCH"
         if peer in connected:
             return "CONNECTED"
         return "INVALID" if self.notice_as_invalid else None
@@ -409,11 +395,6 @@ class _Cluster:
         if departed is not None and self.observer_unready_after_shrink:
             return "UNAVAILABLE"
         return self.observer_status
-
-    @property
-    def _notice_at(self) -> int:
-        """Return the poll after the shrink at which peers stop seeing the node."""
-        return self.departure_polls + self.notice_polls
 
 
 def _pod(
@@ -444,22 +425,19 @@ def _pod(
     return {"metadata": metadata, "spec": {"nodeName": node}, "status": status}
 
 
-def _kubectl(*args: str) -> str:
-    """Compose a kubectl command, shell-quoting each part as the real builder does.
-
-    The quoting matters here: the shrink passes a JSON patch as one argument,
-    and a fake that joined on spaces would make a document the check never
-    sends look like a dozen separate flags.
-    """
-    return " ".join(shlex.quote(part) for part in ("kubectl", *args))
-
-
 def _run(cluster: _Cluster, **config: Any) -> ImexDomainDepartureCheck:
-    """Run the check against ``cluster`` on a clock that never really waits."""
+    """Run the check against ``cluster`` on a clock that never really waits.
+
+    The real command builder is left in place and only its kubectl prefix is
+    pinned, so the shell quoting under test is the shipped one. That matters
+    here: the shrink passes a JSON patch as a single argument, and a fake that
+    joined on spaces would make a document the check never sends look like a
+    dozen separate flags.
+    """
     clock = _Clock()
     check = ImexDomainDepartureCheck(config=config)
     with (
-        patch("isvtest.validations.network.get_kubectl_base_shell", side_effect=_kubectl),
+        patch("isvtest.core.k8s.get_kubectl_command", return_value=["kubectl"]),
         patch("isvtest.validations.network.time", clock),
         patch.object(check, "run_command", side_effect=cluster),
     ):

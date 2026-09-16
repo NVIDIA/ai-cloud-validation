@@ -46,13 +46,7 @@ spec:
       labels:
         app: placeholder-claim
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: placeholder
-                    operator: Exists
+      affinity: {}
       tolerations:
         - operator: Exists
       containers:
