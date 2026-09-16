@@ -1191,6 +1191,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[SDN20-02]]SDN20-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): Reboot one node of an allocated compute domain, and assert that with no intervention it re-registers, republishes its NVLink clique label, gets the domain's daemon back, and rejoins a ready compute domain for the same workload.
+| SDN20
+| reference
+| full
+| The Kubernetes DRA reading of SDN20; SDN20-01 covers the host reading.
+
 | [[SDN21-01]]SDN21-01
 | Infrastructure and Data Services
 | SDN Controller

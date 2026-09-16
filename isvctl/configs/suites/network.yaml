@@ -377,6 +377,26 @@ tests:
           test_id: "SDN19-02"
           labels: ["kubernetes", "min_req", "network", "slow"]
           requires: [kubernetes]
+        # Destructive and slow: reboots one member of an allocated compute
+        # domain and waits out the boot, which on bare-metal GB200-class
+        # hardware is minutes. Carries min_req alongside slow so the trait
+        # label cannot drop it from a certification run.
+        #
+        # Still no `step:` - every observation is a cluster API read. The one
+        # exception is the reboot itself, which the cluster API cannot do, so
+        # the provider supplies its own out-of-band mechanism through
+        # `reboot_command` and the check runs it at the point in the sequence
+        # where it has to happen. A provider that wires none skips: the domain
+        # has to be up and the workload running before the node goes down, so
+        # the reboot cannot be a step that ran before any of that existed.
+        ImexDomainRebootRejoinCheck:
+          test_id: "SDN20-02"
+          labels: ["kubernetes", "min_req", "network", "slow"]
+          requires: [kubernetes]
+          # Deliberately unset here, since no mechanism is provider-agnostic.
+          # A provider config supplies its own, with {node} where the name of
+          # the node to reboot goes, e.g.:
+          #   reboot_command: "python ../scripts/vm/reboot_instance.py --node {node}"
 
     teardown_checks:
       step: teardown
