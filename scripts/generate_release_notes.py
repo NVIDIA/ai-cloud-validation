@@ -26,6 +26,9 @@ Generate release notes from a GitHub milestone.
 Fetches issues and pull requests associated with a GitHub milestone and generates
 a formatted markdown release notes document with links and titles.
 
+Each issue carries the merged PRs that closed it on its own line, so a milestoned
+PR is listed separately only when it closes no issue in the milestone.
+
 Usage:
     uv run scripts/generate_release_notes.py <milestone_url> [options]
 
@@ -53,10 +56,13 @@ import datetime
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import requests
+
+# Issues per GraphQL query when resolving implementing pull requests.
+GRAPHQL_BATCH = 50
 
 
 @dataclass
@@ -71,6 +77,14 @@ class MilestoneInfo:
 
 
 @dataclass
+class PullRequestRef:
+    """A merged pull request that closed an issue."""
+
+    number: int
+    url: str
+
+
+@dataclass
 class IssueInfo:
     """Information about a GitHub issue or pull request."""
 
@@ -80,6 +94,7 @@ class IssueInfo:
     is_pr: bool
     labels: list[str]
     draft: bool = False
+    closing_prs: list[PullRequestRef] = field(default_factory=list)
 
 
 def _issue_bullet(issue: IssueInfo, *, show_draft: bool = False) -> str:
@@ -89,7 +104,11 @@ def _issue_bullet(issue: IssueInfo, *, show_draft: bool = False) -> str:
     """
     prefix = "PR" if issue.is_pr else "Issue"
     draft_suffix = " (draft)" if show_draft and issue.is_pr and issue.draft else ""
-    return f"- {prefix} #{issue.number}: [{issue.title}]({issue.url}){draft_suffix}"
+    pr_suffix = ""
+    if issue.closing_prs:
+        links = ", ".join(f"[PR #{pr.number}]({pr.url})" for pr in issue.closing_prs)
+        pr_suffix = f" ({links})"
+    return f"- {prefix} #{issue.number}: [{issue.title}]({issue.url}){draft_suffix}{pr_suffix}"
 
 
 def _format_http_error(response: requests.Response) -> str:
@@ -197,6 +216,47 @@ class GitHubAPI:
         endpoint = f"/repos/{org}/{repo}/issues"
         params = {"milestone": str(milestone_number), "state": state}
         return self._get_paginated(endpoint, params, verbose=verbose)
+
+    def _post_graphql(self, query: str) -> dict[str, Any]:
+        """Run a GraphQL query and return its data payload."""
+        response = requests.post(f"{self.base_url}/graphql", headers=self.headers, json={"query": query}, timeout=30)
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError:
+            raise requests.exceptions.HTTPError(
+                f"{response.status_code} Client Error: {_format_http_error(response)} for url: {response.url}",
+                response=response,
+            )
+        payload = response.json()
+        if "errors" in payload:
+            messages = "; ".join(str(e.get("message", e)) for e in payload["errors"])
+            raise ValueError(f"GraphQL error: {messages}")
+        return payload["data"]
+
+    def get_closing_prs(self, org: str, repo: str, issue_numbers: list[int]) -> dict[int, list[PullRequestRef]]:
+        """Map each issue number to the merged pull requests that closed it.
+
+        Unmerged PRs are dropped: an issue can reference a closed-without-merge
+        attempt alongside the PR that actually landed.
+        """
+        closing: dict[int, list[PullRequestRef]] = {}
+        for start in range(0, len(issue_numbers), GRAPHQL_BATCH):
+            batch = issue_numbers[start : start + GRAPHQL_BATCH]
+            aliases = "\n".join(
+                f"i{number}: issue(number: {number}) {{ "
+                f"closedByPullRequestsReferences(first: 10, includeClosedPrs: true) "
+                f"{{ nodes {{ number url state }} }} }}"
+                for number in batch
+            )
+            data = self._post_graphql(f'{{ repository(owner: "{org}", name: "{repo}") {{ {aliases} }} }}')
+            repository = data.get("repository") or {}
+            for number in batch:
+                node = repository.get(f"i{number}") or {}
+                refs = (node.get("closedByPullRequestsReferences") or {}).get("nodes") or []
+                merged = [PullRequestRef(number=r["number"], url=r["url"]) for r in refs if r["state"] == "MERGED"]
+                if merged:
+                    closing[number] = sorted(merged, key=lambda pr: pr.number)
+        return closing
 
 
 def parse_milestone_url(url: str) -> MilestoneInfo:
@@ -309,9 +369,13 @@ def generate_markdown(
 
     pr_count = sum(1 for i in filtered_issues if i.is_pr)
     issue_count = len(filtered_issues) - pr_count
+    linked_pr_count = sum(len(i.closing_prs) for i in filtered_issues)
+    total = f"**Total**: {len(filtered_issues)} items ({pr_count} PRs, {issue_count} issues)"
+    if linked_pr_count:
+        total += f", plus {linked_pr_count} implementing PRs linked inline"
     lines.append("---")
     lines.append("")
-    lines.append(f"**Total**: {len(filtered_issues)} items ({pr_count} PRs, {issue_count} issues)")
+    lines.append(total)
 
     return "\n".join(lines) + "\n"
 
@@ -416,6 +480,19 @@ def main() -> int:
 
         issues = [parse_issue(issue) for issue in issues_data]
         print(f"Found {len(issues)} items", file=sys.stderr)
+
+        issue_items = [i for i in issues if not i.is_pr]
+        if issue_items:
+            print("Resolving implementing pull requests...", file=sys.stderr)
+            closing = api.get_closing_prs(milestone_info.org, milestone_info.repo, [i.number for i in issue_items])
+            linked: set[int] = set()
+            for item in issue_items:
+                item.closing_prs = closing.get(item.number, [])
+                linked.update(pr.number for pr in item.closing_prs)
+            # A milestoned PR already shown on its issue's line would otherwise appear twice.
+            issues = [i for i in issues if not (i.is_pr and i.number in linked)]
+            if args.verbose:
+                print(f"  Linked {len(linked)} pull requests to issues", file=sys.stderr)
 
         if len(issues) == 0 and milestone_data.get("closed_issues", 0) > 0:
             print(
