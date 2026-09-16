@@ -633,6 +633,7 @@ def test_an_earlier_bad_exit_is_not_read_as_this_shutdown_being_forced() -> None
     original = cluster._daemon
 
     def caught_before_exiting(node: str) -> dict[str, Any] | None:
+        """Return the cluster's pod with an earlier bad run recorded in lastState."""
         pod = original(node)
         if pod is not None:
             container = pod["status"]["containerStatuses"][0]
