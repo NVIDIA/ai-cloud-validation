@@ -22,15 +22,19 @@ and DDI (DNS/DHCP/IP management).
 from __future__ import annotations
 
 import ipaddress
+import json
 import math
 import re
 import shlex
 import time
 import uuid
+from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     import paramiko
 
 import pytest
@@ -2167,6 +2171,41 @@ HOST_MANAGED_MODE = "hostManaged"
 
 READY = "Ready"
 
+# The daemon's own view of the domain, which is the same view SDN21-01 reads on
+# a host - asked here of the daemon the driver placed inside the domain. Schema
+# confirmed live: `nodes` carries an entry per configured member, and each
+# entry's `connections` map is that node's own report of its peers.
+#
+# The config has to be named explicitly. The tool's default location is where a
+# host installation keeps it, which is where SDN21-01 reads it from, but the
+# driver writes its own somewhere else entirely - and moved it between versions.
+# Newest layout first; the second is both the older driver's location and the
+# tool's own default.
+IMEX_CTL_BINARY = "nvidia-imex-ctl"
+IMEX_CTL_ARGS: tuple[str, ...] = ("-N", "-j", "-H")
+IMEX_CTL_CONFIG_PATHS: tuple[str, ...] = ("/imexd/imexd.cfg", "/etc/nvidia-imex/config.cfg")
+IMEX_NODE_READY = "READY"
+IMEX_PEER_CONNECTED = "CONNECTED"
+
+# Inside a driver-managed domain the daemons peer over names built from each
+# node's stable index within its clique, not over addresses. A peer's connection
+# entry carries that name alone, so the index the domain publishes for a node is
+# the only identity both sides of a comparison share.
+IMEX_DAEMON_DNS_NAME_FORMAT = "compute-domain-daemon-%04d"
+
+# Normalized vocabulary for what a surviving member reports about a peer, so no
+# assertion ever substring-matches raw tool output.
+PEER_AVAILABLE = "available"
+PEER_UNAVAILABLE = "unavailable"
+PEER_UNKNOWN = "unknown"
+
+# A daemon asked to stop either exits 0 or reports the signal that stopped it.
+# 143 is SIGTERM, the graceful path for a process that installs no handler; 137
+# is SIGKILL, which the kubelet only sends once the grace period has run out,
+# and so is the signature of a daemon that had to be forced.
+_CLEAN_EXIT_CODES = (0, 143)
+_FORCE_KILL_EXIT_CODE = 137
+
 _MANIFEST_DIR = Path(__file__).parent / "manifests" / "k8s"
 _COMPUTE_DOMAIN_MANIFEST = _MANIFEST_DIR / "imex_compute_domain.yaml"
 _CHANNEL_CLAIM_MANIFEST = _MANIFEST_DIR / "imex_channel_claim.yaml"
@@ -2176,34 +2215,61 @@ _CHANNEL_CLAIM_MANIFEST = _MANIFEST_DIR / "imex_channel_claim.yaml"
 _DEFAULT_IMAGE = "busybox:1.36"
 
 
+def _claim_daemonset(name: str) -> str:
+    """Return the name of the DaemonSet holding a domain's channel claims."""
+    return f"{name}-claim"
+
+
+def _channel_template(name: str) -> str:
+    """Return the name of the claim template a domain's channels are cut from."""
+    return f"{name}-channel"
+
+
 def _set_compute_domain_fields(doc: dict[str, Any], *, name: str, namespace: str) -> dict[str, Any]:
     """Mutate a parsed compute-domain manifest in place."""
     doc["metadata"] = {"name": name, "namespace": namespace}
-    doc["spec"]["channel"]["resourceClaimTemplate"]["name"] = f"{name}-channel"
+    doc["spec"]["channel"]["resourceClaimTemplate"]["name"] = _channel_template(name)
     return doc
 
 
-def _set_channel_claim_fields(
-    doc: dict[str, Any], *, name: str, namespace: str, image: str, hold_seconds: int
-) -> dict[str, Any]:
+def _claim_affinity(exclude_node: str | None = None) -> dict[str, Any]:
+    """Return the node affinity that decides which nodes hold a channel claim.
+
+    Every clique node by default. Naming a node excludes it, which is how a
+    domain is shrunk: the claim on that node is what keeps it in the domain, so
+    withdrawing the claim is a removal requested entirely through the cluster
+    API. Built here rather than written into the manifest twice so the shrink
+    and the restore cannot drift from the scope originally applied.
+
+    Exclusion is by ``metadata.name`` rather than the hostname label, because
+    the node's name is its identity while the label is a convention a platform
+    is free to set to something else. It is also what the DaemonSet controller
+    itself matches on when it pins a pod to a node.
+    """
+    term: dict[str, Any] = {"matchExpressions": [{"key": CLIQUE_LABEL, "operator": "Exists"}]}
+    if exclude_node is not None:
+        term["matchFields"] = [{"key": "metadata.name", "operator": "NotIn", "values": [exclude_node]}]
+    return {"nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [term]}}}
+
+
+def _set_channel_claim_fields(doc: dict[str, Any], *, name: str, namespace: str, image: str) -> dict[str, Any]:
     """Mutate a parsed channel-claim manifest in place.
 
     Names the DaemonSet and its pods after the domain they claim a channel of,
-    pins them to the clique nodes, and sets how long each pod holds its claim.
+    and pins them to the clique nodes. How long they hold their claims is not
+    a parameter: they hold them for as long as the pods exist.
     """
-    claim = f"{name}-claim"
+    claim = _claim_daemonset(name)
     doc["metadata"] = {"name": claim, "namespace": namespace}
     spec = doc["spec"]
     spec["selector"]["matchLabels"]["app"] = claim
     template = spec["template"]
     template["metadata"]["labels"]["app"] = claim
     pod = template["spec"]
-    terms = pod["affinity"]["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"]
-    terms[0]["matchExpressions"][0]["key"] = CLIQUE_LABEL
+    pod["affinity"] = _claim_affinity()
     container = pod["containers"][0]
     container["image"] = image
-    container["command"] = ["sh", "-c", f"sleep {hold_seconds}"]
-    pod["resourceClaims"][0]["resourceClaimTemplateName"] = f"{name}-channel"
+    pod["resourceClaims"][0]["resourceClaimTemplateName"] = _channel_template(name)
     return doc
 
 
@@ -2214,10 +2280,21 @@ class _DomainState(NamedTuple):
     reports for it; ``daemons`` maps a node to the domain's daemon pod there.
     The two are read separately on purpose - a node the domain calls ready with
     no daemon behind it is a defect, not a rounding error.
+
+    ``indices`` maps a member to the stable index the domain published for it,
+    which is how a node named by the cluster is matched to the same node in a
+    daemon's own report of its peers, and ``cliques`` maps it to the NVLink
+    partition it sits in, since daemons are only configured with the members of
+    their own. ``departing`` maps a node to a daemon pod on its way out, kept
+    apart from ``daemons`` so a pod already being torn down can never stand in
+    for a running one.
     """
 
     members: dict[str, str]
+    indices: dict[str, int]
+    cliques: dict[str, str]
     daemons: dict[str, dict[str, Any]]
+    departing: dict[str, dict[str, Any]]
 
 
 def _pod_node(pod: dict[str, Any]) -> str:
@@ -2235,17 +2312,19 @@ def _pod_is_ready(pod: dict[str, Any]) -> bool:
     )
 
 
-def _live_daemons_by_node(pods: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Return the domain's daemon pod per node, skipping pods being torn down.
+def _daemons_by_node(pods: list[dict[str, Any]], *, terminating: bool) -> dict[str, dict[str, Any]]:
+    """Return the domain's daemon pod per node, on one side of the teardown line.
 
-    A terminating pod must never stand in for the replacement a recovery poll
-    is waiting on, which is the whole reason the deletion timestamp is honoured
-    here rather than the pod phase.
+    The two sides are read separately on purpose, which is why the deletion
+    timestamp decides this rather than the pod phase: a terminating pod must
+    never stand in for the replacement a recovery poll is waiting on, and a
+    daemon asked to stop is only observable while it shuts down - so how it
+    went has to be read before the pod object disappears.
     """
     by_node: dict[str, dict[str, Any]] = {}
     for pod in pods:
         metadata = pod.get("metadata") or {}
-        if not isinstance(metadata, dict) or metadata.get("deletionTimestamp"):
+        if not isinstance(metadata, dict) or bool(metadata.get("deletionTimestamp")) is not terminating:
             continue
         node = _pod_node(pod)
         if node:
@@ -2262,6 +2341,164 @@ def _container_env(container: dict[str, Any], name: str) -> str | None:
     return None
 
 
+class _Departure(NamedTuple):
+    """The node leaving the domain and the surviving member watching it leave.
+
+    Indices are captured with the pair because a shrunk domain stops
+    publishing the departed node, and they are what matches a node the cluster
+    names to the same node in a daemon's own report of its peers.
+    """
+
+    target: str
+    target_index: int
+    observer: str
+    observer_index: int
+
+
+class _PeerView(NamedTuple):
+    """What one surviving daemon reports about a peer and about itself.
+
+    ``target_reported`` is the normalized vocabulary rather than anything the
+    tool printed, and is the only field any assertion reads. ``observer_ready``
+    is the reporting daemon's account of its own health, which is what separates
+    a peer that noticed a departure from a daemon whose report means nothing.
+    ``target_status`` carries the raw peer status through for diagnostics only -
+    the tool distinguishes a peer that dropped from one it refused to talk to,
+    and a run that cannot say which is far harder to act on.
+    """
+
+    observer_ready: bool
+    target_reported: str
+    target_status: str
+
+
+#: What a daemon that could not be asked, or could not be found in its own
+#: report, amounts to: no reading at all, which is never evidence of anything.
+_UNKNOWN_PEER_VIEW = _PeerView(False, PEER_UNKNOWN, "")
+
+
+def _daemon_dns_name(index: int) -> str:
+    """Return the name the driver's daemons peer over for a node's index."""
+    return IMEX_DAEMON_DNS_NAME_FORMAT % index
+
+
+def _peer_view(payload: dict[str, Any], observer_index: int, target_index: int) -> _PeerView:
+    """Reduce one daemon's domain report to what it says about the target node.
+
+    Only the reporting node's *own* entry is consulted. The payload carries an
+    entry for every configured member, but the entries for other nodes are
+    reconstructed from the domain's configuration rather than reported by those
+    nodes (established while building SDN21-01), so reading the target's own
+    entry here would substitute the domain's bookkeeping for the observation
+    this check exists to make.
+
+    A departed peer missing from the reporting node's peer map is that node
+    reporting it gone: a shrunk domain is reconfigured without it. That reading
+    is only taken from a daemon that reports itself ready, since an empty peer
+    map on an unhealthy daemon says nothing about the peer.
+
+    Nodes are matched by the name built from the index the domain published for
+    them. A host installation's daemons peer over addresses, which is what
+    SDN21-01 matches on, but the driver's peer over generated names, and a
+    connection entry carries only the name - so the address the domain also
+    publishes is no use here.
+
+    The payload's domain-wide status is deliberately not read. The driver sizes
+    a domain's config to the largest one it supports, so every slot no node has
+    claimed counts against that status and a healthy domain reports itself
+    degraded. Whether the domain still holds together is read cluster-side
+    instead, and whether this daemon's report carries weight is read from its
+    own entry.
+    """
+    nodes_raw = payload.get("nodes")
+    nodes = [node for node in nodes_raw.values() if isinstance(node, dict)] if isinstance(nodes_raw, dict) else []
+
+    own = next((node for node in nodes if node.get("host") == _daemon_dns_name(observer_index)), None)
+    if own is None:
+        return _UNKNOWN_PEER_VIEW
+
+    observer_ready = own.get("status") == IMEX_NODE_READY
+    connections_raw = own.get("connections")
+    connections = list(connections_raw.values()) if isinstance(connections_raw, dict) else []
+    target_name = _daemon_dns_name(target_index)
+    entry = next((peer for peer in connections if isinstance(peer, dict) and peer.get("host") == target_name), None)
+    if entry is not None:
+        status = str(entry.get("status") or "")
+        reported = PEER_AVAILABLE if status == IMEX_PEER_CONNECTED else PEER_UNAVAILABLE
+        return _PeerView(observer_ready, reported, status)
+    reported = PEER_UNAVAILABLE if observer_ready else PEER_UNKNOWN
+    return _PeerView(observer_ready, reported, "")
+
+
+def _restart_count(pod: dict[str, Any]) -> int:
+    """Return the highest restart count any container in ``pod`` reports."""
+    counts = [
+        status["restartCount"]
+        for status in (pod.get("status") or {}).get("containerStatuses") or []
+        if isinstance(status, dict) and isinstance(status.get("restartCount"), int)
+    ]
+    return max(counts, default=0)
+
+
+def _unclean_exit_reason(pod: dict[str, Any], baseline_restarts: int) -> str | None:
+    """Return why a daemon's shutdown was not clean, or None when nothing says so.
+
+    Restarts are counted against the baseline taken before the departure was
+    requested, so a daemon that restarted at some point earlier in the cluster's
+    life is not held against the shutdown under observation.
+
+    Only the container's *current* terminated state is read, never
+    ``lastState``: that one describes an earlier run of the container, so a
+    daemon OOM-killed hours before the check ran would otherwise be reported as
+    having been forced out now. An earlier run that ended badly and was
+    restarted shows up as a restart count instead.
+    """
+    for status in (pod.get("status") or {}).get("containerStatuses") or []:
+        if not isinstance(status, dict):
+            continue
+        container = status.get("name") or "container"
+        restarts = status.get("restartCount")
+        if isinstance(restarts, int) and restarts > baseline_restarts:
+            return f"{container} restarted {restarts - baseline_restarts} more time(s) while shutting down"
+        state = status.get("state") if isinstance(status.get("state"), dict) else {}
+        terminated = state.get("terminated")
+        if not isinstance(terminated, dict):
+            continue
+        code = terminated.get("exitCode")
+        if isinstance(code, int) and code not in _CLEAN_EXIT_CODES:
+            reason = str(terminated.get("reason") or "")
+            named = f" ({reason})" if reason else ""
+            forced = " after its grace period expired" if code == _FORCE_KILL_EXIT_CODE else ""
+            return f"{container} was killed with exit code {code}{named}{forced}"
+    return None
+
+
+def _is_ready_member(state: _DomainState, node: str) -> bool:
+    """Return whether the domain calls ``node`` ready *and* a ready daemon serves it.
+
+    The two halves are read separately on purpose: a node the domain accounts
+    for with no daemon behind it is a defect, not a rounding error.
+    """
+    pod = state.daemons.get(node)
+    return state.members.get(node) == READY and pod is not None and _pod_is_ready(pod)
+
+
+def _survivor_collapse(state: _DomainState, target: str) -> str | None:
+    """Return why the domain stopped holding together without ``target``, or None.
+
+    Read cluster-side, so it is answerable even on a run where the surviving
+    daemon could not be asked anything. A domain with no surviving member has
+    collapsed outright: the departure took the whole domain with it.
+    """
+    survivors = [node for node in state.members if node != target]
+    if not survivors:
+        return "the domain accounts for no surviving members at all"
+    broken = sorted(node for node in survivors if not _is_ready_member(state, node))
+    if broken:
+        return f"surviving member(s) no longer ready: {', '.join(broken)}"
+    return None
+
+
 def _formation_detail(unserved: list[str], unready: list[str]) -> str:
     """Describe which members are missing a daemon and which are not yet ready."""
     parts = []
@@ -2272,20 +2509,13 @@ def _formation_detail(unserved: list[str], unready: list[str]) -> str:
     return "; ".join(parts)
 
 
-class ImexDaemonRecoveryCheck(BaseValidation):
-    """Validate the driver-managed IMEX daemon runs unaided and recovers (DRA model).
+class _ComputeDomainCheck(BaseValidation):
+    """Allocate a compute domain, hand it to a subclass, and release it (DRA model).
 
-    Asserts two things about an allocated compute domain: every node the domain
-    accounts for is served by a running daemon *and* reported as a ready
-    member, with nothing the test started; and that killing one of those
-    daemons is repaired by the driver, back to ready membership, unaided and
-    within a bounded time.
-
-    Allocating the domain and running a workload in it are the tenant's
-    documented actions, and are setup here. Starting an IMEX daemon is not: the
-    daemons exist because the driver created them in response to that, so the
-    check never starts, restarts, or repairs one. A domain that does not come
-    up on its own fails rather than being nursed into shape.
+    What the DRA-model checks share is not an assertion but a subject: none of
+    them has one until a compute domain exists and the driver has placed
+    daemons in it, and all of them have to hand that domain back afterwards.
+    Subclasses implement only what they assert once it is up.
 
     The allocation is a compute domain *and* a claiming pod per clique node,
     because a domain on its own has no daemons to assert against: the driver's
@@ -2293,47 +2523,40 @@ class ImexDaemonRecoveryCheck(BaseValidation):
     while preparing a channel claim, so an unclaimed domain keeps a DaemonSet
     of size zero indefinitely.
 
-    Membership is read from what the domain reports about a node, not from the
-    daemon pod's phase. A replacement pod that reaches Running but never
-    rejoins the domain is the exact defect this exists to catch, so the two are
-    observed separately and reported separately: never rescheduled indicts the
-    controller, rescheduled but never a ready member indicts domain formation.
-
-    Scope is the domain's own accounting of its nodes. Zero members is a
-    failure rather than a vacuous pass, and a member that recovery could not be
-    asserted against is not quietly dropped from the count.
-
-    Termination is a deletion of the daemon in place. The node is never
-    cordoned, drained, or removed from the domain - those are deliberate
-    departures, which a correct controller declines to repair, so a
-    departure-based reading of this test would fail on a healthy cluster.
+    Allocating a domain and running a workload in it are the tenant's
+    documented actions, and are setup here. Starting an IMEX daemon is not: the
+    daemons exist because the driver created them in response, so nothing here
+    starts, restarts, or repairs one, and a domain that does not come up on its
+    own fails rather than being nursed into shape.
 
     Population is clusters where the driver owns the daemon lifecycle, read
     from the mode the driver declares. A cluster configured to defer to an
     operator-run host daemon creates no per-domain daemon and so has no subject
-    here, and skips. Nothing is asserted about any host daemon, including where
-    one legitimately exists.
+    for any of these checks, and skips. Nothing is asserted about any host
+    daemon, including where one legitimately exists.
 
-    This check is destructive: it allocates a compute domain, deletes a daemon
-    inside it, and releases the domain afterwards. Run it on an idle cluster.
+    Abstract, so validation discovery passes over it: it declares no property
+    of its own to assert.
 
     Config:
         namespace: Namespace to allocate the compute domain in (default "default")
         image: Image for the claiming pods (default busybox); it only
             has to hold a channel claim open
         formation_timeout_seconds: Bound on the domain coming up (default 300)
-        recovery_timeout_seconds: Bound on recovery; derived from the observed
-            formation time when unset
     """
 
-    description: ClassVar[str] = "Check the driver-managed IMEX daemon runs unaided and recovers after termination"
+    #: Names the objects a check allocates after the test it allocated them
+    #: for, so one check's domain is never mistaken for another's leftovers.
+    #: Every subclass sets its own.
+    _OBJECT_PREFIX: ClassVar[str]
 
-    #: Recovering one node cannot reasonably be slower than forming the whole
-    #: domain, so the recovery budget is derived from the formation this run
-    #: observed rather than picked round. The floor covers a domain that formed
-    #: almost instantly, where a small multiple of it would be no budget at all.
-    _RECOVERY_BUDGET_MULTIPLIER: ClassVar[float] = 2.0
-    _RECOVERY_FLOOR_SECONDS: ClassVar[int] = 60
+    #: Budgets for what the driver does to one node are derived from the
+    #: formation this run observed rather than picked round: reconciling a
+    #: single node cannot reasonably be slower than forming the whole domain
+    #: was. The floor covers a domain that formed almost instantly, where a
+    #: small multiple of it would be no budget at all.
+    _DERIVED_BUDGET_MULTIPLIER: ClassVar[float] = 2.0
+    _DERIVED_BUDGET_FLOOR_SECONDS: ClassVar[int] = 60
     _POLL_INTERVAL_SECONDS: ClassVar[int] = 5
     _READ_TIMEOUT_SECONDS: ClassVar[int] = 30
     #: Deletions here wait for completion, so they cannot share the read
@@ -2343,7 +2566,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
     _DELETE_TIMEOUT_SECONDS: ClassVar[int] = 120
 
     def run(self) -> None:
-        """Allocate a compute domain, kill one daemon, and assert it is restored."""
+        """Allocate a compute domain, assert the subclass's property, release it."""
         if not _multi_node_nvlink_advertised(self):
             return
 
@@ -2363,7 +2586,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         if formation_timeout is None:
             return
 
-        name = f"isv-sdn18-02-{uuid.uuid4().hex[:8]}"
+        name = f"{self._OBJECT_PREFIX}-{uuid.uuid4().hex[:8]}"
         domain = render_k8s_manifest(
             _COMPUTE_DOMAIN_MANIFEST,
             lambda doc: _set_compute_domain_fields(doc, name=name, namespace=namespace),
@@ -2371,10 +2594,14 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         if not self._apply(domain, f"compute domain {name}"):
             return
         try:
-            if self._claim_channels(namespace, name, image, formation_timeout):
-                self._assert_unaided_recovery(namespace, name, formation_timeout)
+            if self._claim_channels(namespace, name, image):
+                self._assert_on_domain(namespace, name, formation_timeout)
         finally:
             self._release(namespace, name)
+
+    @abstractmethod
+    def _assert_on_domain(self, namespace: str, name: str, formation_timeout: int) -> None:
+        """Assert this check's own property against the allocated domain."""
 
     def _declared_ownership_mode(self) -> str | None:
         """Return the daemon ownership mode the driver declares, or None on failure.
@@ -2422,7 +2649,7 @@ class ImexDaemonRecoveryCheck(BaseValidation):
             return False
         return True
 
-    def _claim_channels(self, namespace: str, name: str, image: str, formation_timeout: int) -> bool:
+    def _claim_channels(self, namespace: str, name: str, image: str) -> bool:
         """Run one claiming pod per clique node so the driver places daemons.
 
         Without a prepared channel claim the driver's per-domain DaemonSet
@@ -2431,20 +2658,18 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         against. These pods only hold their claims open - nothing is asserted
         about them, and they are expected to sit in ContainerCreating until the
         daemon on their node reports ready.
+
+        They hold for as long as they exist, rather than for a computed
+        duration. A claim is released when its pod is deleted, which is how the
+        SDN19-02 shrink withdraws one, and a DaemonSet pod is required to run
+        ``restartPolicy: Always`` - so a container that merely exits is
+        restarted in place and releases nothing. Ending these pods is
+        ``_release``'s job, and it is mandatory rather than best-effort
+        precisely because no timeout does it for us.
         """
         claims = render_k8s_manifest(
             _CHANNEL_CLAIM_MANIFEST,
-            lambda doc: _set_channel_claim_fields(
-                doc,
-                name=name,
-                namespace=namespace,
-                image=image,
-                # Outlast the worst case the check itself allows - formation
-                # plus a recovery budget of twice it - so a claim never lapses
-                # mid-run and takes the daemons down with it, while still
-                # expiring on its own if this process is killed outright.
-                hold_seconds=formation_timeout * 4,
-            ),
+            lambda doc: _set_channel_claim_fields(doc, name=name, namespace=namespace, image=image),
         )
         return self._apply(claims, f"channel claims for compute domain {name}")
 
@@ -2452,15 +2677,30 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         """Delete the claims and the domain, failing a passing check on leftovers.
 
         Teardown is mandatory rather than best-effort: the check created these,
-        and leaving them behind changes what the next run observes. The claims
-        go first so no daemon is still holding a prepared channel when the
-        domain is removed. An already-failing check keeps its own message,
-        which is the more useful one.
+        and leaving them behind changes what the next run observes. An
+        already-failing check keeps its own message, which is the more useful
+        one.
+
+        The claims go first so no daemon is still holding a prepared channel
+        when the domain is removed, and the DaemonSet is deleted in the
+        foreground so that ordering is real: deleting it in the background -
+        the default - returns as soon as the DaemonSet object is gone, while
+        its pods, and the claims those pods own, are still terminating. The
+        domain would then be removed underneath them, which is the case the
+        driver warns turns into a deletion wedged behind its own finalizers.
+
+        A domain is still removed when the claims could not be, because the
+        two are not equally bad to strand: a leftover domain is what the next
+        run's formation wait collides with.
         """
         leftovers: list[str] = []
-        for resource, obj in (("daemonset", f"{name}-claim"), (COMPUTE_DOMAIN_CRD, name)):
+        deletions = (
+            ("daemonset", _claim_daemonset(name), ("--cascade=foreground",)),
+            (COMPUTE_DOMAIN_CRD, name, ()),
+        )
+        for resource, obj, flags in deletions:
             result = self.run_command(
-                get_kubectl_base_shell("delete", resource, obj, "-n", namespace, "--ignore-not-found=true"),
+                get_kubectl_base_shell("delete", resource, obj, "-n", namespace, "--ignore-not-found=true", *flags),
                 timeout=self._DELETE_TIMEOUT_SECONDS,
             )
             if result.exit_code != 0:
@@ -2469,7 +2709,158 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         if leftovers and self.passed:
             self.set_failed(f"Could not release what the check created: {'; '.join(leftovers)}")
 
-    def _assert_unaided_recovery(self, namespace: str, name: str, formation_timeout: int) -> None:
+    def _derived_budget(self, config_key: str, formation_seconds: float) -> int | None:
+        """Return a reconciliation timeout, derived from formation unless configured."""
+        if self.config.get(config_key) is not None:
+            return self._parse_positive_int(config_key, default=self._DERIVED_BUDGET_FLOOR_SECONDS)
+        derived = int(formation_seconds * self._DERIVED_BUDGET_MULTIPLIER)
+        return max(self._DERIVED_BUDGET_FLOOR_SECONDS, derived)
+
+    def _sleep_until(self, deadline: float) -> None:
+        """Sleep one poll interval, never past the deadline the caller is holding."""
+        time.sleep(min(self._POLL_INTERVAL_SECONDS, max(0.0, deadline - time.monotonic())))
+
+    def _poll(self, namespace: str, name: str, timeout: int) -> Iterator[tuple[_DomainState | None, str, float]]:
+        """Read the domain once per interval until ``timeout`` runs out.
+
+        Yields ``(state, error, elapsed)`` per observation. The deadline is
+        only consulted *after* a reading is handed out, so a caller always gets
+        to judge one final observation taken at the budget's edge rather than
+        being cut off with the answer unread. A loop that runs to exhaustion
+        falls out of the ``for``, which is where its own timeout is reported.
+        """
+        deadline = time.monotonic() + timeout
+        started = time.monotonic()
+        while True:
+            state, error = self._observe(namespace, name)
+            yield state, error, time.monotonic() - started
+            if time.monotonic() >= deadline:
+                return
+            self._sleep_until(deadline)
+
+    def _await_formation(self, namespace: str, name: str, timeout: int) -> tuple[_DomainState, float] | None:
+        """Wait for every domain member to be served by a ready daemon.
+
+        Returns the settled state and how long it took, which is the observed
+        reconciliation baseline the later budgets are derived from. A domain
+        that never gets there fails: a daemon not running on arrival indicts
+        the driver deployment, and is not a setup step for the check to repair.
+        """
+        detail = ""
+        for state, error, elapsed in self._poll(namespace, name, timeout):
+            if state is None:
+                detail = error
+            elif not state.members:
+                detail = "the domain reported no members, so there was nothing to assert against"
+            else:
+                unserved = sorted(node for node in state.members if node not in state.daemons)
+                unready = sorted(
+                    node for node in state.members if node in state.daemons and not _is_ready_member(state, node)
+                )
+                if not unserved and not unready:
+                    return state, elapsed
+                detail = _formation_detail(unserved, unready)
+
+        self.set_failed(
+            f"Compute domain {name} did not come up unaided within {timeout}s: {detail}. The driver "
+            "is responsible for starting these daemons, so this indicts the driver deployment"
+        )
+        return None
+
+    def _observe(self, namespace: str, name: str) -> tuple[_DomainState | None, str]:
+        """Read the domain and its daemons once.
+
+        Returns ``(state, "")`` on success, or ``(None, error)`` when the
+        cluster could not be read. A read failure mid-poll is not fatal on its
+        own - the surrounding deadline decides that - but it is carried so a
+        timeout can name it instead of reporting a bare elapsed time.
+        """
+        result = self.run_command(
+            get_kubectl_base_shell("get", COMPUTE_DOMAIN_CRD, name, "-n", namespace, "-o", "json"),
+            timeout=self._READ_TIMEOUT_SECONDS,
+        )
+        if result.exit_code != 0:
+            return None, f"could not read compute domain {name}: {command_detail(result)}"
+        domain = kubectl_payload_or_none(result)
+        if domain is None:
+            return None, f"could not parse compute domain {name}"
+
+        uid = ((domain.get("metadata") or {}).get("uid")) or ""
+        if not uid:
+            return None, f"compute domain {name} carries no UID to match its daemons by"
+
+        members: dict[str, str] = {}
+        indices: dict[str, int] = {}
+        cliques: dict[str, str] = {}
+        for node in (domain.get("status") or {}).get("nodes") or []:
+            if isinstance(node, dict) and _is_non_empty_string(node.get("name")):
+                members[node["name"]] = str(node.get("status") or "")
+                index = node.get("index")
+                if isinstance(index, int) and not isinstance(index, bool):
+                    indices[node["name"]] = index
+                if _is_non_empty_string(node.get("cliqueID")):
+                    cliques[node["name"]] = node["cliqueID"]
+
+        pods = self.run_command(
+            get_kubectl_base_shell(
+                "get", "pods", "--all-namespaces", "-l", f"{COMPUTE_DOMAIN_LABEL}={uid}", "-o", "json"
+            ),
+            timeout=self._READ_TIMEOUT_SECONDS,
+        )
+        if pods.exit_code != 0:
+            return None, f"could not read the daemons of compute domain {name}: {command_detail(pods)}"
+        items = kubectl_items_or_empty(pods)
+        return (
+            _DomainState(
+                members=members,
+                indices=indices,
+                cliques=cliques,
+                daemons=_daemons_by_node(items, terminating=False),
+                departing=_daemons_by_node(items, terminating=True),
+            ),
+            "",
+        )
+
+
+class ImexDaemonRecoveryCheck(_ComputeDomainCheck):
+    """Validate the driver-managed IMEX daemon runs unaided and recovers (DRA model).
+
+    Asserts two things about an allocated compute domain: every node the domain
+    accounts for is served by a running daemon *and* reported as a ready
+    member, with nothing the test started; and that killing one of those
+    daemons is repaired by the driver, back to ready membership, unaided and
+    within a bounded time.
+
+    Membership is read from what the domain reports about a node, not from the
+    daemon pod's phase. A replacement pod that reaches Running but never
+    rejoins the domain is the exact defect this exists to catch, so the two are
+    observed separately and reported separately: never rescheduled indicts the
+    controller, rescheduled but never a ready member indicts domain formation.
+
+    Scope is the domain's own accounting of its nodes. Zero members is a
+    failure rather than a vacuous pass, and a member that recovery could not be
+    asserted against is not quietly dropped from the count.
+
+    Termination is a deletion of the daemon in place. The node is never
+    cordoned, drained, or removed from the domain - those are deliberate
+    departures, which a correct controller declines to repair, so a
+    departure-based reading of this test would fail on a healthy cluster.
+
+    This check is destructive: it allocates a compute domain, deletes a daemon
+    inside it, and releases the domain afterwards. Run it on an idle cluster.
+
+    Config:
+        recovery_timeout_seconds: Bound on recovery; derived from the observed
+            formation time when unset
+
+        See ``_ComputeDomainCheck`` for the allocation's own config keys.
+    """
+
+    description: ClassVar[str] = "Check the driver-managed IMEX daemon runs unaided and recovers after termination"
+
+    _OBJECT_PREFIX: ClassVar[str] = "isv-sdn18-02"
+
+    def _assert_on_domain(self, namespace: str, name: str, formation_timeout: int) -> None:
         """Assert unaided presence, then terminate one daemon and assert recovery."""
         formed = self._await_formation(namespace, name, formation_timeout)
         if formed is None:
@@ -2489,17 +2880,10 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         if not self._terminate(namespace, state.daemons[target]):
             return
 
-        budget = self._recovery_budget(formation_seconds)
+        budget = self._derived_budget("recovery_timeout_seconds", formation_seconds)
         if budget is None:
             return
         self._await_recovery(namespace, name, target, target_uid, budget, len(state.members))
-
-    def _recovery_budget(self, formation_seconds: float) -> int | None:
-        """Return the recovery timeout, derived from formation unless configured."""
-        if self.config.get("recovery_timeout_seconds") is not None:
-            return self._parse_positive_int("recovery_timeout_seconds", default=self._RECOVERY_FLOOR_SECONDS)
-        derived = int(formation_seconds * self._RECOVERY_BUDGET_MULTIPLIER)
-        return max(self._RECOVERY_FLOOR_SECONDS, derived)
 
     def _terminate(self, namespace: str, pod: dict[str, Any]) -> bool:
         """Delete one daemon in place, confirming the termination took effect.
@@ -2521,46 +2905,6 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         self.report_subtest("terminate", True, f"Deleted daemon {pod_name} in place")
         return True
 
-    def _sleep_until(self, deadline: float) -> None:
-        """Sleep one poll interval, never past the deadline the caller is holding."""
-        time.sleep(min(self._POLL_INTERVAL_SECONDS, max(0.0, deadline - time.monotonic())))
-
-    def _await_formation(self, namespace: str, name: str, timeout: int) -> tuple[_DomainState, float] | None:
-        """Wait for every domain member to be served by a ready daemon.
-
-        Returns the settled state and how long it took, which is the observed
-        reconciliation baseline the recovery budget is derived from. A domain
-        that never gets there fails: a daemon not running on arrival indicts
-        the driver deployment, and is not a setup step for the check to repair.
-        """
-        deadline = time.monotonic() + timeout
-        started = time.monotonic()
-        while True:
-            state, error = self._observe(namespace, name)
-            if state is not None:
-                if not state.members:
-                    detail = "the domain reported no members, so there was nothing to assert against"
-                else:
-                    unserved = sorted(node for node in state.members if node not in state.daemons)
-                    unready = sorted(
-                        node
-                        for node, status in state.members.items()
-                        if node in state.daemons and (status != READY or not _pod_is_ready(state.daemons[node]))
-                    )
-                    if not unserved and not unready:
-                        return state, time.monotonic() - started
-                    detail = _formation_detail(unserved, unready)
-            else:
-                detail = error
-
-            if time.monotonic() >= deadline:
-                self.set_failed(
-                    f"Compute domain {name} did not come up unaided within {timeout}s: {detail}. The driver "
-                    "is responsible for starting these daemons, so this indicts the driver deployment"
-                )
-                return None
-            self._sleep_until(deadline)
-
     def _await_recovery(
         self,
         namespace: str,
@@ -2571,26 +2915,22 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         members: int,
     ) -> None:
         """Wait for the terminated daemon to be replaced and rejoin the domain."""
-        deadline = time.monotonic() + timeout
-        started = time.monotonic()
         rescheduled_at: float | None = None
-        while True:
-            state, error = self._observe(namespace, name)
-            elapsed = time.monotonic() - started
-            if state is not None:
-                replacement = state.daemons.get(target, {})
-                replacement_uid = ((replacement.get("metadata") or {}).get("uid")) or ""
-                if bool(replacement_uid) and replacement_uid != terminated_uid:
-                    if rescheduled_at is None:
-                        rescheduled_at = elapsed
-                    if _pod_is_ready(replacement) and state.members.get(target) == READY:
-                        self._report_recovered(target, elapsed, rescheduled_at, members, timeout)
-                        return
+        read_error = ""
+        for state, error, elapsed in self._poll(namespace, name, timeout):
+            read_error = error
+            if state is None:
+                continue
+            replacement = state.daemons.get(target, {})
+            replacement_uid = ((replacement.get("metadata") or {}).get("uid")) or ""
+            if bool(replacement_uid) and replacement_uid != terminated_uid:
+                if rescheduled_at is None:
+                    rescheduled_at = elapsed
+                if _pod_is_ready(replacement) and state.members.get(target) == READY:
+                    self._report_recovered(target, elapsed, rescheduled_at, members, timeout)
+                    return
 
-            if time.monotonic() >= deadline:
-                self._report_not_recovered(target, rescheduled_at, timeout, error if state is None else "")
-                return
-            self._sleep_until(deadline)
+        self._report_not_recovered(target, rescheduled_at, timeout, read_error)
 
     def _report_recovered(self, target: str, elapsed: float, rescheduled_at: float, members: int, budget: int) -> None:
         """Record a successful recovery, with the elapsed time the ticket asks for."""
@@ -2627,43 +2967,463 @@ class ImexDaemonRecoveryCheck(BaseValidation):
         detail = f" (last read: {read_error})" if read_error else ""
         self.set_failed(f"IMEX daemon termination on {target} was not repaired unaided: {reason}{detail}")
 
-    def _observe(self, namespace: str, name: str) -> tuple[_DomainState | None, str]:
-        """Read the domain and its daemons once.
 
-        Returns ``(state, "")`` on success, or ``(None, error)`` when the
-        cluster could not be read. A read failure mid-poll is not fatal on its
-        own - the surrounding deadline decides that - but it is carried so a
-        timeout can name it instead of reporting a bare elapsed time.
+class ImexDomainDepartureCheck(_ComputeDomainCheck):
+    """Validate domain members observe a deliberate node departure (DRA model).
+
+    Takes one node out of an allocated compute domain on purpose and asserts
+    three things: the departing node's daemon stops cleanly, a surviving member
+    reports that node as unavailable within a bounded time, and the domain goes
+    on working among the nodes that remain.
+
+    The surviving member has to report the departing node as connected *before*
+    it is removed, or none of that means anything: a peer that never had the
+    node connected reports it unavailable from the outset, so a domain whose
+    members never managed to peer at all would read as a departure promptly
+    observed. That baseline is what makes the later reading a change this check
+    caused rather than a state it inherited.
+
+    The departure is a shrink of the domain, requested by withdrawing that
+    node's channel claim. Draining the node would not produce one: the claim
+    holder and the driver's daemon are both DaemonSet pods, which a drain
+    leaves running, so a drain-based reading of this test would report a
+    departure that never happened. Withdrawing the claim is the removal a
+    tenant can actually ask for through the cluster API, and it is the claim
+    that keeps a node in the domain at all.
+
+    Whether peers noticed is read from a surviving daemon's own report of its
+    peers, never from the domain's record of the departed node. The property
+    under test is that members observed the departure, and a controller that
+    updates its own bookkeeping while the surviving daemons still believe a
+    dead peer is connected is the defect this exists to catch - so the domain
+    continuing to list the departed node is deliberately not a failure here.
+
+    The three failures indict different things and never share a message: a
+    peer that still reports the node connected is stale membership, a domain
+    that stopped working among its survivors is fragile, and a daemon put back
+    on the departed node is a driver ignoring the removal.
+
+    At least two members are required. With no surviving peer there is nobody
+    to observe the departure, so a smaller domain fails naming the environment
+    rather than passing with nothing asserted.
+
+    Nothing here asserts that the controller puts the node back: the departure
+    was deliberate, and a controller that repairs one is not what this
+    measures. The node is restored at the end because the check asked for the
+    departure, not because a correct cluster would have undone it.
+
+    This check is destructive: it allocates a compute domain, removes a node
+    from it, and releases the domain afterwards. Run it on an idle cluster.
+
+    Config:
+        convergence_timeout_seconds: Bound on each stage the driver has to
+            reconcile - the daemon stopping, the peers noticing, and the node
+            coming back. Derived from the observed formation time when unset
+
+        See ``_ComputeDomainCheck`` for the allocation's own config keys.
+    """
+
+    description: ClassVar[str] = "Check domain members observe a deliberate node departure and stay operational"
+
+    _OBJECT_PREFIX: ClassVar[str] = "isv-sdn19-02"
+
+    #: Where this run's daemons answered, remembered across the many polls that
+    #: ask them. Set on the instance by ``_read_peer_view``; None until one has.
+    _imex_config_path: str | None = None
+
+    def _assert_on_domain(self, namespace: str, name: str, formation_timeout: int) -> None:
+        """Remove one node from the domain and assert its peers observe it."""
+        formed = self._await_formation(namespace, name, formation_timeout)
+        if formed is None:
+            return
+        state, formation_seconds = formed
+
+        if len(state.members) < 2:
+            self.set_failed(
+                f"Compute domain {name} formed with {len(state.members)} member(s): observing a departure needs a "
+                "surviving peer to observe it from, so this environment is too small to validate the property "
+                "rather than one where it holds"
+            )
+            return
+
+        target = min(state.members)
+        observer = self._pick_observer(state, name, target)
+        if observer is None:
+            return
+        departure = self._resolve_departure(state, name, target, observer)
+        if departure is None:
+            return
+
+        budget = self._derived_budget("convergence_timeout_seconds", formation_seconds)
+        if budget is None:
+            return
+
+        if not self._await_peer_baseline(namespace, name, departure, budget):
+            return
+
+        baseline_restarts = _restart_count(state.daemons[target])
+        if not self._request_departure(namespace, name, target):
+            return
+        try:
+            if self._await_clean_departure(namespace, name, target, baseline_restarts, budget):
+                self._await_peer_convergence(namespace, name, departure, budget)
+        finally:
+            self._restore(namespace, name, target, budget)
+
+    def _resolve_departure(self, state: _DomainState, name: str, target: str, observer: str) -> _Departure | None:
+        """Pair the departing node with its watcher, or fail a domain that cannot.
+
+        Indices are captured now, not read back later: a shrunk domain stops
+        publishing the departed node, which is exactly when the check needs to
+        recognise it in a surviving daemon's report of its peers.
         """
+        unindexed = sorted(node for node in (target, observer) if node not in state.indices)
+        if unindexed:
+            self.set_failed(
+                f"Compute domain {name} publishes no index for {', '.join(unindexed)}, so a surviving "
+                "member's report of its peers cannot be matched back to the node that departed"
+            )
+            return None
+        target_index = state.indices[target]
+        observer_index = state.indices[observer]
+        # A driver too old to publish indices reports 0 for every node, which
+        # would silently compare the observer against itself.
+        if target_index == observer_index:
+            self.set_failed(
+                f"Compute domain {name} publishes index {target_index} for both {target} and {observer}, so the "
+                "two cannot be told apart in a surviving member's report of its peers"
+            )
+            return None
+        return _Departure(target, target_index, observer, observer_index)
+
+    def _pick_observer(self, state: _DomainState, name: str, target: str) -> str | None:
+        """Choose the surviving member that watches ``target`` leave.
+
+        Taken from the departing node's own clique, because the driver
+        configures each daemon with the members of its NVLink partition and no
+        others: a pair straddling two partitions reports nothing about each
+        other however the domain behaves, so it would fail every run on a
+        perfectly healthy multi-clique domain.
+        """
+        clique = state.cliques.get(target)
+        peers = sorted(node for node in state.members if node != target and state.cliques.get(node) == clique)
+        if not peers:
+            self.set_failed(
+                f"Compute domain {name} accounts for no surviving member in {target}'s NVLink partition: the "
+                "departure has to be observed from a node configured to peer with the one that left, so this "
+                "environment is too small to validate the property rather than one where it holds"
+            )
+            return None
+        return peers[0]
+
+    def _patch_claim_scope(self, namespace: str, name: str, exclude: str | None) -> str | None:
+        """Repoint the channel claims at a new set of nodes, returning any error."""
+        patch = json.dumps({"spec": {"template": {"spec": {"affinity": _claim_affinity(exclude)}}}})
         result = self.run_command(
-            get_kubectl_base_shell("get", COMPUTE_DOMAIN_CRD, name, "-n", namespace, "-o", "json"),
-            timeout=self._READ_TIMEOUT_SECONDS,
-        )
-        if result.exit_code != 0:
-            return None, f"could not read compute domain {name}: {command_detail(result)}"
-        domain = kubectl_payload_or_none(result)
-        if domain is None:
-            return None, f"could not parse compute domain {name}"
-
-        uid = ((domain.get("metadata") or {}).get("uid")) or ""
-        if not uid:
-            return None, f"compute domain {name} carries no UID to match its daemons by"
-
-        members: dict[str, str] = {}
-        for node in (domain.get("status") or {}).get("nodes") or []:
-            if isinstance(node, dict) and _is_non_empty_string(node.get("name")):
-                members[node["name"]] = str(node.get("status") or "")
-
-        pods = self.run_command(
             get_kubectl_base_shell(
-                "get", "pods", "--all-namespaces", "-l", f"{COMPUTE_DOMAIN_LABEL}={uid}", "-o", "json"
+                "patch", "daemonset", _claim_daemonset(name), "-n", namespace, "--type=merge", "-p", patch
             ),
             timeout=self._READ_TIMEOUT_SECONDS,
         )
-        if pods.exit_code != 0:
-            return None, f"could not read the daemons of compute domain {name}: {command_detail(pods)}"
-        items = kubectl_items_or_empty(pods)
-        return _DomainState(members=members, daemons=_live_daemons_by_node(items)), ""
+        return None if result.exit_code == 0 else command_detail(result)
+
+    def _request_departure(self, namespace: str, name: str, target: str) -> bool:
+        """Ask for one node to leave the domain by withdrawing its channel claim."""
+        error = self._patch_claim_scope(namespace, name, target)
+        if error is not None:
+            self.set_failed(f"Failed to remove {target} from compute domain {name}: {error}")
+            return False
+        return True
+
+    def _await_clean_departure(
+        self, namespace: str, name: str, target: str, baseline_restarts: int, timeout: int
+    ) -> bool:
+        """Wait for the departing daemon to stop, and judge how it went.
+
+        The departure is confirmed before anything is asserted about peers: a
+        peer that reports a node unavailable while its daemon is still running
+        has told us nothing. The daemon is only observable while it shuts down,
+        so each poll judges whatever is still there, and the first unclean
+        signal is kept - the pod object is gone moments later.
+        """
+        unclean: str | None = None
+        detail = ""
+        for state, error, elapsed in self._poll(namespace, name, timeout):
+            if state is None:
+                detail = error
+                continue
+            running = state.daemons.get(target)
+            pod = running or state.departing.get(target)
+            if pod is None:
+                return self._report_departed(target, elapsed, unclean)
+            unclean = unclean or _unclean_exit_reason(pod, baseline_restarts)
+            detail = (
+                "the driver left its daemon running there"
+                if running is not None
+                else "its daemon was still shutting down"
+            )
+
+        self.report_subtest("departure", False, f"{target}: daemon still running after {timeout}s")
+        self.set_failed(
+            f"Withdrawing {target}'s channel claim did not take it out of compute domain {name} within "
+            f"{timeout}s: {detail}. Nothing can be asserted about what peers observed while the "
+            "departing node is still serving the domain"
+        )
+        return False
+
+    def _report_departed(self, target: str, elapsed: float, unclean: str | None) -> bool:
+        """Record the departure, failing when the daemon did not go quietly."""
+        self.report_subtest(
+            "departure", True, f"{target}: daemon stopped after its channel claim was withdrawn", duration=elapsed
+        )
+        if unclean is not None:
+            self.report_subtest("clean_exit", False, f"{target}: {unclean}")
+            self.set_failed(
+                f"The IMEX daemon on {target} did not exit cleanly when the node was removed from the domain: {unclean}"
+            )
+            return False
+        self.report_subtest("clean_exit", True, f"{target}: daemon exited without restarting or being killed")
+        return True
+
+    def _await_peer_baseline(self, namespace: str, name: str, departure: _Departure, timeout: int) -> bool:
+        """Wait for the observer to report the target connected, before removing it.
+
+        Bounded rather than read once, because the domain reports a node ready
+        as soon as its own daemon is, which can be a little ahead of that daemon
+        having peered with everyone.
+        """
+        view = _UNKNOWN_PEER_VIEW
+        read_error = self._unreachable(departure)
+        for state, error, _ in self._poll(namespace, name, timeout):
+            if state is not None and departure.observer in state.daemons:
+                view, read_error = self._read_peer_view(state, departure)
+                if view.observer_ready and view.target_reported == PEER_AVAILABLE:
+                    self.report_subtest(
+                        "peer_baseline", True, f"{departure.observer} reports {departure.target} as {PEER_AVAILABLE}"
+                    )
+                    return True
+            elif error:
+                read_error = error
+
+        self._report_no_baseline(departure, timeout, view, read_error)
+        return False
+
+    @staticmethod
+    def _unreachable(departure: _Departure) -> str:
+        """Return the read error standing for an observer never once answered."""
+        return f"{departure.observer}'s daemon was never reachable to ask"
+
+    def _report_no_baseline(self, departure: _Departure, budget: int, view: _PeerView, read_error: str) -> None:
+        """Fail a domain whose members never peered, before degrading it.
+
+        Named as an environment that cannot answer the question rather than as
+        a departure gone wrong: nothing has been removed yet, and a domain whose
+        members never connected is a broken domain, which is SDN21-01's subject
+        and not this one's.
+        """
+        target, observer = departure.target, departure.observer
+        if not view.observer_ready:
+            detail = read_error or f"it does not report its own daemon as {IMEX_NODE_READY}"
+        else:
+            named = f" ({view.target_status})" if view.target_status else ""
+            detail = f"it reports {target} as {view.target_reported}{named}"
+        self.report_subtest("peer_baseline", False, f"{observer}: {target} was never reported {PEER_AVAILABLE}")
+        self.set_failed(
+            f"{observer} never reported {target} as {PEER_AVAILABLE} in the {budget}s before the departure was "
+            f"requested: {detail}. A node its peers never saw connected cannot be observed leaving, so this "
+            "domain cannot validate the property rather than being one where it fails"
+        )
+
+    def _await_peer_convergence(self, namespace: str, name: str, departure: _Departure, timeout: int) -> None:
+        """Wait for a surviving member to report the departed node as unavailable."""
+        view = _UNKNOWN_PEER_VIEW
+        collapse: str | None = None
+        read_error = self._unreachable(departure)
+        for state, error, elapsed in self._poll(namespace, name, timeout):
+            if state is None:
+                if error:
+                    read_error = error
+                continue
+            if departure.target in state.daemons:
+                self._report_rescheduled(departure.target, name)
+                return
+            collapse = _survivor_collapse(state, departure.target)
+            if departure.observer in state.daemons:
+                view, read_error = self._read_peer_view(state, departure)
+            if view.target_reported == PEER_UNAVAILABLE and view.observer_ready and collapse is None:
+                self._report_converged(departure, elapsed, timeout)
+                return
+
+        self._report_not_converged(departure, timeout, view, collapse, read_error)
+
+    def _read_peer_view(self, state: _DomainState, departure: _Departure) -> tuple[_PeerView, str]:
+        """Ask a surviving member's own daemon what it reports about the domain.
+
+        Each known config location is tried in turn, and the first the tool
+        accepts is the answer: where the driver keeps it moved between versions,
+        and a check that only knew one of them would report a cluster it could
+        not read as a cluster whose peers said nothing. The location that
+        answered is remembered, since this runs once per poll of two separate
+        waits and a cluster does not move its config mid-run - but the full
+        list stays the fallback, so a remembered path that stops working is
+        retried rather than believed.
+        """
+        observer = departure.observer
+        metadata = state.daemons[observer].get("metadata") or {}
+        pod_namespace = str(metadata.get("namespace") or "")
+        pod_name = str(metadata.get("name") or "")
+        detail = ""
+        candidates: tuple[str, ...] = IMEX_CTL_CONFIG_PATHS
+        if self._imex_config_path is not None:
+            rest = tuple(path for path in candidates if path != self._imex_config_path)
+            candidates = (self._imex_config_path, *rest)
+        for config_path in candidates:
+            result = self.run_command(
+                get_kubectl_base_shell(
+                    "exec",
+                    "-n",
+                    pod_namespace,
+                    pod_name,
+                    "--",
+                    IMEX_CTL_BINARY,
+                    "-c",
+                    config_path,
+                    *IMEX_CTL_ARGS,
+                ),
+                timeout=self._READ_TIMEOUT_SECONDS,
+            )
+            if result.exit_code != 0:
+                # The first location tried is the one most likely to be this
+                # driver's - remembered if one has answered, the current layout
+                # otherwise - so its failure is the one worth reporting. A later
+                # path failing says only that the driver did not use that layout
+                # either, which would bury a daemon that could not be reached.
+                detail = detail or command_detail(result)
+                continue
+            self._imex_config_path = config_path
+            payload = kubectl_payload_or_none(result)
+            if payload is None:
+                return _UNKNOWN_PEER_VIEW, f"could not parse {observer}'s report of the domain"
+            return _peer_view(payload, departure.observer_index, departure.target_index), ""
+        return _UNKNOWN_PEER_VIEW, f"could not ask {observer}'s daemon: {detail}"
+
+    def _report_rescheduled(self, target: str, name: str) -> None:
+        """Fail a driver that puts a daemon back on a node that was removed.
+
+        Reported as its own subtest rather than as an unclean exit: the daemon
+        may well have stopped correctly, and what is wrong is that the removal
+        did not stay in effect.
+        """
+        self.report_subtest("departure_upheld", False, f"{target}: daemon rescheduled after the node was removed")
+        self.set_failed(
+            f"The driver placed a daemon back on {target} after it was removed from compute domain {name}. A "
+            "deliberate departure is not something the driver is asked to repair, so this is the removal being "
+            "ignored rather than a recovery"
+        )
+
+    def _report_converged(self, departure: _Departure, elapsed: float, budget: int) -> None:
+        """Record a departure that the surviving members observed in time."""
+        target, observer = departure.target, departure.observer
+        self.report_subtest("departure_upheld", True, f"{target}: no daemon placed back on the departed node")
+        self.report_subtest(
+            "peer_convergence",
+            True,
+            f"{observer} reports {target} as {PEER_UNAVAILABLE}",
+            duration=elapsed,
+        )
+        self.report_subtest("surviving_members_operational", True, "the domain is still operational among survivors")
+        self.set_passed(
+            f"{target} left the compute domain cleanly and {observer} reported it {PEER_UNAVAILABLE} "
+            f"{elapsed:.0f}s later (budget {budget}s), with the domain still operational among the "
+            "surviving members"
+        )
+
+    def _report_not_converged(
+        self,
+        departure: _Departure,
+        budget: int,
+        view: _PeerView,
+        collapse: str | None,
+        read_error: str,
+    ) -> None:
+        """Fail a departure nobody observed, naming which defect it is.
+
+        Stale membership and a collapsed domain are different faults, and a run
+        that could not read a surviving member's view at all is neither - it is
+        a check that never got to make its observation, which must not be
+        reported as the cluster behaving correctly.
+        """
+        target, observer = departure.target, departure.observer
+        if collapse is not None:
+            self.report_subtest("surviving_members_operational", False, collapse)
+            self.set_failed(
+                f"Removing {target} did not leave the compute domain operational among its surviving members: "
+                f"{collapse}. The domain is expected to keep working without the node that left, so this is "
+                "a fragile domain rather than peers failing to notice"
+            )
+            return
+        self.report_subtest("surviving_members_operational", True, "the domain is still operational among survivors")
+        if view.target_reported == PEER_AVAILABLE:
+            self.report_subtest("peer_convergence", False, f"{observer} still reports {target} as {PEER_AVAILABLE}")
+            self.set_failed(
+                f"{observer} still reported the departed node {target} as {PEER_AVAILABLE} {budget}s after it "
+                "left the domain. Membership as the surviving members see it is stale, which is a different "
+                "fault from the domain collapsing"
+            )
+            return
+        if view.target_reported == PEER_UNKNOWN:
+            self.report_subtest("peer_convergence", False, f"{observer}'s view of {target} was never established")
+            self.set_failed(
+                f"Could not establish what {observer} reports about the departed node {target} within {budget}s: "
+                f"{read_error}. The observation has to come from a surviving member, so a view that could not "
+                "be read is a failure rather than a departure nobody objected to"
+            )
+            return
+        self.report_subtest(
+            "peer_convergence", False, f"{observer} reports {target} gone but does not report itself ready"
+        )
+        self.set_failed(
+            f"{observer} reported the departed node {target} as {PEER_UNAVAILABLE}, but never reported its own "
+            f"daemon as {IMEX_NODE_READY} within {budget}s. A daemon that is not ready itself is not a surviving "
+            "member whose account of a departure can be taken"
+        )
+
+    def _restore(self, namespace: str, name: str, target: str, timeout: int) -> None:
+        """Put the departed node back, so the check leaves no degraded domain.
+
+        Mandatory rather than best-effort, because this check deliberately
+        degrades the domain it was given. Restoration is *requested* - the
+        claim goes back, which is what invites the node to rejoin - so it does
+        not contradict the rule that a controller is never expected to repair
+        a deliberate departure on its own. A restore that fails leaves the
+        cluster changed and fails an otherwise passing check, without ever
+        displacing a real failure's own message.
+        """
+        error = self._patch_claim_scope(namespace, name, None)
+        if error is not None:
+            self._report_not_restored(target, f"the channel claim could not be reinstated: {error}")
+            return
+
+        detail = ""
+        for state, read_error, elapsed in self._poll(namespace, name, timeout):
+            if state is None:
+                detail = read_error
+                continue
+            if _is_ready_member(state, target):
+                self.report_subtest("restore", True, f"{target}: ready member again", duration=elapsed)
+                return
+            detail = "it never became a ready member again"
+
+        self._report_not_restored(target, f"{detail} within {timeout}s")
+
+    def _report_not_restored(self, target: str, detail: str) -> None:
+        """Record a node the check removed and could not put back."""
+        self.report_subtest("restore", False, f"{target}: {detail}")
+        if self.passed:
+            self.set_failed(
+                f"Could not restore {target} to the domain the check removed it from: {detail}. The check "
+                "leaves the cluster degraded, which changes what the next run observes"
+            )
 
 
 class ByoipCheck(BaseValidation):

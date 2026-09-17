@@ -1173,6 +1173,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[SDN19-02]]SDN19-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): Remove one node from an allocated compute domain on purpose, and assert its driver-managed daemon exits cleanly, a surviving member reports the node unavailable within a bounded time, and the domain stays operational among the nodes that remain.
+| SDN19
+| reference
+| full
+| The Kubernetes DRA reading of SDN19; SDN19-01 covers the host reading.
+
 | [[SDN20-01]]SDN20-01
 | Infrastructure and Data Services
 | SDN Controller

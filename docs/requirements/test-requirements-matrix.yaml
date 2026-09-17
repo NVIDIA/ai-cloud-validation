@@ -891,6 +891,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: SDN19-02
+    requirements:
+      - req_id: SDN19
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: The Kubernetes DRA reading of SDN19; SDN19-01 covers the host reading.
   - test_id: SDN20-01
     requirements:
       - req_id: SDN20
