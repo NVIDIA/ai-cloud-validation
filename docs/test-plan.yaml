@@ -1843,6 +1843,23 @@ domains:
                 status: approved
                 notes: ""
                 priority: ""
+              - summary: "IMEX (Kubernetes DRA): Reboot one node of an allocated compute domain, and assert that with no intervention it re-registers, republishes its NVLink clique label, gets the domain's daemon back, and rejoins a ready compute domain for the same workload."
+                labels:
+                  - kubernetes
+                  - min_req
+                  - network
+                  - slow
+                dependencies:
+                  - LimitedEnv
+                milestone: M9
+                notes: The Kubernetes DRA reading of SDN20, asserting cluster objects rather than a host service unit. The reboot is confirmed by the node's boot identity changing rather than by the node answering again, since a node that never went down is reachable too, and the four recovery stages are timed separately so a partial recovery names the stage that did not complete. The reboot itself is the one thing the cluster API cannot do, so the provider supplies an out-of-band command the check runs at the point in the sequence where the domain is already up. Destructive and slow - reboots a member of a live domain, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service, or where no out-of-band reboot mechanism is configured.
+                github_issues:
+                  - "#625"
+                req_id: SDN20
+                test_id: SDN20-02
+                actor: tenant
+                status: approved
+                priority: P1
               - summary: "IMEX: After all nodes start IMEX, query domain state via nvidia-imex-ctl -N and assert state is UP, fully connected matrix"
                 labels:
                   - min_req

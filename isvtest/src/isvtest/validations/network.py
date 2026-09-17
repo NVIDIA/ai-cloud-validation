@@ -2236,6 +2236,41 @@ def _survivor_collapse(state: _DomainState, target: str) -> str | None:
     return None
 
 
+class _NodeFacts(NamedTuple):
+    """One reading of a node, as the cluster reports it.
+
+    ``boot_id`` is the kernel's own identity for the running boot, republished
+    by the kubelet in the node's status: comparing it across a reboot is
+    positive evidence the kernel restarted, which reachability is not.
+    ``registered`` is the node being usable again rather than merely present -
+    a node that comes back cordoned has not re-registered as far as a workload
+    is concerned. ``clique`` is the NVLink partition label, which a node has to
+    carry to be scheduled a channel claim at all.
+    """
+
+    boot_id: str
+    registered: bool
+    clique: str
+
+
+def _node_facts(node: dict[str, Any]) -> _NodeFacts:
+    """Reduce a node object to the facts a reboot is judged by."""
+    info = (node.get("status") or {}).get("nodeInfo") or {}
+    boot_id = info.get("bootID") if isinstance(info, dict) else None
+    conditions = (node.get("status") or {}).get("conditions") or []
+    ready = any(
+        isinstance(condition, dict) and condition.get("type") == READY and condition.get("status") == "True"
+        for condition in conditions
+    )
+    schedulable = not (node.get("spec") or {}).get("unschedulable")
+    clique = _node_labels(node).get(CLIQUE_LABEL)
+    return _NodeFacts(
+        boot_id=boot_id.strip() if isinstance(boot_id, str) else "",
+        registered=ready and schedulable,
+        clique=clique.strip() if isinstance(clique, str) else "",
+    )
+
+
 def _formation_detail(unserved: list[str], unready: list[str]) -> str:
     """Describe which members are missing a daemon and which are not yet ready."""
     parts = []
@@ -2316,6 +2351,9 @@ class _ComputeDomainCheck(BaseValidation):
                 f"({IMEX_MODE_ENV}={HOST_MANAGED_MODE}), so it owns no daemon to assert on"
             )
 
+        if not self._configured():
+            return
+
         namespace = str(self.config.get("namespace", "default"))
         image = str(self.config.get("image", _DEFAULT_IMAGE))
 
@@ -2339,6 +2377,15 @@ class _ComputeDomainCheck(BaseValidation):
     @abstractmethod
     def _assert_on_domain(self, namespace: str, name: str, formation_timeout: int) -> None:
         """Assert this check's own property against the allocated domain."""
+
+    def _configured(self) -> bool:
+        """Return whether a subclass has everything it needs, before anything is allocated.
+
+        Config a subclass cannot proceed without is read here rather than once
+        the domain is up, so a run that was never going to work does not create
+        cluster objects first.
+        """
+        return True
 
     def _declared_ownership_mode(self) -> str | None:
         """Return the daemon ownership mode the driver declares, or None on failure.
@@ -3161,6 +3208,309 @@ class ImexDomainDepartureCheck(_ComputeDomainCheck):
                 f"Could not restore {target} to the domain the check removed it from: {detail}. The check "
                 "leaves the cluster degraded, which changes what the next run observes"
             )
+
+
+class ImexDomainRebootRejoinCheck(_ComputeDomainCheck):
+    """Validate a rebooted node rejoins a ready compute domain unaided (DRA model).
+
+    Reboots one member of an allocated compute domain and asserts that the
+    node, its NVLink clique label, the domain's daemon on it, and a ready
+    domain for the same workload all come back with nothing done to help.
+
+    The reboot is confirmed by the node's boot identity changing, never by the
+    node answering again. A node that was never restarted is registered and
+    ready throughout, so a check that read reachability would pass without
+    having rebooted anything - and the cluster goes on reporting the old boot
+    identity while the node is down, which is precisely the window a weaker
+    reading would mistake for success.
+
+    Each of the four stages is timed and reported separately, so a cluster
+    that recovers everything except the clique label fails naming that rather
+    than as a generic timeout, and a platform that recovers correctly but far
+    too slowly stays visible. Nothing is judged until the boot identity has
+    changed: before that the cluster is still describing the boot that ended.
+
+    The clique label has to come back naming the partition the node left. A
+    label that never returns indicts whatever publishes it, and one that
+    returns naming a different partition is a different fault again - the
+    workload's domain is scoped to a clique, so a node that comes back in
+    another one cannot rejoin it.
+
+    What must return is a ready domain for the same workload, not the objects
+    the driver had before. The driver is free to rebuild its daemons and their
+    DaemonSet; the claim the workload holds is what the domain has to re-form
+    around.
+
+    Nothing in the check touches the node between the reboot and the
+    observations - no relabelling, no restarting the driver, no recreating a
+    claim - so an outcome reached here is one reached without intervention.
+
+    At least two members are required. Rebooting the only member is re-forming
+    the whole domain from cold, which is explicitly not a substitute for one
+    node rejoining peers that stayed up.
+
+    The reboot itself is the one thing here the cluster API cannot do, so it is
+    delegated: ``reboot_command`` is the provider's own out-of-band mechanism,
+    run by the check at the point in the sequence where it has to happen. A
+    cluster with none configured skips - the property cannot be observed
+    without restarting a node.
+
+    This check is destructive and slow: it allocates a compute domain, reboots
+    a node inside it, and waits out the boot. Run it on an idle cluster.
+
+    Config:
+        reboot_command: Out-of-band command that reboots one node, with
+            ``{node}`` where the node's name goes. Skipped when unset
+        rejoin_timeout_seconds: Bound on boot-to-ready-domain (default 900,
+            generous because bare-metal GB200-class reboots take minutes)
+
+        See ``_ComputeDomainCheck`` for the allocation's own config keys.
+    """
+
+    description: ClassVar[str] = "Check a rebooted node rejoins a ready compute domain for the same workload"
+
+    _OBJECT_PREFIX: ClassVar[str] = "isv-sdn20-02"
+
+    #: Generous by design, per the requirement: the failure being separated is
+    #: "never came back", not "came back slowly", and every stage's elapsed
+    #: time is reported either way.
+    _DEFAULT_REJOIN_SECONDS: ClassVar[int] = 900
+    #: The command only has to *request* the reboot, but a provider's script
+    #: may well wait for its own API to acknowledge it.
+    _REBOOT_REQUEST_TIMEOUT_SECONDS: ClassVar[int] = 300
+
+    _NODE_PLACEHOLDER: ClassVar[str] = "{node}"
+
+    #: In the order they have to happen, which is the order a failure names
+    #: them in: nothing is asserted about a domain the node has not rejoined.
+    _STAGES: ClassVar[tuple[str, ...]] = (
+        "reboot_confirmed",
+        "node_registered",
+        "clique_label_republished",
+        "daemon_rescheduled",
+        "domain_ready",
+    )
+
+    _reboot_command: str
+    _rejoin_timeout: int
+
+    def _configured(self) -> bool:
+        """Read the reboot mechanism and the rejoin budget before allocating anything."""
+        rejoin = self._parse_positive_int("rejoin_timeout_seconds", default=self._DEFAULT_REJOIN_SECONDS)
+        if rejoin is None:
+            return False
+
+        command = self.config.get("reboot_command")
+        if not isinstance(command, str) or not command.strip():
+            pytest.skip(
+                "No out-of-band reboot mechanism is configured (`reboot_command`). The cluster API cannot "
+                "restart a node, so there is nothing to reboot one with and the property cannot be observed"
+            )
+        if self._NODE_PLACEHOLDER not in command:
+            self.set_failed(
+                f"`reboot_command` must carry {self._NODE_PLACEHOLDER} where the node's name goes, so the "
+                "check cannot reboot a node other than the one it allocated a domain around"
+            )
+            return False
+
+        self._reboot_command = command
+        self._rejoin_timeout = rejoin
+        return True
+
+    def _assert_on_domain(self, namespace: str, name: str, formation_timeout: int) -> None:
+        """Reboot one member and assert it comes back to a ready domain."""
+        formed = self._await_formation(namespace, name, formation_timeout)
+        if formed is None:
+            return
+        state, _ = formed
+
+        if len(state.members) < 2:
+            self.set_failed(
+                f"Compute domain {name} formed with {len(state.members)} member(s): rebooting the only one is "
+                "re-forming the whole domain from cold, which is explicitly not a substitute for a single node "
+                "rejoining peers that stayed up, so this environment is too small to validate the property "
+                "rather than one where it holds"
+            )
+            return
+
+        target = min(state.members)
+        before, error = self._node_snapshot(target)
+        if before is None:
+            self.set_failed(f"Could not establish {target}'s state before rebooting it: {error}")
+            return
+        if not before.boot_id:
+            self.set_failed(
+                f"{target} publishes no boot identity, so a reboot could not be told apart from a node that "
+                "never went down. Reachability is not evidence, and this check will not assert on a reboot "
+                "it cannot confirm"
+            )
+            return
+        if not before.clique:
+            self.set_failed(
+                f"{target} carries no NVLink clique label before the reboot, so a label republished afterwards "
+                f"could not be told from one that was never there. The node is a member of compute domain "
+                f"{name}, so it is expected to carry one"
+            )
+            return
+
+        if not self._request_reboot(target):
+            return
+        self._await_rejoin(namespace, name, target, before)
+
+    def _node_snapshot(self, name: str) -> tuple[_NodeFacts | None, str]:
+        """Read one node, returning ``(None, error)`` when the cluster could not answer.
+
+        A node that is absent mid-reboot is a read failure like any other here:
+        some platforms deregister a node while it is down, and the surrounding
+        deadline is what decides whether that matters.
+        """
+        result = self.run_command(
+            get_kubectl_base_shell("get", "node", name, "-o", "json"),
+            timeout=self._READ_TIMEOUT_SECONDS,
+        )
+        if result.exit_code != 0:
+            return None, f"could not read node {name}: {command_detail(result)}"
+        payload = kubectl_payload_or_none(result)
+        if payload is None:
+            return None, f"could not parse node {name}"
+        return _node_facts(payload), ""
+
+    def _request_reboot(self, target: str) -> bool:
+        """Ask the provider's out-of-band mechanism to restart the node.
+
+        The node's name is substituted shell-quoted, so a platform whose node
+        names carry characters a shell would act on cannot turn this into a
+        command the check never meant to run.
+        """
+        command = self._reboot_command.replace(self._NODE_PLACEHOLDER, shlex.quote(target))
+        result = self.run_command(command, timeout=self._REBOOT_REQUEST_TIMEOUT_SECONDS)
+        if result.exit_code != 0:
+            self.set_failed(f"Failed to request an out-of-band reboot of {target}: {command_detail(result)}")
+            return False
+        return True
+
+    def _await_rejoin(self, namespace: str, name: str, target: str, before: _NodeFacts) -> None:
+        """Watch the node come back, timing each stage from the reboot request.
+
+        Every stage is timed from the moment the reboot was asked for, which is
+        the recovery a tenant actually waits out, and each is recorded the first
+        time it is observed. Nothing but the boot identity is read until that
+        identity has changed: until then the cluster is still describing the
+        boot that is ending, and a node on its way down is registered, labelled,
+        and a ready domain member throughout.
+        """
+        deadline = time.monotonic() + self._rejoin_timeout
+        started = time.monotonic()
+        reached: dict[str, float] = {}
+        wrong_clique = ""
+        detail = ""
+        while True:
+            node, error = self._node_snapshot(target)
+            elapsed = time.monotonic() - started
+            if node is None:
+                detail = error
+            elif not node.boot_id:
+                detail = f"{target} reports no boot identity"
+            elif node.boot_id == before.boot_id:
+                detail = f"{target} still reports the boot identity it had before the reboot was requested"
+            else:
+                reached.setdefault("reboot_confirmed", elapsed)
+                if node.registered:
+                    reached.setdefault("node_registered", elapsed)
+                if node.clique == before.clique:
+                    reached.setdefault("clique_label_republished", elapsed)
+                elif node.clique:
+                    wrong_clique = node.clique
+                detail = self._observe_domain(namespace, name, target, elapsed, reached)
+                if all(stage in reached for stage in self._STAGES):
+                    self._report_rejoined(target, reached)
+                    return
+
+            if time.monotonic() >= deadline:
+                self._report_not_rejoined(target, before, reached, wrong_clique, detail)
+                return
+            self._sleep_until(deadline)
+
+    def _observe_domain(self, namespace: str, name: str, target: str, elapsed: float, reached: dict[str, float]) -> str:
+        """Record the daemon and domain stages from one reading, returning any error.
+
+        A ready domain is the whole domain being ready, not just the node that
+        left it: the workload is served by the domain, so a member still broken
+        in the rebooted node's wake is not a domain that re-formed.
+        """
+        state, error = self._observe(namespace, name)
+        if state is None:
+            return error
+        daemon = state.daemons.get(target)
+        if daemon is not None and _pod_is_ready(daemon):
+            reached.setdefault("daemon_rescheduled", elapsed)
+        if target in state.members and all(status == READY for status in state.members.values()):
+            reached.setdefault("domain_ready", elapsed)
+        return ""
+
+    def _report_rejoined(self, target: str, reached: dict[str, float]) -> None:
+        """Record a node that came back through every stage, with each one's time."""
+        for stage in self._STAGES:
+            self.report_subtest(stage, True, f"{target}: {stage.replace('_', ' ')}", duration=reached[stage])
+        timings = ", ".join(f"{stage} {reached[stage]:.0f}s" for stage in self._STAGES)
+        self.set_passed(
+            f"{target} rebooted and rejoined a ready compute domain for the same workload "
+            f"{reached['domain_ready']:.0f}s later (budget {self._rejoin_timeout}s), with no intervention: "
+            f"{timings}"
+        )
+
+    def _report_not_rejoined(
+        self,
+        target: str,
+        before: _NodeFacts,
+        reached: dict[str, float],
+        wrong_clique: str,
+        detail: str,
+    ) -> None:
+        """Fail a recovery that ran out of budget, naming the stage that did not complete.
+
+        The stages that did complete keep their elapsed times, so a run that
+        got most of the way back is distinguishable from one where nothing
+        happened at all.
+        """
+        for stage in self._STAGES:
+            if stage in reached:
+                self.report_subtest(stage, True, f"{target}: {stage.replace('_', ' ')}", duration=reached[stage])
+        stalled = next(stage for stage in self._STAGES if stage not in reached)
+        self.report_subtest(stalled, False, f"{target}: {stalled.replace('_', ' ')} did not happen")
+        self.set_failed(
+            f"{target} did not rejoin a ready compute domain within {self._rejoin_timeout}s of being rebooted: "
+            f"{self._stalled_reason(target, before, stalled, wrong_clique, detail)}"
+        )
+
+    def _stalled_reason(self, target: str, before: _NodeFacts, stalled: str, wrong_clique: str, detail: str) -> str:
+        """Explain the stage that did not complete, in terms of what it indicts."""
+        named = f" (last read: {detail})" if detail else ""
+        if stalled == "reboot_confirmed":
+            return (
+                "the reboot was never affirmatively confirmed - its boot identity did not change, and "
+                f"reachability is not evidence since a node that never went down is reachable too{named}"
+            )
+        if stalled == "node_registered":
+            return f"it rebooted but never came back as a ready, schedulable node{named}"
+        if stalled == "clique_label_republished":
+            if wrong_clique:
+                return (
+                    f"it rebooted and came back in NVLink clique {wrong_clique} rather than the "
+                    f"{before.clique} it left, so the workload's domain cannot re-form around it"
+                )
+            return (
+                "it rebooted and came back, but its NVLink clique label was never republished. That indicts "
+                "whatever publishes the label rather than the domain, which cannot form without it"
+            )
+        if stalled == "daemon_rescheduled":
+            return (
+                "it rebooted and came back labelled, but the domain's daemon was never rescheduled onto it, "
+                f"which indicts the driver rather than the node{named}"
+            )
+        return (
+            f"it rebooted and its daemon came back, but no ready compute domain re-formed for the same workload{named}"
+        )
 
 
 class ByoipCheck(BaseValidation):
