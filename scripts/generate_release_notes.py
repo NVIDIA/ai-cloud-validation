@@ -26,6 +26,13 @@ Generate release notes from a GitHub milestone.
 Fetches issues and pull requests associated with a GitHub milestone and generates
 a formatted markdown release notes document with links and titles.
 
+Each issue carries the merged PRs that closed it on its own line, so a PR is
+listed separately only when it closes no issue being reported on.
+
+A milestone only covers what someone assigned to it. Pass --since (optionally
+with --until) to also pull in every merged PR between two refs along with the
+issues those PRs closed, which is what a release spanning several tags needs.
+
 Usage:
     uv run scripts/generate_release_notes.py <milestone_url> [options]
 
@@ -37,6 +44,8 @@ Usage:
         --include-open       Include open issues/PRs (default: only closed)
         --exclude-draft      Exclude draft pull requests (default: include all)
         --exclude-label      Exclude label from grouping (can be specified multiple times)
+        --since              Also include merged PRs after this git ref, plus the issues they closed
+        --until              End ref for --since (default: HEAD)
 
 Authentication:
     Set GITHUB_TOKEN or pass --token. Quick path via the gh CLI:
@@ -53,10 +62,21 @@ import datetime
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import requests
+
+# Issues per GraphQL query when resolving implementing pull requests.
+GRAPHQL_BATCH = 50
+
+# Release mechanics carry no user-visible change, matching the CHANGELOG prompt's
+# instruction to skip the bump commit.
+BUMP_TITLE_PREFIX = "chore: update package versions"
+
+# Conventional-commit prefix, e.g. "fix(breakfix): ..." or "docs: ...".
+CONVENTIONAL_TITLE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]+)\))?!?:")
+DOC_TYPES = {"doc", "docs"}
 
 
 @dataclass
@@ -71,6 +91,14 @@ class MilestoneInfo:
 
 
 @dataclass
+class PullRequestRef:
+    """A merged pull request that closed an issue."""
+
+    number: int
+    url: str
+
+
+@dataclass
 class IssueInfo:
     """Information about a GitHub issue or pull request."""
 
@@ -80,6 +108,8 @@ class IssueInfo:
     is_pr: bool
     labels: list[str]
     draft: bool = False
+    body: str = ""
+    closing_prs: list[PullRequestRef] = field(default_factory=list)
 
 
 def _issue_bullet(issue: IssueInfo, *, show_draft: bool = False) -> str:
@@ -89,7 +119,11 @@ def _issue_bullet(issue: IssueInfo, *, show_draft: bool = False) -> str:
     """
     prefix = "PR" if issue.is_pr else "Issue"
     draft_suffix = " (draft)" if show_draft and issue.is_pr and issue.draft else ""
-    return f"- {prefix} #{issue.number}: [{issue.title}]({issue.url}){draft_suffix}"
+    pr_suffix = ""
+    if issue.closing_prs:
+        links = ", ".join(f"[PR #{pr.number}]({pr.url})" for pr in issue.closing_prs)
+        pr_suffix = f" ({links})"
+    return f"- {prefix} #{issue.number}: [{issue.title}]({issue.url}){draft_suffix}{pr_suffix}"
 
 
 def _format_http_error(response: requests.Response) -> str:
@@ -198,6 +232,119 @@ class GitHubAPI:
         params = {"milestone": str(milestone_number), "state": state}
         return self._get_paginated(endpoint, params, verbose=verbose)
 
+    def _post_graphql(self, query: str) -> dict[str, Any]:
+        """Run a GraphQL query and return its data payload."""
+        response = requests.post(f"{self.base_url}/graphql", headers=self.headers, json={"query": query}, timeout=30)
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError:
+            raise requests.exceptions.HTTPError(
+                f"{response.status_code} Client Error: {_format_http_error(response)} for url: {response.url}",
+                response=response,
+            )
+        payload = response.json()
+        if "errors" in payload:
+            messages = "; ".join(str(e.get("message", e)) for e in payload["errors"])
+            raise ValueError(f"GraphQL error: {messages}")
+        return payload["data"]
+
+    def get_range_pr_numbers(self, org: str, repo: str, since: str, until: str) -> list[int]:
+        """PR numbers referenced by the squash commits between two refs."""
+        try:
+            data = self._get(f"/repos/{org}/{repo}/compare/{since}...{until}")
+        except requests.exceptions.HTTPError as error:
+            status = error.response.status_code if error.response is not None else None
+            if status == 404:
+                raise ValueError(f"Cannot compare {since}...{until}: check that both refs exist in {org}/{repo}")
+            raise
+        commits = data.get("commits", [])
+        total = data.get("total_commits", len(commits))
+        if len(commits) < total:
+            print(
+                f"    Warning: compare returned {len(commits)} of {total} commits; "
+                "narrow the range to avoid missing PRs",
+                file=sys.stderr,
+            )
+        numbers = set()
+        for commit in commits:
+            subject = (commit.get("commit", {}).get("message") or "").split("\n", 1)[0]
+            match = re.search(r"\(#(\d+)\)\s*$", subject)
+            if match:
+                numbers.add(int(match.group(1)))
+        return sorted(numbers)
+
+    def get_range_items(
+        self, org: str, repo: str, pr_numbers: list[int], include_open: bool = False
+    ) -> list[IssueInfo]:
+        """Merged PRs from a ref range, plus the issues they close.
+
+        The issues come back with the PRs because a range is defined by commits:
+        an issue closed inside it need not carry the milestone being reported on.
+        """
+        items: dict[int, IssueInfo] = {}
+        for start in range(0, len(pr_numbers), GRAPHQL_BATCH):
+            batch = pr_numbers[start : start + GRAPHQL_BATCH]
+            aliases = "\n".join(
+                f"p{number}: pullRequest(number: {number}) {{ number title url body merged "
+                f"labels(first: 20) {{ nodes {{ name }} }} "
+                f"closingIssuesReferences(first: 10) {{ nodes {{ number title url state "
+                f"labels(first: 20) {{ nodes {{ name }} }} }} }} }}"
+                for number in batch
+            )
+            data = self._post_graphql(f'{{ repository(owner: "{org}", name: "{repo}") {{ {aliases} }} }}')
+            repository = data.get("repository") or {}
+            for number in batch:
+                pull = repository.get(f"p{number}")
+                if not pull or not pull.get("merged") or pull["title"].startswith(BUMP_TITLE_PREFIX):
+                    continue
+                items[pull["number"]] = IssueInfo(
+                    number=pull["number"],
+                    title=pull["title"],
+                    url=pull["url"],
+                    is_pr=True,
+                    labels=[label["name"] for label in (pull.get("labels") or {}).get("nodes", [])],
+                    body=pull.get("body") or "",
+                )
+                for issue in (pull.get("closingIssuesReferences") or {}).get("nodes", []):
+                    if issue["state"] == "OPEN" and not include_open:
+                        continue
+                    items.setdefault(
+                        issue["number"],
+                        IssueInfo(
+                            number=issue["number"],
+                            title=issue["title"],
+                            url=issue["url"],
+                            is_pr=False,
+                            labels=[label["name"] for label in (issue.get("labels") or {}).get("nodes", [])],
+                        ),
+                    )
+        return list(items.values())
+
+    def get_closing_prs(self, org: str, repo: str, issue_numbers: list[int]) -> dict[int, list[PullRequestRef]]:
+        """Map each issue number to the merged pull requests that closed it.
+
+        Unmerged PRs are dropped: an issue can reference a closed-without-merge
+        attempt alongside the PR that actually landed.
+        """
+        closing: dict[int, list[PullRequestRef]] = {}
+        for start in range(0, len(issue_numbers), GRAPHQL_BATCH):
+            batch = issue_numbers[start : start + GRAPHQL_BATCH]
+            aliases = "\n".join(
+                f"i{number}: issue(number: {number}) {{ "
+                f"closedByPullRequestsReferences(first: 10, includeClosedPrs: true) "
+                f"{{ nodes {{ number url state }} }} }}"
+                for number in batch
+            )
+            data = self._post_graphql(f'{{ repository(owner: "{org}", name: "{repo}") {{ {aliases} }} }}')
+            repository = data.get("repository") or {}
+            for number in batch:
+                node = repository.get(f"i{number}") or {}
+                refs = (node.get("closedByPullRequestsReferences") or {}).get("nodes") or []
+                merged = [PullRequestRef(number=r["number"], url=r["url"]) for r in refs if r["state"] == "MERGED"]
+                if merged:
+                    closing[number] = sorted(merged, key=lambda pr: pr.number)
+        return closing
+
 
 def parse_milestone_url(url: str) -> MilestoneInfo:
     """Parse a GitHub milestone URL to extract org, repo, and milestone number."""
@@ -226,7 +373,56 @@ def parse_issue(issue_data: dict[str, Any]) -> IssueInfo:
         is_pr=is_pr,
         labels=[label["name"] for label in issue_data.get("labels", [])],
         draft=issue_data.get("draft", False) if is_pr else False,
+        body=issue_data.get("body") or "",
     )
+
+
+def _mentioned_issue_numbers(body: str, issue_numbers: set[int]) -> list[int]:
+    """Issue numbers referenced in a PR body, restricted to the milestone's own issues."""
+    referenced = {int(number) for number in re.findall(r"#(\d+)", body)}
+    return sorted(referenced & issue_numbers)
+
+
+def link_prs_to_issues(items: list[IssueInfo], closing: dict[int, list[PullRequestRef]]) -> list[IssueInfo]:
+    """Move implementing PRs onto their issue's line and drop them as separate items.
+
+    GitHub's closing links are authoritative. A PR that referenced its issue in
+    prose instead of using a closing keyword declares no link at all, so fall
+    back to the issue numbers mentioned in its body - restricted to this
+    milestone's issues, which keeps references to unrelated work out.
+    """
+    issues_by_number = {item.number: item for item in items if not item.is_pr}
+    for issue in issues_by_number.values():
+        issue.closing_prs = list(closing.get(issue.number, []))
+
+    linked = {pr.number for issue in issues_by_number.values() for pr in issue.closing_prs}
+
+    for item in items:
+        if not item.is_pr or item.number in linked:
+            continue
+        for number in _mentioned_issue_numbers(item.body, set(issues_by_number)):
+            issues_by_number[number].closing_prs.append(PullRequestRef(number=item.number, url=item.url))
+            linked.add(item.number)
+
+    for issue in issues_by_number.values():
+        issue.closing_prs.sort(key=lambda pr: pr.number)
+
+    return [item for item in items if not (item.is_pr and item.number in linked)]
+
+
+def _scope_group(title: str) -> str | None:
+    """Section for an item carrying no usable label, taken from its commit scope.
+
+    PRs here are routinely unlabelled, so their conventional-commit title is the
+    only signal left. Documentation changes group under one heading instead of
+    splintering into a section per scope.
+    """
+    match = CONVENTIONAL_TITLE.match(title)
+    if not match:
+        return None
+    if match.group("type") in DOC_TYPES:
+        return "documentation"
+    return match.group("scope")
 
 
 def generate_markdown(
@@ -259,17 +455,13 @@ def generate_markdown(
         exclude_labels_set = set(exclude_labels or [])
 
         for issue in filtered_issues:
-            if issue.labels:
-                # Filter out excluded labels, then use first remaining label for grouping
-                available_labels = [lbl for lbl in issue.labels if lbl not in exclude_labels_set]
-                if available_labels:
-                    label = available_labels[0]
-                    if label not in label_groups:
-                        label_groups[label] = []
-                    label_groups[label].append(issue)
-                else:
-                    # All labels were excluded, treat as unlabeled
-                    unlabeled.append(issue)
+            # Filter out excluded labels, then use first remaining label for grouping
+            available_labels = [lbl for lbl in issue.labels if lbl not in exclude_labels_set]
+            group = available_labels[0] if available_labels else _scope_group(issue.title)
+            if group:
+                if group not in label_groups:
+                    label_groups[group] = []
+                label_groups[group].append(issue)
             else:
                 unlabeled.append(issue)
 
@@ -309,9 +501,14 @@ def generate_markdown(
 
     pr_count = sum(1 for i in filtered_issues if i.is_pr)
     issue_count = len(filtered_issues) - pr_count
+    # Distinct PRs: one PR can close several issues and appear on each of their lines.
+    linked_pr_count = len({pr.number for i in filtered_issues for pr in i.closing_prs})
+    total = f"**Total**: {len(filtered_issues)} items ({pr_count} PRs, {issue_count} issues)"
+    if linked_pr_count:
+        total += f", plus {linked_pr_count} implementing PRs linked inline"
     lines.append("---")
     lines.append("")
-    lines.append(f"**Total**: {len(filtered_issues)} items ({pr_count} PRs, {issue_count} issues)")
+    lines.append(total)
 
     return "\n".join(lines) + "\n"
 
@@ -362,6 +559,16 @@ def main() -> int:
         help="Exclude label from grouping (can be specified multiple times). "
         "When grouping by label, excluded labels are skipped. "
         "Example: --exclude-label test-scripts --exclude-label enhancement",
+    )
+    parser.add_argument(
+        "--since",
+        help="Also include merged PRs after this git ref (tag, branch, or SHA), plus the issues they closed. "
+        "Use when a release spans work that was never milestoned.",
+    )
+    parser.add_argument(
+        "--until",
+        default="HEAD",
+        help="End ref for --since (default: HEAD)",
     )
     parser.add_argument(
         "--verbose",
@@ -416,6 +623,26 @@ def main() -> int:
 
         issues = [parse_issue(issue) for issue in issues_data]
         print(f"Found {len(issues)} items", file=sys.stderr)
+
+        if args.since:
+            print(f"Fetching merged PRs in {args.since}...{args.until}...", file=sys.stderr)
+            pr_numbers = api.get_range_pr_numbers(milestone_info.org, milestone_info.repo, args.since, args.until)
+            range_items = api.get_range_items(
+                milestone_info.org, milestone_info.repo, pr_numbers, include_open=args.include_open
+            )
+            known = {item.number for item in issues}
+            added = [item for item in range_items if item.number not in known]
+            issues.extend(added)
+            print(f"  Added {len(added)} items not on the milestone", file=sys.stderr)
+
+        issue_items = [i for i in issues if not i.is_pr]
+        if issue_items:
+            print("Resolving implementing pull requests...", file=sys.stderr)
+            closing = api.get_closing_prs(milestone_info.org, milestone_info.repo, [i.number for i in issue_items])
+            listed = len(issues)
+            issues = link_prs_to_issues(issues, closing)
+            if args.verbose:
+                print(f"  Linked {listed - len(issues)} pull requests to issues", file=sys.stderr)
 
         if len(issues) == 0 and milestone_data.get("closed_issues", 0) > 0:
             print(
