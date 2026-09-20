@@ -3185,6 +3185,16 @@ def _imex_domain_payload(
     )
 
 
+def _observer_view(state: dict[str, bool]) -> str:
+    """Return the observer's view: the target CONNECTED until the stop lands.
+
+    The check refuses to read a departure from a peer that never reported the
+    target connected, so an observer that says it is gone from the outset
+    models a domain whose members never peered rather than a healthy one.
+    """
+    return _imex_domain_payload("RECOVERING" if state["stopped"] else "CONNECTED")
+
+
 def _target_ready_payload() -> str:
     """A payload in which the target node reports itself an operational member."""
     return json.dumps(
@@ -3308,11 +3318,13 @@ def test_imex_departure_stops_gracefully_never_kills(monkeypatch: pytest.MonkeyP
     where a supervisor is expected to bring the daemon back."""
     module = _load_network_script("imex_departure_test.py")
     issued: list[str] = []
+    state = {"stopped": False}
 
     def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
         """Fake a clean stop followed by the observer noticing the departure."""
         issued.append(command)
         if "systemctl stop" in command:
+            state["stopped"] = True
             return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\n"}
         if "systemctl start" in command:
             return {"host": host, "ok": True, "stdout": ""}
@@ -3321,7 +3333,7 @@ def test_imex_departure_stops_gracefully_never_kills(monkeypatch: pytest.MonkeyP
             # restoration. `_imex_domain_payload` reports node-a READY when it
             # is the one being asked about.
             return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
-        return {"host": host, "ok": True, "stdout": _imex_domain_payload("RECOVERING")}
+        return {"host": host, "ok": True, "stdout": _observer_view(state)}
 
     monkeypatch.setattr(module, "run_remote", _remote)
     monkeypatch.setattr(
@@ -3358,15 +3370,19 @@ def test_imex_departure_restores_even_when_stop_fails(monkeypatch: pytest.Monkey
     so a stop that did not land cleanly still puts the node back."""
     module = _load_network_script("imex_departure_test.py")
     issued: list[str] = []
+    state = {"stopped": False}
 
     def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
         """Fake a stop that leaves the service in an unexpected state."""
         issued.append(command)
         if "systemctl stop" in command:
+            state["stopped"] = True
             return {"host": host, "ok": True, "stdout": "ACTIVE=failed\n"}
         if "systemctl start" in command:
             return {"host": host, "ok": True, "stdout": ""}
-        return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
+        if "ACTIVE=" in command and "OUT=" in command:
+            return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
+        return {"host": host, "ok": True, "stdout": _observer_view(state)}
 
     monkeypatch.setattr(module, "run_remote", _remote)
     monkeypatch.setattr(
@@ -3530,10 +3546,12 @@ def test_imex_departure_polls_restoration_rather_than_sampling_once(monkeypatch:
     report a restoration that did in fact succeed as having failed."""
     module = _load_network_script("imex_departure_test.py")
     samples = {"n": 0}
+    state = {"stopped": False}
 
     def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
         """Fake a target that only rejoins the domain on the third sample."""
         if "systemctl stop" in command:
+            state["stopped"] = True
             return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\n"}
         if "systemctl start" in command:
             return {"host": host, "ok": True, "stdout": ""}
@@ -3544,7 +3562,7 @@ def test_imex_departure_polls_restoration_rather_than_sampling_once(monkeypatch:
             if samples["n"] < 4:  # still coming back
                 return {"host": host, "ok": True, "stdout": "ACTIVE=activating\nOUT=\n"}
             return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
-        return {"host": host, "ok": True, "stdout": _imex_domain_payload("RECOVERING")}
+        return {"host": host, "ok": True, "stdout": _observer_view(state)}
 
     monkeypatch.setattr(module, "run_remote", _remote)
     monkeypatch.setattr(module, "RESTORE_POLL_SECONDS", 0)
@@ -3578,10 +3596,12 @@ def test_imex_departure_failed_restoration_fails_the_run(monkeypatch: pytest.Mon
     domain, so converging peers are not enough if the node was left down."""
     module = _load_network_script("imex_departure_test.py")
     samples = {"n": 0}
+    state = {"stopped": False}
 
     def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
         """Fake a target that never comes back after the stop."""
         if "systemctl stop" in command:
+            state["stopped"] = True
             return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\n"}
         if "systemctl start" in command:
             return {"host": host, "ok": True, "stdout": ""}
@@ -3590,7 +3610,7 @@ def test_imex_departure_failed_restoration_fails_the_run(monkeypatch: pytest.Mon
             if samples["n"] == 1:
                 return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
             return {"host": host, "ok": True, "stdout": "ACTIVE=failed\nOUT=\n"}
-        return {"host": host, "ok": True, "stdout": _imex_domain_payload("RECOVERING")}
+        return {"host": host, "ok": True, "stdout": _observer_view(state)}
 
     monkeypatch.setattr(module, "run_remote", _remote)
     monkeypatch.setattr(module, "RESTORE_POLL_SECONDS", 0)
@@ -3621,6 +3641,54 @@ def test_imex_departure_failed_restoration_fails_the_run(monkeypatch: pytest.Mon
     assert emitted["operations"]["peer_convergence"]["target_reported"] == "unavailable"
     assert emitted["success"] is False
     assert "was left" in emitted["error"]
+
+
+def test_imex_departure_refuses_a_domain_whose_members_never_peered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A peer that never saw the target connected cannot observe it leaving.
+
+    Without a baseline the observer reports the target unavailable from the
+    outset, which reads as a departure noticed instantly - a pass for the one
+    assertion this check exists to make, on a domain that never worked. The
+    target reporting itself READY does not cover it: observed live, each node
+    reports itself READY whether or not its peers can reach it.
+    """
+    module = _load_network_script("imex_departure_test.py")
+    issued: list[str] = []
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Fake two healthy daemons whose link to each other never came up."""
+        issued.append(command)
+        if "ACTIVE=" in command and "OUT=" in command:
+            return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={_target_ready_payload()}\n"}
+        return {"host": host, "ok": True, "stdout": _imex_domain_payload("INVALID")}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_departure_test.py",
+            "--region",
+            "r",
+            "--target-node",
+            "10.0.0.1",
+            "--observer-node",
+            "10.0.0.2",
+            "--key-file",
+            "/tmp/k.pem",
+        ],
+    )
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert emitted["success"] is False
+    assert not any("systemctl stop" in c for c in issued), "must not degrade a domain that cannot answer the question"
+    assert emitted["operations"]["prior_state"]["target_reported"] == "unavailable"
+    assert "never saw connected" in emitted["error"]
 
 
 # --- SDN20-01: reboot rejoin ---------------------------------------------------

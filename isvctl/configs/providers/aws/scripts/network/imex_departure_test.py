@@ -47,6 +47,13 @@ contract's enum:
 The validation only ever sees that enum; it never substring-matches vendor
 output.
 
+The observer must report the target "available" before the stop, or the run
+fails before disturbing anything. Without that baseline a domain whose members
+never managed to peer reports the target unavailable from the outset, which
+would read as a departure promptly observed - a pass for the one assertion this
+check exists to make. The target reporting itself READY does not cover it: each
+node reports itself READY regardless of whether its peers can reach it.
+
 Usage:
     python imex_departure_test.py --region us-west-2 \\
         --target-node gpu-node-1 --observer-node gpu-node-2 --key-file /tmp/key.pem
@@ -327,13 +334,35 @@ def main() -> int:
     #    running to begin with, which is not the prior state either.
     prior_active, prior_payload = _sample_target()
     prior_member = _is_ready(prior_payload, target)
-    result["operations"]["prior_state"] = {"service_state": prior_active or "unknown", "domain_member": prior_member}
+    prior_probe = on(observer, IMEX_CTL_COMMAND)
+    prior_view = _peer_view(prior_probe["stdout"], observer, target) if prior_probe["ok"] else "unknown"
+    result["operations"]["prior_state"] = {
+        "service_state": prior_active or "unknown",
+        "domain_member": prior_member,
+        "observed_from": observer,
+        "target_reported": prior_view,
+    }
 
     if prior_active != "active" or not prior_member:
         result["error"] = (
             f"{target}: was not an active, operational domain member before the stop (service "
             f"{prior_active or 'unknown'!r}, domain member {prior_member}) - there is no departure to cause, and "
             "stopping it here would not be restoring its prior state either"
+        )
+        print(json.dumps(result, indent=2))
+        return 1
+
+    # The observer has to see the target *before* it is removed, or the later
+    # reading means nothing: a pair that never managed to peer reports the
+    # target unavailable from the outset, so a domain whose members cannot talk
+    # to each other would read as a departure promptly observed. The target
+    # reporting itself READY does not cover this - observed live, each node
+    # reports itself READY regardless of whether its peers can reach it.
+    if prior_view != "available":
+        result["error"] = (
+            f"{observer}: did not report {target} as available before the stop (reported {prior_view!r}) - a node "
+            "its peers never saw connected cannot be observed leaving, so this domain cannot demonstrate the "
+            "property rather than being one where it fails"
         )
         print(json.dumps(result, indent=2))
         return 1

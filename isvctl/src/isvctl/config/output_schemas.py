@@ -1156,14 +1156,27 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                     "prior_state": {
                         "type": "object",
                         "description": (
-                            "The target's state before anything was disturbed. Recorded so an already-stopped "
-                            "node cannot report a departure the check never caused."
+                            "The state before anything was disturbed. Recorded so an already-stopped node cannot "
+                            "report a departure the check never caused, and so a pair that never peered cannot "
+                            "report one either."
                         ),
                         "properties": {
                             "service_state": {"type": "string", "description": "Service state before the stop"},
                             "domain_member": {
                                 "type": "boolean",
                                 "description": "Whether the target was an operational domain member before the stop",
+                            },
+                            "observed_from": {
+                                "type": "string",
+                                "description": "Surviving member the baseline peer view was read from",
+                            },
+                            "target_reported": {
+                                "type": "string",
+                                "enum": ["available", "unavailable", "unknown"],
+                                "description": (
+                                    "The observer's normalized view of the target before the stop. Must be "
+                                    "'available': a node its peers never saw connected cannot be observed leaving."
+                                ),
                             },
                         },
                         "additionalProperties": True,
