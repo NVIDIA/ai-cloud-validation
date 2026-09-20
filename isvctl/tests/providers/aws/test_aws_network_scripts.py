@@ -3691,6 +3691,75 @@ def test_imex_departure_refuses_a_domain_whose_members_never_peered(monkeypatch:
     assert "never saw connected" in emitted["error"]
 
 
+def test_imex_departure_sample_does_not_truncate_the_parsed_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The target sample is parsed, so it must not be cut.
+
+    A domain large enough to exceed the cut comes back as invalid JSON, which
+    reads as "not a domain member" and aborts the run blaming the cluster -
+    the same trap `imex_reboot_test` documents in `_state_command`.
+    """
+    module = _load_network_script("imex_departure_test.py")
+    issued: list[str] = []
+    state = {"stopped": False}
+    # Shaped like the live capture in imex_domain_test.py's docstring: one entry
+    # per configured member, each listing a connection per member, so the
+    # payload grows with the square of the domain size.
+    nodes = {
+        str(i): {
+            "status": "READY",
+            "host": f"10.0.0.{i + 1}",
+            "hostName": f"gpu-node-{i + 1}.cluster.internal",
+            "connections": {
+                str(j): {"host": f"10.0.0.{j + 1}", "status": "CONNECTED", "changed": True} for j in range(8)
+            },
+            "changed": True,
+            "version": "580.95.05",
+        }
+        for i in range(8)
+    }
+    nodes["0"]["host"] = "10.0.0.1"
+    large = json.dumps({"nodes": nodes, "timestamp": "9/4/2026 00:37:39.905", "status": "UP"})
+    assert len(large) > 4000, "fixture must exceed any plausible cut to be a regression test"
+
+    def _remote(host: str, user: str, key_file: str, command: str, timeout: int) -> dict[str, Any]:
+        """Serve a large domain payload, honouring any truncation the command asks for."""
+        issued.append(command)
+        if "systemctl stop" in command:
+            state["stopped"] = True
+            return {"host": host, "ok": True, "stdout": "ACTIVE=inactive\n"}
+        if "systemctl start" in command:
+            return {"host": host, "ok": True, "stdout": ""}
+        if "ACTIVE=" in command and "OUT=" in command:
+            return {"host": host, "ok": True, "stdout": f"ACTIVE=active\nOUT={large}\n"}
+        return {"host": host, "ok": True, "stdout": _observer_view(state)}
+
+    monkeypatch.setattr(module, "run_remote", _remote)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "imex_departure_test.py",
+            "--region",
+            "r",
+            "--target-node",
+            "10.0.0.1",
+            "--observer-node",
+            "10.0.0.2",
+            "--key-file",
+            "/tmp/k.pem",
+        ],
+    )
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert not any("head -c" in c for c in issued), "the parsed payload must not be truncated"
+    assert emitted["operations"]["prior_state"]["domain_member"] is True
+    assert rc == 0, emitted.get("error")
+
+
 # --- SDN20-01: reboot rejoin ---------------------------------------------------
 
 

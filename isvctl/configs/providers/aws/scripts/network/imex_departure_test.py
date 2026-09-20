@@ -286,10 +286,15 @@ def main() -> int:
         return run_remote(host, args.ssh_user, args.key_file, command, args.timeout)
 
     def _sample_target() -> tuple[str, str]:
-        """Return the target's (service state, nvidia-imex-ctl payload)."""
+        """Return the target's (service state, nvidia-imex-ctl payload).
+
+        The payload is deliberately untruncated: it is parsed, and cutting a
+        large domain's output mid-structure would make it invalid JSON, which
+        reads as "not a domain member" and aborts the run blaming the cluster.
+        """
         sampled = on(
             target,
-            f"echo ACTIVE=$(systemctl is-active {service}); echo OUT=$({IMEX_CTL_COMMAND} 2>/dev/null | head -c 4000)",
+            f"echo ACTIVE=$(systemctl is-active {service}); echo OUT=$({IMEX_CTL_COMMAND} 2>/dev/null)",
         )
         active = ""
         payload = ""
