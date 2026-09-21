@@ -118,7 +118,7 @@ class K8sCncfConformanceCheck(BaseValidation):
         },
         "quick": {
             # Minimal focus for smoke-testing the harness end-to-end.
-            "focus": r"\[Conformance\]\[sig-api-machinery\].*configmap",
+            "focus": r"\[sig-api-machinery\].*ConfigMap",
             "skip": "",
             "parallel": "false",
         },
@@ -258,6 +258,8 @@ class K8sCncfConformanceCheck(BaseValidation):
             elif summary.failed > 0:
                 failed_names = [c.name for c in summary.cases if not c.passed and not c.skipped][:10]
                 self.set_failed(msg, output="First failures:\n" + "\n".join(failed_names))
+            elif summary.passed == 0:
+                self.set_failed(f"{msg} - all testcases were skipped")
             else:
                 self.set_passed(msg)
 

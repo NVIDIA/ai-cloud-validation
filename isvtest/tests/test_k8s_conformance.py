@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -73,6 +74,17 @@ FAILING_JUNIT = """<?xml version="1.0" encoding="UTF-8"?>
   <testcase name="[sig-api-machinery] OK" time="1.0"/>
   <testcase name="[sig-node] FAILS" time="4.0">
     <failure message="expected 200 got 500">stack trace</failure>
+  </testcase>
+</testsuite>
+"""
+
+ALL_SKIPPED_JUNIT = """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Kubernetes e2e suite" tests="2" failures="0" skipped="2" time="0.0">
+  <testcase name="[sig-api-machinery] ConfigMap create" time="0">
+    <skipped message="filtered by focus"/>
+  </testcase>
+  <testcase name="[sig-node] Pods basic" time="0">
+    <skipped message="filtered by focus"/>
   </testcase>
 </testsuite>
 """
@@ -220,6 +232,11 @@ class TestGuards:
         assert not check.passed
         assert "Invalid mode" in check.message
 
+    def test_quick_mode_focus_matches_configmap_test_name(self) -> None:
+        focus = K8sCncfConformanceCheck._MODE_PRESETS["quick"]["focus"]
+
+        assert re.search(focus, "[sig-api-machinery] ConfigMap create")
+
 
 class TestVersionDetection:
     def _check_with_version_response(self, response: CommandResult) -> K8sCncfConformanceCheck:
@@ -284,6 +301,14 @@ class TestRun:
         assert any("delete clusterrolebinding" in cmd for cmd in router.seen)
         # Version was auto-detected and image pinned to server version
         assert any("version -o json" in cmd for cmd in router.seen)
+
+    def test_all_skipped_junit_sets_failed(self) -> None:
+        router = _happy_router({"cat /tmp/results/junit": ok(ALL_SKIPPED_JUNIT)})
+
+        check = _run_check(router)
+
+        assert not check.passed
+        assert "all testcases were skipped" in check.message
 
     def test_failing_junit_sets_failed(self) -> None:
         router = _happy_router({"cat /tmp/results": ok(FAILING_JUNIT)})
