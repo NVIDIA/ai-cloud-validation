@@ -54,7 +54,7 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
         # Note: We still rely on k8s_utils here for convenience
         nodes = get_gpu_nodes()
         if not nodes:
-            self.set_passed("Skipped: No GPU nodes available")
+            self.set_skipped("Skipped: No GPU nodes available")
             return
 
         self.log.info(f"Running GPU stress test on {len(nodes)} nodes: {', '.join(nodes)}")

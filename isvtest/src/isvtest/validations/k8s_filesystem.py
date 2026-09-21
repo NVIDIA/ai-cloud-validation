@@ -537,7 +537,7 @@ class _K8sCrossNodeCheck(_K8sSharedFsCheck):
         """Return two distinct Ready node names, or ``None`` (after skipping)."""
         nodes = self._ready_nodes()
         if len(nodes) < 2:
-            self.set_passed(f"Skipped: cross-node test requires >= 2 Ready nodes, found {len(nodes)}")
+            self.set_skipped(f"Skipped: cross-node test requires >= 2 Ready nodes, found {len(nodes)}")
             return None
         return nodes[:2]
 
@@ -626,7 +626,7 @@ class K8sFileLockingCheck(_K8sCrossNodeCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
+            self.set_skipped("Skipped: no shared-fs/nfs StorageClass configured")
             return
 
         nodes = self._two_nodes()
@@ -744,7 +744,7 @@ class K8sCrossNodeWriteVisibilityCheck(_K8sCrossNodeCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
+            self.set_skipped("Skipped: no shared-fs/nfs StorageClass configured")
             return
 
         nodes = self._two_nodes()
@@ -838,7 +838,7 @@ class K8sCrossNodeAttrConsistencyCheck(_K8sCrossNodeCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
+            self.set_skipped("Skipped: no shared-fs/nfs StorageClass configured")
             return
 
         nodes = self._two_nodes()
@@ -958,7 +958,7 @@ class _K8sLargeDirListingBase(_K8sSharedFsCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
+            self.set_skipped("Skipped: no shared-fs/nfs StorageClass configured")
             return
 
         count = self._parse_positive_int(self._COUNT_KEY, default=self._DEFAULT_COUNT)
@@ -1160,7 +1160,7 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
+            self.set_skipped("Skipped: no shared-fs/nfs StorageClass configured")
             return
         if not _PJDFSTEST_SRC_DIR.is_dir():
             self.set_failed(f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; run `make vendor-pjdfstest`")

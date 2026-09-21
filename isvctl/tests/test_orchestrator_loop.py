@@ -413,7 +413,8 @@ EOF
         assert result.success
         assert [phase.phase for phase in result.phases] == [Phase.TEST]
         assert [entry.entry.name for entry in result.validations] == ["K8sCsiStorageTypesCheck"]
-        assert result.validations[0].state is State.PASSED
+        assert result.validations[0].state is State.SKIPPED
+        assert "no StorageClass configured" in result.validations[0].message
 
     def test_config_without_commands_or_validations_is_not_a_pass(self) -> None:
         """Validations are all a commandless run has, so wiring none asserts nothing."""
@@ -713,7 +714,7 @@ class TestLabelFiltering:
 
         with_label = Orchestrator(config).run(phases=[Phase.TEST], include_labels=["kubernetes"])
         bypassed = with_label.phases[0].details["validations"][0]
-        assert bypassed["state"] == "passed", bypassed
+        assert bypassed["state"] == "skipped", bypassed
         assert "excluded by label" not in bypassed["message"]
 
     def test_pytest_k_filter_also_bypasses_config_label_exclusions(self) -> None:
@@ -730,7 +731,7 @@ class TestLabelFiltering:
             extra_pytest_args=["-k", "K8sNodeCountCheck"],
         )
         check = result.phases[0].details["validations"][0]
-        assert check["state"] == "passed", check
+        assert check["state"] == "skipped", check
         assert "excluded by label" not in check["message"]
 
     def test_include_labels_compose_with_pytest_k_deselection(self) -> None:
