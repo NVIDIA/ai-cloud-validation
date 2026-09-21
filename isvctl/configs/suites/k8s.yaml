@@ -297,7 +297,7 @@ tests:
           timeout: 7200
           startup_timeout: 600
           cleanup_namespace: true
-          report_individual_tests: false
+          report_individual_tests: true
 
     k8s_workloads:
       checks:
