@@ -1681,6 +1681,10 @@ COMPUTE_DOMAIN_ROLE = re.compile(r"^compute-domain[a-z0-9.-]*\.nvidia\.com$")
 # Set by GPU feature discovery on nodes that belong to an NVLink clique; its
 # value names the clique.
 CLIQUE_LABEL = "nvidia.com/gpu.clique"
+# Stamped by the same feature discovery on every pass, whatever it concludes.
+# It is the only signal that says when the labels beside it were last decided,
+# which a reboot needs because labels outlive the machine that earned them.
+GFD_TIMESTAMP_LABEL = "nvidia.com/gfd.timestamp"
 # GPU accounting. A DRA-only cluster need not expose the extended resource at
 # all, so the feature-discovery label counts as well.
 GPU_RESOURCE = "nvidia.com/gpu"
@@ -2245,12 +2249,15 @@ class _NodeFacts(NamedTuple):
     ``registered`` is the node being usable again rather than merely present -
     a node that comes back cordoned has not re-registered as far as a workload
     is concerned. ``clique`` is the NVLink partition label, which a node has to
-    carry to be scheduled a channel claim at all.
+    carry to be scheduled a channel claim at all. ``discovered`` is when
+    feature discovery last decided that label, which is what tells a reading
+    of it taken after the reboot apart from one left over from before.
     """
 
     boot_id: str
     registered: bool
     clique: str
+    discovered: str
 
 
 def _node_facts(node: dict[str, Any]) -> _NodeFacts:
@@ -2263,12 +2270,34 @@ def _node_facts(node: dict[str, Any]) -> _NodeFacts:
         for condition in conditions
     )
     schedulable = not (node.get("spec") or {}).get("unschedulable")
-    clique = _node_labels(node).get(CLIQUE_LABEL)
+    labels = _node_labels(node)
+    clique = labels.get(CLIQUE_LABEL)
+    discovered = labels.get(GFD_TIMESTAMP_LABEL)
     return _NodeFacts(
         boot_id=boot_id.strip() if isinstance(boot_id, str) else "",
         registered=ready and schedulable,
         clique=clique.strip() if isinstance(clique, str) else "",
+        discovered=discovered.strip() if isinstance(discovered, str) else "",
     )
+
+
+def _clique_was_rediscovered(before: _NodeFacts, node: _NodeFacts) -> bool:
+    """Return whether the node's clique label is a post-reboot conclusion.
+
+    Node labels live on the API object, not the machine, so the clique label
+    a node carried before a reboot is still there the moment it comes back,
+    whatever the hardware now reports. Reading it then is the same mistake as
+    judging the reboot by the node answering: the value is true of the boot
+    that ended. Feature discovery restamps its timestamp on every pass, so a
+    timestamp that has moved means the label beside it was decided again.
+
+    Clusters that publish no timestamp get the reading as-is, since there is
+    nothing to date it by and refusing would fail them for a property they
+    never claimed to expose.
+    """
+    if not before.discovered:
+        return True
+    return bool(node.discovered) and node.discovered != before.discovered
 
 
 def _formation_detail(unserved: list[str], unready: list[str]) -> str:
@@ -3234,7 +3263,10 @@ class ImexDomainRebootRejoinCheck(_ComputeDomainCheck):
     label that never returns indicts whatever publishes it, and one that
     returns naming a different partition is a different fault again - the
     workload's domain is scoped to a clique, so a node that comes back in
-    another one cannot rejoin it.
+    another one cannot rejoin it. It also has to be a label decided after the
+    reboot: labels live on the node object rather than the machine, so the old
+    one is still there the instant the node comes back, and counting it would
+    credit the cluster for a conclusion it has not reached yet.
 
     What must return is a ready domain for the same workload, not the objects
     the driver had before. The driver is free to rebuild its daemons and their
@@ -3397,7 +3429,9 @@ class ImexDomainRebootRejoinCheck(_ComputeDomainCheck):
         time it is observed. Nothing but the boot identity is read until that
         identity has changed: until then the cluster is still describing the
         boot that is ending, and a node on its way down is registered, labelled,
-        and a ready domain member throughout.
+        and a ready domain member throughout. The clique label needs dating of
+        its own even after that, since it survives the reboot on the node
+        object - see ``_clique_was_rediscovered``.
         """
         deadline = time.monotonic() + self._rejoin_timeout
         started = time.monotonic()
@@ -3417,10 +3451,10 @@ class ImexDomainRebootRejoinCheck(_ComputeDomainCheck):
                 reached.setdefault("reboot_confirmed", elapsed)
                 if node.registered:
                     reached.setdefault("node_registered", elapsed)
-                if node.clique == before.clique:
-                    reached.setdefault("clique_label_republished", elapsed)
-                elif node.clique:
+                if node.clique and node.clique != before.clique:
                     wrong_clique = node.clique
+                elif node.clique == before.clique and _clique_was_rediscovered(before, node):
+                    reached.setdefault("clique_label_republished", elapsed)
                 detail = self._observe_domain(namespace, name, target, elapsed, reached)
                 if all(stage in reached for stage in self._STAGES):
                     self._report_rejoined(target, reached)

@@ -41,6 +41,8 @@ CLIQUE = "fabric-1.3"
 REBOOT_COMMAND = "reboot-node --node {node}"
 OLD_BOOT_ID = "boot-before-0001"
 NEW_BOOT_ID = "boot-after-0002"
+OLD_DISCOVERY = "1700000000"
+NEW_DISCOVERY = "1700009999"
 
 #: The stages the check reports, in the order it reaches them.
 STAGES = (
@@ -98,9 +100,11 @@ class _Cluster:
         clique_at: float = 10,
         daemon_at: float = 15,
         domain_at: float = 20,
+        discovery_at: float | None = 10,
         clique_after_reboot: str | None = CLIQUE,
         boot_id_before: str = OLD_BOOT_ID,
         clique_before: str | None = CLIQUE,
+        discovery_before: str = OLD_DISCOVERY,
         node_unreadable_until: float = 0,
         api_resources: CommandResult | None = None,
         deployments: CommandResult | None = None,
@@ -116,9 +120,11 @@ class _Cluster:
         self.clique_at = clique_at
         self.daemon_at = daemon_at
         self.domain_at = domain_at
+        self.discovery_at = discovery_at
         self.clique_after_reboot = clique_after_reboot
         self.boot_id_before = boot_id_before
         self.clique_before = clique_before
+        self.discovery_before = discovery_before
         self.node_unreadable_until = node_unreadable_until
         self.api_resources = api_resources
         self.deployments = deployments
@@ -164,6 +170,9 @@ class _Cluster:
         else:
             clique = None
         labels = {} if clique is None else {"nvidia.com/gpu.clique": clique}
+        if self.discovery_before:
+            fresh = self.discovery_at is not None and self._reached(self.discovery_at)
+            labels["nvidia.com/gfd.timestamp"] = NEW_DISCOVERY if fresh else self.discovery_before
         return {
             "metadata": {"name": self.target, "labels": labels},
             "spec": {"unschedulable": down},
@@ -361,6 +370,39 @@ def test_a_clique_label_that_never_returns_indicts_whatever_publishes_it() -> No
     assert "its NVLink clique label was never republished" in check.message
     assert "indicts whatever publishes the label" in check.message
     assert _subtests(check)["clique_label_republished"] is False
+
+
+def test_a_clique_label_left_over_from_before_the_reboot_does_not_count() -> None:
+    """Labels live on the node object, so the old one is still there the moment
+    the node comes back. Counting it credits the cluster for a conclusion
+    feature discovery has not reached: here it never re-runs, and the label
+    standing untouched is exactly what a node dropped from its clique looks
+    like until something restates it."""
+    cluster = _cluster(clique_at=0, discovery_at=None)
+
+    check = _run(cluster, rejoin_timeout_seconds=60)
+
+    assert not check.passed
+    assert "its NVLink clique label was never republished" in check.message
+    assert _subtests(check)["clique_label_republished"] is False
+
+
+def test_a_clique_label_restated_after_the_reboot_counts() -> None:
+    """The label surviving the reboot is not held against a cluster that then
+    re-runs discovery and stands by it."""
+    check = _run(_cluster(clique_at=0, discovery_at=10))
+
+    assert check.passed
+    assert _subtests(check)["clique_label_republished"] is True
+
+
+def test_a_cluster_that_stamps_no_discovery_time_is_taken_at_its_word() -> None:
+    """Nothing dates the label there, and failing a cluster for a signal it
+    never claimed to publish would report the wrong fault."""
+    check = _run(_cluster(clique_at=0, discovery_at=None, discovery_before=""))
+
+    assert check.passed
+    assert _subtests(check)["clique_label_republished"] is True
 
 
 def test_a_node_that_returns_in_a_different_clique_fails_for_that_reason() -> None:
