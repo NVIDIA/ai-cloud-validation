@@ -121,6 +121,14 @@ class TestBaseValidation:
         assert validation._passed is True
         assert validation._output == ""
 
+    def test_set_passed_skips_when_all_subchecks_are_skipped(self) -> None:
+        """A parent must not report PASS when it had no applicable subcheck."""
+        validation = ConcreteValidation()
+        validation.report_subtest("optional-check", passed=True, skipped=True, message="not configured")
+
+        with pytest.raises(pytest.skip.Exception, match="all optional checks skipped"):
+            validation.set_passed("all optional checks skipped")
+
     def test_set_failed(self) -> None:
         """Test set_failed method."""
         validation = ConcreteValidation()

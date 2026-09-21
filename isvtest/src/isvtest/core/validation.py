@@ -127,6 +127,10 @@ class BaseValidation(ABC):
         Example:
             >>> self.set_passed("Found 8 GPUs across 2 nodes")
         """
+        if self._subtest_results and all(result["skipped"] for result in self._subtest_results):
+            import pytest
+
+            pytest.skip(message or "All validation subchecks were skipped")
         self._passed = True
         if message:
             self._output = message
