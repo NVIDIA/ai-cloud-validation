@@ -91,6 +91,9 @@ BUMP_TITLE_PREFIX = "chore: update package versions"
 CONVENTIONAL_TITLE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]+)\))?!?:")
 DOC_TYPES = {"doc", "docs"}
 
+# A squash lands as "... (#123)"; a merge commit as "Merge pull request #123 from ...".
+PR_NUMBER_IN_SUBJECT = re.compile(r"\(#(?P<squash>\d+)\)\s*$|^Merge pull request #(?P<merge>\d+)\b")
+
 
 @dataclass
 class MilestoneInfo:
@@ -121,6 +124,7 @@ class IssueInfo:
     is_pr: bool
     labels: list[str]
     draft: bool = False
+    merged: bool = False
     body: str = ""
     closing_prs: list[PullRequestRef] = field(default_factory=list)
 
@@ -280,17 +284,17 @@ class GitHubAPI:
         commits = data.get("commits", [])
         total = data.get("total_commits", len(commits))
         if len(commits) < total:
-            print(
-                f"    Warning: compare returned {len(commits)} of {total} commits; "
-                "narrow the range to avoid missing PRs",
-                file=sys.stderr,
+            # The compare endpoint caps its commit list, so paging cannot recover the rest.
+            raise ValueError(
+                f"Comparing {since}...{until} returned only {len(commits)} of {total} commits. "
+                "Narrow the range, or the release notes would silently omit pull requests."
             )
         numbers = set()
         for commit in commits:
             subject = (commit.get("commit", {}).get("message") or "").split("\n", 1)[0]
-            match = re.search(r"\(#(\d+)\)\s*$", subject)
+            match = PR_NUMBER_IN_SUBJECT.search(subject)
             if match:
-                numbers.add(int(match.group(1)))
+                numbers.add(int(match.group("squash") or match.group("merge")))
         return sorted(numbers)
 
     def get_range_items(
@@ -311,6 +315,7 @@ class GitHubAPI:
                 url=pull["url"],
                 is_pr=True,
                 labels=[label["name"] for label in (pull.get("labels") or {}).get("nodes", [])],
+                merged=True,
                 body=pull.get("body") or "",
             )
             for issue in (pull.get("closingIssuesReferences") or {}).get("nodes", []):
@@ -370,6 +375,7 @@ def parse_issue(issue_data: dict[str, Any]) -> IssueInfo:
         is_pr=is_pr,
         labels=[label["name"] for label in issue_data.get("labels", [])],
         draft=issue_data.get("draft", False) if is_pr else False,
+        merged=bool((issue_data.get("pull_request") or {}).get("merged_at")),
         body=issue_data.get("body") or "",
     )
 
@@ -385,8 +391,9 @@ def link_prs_to_issues(items: list[IssueInfo], closing: dict[int, list[PullReque
 
     GitHub's closing links are authoritative. A PR that referenced its issue in
     prose instead of using a closing keyword declares no link at all, so fall
-    back to the issue numbers mentioned in its body - restricted to this
-    milestone's issues, which keeps references to unrelated work out.
+    back to the issue numbers mentioned in its body - restricted to merged PRs
+    and to this milestone's issues, which keeps abandoned attempts and
+    references to unrelated work out.
     """
     issues_by_number = {item.number: item for item in items if not item.is_pr}
     for issue in issues_by_number.values():
@@ -396,7 +403,7 @@ def link_prs_to_issues(items: list[IssueInfo], closing: dict[int, list[PullReque
     issue_numbers = set(issues_by_number)
 
     for item in items:
-        if not item.is_pr or item.number in linked:
+        if not item.is_pr or not item.merged or item.number in linked:
             continue
         for number in _mentioned_issue_numbers(item.body, issue_numbers):
             issues_by_number[number].closing_prs.append(PullRequestRef(number=item.number, url=item.url))
