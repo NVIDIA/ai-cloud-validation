@@ -157,6 +157,9 @@ jobs:
     needs: tag
     runs-on: ubuntu-latest
     environment: staging
+    # The workflow-level contents:write is only needed by the `tag` job.
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       # fetch-depth: 0 so the tag the previous job created is visible here. A
@@ -182,6 +185,9 @@ jobs:
     needs: [tag, publish-staging]
     runs-on: ubuntu-latest
     environment: production
+    # The workflow-level contents:write is only needed by the `tag` job.
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       # fetch-depth: 0 for the same reason as publish-staging.
