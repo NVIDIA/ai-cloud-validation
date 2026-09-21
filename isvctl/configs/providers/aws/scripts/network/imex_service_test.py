@@ -48,6 +48,7 @@ Usage:
 import argparse
 import json
 import os
+import shlex
 import sys
 from typing import Any
 
@@ -73,6 +74,9 @@ _BOOT_STATES = {"enabled", "disabled", "static", "masked"}
 
 def _probe_command(service: str, daemon_bin: str, ctl_bin: str) -> str:
     """Build the single remote probe. Delimited so partial output stays parseable."""
+    service = shlex.quote(service)
+    daemon_bin = shlex.quote(daemon_bin)
+    ctl_bin = shlex.quote(ctl_bin)
     return (
         f"echo DAEMON=$(command -v {daemon_bin} >/dev/null 2>&1 && echo yes || echo no); "
         # Presence alone is not enough for the control tool - the requirement is
