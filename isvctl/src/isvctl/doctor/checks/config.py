@@ -46,7 +46,7 @@ def _check_repo_layout(root: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
 
     suites_dir = root / "isvctl" / "configs" / "suites"
-    suite_yamls = sorted(suites_dir.glob("*.yaml")) if suites_dir.is_dir() else []
+    suite_yamls = sorted(suites_dir.rglob("*.yaml")) if suites_dir.is_dir() else []
     if suite_yamls:
         results.append(
             CheckResult(

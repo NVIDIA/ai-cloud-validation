@@ -156,7 +156,7 @@ def _collect_yaml_checks() -> list[StepArgCheck]:
     checks: list[StepArgCheck] = []
     yaml_paths = sorted(
         [
-            *CONFIGS_DIR.glob("suites/*.yaml"),
+            *CONFIGS_DIR.glob("suites/**/*.yaml"),
             *CONFIGS_DIR.glob("providers/*.yaml"),  # k3s.yaml, microk8s.yaml, minikube.yaml
             *CONFIGS_DIR.glob("providers/*/config/*.yaml"),  # aws/config/*.yaml, my-isv/config/*.yaml
         ]
