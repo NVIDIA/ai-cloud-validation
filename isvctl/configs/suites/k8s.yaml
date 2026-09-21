@@ -56,7 +56,7 @@ tests:
   description: "Kubernetes cluster validation"
 
   settings:
-    show_skipped_tests: false
+    show_skipped_tests: true
 
   validations:
     # Provider-agnostic node-pool CRUD outcome checks. Keep this category
