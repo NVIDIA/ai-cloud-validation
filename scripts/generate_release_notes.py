@@ -62,6 +62,7 @@ import datetime
 import os
 import re
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -69,6 +70,18 @@ import requests
 
 # Issues per GraphQL query when resolving implementing pull requests.
 GRAPHQL_BATCH = 50
+
+PR_FIELDS = """
+    number title url body merged
+    labels(first: 20) { nodes { name } }
+    closingIssuesReferences(first: 10) {
+        nodes { number title url state labels(first: 20) { nodes { name } } }
+    }
+"""
+
+ISSUE_CLOSER_FIELDS = """
+    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number url state } }
+"""
 
 # Release mechanics carry no user-visible change, matching the CHANGELOG prompt's
 # instruction to skip the bump commit.
@@ -141,6 +154,17 @@ def _format_http_error(response: requests.Response) -> str:
     return error_msg
 
 
+def _raise_for_status(response: requests.Response) -> None:
+    """Re-raise a failed response with GitHub's own error message in the text."""
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError:
+        raise requests.exceptions.HTTPError(
+            f"{response.status_code} Client Error: {_format_http_error(response)} for url: {response.url}",
+            response=response,
+        )
+
+
 class GitHubAPI:
     """GitHub API client."""
 
@@ -157,15 +181,8 @@ class GitHubAPI:
 
     def _get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Make a GET request to GitHub API."""
-        url = f"{self.base_url}{endpoint}"
-        response = requests.get(url, headers=self.headers, params=params, timeout=30)
-        try:
-            response.raise_for_status()
-        except requests.exceptions.HTTPError:
-            raise requests.exceptions.HTTPError(
-                f"{response.status_code} Client Error: {_format_http_error(response)} for url: {url}",
-                response=response,
-            )
+        response = requests.get(f"{self.base_url}{endpoint}", headers=self.headers, params=params, timeout=30)
+        _raise_for_status(response)
         return response.json()
 
     def _get_paginated(
@@ -192,17 +209,14 @@ class GitHubAPI:
                 print(f"    Rate limit warning: {remaining} requests remaining", file=sys.stderr)
 
             try:
-                response.raise_for_status()
+                _raise_for_status(response)
             except requests.exceptions.HTTPError:
                 if response.status_code == 403:
                     rate_limit_reset = response.headers.get("X-RateLimit-Reset")
                     if rate_limit_reset:
                         reset_time = datetime.datetime.fromtimestamp(int(rate_limit_reset))
                         print(f"\nRate limit exceeded. Resets at: {reset_time}", file=sys.stderr)
-                raise requests.exceptions.HTTPError(
-                    f"{response.status_code} Client Error: {_format_http_error(response)} for url: {response.url}",
-                    response=response,
-                )
+                raise
             items = response.json()
 
             if not items:
@@ -235,18 +249,24 @@ class GitHubAPI:
     def _post_graphql(self, query: str) -> dict[str, Any]:
         """Run a GraphQL query and return its data payload."""
         response = requests.post(f"{self.base_url}/graphql", headers=self.headers, json={"query": query}, timeout=30)
-        try:
-            response.raise_for_status()
-        except requests.exceptions.HTTPError:
-            raise requests.exceptions.HTTPError(
-                f"{response.status_code} Client Error: {_format_http_error(response)} for url: {response.url}",
-                response=response,
-            )
+        _raise_for_status(response)
         payload = response.json()
         if "errors" in payload:
             messages = "; ".join(str(e.get("message", e)) for e in payload["errors"])
             raise ValueError(f"GraphQL error: {messages}")
         return payload["data"]
+
+    def _batched_nodes(
+        self, org: str, repo: str, numbers: list[int], field: str, selection: str
+    ) -> Iterator[tuple[int, dict[str, Any] | None]]:
+        """Look up numbered issues or PRs, aliasing GRAPHQL_BATCH of them per query."""
+        for start in range(0, len(numbers), GRAPHQL_BATCH):
+            batch = numbers[start : start + GRAPHQL_BATCH]
+            aliases = "\n".join(f"n{number}: {field}(number: {number}) {{ {selection} }}" for number in batch)
+            data = self._post_graphql(f'{{ repository(owner: "{org}", name: "{repo}") {{ {aliases} }} }}')
+            repository = data.get("repository") or {}
+            for number in batch:
+                yield number, repository.get(f"n{number}")
 
     def get_range_pr_numbers(self, org: str, repo: str, since: str, until: str) -> list[int]:
         """PR numbers referenced by the squash commits between two refs."""
@@ -282,42 +302,30 @@ class GitHubAPI:
         an issue closed inside it need not carry the milestone being reported on.
         """
         items: dict[int, IssueInfo] = {}
-        for start in range(0, len(pr_numbers), GRAPHQL_BATCH):
-            batch = pr_numbers[start : start + GRAPHQL_BATCH]
-            aliases = "\n".join(
-                f"p{number}: pullRequest(number: {number}) {{ number title url body merged "
-                f"labels(first: 20) {{ nodes {{ name }} }} "
-                f"closingIssuesReferences(first: 10) {{ nodes {{ number title url state "
-                f"labels(first: 20) {{ nodes {{ name }} }} }} }} }}"
-                for number in batch
+        for _, pull in self._batched_nodes(org, repo, pr_numbers, "pullRequest", PR_FIELDS):
+            if not pull or not pull.get("merged"):
+                continue
+            items[pull["number"]] = IssueInfo(
+                number=pull["number"],
+                title=pull["title"],
+                url=pull["url"],
+                is_pr=True,
+                labels=[label["name"] for label in (pull.get("labels") or {}).get("nodes", [])],
+                body=pull.get("body") or "",
             )
-            data = self._post_graphql(f'{{ repository(owner: "{org}", name: "{repo}") {{ {aliases} }} }}')
-            repository = data.get("repository") or {}
-            for number in batch:
-                pull = repository.get(f"p{number}")
-                if not pull or not pull.get("merged") or pull["title"].startswith(BUMP_TITLE_PREFIX):
+            for issue in (pull.get("closingIssuesReferences") or {}).get("nodes", []):
+                if issue["state"] == "OPEN" and not include_open:
                     continue
-                items[pull["number"]] = IssueInfo(
-                    number=pull["number"],
-                    title=pull["title"],
-                    url=pull["url"],
-                    is_pr=True,
-                    labels=[label["name"] for label in (pull.get("labels") or {}).get("nodes", [])],
-                    body=pull.get("body") or "",
+                items.setdefault(
+                    issue["number"],
+                    IssueInfo(
+                        number=issue["number"],
+                        title=issue["title"],
+                        url=issue["url"],
+                        is_pr=False,
+                        labels=[label["name"] for label in (issue.get("labels") or {}).get("nodes", [])],
+                    ),
                 )
-                for issue in (pull.get("closingIssuesReferences") or {}).get("nodes", []):
-                    if issue["state"] == "OPEN" and not include_open:
-                        continue
-                    items.setdefault(
-                        issue["number"],
-                        IssueInfo(
-                            number=issue["number"],
-                            title=issue["title"],
-                            url=issue["url"],
-                            is_pr=False,
-                            labels=[label["name"] for label in (issue.get("labels") or {}).get("nodes", [])],
-                        ),
-                    )
         return list(items.values())
 
     def get_closing_prs(self, org: str, repo: str, issue_numbers: list[int]) -> dict[int, list[PullRequestRef]]:
@@ -327,22 +335,11 @@ class GitHubAPI:
         attempt alongside the PR that actually landed.
         """
         closing: dict[int, list[PullRequestRef]] = {}
-        for start in range(0, len(issue_numbers), GRAPHQL_BATCH):
-            batch = issue_numbers[start : start + GRAPHQL_BATCH]
-            aliases = "\n".join(
-                f"i{number}: issue(number: {number}) {{ "
-                f"closedByPullRequestsReferences(first: 10, includeClosedPrs: true) "
-                f"{{ nodes {{ number url state }} }} }}"
-                for number in batch
-            )
-            data = self._post_graphql(f'{{ repository(owner: "{org}", name: "{repo}") {{ {aliases} }} }}')
-            repository = data.get("repository") or {}
-            for number in batch:
-                node = repository.get(f"i{number}") or {}
-                refs = (node.get("closedByPullRequestsReferences") or {}).get("nodes") or []
-                merged = [PullRequestRef(number=r["number"], url=r["url"]) for r in refs if r["state"] == "MERGED"]
-                if merged:
-                    closing[number] = sorted(merged, key=lambda pr: pr.number)
+        for number, node in self._batched_nodes(org, repo, issue_numbers, "issue", ISSUE_CLOSER_FIELDS):
+            refs = ((node or {}).get("closedByPullRequestsReferences") or {}).get("nodes") or []
+            merged = [PullRequestRef(number=r["number"], url=r["url"]) for r in refs if r["state"] == "MERGED"]
+            if merged:
+                closing[number] = merged
         return closing
 
 
@@ -396,11 +393,12 @@ def link_prs_to_issues(items: list[IssueInfo], closing: dict[int, list[PullReque
         issue.closing_prs = list(closing.get(issue.number, []))
 
     linked = {pr.number for issue in issues_by_number.values() for pr in issue.closing_prs}
+    issue_numbers = set(issues_by_number)
 
     for item in items:
         if not item.is_pr or item.number in linked:
             continue
-        for number in _mentioned_issue_numbers(item.body, set(issues_by_number)):
+        for number in _mentioned_issue_numbers(item.body, issue_numbers):
             issues_by_number[number].closing_prs.append(PullRequestRef(number=item.number, url=item.url))
             linked.add(item.number)
 
@@ -441,7 +439,7 @@ def generate_markdown(
         lines.append(milestone.description)
         lines.append("")
 
-    filtered_issues = issues
+    filtered_issues = [i for i in issues if not i.title.startswith(BUMP_TITLE_PREFIX)]
     if exclude_draft:
         filtered_issues = [i for i in filtered_issues if not i.draft]
 
@@ -459,9 +457,7 @@ def generate_markdown(
             available_labels = [lbl for lbl in issue.labels if lbl not in exclude_labels_set]
             group = available_labels[0] if available_labels else _scope_group(issue.title)
             if group:
-                if group not in label_groups:
-                    label_groups[group] = []
-                label_groups[group].append(issue)
+                label_groups.setdefault(group, []).append(issue)
             else:
                 unlabeled.append(issue)
 
