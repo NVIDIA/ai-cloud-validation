@@ -178,7 +178,12 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
         minor_count: int,
         grace_days: int,
     ) -> str | None:
-        """Return a note for the message, or ``None`` when the cluster does not satisfy the requirement.
+        """Return a note naming the cluster's version, or ``None`` when it fails the requirement.
+
+        The note is always populated so a passing report still says which
+        version was observed. The check reads it on every run, and hiding it
+        when nothing is wrong leaves a reader unable to tell whether the
+        cluster was inspected at all, or which cluster answered.
 
         How far behind the cluster is comes from its position in the upstream
         list: index 0 is the newest minor, so anything at or past
@@ -223,7 +228,7 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
             )
             return None
 
-        return ""
+        return f"cluster runs {_render_patch(server)}"
 
     def _verify_displaced_cluster(
         self,

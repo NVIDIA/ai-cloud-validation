@@ -121,6 +121,20 @@ def test_passes_when_the_catalogue_covers_the_maintenance_window() -> None:
     assert commands == [VERSION_COMMAND]
 
 
+def test_a_passing_report_names_the_version_the_cluster_runs() -> None:
+    """The observed version stays in the message when nothing is wrong.
+
+    Reporting it only on the failure paths leaves a reader unable to tell
+    which cluster answered - the mistake that made an EKS-context run look
+    like a minikube result.
+    """
+    check = _minors_check()
+    _run(check, version=_server("v1.34.1"))
+
+    assert check.passed, check.message
+    assert "cluster runs 1.34.1" in check.message
+
+
 def test_passes_when_versions_carry_a_v_prefix_or_no_patch() -> None:
     """The catalogue is read by minor, however a provider spells its versions."""
     check = _minors_check(_offered("v1.34", "v1.33.5", "1.32"))
