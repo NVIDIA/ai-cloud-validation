@@ -74,13 +74,17 @@ GRAPHQL_BATCH = 50
 PR_FIELDS = """
     number title url body merged
     labels(first: 20) { nodes { name } }
-    closingIssuesReferences(first: 10) {
+    closingIssuesReferences(first: 100) {
+        totalCount
         nodes { number title url state labels(first: 20) { nodes { name } } }
     }
 """
 
 ISSUE_CLOSER_FIELDS = """
-    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number url state } }
+    closedByPullRequestsReferences(first: 100, includeClosedPrs: true) {
+        totalCount
+        nodes { number url state }
+    }
 """
 
 # Release mechanics carry no user-visible change, matching the CHANGELOG prompt's
@@ -156,6 +160,16 @@ def _format_http_error(response: requests.Response) -> str:
         error_details = "; ".join([str(e) for e in error_json["errors"]])
         error_msg = f"{error_msg} ({error_details})"
     return error_msg
+
+
+def _connection_nodes(connection: dict[str, Any] | None, subject: str) -> list[dict[str, Any]]:
+    """Nodes of a GraphQL connection, refusing a page that does not hold all of them."""
+    connection = connection or {}
+    nodes = connection.get("nodes") or []
+    total = connection.get("totalCount", len(nodes))
+    if total > len(nodes):
+        raise ValueError(f"{subject} returned {len(nodes)} of {total} entries; raise the page size in the query")
+    return nodes
 
 
 def _raise_for_status(response: requests.Response) -> None:
@@ -318,7 +332,8 @@ class GitHubAPI:
                 merged=True,
                 body=pull.get("body") or "",
             )
-            for issue in (pull.get("closingIssuesReferences") or {}).get("nodes", []):
+            closes = _connection_nodes(pull.get("closingIssuesReferences"), f"Issues closed by PR #{pull['number']}")
+            for issue in closes:
                 if issue["state"] == "OPEN" and not include_open:
                     continue
                 items.setdefault(
@@ -341,7 +356,9 @@ class GitHubAPI:
         """
         closing: dict[int, list[PullRequestRef]] = {}
         for number, node in self._batched_nodes(org, repo, issue_numbers, "issue", ISSUE_CLOSER_FIELDS):
-            refs = ((node or {}).get("closedByPullRequestsReferences") or {}).get("nodes") or []
+            refs = _connection_nodes(
+                (node or {}).get("closedByPullRequestsReferences"), f"PRs that closed issue #{number}"
+            )
             merged = [PullRequestRef(number=r["number"], url=r["url"]) for r in refs if r["state"] == "MERGED"]
             if merged:
                 closing[number] = merged
