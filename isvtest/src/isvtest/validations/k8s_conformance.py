@@ -131,6 +131,7 @@ class K8sCncfConformanceCheck(BaseValidation):
     _MANIFEST_TEMPLATE = Path(__file__).parent / "manifests" / "k8s" / "k8s_conformance.yaml"
 
     def run(self) -> None:
+        """Run the conformance pod and fail unless at least one test passes."""
         if not is_k8s_available():
             self.set_failed("Kubernetes cluster is not available")
             return

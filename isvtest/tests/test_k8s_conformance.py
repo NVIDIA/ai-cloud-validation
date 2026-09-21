@@ -233,6 +233,7 @@ class TestGuards:
         assert "Invalid mode" in check.message
 
     def test_quick_mode_focus_matches_configmap_test_name(self) -> None:
+        """Ensure quick mode selects the shipped ConfigMap conformance case."""
         focus = K8sCncfConformanceCheck._MODE_PRESETS["quick"]["focus"]
 
         assert re.search(focus, "[sig-api-machinery] ConfigMap create")
@@ -303,6 +304,7 @@ class TestRun:
         assert any("version -o json" in cmd for cmd in router.seen)
 
     def test_all_skipped_junit_sets_failed(self) -> None:
+        """Reject a JUnit report that contains no passing test cases."""
         router = _happy_router({"cat /tmp/results/junit": ok(ALL_SKIPPED_JUNIT)})
 
         check = _run_check(router)
