@@ -421,6 +421,7 @@ tests:
   description: "my-isv network lifecycle validation (generic stubs, dummy overrides)"
 
   settings:
+    show_skipped_tests: true
     region: "my-isv-region-1"
     storage_l3_routing_cidr: "{{env.MY_ISV_STORAGE_L3_ROUTING_CIDR | default('', true)}}"
 
