@@ -23,7 +23,7 @@
 #   USE_NVIDIA_SMI_FALLBACK - "true" to fall back to nvidia-smi for GPU/driver info (default: false)
 #   REQUIRE_JQ        - "true" to require jq and populate nodes array (default: false)
 #   OFFERED_VERSIONS  - newline-separated Kubernetes versions this distribution can
-#                       install (K8S02-01). Omitted from the output when unset.
+#                       install (K8S02-01). Reported as an empty array when unset.
 #
 # Output: prints JSON inventory to stdout
 
@@ -151,20 +151,16 @@ fi
 # --- Offered Kubernetes versions (K8S02-01) ---
 # The caller supplies the list because enumerating it is distribution-specific;
 # turning it into JSON is not, so that happens once here. A distribution that
-# offers no catalogue leaves the field out entirely, and the bound check fails
-# on the missing contract rather than on an empty list it cannot explain.
-OFFERED_VERSIONS_JSON=""
-if [ -n "${OFFERED_VERSIONS:-}" ]; then
-    VERSION_ITEMS=$(echo "$OFFERED_VERSIONS" | awk 'NF {printf "%s\"%s\"", (n++ ? "," : ""), $0}')
-    [ -n "$VERSION_ITEMS" ] && OFFERED_VERSIONS_JSON="  \"offered_versions\": [${VERSION_ITEMS}],"
-fi
+# reports no catalogue emits an empty array, which the bound check fails on the
+# same way it fails on a missing one.
+VERSION_ITEMS=$(echo "${OFFERED_VERSIONS:-}" | awk 'NF {printf "%s\"%s\"", (n++ ? "," : ""), $0}')
 
 # --- Output JSON ---
 cat << EOF
 {
   "success": true,
   "platform": "kubernetes",
-${OFFERED_VERSIONS_JSON}
+  "offered_versions": [${VERSION_ITEMS}],
   "cluster_name": "${CLUSTER_NAME}",
   "kubernetes": {
     "driver_version": "${DRIVER_VERSION}",

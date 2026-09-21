@@ -37,10 +37,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+from common.errors import classify_aws_error, handle_aws_errors
 
 STANDARD_SUPPORT = "STANDARD_SUPPORT"
 EXTENDED_SUPPORT = "EXTENDED_SUPPORT"
@@ -66,14 +70,11 @@ def patching_posture(cluster_name: str, region: str) -> dict[str, Any]:
 
 def _version_entry(client: Any, minor: str) -> dict[str, Any]:
     """Return the catalogue entry for ``minor``, or an empty one if EKS dropped it."""
-    paginator = client.get_paginator("describe_cluster_versions")
-    for page in paginator.paginate():
-        for entry in page.get("clusterVersions") or []:
-            if str(entry.get("clusterVersion") or "") == minor:
-                return entry
-    return {}
+    entries = client.describe_cluster_versions(clusterVersions=[minor]).get("clusterVersions") or []
+    return entries[0] if entries else {}
 
 
+@handle_aws_errors
 def main() -> int:
     """Print the EKS control-plane patching posture as the step's JSON result."""
     parser = argparse.ArgumentParser(description="Report how EKS patches this cluster's control plane")
@@ -85,8 +86,10 @@ def main() -> int:
     try:
         result.update(patching_posture(args.cluster_name, args.region))
     except (BotoCoreError, ClientError, KeyError) as exc:
+        error_type, detail = classify_aws_error(exc)
         result["success"] = False
-        result["error"] = f"Could not read the patching posture for EKS cluster {args.cluster_name!r}: {exc}"
+        result["error_type"] = error_type
+        result["error"] = f"Could not read the patching posture for EKS cluster {args.cluster_name!r}: {detail}"
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1

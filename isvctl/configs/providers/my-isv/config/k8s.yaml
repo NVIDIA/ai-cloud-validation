@@ -67,13 +67,12 @@ commands:
 
       # Upstream reference for K8S02 (shared, not provider-specific).
       # Best-effort: an unreachable index skips the checks rather than
-      # stopping setup.
+      # stopping setup. Pass `--source=file:///path/to/index.json` under args
+      # to read a mirrored copy of the index when air-gapped.
       - name: fetch_upstream_k8s_versions
         phase: setup
         continue_on_failure: true
         command: "python3 ../../shared/k8s/fetch_upstream_versions.py"
-        args:
-          - "--source={{upstream_k8s_version_source}}"
         output_schema: k8s_upstream_versions
         timeout: 60
 
@@ -121,5 +120,3 @@ tests:
     # Control-plane instance count to pin (K8S27-01). Set this to the size that
     # carries the load limit you are certifying for.
     control_plane_instance_count: 3
-    # Upstream release index for K8S02; accepts a `file://` copy when air-gapped.
-    upstream_k8s_version_source: "https://endoflife.date/api/kubernetes.json"

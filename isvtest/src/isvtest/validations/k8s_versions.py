@@ -34,7 +34,7 @@ from typing import Any, ClassVar
 
 import pytest
 
-from isvtest.core.k8s import get_kubectl_base_shell, parse_server_version
+from isvtest.core.k8s import command_detail, get_kubectl_base_shell, parse_server_version
 from isvtest.core.validation import BaseValidation
 
 # How many of the most recent upstream minors have to be supported. Three is
@@ -61,11 +61,19 @@ class UpstreamCycle:
     """One upstream Kubernetes minor, as the release index describes it."""
 
     minor: tuple[int, int]
-    label: str
     released: date | None
     latest_patch: tuple[int, int, int] | None
-    latest_patch_label: str
     latest_patch_released: date | None
+
+    @property
+    def label(self) -> str:
+        """Return the minor as ``X.Y``."""
+        return _render_minor(self.minor)
+
+    @property
+    def latest_patch_label(self) -> str:
+        """Return the newest patch as ``X.Y.Z``; only meaningful when ``latest_patch`` is set."""
+        return "" if self.latest_patch is None else _render_patch(self.latest_patch)
 
 
 class K8sSupportedMinorVersionsCheck(BaseValidation):
@@ -99,9 +107,7 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
             ``X.Y.Z``, with or without a leading ``v``.
     """
 
-    description: ClassVar[str] = (
-        "Verify the provider offers the three most recent upstream Kubernetes minor releases."
-    )
+    description: ClassVar[str] = "Verify the provider offers the three most recent upstream Kubernetes minor releases."
 
     def run(self) -> None:
         """Compare the reported version catalogue against the upstream maintenance window."""
@@ -140,10 +146,11 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
             if cycle.minor in offered:
                 continue
             age = (today - cycle.released).days if cycle.released else None
+            suffix = "" if age is None else f" (released {age} day(s) ago)"
             if age is not None and age <= grace_days:
-                awaited.append(f"{cycle.label} (released {age} day(s) ago)")
+                awaited.append(f"{cycle.label}{suffix}")
             else:
-                missing.append(f"{cycle.label}{'' if age is None else f' (released {age} day(s) ago)'}")
+                missing.append(f"{cycle.label}{suffix}")
 
         if missing:
             self.set_failed(
@@ -152,8 +159,8 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
             )
             return
 
-        verified, cluster_note = self._verify_cluster_version(offered, cycles, minor_count, grace_days)
-        if not verified:
+        cluster_note = self._verify_cluster_version(offered, cycles, minor_count, grace_days)
+        if cluster_note is None:
             return
 
         covered = [cycle.label for cycle in window if cycle.minor in offered]
@@ -170,8 +177,8 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
         cycles: list[UpstreamCycle],
         minor_count: int,
         grace_days: int,
-    ) -> tuple[bool, str]:
-        """Return whether the cluster under test satisfies the requirement, and a note for the message.
+    ) -> str | None:
+        """Return a note for the message, or ``None`` when the cluster does not satisfy the requirement.
 
         How far behind the cluster is comes from its position in the upstream
         list: index 0 is the newest minor, so anything at or past
@@ -192,21 +199,19 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
         what stops a provider from taking the availability grace for a minor it
         is demonstrably already serving.
 
-        Marks the check failed and returns ``False`` when the cluster does not
+        Marks the check failed and returns ``None`` when the cluster does not
         hold, or when the server version cannot be read - without it only the
         provider's own report is left, which is what this exists to avoid.
         """
         server = _server_version(self)
         if server is None:
-            return False, ""
+            return None
 
         server_minor = server[:2]
         behind = next((index for index, cycle in enumerate(cycles) if cycle.minor == server_minor), None)
         if behind is None:
-            self.set_failed(
-                f"Cluster runs {_render_patch(server)}, a minor the upstream release index does not carry"
-            )
-            return False, ""
+            self.set_failed(f"Cluster runs {_render_patch(server)}, a minor the upstream release index does not carry")
+            return None
 
         if behind >= minor_count:
             return self._verify_displaced_cluster(server, cycles, behind, minor_count, grace_days)
@@ -216,9 +221,9 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
                 f"Reported catalogue omits {_render_minor(server_minor)}, the in-window minor this cluster runs "
                 f"({_render_patch(server)}), so it does not describe this offering - offered: {_render_minors(offered)}"
             )
-            return False, ""
+            return None
 
-        return True, ""
+        return ""
 
     def _verify_displaced_cluster(
         self,
@@ -227,14 +232,14 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
         behind: int,
         minor_count: int,
         grace_days: int,
-    ) -> tuple[bool, str]:
-        """Return whether a cluster outside the window is still inside its runway to move."""
+    ) -> str | None:
+        """Return a note when a cluster outside the window is still inside its runway to move."""
         window = ", ".join(cycle.label for cycle in cycles[:minor_count])
         displaced_by = cycles[behind - minor_count]
         age = (datetime.now(UTC).date() - displaced_by.released).days if displaced_by.released else None
 
         if age is not None and age <= grace_days:
-            return True, (
+            return (
                 f"cluster runs {_render_patch(server)}, pushed out of the window {age} day(s) ago by "
                 f"{displaced_by.label} and still inside the {grace_days}-day window to move"
             )
@@ -244,7 +249,7 @@ class K8sSupportedMinorVersionsCheck(BaseValidation):
             f"Cluster runs {_render_patch(server)}, {behind} minor(s) behind upstream {cycles[0].label} and "
             f"outside the {minor_count} most recent ({window}) since {displaced_by.label} released{since}"
         )
-        return False, ""
+        return None
 
 
 class K8sAutomatedControlPlanePatchingCheck(BaseValidation):
@@ -411,23 +416,19 @@ def _cycle(entry: Any) -> UpstreamCycle | None:
     minor = _parse_minor(label)
     if minor is None:
         return None
-    latest_patch_label = str(entry.get("latest_patch") or "").strip()
     return UpstreamCycle(
         minor=minor,
-        label=_render_minor(minor),
         released=_parse_date(entry.get("released")),
-        latest_patch=_parse_patch(latest_patch_label),
-        latest_patch_label=latest_patch_label,
+        latest_patch=_parse_patch(entry.get("latest_patch")),
         latest_patch_released=_parse_date(entry.get("latest_patch_released")),
     )
 
 
 def _server_version(check: BaseValidation) -> tuple[int, int, int] | None:
     """Return the API server's version, or ``None`` after marking ``check`` failed."""
-    result = check.run_command(f"{get_kubectl_base_shell()} version -o json")
+    result = check.run_command(get_kubectl_base_shell("version", "-o", "json"))
     if result.exit_code != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.exit_code}"
-        check.set_failed(f"Could not read the Kubernetes server version: {detail}")
+        check.set_failed(f"Could not read the Kubernetes server version: {command_detail(result)}")
         return None
 
     server = _parse_patch(parse_server_version(result.stdout))
@@ -439,18 +440,18 @@ def _server_version(check: BaseValidation) -> tuple[int, int, int] | None:
 
 def _parse_minor(value: Any) -> tuple[int, int] | None:
     """Return the ``(major, minor)`` of an ``X.Y`` or ``X.Y.Z`` version, or ``None``."""
-    parts = _version_parts(value)
-    return (parts[0], parts[1]) if parts and len(parts) >= 2 else None
+    match = _version_match(value)
+    return (int(match[1]), int(match[2])) if match else None
 
 
 def _parse_patch(value: Any) -> tuple[int, int, int] | None:
     """Return the ``(major, minor, patch)`` of an ``X.Y.Z`` version, or ``None``."""
-    parts = _version_parts(value)
-    return (parts[0], parts[1], parts[2]) if parts and len(parts) >= 3 else None
+    match = _version_match(value)
+    return (int(match[1]), int(match[2]), int(match[3])) if match and match[3] else None
 
 
-def _version_parts(value: Any) -> list[int] | None:
-    """Return the leading numeric components of a version string, or ``None``.
+def _version_match(value: Any) -> re.Match[str] | None:
+    """Return the version match for a version string, or ``None``.
 
     Accepts an optional ``v`` prefix and ignores any pre-release or build
     metadata a provider appends (``1.34.1+isv.2``), so a version that names a
@@ -458,10 +459,7 @@ def _version_parts(value: Any) -> list[int] | None:
     """
     if not isinstance(value, str):
         return None
-    match = _VERSION_PATTERN.match(value.strip())
-    if not match:
-        return None
-    return [int(part) for part in match.groups() if part is not None]
+    return _VERSION_PATTERN.match(value.strip())
 
 
 def _parse_date(value: Any) -> date | None:

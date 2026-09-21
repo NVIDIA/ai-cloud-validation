@@ -27,9 +27,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+from common.errors import classify_aws_error, handle_aws_errors
 
 # Minors EKS names but no longer maintains.
 UNSUPPORTED = "UNSUPPORTED"
@@ -53,6 +57,7 @@ def offered_versions(region: str) -> list[str]:
     return versions
 
 
+@handle_aws_errors
 def main() -> int:
     """Print the EKS version catalogue as the step's JSON result."""
     parser = argparse.ArgumentParser(description="Report the Kubernetes versions EKS offers")
@@ -63,8 +68,10 @@ def main() -> int:
     try:
         versions = offered_versions(args.region)
     except (BotoCoreError, ClientError) as exc:
+        error_type, detail = classify_aws_error(exc)
         result["success"] = False
-        result["error"] = f"Could not read the EKS version catalogue in {args.region}: {exc}"
+        result["error_type"] = error_type
+        result["error"] = f"Could not read the EKS version catalogue in {args.region}: {detail}"
     else:
         if versions:
             result["offered_versions"] = versions

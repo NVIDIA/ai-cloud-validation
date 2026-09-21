@@ -38,21 +38,20 @@ DEFAULT_TIMEOUT_SECONDS = 30
 
 
 def fetch_cycles(source: str, timeout: int) -> list[dict[str, str]]:
-    """Return the upstream release cycles from ``source``, newest minor first.
+    """Return the upstream release cycles from ``source``.
 
     Cycles that do not name a minor are dropped; the remaining fields are
     passed through as strings so a missing one reads as absent rather than
-    ``None`` on the other side of the JSON contract.
+    ``None`` on the other side of the JSON contract. Ordering is left to the
+    consumer, which cannot trust it from here and sorts for itself.
     """
-    with urllib.request.urlopen(source, timeout=timeout) as response:  # noqa: S310 - operator-supplied source
+    with urllib.request.urlopen(source, timeout=timeout) as response:
         payload = json.loads(response.read().decode("utf-8"))
 
     if not isinstance(payload, list):
         raise ValueError(f"expected a JSON array of release cycles, got {type(payload).__name__}")
 
-    cycles = [cycle for cycle in (_cycle(entry) for entry in payload) if cycle]
-    cycles.sort(key=lambda cycle: _minor_sort_key(cycle["minor"]), reverse=True)
-    return cycles
+    return [cycle for cycle in (_cycle(entry) for entry in payload) if cycle]
 
 
 def _cycle(entry: Any) -> dict[str, str] | None:
@@ -74,14 +73,6 @@ def _cycle(entry: Any) -> dict[str, str] | None:
     return cycle
 
 
-def _minor_sort_key(minor: str) -> tuple[int, ...]:
-    """Return a numeric sort key for a ``X.Y`` minor, sorting unparseable ones last."""
-    try:
-        return tuple(int(part) for part in minor.split("."))
-    except ValueError:
-        return (-1,)
-
-
 def main() -> int:
     """Fetch the upstream release index and print it as the step's JSON result."""
     parser = argparse.ArgumentParser(description="Report the upstream Kubernetes release cycles")
@@ -90,17 +81,11 @@ def main() -> int:
         default=DEFAULT_SOURCE,
         help=f"URL of the upstream release index; file:// is accepted for a mirror (default: {DEFAULT_SOURCE})",
     )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=DEFAULT_TIMEOUT_SECONDS,
-        help=f"Seconds to wait for the index (default: {DEFAULT_TIMEOUT_SECONDS})",
-    )
     args = parser.parse_args()
 
     result: dict[str, Any] = {"success": True, "platform": "kubernetes", "cycles_json": "[]"}
     try:
-        cycles = fetch_cycles(args.source, args.timeout)
+        cycles = fetch_cycles(args.source, DEFAULT_TIMEOUT_SECONDS)
     except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError) as exc:
         result["success"] = False
         result["error"] = f"Could not read the upstream Kubernetes release index from {args.source}: {exc}"

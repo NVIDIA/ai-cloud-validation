@@ -45,7 +45,7 @@ USE_NVIDIA_SMI_FALLBACK="true"
 # Matching plain X.Y also drops variant tracks (1.27-strict, 1.24-eksd) that
 # repackage a minor already in the list.
 MICROK8S_STORE="${MICROK8S_SNAP_INFO_URL:-https://api.snapcraft.io/v2/snaps/info/microk8s}"
-OFFERED_VERSIONS=$(curl -sS --max-time 30 -H 'Snap-Device-Series: 16' "$MICROK8S_STORE" 2>/dev/null \
+OFFERED_VERSIONS=$(curl -sS --connect-timeout 3 --max-time 8 -H 'Snap-Device-Series: 16' "$MICROK8S_STORE" 2>/dev/null \
     | grep -o '"track":"[0-9]*\.[0-9]*"' \
     | sed 's/.*:"//;s/"//' \
     | sort -Vru || true)

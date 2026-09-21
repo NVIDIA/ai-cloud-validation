@@ -49,7 +49,7 @@ USE_NVIDIA_SMI_FALLBACK="true"
 # own build number; matching on it also drops the pre-releases the testing
 # channels carry, since those read `v1.18.2-rc3+k3s1`.
 K3S_CHANNELS="${K3S_CHANNEL_INDEX:-https://update.k3s.io/v1-release/channels}"
-OFFERED_VERSIONS=$(curl -sS --max-time 30 "$K3S_CHANNELS" 2>/dev/null \
+OFFERED_VERSIONS=$(curl -sS --connect-timeout 3 --max-time 8 "$K3S_CHANNELS" 2>/dev/null \
     | grep -o '"latest":"v[0-9.]*+k3s[0-9]*"' \
     | sed 's/.*"v//;s/+k3s.*//' \
     | sort -Vru || true)

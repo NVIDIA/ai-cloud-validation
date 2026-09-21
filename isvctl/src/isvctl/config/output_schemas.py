@@ -1478,7 +1478,7 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "cycles_json": {
                 "type": "string",
                 "description": (
-                    "JSON-encoded list of upstream release cycles, newest minor first, each "
+                    "JSON-encoded list of upstream release cycles, each "
                     "{minor, released, latest_patch, latest_patch_released}"
                 ),
             },
