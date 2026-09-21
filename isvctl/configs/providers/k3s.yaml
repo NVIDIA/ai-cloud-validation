@@ -38,6 +38,15 @@ commands:
         command: "my-isv/scripts/k8s/teardown_k3s.sh"
         timeout: 30
 
+      # Upstream reference for K8S02-01. Best-effort: an unreachable index
+      # skips the check rather than stopping setup.
+      - name: fetch_upstream_k8s_versions
+        phase: setup
+        continue_on_failure: true
+        command: "python3 shared/k8s/fetch_upstream_versions.py"
+        output_schema: k8s_upstream_versions
+        timeout: 60
+
 tests:
   description: "k3s local validation"
 
@@ -74,6 +83,13 @@ tests:
           test_id: "N/A"
           labels: ["bare_metal", "gpu"]
           expected_compute_capability: "8.0"
+
+    # K8S02-01 reads the catalogue the setup inventory already reports. K8S02-02
+    # is left unwired: nobody patches a local k3s control plane.
+    k8s_versions:
+      checks:
+        K8sSupportedMinorVersionsCheck:
+          step: setup
 
     # Override K8s defaults for single-node
     kubernetes:

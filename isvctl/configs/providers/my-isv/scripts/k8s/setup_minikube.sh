@@ -42,5 +42,15 @@ fi
 DEFAULT_GPU_NS="${DEFAULT_GPU_NS:-gpu-operator}"
 USE_NVIDIA_SMI_FALLBACK="${USE_NVIDIA_SMI_FALLBACK:-true}"
 
+# Kubernetes versions minikube can install (K8S02-01). Pre-releases are dropped:
+# minikube will happily install v1.38.0-alpha.1, but a minor is only supported
+# once it ships.
+if command -v minikube &> /dev/null; then
+    OFFERED_VERSIONS=$(minikube config defaults kubernetes-version 2>/dev/null \
+        | sed 's/^\* *//' \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sed 's/^v//' || true)
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"

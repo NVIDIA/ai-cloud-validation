@@ -38,5 +38,17 @@ CLUSTER_NAME="microk8s-$(hostname)"
 DEFAULT_GPU_NS="gpu-operator-resources"
 USE_NVIDIA_SMI_FALLBACK="true"
 
+# Kubernetes versions MicroK8s can install (K8S02-01). MicroK8s ships as a snap
+# with one track per minor, so the snap's track list is the catalogue. It comes
+# from the store rather than `snap info` so the answer is the same on a host
+# without snapd - the catalogue is a property of the offering, not the machine.
+# Matching plain X.Y also drops variant tracks (1.27-strict, 1.24-eksd) that
+# repackage a minor already in the list.
+MICROK8S_STORE="${MICROK8S_SNAP_INFO_URL:-https://api.snapcraft.io/v2/snaps/info/microk8s}"
+OFFERED_VERSIONS=$(curl -sS --max-time 30 -H 'Snap-Device-Series: 16' "$MICROK8S_STORE" 2>/dev/null \
+    | grep -o '"track":"[0-9]*\.[0-9]*"' \
+    | sed 's/.*:"//;s/"//' \
+    | sort -Vru || true)
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
