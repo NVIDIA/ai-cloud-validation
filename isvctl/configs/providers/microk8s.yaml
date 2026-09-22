@@ -138,3 +138,4 @@ tests:
       - reframe
     tests:
       - K8sControlPlaneLogsCheck # TODO: need control plane logging
+      - K8sOidcIssuerCheck # K8S17-02 wants an anonymously reachable public issuer; a local cluster serves kubernetes.default.svc.cluster.local
