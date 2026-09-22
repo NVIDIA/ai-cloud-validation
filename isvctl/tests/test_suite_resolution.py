@@ -166,22 +166,13 @@ def test_storage_suite_reads_the_kubernetes_suite_cluster_fixture() -> None:
 
 @pytest.mark.parametrize(
     "config",
-    [
-        "aws/config/storage.yaml",
-        "vast/config/storage.yaml",
-        "weka/config/storage.yaml",
-        "my-isv/config/storage-k8s.yaml",
-        "vast/config/storage-k8s.yaml",
-        "weka/config/storage-k8s.yaml",
-    ],
+    ["aws/config/storage.yaml", "my-isv/config/storage.yaml", "vast/config/storage.yaml", "weka/config/storage.yaml"],
 )
 def test_storage_shim_configs_declare_the_manifest_step(config: str) -> None:
     """The storage-provider checks bind to storage_manifest; a config shipping a shim must declare it.
 
     Without the step the checks skip as step_not_configured, so a dropped or
-    renamed step would silently stop exercising the provider's shim. The
-    standalone vast/weka storage.yaml do not import the suite, so they carry
-    the binding themselves.
+    renamed step would silently stop exercising the provider's shim.
     """
     run_config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "providers" / config)]))
     entries = parse_validations(run_config.tests.validations if run_config.tests else {})

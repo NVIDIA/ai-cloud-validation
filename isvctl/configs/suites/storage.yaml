@@ -254,11 +254,10 @@ tests:
     # Bound to the provider's storage_manifest step (shared/
     # storage_manifest_to_steps.py), which emits storage.manifest_path. Providers
     # that have not onboarded a storage shim do not declare it, so both checks
-    # skip as step_not_configured. Held to the test phase: the manifest read is
-    # a setup step, but these checks exercise the backend like any other test.
+    # skip as step_not_configured. The step runs in the test phase, so these
+    # checks do too, and `--phase test` against an existing system keeps them.
     storage_provider_api:
       step: storage_manifest
-      phase: test
       checks:
         StorageProviderApiCheck:
           test_id: "N/A"
