@@ -286,9 +286,10 @@ class K8sCsiStorageTypesCheck(BaseValidation):
       with ``volumeBindingMode: WaitForFirstConsumer`` (the default for
       most cloud block CSIs).
 
-    Types with no configured StorageClass are reported as skipped, so the
-    check is safe to enable on every provider; pass if every configured type
-    passes both subtests.
+    Types with no configured StorageClass are reported as skipped unless they
+    are listed in ``required_storage_types``. Required types are reported as
+    failures when no StorageClass is configured, so a capability suite cannot
+    pass while silently omitting one of its required storage backends.
 
     Config keys (with defaults):
         block_storage_class: StorageClass for block (RWO) storage
@@ -297,6 +298,9 @@ class K8sCsiStorageTypesCheck(BaseValidation):
             (default: from :func:`get_k8s_csi_shared_fs_storage_class`).
         nfs_storage_class: StorageClass for NFS (RWX)
             (default: from :func:`get_k8s_csi_nfs_storage_class`).
+        required_storage_types: Storage types that must be configured. Each
+            value must be one of ``block``, ``shared-fs``, or ``nfs``. Types
+            not listed here retain the optional skip behavior (default: none).
         pvc_size: Requested capacity for each probe PVC (default: ``1Gi``).
         bind_timeout_s: Max wait for each PVC to reach ``Bound`` (default: 120).
         namespace_prefix: Prefix for the ephemeral namespace
@@ -321,6 +325,22 @@ class K8sCsiStorageTypesCheck(BaseValidation):
             sc_name = self.config.get(f"{type_name.replace('-', '_')}_storage_class") or _env_fallback(type_name)
             if sc_name:
                 configured[type_name] = sc_name
+
+        required = set(self.config.get("required_storage_types", []))
+        known_types = {type_name for type_name, _ in _STORAGE_TYPES}
+        unknown_required = required - known_types
+        if unknown_required:
+            self.set_failed("Unknown required_storage_types: " + ", ".join(sorted(unknown_required)))
+            return
+
+        missing_required = sorted(required - configured.keys())
+        if missing_required:
+            for type_name in missing_required:
+                message = f"{type_name} StorageClass is required but not configured"
+                self.report_subtest(f"sc-exists[{type_name}]", passed=False, message=message)
+                self.report_subtest(f"pvc-binds[{type_name}]", passed=True, message=message, skipped=True)
+            self.set_failed("Required CSI storage types are not configured: " + ", ".join(missing_required))
+            return
 
         if not configured:
             self.set_passed("Skipped: no StorageClass configured for block/shared-fs/nfs")
