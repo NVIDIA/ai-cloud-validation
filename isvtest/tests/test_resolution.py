@@ -428,6 +428,50 @@ def test_resolve_entries_warns_when_default_filter_masks_missing_step_field(
     assert "node_count_invalid" in caplog.text, "warning must surface the missing field name"
 
 
+def test_resolve_entries_groups_masked_references_with_context(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Masked references are reported once each, followed by every parameter that fell back.
+
+    Each missing key is listed with where it was looked up and the closest
+    existing key (exposing the misnamed step), then one line per
+    ``<validation>.<parameter path>`` with the template it rendered.
+    """
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    template = "{{ steps.setup_cluster.csi.%s | default('', true) }}"
+    entries = [
+        _entry(
+            "BlockCheck",
+            params={"block_sc": template % "block_sc", "nfs_sc": template % "nfs_sc"},
+        ),
+        _entry("NfsCheck", params={"drivers": [{"storage_classes": [template % "nfs_sc", template % "block_sc"]}]}),
+    ]
+    steps = {"setup": {"csi": {"block_sc": "gp3"}}, "cordon_node": {}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        resolve_entries(
+            entries,
+            step_outputs=steps,
+            step_phases={"setup": "setup", "cordon_node": "test"},
+            requested_phases={"setup", "test"},
+            include_labels=set(),
+            exclude_labels=set(),
+            exclude_tests=set(),
+            render_context={"steps": steps},
+        )
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "4 validation parameter(s) fell back to their default(...) because a referenced value is missing:",
+        "  'setup_cluster' not found in steps (did you mean 'setup'?) - 4 parameter(s):",
+        f"    BlockCheck.block_sc = {template % 'block_sc'}",
+        f"    BlockCheck.nfs_sc = {template % 'nfs_sc'}",
+        f"    NfsCheck.drivers[0].storage_classes[0] = {template % 'nfs_sc'}",
+        f"    NfsCheck.drivers[0].storage_classes[1] = {template % 'block_sc'}",
+    ]
+
+
 def test_resolve_entries_is_quiet_when_the_run_has_no_steps(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
