@@ -351,6 +351,8 @@ class K8sDualStackNodeCheck(BaseValidation):
         * ``"auto"`` - if at least one node has both families the cluster is
           treated as dual-stack and every node must be; if no node has both
           the check skips.
+
+    An empty node list fails regardless of ``require_dual_stack``.
     """
 
     description: ClassVar[str] = "Verify IPv4 and IPv6 addresses on dual-stack nodes."

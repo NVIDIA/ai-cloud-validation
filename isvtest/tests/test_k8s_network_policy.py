@@ -214,6 +214,7 @@ class TestDualStackNodeCheck:
         assert "parse kubectl JSON" in check._error
 
     def test_no_nodes_fails(self) -> None:
+        """Verify an empty cluster fails instead of vacuously passing."""
         check = self._make({"require_dual_stack": True})
         with patch.object(check, "run_command", return_value=_ok(stdout=json.dumps({"items": []}))):
             check.run()
