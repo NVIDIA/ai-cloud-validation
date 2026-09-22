@@ -146,19 +146,50 @@ def test_storage_suite_supplies_the_csi_fixture_those_probes_read() -> None:
 
 
 def test_storage_suite_reads_the_kubernetes_suite_cluster_fixture() -> None:
-    """Storage on a Kubernetes run reads the cluster fixture by the Kubernetes suite's name.
+    """Unbound storage templates read the cluster fixture by the Kubernetes suite's name.
 
-    Kubernetes-platform storage configs (storage-k8s.yaml) name their fixture
-    `setup` like the Kubernetes suite. When the storage templates named a
-    different step, every StorageClass parameter silently fell back to empty.
+    When the storage templates named a different step than the Kubernetes
+    fixture, every StorageClass parameter silently fell back to empty. A step a
+    group is bound to cannot be missing (the group skips as step_not_configured
+    first), so only the remaining references must name the shared fixture.
     """
     k8s = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "k8s.yaml")]))
     storage = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "storage.yaml")]))
     k8s_fixture = next(step.name for step in k8s.get_steps("kubernetes") if step.phase == "setup")
+    validations = storage.tests.validations if storage.tests else {}
 
-    referenced = set(re.findall(r"steps\.(\w+)", json.dumps(storage.tests.validations if storage.tests else {})))
+    referenced = set(re.findall(r"steps\.(\w+)", json.dumps(validations)))
+    bound = {entry.step for entry in parse_validations(validations) if entry.step}
 
-    assert referenced == {k8s_fixture}
+    assert referenced - bound == {k8s_fixture}
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        "aws/config/storage.yaml",
+        "vast/config/storage.yaml",
+        "weka/config/storage.yaml",
+        "my-isv/config/storage-k8s.yaml",
+        "vast/config/storage-k8s.yaml",
+        "weka/config/storage-k8s.yaml",
+    ],
+)
+def test_storage_shim_configs_declare_the_manifest_step(config: str) -> None:
+    """The storage-provider checks bind to storage_manifest; a config shipping a shim must declare it.
+
+    Without the step the checks skip as step_not_configured, so a dropped or
+    renamed step would silently stop exercising the provider's shim. The
+    standalone vast/weka storage.yaml do not import the suite, so they carry
+    the binding themselves.
+    """
+    run_config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "providers" / config)]))
+    entries = parse_validations(run_config.tests.validations if run_config.tests else {})
+    bound = {entry.step for entry in entries if entry.category == "storage_provider_api"}
+    steps = {step.name for platform in run_config.commands or {} for step in run_config.get_steps(platform)}
+
+    assert bound == {"storage_manifest"}
+    assert "storage_manifest" in steps
 
 
 @pytest.mark.parametrize("capability", sorted(DECLARABLE_CAPABILITIES))

@@ -23,7 +23,8 @@
 #     live expansion, root-squash (other HSS checks excluded — need a mounted
 #     client or are not exposed by managed FSx)
 #   - Storage provider API (FSx for Lustre boto3 shim): StorageProviderApiCheck
-#     via storage-provider-manifest.yaml (see scripts/storage/fsx-lustre/)
+#     via the storage_manifest step and storage-provider-manifest.yaml (see
+#     scripts/storage/fsx-lustre/)
 #
 # Block-volume steps reuse the VM scripts for launch/teardown; volume steps
 # live in scripts/storage/. FSx steps are self-contained (create → assert →
@@ -61,6 +62,15 @@ commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
+      # Resolves the FSx Lustre storage-provider manifest that
+      # StorageProviderApiCheck loads in-process (no AWS calls here).
+      - name: storage_manifest
+        phase: setup
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        timeout: 30
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
+
       # Kubernetes CSI fixture: provisions (or reuses) the shared EKS Terraform
       # stack and emits kubeconfig + CSI StorageClass names. Named `setup` like
       # the Kubernetes suite's cluster fixture, since the storage suite reads
@@ -252,14 +262,6 @@ tests:
     instance_type: "m6i.large"
     volume_size_gib: "10"
     teardown_flag: "{{(env.BLOCK_STORAGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
-
-  validations:
-    storage_provider_api:
-      checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/aws/config/storage-provider-manifest.yaml"
-        StorageDirectoryQuotaEnforcementCheck:
-          manifest_path: "isvctl/configs/providers/aws/config/storage-provider-manifest.yaml"
 
   exclude:
     # HSS checks that need a mounted Lustre client or are not exposed by

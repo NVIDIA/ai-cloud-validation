@@ -20,7 +20,7 @@
 # points at. Two independent inputs:
 #
 #   1. StorageProviderApiCheck is driven from storage-provider-manifest.yaml
-#      (the setup step emits steps.setup.storage.manifest_path). It needs the
+#      (the storage_manifest step emits its manifest_path). It needs the
 #      VAST_* env vars (see scripts/storage/README.md). To run ONLY the
 #      CSI/filesystem checks without VAST creds, deselect it, e.g.
 #      `-k "K8sCsi or K8sFile or K8sNfs"`.
@@ -49,7 +49,7 @@ version: "1.0"
 commands:
   kubernetes:
     steps:
-      - name: setup
+      - name: storage_manifest
         phase: setup
         command: "python ../../shared/storage_manifest_to_steps.py"
         timeout: 30

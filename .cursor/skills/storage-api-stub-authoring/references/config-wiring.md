@@ -10,9 +10,9 @@ Edit in place — fill `scripts/storage/api.py` TODO blocks and update
 `config/storage-provider-manifest.yaml`. Do not copy to `providers/<name>/`
 unless the user explicitly requests a handoff folder.
 
-**Test harness:** `my-isv/config/storage.yaml` already exists and points at the
-manifest. Tweak in place; or add a `manifest_path` override in an external k8s
-config only when the user wants k8s-integrated runs.
+**Test harness:** add a `storage_manifest` step (below) to
+`my-isv/config/storage.yaml`, or use `my-isv/config/storage-k8s.yaml` only when
+the user wants k8s-integrated runs.
 
 ## Two-artifact model
 
@@ -28,51 +28,44 @@ scripts/storage/api.py                    # MyStorageApi + build_api() (my-isv f
 
 ## manifest_path sources
 
-| Mode | `manifest_path` value |
-| ---- | --------------------- |
-| Standalone (`storage.yaml`) | Repo-relative path to manifest on disk |
-| K8s provider (`storage-k8s.yaml`) | Emitted by the `setup` step (`shared/storage_manifest_to_steps.py`); mounted ConfigMap path in prod |
-| Suite default (`suites/storage.yaml`) | `{{ steps.setup.storage.manifest_path \| default('', true) }}` — empty skips check |
+The suite binds the `storage_provider_api` group to a `storage_manifest` step and
+reads `{{ steps.storage_manifest.storage.manifest_path }}`. That step runs
+`shared/storage_manifest_to_steps.py`, which resolves `STORAGE_PROVIDER_MANIFEST`
+(relative to the config dir; the mounted ConfigMap path in prod) to an absolute
+path.
 
-**Empty manifest_path = check skipped (pass).** Onboarded providers must override.
+**No `storage_manifest` step = checks skipped (`step_not_configured`).** Onboarded
+providers declare the step.
 
 ## Provider YAML patterns
 
 ### Standalone storage validation
 
-Use the existing `my-isv/config/storage.yaml` (update in place if needed):
+Add to the existing `my-isv/config/storage.yaml`:
 
 ```yaml
 commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
-      - name: preflight
+      - name: storage_manifest
         phase: setup
-        command: "echo"
-        args: ['{"success": true, "platform": "storage", "test_name": "preflight"}']
-
-tests:
-  platform: storage
-  validations:
-    storage_provider_api:
-      checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml"
-          volume_size_bytes: 1073741824
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 ```
 
 ### K8s-integrated
 
 See `my-isv/config/storage-k8s.yaml` — imports `suites/storage.yaml` only (never
-alongside `suites/k8s.yaml`); its `setup` step emits the manifest path the suite
-reads:
+alongside `suites/k8s.yaml`); the same `storage_manifest` step, under the
+`kubernetes` platform:
 
 ```yaml
 commands:
   kubernetes:
     steps:
-      - name: setup
+      - name: storage_manifest
         phase: setup
         command: "python ../../shared/storage_manifest_to_steps.py"
         env:

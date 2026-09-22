@@ -20,7 +20,7 @@
 # points at. Two independent inputs:
 #
 #   1. StorageProviderApiCheck is driven from storage-provider-manifest.yaml
-#      (the setup step emits steps.setup.storage.manifest_path).
+#      (the storage_manifest step emits its manifest_path).
 #
 #   2. The K8sCsi* / K8sFilesystem* checks target the WEKA StorageClass via the
 #      K8S_CSI_* env vars. The example StorageClass `weka-rwx` is the native
@@ -45,7 +45,7 @@ version: "1.0"
 commands:
   kubernetes:
     steps:
-      - name: setup
+      - name: storage_manifest
         phase: setup
         command: "python ../../shared/storage_manifest_to_steps.py"
         timeout: 30

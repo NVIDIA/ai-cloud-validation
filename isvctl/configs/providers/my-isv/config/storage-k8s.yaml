@@ -20,8 +20,9 @@
 # already be configured). Two independent inputs:
 #
 #   1. StorageProviderApiCheck is driven from storage-provider-manifest.yaml:
-#      the `setup` step resolves the manifest path and emits
-#      steps.setup.storage.manifest_path, which the check loads in-process.
+#      the `storage_manifest` step resolves the manifest path and emits
+#      steps.storage_manifest.storage.manifest_path, which the check loads
+#      in-process.
 #
 #   2. The K8sCsi* / K8sFilesystem* / K8sNfsMountOptions checks get their
 #      StorageClass names from the K8S_CSI_* env vars (or literal overrides in
@@ -46,10 +47,9 @@ version: "1.0"
 commands:
   kubernetes:
     steps:
-      # Replaces the suite's cluster-provisioning setup with a manifest read.
-      # Targets a pre-existing cluster: it does not create nodes, so the
-      # kubernetes.* checks fall back to their suite defaults.
-      - name: setup
+      # A manifest read, not a cluster fixture: this targets a pre-existing
+      # cluster and does not create nodes.
+      - name: storage_manifest
         phase: setup
         command: "python ../../shared/storage_manifest_to_steps.py"
         timeout: 30
