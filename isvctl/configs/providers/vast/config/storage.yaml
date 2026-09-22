@@ -61,14 +61,6 @@ commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
-      # Test phase, so `--phase test` still runs the shim checks.
-      - name: storage_manifest
-        phase: test
-        command: "python ../../shared/storage_manifest_to_steps.py"
-        timeout: 30
-        env:
-          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
-
       # Same scaffold the suite uses: reports the StorageClasses already
       # installed on the current cluster (K8S_CSI_* env vars win) and
       # provisions nothing.
@@ -78,6 +70,15 @@ commands:
         requires: [kubernetes]
         output_schema: generic
         timeout: 120
+
+      # Test phase, so `--phase test` still runs the shim checks.
+      - name: storage_manifest
+        phase: test
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        timeout: 30
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
+
       - name: teardown_cluster
         phase: teardown
         command: "../../my-isv/scripts/k8s/teardown.sh"
