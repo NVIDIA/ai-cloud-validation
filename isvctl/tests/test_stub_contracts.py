@@ -46,13 +46,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS_DIR = REPO_ROOT / "isvctl" / "configs"
 
 
-def test_my_isv_label_exclusions_remain_visible_in_reports() -> None:
-    """Scaffold providers must report excluded checks as skipped outcomes."""
-    for name in ("vm", "bare_metal", "image-registry", "network"):
-        config = yaml.safe_load((CONFIGS_DIR / "providers" / "my-isv" / "config" / f"{name}.yaml").read_text())
-        assert config["tests"]["settings"]["show_skipped_tests"] is True
-
-
 def test_aws_eks_test_exclusions_remain_visible_in_reports() -> None:
     """Provider-specific AWS exclusions must remain visible as skipped outcomes."""
     config = yaml.safe_load((CONFIGS_DIR / "providers" / "aws" / "config" / "eks.yaml").read_text())

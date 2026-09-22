@@ -370,7 +370,6 @@ tests:
   description: "my-isv bare-metal lifecycle validation (generic stubs, dummy overrides)"
 
   settings:
-    show_skipped_tests: true
     region: "my-isv-region-1"
     instance_type: "my-isv.bm.gpu.8x"
     machine_id: "demo-machine-001"

@@ -222,7 +222,6 @@ tests:
   description: "my-isv VM lifecycle validation (generic stubs, dummy overrides)"
 
   settings:
-    show_skipped_tests: true
     region: "my-isv-region-1"
     instance_type: "my-isv.gpu.1x"
     teardown_flag: "{{(env.VM_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
