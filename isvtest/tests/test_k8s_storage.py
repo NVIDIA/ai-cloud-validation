@@ -331,6 +331,16 @@ class TestK8sCsiStorageTypesCheck:
         assert not check.passed
         assert "Unknown required_storage_types" in check._error
 
+    def test_null_required_storage_types_uses_optional_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_env(monkeypatch)
+        check = self._make({"required_storage_types": None})
+
+        with patch.object(check, "run_command") as mock_run:
+            check.run()
+
+        assert check.passed
+        mock_run.assert_not_called()
+
     def test_missing_storageclass_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({"block_storage_class": "nope", "bind_timeout_s": 5, "namespace_prefix": "ut"})

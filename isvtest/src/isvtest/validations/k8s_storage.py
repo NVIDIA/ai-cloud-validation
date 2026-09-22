@@ -326,7 +326,7 @@ class K8sCsiStorageTypesCheck(BaseValidation):
             if sc_name:
                 configured[type_name] = sc_name
 
-        required = set(self.config.get("required_storage_types", []))
+        required = set(self.config.get("required_storage_types") or [])
         known_types = {type_name for type_name, _ in _STORAGE_TYPES}
         unknown_required = required - known_types
         if unknown_required:
