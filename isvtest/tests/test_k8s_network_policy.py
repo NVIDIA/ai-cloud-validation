@@ -143,7 +143,12 @@ def test_classify_pods_by_node_tracks_both_ip_families() -> None:
         },
         {"spec": {"nodeName": "node-1"}, "status": {"podIPs": [{"ip": "10.0.0.11"}]}},
     ]
-    assert _classify_pods_by_node(pods) == {"node-0": (True, True), "node-1": (True, False)}
+    assert _classify_pods_by_node(pods) == {"node-0": [(True, True)], "node-1": [(True, False)]}
+
+
+def test_classify_pods_by_node_ignores_pods_without_addresses() -> None:
+    pods = [{"spec": {"nodeName": "node-0"}, "status": {"podIPs": []}}]
+    assert _classify_pods_by_node(pods) == {}
 
 
 class TestNodePodCidrFamilies:
@@ -232,6 +237,13 @@ class TestDualStackNodeCheck:
         assert check.passed
         assert "No nodes" in check._output
 
+    def test_auto_fails_when_no_nodes_exist(self) -> None:
+        check = self._make({"require_dual_stack": "auto"})
+        with patch.object(check, "run_command", return_value=_ok(stdout=json.dumps({"items": []}))):
+            check.run()
+        assert not check.passed
+        assert "No nodes" in check._error
+
     def test_require_true_fails_on_single_stack_node(self) -> None:
         payload = _nodes_json(
             [
@@ -316,6 +328,24 @@ class TestDualStackNodeCheck:
                         "spec": {"nodeName": "node-0"},
                         "status": {"podIPs": [{"ip": "10.0.0.10"}]},
                     }
+                ]
+            }
+        )
+        check = self._make({"require_dual_stack": "auto"})
+        with patch.object(check, "run_command", side_effect=[_ok(stdout=nodes), _ok(stdout=pods)]):
+            check.run()
+        assert not check.passed
+        assert "node-0" in check._error
+
+    def test_auto_fails_when_pod_families_are_split_across_pods(self) -> None:
+        nodes = _nodes_json(
+            [[("InternalIP", "10.0.0.1"), ("InternalIP", "fd00::1")]],
+        )
+        pods = json.dumps(
+            {
+                "items": [
+                    {"spec": {"nodeName": "node-0"}, "status": {"podIPs": [{"ip": "10.0.0.10"}]}},
+                    {"spec": {"nodeName": "node-0"}, "status": {"podIPs": [{"ip": "fd00::10"}]}},
                 ]
             }
         )

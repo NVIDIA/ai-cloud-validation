@@ -381,10 +381,13 @@ class K8sDualStackNodeCheck(BaseValidation):
 
         nodes = payload.get("items", [])
         if not nodes:
-            self.set_passed("No nodes found in cluster")
+            if normalized == "auto":
+                self.set_failed("No nodes found; cannot verify IPv4 and IPv6 in auto mode")
+            else:
+                self.set_passed("No nodes found in cluster")
             return
 
-        pod_families_by_node: dict[str, tuple[bool, bool]] = {}
+        pod_families_by_node: dict[str, list[tuple[bool, bool]]] = {}
         if normalized is not False:
             pod_result = self.run_command(f"{get_kubectl_base_shell()} get pods --all-namespaces -o json")
             if pod_result.exit_code != 0:
@@ -402,13 +405,16 @@ class K8sDualStackNodeCheck(BaseValidation):
         for node in nodes:
             name = node.get("metadata", {}).get("name", "unknown")
             node_v4, node_v6 = _classify_node(node)
-            pod_v4, pod_v6 = pod_families_by_node.get(name, (False, False))
+            pod_observations = pod_families_by_node.get(name, [])
+            pod_v4 = bool(pod_observations) and all(has_v4 for has_v4, _ in pod_observations)
+            pod_v6 = bool(pod_observations) and all(has_v6 for _, has_v6 in pod_observations)
             node_families.append((name, node_v4, node_v6, pod_v4, pod_v6))
             # Cluster-level hint combines InternalIP and podCIDR evidence so
             # auto mode still detects a dual-stack cluster when a node carries
             # only one InternalIP family but advertises both pod CIDR families.
             cidr_v4, cidr_v6 = _node_podcidr_families(node)
-            if (node_v4 or cidr_v4 or pod_v4) and (node_v6 or cidr_v6 or pod_v6):
+            pod_has_dual_stack = any(has_v4 and has_v6 for has_v4, has_v6 in pod_observations)
+            if (node_v4 or cidr_v4 or pod_has_dual_stack) and (node_v6 or cidr_v6 or pod_has_dual_stack):
                 cluster_has_dual_stack_hint = True
 
         if normalized == "auto" and not cluster_has_dual_stack_hint:
@@ -445,7 +451,8 @@ class K8sDualStackNodeCheck(BaseValidation):
             return
 
         if require_both:
-            self.set_passed(f"All {len(node_families)} nodes have IPv4 and IPv6 node and pod addresses")
+            pod_clause = " and observed pod addresses" if pod_families_by_node else ""
+            self.set_passed(f"All {len(node_families)} nodes have IPv4 and IPv6 node addresses{pod_clause}")
         else:
             self.set_passed(
                 f"Informational: per-node IPv4/IPv6 summary recorded for "
@@ -510,22 +517,24 @@ def _classify_node(node: dict[str, Any]) -> tuple[bool, bool]:
     return has_v4, has_v6
 
 
-def _classify_pods_by_node(pods: list[dict[str, Any]]) -> dict[str, tuple[bool, bool]]:
-    """Return observed pod IP families keyed by the node hosting each pod."""
-    families: dict[str, list[bool]] = {}
+def _classify_pods_by_node(pods: list[dict[str, Any]]) -> dict[str, list[tuple[bool, bool]]]:
+    """Return observed IP families for each scheduled pod, keyed by node."""
+    families: dict[str, list[tuple[bool, bool]]] = {}
     for pod in pods:
         node_name = pod.get("spec", {}).get("nodeName")
         if not node_name:
             continue
-        has_v4, has_v6 = families.setdefault(node_name, [False, False])
+        has_v4 = False
+        has_v6 = False
         for pod_ip in pod.get("status", {}).get("podIPs", []) or []:
             address = pod_ip.get("ip") if isinstance(pod_ip, dict) else None
             if address and _is_ipv4(address):
                 has_v4 = True
             elif address and _is_ipv6(address):
                 has_v6 = True
-        families[node_name] = [has_v4, has_v6]
-    return {node: (has_v4, has_v6) for node, (has_v4, has_v6) in families.items()}
+        if has_v4 or has_v6:
+            families.setdefault(node_name, []).append((has_v4, has_v6))
+    return families
 
 
 def _node_podcidr_families(node: dict[str, Any]) -> tuple[bool, bool]:
