@@ -41,6 +41,7 @@ DEFAULT_VALIDATION_PHASE = "test"
 DECLARABLE_CAPABILITIES = frozenset({"vm", "bare_metal", "kubernetes", "slurm"})
 
 _masked_defaults: ContextVar[list[tuple[str, tuple[str, ...]]] | None] = ContextVar("_masked_defaults", default=None)
+_render_context: ContextVar[Mapping[str, Any] | None] = ContextVar("_render_context", default=None)
 
 
 def requires_error(values: Any) -> str | None:
@@ -546,10 +547,14 @@ def _render_params(
     ``masked_defaults`` as ``<validation>.<parameter path> = <template>``,
     keyed by the description of what is missing.
     """
-    return {
-        key: _render_value(env, value, render_context, f"{entry.name}.{key}", masked_defaults)
-        for key, value in entry.params_template.items()
-    }
+    token = _render_context.set(render_context)
+    try:
+        return {
+            key: _render_value(env, value, render_context, f"{entry.name}.{key}", masked_defaults)
+            for key, value in entry.params_template.items()
+        }
+    finally:
+        _render_context.reset(token)
 
 
 def _render_value(
@@ -591,21 +596,29 @@ def _render_string(
         rendered = env.from_string(value).render(**render_context)
     finally:
         _masked_defaults.reset(token)
-    for name, available in missing:
-        description = _describe_missing(value, name, available)
-        masked_defaults.setdefault(description, []).append(f"{path} = {value}")
+        for name, available in missing:
+            description = _describe_missing(value, name, available)
+            masked_defaults.setdefault(description, []).append(f"{path} = {value}")
     return rendered
 
 
 def _looked_up_in_nothing(value: Undefined) -> bool:
-    """Return whether the reference was resolved against a container with no contents.
+    """Return whether the reference was resolved against an empty root mapping.
 
     A name missing from something empty cannot be a misspelling of what is in
     there. A validation-only run has no steps at all, so every
     ``steps.<name>`` is undefined by construction and the default is the
-    designed path rather than a masked mistake.
+    designed path rather than a masked mistake. Nested empty mappings
+    (``steps.setup`` is ``{}``) are still reported.
     """
-    return isinstance(value._undefined_obj, Mapping) and not value._undefined_obj
+    context = _render_context.get()
+    container = value._undefined_obj
+    return (
+        context is not None
+        and isinstance(container, Mapping)
+        and not container
+        and (container is context or any(container is root for root in context.values()))
+    )
 
 
 def _describe_missing(template: str, name: str, available: tuple[str, ...]) -> str:
@@ -616,7 +629,11 @@ def _describe_missing(template: str, name: str, available: tuple[str, ...]) -> s
     from the template (``steps.setup`` in ``steps.setup.storage.x``), since the
     undefined value only holds the container object, not how it was reached.
     """
-    match = re.search(rf"([\w.]+)\.{re.escape(name)}\b", template)
+    path = r"""[\w]+(?:\[['\"][^'\"]+['\"]\])*(?:\.[\w]+(?:\[['\"][^'\"]+['\"]\])*)*"""
+    match = re.search(
+        rf"""({path})(?:\.{re.escape(name)}\b|\[['\"]{re.escape(name)}['\"]\])""",
+        template,
+    )
     where = f" in {match.group(1)}" if match else ""
     close = difflib.get_close_matches(name, available, n=1, cutoff=0.5)
     hint = f" (did you mean '{close[0]}'?)" if close else ""

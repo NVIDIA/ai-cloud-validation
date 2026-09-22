@@ -492,3 +492,65 @@ def test_resolve_entries_is_quiet_when_the_run_has_no_steps(
     assert resolved.rendered_params is not None
     assert resolved.rendered_params["storage_class"] == ""
     assert "default(" not in caplog.text
+
+
+def test_resolve_entries_keeps_masked_warnings_when_a_later_reference_fails(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A default(...) hit is still reported when a later unmasked lookup aborts render."""
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    entry = _entry(
+        params={"sc": "{{ steps.setup.csi.block_sc | default('', true) }}{{ steps.gone }}"},
+    )
+    steps = {"setup": {"csi": {"nfs_sc": "efs"}}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        resolved = _resolve(entry, render_context={"steps": steps})
+
+    assert resolved.error_reason == ErrorReason.TEMPLATE_RENDER_FAILED
+    assert "block_sc" in caplog.text
+    assert "steps.setup.csi" in caplog.text
+
+
+def test_resolve_entries_warns_when_a_nested_step_mapping_is_empty(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty nested step is a real miss, unlike a validation-only empty steps root."""
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    entry = _entry(params={"storage_class": "{{ steps.setup.csi.block_sc | default('', true) }}"})
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        resolved = _resolve(entry, render_context={"steps": {"setup": {}}})
+
+    assert resolved.rendered_params is not None
+    assert resolved.rendered_params["storage_class"] == ""
+    assert [record.getMessage() for record in caplog.records] == [
+        "1 validation parameter(s) fell back to their default(...) because a referenced value is missing:",
+        "  'csi' not found in steps.setup - 1 parameter(s):",
+        "    PlainCheck.storage_class = {{ steps.setup.csi.block_sc | default('', true) }}",
+    ]
+
+
+def test_resolve_entries_describes_bracketed_lookup_paths(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Quoted-bracket Jinja paths still name the container in the grouped warning."""
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    template = "{{ steps['setup_cluster'].csi.block_sc | default('', true) }}"
+    entry = _entry(params={"block_sc": template})
+    steps = {"setup_cluster": {"csi": {"nfs_sc": "efs"}}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        _resolve(entry, render_context={"steps": steps})
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "1 validation parameter(s) fell back to their default(...) because a referenced value is missing:",
+        "  'block_sc' not found in steps['setup_cluster'].csi - 1 parameter(s):",
+        f"    PlainCheck.block_sc = {template}",
+    ]
