@@ -35,6 +35,25 @@ DISCOVERY_PATH = "/.well-known/openid-configuration"
 DEFAULT_HTTP_TIMEOUT = 10
 
 
+class _NonHttpsRedirect(urllib.error.URLError):
+    """A redirect hop pointed at a URL that is not HTTPS."""
+
+
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only to HTTPS targets, refusing each other hop before it is requested."""
+
+    def redirect_request(
+        self, req: urllib.request.Request, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> urllib.request.Request | None:
+        """Build the next request, or raise ``_NonHttpsRedirect`` for a non-HTTPS target."""
+        if not _is_https_url(newurl):
+            raise _NonHttpsRedirect(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_HttpsOnlyRedirectHandler)
+
+
 class K8sOidcIssuerCheck(BaseValidation):
     """Validate the cluster's OIDC discovery endpoint for workload identity federation."""
 
@@ -144,14 +163,13 @@ class K8sOidcIssuerCheck(BaseValidation):
         """
         request = urllib.request.Request(url, headers={"Accept": "application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                final_url = response.geturl()
-                if not _is_https_url(final_url):
-                    self.set_failed(f"{label} at {url} redirected to a non-HTTPS URL: {final_url}")
-                    return None
+            with _OPENER.open(request, timeout=timeout) as response:
                 body = response.read()
         except urllib.error.HTTPError as e:
             self.set_failed(f"Anonymous fetch of {label} at {url} returned HTTP {e.code} {e.reason}")
+            return None
+        except _NonHttpsRedirect as e:
+            self.set_failed(f"{label} at {url} redirected to a non-HTTPS URL: {e.reason}")
             return None
         except OSError as e:
             self.set_failed(f"{label} at {url} is not anonymously reachable: {e}")
