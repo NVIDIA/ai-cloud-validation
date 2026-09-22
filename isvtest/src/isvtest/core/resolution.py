@@ -16,10 +16,13 @@
 """Validation entry parsing and resolution."""
 
 import copy
+import difflib
 import json
 import logging
+import re
 from collections.abc import Iterable, Mapping
 from collections.abc import Set as AbstractSet
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import cache
@@ -36,6 +39,9 @@ logger = logging.getLogger(__name__)
 ADAPTER_HANDLED_CATEGORIES = {"reframe"}
 DEFAULT_VALIDATION_PHASE = "test"
 DECLARABLE_CAPABILITIES = frozenset({"vm", "bare_metal", "kubernetes", "slurm"})
+
+_masked_defaults: ContextVar[list[tuple[str, tuple[str, ...]]] | None] = ContextVar("_masked_defaults", default=None)
+_render_context: ContextVar[Mapping[str, Any] | None] = ContextVar("_render_context", default=None)
 
 
 def requires_error(values: Any) -> str | None:
@@ -272,6 +278,7 @@ def resolve_entries(
         A resolved entry for every input entry, in input order.
     """
     resolved: list[ResolvedEntry] = []
+    masked_defaults: dict[str, list[str]] = {}
     env = _create_jinja_env()
 
     for entry in entries:
@@ -362,7 +369,7 @@ def resolve_entries(
             continue
 
         try:
-            rendered_params = _render_params(env, entry.params_template, render_context)
+            rendered_params = _render_params(env, entry, render_context, masked_defaults)
         except Exception as exc:
             resolved.append(
                 _error(
@@ -391,6 +398,17 @@ def resolve_entries(
         rendered_params["_category"] = entry.category
 
         resolved.append(ResolvedEntry(entry=entry, rendered_params=rendered_params))
+
+    if masked_defaults:
+        count = len({usage for usages in masked_defaults.values() for usage in usages})
+        logger.warning(
+            f"{count} validation parameter(s) fell back to their default(...) because a referenced value is missing:"
+        )
+        for missing, usages in masked_defaults.items():
+            unique_usages = list(dict.fromkeys(usages))
+            logger.warning(f"  {missing} - {len(unique_usages)} parameter(s):")
+            for usage in unique_usages:
+                logger.warning(f"    {usage}")
 
     return resolved
 
@@ -517,38 +535,109 @@ def _validate_entry_shape(entry: ValidationEntry) -> str | None:
     return None
 
 
-def _render_params(env: Environment, params: dict[str, Any], render_context: Mapping[str, Any]) -> dict[str, Any]:
-    """Render validation parameters recursively."""
-    return {key: _render_value(env, value, render_context) for key, value in params.items()}
+def _render_params(
+    env: Environment,
+    entry: ValidationEntry,
+    render_context: Mapping[str, Any],
+    masked_defaults: dict[str, list[str]],
+) -> dict[str, Any]:
+    """Render validation parameters recursively.
+
+    Every reference a ``default(...)`` filter masks is recorded in
+    ``masked_defaults`` as ``<validation>.<parameter path> = <template>``,
+    keyed by the description of what is missing.
+    """
+    token = _render_context.set(render_context)
+    try:
+        return {
+            key: _render_value(env, value, render_context, f"{entry.name}.{key}", masked_defaults)
+            for key, value in entry.params_template.items()
+        }
+    finally:
+        _render_context.reset(token)
 
 
-def _render_value(env: Environment, value: Any, render_context: Mapping[str, Any]) -> Any:
+def _render_value(
+    env: Environment,
+    value: Any,
+    render_context: Mapping[str, Any],
+    path: str,
+    masked_defaults: dict[str, list[str]],
+) -> Any:
     """Render a nested validation parameter value."""
     if isinstance(value, str):
-        return _render_string(env, value, render_context)
+        return _render_string(env, value, render_context, path, masked_defaults)
     if isinstance(value, dict):
-        return {key: _render_value(env, item, render_context) for key, item in value.items()}
+        return {
+            key: _render_value(env, item, render_context, f"{path}.{key}", masked_defaults)
+            for key, item in value.items()
+        }
     if isinstance(value, list):
-        return [_render_value(env, item, render_context) for item in value]
+        return [
+            _render_value(env, item, render_context, f"{path}[{index}]", masked_defaults)
+            for index, item in enumerate(value)
+        ]
     return value
 
 
-def _render_string(env: Environment, value: str, render_context: Mapping[str, Any]) -> str:
+def _render_string(
+    env: Environment,
+    value: str,
+    render_context: Mapping[str, Any],
+    path: str,
+    masked_defaults: dict[str, list[str]],
+) -> str:
     """Render a single string if it contains a Jinja template."""
     if "{{" not in value or "}}" not in value:
         return value
-    return env.from_string(value).render(**render_context)
+    missing: list[tuple[str, tuple[str, ...]]] = []
+    token = _masked_defaults.set(missing)
+    try:
+        rendered = env.from_string(value).render(**render_context)
+    finally:
+        _masked_defaults.reset(token)
+        for name, available in missing:
+            description = _describe_missing(value, name, available)
+            masked_defaults.setdefault(description, []).append(f"{path} = {value}")
+    return rendered
 
 
 def _looked_up_in_nothing(value: Undefined) -> bool:
-    """Return whether the reference was resolved against a container with no contents.
+    """Return whether the reference was resolved against an empty root mapping.
 
     A name missing from something empty cannot be a misspelling of what is in
     there. A validation-only run has no steps at all, so every
     ``steps.<name>`` is undefined by construction and the default is the
-    designed path rather than a masked mistake.
+    designed path rather than a masked mistake. Nested empty mappings
+    (``steps.setup`` is ``{}``) are still reported.
     """
-    return isinstance(value._undefined_obj, Mapping) and not value._undefined_obj
+    context = _render_context.get()
+    container = value._undefined_obj
+    return (
+        context is not None
+        and isinstance(container, Mapping)
+        and not container
+        and (container is context or any(container is root for root in context.values()))
+    )
+
+
+def _describe_missing(template: str, name: str, available: tuple[str, ...]) -> str:
+    """Say which key is missing, where it was looked up, and what it may be a typo of.
+
+    Jinja's own message (``'dict object' has no attribute 'x'``) names neither
+    the container nor a likely intended key. The container path is read back
+    from the template (``steps.setup`` in ``steps.setup.storage.x``), since the
+    undefined value only holds the container object, not how it was reached.
+    """
+    path = r"""[\w]+(?:\[['\"][^'\"]+['\"]\])*(?:\.[\w]+(?:\[['\"][^'\"]+['\"]\])*)*"""
+    match = re.search(
+        rf"""({path})(?:\.{re.escape(name)}\b|\[['\"]{re.escape(name)}['\"]\])""",
+        template,
+    )
+    where = f" in {match.group(1)}" if match else ""
+    close = difflib.get_close_matches(name, available, n=1, cutoff=0.5)
+    hint = f" (did you mean '{close[0]}'?)" if close else ""
+    return f"'{name}' not found{where}{hint}"
 
 
 def _warning_default(value: Any, default_value: Any = "", boolean: bool = False) -> Any:
@@ -558,8 +647,11 @@ def _warning_default(value: Any, default_value: Any = "", boolean: bool = False)
     the default for the missing field instead of surfacing the mistake.
     """
     if isinstance(value, Undefined):
-        if value._undefined_message and not _looked_up_in_nothing(value):
-            logger.warning(f"default(...) masked: {value._undefined_message}")
+        collector = _masked_defaults.get()
+        if collector is not None and value._undefined_message and not _looked_up_in_nothing(value):
+            container = value._undefined_obj
+            available = tuple(str(key) for key in container) if isinstance(container, Mapping) else ()
+            collector.append((str(value._undefined_name), available))
         return default_value
     if boolean and not value:
         return default_value
