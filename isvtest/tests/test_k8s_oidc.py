@@ -40,21 +40,36 @@ VALID_JWKS = {"keys": [{"kid": "abc123", "kty": "RSA", "alg": "RS256", "use": "s
 
 
 def _http_error(url: str, code: int, msg: str) -> urllib.error.HTTPError:
+    """Build the error urlopen raises for a non-2xx response."""
     return urllib.error.HTTPError(url=url, code=code, msg=msg, hdrs={}, fp=io.BytesIO(b""))
+
+
+class _FakeResponse(io.BytesIO):
+    """urlopen response: a readable body plus the URL it was finally served from."""
+
+    def __init__(self, body: bytes, url: str) -> None:
+        super().__init__(body)
+        self._url = url
+
+    def geturl(self) -> str:
+        return self._url
 
 
 class _FakeHttp:
     """Route anonymous fetches to canned bodies or exceptions; record the requests.
 
     Serves a valid discovery document and JWKS by default; a URL missing from
-    ``routes`` answers 404.
+    ``routes`` answers 404. ``redirects`` maps a requested URL to the URL the
+    response reports it was finally served from.
     """
 
     def __init__(self) -> None:
         self.routes: dict[str, Any] = {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: VALID_JWKS}
+        self.redirects: dict[str, str] = {}
         self.seen: list[Any] = []
 
-    def urlopen(self, request: Any, timeout: int | None = None) -> io.BytesIO:
+    def urlopen(self, request: Any, timeout: int | None = None) -> _FakeResponse:
+        """Record the request and answer from ``routes``, raising 404 for unknown URLs."""
         request.timeout = timeout
         self.seen.append(request)
         outcome = self.routes.get(request.full_url)
@@ -62,7 +77,8 @@ class _FakeHttp:
             raise _http_error(request.full_url, 404, "Not Found")
         if isinstance(outcome, Exception):
             raise outcome
-        return io.BytesIO(outcome if isinstance(outcome, bytes) else json.dumps(outcome).encode())
+        body = outcome if isinstance(outcome, bytes) else json.dumps(outcome).encode()
+        return _FakeResponse(body, self.redirects.get(request.full_url, request.full_url))
 
 
 @pytest.fixture(autouse=True)
@@ -115,6 +131,17 @@ class TestAnonymousReachability:
         assert result["passed"] is False
         assert "not anonymously reachable" in result["error"]
 
+    def test_redirect_to_http_fails(self, http: _FakeHttp) -> None:
+        http.redirects[JWKS_URL] = "http://insecure.example.com/keys"
+        result = _make_check().execute()
+        assert result["passed"] is False
+        assert "redirected to a non-HTTPS URL" in result["error"]
+
+    def test_redirect_to_another_https_host_passes(self, http: _FakeHttp) -> None:
+        http.redirects[JWKS_URL] = "https://keys.example.com/jwks"
+        result = _make_check().execute()
+        assert result["passed"] is True
+
 
 class TestJwksDereference:
     """A jwks_uri that is merely present is not proof; it has to serve keys."""
@@ -131,6 +158,19 @@ class TestJwksDereference:
         result = _make_check().execute()
         assert result["passed"] is False
         assert "contains no signing keys" in result["error"]
+
+    @pytest.mark.parametrize("entries", [[None], [{}], [{"kty": ""}], [{"kty": 1}], ["RSA"]])
+    def test_malformed_key_entries_fail(self, http: _FakeHttp, entries: list[Any]) -> None:
+        http.routes[JWKS_URL] = {"keys": entries}
+        result = _make_check().execute()
+        assert result["passed"] is False
+        assert "contains no signing keys" in result["error"]
+
+    def test_only_valid_key_entries_are_counted(self, http: _FakeHttp) -> None:
+        http.routes[JWKS_URL] = {"keys": [{}, *VALID_JWKS["keys"], None]}
+        result = _make_check().execute()
+        assert result["passed"] is True
+        assert "1 signing key(s)" in result["output"]
 
     def test_jwks_without_keys_field_fails(self, http: _FakeHttp) -> None:
         http.routes[JWKS_URL] = {"unexpected": True}
@@ -190,15 +230,22 @@ class TestDiscoveryDocument:
 
 
 class TestIssuerResolution:
-    def test_configured_issuer_url_skips_kubectl(self) -> None:
-        check = _make_check(config={"issuer_url": ISSUER})
-        result = check.execute()
+    def test_trailing_slash_issuer_matches_exactly(self, http: _FakeHttp) -> None:
+        aks_issuer = "https://eastus.oic.prod-aks.azure.com/TENANT/CLUSTER/"
+        aks_jwks = "https://eastus.oic.prod-aks.azure.com/TENANT/CLUSTER/openid/v1/jwks"
+        http.routes = {
+            "https://eastus.oic.prod-aks.azure.com/TENANT/CLUSTER/.well-known/openid-configuration": dict(
+                VALID_OIDC_RESPONSE, issuer=aks_issuer, jwks_uri=aks_jwks
+            ),
+            aks_jwks: VALID_JWKS,
+        }
+        result = _make_check(stdout=json.dumps({"issuer": aks_issuer})).execute()
         assert result["passed"] is True
-        check.runner.run.assert_not_called()
 
-    def test_configured_issuer_url_tolerates_trailing_slash(self) -> None:
-        result = _make_check(config={"issuer_url": f"{ISSUER}/"}).execute()
-        assert result["passed"] is True
+    def test_trailing_slash_mismatch_fails(self, http: _FakeHttp) -> None:
+        result = _make_check(stdout=json.dumps({"issuer": f"{ISSUER}/"})).execute()
+        assert result["passed"] is False
+        assert "does not match the endpoint it was served from" in result["error"]
 
     def test_kubectl_command_failure(self) -> None:
         result = _make_check(stdout="", exit_code=1, stderr="connection refused").execute()

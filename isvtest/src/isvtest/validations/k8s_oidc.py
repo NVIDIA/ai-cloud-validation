@@ -56,7 +56,7 @@ class K8sOidcIssuerCheck(BaseValidation):
         if issuer is None:
             return
 
-        discovery_url = issuer + DISCOVERY_PATH
+        discovery_url = issuer.rstrip("/") + DISCOVERY_PATH
         oidc_config = self._fetch_json_anonymously(discovery_url, "OIDC discovery document", timeout)
         if oidc_config is None:
             return
@@ -83,8 +83,10 @@ class K8sOidcIssuerCheck(BaseValidation):
         if jwks is None:
             return
 
-        keys = jwks.get("keys")
-        if not isinstance(keys, list) or not keys:
+        entries = jwks.get("keys")
+        entries = entries if isinstance(entries, list) else []
+        keys = [k for k in entries if isinstance(k, dict) and isinstance(k.get("kty"), str) and k["kty"]]
+        if not keys:
             self.set_failed(f"JWKS document at {jwks_uri} contains no signing keys")
             return
 
@@ -109,29 +111,29 @@ class K8sOidcIssuerCheck(BaseValidation):
         return None
 
     def _resolve_issuer_url(self) -> str | None:
-        """Return the HTTPS issuer URL to probe (no trailing slash), from config or the API server.
+        """Return the HTTPS issuer URL exactly as the API server reports it.
 
         kubectl is only used to learn *which* URL to test. The requirement is
         about anonymous external reachability, so the URL is proven separately.
+        OIDC requires the discovery document's issuer to match this value
+        exactly, trailing slash included (AKS issuers end in one).
         """
-        issuer = self.config.get("issuer_url")
-        if not (isinstance(issuer, str) and issuer.strip()):
-            result = self.run_command(get_kubectl_base_shell("get", "--raw", DISCOVERY_PATH))
-            if result.exit_code != 0:
-                self.set_failed(f"Failed to query OIDC discovery endpoint: {result.stderr}")
-                return None
-            try:
-                issuer = parse_kubectl_json(result, "OIDC discovery response").get("issuer")
-            except KubectlParseError as e:
-                self.set_failed(str(e))
-                return None
+        result = self.run_command(get_kubectl_base_shell("get", "--raw", DISCOVERY_PATH))
+        if result.exit_code != 0:
+            self.set_failed(f"Failed to query OIDC discovery endpoint: {result.stderr}")
+            return None
+        try:
+            issuer = parse_kubectl_json(result, "OIDC discovery response").get("issuer")
+        except KubectlParseError as e:
+            self.set_failed(str(e))
+            return None
 
         if isinstance(issuer, str):
             issuer = issuer.strip()
         if not _is_https_url(issuer):
             self.set_failed(f"OIDC issuer is not a valid HTTPS URL: {issuer}")
             return None
-        return issuer.rstrip("/")
+        return issuer
 
     def _fetch_json_anonymously(self, url: str, label: str, timeout: int) -> dict[str, Any] | None:
         """GET ``url`` with no credentials and return the parsed JSON object, or fail.
@@ -143,6 +145,10 @@ class K8sOidcIssuerCheck(BaseValidation):
         request = urllib.request.Request(url, headers={"Accept": "application/json"})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
+                final_url = response.geturl()
+                if not _is_https_url(final_url):
+                    self.set_failed(f"{label} at {url} redirected to a non-HTTPS URL: {final_url}")
+                    return None
                 body = response.read()
         except urllib.error.HTTPError as e:
             self.set_failed(f"Anonymous fetch of {label} at {url} returned HTTP {e.code} {e.reason}")
