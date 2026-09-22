@@ -3705,22 +3705,26 @@ domains:
             tests:
               - summary: Verify support for the three most recent minor releases (N-2)
                 labels:
+                  - kubernetes
                   - min_req
                 priority: INFO
                 milestone: M5
                 notes: ""
-                github_issues: []
+                github_issues:
+                  - "#659"
                 req_id: K8S02
                 test_id: K8S02-01
                 actor: tenant
                 status: pending
-              - summary: Verify automated control plane security patching with no/minimal downtime
+              - summary: Verify control plane security patching is automated and keeps the control plane on a current upstream patch
                 labels:
+                  - kubernetes
                   - min_req
                 priority: INFO
                 milestone: M5
-                notes: ""
-                github_issues: []
+                notes: Downtime during control plane updates is covered by K8S09-01.
+                github_issues:
+                  - "#659"
                 req_id: K8S02
                 test_id: K8S02-02
                 actor: operator

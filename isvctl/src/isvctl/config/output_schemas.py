@@ -160,6 +160,10 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "destroy_test_shared_vpc_cluster": "teardown",
     # Control-plane size pinning
     "pin_control_plane": "control_plane_size",
+    # Kubernetes version support and control-plane patching
+    "fetch_upstream_k8s_versions": "k8s_upstream_versions",
+    "list_k8s_versions": "k8s_offered_versions",
+    "describe_control_plane_patching": "k8s_control_plane_patching",
 }
 
 # Common fields present in all outputs
@@ -1456,6 +1460,56 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "type": "integer",
                 "minimum": 0,
                 "description": "Control-plane instance count the provider runs after the pin",
+            },
+        },
+        "additionalProperties": True,
+    },
+    # =========================================================================
+    # Kubernetes version support and control-plane patching schemas
+    # =========================================================================
+    "k8s_upstream_versions": {
+        "type": "object",
+        "required": ["success", "platform", "cycles_json"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            # A JSON string rather than an array: step outputs reach validation
+            # config through Jinja2, which renders scalars, so the structure
+            # survives the trip the same way the node_pool payloads do.
+            "cycles_json": {
+                "type": "string",
+                "description": (
+                    "JSON-encoded list of upstream release cycles, each "
+                    "{minor, released, latest_patch, latest_patch_released}"
+                ),
+            },
+        },
+        "additionalProperties": True,
+    },
+    "k8s_offered_versions": {
+        "type": "object",
+        "required": ["success", "platform", "offered_versions"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "offered_versions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Kubernetes versions the provider offers for cluster create/upgrade",
+            },
+        },
+        "additionalProperties": True,
+    },
+    "k8s_control_plane_patching": {
+        "type": "object",
+        "required": ["success", "platform", "automated_patching_enabled", "current_version"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "automated_patching_enabled": {
+                "type": "boolean",
+                "description": "Whether the provider patches the control plane without tenant action",
+            },
+            "current_version": {
+                "type": "string",
+                "description": "Kubernetes patch version the control plane runs, as the provider reports it",
             },
         },
         "additionalProperties": True,

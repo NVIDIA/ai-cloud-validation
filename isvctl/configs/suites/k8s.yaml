@@ -169,6 +169,31 @@ tests:
           # step reported, and a size that has since drifted is caught.
           phase: test
 
+    # Kubernetes version support and control-plane patching (K8S02). Both
+    # checks skip without the fetch_upstream_k8s_versions step - there is
+    # nothing to compare a provider against. phase: test keeps a K8S02 finding
+    # from failing setup and taking the rest of the suite with it.
+    k8s_versions:
+      checks:
+        K8sSupportedMinorVersionsCheck:
+          test_id: "K8S02-01"
+          labels: ["kubernetes", "min_req"]
+          step: list_k8s_versions
+          phase: test
+          upstream_cycles: "{{ steps.fetch_upstream_k8s_versions.cycles_json | default('', true) }}"
+          # Most recent upstream minors that must be supported; 3 allows N-2.
+          supported_minor_count: 3
+          # 6 weeks: K8S02's window for a new minor to appear, and the runway a
+          # cluster gets to move once a new release pushes it out.
+          availability_grace_days: 42
+        K8sAutomatedControlPlanePatchingCheck:
+          test_id: "K8S02-02"
+          labels: ["kubernetes", "min_req"]
+          step: describe_control_plane_patching
+          phase: test
+          upstream_cycles: "{{ steps.fetch_upstream_k8s_versions.cycles_json | default('', true) }}"
+          max_patch_lag_days: 30
+
     kubernetes:
       checks:
         K8sNodeCountCheck:

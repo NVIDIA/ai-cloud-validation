@@ -44,5 +44,15 @@ CLUSTER_NAME="k3s-$(hostname)"
 DEFAULT_GPU_NS="gpu-operator"
 USE_NVIDIA_SMI_FALLBACK="true"
 
+# Kubernetes versions k3s can install (K8S02-01). k3s installs by release
+# channel, so the channel index is the catalogue. The `+k3sN` suffix is k3s's
+# own build number; matching on it also drops the pre-releases the testing
+# channels carry, since those read `v1.18.2-rc3+k3s1`.
+K3S_CHANNELS="${K3S_CHANNEL_INDEX:-https://update.k3s.io/v1-release/channels}"
+OFFERED_VERSIONS=$(curl -sS --connect-timeout 3 --max-time 8 "$K3S_CHANNELS" 2>/dev/null \
+    | grep -o '"latest":"v[0-9.]*+k3s[0-9]*"' \
+    | sed 's/.*"v//;s/+k3s.*//' \
+    | sort -Vru || true)
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"

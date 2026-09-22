@@ -2706,7 +2706,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S02-02]]K8S02-02
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Verify automated control plane security patching with no/minimal downtime
+| Verify control plane security patching is automated and keeps the control plane on a current upstream patch
 | K8S02
 | offtake
 | full
