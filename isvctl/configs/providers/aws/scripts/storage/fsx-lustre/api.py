@@ -42,7 +42,9 @@ Tenant = AWS account + region. ``tenant_id`` is resolved from
 override for environments without STS access).
 
 Environment variables:
-    AWS_REGION              Required. Region the AWS clients target.
+    AWS_REGION              Region the AWS clients target. Falls back to the
+                            boto3 session region (AWS_DEFAULT_REGION or the
+                            AWS profile's region).
     AWS_PROFILE / AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY [+ AWS_SESSION_TOKEN]
                             Standard boto3 credential chain - no custom logic.
     FSX_DEPLOYMENT_TYPE     Optional. One of PERSISTENT_2 (default),
@@ -194,9 +196,13 @@ class AwsFsxLustreApi(Implementation):
         session: Boto3Session | None = None,
     ) -> None:
         """Initialize the object with its configured dependencies."""
-        resolved_region = region or os.environ.get("AWS_REGION")
+        self._session = session or Boto3Session()
+        resolved_region = region or os.environ.get("AWS_REGION") or self._session.region_name
         if not resolved_region:
-            raise StorageApiError("AWS_REGION must be set (env var or constructor arg) for the FSx Lustre shim")
+            raise StorageApiError(
+                "No AWS region for the FSx Lustre shim: set AWS_REGION, AWS_DEFAULT_REGION, "
+                "or a region in the AWS profile"
+            )
         self._region = resolved_region
 
         resolved_deployment_type = (
@@ -225,7 +231,6 @@ class AwsFsxLustreApi(Implementation):
         )
         self._core = core
 
-        self._session = session or Boto3Session(region_name=self._region)
         self._sq = self._session.client("service-quotas", region_name=self._region)
         self._fsx = self._session.client("fsx", region_name=self._region)
         self._sts = self._session.client("sts", region_name=self._region)

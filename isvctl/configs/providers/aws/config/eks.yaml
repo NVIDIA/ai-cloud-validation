@@ -34,7 +34,7 @@
 #   - AWS_SKIP_TEARDOWN: Set to "true" to skip teardown and preserve resources (default: false)
 #   - NGC_API_KEY: NGC API key for NIM workloads
 #   - AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY: AWS credentials (if not using IAM roles)
-#   - AWS_REGION: Region for the FSx Lustre storage shim (required when running StorageProviderApiCheck)
+#   - AWS_REGION: Region for the FSx Lustre storage shim (default: AWS_DEFAULT_REGION or the AWS profile's region)
 #   - FSX_DEPLOYMENT_TYPE: FSx deployment type for quota code resolution (default: PERSISTENT_2)
 #   - FSX_QUOTA_CODE: Override the quota code directly (optional)
 #   - AWS_ACCOUNT_ID: Override STS-resolved account id (optional)
