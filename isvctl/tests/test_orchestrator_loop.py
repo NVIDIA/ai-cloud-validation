@@ -557,7 +557,7 @@ EOF
         assert validations == [
             {
                 "name": "ProbeSucceededCheck",
-                "passed": True,
+                "passed": False,
                 "skipped": True,
                 "message": "step 'probe' did not produce output",
                 "category": "probe_checks",

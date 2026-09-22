@@ -255,7 +255,7 @@ def test_validation(
         _validation_results.append(
             {
                 "name": validation_name,
-                "passed": True,
+                "passed": False,
                 "skipped": True,
                 "message": skip_reason,
                 "category": category,

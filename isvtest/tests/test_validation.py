@@ -2290,7 +2290,7 @@ class TestValidationResultCapture:
         r = _validation_results[0]
         assert r["name"] == "NimHealthCheck"
         assert r["skipped"] is True
-        assert r["passed"] is True
+        assert r["passed"] is False
         assert r["category"] == "nim"
         assert "NGC_API_KEY" in r["message"]
 
