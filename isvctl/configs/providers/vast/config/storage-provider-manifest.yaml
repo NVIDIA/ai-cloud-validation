@@ -16,7 +16,7 @@
 # VAST Storage Provider Manifest (schema v1alpha2).
 #
 # Drives StorageProviderApiCheck ONLY, via the VMS REST API shim
-# (../scripts/storage/vast/api.py) - config/storage.yaml (no cluster).
+# (../scripts/storage/vast/api.py) - config/storage.yaml (no cluster needed).
 #
 # v1alpha2 mirrors the upstream StorageProvider package manifest: a package-level
 # namespace + vendor, a per-provider `provider` identity block, and a
@@ -25,9 +25,10 @@
 # them against the running shim's properties(). Keep this in sync with
 # ../scripts/storage/vast/api.py (VastApi's ProviderProperties core).
 #
-# The K8sCsi* / K8sFilesystem* / K8sNfsMountOptions checks get their StorageClass
-# names and NFS expectations from config/storage-k8s.yaml (or K8S_CSI_* env
-# vars), NOT from this manifest. One entry per (tenant, storage_path) pair; add
+# The K8sCsi* / K8sFilesystem* / K8sNfsMountOptions checks (config/storage.yaml,
+# --capability kubernetes) get their StorageClass names from K8S_CSI_* env vars
+# or the cluster and their NFS expectations from config/storage.yaml, NOT from
+# this manifest. One entry per (tenant, storage_path) pair; add
 # entries to validate more.
 
 schema_version: v1alpha2
@@ -58,7 +59,7 @@ providers:
       version: 0.1.0
       # protocols is cross-checked against the shim's properties() (which
       # reports "nfsv4"). The on-wire NFS version (vers=4.1) is asserted by
-      # K8sNfsMountOptionsCheck (config/storage-k8s.yaml).
+      # K8sNfsMountOptionsCheck (config/storage.yaml).
 
     # The storage system fronted. version is an opaque vendor passthrough
     # (StorageClass label helm.sh/chart: vast-2.6.4); not contract-checked.

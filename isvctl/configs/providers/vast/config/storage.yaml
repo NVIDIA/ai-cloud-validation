@@ -13,19 +13,47 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# VAST Storage Provider Shim - Standalone validation config.
+# VAST storage validation configuration.
 #
-# Drives StorageProviderApiCheck against a live VAST cluster via the VMS
-# REST API shim. No Kubernetes cluster required: the shim is imported
-# in-process.
+# Imports suites/storage.yaml. Two independent inputs:
 #
-# Required environment variables (see scripts/storage/README.md):
-#   VAST_ENDPOINT       VMS hostname or URL
-#   VAST_TOKEN          API token  (or VAST_USERNAME + VAST_PASSWORD)
-#   VAST_STORAGE_PATH   Root export path (e.g. /exports/k8s)
+#   1. StorageProviderApiCheck is driven from storage-provider-manifest.yaml
+#      (the storage_manifest step emits its manifest_path) against a live VAST
+#      cluster via the VMS REST API shim. No Kubernetes cluster required: the
+#      shim is imported in-process. It needs the VAST_* env vars:
+#        VAST_ENDPOINT       VMS hostname or URL
+#        VAST_TOKEN          API token  (or VAST_USERNAME + VAST_PASSWORD)
+#        VAST_STORAGE_PATH   Root export path (e.g. /exports/k8s)
 #
+#   2. With --capability kubernetes, the K8sCsi* / K8sFilesystem* checks run
+#      against the EXISTING cluster your kubectl points at. The `setup` step
+#      reports its StorageClasses; K8S_CSI_* env vars take precedence. VAST
+#      exposes one RWX NFS class that fills both the shared_fs and nfs roles.
+#      The NFS mount-option expectations are VAST specific and set as literals
+#      under K8sNfsMountOptionsCheck below.
+#
+# Shim only (core run, no cluster):
+#
+#   uv run isvctl test run -f isvctl/configs/providers/vast/config/storage.yaml
+#
+# Full storage run (CSI + filesystem + shim):
+#
+#   export VAST_ENDPOINT=vms.example.com VAST_TOKEN=... \
+#          VAST_STORAGE_PATH=/exports/k8s
+#   export K8S_CSI_SHARED_FS_SC=vast-nfs \
+#          K8S_CSI_NFS_SC=vast-nfs
 #   uv run isvctl test run \
-#       -f isvctl/configs/providers/vast/config/storage.yaml
+#       -f isvctl/configs/providers/vast/config/storage.yaml \
+#       --capability kubernetes \
+#       -- -v -s -k "K8sCsi or K8sFile or K8sNfs or StorageProviderApi"
+#
+# To run ONLY the CSI/filesystem checks without VAST creds, deselect the shim
+# check, e.g. `-k "K8sCsi or K8sFile or K8sNfs"`. Add `--phase test` to skip the
+# setup/teardown fixtures entirely: the shim checks still run, and
+# StorageClasses then come from the K8S_CSI_* env vars only.
+
+import:
+  - ../../../suites/storage.yaml
 
 version: "1.0"
 
@@ -33,22 +61,64 @@ commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
+      # Test phase, so `--phase test` still runs the shim checks.
       - name: storage_manifest
-        phase: setup
+        phase: test
         command: "python ../../shared/storage_manifest_to_steps.py"
         timeout: 30
         env:
           STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 
+      # Same scaffold the suite uses: reports the StorageClasses already
+      # installed on the current cluster (K8S_CSI_* env vars win) and
+      # provisions nothing.
+      - name: setup
+        phase: setup
+        command: "../../my-isv/scripts/k8s/setup.sh"
+        requires: [kubernetes]
+        output_schema: generic
+        timeout: 120
+      - name: teardown_cluster
+        phase: teardown
+        command: "../../my-isv/scripts/k8s/teardown.sh"
+        requires: [kubernetes]
+        timeout: 30
+
 tests:
   cluster_name: "vast-storage-validation"
-  description: "VAST storage shim validation"
+  description: "VAST storage validation"
 
   validations:
-    storage_provider_api:
-      step: storage_manifest
-      phase: test
+    k8s_storage:
       checks:
-        StorageProviderApiCheck:
-          manifest_path: "{{ steps.storage_manifest.storage.manifest_path }}"
-          volume_size_bytes: 1073741824 # 1 GiB
+        # VAST NFS mount-option expectations (StorageClass mountOptions:
+        # vers=4.1, proto=tcp, nconnect=16). read_ahead_kb is
+        # host/BDI-dependent and not set by the SC, so it is left empty (that
+        # subtest skips).
+        K8sNfsMountOptionsCheck:
+          node_selector: {nvidia.com/gpu.present: "true"}
+          expected_version: "4.1"
+          expected_proto: "tcp"
+          expected_nconnect: "16"
+          expected_read_ahead_kb: ""
+    k8s_filesystem:
+      checks:
+        # Restrict probe pods to nodes where the VAST CSI driver
+        # (scd.vastdata.com) is registered. The example selector below assumes
+        # those nodes carry the GPU-present label; change it if your cluster
+        # uses a different scheduling label. Verify the matching nodes carry
+        # the VAST driver with:
+        #   kubectl get nodes -l nvidia.com/gpu.present=true
+        #   kubectl get csinodes -o custom-columns=NODE:.metadata.name,DRIVERS:'.spec.drivers[*].name'
+        K8sFileLockingCheck:
+          node_selector: {nvidia.com/gpu.present: "true"}
+        K8sCrossNodeWriteVisibilityCheck:
+          node_selector: {nvidia.com/gpu.present: "true"}
+        K8sCrossNodeAttrConsistencyCheck:
+          node_selector: {nvidia.com/gpu.present: "true"}
+        K8sLargeDirListingFilesCheck:
+          node_selector: {nvidia.com/gpu.present: "true"}
+        K8sLargeDirListingDirsCheck:
+          node_selector: {nvidia.com/gpu.present: "true"}
+        K8sPosixComplianceCheck:
+          node_selector: {nvidia.com/gpu.present: "true"}

@@ -10,9 +10,9 @@ Edit in place — fill `scripts/storage/api.py` TODO blocks and update
 `config/storage-provider-manifest.yaml`. Do not copy to `providers/<name>/`
 unless the user explicitly requests a handoff folder.
 
-**Test harness:** add a `storage_manifest` step (below) to
-`my-isv/config/storage.yaml`, or use `my-isv/config/storage-k8s.yaml` only when
-the user wants k8s-integrated runs.
+**Test harness:** `my-isv/config/storage.yaml` declares the `storage_manifest`
+step (below). Run it plain for the shim checks, or with `--capability kubernetes`
+when the user wants k8s-integrated runs.
 
 ## Two-artifact model
 
@@ -39,9 +39,8 @@ providers declare the step.
 
 ## Provider YAML patterns
 
-### Standalone storage validation
-
-Add to the existing `my-isv/config/storage.yaml`:
+One `storage.yaml` per provider imports `suites/storage.yaml` (never alongside
+`suites/k8s.yaml`) and declares the step, as in `my-isv/config/storage.yaml`:
 
 ```yaml
 commands:
@@ -49,29 +48,15 @@ commands:
     phases: ["setup", "test", "teardown"]
     steps:
       - name: storage_manifest
-        phase: setup
+        phase: test
         command: "python ../../shared/storage_manifest_to_steps.py"
         env:
           STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 ```
 
-### K8s-integrated
-
-See `my-isv/config/storage-k8s.yaml` — imports `suites/storage.yaml` only (never
-alongside `suites/k8s.yaml`); the same `storage_manifest` step, under the
-`kubernetes` platform:
-
-```yaml
-commands:
-  kubernetes:
-    steps:
-      - name: storage_manifest
-        phase: setup
-        command: "python ../../shared/storage_manifest_to_steps.py"
-        env:
-          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
-          STORAGE_STEP_PLATFORM: "kubernetes"
-```
+The same config runs the Kubernetes CSI/filesystem checks with
+`--capability kubernetes`; its `setup` step (`requires: [kubernetes]`) reports
+the cluster's StorageClasses.
 
 ## Manifest entry fields (schema v1alpha2)
 
@@ -125,7 +110,7 @@ every other suite check — they do NOT read the storage manifest. Checks in
 `K8sNfsMountOptionsCheck` / `K8sNodeKernelModulesCheck` filesystem checks.
 
 Set their StorageClass names via the `K8S_CSI_*` env vars (the suite templates
-read these), or as literal overrides in a provider `storage-k8s.yaml`.
+read these), or as literal overrides in the provider `storage.yaml`.
 Resolution order is **explicit YAML → `K8S_CSI_*` env var → skip**.
 
 Env vars (one per role):
@@ -137,16 +122,16 @@ Env vars (one per role):
 NFS mount-option expectations (`K8sNfsMountOptionsCheck`), `node_selector`, and
 `kernel_modules` (`K8sNodeKernelModulesCheck`) are likewise literal values in the
 config (a check skips when its inputs are unset). See
-`isvctl/configs/providers/vast/config/storage-k8s.yaml` for an example that sets
+`isvctl/configs/providers/vast/config/storage.yaml` for an example that sets
 the VAST NFS expectations and documents the `K8S_CSI_*` exports.
 
 **Agent task:** After `kubectl get storageclass`, map SC names into the
-`K8S_CSI_*` env vars (or literal overrides in the provider `storage-k8s.yaml`).
+`K8S_CSI_*` env vars (or literal overrides in the provider `storage.yaml`).
 The storage manifest stays focused on the shim contract.
 
 ## Directory-quota enforcement check
 
-`StorageDirectoryQuotaEnforcementCheck` (suite `k8s_storage`) needs a reachable
+`StorageDirectoryQuotaEnforcementCheck` (suite `storage_provider_api`) needs a reachable
 cluster and a shared-fs StorageClass (or an existing PVC). Optional reuse keys
 avoid re-provisioning on every iteration:
 
