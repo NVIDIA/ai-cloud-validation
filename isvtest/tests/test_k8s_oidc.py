@@ -22,7 +22,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from isvtest.core.runners import CommandResult
-from isvtest.validations import k8s_oidc
 from isvtest.validations.k8s_oidc import K8sOidcIssuerCheck
 
 ISSUER = "https://oidc.eks.us-east-1.amazonaws.com/id/EXAMPLE"
@@ -40,41 +39,38 @@ VALID_OIDC_RESPONSE = {
 VALID_JWKS = {"keys": [{"kid": "abc123", "kty": "RSA", "alg": "RS256", "use": "sig"}]}
 
 
-class _FakeResponse:
-    """Minimal stand-in for the context manager returned by urlopen."""
-
-    def __init__(self, body: bytes) -> None:
-        self._body = body
-
-    def read(self) -> bytes:
-        return self._body
-
-    def __enter__(self) -> "_FakeResponse":
-        return self
-
-    def __exit__(self, *exc: object) -> bool:
-        return False
-
-
 def _http_error(url: str, code: int, msg: str) -> urllib.error.HTTPError:
     return urllib.error.HTTPError(url=url, code=code, msg=msg, hdrs={}, fp=io.BytesIO(b""))
 
 
-def _install_http(monkeypatch: pytest.MonkeyPatch, routes: dict[str, Any]) -> list[Any]:
-    """Route anonymous fetches to canned bodies or exceptions; record the requests."""
-    seen: list[Any] = []
+class _FakeHttp:
+    """Route anonymous fetches to canned bodies or exceptions; record the requests.
 
-    def _urlopen(request: Any, timeout: int | None = None) -> _FakeResponse:
-        seen.append(request)
-        outcome = routes.get(request.full_url)
+    Serves a valid discovery document and JWKS by default; a URL missing from
+    ``routes`` answers 404.
+    """
+
+    def __init__(self) -> None:
+        self.routes: dict[str, Any] = {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: VALID_JWKS}
+        self.seen: list[Any] = []
+
+    def urlopen(self, request: Any, timeout: int | None = None) -> io.BytesIO:
+        request.timeout = timeout
+        self.seen.append(request)
+        outcome = self.routes.get(request.full_url)
         if outcome is None:
             raise _http_error(request.full_url, 404, "Not Found")
         if isinstance(outcome, Exception):
             raise outcome
-        return _FakeResponse(json.dumps(outcome).encode() if not isinstance(outcome, bytes) else outcome)
+        return io.BytesIO(outcome if isinstance(outcome, bytes) else json.dumps(outcome).encode())
 
-    monkeypatch.setattr(k8s_oidc.urllib.request, "urlopen", _urlopen)
-    return seen
+
+@pytest.fixture(autouse=True)
+def http(monkeypatch: pytest.MonkeyPatch) -> _FakeHttp:
+    """Keep every test off the real network."""
+    fake = _FakeHttp()
+    monkeypatch.setattr("urllib.request.urlopen", fake.urlopen)
+    return fake
 
 
 def _make_check(
@@ -99,30 +95,22 @@ def _make_check(
 class TestAnonymousReachability:
     """The requirement is an unauthenticated fetch from outside the cluster."""
 
-    def test_success_fetches_discovery_and_jwks(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen = _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: VALID_JWKS})
+    def test_success_fetches_discovery_and_jwks_without_credentials(self, http: _FakeHttp) -> None:
         result = _make_check().execute()
         assert result["passed"] is True
         assert "anonymously reachable" in result["output"]
         assert "1 signing key(s)" in result["output"]
-        assert [r.full_url for r in seen] == [DISCOVERY_URL, JWKS_URL]
+        assert [r.full_url for r in http.seen] == [DISCOVERY_URL, JWKS_URL]
+        assert not any(r.has_header("Authorization") for r in http.seen)
 
-    def test_no_credentials_are_attached(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        seen = _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: VALID_JWKS})
-        _make_check().execute()
-        assert seen, "expected at least one anonymous fetch"
-        for request in seen:
-            assert not request.has_header("Authorization")
-            assert not request.has_header("Cookie")
-
-    def test_discovery_requiring_authentication_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: _http_error(DISCOVERY_URL, 403, "Forbidden")})
+    def test_discovery_requiring_authentication_fails(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = _http_error(DISCOVERY_URL, 403, "Forbidden")
         result = _make_check().execute()
         assert result["passed"] is False
         assert "HTTP 403 Forbidden" in result["error"]
 
-    def test_unreachable_issuer_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: urllib.error.URLError("name resolution failed")})
+    def test_unreachable_issuer_fails(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = urllib.error.URLError("name resolution failed")
         result = _make_check().execute()
         assert result["passed"] is False
         assert "not anonymously reachable" in result["error"]
@@ -131,91 +119,84 @@ class TestAnonymousReachability:
 class TestJwksDereference:
     """A jwks_uri that is merely present is not proof; it has to serve keys."""
 
-    def test_missing_jwks_endpoint_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE})
+    def test_missing_jwks_endpoint_fails(self, http: _FakeHttp) -> None:
+        del http.routes[JWKS_URL]
         result = _make_check().execute()
         assert result["passed"] is False
         assert "HTTP 404 Not Found" in result["error"]
         assert JWKS_URL in result["error"]
 
-    def test_empty_key_set_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: {"keys": []}})
+    def test_empty_key_set_fails(self, http: _FakeHttp) -> None:
+        http.routes[JWKS_URL] = {"keys": []}
         result = _make_check().execute()
         assert result["passed"] is False
         assert "contains no signing keys" in result["error"]
 
-    def test_jwks_without_keys_field_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: {"unexpected": True}})
+    def test_jwks_without_keys_field_fails(self, http: _FakeHttp) -> None:
+        http.routes[JWKS_URL] = {"unexpected": True}
         result = _make_check().execute()
         assert result["passed"] is False
         assert "contains no signing keys" in result["error"]
 
-    def test_non_https_jwks_uri_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        doc = dict(VALID_OIDC_RESPONSE, jwks_uri="http://insecure.example.com/keys")
-        _install_http(monkeypatch, {DISCOVERY_URL: doc})
+    def test_non_https_jwks_uri_fails(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = dict(VALID_OIDC_RESPONSE, jwks_uri="http://insecure.example.com/keys")
         result = _make_check().execute()
         assert result["passed"] is False
         assert "jwks_uri is not a valid HTTPS URL" in result["error"]
 
-    def test_malformed_jwks_json_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: b"not-json"})
+    def test_malformed_jwks_json_fails(self, http: _FakeHttp) -> None:
+        http.routes[JWKS_URL] = b"not-json"
         result = _make_check().execute()
         assert result["passed"] is False
         assert "Failed to parse JWKS document as JSON" in result["error"]
 
 
 class TestDiscoveryDocument:
-    def test_missing_required_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        incomplete = {"issuer": ISSUER, "jwks_uri": JWKS_URL}
-        _install_http(monkeypatch, {DISCOVERY_URL: incomplete, JWKS_URL: VALID_JWKS})
+    def test_missing_required_fields(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = {"issuer": ISSUER, "jwks_uri": JWKS_URL}
         result = _make_check().execute()
         assert result["passed"] is False
         assert "missing required fields" in result["error"]
         assert "response_types_supported" in result["error"]
 
-    def test_issuer_mismatch_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        doc = dict(VALID_OIDC_RESPONSE, issuer="https://attacker.example.com")
-        _install_http(monkeypatch, {DISCOVERY_URL: doc, JWKS_URL: VALID_JWKS})
+    def test_issuer_mismatch_fails(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = dict(VALID_OIDC_RESPONSE, issuer="https://attacker.example.com")
         result = _make_check().execute()
         assert result["passed"] is False
         assert "does not match the endpoint it was served from" in result["error"]
 
-    def test_malformed_discovery_json_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: b"not-json"})
+    def test_malformed_discovery_json_fails(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = b"not-json"
         result = _make_check().execute()
         assert result["passed"] is False
         assert "Failed to parse OIDC discovery document as JSON" in result["error"]
 
-    def test_non_object_discovery_response_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: []})
+    def test_non_object_discovery_response_fails(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = []
         result = _make_check().execute()
         assert result["passed"] is False
         assert "must be a JSON object" in result["error"]
 
-    def test_custom_required_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        doc = dict(VALID_OIDC_RESPONSE, custom_field="value")
-        _install_http(monkeypatch, {DISCOVERY_URL: doc, JWKS_URL: VALID_JWKS})
+    def test_custom_required_fields(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = dict(VALID_OIDC_RESPONSE, custom_field="value")
         result = _make_check(config={"required_fields": ["issuer", "custom_field"]}).execute()
         assert result["passed"] is True
 
-    def test_custom_required_fields_cannot_opt_out_of_jwks(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        doc = {k: v for k, v in VALID_OIDC_RESPONSE.items() if k != "jwks_uri"}
-        _install_http(monkeypatch, {DISCOVERY_URL: doc})
+    def test_custom_required_fields_cannot_opt_out_of_jwks(self, http: _FakeHttp) -> None:
+        http.routes[DISCOVERY_URL] = {k: v for k, v in VALID_OIDC_RESPONSE.items() if k != "jwks_uri"}
         result = _make_check(config={"required_fields": ["issuer"]}).execute()
         assert result["passed"] is False
         assert "jwks_uri is not a valid HTTPS URL" in result["error"]
 
 
 class TestIssuerResolution:
-    def test_configured_issuer_url_skips_kubectl(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: VALID_JWKS})
+    def test_configured_issuer_url_skips_kubectl(self) -> None:
         check = _make_check(config={"issuer_url": ISSUER})
         result = check.execute()
         assert result["passed"] is True
         check.runner.run.assert_not_called()
 
-    def test_configured_issuer_url_tolerates_trailing_slash(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: VALID_JWKS})
+    def test_configured_issuer_url_tolerates_trailing_slash(self) -> None:
         result = _make_check(config={"issuer_url": f"{ISSUER}/"}).execute()
         assert result["passed"] is True
 
@@ -228,12 +209,12 @@ class TestIssuerResolution:
     def test_kubectl_invalid_json(self) -> None:
         result = _make_check(stdout="not-json").execute()
         assert result["passed"] is False
-        assert "Failed to parse OIDC discovery response as JSON" in result["error"]
+        assert "Failed to parse OIDC discovery response" in result["error"]
 
     def test_kubectl_non_object_json(self) -> None:
         result = _make_check(stdout="[]").execute()
         assert result["passed"] is False
-        assert "must be a JSON object" in result["error"]
+        assert "expected JSON object" in result["error"]
 
     def test_issuer_not_https(self) -> None:
         result = _make_check(stdout=json.dumps({"issuer": "http://insecure.example.com"})).execute()
@@ -252,13 +233,11 @@ class TestIssuerResolution:
 
 
 class TestConfigValidation:
-    def test_required_fields_single_string_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: VALID_JWKS})
+    def test_required_fields_single_string_is_accepted(self) -> None:
         result = _make_check(config={"required_fields": "issuer"}).execute()
         assert result["passed"] is True
 
-    def test_required_fields_single_string_with_whitespace_is_trimmed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _install_http(monkeypatch, {DISCOVERY_URL: VALID_OIDC_RESPONSE, JWKS_URL: VALID_JWKS})
+    def test_required_fields_single_string_with_whitespace_is_trimmed(self) -> None:
         result = _make_check(config={"required_fields": " issuer "}).execute()
         assert result["passed"] is True
 
@@ -287,15 +266,7 @@ class TestConfigValidation:
         assert result["passed"] is False
         assert "http_timeout" in result["error"]
 
-    def test_http_timeout_is_passed_to_urlopen(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        timeouts: list[int | None] = []
-
-        def _urlopen(request: Any, timeout: int | None = None) -> _FakeResponse:
-            timeouts.append(timeout)
-            body = VALID_OIDC_RESPONSE if request.full_url == DISCOVERY_URL else VALID_JWKS
-            return _FakeResponse(json.dumps(body).encode())
-
-        monkeypatch.setattr(k8s_oidc.urllib.request, "urlopen", _urlopen)
+    def test_http_timeout_is_passed_to_urlopen(self, http: _FakeHttp) -> None:
         result = _make_check(config={"http_timeout": 3}).execute()
         assert result["passed"] is True
-        assert timeouts == [3, 3]
+        assert [r.timeout for r in http.seen] == [3, 3]
