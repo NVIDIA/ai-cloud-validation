@@ -380,7 +380,7 @@ class K8sDualStackNodeCheck(BaseValidation):
 
         nodes = payload.get("items", [])
         if not nodes:
-            self.set_passed("No nodes found in cluster")
+            self.set_failed("No nodes found in cluster")
             return
 
         node_families: list[tuple[str, bool, bool]] = []
