@@ -53,7 +53,7 @@
 version: "1.0"
 
 # The kubernetes storage checks read StorageClass names from
-# steps.setup.csi, so the suite supplies the fixture that produces them
+# steps.setup_cluster.csi, so the suite supplies the fixture that produces them
 # rather than leaving the names to K8S_CSI_* env vars on a run with no provider.
 # Same scaffold stub k8s.yaml uses: it reports the classes already installed on
 # the current cluster and provisions nothing, so it is safe to run unattended.
@@ -62,12 +62,12 @@ commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
-      - name: setup
+      - name: setup_cluster
         phase: setup
         command: "../providers/my-isv/scripts/k8s/setup.sh"
         requires: [kubernetes]
         # Storage reads only the csi block, so do not hold this fixture to the
-        # platform `cluster` inventory schema.
+        # `cluster` inventory schema its step name would otherwise select.
         output_schema: generic
         timeout: 120
       - name: teardown_cluster
@@ -283,7 +283,7 @@ tests:
           # no Kubernetes/CSI or native acquisition path is available, or a
           # native volume returns no mount instructions.
           manifest_path: "{{ steps.storage_manifest.storage.manifest_path }}"
-          storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+          storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           pvc_size: "5Gi"
           volume_size_bytes: 1073741824 # 1 GiB
           create_hard_bytes: 1073741824 # 1 GiB
@@ -291,7 +291,7 @@ tests:
 
     # Kubernetes storage checks probe the current cluster, so they bind to no
     # step: a `step:` here would skip them whenever no provider supplies that
-    # fixture. StorageClass names come from steps.setup.csi on a provider
+    # fixture. StorageClass names come from steps.setup_cluster.csi on a provider
     # run, and from the K8S_CSI_* env vars on a validation-only run.
     k8s_storage:
       checks:
@@ -301,9 +301,9 @@ tests:
           requires: [kubernetes]
           # StorageClass names by type; omit (or leave empty) to skip that type.
           # Env overrides: K8S_CSI_BLOCK_SC, K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
-          block_storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
-          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
-          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          block_storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
           pvc_size: "1Gi"
           bind_timeout_s: 120
           namespace_prefix: "isvtest-csi-types"
@@ -314,7 +314,7 @@ tests:
           # Uses the block StorageClass by default; skips entirely when unset.
           # per_sc_quota must exceed pvc_request so the usage PVC fits, and
           # over_quota_request must exceed per_sc_quota so admission rejects it.
-          storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+          storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           total_quota: "10Gi"
           per_sc_quota: "5Gi"
           pvc_request: "1Gi"
@@ -345,14 +345,14 @@ tests:
           # (not failed) when static_pv.volume_handle / csi_driver are
           # unset, so providers that don't pre-provision a volume can still
           # run the dynamic probe.
-          dynamic_storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+          dynamic_storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           dynamic_pvc_size: "1Gi"
           static_pv:
-            volume_handle: "{{ steps.setup.csi.static_volume_handle | default('', true) }}"
-            csi_driver: "{{ steps.setup.csi.static_driver_name | default('', true) }}"
+            volume_handle: "{{ steps.setup_cluster.csi.static_volume_handle | default('', true) }}"
+            csi_driver: "{{ steps.setup_cluster.csi.static_driver_name | default('', true) }}"
             # Zonal block volumes (EBS/PD/Disk) must pin their consumer pod to
             # the volume's AZ; empty for zone-agnostic backends.
-            zone: "{{ steps.setup.csi.static_volume_az | default('', true) }}"
+            zone: "{{ steps.setup_cluster.csi.static_volume_az | default('', true) }}"
             fs_type: "ext4"
             capacity: "1Gi"
             access_mode: "ReadWriteOnce"
@@ -373,20 +373,20 @@ tests:
           #       node: { daemonset: <name> }
           drivers:
             - storage_classes:
-                - "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+                - "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
               workloads: {}
             - storage_classes:
-                - "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
+                - "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
               workloads: {}
             - storage_classes:
-                - "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+                - "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
               workloads: {}
           min_controller_replicas: 1
         K8sCsiConcurrentPvcCheck:
           test_id: "N/A"
           labels: ["kubernetes", "min_req", "storage"]
           requires: [kubernetes]
-          storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+          storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           pvc_count: 2
           pvc_size: "1Gi"
           bind_timeout_s: 120
@@ -395,7 +395,7 @@ tests:
           test_id: "N/A"
           labels: ["kubernetes", "min_req", "storage"]
           requires: [kubernetes]
-          storage_class: "{{ steps.setup.csi.block_storage_class | default('', true) }}"
+          storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           initial_size: "1Gi"
           expanded_size: "2Gi"
           bind_timeout_s: 120
@@ -415,8 +415,8 @@ tests:
           labels: ["kubernetes", "storage"]
           requires: [kubernetes]
           # Env overrides: K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
-          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
-          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
           node_selector: {}
           pvc_size: "1Gi"
@@ -435,8 +435,8 @@ tests:
           test_id: "HSS14-02"
           labels: ["kubernetes", "storage"]
           requires: [kubernetes]
-          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
-          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
           node_selector: {}
           pvc_size: "1Gi"
@@ -447,8 +447,8 @@ tests:
           test_id: "HSS17-01"
           labels: ["kubernetes", "storage"]
           requires: [kubernetes]
-          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
-          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
           node_selector: {}
           pvc_size: "1Gi"
@@ -459,8 +459,8 @@ tests:
           test_id: "HSS17-02"
           labels: ["kubernetes", "storage"]
           requires: [kubernetes]
-          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
-          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
           node_selector: {}
           pvc_size: "1Gi"
@@ -472,8 +472,8 @@ tests:
           test_id: "HSS07-02"
           labels: ["kubernetes", "storage"]
           requires: [kubernetes]
-          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
-          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
           node_selector: {}
           files_count: 10000
@@ -485,8 +485,8 @@ tests:
           test_id: "HSS07-02"
           labels: ["kubernetes", "storage"]
           requires: [kubernetes]
-          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
-          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
           image: "busybox:1.36"
           node_selector: {}
           dirs_count: 500
@@ -498,8 +498,8 @@ tests:
           test_id: "DIR02-02"
           labels: ["kubernetes", "slow", "storage"]
           requires: [kubernetes]
-          shared_fs_storage_class: "{{ steps.setup.csi.shared_fs_storage_class | default('', true) }}"
-          nfs_storage_class: "{{ steps.setup.csi.nfs_storage_class | default('', true) }}"
+          shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
           image: "gcc:12"
           node_selector: {}
           pvc_size: "5Gi"
