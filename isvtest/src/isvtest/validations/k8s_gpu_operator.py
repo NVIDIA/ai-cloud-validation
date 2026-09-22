@@ -52,8 +52,16 @@ class K8sGpuOperatorNamespaceCheck(BaseValidation):
         self.set_passed(f"GPU Operator namespace '{namespace}' exists")
 
 
+def _pod_is_ready(pod: dict[str, Any]) -> bool:
+    """Return True when a pod's ``Ready`` condition has ``status == "True"``."""
+    for condition in (pod.get("status") or {}).get("conditions") or []:
+        if isinstance(condition, dict) and condition.get("type") == "Ready":
+            return condition.get("status") == "True"
+    return False
+
+
 class K8sGpuOperatorPodsCheck(BaseValidation):
-    description = "Check if NVIDIA GPU Operator pods are running."
+    description = "Check that all NVIDIA GPU Operator pods are healthy."
 
     def run(self) -> None:
         # Prefer config value, fall back to global setting
@@ -66,16 +74,27 @@ class K8sGpuOperatorPodsCheck(BaseValidation):
         if pods is None:
             return
 
-        running_pods = []
-        for pod in pods:
-            if pod_status_reason(pod) == "Running":
-                running_pods.append((pod.get("metadata") or {}).get("name", "unknown"))
-
-        if not running_pods:
-            self.set_failed(f"No GPU Operator pods are running in namespace '{namespace}'")
+        if not pods:
+            self.set_failed(f"No GPU Operator pods found in namespace '{namespace}'")
             return
 
-        self.set_passed(f"Found {len(running_pods)} running pods in '{namespace}'")
+        # Succeeded covers the operator's one-shot validator pods.
+        unhealthy = []
+        for pod in pods:
+            name = (pod.get("metadata") or {}).get("name", "unknown")
+            reason = pod_status_reason(pod)
+            if reason == "Running" and not _pod_is_ready(pod):
+                unhealthy.append(f"{name} (Running, not Ready)")
+            elif reason not in ("Running", "Succeeded"):
+                unhealthy.append(f"{name} ({reason})")
+
+        if unhealthy:
+            self.set_failed(
+                f"{len(unhealthy)} of {len(pods)} GPU Operator pods unhealthy in '{namespace}': {', '.join(unhealthy)}"
+            )
+            return
+
+        self.set_passed(f"All {len(pods)} GPU Operator pods healthy in '{namespace}'")
 
 
 class _DriverConfigKind(NamedTuple):
