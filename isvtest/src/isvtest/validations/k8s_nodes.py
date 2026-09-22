@@ -151,7 +151,7 @@ class K8sNodeReadyCheck(BaseValidation):
             return
 
         if not items:
-            self.set_passed("No nodes found in cluster")
+            self.set_failed("No nodes found in cluster")
             return
 
         not_ready_nodes = []
