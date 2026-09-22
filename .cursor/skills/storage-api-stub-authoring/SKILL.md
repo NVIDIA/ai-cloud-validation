@@ -44,8 +44,8 @@ AWS/VAST/weka paths under `providers/aws/`, `providers/vast/`, etc. are
 - Other `config/*.yaml` or `scripts/**` trees in my-isv (if any exist)
 - Full-provider scaffold (`cp -r my-isv …`)
 
-K8s `manifest_path` overrides in external eks configs are optional test wiring
-only when the user wants k8s-integrated runs beyond `my-isv/config/storage.yaml`.
+`my-isv/config/storage-k8s.yaml` is optional test wiring, only when the user wants
+k8s-integrated runs beyond `my-isv/config/storage.yaml`.
 
 ## Outcomes
 
@@ -55,7 +55,7 @@ By session end the user should have:
 2. `scripts/storage/.../api.py` implementing `StorageApi` + `build_api()`
 3. Documented env vars in `scripts/storage/README.md` (when stub is complete)
 4. Passing isolated probes (`probe_shim.py`) before any full `isvctl test run`
-5. *(Optional, on request)* `manifest_path` wired into `storage.yaml` or a k8s override
+5. *(Optional, on request)* a `storage_manifest` step wired into `storage.yaml` or `storage-k8s.yaml`
 
 ## Reference implementations (read before coding)
 
@@ -148,7 +148,7 @@ Open the existing files — they already contain `TODO` markers and `DEMO_MODE`:
 ```text
 isvctl/configs/providers/my-isv/
 ├── config/storage-provider-manifest.yaml   # shim.module → ../scripts/storage/api.py
-├── config/storage.yaml                     # manifest_path already set
+├── config/storage.yaml                     # add a storage_manifest step to run the shim checks
 └── scripts/storage/api.py                  # MyStorageApi — fill each TODO block
 ```
 
@@ -174,7 +174,7 @@ Generate `config/storage-provider-manifest.yaml` (schema **v1alpha2**) using the
 [manifest-generation.md](references/manifest-generation.md): probe the
 environment to propose field values, ask the customer for what you can't
 observe, and omit (don't guess) anything still unknown so the dependent check
-skips cleanly. Then wire `manifest_path` into a test config **only when the user
+skips cleanly. Then add a `storage_manifest` step to a test config **only when the user
 wants to run checks** — see [config-wiring.md](references/config-wiring.md).
 
 Two files ship beside the template — use them as you fill the blank one:
@@ -199,19 +199,22 @@ STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/storage-provide
 | Artifact | Purpose |
 | -------- | ------- |
 | `shim.module` | Relative to manifest parent; must resolve to `api.py` with `build_api()` |
-| `manifest_path` in provider YAML | Path passed to `StorageProviderApiCheck` (on-disk now; ConfigMap mount path in prod) |
+| `storage_manifest` step in provider YAML | `STORAGE_PROVIDER_MANIFEST` resolves to the `manifest_path` passed to `StorageProviderApiCheck` (on-disk now; ConfigMap mount path in prod) |
 | Env vars in shim `__init__` | Runtime config — manifest `attributes` are **informational only** |
 | `K8S_CSI_*` env vars / config overrides | StorageClass names for the CSI/filesystem checks — set in config/env, NOT the manifest |
 
-**Provider override pattern** (from `aws/config/storage.yaml`):
+**Provider wiring pattern** (from `aws/config/storage.yaml`) — the suite's
+`storage_provider_api` group is bound to this step:
 
 ```yaml
-tests:
-  validations:
-    storage_provider_api:
-      checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml"
+commands:
+  storage:
+    steps:
+      - name: storage_manifest
+        phase: setup
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 ```
 
 **ConfigMap handoff** (document for customer, do not implement operator):
@@ -314,7 +317,7 @@ uv run pytest isvtest/tests/test_storage_quota_enforcement.py
 ## Phase 5: Targeted acceptance check (optional)
 
 Run only when the user wants end-to-end `StorageProviderApiCheck` validation.
-Requires an existing `storage.yaml` or a k8s config with `manifest_path` set.
+Requires a `storage.yaml` or `storage-k8s.yaml` config with a `storage_manifest` step.
 
 ```bash
 uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
@@ -365,7 +368,7 @@ uv run isvctl test run -f isvctl/configs/providers/my-isv/config/<k8s-or-storage
 4. **Match reference style** — env-driven config, tight IAM/API surface, `NotSupportedError` for CSI-owned lifecycle.
 5. **Do not add setup scripts** — this skill does not author provider orchestration steps.
 6. **Document env vars** in `scripts/storage/README.md` when the stub is done (in-scope).
-7. **Test harness on request** — create `storage.yaml` or k8s `manifest_path` overrides only when the user wants to run checks.
+7. **Test harness on request** — add the `storage_manifest` step to `storage.yaml` or `storage-k8s.yaml` only when the user wants to run checks.
 
 ## Additional resources
 

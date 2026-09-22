@@ -15,7 +15,7 @@ handoff folder (e.g. `providers/weka/`).
 | ---- | ------ |
 | `scripts/storage/api.py` | Replace `TODO` blocks in the existing `MyStorageApi` class |
 | `config/storage-provider-manifest.yaml` | Update `providers[]`, `shim.module`, `csi`, `attributes` |
-| `config/storage.yaml` | Already wired; tweak `manifest_path` only if paths change |
+| `config/storage.yaml` | Add a `storage_manifest` step only when the user wants to run the shim checks |
 | `scripts/storage/README.md` | Document env vars when the stub is complete |
 
 Read AWS/VAST shims as **reference patterns only** — do not copy them into new

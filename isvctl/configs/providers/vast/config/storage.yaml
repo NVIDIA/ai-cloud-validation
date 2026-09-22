@@ -33,11 +33,12 @@ commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
-      - name: preflight
+      - name: storage_manifest
         phase: setup
-        command: "echo"
-        args: ['{"success": true, "platform": "storage", "test_name": "preflight"}']
-        timeout: 10
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        timeout: 30
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 
 tests:
   cluster_name: "vast-storage-validation"
@@ -45,7 +46,9 @@ tests:
 
   validations:
     storage_provider_api:
+      step: storage_manifest
+      phase: test
       checks:
         StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/vast/config/storage-provider-manifest.yaml"
+          manifest_path: "{{ steps.storage_manifest.storage.manifest_path }}"
           volume_size_bytes: 1073741824 # 1 GiB
