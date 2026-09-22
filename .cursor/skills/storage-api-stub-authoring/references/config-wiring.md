@@ -55,7 +55,7 @@ commands:
 ```
 
 The same config runs the Kubernetes CSI/filesystem checks with
-`--capability kubernetes`; its `setup` step (`requires: [kubernetes]`) reports
+`--capability kubernetes`; its `setup_cluster` step (`requires: [kubernetes]`) reports
 the cluster's StorageClasses.
 
 ## Manifest entry fields (schema v1alpha2)

@@ -100,7 +100,7 @@ context satisfies it. A plain suite with no `--capability` runs its core checks.
 The same applies to your steps: if a step builds or destroys a fixture only some
 contexts need, gate it so a core run neither provisions nor leaks it. Both halves
 of a fixture take the same gate — see `config/storage.yaml`, where
-the `setup` and `teardown_cluster` steps are both `requires: [kubernetes]`.
+`setup_cluster` and `teardown_cluster` are both `requires: [kubernetes]`.
 
 Nothing is mandatory. A check is in scope only if you declared the suite holding
 it, so 100% is always relative to what you declared.

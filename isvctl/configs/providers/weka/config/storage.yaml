@@ -28,7 +28,7 @@
 #        WEKA_FILESYSTEM     Filesystem name (e.g. default)
 #
 #   2. With --capability kubernetes, the K8sCsi* / K8sFilesystem* checks run
-#      against the EXISTING cluster your kubectl points at. The `setup` step
+#      against the EXISTING cluster your kubectl points at. The setup_cluster step
 #      reports its StorageClasses; K8S_CSI_* env vars take precedence. The
 #      example StorageClass `weka-rwx` is the native wekafs POSIX client
 #      (provisioner csi.weka.io); it fills the shared_fs role, so set
@@ -72,7 +72,7 @@ commands:
       # Same scaffold the suite uses: reports the StorageClasses already
       # installed on the current cluster (K8S_CSI_* env vars win) and
       # provisions nothing.
-      - name: setup
+      - name: setup_cluster
         phase: setup
         command: "../../my-isv/scripts/k8s/setup.sh"
         requires: [kubernetes]

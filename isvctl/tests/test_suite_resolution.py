@@ -136,32 +136,31 @@ def test_storage_suite_supplies_the_csi_fixture_those_probes_read() -> None:
     config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "storage.yaml")]))
     steps = {step.name: step for step in config.get_steps("storage")}
 
-    assert "setup" in steps, "storage.yaml no longer produces steps.setup.csi"
-    assert steps["setup"].requires == ["kubernetes"]
-    assert steps["setup"].phase == "setup"
+    assert "setup_cluster" in steps, "storage.yaml no longer produces steps.setup_cluster.csi"
+    assert steps["setup_cluster"].requires == ["kubernetes"]
+    assert steps["setup_cluster"].phase == "setup"
 
     # Both providers pair the fixture with a release; the suite they copy shows it.
     assert steps["teardown_cluster"].requires == ["kubernetes"]
     assert steps["teardown_cluster"].phase == "teardown"
 
 
-def test_storage_suite_reads_the_kubernetes_suite_cluster_fixture() -> None:
-    """Unbound storage templates read the cluster fixture by the Kubernetes suite's name.
+def test_storage_suite_templates_read_the_suite_cluster_fixture() -> None:
+    """Unbound storage templates read only the cluster fixture the suite itself declares.
 
-    When the storage templates named a different step than the Kubernetes
-    fixture, every StorageClass parameter silently fell back to empty. A step a
-    group is bound to cannot be missing (the group skips as step_not_configured
-    first), so only the remaining references must name the shared fixture.
+    When the storage templates named a step the config does not provide, every
+    StorageClass parameter silently fell back to empty. A step a group is bound
+    to cannot be missing (the group skips as step_not_configured first), so
+    only the remaining references must name the suite's fixture.
     """
-    k8s = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "k8s.yaml")]))
     storage = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "storage.yaml")]))
-    k8s_fixture = next(step.name for step in k8s.get_steps("kubernetes") if step.phase == "setup")
+    fixture = next(step.name for step in storage.get_steps("storage") if step.phase == "setup")
     validations = storage.tests.validations if storage.tests else {}
 
     referenced = set(re.findall(r"steps\.(\w+)", json.dumps(validations)))
     bound = {entry.step for entry in parse_validations(validations) if entry.step}
 
-    assert referenced - bound == {k8s_fixture}
+    assert referenced - bound == {fixture}
 
 
 @pytest.mark.parametrize(

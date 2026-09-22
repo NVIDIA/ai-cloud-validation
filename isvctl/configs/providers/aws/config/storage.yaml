@@ -16,7 +16,7 @@
 # AWS Storage Validation Configuration
 #
 # Imports suites/storage.yaml and wires AWS implementations for:
-#   - Kubernetes CSI (EKS): setup / teardown_cluster via eks scripts
+#   - Kubernetes CSI (EKS): setup_cluster / teardown_cluster via eks scripts
 #   - Block volume (EBS): launch/create/snapshot/resize/persistence/teardown
 #   - Home directory (FSx for OpenZFS): NFSv4, volume quota, uid/gid accounting
 #   - High-speed storage (FSx for Lustre): provisioning, multiple filesystems,
@@ -73,12 +73,10 @@ commands:
           STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 
       # Kubernetes CSI fixture: provisions (or reuses) the shared EKS Terraform
-      # stack and emits kubeconfig + CSI StorageClass names. Named `setup` like
-      # the Kubernetes suite's cluster fixture, since the storage suite reads
-      # steps.setup.csi. Paired with teardown_cluster below (not the VM
-      # `teardown`) so a standalone storage run does not leak the cluster.
-      # Honors AWS_SKIP_TEARDOWN like eks.yaml.
-      - name: setup
+      # stack and emits kubeconfig + CSI StorageClass names. Paired with
+      # teardown_cluster below so a standalone storage run does not leak the
+      # cluster. Honors AWS_SKIP_TEARDOWN like eks.yaml.
+      - name: setup_cluster
         phase: setup
         command: "../scripts/eks/setup.sh"
         requires: [kubernetes]
@@ -243,7 +241,7 @@ commands:
           - "{{teardown_flag}}"
         timeout: 600
 
-      # Destroy the EKS stack from `setup` (including the out-of-band
+      # Destroy the EKS stack from setup_cluster (including the out-of-band
       # static-CSI EBS volume tagged by setup.sh). Keep this last so CSI
       # checks finish before the cluster disappears.
       - name: teardown_cluster

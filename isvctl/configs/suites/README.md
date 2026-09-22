@@ -56,7 +56,7 @@ uv run isvctl test run --suite storage \
   -k "K8sNfsMountOptionsCheck or K8sCsiStorageTypesCheck"
 ```
 
-`storage` gets its StorageClass names from its `setup` fixture, which
+`storage` gets its StorageClass names from its `setup_cluster` fixture, which
 reports the classes already installed on the cluster. Set `K8S_CSI_BLOCK_SC`,
 `K8S_CSI_SHARED_FS_SC`, or `K8S_CSI_NFS_SC` to name them yourself, and add
 `--phase test` to skip the fixture entirely. Checks bound to provider-produced

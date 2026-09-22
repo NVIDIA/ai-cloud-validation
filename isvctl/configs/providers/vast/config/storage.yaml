@@ -26,7 +26,7 @@
 #        VAST_STORAGE_PATH   Root export path (e.g. /exports/k8s)
 #
 #   2. With --capability kubernetes, the K8sCsi* / K8sFilesystem* checks run
-#      against the EXISTING cluster your kubectl points at. The `setup` step
+#      against the EXISTING cluster your kubectl points at. The setup_cluster step
 #      reports its StorageClasses; K8S_CSI_* env vars take precedence. VAST
 #      exposes one RWX NFS class that fills both the shared_fs and nfs roles.
 #      The NFS mount-option expectations are VAST specific and set as literals
@@ -72,7 +72,7 @@ commands:
       # Same scaffold the suite uses: reports the StorageClasses already
       # installed on the current cluster (K8S_CSI_* env vars win) and
       # provisions nothing.
-      - name: setup
+      - name: setup_cluster
         phase: setup
         command: "../../my-isv/scripts/k8s/setup.sh"
         requires: [kubernetes]

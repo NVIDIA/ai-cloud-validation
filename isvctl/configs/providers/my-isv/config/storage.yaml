@@ -41,7 +41,7 @@
 #   (scripts/storage/api.py) the checks load in-process. See scripts/storage/README.md.
 #
 # Kubernetes CSI / filesystem checks (--capability kubernetes) run against the
-# cluster the `setup` step acquires. StorageClass names come from its csi block,
+# cluster the setup_cluster step acquires. StorageClass names come from its csi block,
 # the K8S_CSI_* env vars, or literal overrides in this file; anything left unset
 # makes that check skip cleanly.
 #
@@ -80,16 +80,15 @@ commands:
       # Only the kubernetes CSI checks need a cluster, so both sides of the
       # fixture carry the same gate: a `--capability vm` run never provisions
       # one. Acquire is idempotent - reuse an existing cluster if you have one.
-      # Named `setup` like the Kubernetes suite's cluster fixture, since the
-      # storage suite reads steps.setup.csi.
-      - name: setup
+      - name: setup_cluster
         phase: setup
         command: "python ../scripts/storage/setup_cluster.py"
         requires: [kubernetes]
-        # This fixture has its own, smaller contract than the platform-suite
-        # `cluster` schema (cluster_name/node_count) - kubeconfig +
-        # StorageClass names, the only fields the k8s_storage checks read - so
-        # opt out rather than make every ISV report inventory no check consumes.
+        # The step name auto-detects the platform-suite `cluster` schema, which
+        # demands cluster_name/node_count. This fixture has its own, smaller
+        # contract - kubeconfig + StorageClass names, the only fields the
+        # k8s_storage checks read - so opt out rather than make every ISV
+        # report inventory no check consumes.
         output_schema: generic
         timeout: 60
 
@@ -273,7 +272,7 @@ commands:
           - "--delete-security-group"
         timeout: 60
 
-      # The other half of the `setup` cluster fixture. Teardown may be a no-op if
+      # The other half of the setup_cluster fixture. Teardown may be a no-op if
       # you reuse a long-lived cluster, but the step must exist so a standalone
       # storage run does not leak a cluster it provisioned. STORAGE_SKIP_TEARDOWN
       # keeps it alive for cheap reruns (mirrors AWS_SKIP_TEARDOWN in aws/).
@@ -283,7 +282,7 @@ commands:
         requires: [kubernetes]
         args:
           - "--kubeconfig"
-          - "{{steps.setup.kubeconfig_path}}"
+          - "{{steps.setup_cluster.kubeconfig_path}}"
           - "{{cluster_teardown_flag}}"
         timeout: 60
 
