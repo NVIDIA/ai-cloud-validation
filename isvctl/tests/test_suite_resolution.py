@@ -3,6 +3,8 @@
 
 """Tests for provider suite selection and capability parsing."""
 
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -134,13 +136,29 @@ def test_storage_suite_supplies_the_csi_fixture_those_probes_read() -> None:
     config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "storage.yaml")]))
     steps = {step.name: step for step in config.get_steps("storage")}
 
-    assert "setup_cluster" in steps, "storage.yaml no longer produces steps.setup_cluster.csi"
-    assert steps["setup_cluster"].requires == ["kubernetes"]
-    assert steps["setup_cluster"].phase == "setup"
+    assert "setup" in steps, "storage.yaml no longer produces steps.setup.csi"
+    assert steps["setup"].requires == ["kubernetes"]
+    assert steps["setup"].phase == "setup"
 
     # Both providers pair the fixture with a release; the suite they copy shows it.
     assert steps["teardown_cluster"].requires == ["kubernetes"]
     assert steps["teardown_cluster"].phase == "teardown"
+
+
+def test_storage_suite_reads_the_kubernetes_suite_cluster_fixture() -> None:
+    """Storage on a Kubernetes run reads the cluster fixture by the Kubernetes suite's name.
+
+    Kubernetes-platform storage configs (storage-k8s.yaml) name their fixture
+    `setup` like the Kubernetes suite. When the storage templates named a
+    different step, every StorageClass parameter silently fell back to empty.
+    """
+    k8s = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "k8s.yaml")]))
+    storage = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "storage.yaml")]))
+    k8s_fixture = next(step.name for step in k8s.get_steps("kubernetes") if step.phase == "setup")
+
+    referenced = set(re.findall(r"steps\.(\w+)", json.dumps(storage.tests.validations if storage.tests else {})))
+
+    assert referenced == {k8s_fixture}
 
 
 @pytest.mark.parametrize("capability", sorted(DECLARABLE_CAPABILITIES))

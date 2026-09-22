@@ -61,7 +61,7 @@ By session end the user should have:
 
 | Backend | Shim | Manifest | Config |
 | ------- | ---- | -------- | ------ |
-| AWS FSx Lustre | `isvctl/configs/providers/aws/scripts/storage/fsx-lustre/api.py` | `aws/config/storage-provider-manifest.yaml` | `aws/config/eks.yaml` |
+| AWS FSx Lustre | `isvctl/configs/providers/aws/scripts/storage/fsx-lustre/api.py` | `aws/config/storage-provider-manifest.yaml` | `aws/config/storage.yaml` |
 | VAST NFS | `isvctl/configs/providers/vast/scripts/storage/vast/api.py` | `vast/config/storage-provider-manifest.yaml` | `vast/config/storage.yaml` |
 | WEKA | `isvctl/configs/providers/weka/scripts/storage/weka/api.py` | `weka/config/storage-provider-manifest.yaml` | `weka/config/storage.yaml` |
 | **Authoring target (edit in place)** | `my-isv/scripts/storage/api.py` | `my-isv/config/storage-provider-manifest.yaml` | `my-isv/config/storage.yaml` |
@@ -203,12 +203,12 @@ STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/storage-provide
 | Env vars in shim `__init__` | Runtime config — manifest `attributes` are **informational only** |
 | `K8S_CSI_*` env vars / config overrides | StorageClass names for the CSI/filesystem checks — set in config/env, NOT the manifest |
 
-**K8s override pattern** (from `aws/config/eks.yaml`):
+**Provider override pattern** (from `aws/config/storage.yaml`):
 
 ```yaml
 tests:
   validations:
-    k8s_storage:
+    storage_provider_api:
       checks:
         StorageProviderApiCheck:
           manifest_path: "isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml"

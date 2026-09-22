@@ -85,7 +85,7 @@ aws service-quotas get-service-quota \
 
 # Run the storage check:
 uv run isvctl test run \
-    -f isvctl/configs/providers/aws/config/eks.yaml
+    -f isvctl/configs/providers/aws/config/storage.yaml
 ```
 
 `volume-provisioning[aws-fsx-lustre]` reports **skipped (passed)** with

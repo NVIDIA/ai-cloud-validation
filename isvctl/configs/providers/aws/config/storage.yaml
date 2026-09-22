@@ -16,12 +16,14 @@
 # AWS Storage Validation Configuration
 #
 # Imports suites/storage.yaml and wires AWS implementations for:
-#   - Kubernetes CSI (EKS): setup_cluster / teardown_cluster via eks scripts
+#   - Kubernetes CSI (EKS): setup / teardown_cluster via eks scripts
 #   - Block volume (EBS): launch/create/snapshot/resize/persistence/teardown
 #   - Home directory (FSx for OpenZFS): NFSv4, volume quota, uid/gid accounting
 #   - High-speed storage (FSx for Lustre): provisioning, multiple filesystems,
 #     live expansion, root-squash (other HSS checks excluded — need a mounted
 #     client or are not exposed by managed FSx)
+#   - Storage provider API (FSx for Lustre boto3 shim): StorageProviderApiCheck
+#     via storage-provider-manifest.yaml (see scripts/storage/fsx-lustre/)
 #
 # Block-volume steps reuse the VM scripts for launch/teardown; volume steps
 # live in scripts/storage/. FSx steps are self-contained (create → assert →
@@ -32,6 +34,12 @@
 # Usage:
 #   AWS_REGION=us-west-2 \
 #     uv run isvctl test run -f isvctl/configs/providers/aws/config/storage.yaml
+#
+# Storage provider API shim environment variables:
+#   - AWS_REGION: Region for the FSx Lustre shim (default: AWS_DEFAULT_REGION or the AWS profile's region)
+#   - FSX_DEPLOYMENT_TYPE: FSx deployment type for quota code resolution (default: PERSISTENT_2)
+#   - FSX_QUOTA_CODE: Override the quota code directly (optional)
+#   - AWS_ACCOUNT_ID: Override STS-resolved account id (optional)
 #
 # Required IAM Permissions (block volume):
 #   ec2:DescribeInstances, ec2:RunInstances, ec2:TerminateInstances,
@@ -54,10 +62,12 @@ commands:
     phases: ["setup", "test", "teardown"]
     steps:
       # Kubernetes CSI fixture: provisions (or reuses) the shared EKS Terraform
-      # stack and emits kubeconfig + CSI StorageClass names. Paired with
-      # teardown_cluster below so a standalone storage run does not leak the
-      # cluster. Honors AWS_SKIP_TEARDOWN like eks.yaml.
-      - name: setup_cluster
+      # stack and emits kubeconfig + CSI StorageClass names. Named `setup` like
+      # the Kubernetes suite's cluster fixture, since the storage suite reads
+      # steps.setup.csi. Paired with teardown_cluster below (not the VM
+      # `teardown`) so a standalone storage run does not leak the cluster.
+      # Honors AWS_SKIP_TEARDOWN like eks.yaml.
+      - name: setup
         phase: setup
         command: "../scripts/eks/setup.sh"
         requires: [kubernetes]
@@ -222,7 +232,7 @@ commands:
           - "{{teardown_flag}}"
         timeout: 600
 
-      # Destroy the EKS stack from setup_cluster (including the out-of-band
+      # Destroy the EKS stack from `setup` (including the out-of-band
       # static-CSI EBS volume tagged by setup.sh). Keep this last so CSI
       # checks finish before the cluster disappears.
       - name: teardown_cluster
@@ -242,6 +252,14 @@ tests:
     instance_type: "m6i.large"
     volume_size_gib: "10"
     teardown_flag: "{{(env.BLOCK_STORAGE_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+
+  validations:
+    storage_provider_api:
+      checks:
+        StorageProviderApiCheck:
+          manifest_path: "isvctl/configs/providers/aws/config/storage-provider-manifest.yaml"
+        StorageDirectoryQuotaEnforcementCheck:
+          manifest_path: "isvctl/configs/providers/aws/config/storage-provider-manifest.yaml"
 
   exclude:
     # HSS checks that need a mounted Lustre client or are not exposed by

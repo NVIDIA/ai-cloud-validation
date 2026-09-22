@@ -31,8 +31,8 @@ scripts/storage/api.py                    # MyStorageApi + build_api() (my-isv f
 | Mode | `manifest_path` value |
 | ---- | --------------------- |
 | Standalone (`storage.yaml`) | Repo-relative path to manifest on disk |
-| K8s provider override (`eks.yaml`) | Same on-disk path for dev; mounted ConfigMap path in prod |
-| Suite default (`k8s.yaml`) | `{{ steps.setup.storage.manifest_path \| default('', true) }}` — empty skips check |
+| K8s provider (`storage-k8s.yaml`) | Emitted by the `setup` step (`shared/storage_manifest_to_steps.py`); mounted ConfigMap path in prod |
+| Suite default (`suites/storage.yaml`) | `{{ steps.setup.storage.manifest_path \| default('', true) }}` — empty skips check |
 
 **Empty manifest_path = check skipped (pass).** Onboarded providers must override.
 
@@ -62,17 +62,22 @@ tests:
           volume_size_bytes: 1073741824
 ```
 
-### K8s-integrated override
+### K8s-integrated
 
-See `aws/config/eks.yaml` — imports `suites/k8s.yaml` + `suites/storage.yaml`, overrides:
+See `my-isv/config/storage-k8s.yaml` — imports `suites/storage.yaml` only (never
+alongside `suites/k8s.yaml`); its `setup` step emits the manifest path the suite
+reads:
 
 ```yaml
-tests:
-  validations:
-    k8s_storage:
-      checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml"
+commands:
+  kubernetes:
+    steps:
+      - name: setup
+        phase: setup
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
+          STORAGE_STEP_PLATFORM: "kubernetes"
 ```
 
 ## Manifest entry fields (schema v1alpha2)
