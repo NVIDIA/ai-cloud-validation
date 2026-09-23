@@ -229,11 +229,12 @@ class TestSkipBehaviour:
     def test_no_storage_class_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
         check = K8sFileLockingCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No shared-fs/nfs StorageClass configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_cross_node_skips_when_fewer_than_two_ready_nodes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
@@ -244,12 +245,11 @@ class TestSkipBehaviour:
                 return_value=_fake_kubectl_get_nodes_result({"node-a": "Ready", "node-b": "NotReady"}),
             ),
             patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="2 Ready nodes"),
         ):
             check.run()
         # Skipped before any namespace/pod work.
         mock_run.assert_not_called()
-        assert check.passed
-        assert "2 Ready nodes" in check._output
 
     def test_ready_nodes_filters_and_sorts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
@@ -629,11 +629,12 @@ class TestPosixSkipBehaviour:
     def test_no_storage_class_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
         check = K8sPosixComplianceCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No shared-fs/nfs StorageClass configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_podsecurity_denial_skips(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
@@ -645,10 +646,9 @@ class TestPosixSkipBehaviour:
             patch.object(check, "_apply_pvc", return_value=(0, "")),
             patch.object(check, "_wait_pvc_bound", return_value=True),
             patch.object(check, "_apply_posix_pod", return_value=(1, denial)),
+            pytest.raises(pytest.skip.Exception, match="Pod Security admission blocked"),
         ):
             check.run()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_is_podsecurity_denial_detection(self) -> None:
         assert K8sPosixComplianceCheck._is_podsecurity_denial("violates PodSecurity ...")

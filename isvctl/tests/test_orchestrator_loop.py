@@ -413,7 +413,10 @@ EOF
         assert result.success
         assert [phase.phase for phase in result.phases] == [Phase.TEST]
         assert [entry.entry.name for entry in result.validations] == ["K8sCsiStorageTypesCheck"]
-        assert result.validations[0].state is State.PASSED
+        # No StorageClass is configured, so the check runs and skips itself: a
+        # runtime skip proves it executed rather than being filtered out.
+        assert result.validations[0].state is State.SKIPPED
+        assert result.validations[0].skip_reason is SkipReason.RUNTIME_SKIP
 
     def test_config_without_commands_or_validations_is_not_a_pass(self) -> None:
         """Validations are all a commandless run has, so wiring none asserts nothing."""

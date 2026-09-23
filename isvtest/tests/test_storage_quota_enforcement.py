@@ -259,11 +259,11 @@ class TestCandidateSelection:
         with (
             patch("isvtest.validations.storage_quota_enforcement.load_provider_registry", return_value=[provider]),
             patch("isvtest.validations.storage_quota_enforcement.is_k8s_available") as available,
+            pytest.raises(pytest.skip.Exception) as skipped,
         ):
             check.run()
-        assert check.passed
-        assert "full directory-quota CRUD" in check.message
-        assert CAP_DIRECTORY_QUOTA_LIST in check.message
+        assert "full directory-quota CRUD" in skipped.value.msg
+        assert CAP_DIRECTORY_QUOTA_LIST in skipped.value.msg
         available.assert_not_called()
 
     def test_full_directory_quota_provider_reaches_k8s_availability_check(self):

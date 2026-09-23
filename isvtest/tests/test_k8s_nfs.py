@@ -138,11 +138,12 @@ class TestK8sNfsMountOptionsCheckSkip:
     def test_skips_when_no_sc_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
         check = K8sNfsMountOptionsCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No shared_fs_storage_class / nfs_storage_class configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_non_nfs_fstype_skips_all_subtests(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
@@ -237,11 +238,12 @@ class TestK8sNfsMountOptionsSubtests:
 class TestK8sNodeKernelModulesCheckSkip:
     def test_skips_when_no_modules_configured(self) -> None:
         check = K8sNodeKernelModulesCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="kernel_modules not configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_skips_when_no_ready_nodes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         check = K8sNodeKernelModulesCheck(config={"kernel_modules": ["lustre"]})
