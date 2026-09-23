@@ -29,7 +29,6 @@ from isvtest.validations.k8s_node_pool import (
     _coerce_mapping,
     _coerce_str_list,
     _coerce_taints,
-    _is_node_ready,
     _missing_taints,
 )
 
@@ -189,22 +188,6 @@ class TestMissingTaints:
         expected = [("k", "v", "NoSchedule")]
         actual = [{"key": "k", "value": "v", "effect": "PreferNoSchedule"}]
         assert _missing_taints(expected, actual) == [("k", "v", "NoSchedule")]
-
-
-class TestIsNodeReady:
-    """Tests for ``_is_node_ready`` (Ready=True condition detection)."""
-
-    def test_ready(self) -> None:
-        assert _is_node_ready({"status": {"conditions": [{"type": "Ready", "status": "True"}]}})
-
-    def test_not_ready(self) -> None:
-        assert not _is_node_ready({"status": {"conditions": [{"type": "Ready", "status": "False"}]}})
-
-    def test_missing_condition(self) -> None:
-        assert not _is_node_ready({"status": {"conditions": []}})
-
-    def test_empty_status(self) -> None:
-        assert not _is_node_ready({})
 
 
 class TestNodePoolCreateHappyPath:

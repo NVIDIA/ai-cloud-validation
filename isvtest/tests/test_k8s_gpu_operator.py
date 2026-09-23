@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -39,10 +40,32 @@ def _fail(stdout: str = "", stderr: str = "", exit_code: int = 1) -> CommandResu
     return CommandResult(exit_code=exit_code, stdout=stdout, stderr=stderr, duration=0.0)
 
 
+def _pod(
+    name: str, phase: str = "Running", *, ready: bool = True, node: str | None = None, **status: Any
+) -> dict[str, Any]:
+    """Return a pod JSON item with a ``Ready`` condition."""
+    condition = {"type": "Ready", "status": "True" if ready else "False"}
+    pod: dict[str, Any] = {"metadata": {"name": name}, "status": {"phase": phase, "conditions": [condition], **status}}
+    if node:
+        pod["spec"] = {"nodeName": node}
+    return pod
+
+
+def _run_pods_check(*pods: dict[str, Any]) -> K8sGpuOperatorPodsCheck:
+    """Run ``K8sGpuOperatorPodsCheck`` against the given pod items."""
+    check = K8sGpuOperatorPodsCheck(config={"namespace": "gpu-operator"})
+    with (
+        patch("isvtest.validations.k8s_gpu_operator.get_kubectl_base_shell", return_value="kubectl"),
+        patch.object(check, "run_command", return_value=_ok(json.dumps({"items": list(pods)}))),
+    ):
+        check.run()
+    return check
+
+
 def test_gpu_operator_pods_use_json_phase() -> None:
     """Verify GPU Operator pod status is parsed from JSON."""
     check = K8sGpuOperatorPodsCheck(config={"namespace": "gpu-operator"})
-    payload = json.dumps({"items": [{"metadata": {"name": "gpu-operator-1"}, "status": {"phase": "Running"}}]})
+    payload = json.dumps({"items": [_pod("gpu-operator-1")]})
 
     with (
         patch("isvtest.validations.k8s_gpu_operator.get_kubectl_base_shell", return_value="kubectl"),
@@ -54,31 +77,95 @@ def test_gpu_operator_pods_use_json_phase() -> None:
     assert mock_run.call_args[0][0] == "kubectl get pods -n gpu-operator -o json"
 
 
-def test_gpu_operator_pods_reject_crashlooping_running_phase() -> None:
-    """Verify kubectl STATUS semantics are preserved for crashlooping pods."""
-    check = K8sGpuOperatorPodsCheck(config={"namespace": "gpu-operator"})
-    payload = json.dumps(
-        {
-            "items": [
-                {
-                    "metadata": {"name": "gpu-operator-1"},
-                    "status": {
-                        "phase": "Running",
-                        "containerStatuses": [{"state": {"waiting": {"reason": "CrashLoopBackOff"}}}],
-                    },
-                }
-            ]
-        }
+def test_gpu_operator_pods_reject_crashlooping_pod_beside_healthy_one() -> None:
+    """Verify one crashlooping pod fails the check even when another pod runs."""
+    check = _run_pods_check(
+        _pod("gpu-operator-1"),
+        _pod(
+            "nvidia-driver-daemonset-abc",
+            ready=False,
+            node="gpu-node-1",
+            containerStatuses=[{"state": {"waiting": {"reason": "CrashLoopBackOff"}}}],
+        ),
     )
 
-    with (
-        patch("isvtest.validations.k8s_gpu_operator.get_kubectl_base_shell", return_value="kubectl"),
-        patch.object(check, "run_command", return_value=_ok(payload)),
-    ):
-        check.run()
+    assert not check.passed
+    assert check.message == (
+        "1 of 2 GPU Operator pods unhealthy in 'gpu-operator': nvidia-driver-daemonset-abc on gpu-node-1 (CrashLoopBackOff)"
+    )
+
+
+def test_gpu_operator_pods_mark_init_container_failures() -> None:
+    """Verify a validator crashlooping in an init container is reported like kubectl's STATUS column."""
+    check = _run_pods_check(
+        _pod(
+            "nvidia-operator-validator-abc",
+            "Pending",
+            ready=False,
+            node="gpu-node-2",
+            initContainerStatuses=[
+                {"name": "driver-validation", "state": {"terminated": {"reason": "Completed"}}},
+                {"name": "cuda-validation", "state": {"waiting": {"reason": "CrashLoopBackOff"}}},
+            ],
+        ),
+    )
 
     assert not check.passed
-    assert "No GPU Operator pods are running" in check.message
+    assert "nvidia-operator-validator-abc on gpu-node-2 (Init:CrashLoopBackOff)" in check.message
+
+
+@pytest.mark.parametrize(("status_reason", "expected"), [("NodeLost", "Unknown"), (None, "Terminating")])
+def test_gpu_operator_pods_label_deleted_pods_like_kubectl(status_reason: str | None, expected: str) -> None:
+    """Verify a pod stuck in deletion is labelled Unknown/Terminating, not by its stale container state."""
+    pod = _pod(
+        "nvidia-operator-validator-abc",
+        ready=False,
+        node="gpu-node-1",
+        containerStatuses=[{"state": {"waiting": {"reason": "CrashLoopBackOff"}}}],
+    )
+    pod["metadata"]["deletionTimestamp"] = "2026-08-13T00:00:00Z"
+    if status_reason:
+        pod["status"]["reason"] = status_reason
+
+    check = _run_pods_check(pod)
+
+    assert not check.passed
+    assert f"nvidia-operator-validator-abc on gpu-node-1 ({expected})" in check.message
+
+
+def test_gpu_operator_pods_reject_running_pod_that_is_not_ready() -> None:
+    """Verify a Running pod whose Ready condition is False fails the check."""
+    check = _run_pods_check(_pod("nvidia-device-plugin-daemonset-abc", ready=False))
+
+    assert not check.passed
+    assert "nvidia-device-plugin-daemonset-abc (Running, not Ready)" in check.message
+
+
+def test_gpu_operator_pods_label_deleted_unready_running_pod_as_terminating() -> None:
+    """Verify a deleting pod that is still Running but not Ready reports Terminating."""
+    pod = _pod("nvidia-device-plugin-daemonset-abc", ready=False)
+    pod["metadata"]["deletionTimestamp"] = "2026-08-13T00:00:00Z"
+
+    check = _run_pods_check(pod)
+
+    assert not check.passed
+    assert "nvidia-device-plugin-daemonset-abc (Terminating, not Ready)" in check.message
+
+
+def test_gpu_operator_pods_accept_completed_validator_pods() -> None:
+    """Verify one-shot validator pods that succeeded count as healthy."""
+    check = _run_pods_check(_pod("gpu-operator-1"), _pod("nvidia-cuda-validator-abc", "Succeeded", ready=False))
+
+    assert check.passed
+    assert check.message == "All 2 GPU Operator pods healthy in 'gpu-operator'"
+
+
+def test_gpu_operator_pods_fail_on_empty_namespace() -> None:
+    """Verify an empty GPU Operator namespace fails."""
+    check = _run_pods_check()
+
+    assert not check.passed
+    assert check.message == "No GPU Operator pods found in namespace 'gpu-operator'"
 
 
 CLUSTER_POLICY = {

@@ -42,7 +42,7 @@ import shlex
 import time
 from typing import Any, ClassVar
 
-from isvtest.core.k8s import get_kubectl_base_shell
+from isvtest.core.k8s import get_kubectl_base_shell, node_is_ready
 from isvtest.core.validation import BaseValidation
 
 
@@ -186,7 +186,7 @@ class K8sNodePoolCheck(BaseValidation):
                     self.set_failed(f"Failed to parse kubectl JSON output: {exc}")
                     return None
                 nodes = payload.get("items") or []
-                ready_nodes = [n for n in nodes if _is_node_ready(n)]
+                ready_nodes = [n for n in nodes if node_is_ready(n)]
                 if expected_replicas == 0 and len(nodes) == 0:
                     return []
                 if len(ready_nodes) == expected_replicas and len(nodes) == expected_replicas:
@@ -199,14 +199,6 @@ class K8sNodePoolCheck(BaseValidation):
                 return None
             self.log.info("Waiting for node pool (%s)", last_summary)
             time.sleep(min(poll_interval, remaining))
-
-
-def _is_node_ready(node: dict[str, Any]) -> bool:
-    """Return True if the node has a ``Ready=True`` condition."""
-    for cond in node.get("status", {}).get("conditions", []) or []:
-        if cond.get("type") == "Ready":
-            return cond.get("status") == "True"
-    return False
 
 
 def _coerce_mapping(value: Any, field: str) -> dict[str, str]:

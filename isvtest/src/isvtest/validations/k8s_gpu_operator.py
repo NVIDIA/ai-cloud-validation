@@ -29,6 +29,8 @@ from isvtest.core.k8s import (
     names_from_items,
     parse_kubectl_json,
     parse_kubectl_json_items,
+    pod_is_ready,
+    pod_kubectl_status,
     pod_status_reason,
 )
 from isvtest.core.validation import BaseValidation
@@ -53,7 +55,7 @@ class K8sGpuOperatorNamespaceCheck(BaseValidation):
 
 
 class K8sGpuOperatorPodsCheck(BaseValidation):
-    description = "Check if NVIDIA GPU Operator pods are running."
+    description = "Check that all NVIDIA GPU Operator pods are healthy."
 
     def run(self) -> None:
         # Prefer config value, fall back to global setting
@@ -66,16 +68,29 @@ class K8sGpuOperatorPodsCheck(BaseValidation):
         if pods is None:
             return
 
-        running_pods = []
-        for pod in pods:
-            if pod_status_reason(pod) == "Running":
-                running_pods.append((pod.get("metadata") or {}).get("name", "unknown"))
-
-        if not running_pods:
-            self.set_failed(f"No GPU Operator pods are running in namespace '{namespace}'")
+        if not pods:
+            self.set_failed(f"No GPU Operator pods found in namespace '{namespace}'")
             return
 
-        self.set_passed(f"Found {len(running_pods)} running pods in '{namespace}'")
+        # Succeeded covers the operator's one-shot validator pods.
+        unhealthy = []
+        for pod in pods:
+            name = (pod.get("metadata") or {}).get("name", "unknown")
+            node = (pod.get("spec") or {}).get("nodeName")
+            label = f"{name} on {node}" if node else name
+            reason = pod_status_reason(pod)
+            if reason == "Running" and not pod_is_ready(pod):
+                unhealthy.append(f"{label} ({pod_kubectl_status(pod)}, not Ready)")
+            elif reason not in ("Running", "Succeeded"):
+                unhealthy.append(f"{label} ({pod_kubectl_status(pod)})")
+
+        if unhealthy:
+            self.set_failed(
+                f"{len(unhealthy)} of {len(pods)} GPU Operator pods unhealthy in '{namespace}': {', '.join(unhealthy)}"
+            )
+            return
+
+        self.set_passed(f"All {len(pods)} GPU Operator pods healthy in '{namespace}'")
 
 
 class _DriverConfigKind(NamedTuple):
