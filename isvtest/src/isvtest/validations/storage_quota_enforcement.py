@@ -190,6 +190,9 @@ class StorageDirectoryQuotaEnforcementCheck(BaseValidation):
 
         if any_failed:
             self.set_failed("One or more directory-quota subtests failed; see subtest details")
+        elif self._subtest_results and all(result["skipped"] for result in self._subtest_results):
+            reasons = dict.fromkeys(result["message"] for result in self._subtest_results)
+            pytest.skip("No directory-quota probe ran: " + "; ".join(reasons))
         else:
             self.set_passed(
                 "Directory-quota CRUD + enforcement verified for " + ", ".join(sorted(p.name for p in candidates))

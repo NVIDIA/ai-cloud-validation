@@ -267,6 +267,7 @@ class TestCandidateSelection:
         available.assert_not_called()
 
     def test_full_directory_quota_provider_reaches_k8s_availability_check(self):
+        """With no acquisition path every probe skips, so the check skips instead of passing."""
         provider = _directory_quota_provider()
         check = StorageDirectoryQuotaEnforcementCheck(
             config={"manifest_path": "manifest.yaml", "storage_class": "shared-fs"}
@@ -274,10 +275,10 @@ class TestCandidateSelection:
         with (
             patch("isvtest.validations.storage_quota_enforcement.load_provider_registry", return_value=[provider]),
             patch("isvtest.validations.storage_quota_enforcement.is_k8s_available", return_value=False) as available,
+            pytest.raises(pytest.skip.Exception, match=r"No directory-quota probe ran: .*no reachable Kubernetes"),
         ):
             check.run()
-        assert check.passed
-        assert any("no reachable Kubernetes" in result["message"] for result in check._subtest_results)
+        assert check._subtest_results and all(result["skipped"] for result in check._subtest_results)
         available.assert_called_once_with()
 
 

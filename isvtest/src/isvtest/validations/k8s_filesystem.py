@@ -516,18 +516,20 @@ class _K8sSharedFsCheck(BaseValidation):
         return False
 
     def _ready_nodes(self) -> list[str]:
-        """Return schedulable node matching node_selector (if set), sorted for determinism."""
+        """Return schedulable node matching node_selector (if set), sorted for determinism.
+
+        Raises:
+            RuntimeError: when ``kubectl get nodes`` fails, so a broken query
+                fails the check instead of reading as "no Ready nodes".
+        """
         selector = self._node_selector()
         extra_args = ["-l", ",".join(f"{k}={v}" for k, v in sorted(selector.items()))] if selector else []
         result = run_kubectl(["get", "nodes", *extra_args, "-o", "json"])
         if result.returncode != 0:
-            self.log.warning(
-                "kubectl get nodes%s failed (rc=%s): %s",
-                f" -l {extra_args[1]}" if extra_args else "",
-                result.returncode,
-                _fmt_err(result.stderr or ""),
+            raise RuntimeError(
+                f"kubectl get nodes{f' -l {extra_args[1]}' if extra_args else ''} failed "
+                f"(rc={result.returncode}): {_fmt_err(result.stderr or '')}"
             )
-            return []
         user_tolerations = self._tolerations()
         return sorted(
             str(name)

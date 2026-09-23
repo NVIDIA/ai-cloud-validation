@@ -98,7 +98,7 @@ tests:
         # provisioning via csi.weka.io rather than pinning a pre-provisioned
         # volume handle.
         K8sCsiProvisioningModesCheck:
-          dynamic_storage_class: "{{ env.K8S_CSI_SHARED_FS_SC | default('', true) }}"
+          dynamic_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default(env.get('K8S_CSI_SHARED_FS_SC', ''), true) }}"
           static_pv:
             volume_handle: ""
             csi_driver: ""

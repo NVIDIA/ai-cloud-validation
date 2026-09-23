@@ -312,8 +312,8 @@ Requires a `storage.yaml` with a `storage_manifest` step.
 uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
 ```
 
-For K8s-integrated runs, add a `StorageProviderApiCheck` override to the
-provider's **existing** eks/k8s config — do not create a new full provider tree.
+For K8s-integrated runs, run the same `storage.yaml` with `--capability kubernetes`
+— do not create a new config or a full provider tree.
 
 **Expected CSI fallback (not a failure):**
 
@@ -334,8 +334,9 @@ volume-provisioning[<name>] SKIPPED: create_volume not implemented; observed N C
 
 ## Phase 6: Full suite (optional)
 
-Only after Phase 5 passes. Import the storage suite
-(`isvctl/configs/suites/storage.yaml`, often alongside `suites/k8s.yaml`) and align:
+Only after Phase 5 passes. Run `storage.yaml` (which imports only
+`isvctl/configs/suites/storage.yaml`, never alongside `suites/k8s.yaml`) with
+`--capability kubernetes`, and align:
 
 - StorageClass names via the `K8S_CSI_*` env vars (`K8S_CSI_BLOCK_SC`,
   `K8S_CSI_SHARED_FS_SC`, `K8S_CSI_NFS_SC`) or literal
