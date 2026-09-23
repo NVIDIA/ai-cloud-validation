@@ -183,6 +183,7 @@ class TestDraApi:
     """DRA counts as enabled at any beta or GA version, and at no other."""
 
     def test_passes_with_ga_api_driver_and_claim_backed_gpu(self, cluster: _FakeCluster) -> None:
+        """A GA API, a GPU driver and a claim-backed pod that lists its GPU pass."""
         result = _run(cluster)
         assert result["passed"] is True, result["error"]
         assert "resource.k8s.io/v1 is served" in result["output"]
@@ -195,6 +196,7 @@ class TestDraApi:
         assert "nvidia-smi -L" in pod["spec"]["containers"][0]["command"][-1]
 
     def test_v1beta2_uses_the_exactly_request_shape(self, cluster: _FakeCluster) -> None:
+        """v1beta2 is preferred over v1beta1 and takes the ``exactly`` request shape."""
         cluster.api_versions = ["v1", "resource.k8s.io/v1beta2", "resource.k8s.io/v1beta1"]
         result = _run(cluster)
         assert result["passed"] is True, result["error"]
@@ -202,6 +204,7 @@ class TestDraApi:
         assert _requests(cluster)[0]["exactly"] == {"deviceClassName": "gpu.nvidia.com"}
 
     def test_v1beta1_is_accepted_with_the_flat_request_shape(self, cluster: _FakeCluster) -> None:
+        """v1beta1 alone is enough, with the request's device class set directly."""
         cluster.api_versions = ["v1", "resource.k8s.io/v1beta1"]
         result = _run(cluster)
         assert result["passed"] is True, result["error"]
@@ -209,6 +212,7 @@ class TestDraApi:
         assert _requests(cluster) == [{"name": "device", "deviceClassName": "gpu.nvidia.com"}]
 
     def test_unserved_api_fails_and_names_what_is_served(self, cluster: _FakeCluster) -> None:
+        """An alpha-only API fails, names the served version, and creates nothing."""
         cluster.api_versions = ["v1", "resource.k8s.io/v1alpha3"]
         result = _run(cluster)
         assert result["passed"] is False
@@ -217,6 +221,7 @@ class TestDraApi:
         assert not cluster.ran("create namespace")
 
     def test_api_versions_failure_fails(self, cluster: _FakeCluster) -> None:
+        """An unreachable cluster fails with kubectl's own error."""
         cluster.overrides["api-versions"] = _result(stderr="connection refused", exit_code=1)
         result = _run(cluster)
         assert result["passed"] is False
@@ -228,6 +233,7 @@ class TestDraDriver:
 
     @pytest.mark.parametrize(("classes", "slices"), [([], ["s"]), (["gpu.nvidia.com"], []), ([], [])])
     def test_no_driver_fails(self, cluster: _FakeCluster, classes: list[str], slices: list[str]) -> None:
+        """Missing DeviceClasses or ResourceSlices fail before anything is created."""
         cluster.device_classes = classes
         cluster.slice_names = slices
         result = _run(cluster)
@@ -236,6 +242,7 @@ class TestDraDriver:
         assert not cluster.ran("create namespace")
 
     def test_neither_gpu_nor_channel_class_fails_and_lists_registered(self, cluster: _FakeCluster) -> None:
+        """A driver with neither a GPU nor a channel class fails and lists what it has."""
         cluster.device_classes = ["fpga.example.com"]
         result = _run(cluster)
         assert result["passed"] is False
@@ -244,6 +251,7 @@ class TestDraDriver:
         assert not cluster.ran("create namespace")
 
     def test_configured_device_class_is_requested(self, cluster: _FakeCluster) -> None:
+        """``device_class`` and ``image`` from config reach the applied objects."""
         cluster.device_classes = ["gpu.example.com"]
         result = _run(cluster, {"device_class": "gpu.example.com", "image": "mirror.local/ubuntu:22.04"})
         assert result["passed"] is True, result["error"]
@@ -251,6 +259,7 @@ class TestDraDriver:
         assert cluster.applied_kind("Pod")["spec"]["containers"][0]["image"] == "mirror.local/ubuntu:22.04"
 
     def test_gpu_class_is_preferred_when_both_halves_run(self, cluster: _FakeCluster) -> None:
+        """With both driver halves running, the GPU path is taken and no domain is made."""
         cluster.device_classes = ["gpu.nvidia.com", *CHANNEL_CLASSES]
         result = _run(cluster)
         assert result["passed"] is True, result["error"]
@@ -261,6 +270,7 @@ class TestDraComputeDomain:
     """A ComputeDomain-only driver proves DRA through an IMEX channel claim."""
 
     def test_passes_through_a_channel_claim(self, channel_cluster: _FakeCluster) -> None:
+        """A pod that lists the IMEX channel its claim delivered passes."""
         result = _run(channel_cluster)
         assert result["passed"] is True, result["error"]
         assert "compute-domain-default-channel.nvidia.com device(s)" in result["output"]
@@ -269,6 +279,7 @@ class TestDraComputeDomain:
     def test_creates_a_compute_domain_and_points_the_pod_at_its_channel_template(
         self, channel_cluster: _FakeCluster
     ) -> None:
+        """The pod shares the domain's namespace and claims from its channel template."""
         _run(channel_cluster)
         assert {doc["kind"] for doc in channel_cluster.applied} == {"ComputeDomain", "Pod"}
         domain = channel_cluster.applied_kind("ComputeDomain")
@@ -279,10 +290,12 @@ class TestDraComputeDomain:
         assert "/dev/nvidia-caps-imex-channels" in pod["spec"]["containers"][0]["command"][-1]
 
     def test_pod_goes_before_the_domain_and_the_namespace_last(self, channel_cluster: _FakeCluster) -> None:
+        """No channel is still held when the domain is deleted."""
         _run(channel_cluster)
         assert channel_cluster.deletions() == ["pod", "computedomains.resource.nvidia.com", "namespace"]
 
     def test_missing_channel_device_fails_with_logs(self, channel_cluster: _FakeCluster) -> None:
+        """A pod that finds no channel device fails and surfaces its logs."""
         channel_cluster.pods = [_pod("Failed")]
         channel_cluster.logs = "ls: cannot access '/dev/nvidia-caps-imex-channels': No such file or directory\n"
         result = _run(channel_cluster)
@@ -295,6 +308,7 @@ class TestDraWorkload:
     """The device has to reach the pod through the claim."""
 
     def test_unschedulable_pod_times_out_with_scheduler_message(self, cluster: _FakeCluster) -> None:
+        """A pod the scheduler cannot place times out quoting the scheduler, then is cleaned up."""
         cluster.pods = [_pod("Pending", unschedulable="0/3 nodes are available: 3 cannot allocate all claims.")]
         result = _run(cluster, {"wait_timeout": 30})
         assert result["passed"] is False
@@ -303,6 +317,7 @@ class TestDraWorkload:
         assert cluster.ran("delete namespace")
 
     def test_image_pull_backoff_fails_fast(self, cluster: _FakeCluster, clock: _Clock) -> None:
+        """A terminal waiting reason fails without waiting out the timeout."""
         cluster.pods = [_pod("Pending", waiting="ImagePullBackOff")]
         result = _run(cluster)
         assert result["passed"] is False
@@ -310,6 +325,7 @@ class TestDraWorkload:
         assert clock.now == 0
 
     def test_pod_that_exits_fails_with_its_logs(self, cluster: _FakeCluster) -> None:
+        """A pod that exits instead of listing its GPU fails and surfaces its logs."""
         cluster.pods = [_pod("Failed")]
         cluster.logs = "sh: 1: nvidia-smi: not found\n"
         result = _run(cluster)
@@ -318,6 +334,7 @@ class TestDraWorkload:
         assert "nvidia-smi: not found" in result["output"]
 
     def test_running_pod_without_gpu_lines_times_out(self, cluster: _FakeCluster) -> None:
+        """A running pod that never lists a GPU times out rather than passing."""
         cluster.pods = [_pod("Running")]
         cluster.logs = ""
         result = _run(cluster, {"wait_timeout": 10})
@@ -325,6 +342,7 @@ class TestDraWorkload:
         assert "no GPU shown yet" in result["error"]
 
     def test_pod_without_a_claim_fails(self, cluster: _FakeCluster) -> None:
+        """A pod whose claim fields were dropped fails even though it saw a GPU."""
         cluster.pods = [_pod("Running", claim=None)]
         result = _run(cluster)
         assert result["passed"] is False
@@ -332,12 +350,14 @@ class TestDraWorkload:
 
     @pytest.mark.parametrize("claim", [_claim(allocated=False), _claim(reserved_uid="someone-else")])
     def test_device_not_from_the_claim_fails(self, cluster: _FakeCluster, claim: dict[str, Any]) -> None:
+        """A claim that is unallocated or reserved for another pod fails."""
         cluster.claim = claim
         result = _run(cluster)
         assert result["passed"] is False
         assert "did not come through DRA" in result["error"]
 
     def test_invalid_wait_timeout_fails_before_touching_cluster(self, cluster: _FakeCluster) -> None:
+        """A non-positive ``wait_timeout`` fails before any kubectl command runs."""
         result = _run(cluster, {"wait_timeout": 0})
         assert result["passed"] is False
         assert cluster.commands == []
@@ -347,6 +367,7 @@ class TestDraCleanup:
     """What the check created is always removed."""
 
     def test_gpu_path_deletes_pod_then_namespace(self, cluster: _FakeCluster) -> None:
+        """The GPU path deletes the pod, then the namespace it created."""
         result = _run(cluster)
         assert result["passed"] is True
         assert cluster.deletions() == ["pod", "namespace"]
@@ -354,6 +375,7 @@ class TestDraCleanup:
         assert cluster.ran(f"delete namespace {created}")
 
     def test_failed_cleanup_fails_a_passing_check(self, cluster: _FakeCluster) -> None:
+        """A leftover object turns an otherwise passing check into a failure."""
         cluster.overrides["delete namespace"] = _result(stderr="forbidden", exit_code=1)
         result = _run(cluster)
         assert result["passed"] is False
@@ -361,6 +383,7 @@ class TestDraCleanup:
         assert "forbidden" in result["error"]
 
     def test_failed_cleanup_keeps_an_earlier_failure(self, cluster: _FakeCluster) -> None:
+        """A cleanup failure does not overwrite the check's own earlier failure."""
         cluster.claim = _claim(allocated=False)
         cluster.overrides["delete pod"] = _result(stderr="timed out", exit_code=1)
         result = _run(cluster)
