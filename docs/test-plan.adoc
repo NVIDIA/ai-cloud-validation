@@ -3856,12 +3856,12 @@ a|
 |
 | [[K8S24-01]]K8S24-01
 | K8S24
-|
-| min_req
+| https://github.com/NVIDIA/ai-cloud-validation/issues/662[#662]
+| gpu, kubernetes, min_req
 | tenant
 | k8s06/22
 | P0
-a|
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/662[#662]
 |
 |
 |
