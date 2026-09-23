@@ -71,7 +71,6 @@ commands:
         output_schema: generic
         timeout: 120
 
-      # Test phase, so `--phase test` still runs the shim checks.
       - name: storage_manifest
         phase: test
         command: "python ../../shared/storage_manifest_to_steps.py"

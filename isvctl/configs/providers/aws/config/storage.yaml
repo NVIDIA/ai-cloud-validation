@@ -108,8 +108,7 @@ commands:
         timeout: 600
 
       # Resolves the FSx Lustre storage-provider manifest that
-      # StorageProviderApiCheck loads in-process (no AWS calls here). Test
-      # phase, so `--phase test` still runs the shim checks.
+      # StorageProviderApiCheck loads in-process (no AWS calls here).
       - name: storage_manifest
         phase: test
         command: "python ../../shared/storage_manifest_to_steps.py"

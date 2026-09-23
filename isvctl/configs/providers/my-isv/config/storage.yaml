@@ -109,8 +109,7 @@ commands:
         timeout: 60
 
       # Resolves the storage-provider manifest for the StorageProviderApiCheck
-      # shim; loads no shim and makes no backend call. Test phase, so
-      # `--phase test` still runs the shim checks.
+      # shim; loads no shim and makes no backend call.
       - name: storage_manifest
         phase: test
         command: "python ../../shared/storage_manifest_to_steps.py"
