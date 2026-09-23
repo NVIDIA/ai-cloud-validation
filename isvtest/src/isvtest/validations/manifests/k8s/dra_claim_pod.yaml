@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A ResourceClaimTemplate and the pod consuming it, for K8S24-01.
+#
+# Loaded and mutated by the check; placeholder values keep this file valid
+# YAML. Runtime code patches the names, namespace, image, command, device
+# class, and the template's apiVersion to whichever resource.k8s.io version the
+# cluster serves. The request is written in the v1/v1beta2 shape; v1beta1 has
+# no `exactly` wrapper, and the check flattens it there. On a cluster offering
+# only ComputeDomains the template is dropped and the pod points at the channel
+# template the ComputeDomain controller creates instead.
+#
+# The container prints what the claim gave it and then holds the claim open: a
+# pod gives up its reservation on a claim once it finishes, so the allocation
+# can only be read back while the pod still runs. The check deletes the pod.
+#
+# The image sets no NVIDIA_VISIBLE_DEVICES, so a node runtime that injects GPUs
+# from that variable gives this pod none - any device it sees came through the
+# claim. Scheduling scope is the claim alone; tolerating every taint cannot
+# widen it, and keeps GPU-node taints from stranding the pod.
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: placeholder
+  namespace: placeholder
+spec:
+  spec:
+    devices:
+      requests:
+        - name: device
+          exactly:
+            deviceClassName: placeholder
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: placeholder
+  namespace: placeholder
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 5
+  tolerations:
+    - operator: Exists
+  containers:
+    - name: dra
+      image: placeholder
+      command: ["sh", "-c", "placeholder"]
+      resources:
+        claims:
+          - name: dra
+  resourceClaims:
+    - name: dra
+      resourceClaimTemplateName: placeholder

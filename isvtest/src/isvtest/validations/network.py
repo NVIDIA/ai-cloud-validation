@@ -43,7 +43,7 @@ from isvtest.core.k8s import (
     command_detail,
     get_kubectl_base_shell,
     kubectl_items_or_empty,
-    kubectl_items_or_fail,
+    kubectl_list_or_fail,
     kubectl_payload_or_none,
     names_from_items,
     pod_is_ready,
@@ -2076,14 +2076,14 @@ class ImexComputeDomainCapabilityCheck(BaseValidation):
 
     def _compute_domain_device_classes(self) -> list[str] | None:
         """Return the registered compute-domain device class names."""
-        items = _listing(self, DEVICE_CLASS_RESOURCE)
+        items = kubectl_list_or_fail(self, DEVICE_CLASS_RESOURCE)
         if items is None:
             return None
         return [name for name in names_from_items(items) if COMPUTE_DOMAIN_ROLE.fullmatch(name)]
 
     def _publishing_nodes(self) -> set[str] | None:
         """Return the nodes the compute-domain per-node plugin has published for."""
-        items = _listing(self, RESOURCE_SLICE_RESOURCE)
+        items = kubectl_list_or_fail(self, RESOURCE_SLICE_RESOURCE)
         if items is None:
             return None
         published: set[str] = set()
@@ -2104,7 +2104,7 @@ class ImexComputeDomainCapabilityCheck(BaseValidation):
         node's view of its NVLink support, so a clique-less GPU node is still
         examined.
         """
-        items = _listing(self, "nodes")
+        items = kubectl_list_or_fail(self, "nodes")
         if items is None:
             return None
         return [node for node in items if _is_gpu_node(node)]
@@ -2150,12 +2150,6 @@ def _multi_node_nvlink_advertised(validation: BaseValidation) -> bool:
             f"({COMPUTE_DOMAIN_CRD} is not registered)"
         )
     return True
-
-
-def _listing(validation: BaseValidation, resource: str, *args: str) -> list[dict[str, Any]] | None:
-    """Return one ``kubectl get`` listing, or None after failing the validation."""
-    result = validation.run_command(get_kubectl_base_shell("get", resource, *args, "-o", "json"))
-    return kubectl_items_or_fail(validation, result, resource)
 
 
 # The controller stamps every object it creates for a domain with that domain's
@@ -2603,7 +2597,7 @@ class _ComputeDomainCheck(BaseValidation):
         deployment looks exactly like a cluster that never had one, and
         inferring from it would report the first as the second.
         """
-        deployments = _listing(self, "deployments", "--all-namespaces")
+        deployments = kubectl_list_or_fail(self, "deployments", "--all-namespaces")
         if deployments is None:
             return None
 
