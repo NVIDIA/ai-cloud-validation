@@ -134,15 +134,13 @@ class TestSnippets:
         assert read_file_cmd("/data/f") == "cat /data/f"
         assert stat_size_mtime_cmd("/data/f") == "stat -c '%s %Y' /data/f"
 
-    def test_flock_helpers(self) -> None:
-        assert flock_nonblock_cmd("/data/lock") == "flock -xn /data/lock true"
+    def test_flock_helpers_lock_a_read_write_fd(self) -> None:
+        """Both helpers lock fd 9 opened read-write, which NFS needs for an exclusive lock."""
+        assert flock_nonblock_cmd("/data/lock") == "exec 9<>/data/lock && flock -xn 9"
         assert flock_hold_command("/data/lock") == [
-            "flock",
-            "-x",
-            "/data/lock",
             "sh",
             "-c",
-            "while true; do sleep 3600; done",
+            "exec 9<>/data/lock && flock -x 9 && while true; do sleep 3600; done",
         ]
 
     def test_create_files_cmd(self) -> None:
@@ -229,11 +227,12 @@ class TestSkipBehaviour:
     def test_no_storage_class_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
         check = K8sFileLockingCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No shared-fs/nfs StorageClass configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_cross_node_skips_when_fewer_than_two_ready_nodes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
@@ -244,12 +243,26 @@ class TestSkipBehaviour:
                 return_value=_fake_kubectl_get_nodes_result({"node-a": "Ready", "node-b": "NotReady"}),
             ),
             patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="2 Ready nodes"),
         ):
             check.run()
         # Skipped before any namespace/pod work.
         mock_run.assert_not_called()
-        assert check.passed
-        assert "2 Ready nodes" in check._output
+
+    def test_cross_node_fails_when_node_query_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A broken ``kubectl get nodes`` fails the check instead of skipping it as single-node."""
+        _clear_sc_env(monkeypatch)
+        check = K8sCrossNodeWriteVisibilityCheck(config={"shared_fs_storage_class": "sc-rwx"})
+        with (
+            patch(
+                "isvtest.validations.k8s_filesystem.run_kubectl",
+                return_value=_FakeProc(returncode=1, stderr="connection refused"),
+            ),
+            patch.object(check, "run_command", return_value=_fail()),
+        ):
+            result = check.execute()
+        assert result["passed"] is False
+        assert "kubectl get nodes failed" in result["error"]
 
     def test_ready_nodes_filters_and_sorts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
@@ -331,7 +344,8 @@ class TestNodeSelector:
         # Only Ready nodes, sorted; node-z dropped.
         assert result == ["node-x", "node-y"]
 
-    def test_ready_nodes_returns_empty_when_kubectl_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ready_nodes_raises_when_kubectl_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed node query must fail the check, not read as "fewer than two Ready nodes"."""
         check = K8sCrossNodeWriteVisibilityCheck(
             config={"shared_fs_storage_class": "sc-rwx", "node_selector": {"foo": "bar"}}
         )
@@ -342,7 +356,8 @@ class TestNodeSelector:
             stderr = "boom"
 
         monkeypatch.setattr("isvtest.validations.k8s_filesystem.run_kubectl", lambda args: _FailResult())
-        assert check._ready_nodes() == []
+        with pytest.raises(RuntimeError, match=r"kubectl get nodes -l foo=bar failed .*boom"):
+            check._ready_nodes()
 
 
 # --------------------------------------------------------------------------
@@ -629,11 +644,24 @@ class TestPosixSkipBehaviour:
     def test_no_storage_class_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
         check = K8sPosixComplianceCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No shared-fs/nfs StorageClass configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
+
+    def test_missing_vendored_source_skips_without_work(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unvendored pjdfstest is a harness setup gap, not a platform failure."""
+        _clear_sc_env(monkeypatch)
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path / "missing")
+        check = K8sPosixComplianceCheck(config={"shared_fs_storage_class": "sc-rwx"})
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="make vendor-pjdfstest"),
+        ):
+            check.run()
+        mock_run.assert_not_called()
 
     def test_podsecurity_denial_skips(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
@@ -645,10 +673,9 @@ class TestPosixSkipBehaviour:
             patch.object(check, "_apply_pvc", return_value=(0, "")),
             patch.object(check, "_wait_pvc_bound", return_value=True),
             patch.object(check, "_apply_posix_pod", return_value=(1, denial)),
+            pytest.raises(pytest.skip.Exception, match="Pod Security admission blocked"),
         ):
             check.run()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_is_podsecurity_denial_detection(self) -> None:
         assert K8sPosixComplianceCheck._is_podsecurity_denial("violates PodSecurity ...")

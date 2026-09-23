@@ -3,6 +3,8 @@
 
 """Tests for provider suite selection and capability parsing."""
 
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -141,6 +143,46 @@ def test_storage_suite_supplies_the_csi_fixture_those_probes_read() -> None:
     # Both providers pair the fixture with a release; the suite they copy shows it.
     assert steps["teardown_cluster"].requires == ["kubernetes"]
     assert steps["teardown_cluster"].phase == "teardown"
+
+
+def test_storage_suite_templates_read_the_suite_cluster_fixture() -> None:
+    """Unbound storage templates read only the cluster fixture the suite itself declares.
+
+    When the storage templates named a step the config does not provide, every
+    StorageClass parameter silently fell back to empty. A step a group is bound
+    to cannot be missing (the group skips as step_not_configured first), so
+    only the remaining references must name the suite's fixture.
+    """
+    storage = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "storage.yaml")]))
+    fixture = next(step.name for step in storage.get_steps("storage") if step.phase == "setup")
+    validations = storage.tests.validations if storage.tests else {}
+
+    referenced = set(re.findall(r"steps\.(\w+)", json.dumps(validations)))
+    bound = {entry.step for entry in parse_validations(validations) if entry.step}
+
+    assert referenced - bound == {fixture}
+
+
+@pytest.mark.parametrize(
+    "config",
+    sorted(
+        str(manifest.relative_to(CONFIGS_ROOT / "providers").with_name("storage.yaml"))
+        for manifest in (CONFIGS_ROOT / "providers").glob("*/config/storage-provider-manifest.yaml")
+    ),
+)
+def test_storage_shim_configs_declare_the_manifest_step(config: str) -> None:
+    """The storage-provider checks bind to storage_manifest; a config shipping a shim must declare it.
+
+    Without the step the checks skip as step_not_configured, so a dropped or
+    renamed step would silently stop exercising the provider's shim.
+    """
+    run_config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "providers" / config)]))
+    entries = parse_validations(run_config.tests.validations if run_config.tests else {})
+    bound = {entry.step for entry in entries if entry.category == "storage_provider_api"}
+    steps = {step.name for platform in run_config.commands or {} for step in run_config.get_steps(platform)}
+
+    assert bound == {"storage_manifest"}
+    assert "storage_manifest" in steps
 
 
 @pytest.mark.parametrize("capability", sorted(DECLARABLE_CAPABILITIES))

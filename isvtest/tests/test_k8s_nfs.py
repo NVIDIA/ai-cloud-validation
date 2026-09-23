@@ -138,13 +138,15 @@ class TestK8sNfsMountOptionsCheckSkip:
     def test_skips_when_no_sc_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
         check = K8sNfsMountOptionsCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No shared_fs_storage_class / nfs_storage_class configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
-    def test_non_nfs_fstype_skips_all_subtests(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_non_nfs_fstype_skips_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A volume not mounted as NFS (e.g. wekafs) skips the whole check."""
         _clear_sc_env(monkeypatch)
         check = K8sNfsMountOptionsCheck(
             config={
@@ -153,13 +155,23 @@ class TestK8sNfsMountOptionsCheckSkip:
                 "bind_timeout_s": 5,
             }
         )
-        with _patched_clock(), patch.object(check, "run_command", side_effect=_nfs_router(_MOUNTINFO_NOT_NFS)):
+        with (
+            _patched_clock(),
+            patch.object(check, "run_command", side_effect=_nfs_router(_MOUNTINFO_NOT_NFS)),
+            pytest.raises(pytest.skip.Exception, match="not NFS"),
+        ):
             check.run()
-        assert check.passed
-        names = {s["name"]: s for s in check._subtest_results}
-        assert names["nfs-version"]["skipped"]
-        assert names["nfs-nconnect"]["skipped"]
-        assert names["nfs-proto"]["skipped"]
+
+    def test_skips_without_work_when_no_expectation_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Every subtest would skip, so the whole check skips before provisioning anything."""
+        _clear_sc_env(monkeypatch)
+        check = K8sNfsMountOptionsCheck(config={"nfs_storage_class": "sc-rwx", "expected_version": ""})
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No expected NFS mount option configured"),
+        ):
+            check.run()
+        mock_run.assert_not_called()
 
 
 class TestK8sNfsMountOptionsSubtests:
@@ -185,7 +197,7 @@ class TestK8sNfsMountOptionsSubtests:
         assert "4.1" in names["nfs-version"]["message"]
 
     def test_version_empty_skipped(self) -> None:
-        check = self._run({"expected_version": ""})
+        check = self._run({"expected_version": "", "expected_proto": "tcp"})
         names = {s["name"]: s for s in check._subtest_results}
         assert names["nfs-version"]["skipped"]
 
@@ -197,7 +209,7 @@ class TestK8sNfsMountOptionsSubtests:
         assert "absent" in names["nfs-nconnect"]["message"]
 
     def test_nconnect_empty_skipped(self) -> None:
-        check = self._run({"expected_nconnect": ""})
+        check = self._run({"expected_nconnect": "", "expected_proto": "tcp"})
         names = {s["name"]: s for s in check._subtest_results}
         assert names["nfs-nconnect"]["skipped"]
 
@@ -224,7 +236,7 @@ class TestK8sNfsMountOptionsSubtests:
         assert not check.passed
 
     def test_readahead_empty_skipped(self) -> None:
-        check = self._run({"expected_read_ahead_kb": ""})
+        check = self._run({"expected_read_ahead_kb": "", "expected_proto": "tcp"})
         names = {s["name"]: s for s in check._subtest_results}
         assert names["read-ahead-kb"]["skipped"]
 
@@ -237,11 +249,12 @@ class TestK8sNfsMountOptionsSubtests:
 class TestK8sNodeKernelModulesCheckSkip:
     def test_skips_when_no_modules_configured(self) -> None:
         check = K8sNodeKernelModulesCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="kernel_modules not configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_skips_when_no_ready_nodes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         check = K8sNodeKernelModulesCheck(config={"kernel_modules": ["lustre"]})

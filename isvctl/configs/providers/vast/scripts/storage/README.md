@@ -29,8 +29,9 @@ API check:
 The **Kubernetes CSI / filesystem** checks (`K8sCsi*` / `K8sFilesystem*` /
 `K8sNfsMountOptions`) are config-driven, not manifest-driven: their StorageClass
 names come from the `K8S_CSI_*` env vars and their NFS expectations are literal
-overrides in [`../../config/storage-k8s.yaml`](../../config/storage-k8s.yaml)
-(existing cluster). See "Kubernetes storage checks" below.
+overrides in the same [`../../config/storage.yaml`](../../config/storage.yaml),
+run with `--capability kubernetes` (existing cluster). See "Kubernetes storage
+checks" below.
 
 `StorageProviderApiCheck` reports a `manifest-consistency[vast-nfs]` subtest
 that cross-checks the manifest's declared `type` / `capabilities` against the
@@ -161,18 +162,21 @@ owns volume lifecycle, not a failure.
 
 ## Kubernetes storage checks
 
-[`../../config/storage-k8s.yaml`](../../config/storage-k8s.yaml) imports the
-canonical Kubernetes suite. StorageClass names come from the `K8S_CSI_*` env
-vars; the VAST NFS mount-option expectations are literal overrides in that
-config (`K8sNfsMountOptionsCheck`: `vers=4.1`, `proto=tcp`, `nconnect=16`). These
-run over `kubectl` against the existing cluster (no VMS access needed):
+With `--capability kubernetes`,
+[`../../config/storage.yaml`](../../config/storage.yaml) also runs the
+canonical storage suite's Kubernetes checks. StorageClass names come from the
+`K8S_CSI_*` env vars (or the cluster's installed classes); the VAST NFS
+mount-option expectations are literal overrides in that config
+(`K8sNfsMountOptionsCheck`: `vers=4.1`, `proto=tcp`, `nconnect=16`). These run
+over `kubectl` against the existing cluster (no VMS access needed):
 
 ```bash
 # CSI + filesystem checks only (no VAST creds required):
 export K8S_CSI_SHARED_FS_SC=vast-nfs \
        K8S_CSI_NFS_SC=vast-nfs
 uv run isvctl test run \
-    -f isvctl/configs/providers/vast/config/storage-k8s.yaml \
+    -f isvctl/configs/providers/vast/config/storage.yaml \
+    --capability kubernetes \
     -- -v -s -k "K8sCsi or K8sFile or K8sNfs"
 ```
 
@@ -184,13 +188,14 @@ to the selection (or running everything) also loads the shim, which needs the
 export VAST_ENDPOINT=vms.example.com VAST_TOKEN=<token> \
        VAST_STORAGE_PATH=/exports/k8s
 uv run isvctl test run \
-    -f isvctl/configs/providers/vast/config/storage-k8s.yaml \
+    -f isvctl/configs/providers/vast/config/storage.yaml \
+    --capability kubernetes \
     -- -v -s -k "K8sCsi or K8sFile or K8sNfs or StorageProviderApi"
 ```
 
 > NOTE: the shim's `properties()` reports protocol `nfsv4` and the manifest
 > declares `provider.protocols: [nfsv4]`; the on-wire NFS version (`vers=4.1`)
-> is asserted by `K8sNfsMountOptionsCheck` (config/storage-k8s.yaml).
+> is asserted by `K8sNfsMountOptionsCheck` (config/storage.yaml).
 
 ### Faster repeat runs of the quota check
 
@@ -233,7 +238,7 @@ suite's `manifest_path` is retained):
 # quota-reuse.yaml
 tests:
   validations:
-    k8s_storage:
+    storage_provider_api:
       checks:
         StorageDirectoryQuotaEnforcementCheck:
           pvc_namespace: isvtest-quota
@@ -243,8 +248,9 @@ tests:
 
 ```bash
 uv run isvctl test run \
-    -f isvctl/configs/providers/vast/config/storage-k8s.yaml \
+    -f isvctl/configs/providers/vast/config/storage.yaml \
     -f quota-reuse.yaml \
+    --capability kubernetes \
     -- -v -s -k "StorageDirectoryQuotaEnforcement"
 ```
 

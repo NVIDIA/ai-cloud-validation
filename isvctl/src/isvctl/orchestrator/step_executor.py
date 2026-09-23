@@ -370,7 +370,17 @@ class StepExecutor:
         # Build environment
         env = os.environ.copy()
         if step.env:
-            env.update(step.env)
+            try:
+                env.update({key: context.render_string(value) for key, value in step.env.items()})
+            except Exception as e:
+                return StepResult(
+                    name=step.name,
+                    success=False,
+                    exit_code=-1,
+                    stdout="",
+                    stderr="",
+                    error=f"Failed to render env: {e}",
+                )
 
         # Log command with sensitive args masked
         masked_cmd = mask_sensitive_args(cmd_parts, step.sensitive_args)

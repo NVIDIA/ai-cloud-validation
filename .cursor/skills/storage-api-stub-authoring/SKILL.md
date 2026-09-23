@@ -44,8 +44,8 @@ AWS/VAST/weka paths under `providers/aws/`, `providers/vast/`, etc. are
 - Other `config/*.yaml` or `scripts/**` trees in my-isv (if any exist)
 - Full-provider scaffold (`cp -r my-isv …`)
 
-K8s `manifest_path` overrides in external eks configs are optional test wiring
-only when the user wants k8s-integrated runs beyond `my-isv/config/storage.yaml`.
+Running `my-isv/config/storage.yaml` with `--capability kubernetes` is optional,
+only when the user wants k8s-integrated runs.
 
 ## Outcomes
 
@@ -55,13 +55,13 @@ By session end the user should have:
 2. `scripts/storage/.../api.py` implementing `StorageApi` + `build_api()`
 3. Documented env vars in `scripts/storage/README.md` (when stub is complete)
 4. Passing isolated probes (`probe_shim.py`) before any full `isvctl test run`
-5. *(Optional, on request)* `manifest_path` wired into `storage.yaml` or a k8s override
+5. `config/storage.yaml`'s `storage_manifest` step still pointing at the manifest (already declared)
 
 ## Reference implementations (read before coding)
 
 | Backend | Shim | Manifest | Config |
 | ------- | ---- | -------- | ------ |
-| AWS FSx Lustre | `isvctl/configs/providers/aws/scripts/storage/fsx-lustre/api.py` | `aws/config/storage-provider-manifest.yaml` | `aws/config/eks.yaml` |
+| AWS FSx Lustre | `isvctl/configs/providers/aws/scripts/storage/fsx-lustre/api.py` | `aws/config/storage-provider-manifest.yaml` | `aws/config/storage.yaml` |
 | VAST NFS | `isvctl/configs/providers/vast/scripts/storage/vast/api.py` | `vast/config/storage-provider-manifest.yaml` | `vast/config/storage.yaml` |
 | WEKA | `isvctl/configs/providers/weka/scripts/storage/weka/api.py` | `weka/config/storage-provider-manifest.yaml` | `weka/config/storage.yaml` |
 | **Authoring target (edit in place)** | `my-isv/scripts/storage/api.py` | `my-isv/config/storage-provider-manifest.yaml` | `my-isv/config/storage.yaml` |
@@ -78,7 +78,7 @@ Manifest (schema v1alpha2):
 - Schema: `isvctl/schemas/storage-provider-manifest.schema.json`
 - Fully-populated example: `my-isv/config/storage-provider-manifest.example.yaml`
 - Manifest → step adapter: `isvctl/configs/providers/shared/storage_manifest_to_steps.py`
-  (parses the manifest, loads no shim; drives the k8s suite via `storage-k8s.yaml`)
+  (resolves the manifest path, loads no shim; the `storage_manifest` step in `storage.yaml`)
 
 ## Session workflow
 
@@ -148,7 +148,7 @@ Open the existing files — they already contain `TODO` markers and `DEMO_MODE`:
 ```text
 isvctl/configs/providers/my-isv/
 ├── config/storage-provider-manifest.yaml   # shim.module → ../scripts/storage/api.py
-├── config/storage.yaml                     # manifest_path already set
+├── config/storage.yaml                     # storage_manifest step already points at the manifest
 └── scripts/storage/api.py                  # MyStorageApi — fill each TODO block
 ```
 
@@ -174,8 +174,8 @@ Generate `config/storage-provider-manifest.yaml` (schema **v1alpha2**) using the
 [manifest-generation.md](references/manifest-generation.md): probe the
 environment to propose field values, ask the customer for what you can't
 observe, and omit (don't guess) anything still unknown so the dependent check
-skips cleanly. Then wire `manifest_path` into a test config **only when the user
-wants to run checks** — see [config-wiring.md](references/config-wiring.md).
+skips cleanly. `config/storage.yaml` already declares the `storage_manifest` step that
+feeds it to the checks — see [config-wiring.md](references/config-wiring.md).
 
 Two files ship beside the template — use them as you fill the blank one:
 
@@ -199,20 +199,12 @@ STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/storage-provide
 | Artifact | Purpose |
 | -------- | ------- |
 | `shim.module` | Relative to manifest parent; must resolve to `api.py` with `build_api()` |
-| `manifest_path` in provider YAML | Path passed to `StorageProviderApiCheck` (on-disk now; ConfigMap mount path in prod) |
+| `storage_manifest` step in provider YAML | `STORAGE_PROVIDER_MANIFEST` resolves to the `manifest_path` passed to `StorageProviderApiCheck` (on-disk now; ConfigMap mount path in prod) |
 | Env vars in shim `__init__` | Runtime config — manifest `attributes` are **informational only** |
 | `K8S_CSI_*` env vars / config overrides | StorageClass names for the CSI/filesystem checks — set in config/env, NOT the manifest |
 
-**K8s override pattern** (from `aws/config/eks.yaml`):
-
-```yaml
-tests:
-  validations:
-    k8s_storage:
-      checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml"
-```
+**Provider wiring pattern:** the suite's `storage_provider_api` group is bound to
+the `storage_manifest` step — see [config-wiring.md](references/config-wiring.md#provider-yaml-patterns).
 
 **ConfigMap handoff** (document for customer, do not implement operator):
 
@@ -314,14 +306,14 @@ uv run pytest isvtest/tests/test_storage_quota_enforcement.py
 ## Phase 5: Targeted acceptance check (optional)
 
 Run only when the user wants end-to-end `StorageProviderApiCheck` validation.
-Requires an existing `storage.yaml` or a k8s config with `manifest_path` set.
+Requires a `storage.yaml` with a `storage_manifest` step.
 
 ```bash
 uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
 ```
 
-For K8s-integrated runs, add a `StorageProviderApiCheck` override to the
-provider's **existing** eks/k8s config — do not create a new full provider tree.
+For K8s-integrated runs, run the same `storage.yaml` with `--capability kubernetes`
+— do not create a new config or a full provider tree.
 
 **Expected CSI fallback (not a failure):**
 
@@ -342,8 +334,9 @@ volume-provisioning[<name>] SKIPPED: create_volume not implemented; observed N C
 
 ## Phase 6: Full suite (optional)
 
-Only after Phase 5 passes. Import the storage suite
-(`isvctl/configs/suites/storage.yaml`, often alongside `suites/k8s.yaml`) and align:
+Only after Phase 5 passes. Run `storage.yaml` (which imports only
+`isvctl/configs/suites/storage.yaml`, never alongside `suites/k8s.yaml`) with
+`--capability kubernetes`, and align:
 
 - StorageClass names via the `K8S_CSI_*` env vars (`K8S_CSI_BLOCK_SC`,
   `K8S_CSI_SHARED_FS_SC`, `K8S_CSI_NFS_SC`) or literal
@@ -365,7 +358,7 @@ uv run isvctl test run -f isvctl/configs/providers/my-isv/config/<k8s-or-storage
 4. **Match reference style** — env-driven config, tight IAM/API surface, `NotSupportedError` for CSI-owned lifecycle.
 5. **Do not add setup scripts** — this skill does not author provider orchestration steps.
 6. **Document env vars** in `scripts/storage/README.md` when the stub is done (in-scope).
-7. **Test harness on request** — create `storage.yaml` or k8s `manifest_path` overrides only when the user wants to run checks.
+7. **Test harness on request** — run `storage.yaml` only when the user wants to run checks; its `storage_manifest` step is already wired.
 
 ## Additional resources
 

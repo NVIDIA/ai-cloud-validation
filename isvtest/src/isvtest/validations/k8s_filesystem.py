@@ -52,6 +52,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
+import pytest
+
 from isvtest.config.settings import (
     get_k8s_csi_nfs_storage_class,
     get_k8s_csi_shared_fs_storage_class,
@@ -165,16 +167,27 @@ def stat_size_mtime_cmd(path: str) -> str:
     return f"stat -c '%s %Y' {shlex.quote(path)}"
 
 
+# The lock file is opened read-write on fd 9 and ``flock`` takes the fd: the
+# NFS client emulates flock with POSIX byte-range locks, and an exclusive one
+# needs a writable fd. BusyBox ``flock FILE`` opens read-only, which fails with
+# EBADF on NFS-backed volumes (e.g. EFS).
+_LOCK_FD = 9
+
+
 def flock_hold_command(lock_path: str) -> list[str]:
     """Container command that grabs an exclusive ``flock`` and holds it for the
     pod's lifetime (released only when the pod is deleted).
     """
-    return ["flock", "-x", lock_path, "sh", "-c", "while true; do sleep 3600; done"]
+    return [
+        "sh",
+        "-c",
+        f"exec {_LOCK_FD}<>{shlex.quote(lock_path)} && flock -x {_LOCK_FD} && while true; do sleep 3600; done",
+    ]
 
 
 def flock_nonblock_cmd(lock_path: str) -> str:
     """Try to grab an exclusive ``flock`` without blocking; non-zero on EAGAIN."""
-    return f"flock -xn {shlex.quote(lock_path)} true"
+    return f"exec {_LOCK_FD}<>{shlex.quote(lock_path)} && flock -xn {_LOCK_FD}"
 
 
 def create_files_cmd(directory: str, count: int, prefix: str = "f") -> str:
@@ -503,18 +516,20 @@ class _K8sSharedFsCheck(BaseValidation):
         return False
 
     def _ready_nodes(self) -> list[str]:
-        """Return schedulable node matching node_selector (if set), sorted for determinism."""
+        """Return schedulable node matching node_selector (if set), sorted for determinism.
+
+        Raises:
+            RuntimeError: when ``kubectl get nodes`` fails, so a broken query
+                fails the check instead of reading as "no Ready nodes".
+        """
         selector = self._node_selector()
         extra_args = ["-l", ",".join(f"{k}={v}" for k, v in sorted(selector.items()))] if selector else []
         result = run_kubectl(["get", "nodes", *extra_args, "-o", "json"])
         if result.returncode != 0:
-            self.log.warning(
-                "kubectl get nodes%s failed (rc=%s): %s",
-                f" -l {extra_args[1]}" if extra_args else "",
-                result.returncode,
-                _fmt_err(result.stderr or ""),
+            raise RuntimeError(
+                f"kubectl get nodes{f' -l {extra_args[1]}' if extra_args else ''} failed "
+                f"(rc={result.returncode}): {_fmt_err(result.stderr or '')}"
             )
-            return []
         user_tolerations = self._tolerations()
         return sorted(
             str(name)
@@ -533,12 +548,11 @@ class _K8sSharedFsCheck(BaseValidation):
 class _K8sCrossNodeCheck(_K8sSharedFsCheck):
     """Shared setup for two pods pinned to distinct nodes on one RWX PVC."""
 
-    def _two_nodes(self) -> list[str] | None:
-        """Return two distinct Ready node names, or ``None`` (after skipping)."""
+    def _two_nodes(self) -> list[str]:
+        """Return two distinct Ready node names, skipping the check when fewer are Ready."""
         nodes = self._ready_nodes()
         if len(nodes) < 2:
-            self.set_passed(f"Skipped: cross-node test requires >= 2 Ready nodes, found {len(nodes)}")
-            return None
+            pytest.skip(f"Cross-node test requires >= 2 Ready nodes, found {len(nodes)}")
         return nodes[:2]
 
     def _provision(
@@ -626,12 +640,9 @@ class K8sFileLockingCheck(_K8sCrossNodeCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
-            return
+            pytest.skip("No shared-fs/nfs StorageClass configured")
 
         nodes = self._two_nodes()
-        if nodes is None:
-            return
 
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
         pvc_size = str(self.config.get("pvc_size", self._DEFAULT_PVC_SIZE))
@@ -744,12 +755,9 @@ class K8sCrossNodeWriteVisibilityCheck(_K8sCrossNodeCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
-            return
+            pytest.skip("No shared-fs/nfs StorageClass configured")
 
         nodes = self._two_nodes()
-        if nodes is None:
-            return
 
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
         pvc_size = str(self.config.get("pvc_size", self._DEFAULT_PVC_SIZE))
@@ -838,12 +846,9 @@ class K8sCrossNodeAttrConsistencyCheck(_K8sCrossNodeCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
-            return
+            pytest.skip("No shared-fs/nfs StorageClass configured")
 
         nodes = self._two_nodes()
-        if nodes is None:
-            return
 
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
         pvc_size = str(self.config.get("pvc_size", self._DEFAULT_PVC_SIZE))
@@ -958,8 +963,7 @@ class _K8sLargeDirListingBase(_K8sSharedFsCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
-            return
+            pytest.skip("No shared-fs/nfs StorageClass configured")
 
         count = self._parse_positive_int(self._COUNT_KEY, default=self._DEFAULT_COUNT)
         if count is None:
@@ -1160,11 +1164,9 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
         self._setup_kubectl()
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared-fs/nfs StorageClass configured")
-            return
+            pytest.skip("No shared-fs/nfs StorageClass configured")
         if not _PJDFSTEST_SRC_DIR.is_dir():
-            self.set_failed(f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; run `make vendor-pjdfstest`")
-            return
+            pytest.skip(f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; run `make vendor-pjdfstest`")
 
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
         pvc_size = str(self.config.get("pvc_size", self._DEFAULT_PVC_SIZE))
@@ -1193,22 +1195,20 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
             rc, err = self._apply_posix_pod(pod, pvc_name)
             if rc != 0:
                 if self._is_podsecurity_denial(err):
-                    self.set_passed(
-                        "Skipped: cluster Pod Security admission blocked the privileged pjdfstest "
+                    pytest.skip(
+                        "Cluster Pod Security admission blocked the privileged pjdfstest "
                         f"pod (pjdfstest must run as root): {_fmt_err(err)}"
                     )
-                    return
                 self.set_failed(f"kubectl apply failed for pod {pod!r}: {_fmt_err(err)}")
                 return
 
             ready, wait_err = self._wait_ready(pod, bind_timeout)
             if not ready:
                 if self._is_podsecurity_denial(wait_err):
-                    self.set_passed(
-                        "Skipped: cluster Pod Security admission blocked the privileged pjdfstest "
+                    pytest.skip(
+                        "Cluster Pod Security admission blocked the privileged pjdfstest "
                         f"pod (pjdfstest must run as root): {_fmt_err(wait_err)}"
                     )
-                    return
                 self.set_failed(f"Pod {pod!r} did not become Ready within {bind_timeout}s: {_fmt_err(wait_err)}")
                 return
 

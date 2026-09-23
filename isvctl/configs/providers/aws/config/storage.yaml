@@ -22,6 +22,9 @@
 #   - High-speed storage (FSx for Lustre): provisioning, multiple filesystems,
 #     live expansion, root-squash (other HSS checks excluded — need a mounted
 #     client or are not exposed by managed FSx)
+#   - Storage provider API (FSx for Lustre boto3 shim): StorageProviderApiCheck
+#     via the storage_manifest step and storage-provider-manifest.yaml (see
+#     scripts/storage/fsx-lustre/)
 #
 # Block-volume steps reuse the VM scripts for launch/teardown; volume steps
 # live in scripts/storage/. FSx steps are self-contained (create → assert →
@@ -32,6 +35,12 @@
 # Usage:
 #   AWS_REGION=us-west-2 \
 #     uv run isvctl test run -f isvctl/configs/providers/aws/config/storage.yaml
+#
+# Storage provider API shim environment variables:
+#   - AWS_REGION: Region for the FSx Lustre shim (default: AWS_DEFAULT_REGION or the AWS profile's region)
+#   - FSX_DEPLOYMENT_TYPE: FSx deployment type for quota code resolution (default: PERSISTENT_2)
+#   - FSX_QUOTA_CODE: Override the quota code directly (optional)
+#   - AWS_ACCOUNT_ID: Override STS-resolved account id (optional)
 #
 # Required IAM Permissions (block volume):
 #   ec2:DescribeInstances, ec2:RunInstances, ec2:TerminateInstances,
@@ -97,6 +106,15 @@ commands:
           - "--size-gib"
           - "{{volume_size_gib}}"
         timeout: 600
+
+      # Resolves the FSx Lustre storage-provider manifest that
+      # StorageProviderApiCheck loads in-process (no AWS calls here).
+      - name: storage_manifest
+        phase: test
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        timeout: 30
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 
       - name: snapshot_lifecycle
         phase: test

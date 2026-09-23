@@ -217,12 +217,12 @@ class TestK8sCsiStorageTypesCheck:
     def test_no_storage_classes_configured_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No StorageClass configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
-        assert "no StorageClass" in check._output
 
     def test_all_configured_storage_classes_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
@@ -727,11 +727,12 @@ class TestK8sCsiStorageQuotaApiCheck:
     def test_no_storage_class_configured_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No storage_class configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_happy_path_all_subtests_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
@@ -1531,10 +1532,12 @@ class TestK8sCsiTenantScopedCredentialsCheck:
 
     def test_no_csi_drivers_skips_all_subtests(self) -> None:
         check = self._make({})
-        with patch.object(check, "run_command", side_effect=self._router(csi_drivers=[], pods_by_ns={}, pvs=[])):
+        with (
+            patch.object(check, "run_command", side_effect=self._router(csi_drivers=[], pods_by_ns={}, pvs=[])),
+            pytest.raises(pytest.skip.Exception, match="No CSIDriver objects found"),
+        ):
             check.run()
 
-        assert check.passed
         outcomes = {r["name"]: r for r in check._subtest_results}
         for name in (
             "csi-secrets-discovered",
@@ -2145,12 +2148,12 @@ class TestK8sCsiProvisioningModesCheck:
     def test_no_dynamic_sc_configured_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No dynamic_storage_class configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
-        assert "dynamic_storage_class" in check._output
 
     def test_dynamic_happy_path_static_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
@@ -2477,14 +2480,15 @@ class TestK8sCsiDriverHealthCheck:
 
     def test_skips_whole_check_when_no_storage_classes_resolve(self) -> None:
         # Blank/whitespace StorageClasses (e.g. unrendered Jinja defaults) mean
-        # the whole check is a no-op pass and no kubectl call is issued.
+        # the whole check is skipped and no kubectl call is issued.
         check = self._make({"drivers": [{"storage_classes": ["", "   "]}]})
 
-        with patch.object(check, "run_command", side_effect=AssertionError("should not query")):
+        with (
+            patch.object(check, "run_command", side_effect=AssertionError("should not query")),
+            pytest.raises(pytest.skip.Exception, match="No storage_classes configured"),
+        ):
             check.run()
 
-        assert check.passed
-        assert "no storage_classes" in check._output
         assert check._subtest_results == []
 
     def test_healthy_controller_and_daemonset_pass(self) -> None:
