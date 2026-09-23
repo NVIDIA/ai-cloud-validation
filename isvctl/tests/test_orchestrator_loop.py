@@ -1136,6 +1136,24 @@ class TestMissingStepRefDetection:
 
         assert rendered == ["--issuer-url=", "--audience=", "--target-url="]
 
+    def test_step_env_values_are_rendered_like_args(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``env:`` templates render against the context, so Terraform never sees ``{{region}}``."""
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        script = _write_script(
+            tmp_path,
+            "show_env.sh",
+            '#!/bin/sh\necho "{\\"success\\": true, \\"platform\\": \\"storage\\", \\"region\\": \\"$TF_VAR_region\\"}"\n',
+        )
+        config = RunConfig(
+            tests=ValidationConfig(settings={"region": "{{env.AWS_REGION | default('us-west-2', true)}}"})
+        )
+        steps = [StepConfig(name="show_env", command=script, phase="setup", env={"TF_VAR_region": "{{region}}"})]
+
+        results = StepExecutor().execute_steps(steps, Context(config))
+
+        assert results.success, results.steps[0].error
+        assert results.steps[0].output == {"success": True, "platform": "storage", "region": "eu-west-1"}
+
     def test_missing_ref_raised_from_render_args_directly(self) -> None:
         """_render_args raises MissingStepRefError for bare references."""
         import pytest
