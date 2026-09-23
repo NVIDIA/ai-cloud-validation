@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -37,7 +39,7 @@ _SHIM = (
 )
 
 
-def _load_shim():
+def _load_shim() -> ModuleType:
     """Load the FSx Lustre shim by path, matching manifest-loader behavior."""
     spec = importlib.util.spec_from_file_location("fsx_lustre_api_under_test", _SHIM)
     assert spec is not None and spec.loader is not None
@@ -53,15 +55,17 @@ class _FakeSession:
     """boto3 Session stand-in: a resolved region and clients that record their region."""
 
     def __init__(self, region_name: str | None) -> None:
+        """Start with the region the session resolved and no clients created."""
         self.region_name = region_name
         self.client_regions: dict[str, str | None] = {}
 
     def client(self, service: str, region_name: str | None = None) -> object:
+        """Record the region a client was created for and return a placeholder."""
         self.client_regions[service] = region_name
         return object()
 
 
-def _api(session: _FakeSession):
+def _api(session: _FakeSession) -> Any:
     """Build the shim without STS or other AWS calls."""
     return fsx.AwsFsxLustreApi(session=session, account_id="123456789012")
 

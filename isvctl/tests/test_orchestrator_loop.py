@@ -1154,6 +1154,21 @@ class TestMissingStepRefDetection:
         assert results.success, results.steps[0].error
         assert results.steps[0].output == {"success": True, "platform": "storage", "region": "eu-west-1"}
 
+    def test_step_env_render_error_fails_the_step(self) -> None:
+        """A malformed ``env:`` template fails that step like any other step failure."""
+        steps = [
+            StepConfig(
+                name="bad_env", command="true", phase="setup", env={"TF_VAR_region": "{{ region | no_such_filter }}"}
+            ),
+            StepConfig(name="after", command="true", phase="setup"),
+        ]
+
+        results = StepExecutor().execute_steps(steps, Context(RunConfig()))
+
+        assert not results.success
+        assert [s.name for s in results.steps] == ["bad_env"]
+        assert "Failed to render env" in (results.steps[0].error or "")
+
     def test_missing_ref_raised_from_render_args_directly(self) -> None:
         """_render_args raises MissingStepRefError for bare references."""
         import pytest

@@ -146,6 +146,7 @@ class TestK8sNfsMountOptionsCheckSkip:
         mock_run.assert_not_called()
 
     def test_non_nfs_fstype_skips_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A volume not mounted as NFS (e.g. wekafs) skips the whole check."""
         _clear_sc_env(monkeypatch)
         check = K8sNfsMountOptionsCheck(
             config={

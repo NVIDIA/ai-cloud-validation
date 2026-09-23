@@ -249,6 +249,21 @@ class TestSkipBehaviour:
         # Skipped before any namespace/pod work.
         mock_run.assert_not_called()
 
+    def test_cross_node_fails_when_node_query_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A broken ``kubectl get nodes`` fails the check instead of skipping it as single-node."""
+        _clear_sc_env(monkeypatch)
+        check = K8sCrossNodeWriteVisibilityCheck(config={"shared_fs_storage_class": "sc-rwx"})
+        with (
+            patch(
+                "isvtest.validations.k8s_filesystem.run_kubectl",
+                return_value=_FakeProc(returncode=1, stderr="connection refused"),
+            ),
+            patch.object(check, "run_command", return_value=_fail()),
+        ):
+            result = check.execute()
+        assert result["passed"] is False
+        assert "kubectl get nodes failed" in result["error"]
+
     def test_ready_nodes_filters_and_sorts(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _clear_sc_env(monkeypatch)
         check = K8sCrossNodeWriteVisibilityCheck(config={})
@@ -329,7 +344,8 @@ class TestNodeSelector:
         # Only Ready nodes, sorted; node-z dropped.
         assert result == ["node-x", "node-y"]
 
-    def test_ready_nodes_returns_empty_when_kubectl_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ready_nodes_raises_when_kubectl_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed node query must fail the check, not read as "fewer than two Ready nodes"."""
         check = K8sCrossNodeWriteVisibilityCheck(
             config={"shared_fs_storage_class": "sc-rwx", "node_selector": {"foo": "bar"}}
         )
@@ -340,7 +356,8 @@ class TestNodeSelector:
             stderr = "boom"
 
         monkeypatch.setattr("isvtest.validations.k8s_filesystem.run_kubectl", lambda args: _FailResult())
-        assert check._ready_nodes() == []
+        with pytest.raises(RuntimeError, match=r"kubectl get nodes -l foo=bar failed .*boom"):
+            check._ready_nodes()
 
 
 # --------------------------------------------------------------------------
