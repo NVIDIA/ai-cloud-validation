@@ -71,6 +71,13 @@ def _failing_in_init(pod: dict[str, Any]) -> bool:
     return False
 
 
+def _kubectl_status(pod: dict[str, Any], reason: str) -> str:
+    """Return the STATUS column ``kubectl get pods`` prints for a pod whose reason is ``reason``."""
+    if (pod.get("metadata") or {}).get("deletionTimestamp"):
+        return "Unknown" if (pod.get("status") or {}).get("reason") == "NodeLost" else "Terminating"
+    return f"Init:{reason}" if _failing_in_init(pod) else reason
+
+
 class K8sGpuOperatorPodsCheck(BaseValidation):
     description = "Check that all NVIDIA GPU Operator pods are healthy."
 
@@ -99,8 +106,7 @@ class K8sGpuOperatorPodsCheck(BaseValidation):
             if reason == "Running" and not _pod_is_ready(pod):
                 unhealthy.append(f"{label} (Running, not Ready)")
             elif reason not in ("Running", "Succeeded"):
-                prefix = "Init:" if _failing_in_init(pod) else ""
-                unhealthy.append(f"{label} ({prefix}{reason})")
+                unhealthy.append(f"{label} ({_kubectl_status(pod, reason)})")
 
         if unhealthy:
             self.set_failed(

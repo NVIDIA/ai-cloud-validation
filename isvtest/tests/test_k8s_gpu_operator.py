@@ -114,6 +114,25 @@ def test_gpu_operator_pods_mark_init_container_failures() -> None:
     assert "nvidia-operator-validator-abc on gpu-node-2 (Init:CrashLoopBackOff)" in check.message
 
 
+@pytest.mark.parametrize(("status_reason", "expected"), [("NodeLost", "Unknown"), (None, "Terminating")])
+def test_gpu_operator_pods_label_deleted_pods_like_kubectl(status_reason: str | None, expected: str) -> None:
+    """Verify a pod stuck in deletion is labelled Unknown/Terminating, not by its stale container state."""
+    pod = _pod(
+        "nvidia-operator-validator-abc",
+        ready=False,
+        node="gpu-node-1",
+        containerStatuses=[{"state": {"waiting": {"reason": "CrashLoopBackOff"}}}],
+    )
+    pod["metadata"]["deletionTimestamp"] = "2026-08-13T00:00:00Z"
+    if status_reason:
+        pod["status"]["reason"] = status_reason
+
+    check = _run_pods_check(pod)
+
+    assert not check.passed
+    assert f"nvidia-operator-validator-abc on gpu-node-1 ({expected})" in check.message
+
+
 def test_gpu_operator_pods_reject_running_pod_that_is_not_ready() -> None:
     """Verify a Running pod whose Ready condition is False fails the check."""
     check = _run_pods_check(_pod("nvidia-device-plugin-daemonset-abc", ready=False))
