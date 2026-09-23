@@ -167,16 +167,27 @@ def stat_size_mtime_cmd(path: str) -> str:
     return f"stat -c '%s %Y' {shlex.quote(path)}"
 
 
+# The lock file is opened read-write on fd 9 and ``flock`` takes the fd: the
+# NFS client emulates flock with POSIX byte-range locks, and an exclusive one
+# needs a writable fd. BusyBox ``flock FILE`` opens read-only, which fails with
+# EBADF on NFS-backed volumes (e.g. EFS).
+_LOCK_FD = 9
+
+
 def flock_hold_command(lock_path: str) -> list[str]:
     """Container command that grabs an exclusive ``flock`` and holds it for the
     pod's lifetime (released only when the pod is deleted).
     """
-    return ["flock", "-x", lock_path, "sh", "-c", "while true; do sleep 3600; done"]
+    return [
+        "sh",
+        "-c",
+        f"exec {_LOCK_FD}<>{shlex.quote(lock_path)} && flock -x {_LOCK_FD} && while true; do sleep 3600; done",
+    ]
 
 
 def flock_nonblock_cmd(lock_path: str) -> str:
     """Try to grab an exclusive ``flock`` without blocking; non-zero on EAGAIN."""
-    return f"flock -xn {shlex.quote(lock_path)} true"
+    return f"exec {_LOCK_FD}<>{shlex.quote(lock_path)} && flock -xn {_LOCK_FD}"
 
 
 def create_files_cmd(directory: str, count: int, prefix: str = "f") -> str:
@@ -1153,8 +1164,7 @@ class K8sPosixComplianceCheck(_K8sSharedFsCheck):
         if not sc:
             pytest.skip("No shared-fs/nfs StorageClass configured")
         if not _PJDFSTEST_SRC_DIR.is_dir():
-            self.set_failed(f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; run `make vendor-pjdfstest`")
-            return
+            pytest.skip(f"Vendored pjdfstest source not found at {_PJDFSTEST_SRC_DIR}; run `make vendor-pjdfstest`")
 
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
         pvc_size = str(self.config.get("pvc_size", self._DEFAULT_PVC_SIZE))

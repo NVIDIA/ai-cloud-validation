@@ -134,15 +134,13 @@ class TestSnippets:
         assert read_file_cmd("/data/f") == "cat /data/f"
         assert stat_size_mtime_cmd("/data/f") == "stat -c '%s %Y' /data/f"
 
-    def test_flock_helpers(self) -> None:
-        assert flock_nonblock_cmd("/data/lock") == "flock -xn /data/lock true"
+    def test_flock_helpers_lock_a_read_write_fd(self) -> None:
+        """Both helpers lock fd 9 opened read-write, which NFS needs for an exclusive lock."""
+        assert flock_nonblock_cmd("/data/lock") == "exec 9<>/data/lock && flock -xn 9"
         assert flock_hold_command("/data/lock") == [
-            "flock",
-            "-x",
-            "/data/lock",
             "sh",
             "-c",
-            "while true; do sleep 3600; done",
+            "exec 9<>/data/lock && flock -x 9 && while true; do sleep 3600; done",
         ]
 
     def test_create_files_cmd(self) -> None:
@@ -632,6 +630,18 @@ class TestPosixSkipBehaviour:
         with (
             patch.object(check, "run_command") as mock_run,
             pytest.raises(pytest.skip.Exception, match="No shared-fs/nfs StorageClass configured"),
+        ):
+            check.run()
+        mock_run.assert_not_called()
+
+    def test_missing_vendored_source_skips_without_work(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unvendored pjdfstest is a harness setup gap, not a platform failure."""
+        _clear_sc_env(monkeypatch)
+        monkeypatch.setattr("isvtest.validations.k8s_filesystem._PJDFSTEST_SRC_DIR", tmp_path / "missing")
+        check = K8sPosixComplianceCheck(config={"shared_fs_storage_class": "sc-rwx"})
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="make vendor-pjdfstest"),
         ):
             check.run()
         mock_run.assert_not_called()
