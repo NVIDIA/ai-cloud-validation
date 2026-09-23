@@ -37,10 +37,12 @@ CHANNEL_CLASSES = ["compute-domain-daemon.nvidia.com", "compute-domain-default-c
 
 
 def _result(stdout: str = "", stderr: str = "", exit_code: int = 0) -> CommandResult:
+    """Return a ``CommandResult`` with the given output and exit code."""
     return CommandResult(exit_code=exit_code, stdout=stdout, stderr=stderr, duration=0.0)
 
 
 def _listing(names: list[str]) -> str:
+    """Return a ``kubectl get -o json`` listing of objects with the given names."""
     return json.dumps({"items": [{"metadata": {"name": name}} for name in names]})
 
 
@@ -51,6 +53,7 @@ def _pod(
     waiting: str | None = None,
     claim: str | None = CLAIM_NAME,
 ) -> dict[str, Any]:
+    """Return the DRA pod as ``kubectl get pod -o json`` reports it in ``phase``."""
     status: dict[str, Any] = {"phase": phase}
     if unschedulable:
         status["conditions"] = [
@@ -64,6 +67,7 @@ def _pod(
 
 
 def _claim(*, allocated: bool = True, reserved_uid: str | None = POD_UID) -> dict[str, Any]:
+    """Return the pod's generated ResourceClaim, optionally allocated and reserved."""
     status: dict[str, Any] = {}
     if allocated:
         status["allocation"] = {"devices": {"results": [{"request": "device", "pool": "p", "device": "d-0"}]}}
@@ -76,12 +80,15 @@ class _Clock:
     """Monotonic clock that only advances when the check sleeps."""
 
     def __init__(self) -> None:
+        """Start the clock at zero."""
         self.now = 0.0
 
     def monotonic(self) -> float:
+        """Return the current fake time."""
         return self.now
 
     def sleep(self, seconds: float) -> None:
+        """Advance the fake time instead of blocking."""
         self.now += seconds
 
 
@@ -89,6 +96,7 @@ class _FakeCluster:
     """Answer the kubectl commands the check issues; defaults describe a passing GPU cluster."""
 
     def __init__(self) -> None:
+        """Describe a GA cluster whose GPU claim pod starts on the second poll."""
         self.api_versions = ["v1", "apps/v1", "resource.k8s.io/v1"]
         self.device_classes = ["gpu.nvidia.com"]
         self.slice_names = ["gpu-node-1-gpu.nvidia.com-abcde"]
@@ -100,6 +108,7 @@ class _FakeCluster:
         self.applied: list[dict[str, Any]] = []
 
     def run(self, cmd: str, timeout: int | None = None) -> CommandResult:
+        """Record ``cmd`` and answer it from ``overrides`` or the cluster state."""
         self.commands.append(cmd)
         for needle, result in self.overrides.items():
             if needle in cmd:
@@ -123,12 +132,15 @@ class _FakeCluster:
         return _result()
 
     def ran(self, needle: str) -> bool:
+        """Return whether any issued command contains ``needle``."""
         return any(needle in cmd for cmd in self.commands)
 
     def applied_kind(self, kind: str) -> dict[str, Any]:
+        """Return the applied document of the given ``kind``."""
         return next(doc for doc in self.applied if doc["kind"] == kind)
 
     def deletions(self) -> list[str]:
+        """Return the resource types deleted, in the order they were deleted."""
         return [cmd.split()[2] for cmd in self.commands if cmd.startswith("kubectl delete")]
 
 
@@ -143,6 +155,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
 
 @pytest.fixture
 def cluster() -> _FakeCluster:
+    """A cluster running the DRA driver's GPU half."""
     return _FakeCluster()
 
 
@@ -157,10 +170,12 @@ def channel_cluster() -> _FakeCluster:
 
 
 def _run(cluster: _FakeCluster, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Run the check against ``cluster`` and return its result."""
     return K8sDraCheck(runner=cluster, config=config or {}).execute()
 
 
 def _requests(cluster: _FakeCluster) -> list[dict[str, Any]]:
+    """Return the device requests of the applied ResourceClaimTemplate."""
     return cluster.applied_kind("ResourceClaimTemplate")["spec"]["spec"]["devices"]["requests"]
 
 

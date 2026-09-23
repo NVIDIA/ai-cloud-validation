@@ -78,6 +78,7 @@ class _Workload:
 
 
 def _gpu_workload(device_class: str) -> _Workload:
+    """Return the workload that lists the GPU a claim for ``device_class`` delivered."""
     return _Workload("GPU", device_class, "nvidia-smi -L && sleep 3600", "GPU ")
 
 
@@ -87,6 +88,7 @@ _CHANNEL_WORKLOAD = _Workload(
 
 
 def _load_docs(path: Path) -> list[dict[str, Any]]:
+    """Return the mapping documents of a multi-document YAML manifest."""
     return [doc for doc in yaml.safe_load_all(path.read_text()) if isinstance(doc, dict)]
 
 
