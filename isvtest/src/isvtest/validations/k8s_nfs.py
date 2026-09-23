@@ -34,6 +34,8 @@ import shlex
 import uuid
 from typing import Any, ClassVar
 
+import pytest
+
 from isvtest.config.settings import (
     get_k8s_csi_nfs_storage_class,
     get_k8s_csi_shared_fs_storage_class,
@@ -442,8 +444,7 @@ class K8sNodeKernelModulesCheck(_K8sSharedFsCheck):
             raw_modules = [raw_modules]
         modules = [str(m) for m in raw_modules if m]
         if not modules:
-            self.set_passed("Skipped: kernel_modules not configured")
-            return
+            pytest.skip("kernel_modules not configured")
 
         self._setup_kubectl()
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
@@ -620,8 +621,7 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
     def run(self) -> None:
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared_fs_storage_class / nfs_storage_class configured")
-            return
+            pytest.skip("No shared_fs_storage_class / nfs_storage_class configured")
 
         self._setup_kubectl()
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
