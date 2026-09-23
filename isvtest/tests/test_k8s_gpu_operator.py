@@ -40,10 +40,15 @@ def _fail(stdout: str = "", stderr: str = "", exit_code: int = 1) -> CommandResu
     return CommandResult(exit_code=exit_code, stdout=stdout, stderr=stderr, duration=0.0)
 
 
-def _pod(name: str, phase: str = "Running", *, ready: bool = True, **status: Any) -> dict[str, Any]:
+def _pod(
+    name: str, phase: str = "Running", *, ready: bool = True, node: str | None = None, **status: Any
+) -> dict[str, Any]:
     """Return a pod JSON item with a ``Ready`` condition."""
     condition = {"type": "Ready", "status": "True" if ready else "False"}
-    return {"metadata": {"name": name}, "status": {"phase": phase, "conditions": [condition], **status}}
+    pod: dict[str, Any] = {"metadata": {"name": name}, "status": {"phase": phase, "conditions": [condition], **status}}
+    if node:
+        pod["spec"] = {"nodeName": node}
+    return pod
 
 
 def _run_pods_check(*pods: dict[str, Any]) -> K8sGpuOperatorPodsCheck:
@@ -79,14 +84,34 @@ def test_gpu_operator_pods_reject_crashlooping_pod_beside_healthy_one() -> None:
         _pod(
             "nvidia-driver-daemonset-abc",
             ready=False,
+            node="gpu-node-1",
             containerStatuses=[{"state": {"waiting": {"reason": "CrashLoopBackOff"}}}],
         ),
     )
 
     assert not check.passed
     assert check.message == (
-        "1 of 2 GPU Operator pods unhealthy in 'gpu-operator': nvidia-driver-daemonset-abc (CrashLoopBackOff)"
+        "1 of 2 GPU Operator pods unhealthy in 'gpu-operator': nvidia-driver-daemonset-abc on gpu-node-1 (CrashLoopBackOff)"
     )
+
+
+def test_gpu_operator_pods_mark_init_container_failures() -> None:
+    """Verify a validator crashlooping in an init container is reported like kubectl's STATUS column."""
+    check = _run_pods_check(
+        _pod(
+            "nvidia-operator-validator-abc",
+            "Pending",
+            ready=False,
+            node="gpu-node-2",
+            initContainerStatuses=[
+                {"name": "driver-validation", "state": {"terminated": {"reason": "Completed"}}},
+                {"name": "cuda-validation", "state": {"waiting": {"reason": "CrashLoopBackOff"}}},
+            ],
+        ),
+    )
+
+    assert not check.passed
+    assert "nvidia-operator-validator-abc on gpu-node-2 (Init:CrashLoopBackOff)" in check.message
 
 
 def test_gpu_operator_pods_reject_running_pod_that_is_not_ready() -> None:

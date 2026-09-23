@@ -60,6 +60,17 @@ def _pod_is_ready(pod: dict[str, Any]) -> bool:
     return False
 
 
+def _failing_in_init(pod: dict[str, Any]) -> bool:
+    """Return True when ``pod_status_reason`` would report an init-container state."""
+    for container_status in (pod.get("status") or {}).get("initContainerStatuses") or []:
+        state = container_status.get("state") or {}
+        if (state.get("waiting") or {}).get("reason"):
+            return True
+        if (state.get("terminated") or {}).get("reason") not in (None, "Completed"):
+            return True
+    return False
+
+
 class K8sGpuOperatorPodsCheck(BaseValidation):
     description = "Check that all NVIDIA GPU Operator pods are healthy."
 
@@ -82,11 +93,14 @@ class K8sGpuOperatorPodsCheck(BaseValidation):
         unhealthy = []
         for pod in pods:
             name = (pod.get("metadata") or {}).get("name", "unknown")
+            node = (pod.get("spec") or {}).get("nodeName")
+            label = f"{name} on {node}" if node else name
             reason = pod_status_reason(pod)
             if reason == "Running" and not _pod_is_ready(pod):
-                unhealthy.append(f"{name} (Running, not Ready)")
+                unhealthy.append(f"{label} (Running, not Ready)")
             elif reason not in ("Running", "Succeeded"):
-                unhealthy.append(f"{name} ({reason})")
+                prefix = "Init:" if _failing_in_init(pod) else ""
+                unhealthy.append(f"{label} ({prefix}{reason})")
 
         if unhealthy:
             self.set_failed(
