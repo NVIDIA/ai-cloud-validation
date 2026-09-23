@@ -80,7 +80,7 @@ class K8sGpuOperatorPodsCheck(BaseValidation):
             label = f"{name} on {node}" if node else name
             reason = pod_status_reason(pod)
             if reason == "Running" and not pod_is_ready(pod):
-                unhealthy.append(f"{label} (Running, not Ready)")
+                unhealthy.append(f"{label} ({pod_kubectl_status(pod)}, not Ready)")
             elif reason not in ("Running", "Succeeded"):
                 unhealthy.append(f"{label} ({pod_kubectl_status(pod)})")
 

@@ -141,6 +141,17 @@ def test_gpu_operator_pods_reject_running_pod_that_is_not_ready() -> None:
     assert "nvidia-device-plugin-daemonset-abc (Running, not Ready)" in check.message
 
 
+def test_gpu_operator_pods_label_deleted_unready_running_pod_as_terminating() -> None:
+    """Verify a deleting pod that is still Running but not Ready reports Terminating."""
+    pod = _pod("nvidia-device-plugin-daemonset-abc", ready=False)
+    pod["metadata"]["deletionTimestamp"] = "2026-08-13T00:00:00Z"
+
+    check = _run_pods_check(pod)
+
+    assert not check.passed
+    assert "nvidia-device-plugin-daemonset-abc (Terminating, not Ready)" in check.message
+
+
 def test_gpu_operator_pods_accept_completed_validator_pods() -> None:
     """Verify one-shot validator pods that succeeded count as healthy."""
     check = _run_pods_check(_pod("gpu-operator-1"), _pod("nvidia-cuda-validator-abc", "Succeeded", ready=False))
