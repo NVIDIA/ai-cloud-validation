@@ -494,6 +494,44 @@ def test_resolve_entries_is_quiet_when_the_run_has_no_steps(
     assert "default(" not in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("step_phases", "skipped_steps"),
+    [
+        pytest.param({"setup_cluster": "setup", "storage_manifest": "test"}, set(), id="phase-not-requested"),
+        pytest.param({"storage_manifest": "test"}, {"setup_cluster"}, id="skipped-by-capability"),
+    ],
+)
+def test_resolve_entries_is_quiet_for_a_configured_step_that_did_not_run(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    step_phases: dict[str, str],
+    skipped_steps: set[str],
+) -> None:
+    """A declared step with no output this invocation is the designed fallback, not a typo.
+
+    `--phase test` leaves setup steps unrun and a capability gate skips a
+    kubernetes-only fixture, while other steps still produce output - so the
+    empty-steps rule alone would report every reference to the unrun step.
+    """
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    entry = _entry(params={"storage_class": "{{ steps.setup_cluster.csi.block_sc | default('', true) }}"})
+    steps = {"storage_manifest": {"storage": {"manifest_path": "/m.yaml"}}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        resolved = _resolve(
+            entry,
+            step_outputs=steps,
+            step_phases=step_phases,
+            skipped_steps=skipped_steps,
+            render_context={"steps": steps},
+        )
+
+    assert resolved.rendered_params is not None
+    assert resolved.rendered_params["storage_class"] == ""
+    assert "default(" not in caplog.text
+
+
 def test_resolve_entries_keeps_masked_warnings_when_a_later_reference_fails(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,

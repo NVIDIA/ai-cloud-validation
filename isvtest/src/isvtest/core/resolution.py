@@ -42,6 +42,7 @@ DECLARABLE_CAPABILITIES = frozenset({"vm", "bare_metal", "kubernetes", "slurm"})
 
 _masked_defaults: ContextVar[list[tuple[str, tuple[str, ...]]] | None] = ContextVar("_masked_defaults", default=None)
 _render_context: ContextVar[Mapping[str, Any] | None] = ContextVar("_render_context", default=None)
+_configured_steps: ContextVar[AbstractSet[str]] = ContextVar("_configured_steps", default=frozenset())
 
 
 def requires_error(values: Any) -> str | None:
@@ -279,6 +280,7 @@ def resolve_entries(
     """
     resolved: list[ResolvedEntry] = []
     masked_defaults: dict[str, list[str]] = {}
+    configured_steps = frozenset(step_phases) | frozenset(skipped_steps)
     env = _create_jinja_env()
 
     for entry in entries:
@@ -369,7 +371,7 @@ def resolve_entries(
             continue
 
         try:
-            rendered_params = _render_params(env, entry, render_context, masked_defaults)
+            rendered_params = _render_params(env, entry, render_context, masked_defaults, configured_steps)
         except Exception as exc:
             resolved.append(
                 _error(
@@ -540,21 +542,26 @@ def _render_params(
     entry: ValidationEntry,
     render_context: Mapping[str, Any],
     masked_defaults: dict[str, list[str]],
+    configured_steps: AbstractSet[str],
 ) -> dict[str, Any]:
     """Render validation parameters recursively.
 
     Every reference a ``default(...)`` filter masks is recorded in
     ``masked_defaults`` as ``<validation>.<parameter path> = <template>``,
-    keyed by the description of what is missing.
+    keyed by the description of what is missing. ``configured_steps`` names
+    the steps the config declares, so a reference to one that has not run in
+    this invocation is not reported as a mistake.
     """
-    token = _render_context.set(render_context)
+    context_token = _render_context.set(render_context)
+    steps_token = _configured_steps.set(configured_steps)
     try:
         return {
             key: _render_value(env, value, render_context, f"{entry.name}.{key}", masked_defaults)
             for key, value in entry.params_template.items()
         }
     finally:
-        _render_context.reset(token)
+        _configured_steps.reset(steps_token)
+        _render_context.reset(context_token)
 
 
 def _render_value(
@@ -621,6 +628,21 @@ def _looked_up_in_nothing(value: Undefined) -> bool:
     )
 
 
+def _is_configured_step_that_did_not_run(value: Undefined) -> bool:
+    """Return whether ``steps.<name>`` names a step the config declares but has no output yet.
+
+    A step skipped by capability, by ``skip: true``, or because its phase was
+    not requested (``--phase test``) is absent from ``steps`` by design, so
+    falling back to the default is the intended path, not a misspelled step.
+    """
+    context = _render_context.get()
+    return (
+        context is not None
+        and value._undefined_obj is context.get("steps")
+        and value._undefined_name in _configured_steps.get()
+    )
+
+
 def _describe_missing(template: str, name: str, available: tuple[str, ...]) -> str:
     """Say which key is missing, where it was looked up, and what it may be a typo of.
 
@@ -648,7 +670,12 @@ def _warning_default(value: Any, default_value: Any = "", boolean: bool = False)
     """
     if isinstance(value, Undefined):
         collector = _masked_defaults.get()
-        if collector is not None and value._undefined_message and not _looked_up_in_nothing(value):
+        if (
+            collector is not None
+            and value._undefined_message
+            and not _looked_up_in_nothing(value)
+            and not _is_configured_step_that_did_not_run(value)
+        ):
             container = value._undefined_obj
             available = tuple(str(key) for key in container) if isinstance(container, Mapping) else ()
             collector.append((str(value._undefined_name), available))
