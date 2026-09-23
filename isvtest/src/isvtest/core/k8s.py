@@ -414,6 +414,33 @@ def pod_status_reason(pod: dict[str, Any]) -> str:
     return str(status.get("reason") or phase)
 
 
+def pod_kubectl_status(pod: dict[str, Any]) -> str:
+    """Return ``pod_status_reason`` as ``kubectl get pods`` STATUS prints it.
+
+    Adds the ``Init:`` prefix for init-container failures and reports pods
+    marked for deletion as ``Terminating`` (``Unknown`` when the node was lost).
+    """
+    if (pod.get("metadata") or {}).get("deletionTimestamp"):
+        return "Unknown" if (pod.get("status") or {}).get("reason") == "NodeLost" else "Terminating"
+    reason = pod_status_reason(pod)
+    for container_status in (pod.get("status") or {}).get("initContainerStatuses") or []:
+        state = container_status.get("state") or {}
+        waiting_reason = (state.get("waiting") or {}).get("reason")
+        terminated_reason = (state.get("terminated") or {}).get("reason")
+        if waiting_reason or (terminated_reason and terminated_reason != "Completed"):
+            return f"Init:{reason}"
+    return reason
+
+
+def pod_is_ready(pod: dict[str, Any]) -> bool:
+    """Return whether a pod's ``Ready`` condition has ``status == "True"``."""
+    conditions = (pod.get("status") or {}).get("conditions") or []
+    return any(
+        isinstance(condition, dict) and condition.get("type") == "Ready" and condition.get("status") == "True"
+        for condition in conditions
+    )
+
+
 def job_terminal_status(payload: dict[str, Any]) -> str | None:
     """Return ``"Complete"`` or ``"Failed"`` if either appears in ``.status.conditions[].type``.
 

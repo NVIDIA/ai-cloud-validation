@@ -46,6 +46,7 @@ from isvtest.core.k8s import (
     kubectl_items_or_fail,
     kubectl_payload_or_none,
     names_from_items,
+    pod_is_ready,
     render_k8s_manifest,
 )
 from isvtest.core.ssh import (
@@ -2303,15 +2304,6 @@ def _pod_node(pod: dict[str, Any]) -> str:
     return node if isinstance(node, str) else ""
 
 
-def _pod_is_ready(pod: dict[str, Any]) -> bool:
-    """Return whether a pod reports a Ready condition."""
-    conditions = (pod.get("status") or {}).get("conditions") or []
-    return any(
-        isinstance(condition, dict) and condition.get("type") == READY and condition.get("status") == "True"
-        for condition in conditions
-    )
-
-
 def _daemons_by_node(pods: list[dict[str, Any]], *, terminating: bool) -> dict[str, dict[str, Any]]:
     """Return the domain's daemon pod per node, on one side of the teardown line.
 
@@ -2480,7 +2472,7 @@ def _is_ready_member(state: _DomainState, node: str) -> bool:
     for with no daemon behind it is a defect, not a rounding error.
     """
     pod = state.daemons.get(node)
-    return state.members.get(node) == READY and pod is not None and _pod_is_ready(pod)
+    return state.members.get(node) == READY and pod is not None and pod_is_ready(pod)
 
 
 def _survivor_collapse(state: _DomainState, target: str) -> str | None:
@@ -2926,7 +2918,7 @@ class ImexDaemonRecoveryCheck(_ComputeDomainCheck):
             if bool(replacement_uid) and replacement_uid != terminated_uid:
                 if rescheduled_at is None:
                     rescheduled_at = elapsed
-                if _pod_is_ready(replacement) and state.members.get(target) == READY:
+                if pod_is_ready(replacement) and state.members.get(target) == READY:
                     self._report_recovered(target, elapsed, rescheduled_at, members, timeout)
                     return
 

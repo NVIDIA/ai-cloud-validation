@@ -29,6 +29,8 @@ from isvtest.core.k8s import (
     names_from_items,
     parse_kubectl_json,
     parse_kubectl_json_items,
+    pod_is_ready,
+    pod_kubectl_status,
     pod_status_reason,
 )
 from isvtest.core.validation import BaseValidation
@@ -50,32 +52,6 @@ class K8sGpuOperatorNamespaceCheck(BaseValidation):
             return
 
         self.set_passed(f"GPU Operator namespace '{namespace}' exists")
-
-
-def _pod_is_ready(pod: dict[str, Any]) -> bool:
-    """Return True when a pod's ``Ready`` condition has ``status == "True"``."""
-    for condition in (pod.get("status") or {}).get("conditions") or []:
-        if isinstance(condition, dict) and condition.get("type") == "Ready":
-            return condition.get("status") == "True"
-    return False
-
-
-def _failing_in_init(pod: dict[str, Any]) -> bool:
-    """Return True when ``pod_status_reason`` would report an init-container state."""
-    for container_status in (pod.get("status") or {}).get("initContainerStatuses") or []:
-        state = container_status.get("state") or {}
-        if (state.get("waiting") or {}).get("reason"):
-            return True
-        if (state.get("terminated") or {}).get("reason") not in (None, "Completed"):
-            return True
-    return False
-
-
-def _kubectl_status(pod: dict[str, Any], reason: str) -> str:
-    """Return the STATUS column ``kubectl get pods`` prints for a pod whose reason is ``reason``."""
-    if (pod.get("metadata") or {}).get("deletionTimestamp"):
-        return "Unknown" if (pod.get("status") or {}).get("reason") == "NodeLost" else "Terminating"
-    return f"Init:{reason}" if _failing_in_init(pod) else reason
 
 
 class K8sGpuOperatorPodsCheck(BaseValidation):
@@ -103,10 +79,10 @@ class K8sGpuOperatorPodsCheck(BaseValidation):
             node = (pod.get("spec") or {}).get("nodeName")
             label = f"{name} on {node}" if node else name
             reason = pod_status_reason(pod)
-            if reason == "Running" and not _pod_is_ready(pod):
+            if reason == "Running" and not pod_is_ready(pod):
                 unhealthy.append(f"{label} (Running, not Ready)")
             elif reason not in ("Running", "Succeeded"):
-                unhealthy.append(f"{label} ({_kubectl_status(pod, reason)})")
+                unhealthy.append(f"{label} ({pod_kubectl_status(pod)})")
 
         if unhealthy:
             self.set_failed(

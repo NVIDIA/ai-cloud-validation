@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -38,6 +39,8 @@ from isvtest.core.k8s import (
     parse_kubectl_json_items,
     parse_pod_state,
     parse_server_version,
+    pod_is_ready,
+    pod_kubectl_status,
     pod_state_from_result,
     pod_status_reason,
     wait_for_multiple_pods_completion,
@@ -413,6 +416,64 @@ class TestPodStatusReason:
     def test_returns_unknown_when_phase_missing(self) -> None:
         """Verify returns unknown when phase missing."""
         assert pod_status_reason({}) == "Unknown"
+
+
+class TestPodKubectlStatus:
+    """Tests for ``pod_kubectl_status`` Init:/Terminating/Unknown wording."""
+
+    def test_prefixes_init_container_failures(self) -> None:
+        """Verify an init-container failure is prefixed with ``Init:``."""
+        pod = {
+            "status": {
+                "phase": "Pending",
+                "initContainerStatuses": [
+                    {"state": {"terminated": {"reason": "Completed"}}},
+                    {"state": {"waiting": {"reason": "CrashLoopBackOff"}}},
+                ],
+            }
+        }
+        assert pod_kubectl_status(pod) == "Init:CrashLoopBackOff"
+
+    def test_main_container_reason_is_unprefixed(self) -> None:
+        """Verify a main-container reason is returned as-is once init containers completed."""
+        pod = {
+            "status": {
+                "phase": "Running",
+                "initContainerStatuses": [{"state": {"terminated": {"reason": "Completed"}}}],
+                "containerStatuses": [{"state": {"waiting": {"reason": "CrashLoopBackOff"}}}],
+            }
+        }
+        assert pod_kubectl_status(pod) == "CrashLoopBackOff"
+
+    @pytest.mark.parametrize(("status_reason", "expected"), [("NodeLost", "Unknown"), (None, "Terminating")])
+    def test_deleted_pods_report_terminating_or_unknown(self, status_reason: str | None, expected: str) -> None:
+        """Verify a pod marked for deletion is not labelled by its stale container state."""
+        status: dict[str, Any] = {"containerStatuses": [{"state": {"waiting": {"reason": "CrashLoopBackOff"}}}]}
+        if status_reason:
+            status["reason"] = status_reason
+        pod = {"metadata": {"deletionTimestamp": "2026-08-13T00:00:00Z"}, "status": status}
+        assert pod_kubectl_status(pod) == expected
+
+
+class TestPodIsReady:
+    """Tests for ``pod_is_ready``."""
+
+    @pytest.mark.parametrize(
+        ("conditions", "expected"),
+        [
+            ([{"type": "Ready", "status": "True"}], True),
+            ([{"type": "Ready", "status": "False"}], False),
+            ([{"type": "PodScheduled", "status": "True"}], False),
+            ([], False),
+        ],
+    )
+    def test_reads_ready_condition(self, conditions: list[dict[str, str]], expected: bool) -> None:
+        """Verify only a ``Ready=True`` condition counts as ready."""
+        assert pod_is_ready({"status": {"conditions": conditions}}) is expected
+
+    def test_missing_status_is_not_ready(self) -> None:
+        """Verify a pod without status is not ready."""
+        assert pod_is_ready({}) is False
 
 
 class TestPodStateFromResult:
