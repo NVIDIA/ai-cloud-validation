@@ -370,7 +370,7 @@ class StepExecutor:
         # Build environment
         env = os.environ.copy()
         if step.env:
-            env.update(step.env)
+            env.update({key: context.render_string(value) for key, value in step.env.items()})
 
         # Log command with sensitive args masked
         masked_cmd = mask_sensitive_args(cmd_parts, step.sensitive_args)
