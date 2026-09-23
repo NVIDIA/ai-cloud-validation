@@ -165,7 +165,10 @@ def test_storage_suite_templates_read_the_suite_cluster_fixture() -> None:
 
 @pytest.mark.parametrize(
     "config",
-    ["aws/config/storage.yaml", "my-isv/config/storage.yaml", "vast/config/storage.yaml", "weka/config/storage.yaml"],
+    sorted(
+        str(manifest.relative_to(CONFIGS_ROOT / "providers").with_name("storage.yaml"))
+        for manifest in (CONFIGS_ROOT / "providers").glob("*/config/storage-provider-manifest.yaml")
+    ),
 )
 def test_storage_shim_configs_declare_the_manifest_step(config: str) -> None:
     """The storage-provider checks bind to storage_manifest; a config shipping a shim must declare it.
