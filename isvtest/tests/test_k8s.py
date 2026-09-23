@@ -35,6 +35,7 @@ from isvtest.core.k8s import (
     get_kubectl_command,
     is_k8s_available,
     kubectl_items_or_fail,
+    node_is_ready,
     parse_kubectl_json,
     parse_kubectl_json_items,
     parse_pod_state,
@@ -474,6 +475,27 @@ class TestPodIsReady:
     def test_missing_status_is_not_ready(self) -> None:
         """Verify a pod without status is not ready."""
         assert pod_is_ready({}) is False
+
+
+class TestNodeIsReady:
+    """Tests for ``node_is_ready``."""
+
+    @pytest.mark.parametrize(
+        ("conditions", "expected"),
+        [
+            ([{"type": "Ready", "status": "True"}], True),
+            ([{"type": "Ready", "status": "False"}], False),
+            ([{"type": "Ready", "status": "Unknown"}], False),
+            ([], False),
+        ],
+    )
+    def test_reads_ready_condition(self, conditions: list[dict[str, str]], expected: bool) -> None:
+        """Verify only a ``Ready=True`` condition counts as ready."""
+        assert node_is_ready({"status": {"conditions": conditions}}) is expected
+
+    def test_missing_status_is_not_ready(self) -> None:
+        """Verify a node without status is not ready."""
+        assert node_is_ready({}) is False
 
 
 class TestPodStateFromResult:

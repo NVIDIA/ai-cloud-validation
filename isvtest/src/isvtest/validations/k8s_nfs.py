@@ -42,6 +42,7 @@ from isvtest.core.k8s import (
     get_kubectl_base_shell,
     get_kubectl_command,
     kubectl_items_or_empty,
+    node_is_ready,
     render_k8s_manifest,
     run_kubectl,
 )
@@ -311,14 +312,6 @@ class _K8sSharedFsCheck(BaseValidation):
         )
 
     @staticmethod
-    def _item_is_ready(node_item: dict[str, Any]) -> bool:
-        """Return True when a node item's ``Ready`` condition has ``status == "True"``."""
-        for condition in (node_item.get("status") or {}).get("conditions") or []:
-            if isinstance(condition, dict) and condition.get("type") == "Ready":
-                return condition.get("status") == "True"
-        return False
-
-    @staticmethod
     def _has_untolerated_noexecute_taint(
         node_item: dict[str, Any],
         user_tolerations: list[dict[str, Any]],
@@ -355,7 +348,7 @@ class _K8sSharedFsCheck(BaseValidation):
         return sorted(
             str(name)
             for item in kubectl_items_or_empty(result)
-            if self._item_is_ready(item)
+            if node_is_ready(item)
             and not self._has_untolerated_noexecute_taint(item, user_tolerations)
             and (name := (item.get("metadata") or {}).get("name"))
         )

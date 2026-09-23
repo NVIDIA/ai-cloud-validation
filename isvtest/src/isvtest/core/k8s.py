@@ -432,13 +432,23 @@ def pod_kubectl_status(pod: dict[str, Any]) -> str:
     return reason
 
 
-def pod_is_ready(pod: dict[str, Any]) -> bool:
-    """Return whether a pod's ``Ready`` condition has ``status == "True"``."""
-    conditions = (pod.get("status") or {}).get("conditions") or []
+def _ready_condition_is_true(item: dict[str, Any]) -> bool:
+    """Return whether an API object's ``Ready`` condition has ``status == "True"``."""
+    conditions = (item.get("status") or {}).get("conditions") or []
     return any(
         isinstance(condition, dict) and condition.get("type") == "Ready" and condition.get("status") == "True"
         for condition in conditions
     )
+
+
+def pod_is_ready(pod: dict[str, Any]) -> bool:
+    """Return whether a pod's ``Ready`` condition has ``status == "True"``."""
+    return _ready_condition_is_true(pod)
+
+
+def node_is_ready(node: dict[str, Any]) -> bool:
+    """Return whether a node's ``Ready`` condition has ``status == "True"``."""
+    return _ready_condition_is_true(node)
 
 
 def job_terminal_status(payload: dict[str, Any]) -> str | None:
