@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 import shlex
 from typing import ClassVar
 
@@ -23,6 +24,11 @@ DEFAULT_EXPECTED_METRICS = [
     "apiserver_request_total",
     "apiserver_request_duration_seconds",
 ]
+
+REQUIRED_METRIC_LABELS = {
+    "apiserver_request_total": frozenset({"code", "resource", "scope", "verb"}),
+    "apiserver_request_duration_seconds": frozenset({"resource", "scope", "verb"}),
+}
 
 
 class K8sApiServerMetricsCheck(BaseValidation):
@@ -75,6 +81,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
         has_help = False
         has_type = False
         metric_names = set()
+        metric_labels: dict[str, set[str]] = {}
 
         for line in output.splitlines():
             if line.startswith("# HELP "):
@@ -82,9 +89,13 @@ class K8sApiServerMetricsCheck(BaseValidation):
             elif line.startswith("# TYPE "):
                 has_type = True
             elif line and not line.startswith("#"):
-                parts = line.split("{")[0].split()
+                metric_name, _, label_text = line.partition("{")
+                parts = metric_name.split()
                 if parts:
                     metric_names.add(parts[0])
+                    metric_labels.setdefault(parts[0], set()).update(
+                        match.group(1) for match in re.finditer(r"([a-zA-Z_][a-zA-Z0-9_]*)=\"", label_text)
+                    )
 
         if not has_help or not has_type or not metric_names:
             self.set_failed(
@@ -97,6 +108,22 @@ class K8sApiServerMetricsCheck(BaseValidation):
 
         if missing:
             self.set_failed(f"Missing expected metrics: {', '.join(missing)}")
+            return
+
+        missing_labels = []
+        for expected_metric, required_labels in REQUIRED_METRIC_LABELS.items():
+            if expected_metric not in expected_metrics:
+                continue
+            matching_labels = [
+                labels
+                for name, labels in metric_labels.items()
+                if name == expected_metric or name.startswith(f"{expected_metric}_")
+            ]
+            if not any(required_labels <= labels for labels in matching_labels):
+                missing_labels.append(f"{expected_metric}: {', '.join(sorted(required_labels))}")
+
+        if missing_labels:
+            self.set_failed(f"Expected SLO labels missing: {'; '.join(missing_labels)}")
             return
 
         self.set_passed(f"API server metrics endpoint is valid Prometheus format with {len(metric_names)} metrics")
