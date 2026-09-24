@@ -390,7 +390,9 @@ module "eks" {
     gpu = {
       name           = "gpu"
       instance_types = var.gpu_node_instance_types
-      ami_type       = "AL2_x86_64_GPU"
+      # AL2 accelerated AMIs stopped at Kubernetes 1.32. AL2023 NVIDIA AMIs
+      # include the driver and container toolkit for supported GPU instances.
+      ami_type = "AL2023_x86_64_NVIDIA"
 
       min_size     = var.gpu_node_min_size
       max_size     = var.gpu_node_max_size
@@ -568,10 +570,12 @@ resource "helm_release" "gpu_operator" {
   # GPU Operator configuration
   values = [yamlencode({
     driver = {
-      enabled = true
+      # The EKS AL2023 NVIDIA AMI supplies the host driver.
+      enabled = false
     }
     toolkit = {
-      enabled = true
+      # The EKS AL2023 NVIDIA AMI supplies the container toolkit.
+      enabled = false
     }
     devicePlugin = {
       enabled = true

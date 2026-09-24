@@ -54,7 +54,7 @@ variable "instance_types" {
 variable "ami_type" {
   description = <<-EOT
     EKS AMI type. Use AL2023_x86_64_STANDARD or AL2023_ARM_64_STANDARD for
-    CPU nodes, AL2_x86_64_GPU for legacy GPU nodes. See
+    CPU nodes, or AL2023_x86_64_NVIDIA for x86_64 GPU nodes. See
     https://docs.aws.amazon.com/eks/latest/APIReference/API_Nodegroup.html
   EOT
   type        = string

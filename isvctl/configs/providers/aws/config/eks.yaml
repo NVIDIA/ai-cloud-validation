@@ -112,7 +112,7 @@ commands:
           NODE_POOL_STATE_FILE: "terraform-gpu.tfstate"
           TF_VAR_test_pool_name: "isv-test-gpu-pool"
           TF_VAR_test_pool_instance_types: '["g5.2xlarge"]'
-          TF_VAR_test_pool_ami_type: "AL2_x86_64_GPU"
+          TF_VAR_test_pool_ami_type: "AL2023_x86_64_NVIDIA"
           TF_VAR_test_pool_desired_size: "1"
           TF_VAR_test_pool_labels_json: '{"isv.ncp.validation/workload":"gpu-compute"}'
           TF_VAR_test_pool_node_type: "gpu"
