@@ -218,6 +218,23 @@ class TestContainerdLevel:
         assert check.passed
         assert "containerd" in check.message
 
+    def test_passes_with_containerd_plugin_only(self) -> None:
+        """A registered containerd plugin is valid without a config file match."""
+        check = _patched_run(
+            _make_check(),
+            {
+                "docker --version": "__not_found__",
+                "nerdctl --version": "__not_found__",
+                "containerd --version": "containerd 1.7.0",
+                "nvidia-container-runtime --version": "NVIDIA Container Runtime 1.19.0",
+                "ctr plugins ls": "io.containerd.grpc.v1.cri nvidia",
+                "grep -rl": "",
+                "__default__": "__not_found__",
+            },
+        )
+        assert check.passed
+        assert "containerd" in check.message
+
     def test_fails_when_containerd_present_but_no_gpu_operator_binary(self) -> None:
         check = _patched_run(
             _make_check(),

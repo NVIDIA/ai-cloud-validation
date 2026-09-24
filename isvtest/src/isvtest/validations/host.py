@@ -1965,9 +1965,9 @@ class ContainerRuntimeCheck(BaseValidation):
         # Step 2: verify containerd is configured to use it as an OCI runtime.
         config_out = self._check_cmd(
             ssh,
-            "grep -rl 'nvidia' /etc/containerd/ 2>/dev/null | head -1 || "
-            "ctr plugins ls 2>/dev/null | grep -i nvidia | head -1 || "
-            "echo '__not_configured__'",
+            "{ grep -rl 'nvidia' /etc/containerd/ 2>/dev/null; "
+            "ctr plugins ls 2>/dev/null | grep -i nvidia; } | head -1 | "
+            "grep . || echo '__not_configured__'",
         )
         return "__not_configured__" not in config_out and config_out.strip() != ""
 
