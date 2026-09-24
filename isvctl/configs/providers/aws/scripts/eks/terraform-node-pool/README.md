@@ -32,7 +32,7 @@ same `NODE_POOL_STATE_FILE` as its create step.
 | `environment`     | `dev`                    | Default tag.                                                 |
 | `node_pool_name`  | `isv-test-pool`          | EKS `nodegroup` name; visible as `eks.amazonaws.com/nodegroup=<name>`. |
 | `instance_types`  | `["m6i.large"]`          | CPU default; set to `["c5n.18xlarge"]` etc. for high-perf-net. |
-| `ami_type`        | `AL2023_x86_64_STANDARD` | Use `AL2_x86_64_GPU` for legacy GPU pools.                   |
+| `ami_type`        | `AL2023_x86_64_STANDARD` | Use `AL2023_x86_64_NVIDIA` for x86_64 GPU pools.             |
 | `capacity_type`   | `ON_DEMAND`              | `ON_DEMAND` or `SPOT`.                                       |
 | `desired_size`    | `1`                      | `min`/`max`/`desired` are pinned to this value.              |
 | `labels`          | `{}`                     | Merged on top of stable `isv.ncp.validation/pool` markers.   |

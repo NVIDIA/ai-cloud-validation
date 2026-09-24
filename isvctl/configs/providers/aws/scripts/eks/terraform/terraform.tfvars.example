@@ -27,7 +27,7 @@ single_nat_gateway = true  # Set to false for production (HA NAT)
 # EKS Configuration
 # -----------------------------------------------------------------------------
 
-kubernetes_version = "1.32"
+kubernetes_version = "1.35"
 
 # IP allowlist for EKS API server access
 # REQUIRED: Set to your IP address(es) to access the EKS API
