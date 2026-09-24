@@ -297,6 +297,9 @@ tests:
           requires: [kubernetes]
           # StorageClass names by type; omit (or leave empty) to skip that type.
           # Env overrides: K8S_CSI_BLOCK_SC, K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
+          # K8S23 requires all three capability classes; a missing class must
+          # fail this check instead of being silently reported as skipped.
+          required_storage_types: ["block", "shared-fs", "nfs"]
           block_storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
