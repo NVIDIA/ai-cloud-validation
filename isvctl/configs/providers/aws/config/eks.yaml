@@ -254,6 +254,7 @@ tests:
   description: "AWS EKS GPU cluster validation"
 
   settings:
+    show_skipped_tests: true
     breakfix_node: "{{env.ISVTEST_BREAKFIX_NODE | default('', true)}}"
     region: "{{env.AWS_REGION | default('us-west-2', true)}}"
 
