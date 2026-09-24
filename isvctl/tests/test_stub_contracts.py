@@ -46,6 +46,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS_DIR = REPO_ROOT / "isvctl" / "configs"
 
 
+def test_k8s_conformance_reports_individual_tests() -> None:
+    """The conformance check should preserve its internal test outcomes."""
+    suite = yaml.safe_load((CONFIGS_DIR / "suites" / "k8s.yaml").read_text())
+
+    check = suite["tests"]["validations"]["k8s_conformance"]["checks"]["K8sCncfConformanceCheck"]
+    assert check["report_individual_tests"] is True
+
+
 # --------------------------------------------------------------------------
 # Static argparse extraction
 # --------------------------------------------------------------------------
