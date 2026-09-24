@@ -124,11 +124,11 @@ class K8sNcclMultiNodeWorkload(BaseWorkloadCheck):
 
         gpu_nodes = get_gpu_nodes()
         if not gpu_nodes:
-            self.set_passed("Skipped: No GPU nodes found in cluster")
+            self.set_skipped("Skipped: No GPU nodes found in cluster")
             return
 
         if len(gpu_nodes) < 2:
-            self.set_passed(f"Skipped: Multi-node NCCL test requires at least 2 GPU nodes, found {len(gpu_nodes)}")
+            self.set_skipped(f"Skipped: Multi-node NCCL test requires at least 2 GPU nodes, found {len(gpu_nodes)}")
             return
 
         use_cd = self._resolve_compute_domain_mode()

@@ -435,7 +435,7 @@ class K8sNodeKernelModulesCheck(_K8sSharedFsCheck):
             raw_modules = [raw_modules]
         modules = [str(m) for m in raw_modules if m]
         if not modules:
-            self.set_passed("Skipped: kernel_modules not configured")
+            self.set_skipped("Skipped: kernel_modules not configured")
             return
 
         self._setup_kubectl()
@@ -613,7 +613,7 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
     def run(self) -> None:
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared_fs_storage_class / nfs_storage_class configured")
+            self.set_skipped("Skipped: no shared_fs_storage_class / nfs_storage_class configured")
             return
 
         self._setup_kubectl()

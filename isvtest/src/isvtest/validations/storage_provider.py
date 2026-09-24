@@ -165,7 +165,7 @@ class StorageProviderApiCheck(BaseValidation):
             return
 
         if not providers:
-            self.set_passed("Skipped: no provider manifest configured (manifest_path unset). ")
+            self.set_skipped("Skipped: no provider manifest configured (manifest_path unset). ")
             return
 
         shim_providers = [p for p in providers if p.has_shim]

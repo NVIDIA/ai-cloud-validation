@@ -1384,7 +1384,7 @@ class BmNcclCheck(BaseValidation):
                 gpu_count = int(expected_gpus)
 
             if gpu_count < 2:
-                self.set_passed(f"Skipped: {host} has {gpu_count} GPU(s), need >= 2 for NCCL test")
+                self.set_skipped(f"Skipped: {host} has {gpu_count} GPU(s), need >= 2 for NCCL test")
                 ssh.close()
                 return
 

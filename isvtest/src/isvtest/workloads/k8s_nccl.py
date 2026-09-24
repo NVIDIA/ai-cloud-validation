@@ -48,7 +48,7 @@ class K8sNcclWorkload(BaseWorkloadCheck):
         # Note: We still rely on k8s_utils here for convenience, but we should eventually move this to Runner
         nodes = get_gpu_nodes()
         if not nodes:
-            self.set_passed("Skipped: No GPU nodes found in cluster")
+            self.set_skipped("Skipped: No GPU nodes found in cluster")
             return
 
         # Determine GPU count
@@ -64,7 +64,7 @@ class K8sNcclWorkload(BaseWorkloadCheck):
 
         # NCCL tests need at least 2 GPUs for meaningful results
         if gpu_count < 2:
-            self.set_passed(f"Skipped: Node has only {gpu_count} GPU(s), need at least 2 for NCCL allreduce test")
+            self.set_skipped(f"Skipped: Node has only {gpu_count} GPU(s), need at least 2 for NCCL allreduce test")
             return
 
         # Generate unique job name

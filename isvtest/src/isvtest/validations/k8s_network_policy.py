@@ -407,7 +407,7 @@ class K8sDualStackNodeCheck(BaseValidation):
                     message=f"single-stack cluster (auto mode); node has {_family_summary(has_v4, has_v6)}",
                     skipped=True,
                 )
-            self.set_passed("Skipped: cluster is single-stack (auto mode)")
+            self.set_skipped("Skipped: cluster is single-stack (auto mode)")
             return
 
         require_both = normalized is True or (normalized == "auto" and cluster_has_dual_stack_hint)

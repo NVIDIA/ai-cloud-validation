@@ -131,6 +131,17 @@ class BaseValidation(ABC):
         if message:
             self._output = message
 
+    def set_skipped(self, message: str = "") -> None:
+        """Mark the validation as skipped rather than passed.
+
+        A validation that has no applicable configuration or prerequisites did
+        not establish a passing result.  Raising pytest's skip exception lets
+        the orchestration bridge preserve that distinction in its report.
+        """
+        import pytest
+
+        pytest.skip(message or f"{self.name} skipped")
+
     def set_failed(self, error: str, output: str = "") -> None:
         """Mark the validation as failed.
 
