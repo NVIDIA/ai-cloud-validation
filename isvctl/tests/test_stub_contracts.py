@@ -46,6 +46,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS_DIR = REPO_ROOT / "isvctl" / "configs"
 
 
+def test_k8s_suite_surfaces_skipped_validations() -> None:
+    """The canonical Kubernetes suite must keep skipped checks visible in reports."""
+    suite = yaml.safe_load((CONFIGS_DIR / "suites" / "k8s.yaml").read_text())
+
+    assert suite["tests"]["settings"]["show_skipped_tests"] is True
+
+
 # --------------------------------------------------------------------------
 # Static argparse extraction
 # --------------------------------------------------------------------------
