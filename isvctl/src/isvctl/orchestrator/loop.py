@@ -268,7 +268,7 @@ def _write_terminal_junit_xml(entries: list[ResolvedEntry], output_path: Path, s
 def _resolved_entry_to_result_dict(entry: ResolvedEntry) -> dict[str, Any]:
     """Convert a resolved entry to the CLI/result detail dictionary."""
     skipped = entry.state == State.SKIPPED
-    passed = entry.state in {State.PASSED, State.SKIPPED}
+    passed = entry.state == State.PASSED
     return {
         "name": entry.entry.name,
         "passed": passed,
@@ -691,7 +691,9 @@ class Orchestrator:
                         self._create_phase_result(phase_enum, step_results, phase_validations, phase_name)
                     )
 
-                phase_success = step_results.success and all(v.get("passed", False) for v in phase_validations)
+                phase_success = step_results.success and all(
+                    _resolved_entry_success(entry) for entry in terminal_phase_entries
+                )
                 if not phase_success:
                     overall_success = False
 
@@ -775,7 +777,9 @@ class Orchestrator:
             step_messages.append(f"{step.name}: {status}")
 
         # Check if any validations failed
-        validation_failures = [v for v in validation_results if not v.get("passed", False)]
+        validation_failures = [
+            v for v in validation_results if v.get("state") not in {State.PASSED.value, State.SKIPPED.value}
+        ]
         all_validations_passed = len(validation_failures) == 0
 
         # Overall phase success
