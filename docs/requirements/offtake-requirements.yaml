@@ -318,19 +318,19 @@ requirements:
     section: Kubernetes As a Service (KaaS) Requirements
     subsection: Kubernetes Functionality
     area: Kubernetes LoadBalancer Service Support
-    test_details: ''
+    test_details: add
     description: 'The platform shall support Kubernetes Service resources of type LoadBalancer, including: External load balancers with publicly routable IPs Internal load balancers with private IPs reachable via private network access Static IP assignment'
   - req_id: K8S30
     section: Kubernetes As a Service (KaaS) Requirements
     subsection: Kubernetes Functionality
     area: DNS Configuration
-    test_details: ''
+    test_details: add
     description: The platform shall support configuring Kubernetes internal DNS (e.g. CoreDNS) with conditional forwarding rules for specified DNS zones to designated enterprise or internal DNS resolvers.
   - req_id: K8S31
     section: Kubernetes As a Service (KaaS) Requirements
     subsection: Kubernetes Functionality
     area: Configurable Kubernetes CIDR ranges
-    test_details: ''
+    test_details: add
     description: Ability to configure Kubernetes service IP range, Node IP range, and Pod IP range.
   - req_id: SEC01
     section: Security & Identity Management
