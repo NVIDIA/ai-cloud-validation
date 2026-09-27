@@ -232,6 +232,10 @@ commands:
         timeout: 1800
         env:
           TF_AUTO_APPROVE: "true"
+          # Must match setup_cluster: a `terraform destroy` pointed at another
+          # region refreshes the state's resources away as already-deleted and
+          # orphans the cluster.
+          TF_VAR_region: "{{region}}"
 
 tests:
   cluster_name: "aws-storage-validation"

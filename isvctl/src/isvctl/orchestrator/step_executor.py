@@ -370,7 +370,7 @@ class StepExecutor:
         # Build environment
         env = os.environ.copy()
         if step.env:
-            env.update(step.env)
+            env.update(self._render_env(step.env, context))
 
         # Log command with sensitive args masked
         masked_cmd = mask_sensitive_args(cmd_parts, step.sensitive_args)
@@ -517,6 +517,42 @@ class StepExecutor:
                     raise MissingStepRefError(arg, missing)
             else:
                 rendered.append(arg)
+
+        return rendered
+
+    def _render_env(self, step_env: dict[str, str], context: Context) -> dict[str, str]:
+        """Render Jinja2 templates in a step's environment variables.
+
+        Env values are templated from the same accumulated context as args, so
+        ``TF_VAR_region: "{{region}}"`` reaches the command as the region and
+        not as the literal template.
+
+        Unlike ``_render_args`` an empty render is kept rather than dropped: an
+        env var has no argv position to vacate, and removing it would silently
+        hand the command a different value from the one the config named.
+
+        Args:
+            step_env: Environment mapping (values may contain {{ }} templates)
+            context: Context with step outputs for rendering
+
+        Returns:
+            The mapping with every value rendered. A value whose template
+            cannot be rendered is passed through unchanged, matching
+            ``_render_args``, so a templating mistake fails the step it belongs
+            to instead of aborting the run.
+        """
+        jinja_env = _create_jinja_env()
+        ctx_data = context.get_accumulated_context()
+        rendered = {}
+
+        for key, value in step_env.items():
+            if "{{" in value and "}}" in value:
+                try:
+                    rendered[key] = jinja_env.from_string(value).render(**ctx_data)
+                    continue
+                except Exception as e:
+                    logger.warning(f"Failed to render env '{key}': {e}")
+            rendered[key] = value
 
         return rendered
 
