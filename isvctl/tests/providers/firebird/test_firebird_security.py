@@ -440,8 +440,15 @@ def _event(**fields: Any) -> dict[str, Any]:
     }
 
 
-def _audit_routes(iam: FakeIam, *, retained: bool = True, logged: bool = True) -> dict[str, Route]:
-    """Return audit routes: the retention window, recent events, and the account's CREATE event."""
+def _audit_routes(
+    iam: FakeIam, *, retained: bool = True, logged: bool = True, event_fields: dict[str, Any] | None = None
+) -> dict[str, Route]:
+    """Return audit routes: the retention window, recent events, and the account's CREATE event.
+
+    ``event_fields`` are merged into the CREATE event - e.g. ``sourceIp``/``userAgent``/
+    ``region`` to exercise the SEC08 provenance subtests; omitted, the event carries
+    none of the three, matching an audit API that predates them.
+    """
 
     def audit(_b: Any, query: dict[str, list[str]]) -> dict[str, Any]:
         now = datetime.now(UTC)
@@ -456,6 +463,7 @@ def _audit_routes(iam: FakeIam, *, retained: bool = True, logged: bool = True) -
                         targetId=sa_id,
                         operationAction="CREATE",
                         ts=now.strftime("%Y-%m-%dT%H:%M:%S.123Z"),
+                        **(event_fields or {}),
                     )
                 ]
             }
@@ -470,7 +478,11 @@ def _audit_routes(iam: FakeIam, *, retained: bool = True, logged: bool = True) -
 def test_audit_reports_retention_and_fails_only_the_unsupported_entry_fields(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Retention passes; the entry check fails on source IP, user agent, and region alone."""
+    """Retention passes; the entry check fails on source IP, user agent, and region alone.
+
+    The event carries none of the three fields, matching a Firebird audit API that
+    predates them - today's not-supported behavior stays exactly the same.
+    """
     iam = FakeIam()
     code, out, _ = run(monkeypatch, capsys, "security/audit_logging_test.py", _audit_routes(iam))
 
@@ -486,6 +498,50 @@ def test_audit_reports_retention_and_fails_only_the_unsupported_entry_fields(
     entry = _check(AuditLogEntryCheck, out)
     assert not entry._passed
     assert entry._error.count("not supported") == 3
+
+
+def test_audit_provenance_subtests_pass_when_api_reports_them(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Source IP, user agent, and region all pass when the event and project carry them."""
+    iam = FakeIam()
+    routes = _audit_routes(
+        iam,
+        event_fields={"sourceIp": "10.0.0.5", "userAgent": "ai-cloud-validation-firebird/1.0", "region": "am-w1"},
+    )
+    routes[f"GET /projects/{PROJECT}"] = {"project": {"id": PROJECT, "tenantId": TENANT, "region": "am-w1"}}
+
+    code, out, _ = run(monkeypatch, capsys, "security/audit_logging_test.py", routes)
+
+    assert code == 0, out
+    provenance = ("audit_log_source_ip_present", "audit_log_user_agent_matches", "audit_log_region_matches")
+    for key in provenance:
+        assert out["tests"][key]["passed"] is True, out["tests"][key]
+        assert "supported" not in out["tests"][key]
+    assert out["success"] is True
+
+    assert _check(AuditLogEntryCheck, out)._passed
+
+
+def test_audit_provenance_user_agent_mismatch_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A user agent that does not match the client's own fails with expected/actual recorded."""
+    iam = FakeIam()
+    routes = _audit_routes(
+        iam,
+        event_fields={"sourceIp": "10.0.0.5", "userAgent": "some-other-client/2.0", "region": "am-w1"},
+    )
+    routes[f"GET /projects/{PROJECT}"] = {"project": {"id": PROJECT, "tenantId": TENANT, "region": "am-w1"}}
+
+    code, out, _ = run(monkeypatch, capsys, "security/audit_logging_test.py", routes)
+
+    assert code == 1
+    ua = out["tests"]["audit_log_user_agent_matches"]
+    assert ua["passed"] is False and "supported" not in ua
+    assert "ai-cloud-validation-firebird/1.0" in ua["error"] and "some-other-client/2.0" in ua["error"]
+    assert out["tests"]["audit_log_source_ip_present"]["passed"] is True
+    assert out["tests"]["audit_log_region_matches"]["passed"] is True
 
 
 @pytest.mark.parametrize(

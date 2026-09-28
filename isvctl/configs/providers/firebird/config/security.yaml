@@ -39,8 +39,9 @@
 #     says the claim checks are not isolated (claim_rejection_evidence). A validly signed
 #     token for another audience cannot be obtained either, so wrong_audience_rejected
 #     is reported not supported and OidcUserAuthCheck fails on it.
-#   - audit_logging_test: audit events have no source IP, user agent, or region, so
-#     AuditLogEntryCheck fails on those three subtests (reported not supported);
+#   - audit_logging_test: the source IP, user agent, and region subtests pass when the
+#     audit API reports those fields on the event, and are reported not supported
+#     (AuditLogEntryCheck fails on them) when the API does not yet report a given one;
 #     AuditLogRetentionCheck is observed retention, as no retention policy is exposed.
 #   - capacity_reservation_grouping: there is no reservation object; reservation_id
 #     is the tenant ID and the pool is the operator's pre-allocation.

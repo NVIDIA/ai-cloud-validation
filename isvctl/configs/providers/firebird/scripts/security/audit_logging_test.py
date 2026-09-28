@@ -19,10 +19,12 @@
 Entry (SEC08-01): creates a service account - a known management call - and
 polls ``GET /audit?targetKind=IAM&targetId=<account>`` for its CREATE event.
 The event must carry the action, a timestamp inside the call's window, the
-actor (``actorId``), and the emitting service (``source``). Firebird audit
-events have no source-IP, user-agent, or region field, so those three subtests
-are reported failed as not supported (``supported: false``); the check fails
-on them honestly.
+actor (``actorId``), and the emitting service (``source``). Three more
+subtests check the event's ``sourceIp``, ``userAgent`` (against this client's
+own ``USER_AGENT``), and ``region`` (against the run's project) when the API
+reports them; a Firebird audit API that predates those fields omits the key
+entirely, and that subtest is then reported failed as not supported
+(``supported: false``) exactly as before.
 
 Retention (SEC08-02): audit logging is live when the last day holds an event
 (read after the call above), and 30-day retention is shown by an event in the
@@ -47,7 +49,9 @@ Output JSON:
     "retention_days_observed": 45,
     "created_service_account_ids": ["service-account.xxx"],
     "tests": {"audit_log_entry_found": {"passed": true}, ...,
-              "audit_log_source_ip_present": {"passed": false, "supported": false, "error": "..."},
+              "audit_log_source_ip_present": {"passed": true, "message": "sourceIp '10.0.0.5'"},
+              "audit_log_user_agent_matches": {"passed": true, "message": "..."},
+              "audit_log_region_matches": {"passed": false, "supported": false, "error": "not supported: ..."},
               "audit_log_trail_logging_enabled": {"passed": true},
               "audit_log_retention_at_least_30_days": {"passed": true}}
 }
@@ -64,7 +68,15 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import service_accounts
-from common.firebird_client import FirebirdApiError, FirebirdClient, is_not_registered, log, parse_timestamp, rfc3339
+from common.firebird_client import (
+    USER_AGENT,
+    FirebirdApiError,
+    FirebirdClient,
+    is_not_registered,
+    log,
+    parse_timestamp,
+    rfc3339,
+)
 
 ENTRY_KEYS = (
     "audit_log_entry_found",
@@ -73,11 +85,13 @@ ENTRY_KEYS = (
     "audit_log_user_identity_present",
     "audit_log_event_source_matches",
 )
+# Subtest key -> (the event's JSON field, the message when an older API omits that field).
 UNSUPPORTED = {
-    "audit_log_source_ip_present": "Firebird audit events carry no source IP",
-    "audit_log_user_agent_matches": "Firebird audit events carry no user agent",
-    "audit_log_region_matches": "Firebird audit events carry no region",
+    "audit_log_source_ip_present": ("sourceIp", "Firebird audit events carry no source IP"),
+    "audit_log_user_agent_matches": ("userAgent", "Firebird audit events carry no user agent"),
+    "audit_log_region_matches": ("region", "Firebird audit events carry no region"),
 }
+PROVENANCE_KEYS = tuple(UNSUPPORTED)
 RETENTION_KEYS = ("audit_log_trail_logging_enabled", "audit_log_retention_at_least_30_days")
 # Clock skew allowed between this host and the API when checking the event time.
 SKEW = timedelta(seconds=120)
@@ -123,6 +137,45 @@ def entry_tests(event: dict[str, Any] | None, sa_id: str, start: datetime, end: 
         "audit_log_user_identity_present": outcome(bool(event.get("actorId")), f"actor {event.get('actorId')}"),
         "audit_log_event_source_matches": outcome(bool(event.get("source")), f"source {event.get('source')!r}"),
     }
+
+
+def provenance_tests(client: FirebirdClient, event: dict[str, Any]) -> dict[str, Any]:
+    """Grade the event's source IP, user agent, and region when the API reports them.
+
+    A key absent from ``event`` means this Firebird API predates the SEC08
+    provenance fields; that subtest reports ``supported: false`` as before,
+    decided independently per key.
+    """
+    tests: dict[str, Any] = {}
+    for key, (field, reason) in UNSUPPORTED.items():
+        if field not in event:
+            tests[key] = {"passed": False, "supported": False, "error": f"not supported: {reason}"}
+
+    if "sourceIp" in event:
+        source_ip = event.get("sourceIp") or ""
+        tests["audit_log_source_ip_present"] = outcome(bool(source_ip), f"sourceIp {source_ip!r}")
+
+    if "userAgent" in event:
+        actual_agent = event.get("userAgent") or ""
+        tests["audit_log_user_agent_matches"] = outcome(
+            actual_agent == USER_AGENT, f"expected user agent {USER_AGENT!r}, got {actual_agent!r}"
+        )
+
+    if "region" in event:
+        actual_region = event.get("region") or ""
+        if not actual_region:
+            tests["audit_log_region_matches"] = outcome(False, "event region is empty")
+        else:
+            project_region = client.get_project().get("region") or ""
+            if project_region:
+                tests["audit_log_region_matches"] = outcome(
+                    actual_region == project_region, f"expected region {project_region!r}, got {actual_region!r}"
+                )
+            else:
+                tests["audit_log_region_matches"] = outcome(
+                    True, f"event region {actual_region!r} (project carries no region; non-empty only)"
+                )
+    return tests
 
 
 def main() -> int:
@@ -175,6 +228,7 @@ def main() -> int:
         event = find_create_event(client, account.id, args.audit_timeout)
         result["audit_event_id"] = (event or {}).get("id", "")
         tests.update(entry_tests(event, account.id, start, datetime.now(UTC)))
+        tests.update(provenance_tests(client, event or {}))
 
         # After the call above, so a live trail always has at least that event.
         recent = events(client, fromTs=rfc3339(now - timedelta(days=1)), pageSize=1)
@@ -183,13 +237,14 @@ def main() -> int:
         result["error"] = str(e)
         log(f"ERROR: {e}")
 
-    for key in (*ENTRY_KEYS, *RETENTION_KEYS):
+    for key in (*ENTRY_KEYS, *RETENTION_KEYS, *PROVENANCE_KEYS):
         tests.setdefault(key, outcome(False, result.get("error", "not run")))
-    for key, reason in UNSUPPORTED.items():
-        tests[key] = {"passed": False, "supported": False, "error": f"not supported: {reason}"}
-    # The step succeeds when everything Firebird can record was shown; the
-    # unsupported fields fail the entry check on their own.
-    result["success"] = "error" not in result and all(t["passed"] for k, t in tests.items() if k not in UNSUPPORTED)
+    # The step succeeds when everything Firebird can record was shown; a
+    # provenance subtest the API does not yet report (``supported: false``)
+    # does not count against success, but one it does report must pass.
+    result["success"] = "error" not in result and all(
+        t["passed"] for t in tests.values() if t.get("supported") is not False
+    )
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
 
