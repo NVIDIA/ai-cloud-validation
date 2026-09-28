@@ -19,12 +19,19 @@
 BMs are tenant-owned hardware and are never deleted. Teardown only undoes what
 launch_instance did, as reported by its output flags:
   --deprovision      launch provisioned (or was told to reuse) the BM: wipe the OS
-  --detach-subnet    launch attached the subnet: detach it
+  --detach-subnet    launch attached the subnet: release the BM's DHCP reservation
+                     on it, then detach it
   --detach-project   launch attached the project: return the BM to the tenant pool
 A BM that launch selected but rejected (e.g. already RUNNING) is left untouched.
 --delete-key-pair is passed only for a key launch generated (``generated_key``):
 the key pair and its private run directory are removed; a supplied key is kept.
 Idempotent: an already-released BM succeeds.
+
+Provisioning reserves the BM's subnet address and a deprovision keeps that
+reservation, and the API refuses a subnet detach (409) while the BM still holds
+one. So when this run attached the subnet, teardown deletes the BM's
+reservation on it and waits until it is gone before detaching. A BM the tenant
+had already attached keeps both its subnet and its reservation.
 
 Usage:
     python teardown.py --instance-id bm.xxx --deprovision [--detach-subnet] [--detach-project] \
@@ -35,7 +42,8 @@ Output JSON:
 {
     "success": true,
     "platform": "bm",
-    "resources_deleted": ["instance:bm.xxx", "subnet_attachment:bm.xxx", "key_pair:/tmp/key"],
+    "resources_deleted": ["instance:bm.xxx", "dhcp_reservation:dhcpres.xxx", "subnet_attachment:bm.xxx",
+                          "key_pair:/tmp/key"],
     "message": "Teardown completed"
 }
 """
@@ -47,10 +55,84 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.firebird_client import FirebirdApiError, FirebirdClient, remaining
+from common.firebird_client import FirebirdApiError, FirebirdClient, log, remaining
+from common.network import locate_subnet, vpcs_path
+
+# Polls for a deleted reservation to leave the listing (and its interval, seconds).
+RESERVATION_GONE_POLLS = 24
+RESERVATION_POLL_SECONDS = 5
+# Subnet-detach attempts while the API still answers 409, and the first backoff (doubles).
+DETACH_ATTEMPTS = 4
+DETACH_BACKOFF_SECONDS = 10
+
+
+def _bm_reservations(client: FirebirdClient, path: str, bm_id: str) -> list[dict[str, Any]]:
+    """Return the DHCP reservations at ``path`` that belong to ``bm_id``."""
+    return [r for r in client.paginate(path, "reservations") if r.get("bmId") == bm_id]
+
+
+def release_reservation(client: FirebirdClient, bm_id: str, subnet_id: str, deadline: float) -> list[str]:
+    """Delete the BM's DHCP reservation on its subnet and wait until it is gone.
+
+    Returns the IDs of the reservations deleted ([] when there was none). A
+    subnet the project cannot resolve, or a reservation listing that answers
+    404, is skipped: the detach that follows reports its own error.
+    """
+    try:
+        vpc, _ = locate_subnet(client, subnet_id)
+    except RuntimeError as e:
+        log(f"  skipping DHCP reservation release: {e}")
+        return []
+    path = vpcs_path(client, vpc.get("id", ""), f"/subnets/{quote(subnet_id)}/dhcp/reservations")
+    try:
+        held = _bm_reservations(client, path, bm_id)
+    except FirebirdApiError as e:
+        if e.status != 404:
+            raise
+        log(f"  no DHCP reservation listing for subnet {subnet_id}; skipping release")
+        return []
+    if not held:
+        log(f"  BM {bm_id} holds no DHCP reservation on subnet {subnet_id}")
+        return []
+
+    log(f"  releasing DHCP reservation of {bm_id} on subnet {subnet_id}")
+    try:
+        response = client.request("DELETE", path, params={"bm_id": bm_id})
+        client.wait_operation(response.get("operation") or {}, remaining(deadline))
+    except FirebirdApiError as e:
+        if e.status != 404:
+            raise
+    for _ in range(RESERVATION_GONE_POLLS):
+        if not _bm_reservations(client, path, bm_id):
+            return [r.get("id", "") for r in held]
+        time.sleep(RESERVATION_POLL_SECONDS)
+    raise FirebirdApiError(
+        f"DHCP reservation of {bm_id} on subnet {subnet_id} still listed "
+        f"{RESERVATION_GONE_POLLS * RESERVATION_POLL_SECONDS}s after its delete completed"
+    )
+
+
+def detach_subnet(client: FirebirdClient, bm_id: str, deadline: float) -> None:
+    """Detach the BM from its subnet, retrying while the API answers 409 (conflict).
+
+    A reservation release can take a moment to reach the check the detach makes,
+    so a 409 is retried with backoff; the last 409 is raised with its API message.
+    """
+    delay = DETACH_BACKOFF_SECONDS
+    for attempt in range(1, DETACH_ATTEMPTS + 1):
+        try:
+            client.bm_action(bm_id, "detach-subnet", timeout=remaining(deadline))
+            return
+        except FirebirdApiError as e:
+            if e.status != 409 or attempt == DETACH_ATTEMPTS:
+                raise
+            log(f"  detach-subnet refused ({e}); retrying in {delay}s")
+        time.sleep(delay)
+        delay *= 2
 
 
 def main() -> int:
@@ -109,8 +191,12 @@ def main() -> int:
             result["resources_deleted"].append(f"instance:{args.instance_id}")
 
         if client and bm and args.detach_subnet and bm.get("subnetId"):
+            # Only a BM with no OS loses its address; a running one is left for detach to refuse.
+            if bm.get("state") in ("AVAILABLE", "ALLOCATED"):
+                for reservation_id in release_reservation(client, args.instance_id, bm["subnetId"], deadline):
+                    result["resources_deleted"].append(f"dhcp_reservation:{reservation_id}")
             print("Detaching BM from subnet...", file=sys.stderr)
-            client.bm_action(args.instance_id, "detach-subnet", timeout=remaining(deadline))
+            detach_subnet(client, args.instance_id, deadline)
             bm = client.wait_bm(args.instance_id, ("AVAILABLE", "ALLOCATED"), remaining(deadline), subnet="")
             result["resources_deleted"].append(f"subnet_attachment:{args.instance_id}")
 

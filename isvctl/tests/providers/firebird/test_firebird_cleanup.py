@@ -666,6 +666,8 @@ def test_teardown_detaches_the_project_only_after_the_subnet_readback_clears(
 
     routes: dict[str, Route] = {
         f"GET {BM_PATH}": get,
+        **_subnet_routes(),
+        f"GET {RESERVATIONS}": {"reservations": [], "nextPageToken": ""},
         f"POST {BM_PATH}/detach-subnet": detach_subnet,
         f"POST {BM_PATH}/detach": detach,
     }
@@ -675,6 +677,187 @@ def test_teardown_detaches_the_project_only_after_the_subnet_readback_clears(
 
     assert code == 0, out
     assert api.paths("POST") == [f"POST {BM_PATH}/detach-subnet", f"POST {BM_PATH}/detach"]
+
+
+VPCS_WITH_SUBNETS = f"/projects/{PROJECT}/network/vpcs-with-subnets"
+RESERVATIONS = f"/projects/{PROJECT}/network/vpcs/vpc.V/subnets/subnet.S/dhcp/reservations"
+RESERVATION = {"id": "dhcpres.R", "bmId": BM, "ipAddress": "10.0.0.5", "state": "RESERVATION_STATE_READY"}
+OTHER_RESERVATION = {"id": "dhcpres.O", "bmId": "bm.OTHER", "ipAddress": "10.0.0.6"}
+
+
+def _subnet_routes() -> dict[str, Route]:
+    """Return the route that resolves ``subnet.S`` to ``vpc.V``."""
+    return {f"GET {VPCS_WITH_SUBNETS}": {"items": [{"vpc": {"id": "vpc.V"}, "subnets": [{"id": "subnet.S"}]}]}}
+
+
+def _detach_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    reservations: Route,
+    conflicts: int = 0,
+    argv: list[str] | None = None,
+    bm_state: str = "AVAILABLE",
+) -> tuple[int, dict[str, Any], Any, dict[str, Any]]:
+    """Run teardown on a ``bm_state`` ``bm.A`` on ``subnet.S``; detach-subnet answers 409 ``conflicts`` times.
+
+    ``reservations`` is the reservation-list route. The returned state records
+    the DELETE query, whether its Operation was polled, and the detach attempts.
+    """
+    state: dict[str, Any] = {"subnetId": "subnet.S", "deleted": None, "op_polled": False, "detach_calls": 0}
+
+    def get(_b: Any, _q: Any) -> dict[str, Any]:
+        return {"bm": {"id": BM, "state": bm_state, "subnetId": state["subnetId"]}}
+
+    def delete(_b: Any, query: dict[str, list[str]]) -> dict[str, Any]:
+        state["deleted"] = query
+        return operation("dhcpres.R", status="PENDING", op_id="operation.del")
+
+    def poll(_b: Any, _q: Any) -> dict[str, Any]:
+        state["op_polled"] = True
+        return operation("dhcpres.R", op_id="operation.del")
+
+    def detach_subnet(_b: Any, _q: Any) -> dict[str, Any]:
+        state["detach_calls"] += 1
+        if state["detach_calls"] <= conflicts:
+            raise HttpError(409)
+        state["subnetId"] = ""
+        return operation(BM)
+
+    routes: dict[str, Route] = {
+        f"GET {BM_PATH}": get,
+        **_subnet_routes(),
+        f"GET {RESERVATIONS}": reservations,
+        f"DELETE {RESERVATIONS}": delete,
+        "GET /operations/operation.del": poll,
+        f"POST {BM_PATH}/detach-subnet": detach_subnet,
+    }
+    code, out, api = run(
+        monkeypatch, capsys, "bare_metal/teardown.py", routes, argv or [f"--instance-id={BM}", "--detach-subnet"]
+    )
+    return code, out, api, state
+
+
+def test_teardown_releases_the_bms_reservation_before_detaching_its_subnet(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The BM's reservation is deleted by bm_id and awaited, and gone from the listing, before the detach."""
+    listings = [[OTHER_RESERVATION, RESERVATION], [OTHER_RESERVATION, RESERVATION], [OTHER_RESERVATION]]
+
+    def reservations(_b: Any, _q: Any) -> dict[str, Any]:
+        return {"reservations": listings.pop(0) if len(listings) > 1 else listings[0], "nextPageToken": ""}
+
+    code, out, api, state = _detach_teardown(monkeypatch, capsys, reservations=reservations)
+
+    assert code == 0, out
+    assert state["deleted"] == {"bm_id": [BM]}
+    assert state["op_polled"]
+    paths = api.paths()
+    assert paths.index(f"DELETE {RESERVATIONS}") < paths.index("GET /operations/operation.del")
+    # The listing is re-read after the delete until the BM's reservation has left it.
+    assert paths.count(f"GET {RESERVATIONS}") == 3
+    assert paths.index(f"DELETE {RESERVATIONS}") < paths.index(f"POST {BM_PATH}/detach-subnet")
+    assert out["resources_deleted"] == ["dhcp_reservation:dhcpres.R", f"subnet_attachment:{BM}"]
+
+
+@pytest.mark.parametrize(
+    "reservations",
+    [{"reservations": [OTHER_RESERVATION], "nextPageToken": ""}, 404],
+    ids=["no-reservation", "listing-404"],
+)
+def test_teardown_detaches_directly_without_a_reservation_to_release(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], reservations: Route
+) -> None:
+    """No reservation of this BM (or no listing at all) means no delete: the subnet is detached at once."""
+    code, out, api, state = _detach_teardown(monkeypatch, capsys, reservations=reservations)
+
+    assert code == 0, out
+    assert api.paths("DELETE") == []
+    assert state["detach_calls"] == 1
+    assert out["resources_deleted"] == [f"subnet_attachment:{BM}"]
+
+
+def test_teardown_fails_when_the_reservation_listing_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only a 404 skips the release; any other listing error fails before the detach."""
+    code, out, _api, state = _detach_teardown(monkeypatch, capsys, reservations=500)
+
+    assert code == 1
+    assert "HTTP 500" in out["error"]
+    assert state["detach_calls"] == 0
+
+
+def test_teardown_retries_a_detach_the_api_still_refuses(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A 409 right after the release is retried; the third attempt detaches."""
+    code, out, _api, state = _detach_teardown(
+        monkeypatch, capsys, reservations={"reservations": [], "nextPageToken": ""}, conflicts=2
+    )
+
+    assert code == 0, out
+    assert state["detach_calls"] == 3
+    assert f"subnet_attachment:{BM}" in out["resources_deleted"]
+
+
+def test_teardown_gives_up_on_a_detach_that_keeps_conflicting(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A detach refused on every attempt fails the teardown with the API's 409 in the error."""
+    code, out, _api, state = _detach_teardown(
+        monkeypatch, capsys, reservations={"reservations": [], "nextPageToken": ""}, conflicts=99
+    )
+
+    assert code == 1
+    assert "detach-subnet: HTTP 409" in out["error"]
+    assert state["detach_calls"] == 4
+
+
+def test_teardown_fails_when_the_reservation_never_leaves_the_listing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A reservation still listed after its delete completed stops the teardown before the detach."""
+    code, out, _api, state = _detach_teardown(
+        monkeypatch, capsys, reservations={"reservations": [RESERVATION], "nextPageToken": ""}
+    )
+
+    assert code == 1
+    assert "still listed" in out["error"]
+    assert state["detach_calls"] == 0
+
+
+def test_teardown_keeps_the_reservation_of_a_bm_that_still_runs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A BM that still runs an OS keeps its address: no release, and the API's refusal of the detach stands."""
+    code, out, api, _state = _detach_teardown(
+        monkeypatch,
+        capsys,
+        reservations={"reservations": [RESERVATION], "nextPageToken": ""},
+        conflicts=99,
+        bm_state="RUNNING",
+    )
+
+    assert code == 1
+    assert "detach-subnet: HTTP 409" in out["error"]
+    assert f"GET {RESERVATIONS}" not in api.paths() and api.paths("DELETE") == []
+
+
+def test_teardown_leaves_the_reservation_of_a_subnet_it_did_not_attach(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without --detach-subnet the reservation is neither listed nor deleted, and the subnet stays."""
+    code, out, api, state = _detach_teardown(
+        monkeypatch,
+        capsys,
+        reservations={"reservations": [RESERVATION], "nextPageToken": ""},
+        argv=[f"--instance-id={BM}", "--deprovision"],
+    )
+
+    assert code == 0, out
+    assert api.paths() == [f"GET {BM_PATH}"]
+    assert state["detach_calls"] == 0
 
 
 # ── Leftover sweep ────────────────────────────────────────────────────

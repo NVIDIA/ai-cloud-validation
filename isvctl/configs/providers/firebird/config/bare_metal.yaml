@@ -20,7 +20,9 @@
 #
 # Firebird BMs are tenant-owned, pre-allocated hardware: "launch" attaches a BM
 # to the project/subnet and provisions an OS image; "teardown" deprovisions it
-# and detaches whatever launch attached. BMs are never deleted.
+# and detaches whatever launch attached (releasing the BM's DHCP reservation on a
+# subnet it attached first, since the API refuses that detach while one is held).
+# BMs are never deleted.
 #
 # Steps:
 #   1. create_network - Creates a VPC + subnet when FIREBIRD_SUBNET_ID is empty, else passes it through (setup)
