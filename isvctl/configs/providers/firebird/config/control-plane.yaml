@@ -1,0 +1,147 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Firebird Control Plane Validation Configuration
+#
+# Imports the provider-agnostic control-plane contract and wires it to the
+# Firebird BMaaS REST API (https://dgxc.firebird.ai/api/v1).
+#
+# The access key is a service account: an OIDC client whose client ID and
+# secret authenticate at /auth/token (client_credentials). It gets the VIEWER
+# role on the run's project. Firebird has no "disable key" operation, so the
+# key is disabled by rotating its secret; the old secret is then the disabled
+# key, and both steps show it is refused rather than assuming it.
+#
+# Steps:
+#   0. sweep_leftovers - Deletes isv-* leftovers of earlier killed runs, older than 6h (setup)
+#   1. check_api - GET /users/me and GET /projects/{p}; account = project tenant (setup)
+#   2. create_access_key - POST /service-accounts + VIEWER on the project (setup)
+#   3. test_access_key - /auth/token with the key, then /users/me and the project (test)
+#   4. disable_access_key - POST /service-accounts/{id}/secret; old secret must be refused (test)
+#   5. verify_key_rejected - Old secret refused at /auth/token; still accepted = fail (test)
+#   6. list_tenants - GET /users/me tenants[] contains the project's tenant (test)
+#   7. get_tenant - Name and status of the project's tenant from /users/me (test)
+#   8. delete_access_key - DELETE /service-accounts/{id} (teardown)
+#
+# list_tenants and get_tenant read /users/me tenants[]; an API that lists no
+# tenants for a service account makes them skip (a user token covers them).
+#
+# Not wired (validations skip as step_not_configured):
+#   - create_tenant / delete_tenant: tenants come from registration plus operator
+#     verification; the tenant-management API is operator-only (admin key).
+#   - s3_object_lifecycle: tenants have no object-storage API.
+#
+# Prerequisites:
+#   FIREBIRD_CLIENT_ID / FIREBIRD_CLIENT_SECRET   tenant-ADMIN service account (or FIREBIRD_BEARER_TOKEN,
+#                                                 a user token, to also cover the tenant steps)
+#   FIREBIRD_PROJECT_ID                           project.ULID the access key is scoped to
+#   FIREBIRD_TENANT_ID (optional)                 tenant.ULID when the account belongs to several
+#   FIREBIRD_SWEEP_MIN_AGE_HOURS (optional)       minimum age of leftovers the sweep deletes (default 6)
+#   FIREBIRD_API_BASE (optional)                  default https://dgxc.firebird.ai
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/control-plane.yaml
+
+import:
+  - ../../../suites/control-plane.yaml
+
+version: "1.0"
+
+commands:
+  control_plane:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # Deletes isv-* service accounts/projects older than FIREBIRD_SWEEP_MIN_AGE_HOURS
+      # (default 6h) left by earlier killed runs; never fails setup.
+      - name: sweep_leftovers
+        phase: setup
+        command: "python3 ../scripts/iam/sweep_leftovers.py"
+        timeout: 300
+
+      - name: check_api
+        phase: setup
+        command: "python3 ../scripts/control-plane/check_api.py"
+        timeout: 120
+
+      - name: create_access_key
+        phase: setup
+        command: "python3 ../scripts/iam/create_service_account.py"
+        args:
+          - "--name-prefix"
+          - "isv-cp"
+        timeout: 120
+
+      - name: test_access_key
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/iam/test_credentials.py"
+        args:
+          - "--service-account-id={{steps.create_access_key.user_id}}"
+          - "--client-id={{steps.create_access_key.access_key_id}}"
+          - "--client-secret={{steps.create_access_key.secret_access_key}}"
+        sensitive_args: ["--client-secret"]
+        timeout: 120
+
+      - name: disable_access_key
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/control-plane/disable_access_key.py"
+        args:
+          - "--service-account-id={{steps.create_access_key.user_id}}"
+          - "--client-id={{steps.create_access_key.access_key_id}}"
+          - "--client-secret={{steps.create_access_key.secret_access_key}}"
+        sensitive_args: ["--client-secret"]
+        timeout: 120
+
+      - name: verify_key_rejected
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/control-plane/verify_key_rejected.py"
+        args:
+          - "--client-id={{steps.create_access_key.access_key_id}}"
+          - "--client-secret={{steps.create_access_key.secret_access_key}}"
+          - "--retries"
+          - "5"
+          - "--wait"
+          - "5"
+        sensitive_args: ["--client-secret"]
+        timeout: 120
+
+      - name: list_tenants
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/control-plane/tenants.py"
+        args: ["--action", "list"]
+        timeout: 60
+
+      - name: get_tenant
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/control-plane/tenants.py"
+        args: ["--action", "get"]
+        timeout: 60
+
+      # Deletes the access key's service account whenever create_access_key
+      # recorded one, including when a later part of that step failed.
+      - name: delete_access_key
+        phase: teardown
+        command: "python3 ../scripts/iam/teardown.py"
+        args:
+          - "--service-account-ids={{steps.create_access_key.user_id | default('')}}"
+        timeout: 120
+
+tests:
+  cluster_name: "firebird-control-plane-validation"
+  description: "Firebird control plane: API health, access key lifecycle, tenant info"

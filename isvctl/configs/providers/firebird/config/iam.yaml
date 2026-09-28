@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Firebird IAM Validation Configuration
+#
+# Imports the provider-agnostic IAM contract and wires it to the Firebird BMaaS
+# REST API (https://dgxc.firebird.ai/api/v1). The IAM user is a service
+# account (the principal a tenant can create through the API; human users join
+# by invitation and email verification). It is granted VIEWER, the
+# least-privileged predefined role, on the run's project.
+#
+# Steps:
+#   0. sweep_leftovers - Deletes isv-* leftovers of earlier killed runs, older than 6h (setup)
+#   1. create_user - POST /service-accounts + PUT .../roles (VIEWER on the project) (setup)
+#   2. test_credentials - /auth/token with its credentials; /users/me; GET /projects/{p} (test)
+#   3. teardown - DELETE /service-accounts/{id} (teardown)
+#
+# Prerequisites:
+#   FIREBIRD_CLIENT_ID / FIREBIRD_CLIENT_SECRET   tenant-ADMIN service account (or FIREBIRD_BEARER_TOKEN)
+#   FIREBIRD_PROJECT_ID                           project.ULID the user is granted VIEWER on
+#   FIREBIRD_TENANT_ID (optional)                 tenant.ULID when the account belongs to several
+#   FIREBIRD_SWEEP_MIN_AGE_HOURS (optional)       minimum age of leftovers the sweep deletes (default 6)
+#   FIREBIRD_API_BASE (optional)                  default https://dgxc.firebird.ai
+#   IAM_SKIP_TEARDOWN=true (optional)             keep the service account
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/iam.yaml
+
+import:
+  - ../../../suites/iam.yaml
+
+version: "1.0"
+
+commands:
+  iam:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # Deletes isv-* service accounts/projects older than FIREBIRD_SWEEP_MIN_AGE_HOURS
+      # (default 6h) left by earlier killed runs; never fails setup.
+      - name: sweep_leftovers
+        phase: setup
+        command: "python3 ../scripts/iam/sweep_leftovers.py"
+        timeout: 300
+
+      - name: create_user
+        phase: setup
+        command: "python3 ../scripts/iam/create_service_account.py"
+        args:
+          - "--name-prefix"
+          - "isv-iam"
+        timeout: 120
+
+      - name: test_credentials
+        phase: test
+        command: "python3 ../scripts/iam/test_credentials.py"
+        args:
+          - "--service-account-id={{steps.create_user.user_id}}"
+          - "--client-id={{steps.create_user.access_key_id}}"
+          - "--client-secret={{steps.create_user.secret_access_key}}"
+        sensitive_args: ["--client-secret"]
+        timeout: 120
+
+      # Deletes the service account whenever create_user recorded one,
+      # including when its role grant failed.
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/iam/teardown.py"
+        args:
+          - "--service-account-ids={{steps.create_user.user_id | default('')}}"
+          - "{{teardown_flag}}"
+        timeout: 120
+
+tests:
+  cluster_name: "firebird-iam-validation"
+  description: "Firebird IAM service-account lifecycle validation"

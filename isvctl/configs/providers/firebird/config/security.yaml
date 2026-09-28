@@ -1,0 +1,145 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Firebird Security Validation Configuration
+#
+# Imports the provider-agnostic security contract and wires it to the Firebird
+# BMaaS REST API (https://dgxc.firebird.ai/api/v1) and its OIDC issuer.
+#
+# Steps:
+#   0. sweep_leftovers - Deletes isv-* leftovers of earlier killed runs, older than 6h (setup)
+#   1. preflight - GET /users/me and the run's project before anything is created (setup)
+#   2. sa_credential_test - New service account authenticates at /auth/token; /users/me names it (test)
+#   3. oidc_user_auth_test - Discovery + JWKS; the run's token accepted, tampered/forged tokens get 401 (test)
+#   4. least_privilege_test - VIEWER on project A: allowed there, denied on a throwaway
+#      project B and on compute/storage/network writes (test)
+#   5. audit_logging_test - Service-account CREATE event in GET /audit; retention observed
+#      over the year ending 30 days ago; skips when audit is off (test)
+#   6. insecure_protocols_test - Raw TLS ClientHellos (SSLv3/1.0/1.1) and plain HTTP on :80
+#      against the API host (test)
+#   7. capacity_reservation_grouping - Tenant BM pool (GET /compute/bms) as the tenant's
+#      reservation (test; --capability bare_metal)
+#   8. teardown - Deletes the service accounts and project the steps created (teardown)
+#
+# Honest limits, reported in the step output:
+#   - oidc_user_auth_test: a tenant cannot obtain validly signed tokens with a wrong
+#     issuer/expiry, so those are forged and fail signature verification; the output
+#     says the claim checks are not isolated (claim_rejection_evidence). A validly signed
+#     token for another audience cannot be obtained either, so wrong_audience_rejected
+#     is reported not supported and OidcUserAuthCheck fails on it.
+#   - audit_logging_test: audit events have no source IP, user agent, or region, so
+#     AuditLogEntryCheck fails on those three subtests (reported not supported);
+#     AuditLogRetentionCheck is observed retention, as no retention policy is exposed.
+#   - capacity_reservation_grouping: there is no reservation object; reservation_id
+#     is the tenant ID and the pool is the operator's pre-allocation.
+#
+# Not wired (validations skip as step_not_configured):
+#   - bmc_management_network, bmc_tenant_isolation, bmc_protocol_security,
+#     bmc_bastion_access: the BMC plane is not visible to tenants.
+#   - api_endpoint_isolation: the tenant API is public by design.
+#   - mutual_tls_test: the API has no client-certificate authentication.
+#   - mfa_enforcement: the identity provider's MFA policy is not exposed.
+#   - cert_rotation_test: no managed-certificate inventory.
+#   - kms_encryption_options_test, centralized_kms_test, customer_managed_key_test: no KMS.
+#   - short_lived_credentials_test: only the API token TTL exists; nothing issues
+#     node or workload identity.
+#   - tenant_isolation_test: needs a second tenant's principal.
+#   - topology_block_atomic_allocation: allocation is operator-side; tenants
+#     cannot request a topology block.
+#
+# Prerequisites:
+#   FIREBIRD_CLIENT_ID / FIREBIRD_CLIENT_SECRET   tenant-ADMIN service account (or FIREBIRD_BEARER_TOKEN)
+#   FIREBIRD_PROJECT_ID                           project.ULID (project A of the least-privilege test)
+#   FIREBIRD_TENANT_ID (optional)                 tenant.ULID when the account belongs to several
+#   FIREBIRD_SWEEP_MIN_AGE_HOURS (optional)       minimum age of leftovers the sweep deletes (default 6)
+#   FIREBIRD_API_BASE (optional)                  default https://dgxc.firebird.ai; also the TLS probe target
+#   EDGE_ENDPOINTS (optional)                     host:port list to probe instead of the API host
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/security.yaml
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/security.yaml --capability bare_metal
+
+import:
+  - ../../../suites/security.yaml
+
+version: "1.0"
+
+commands:
+  security:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # Deletes isv-* service accounts/projects older than FIREBIRD_SWEEP_MIN_AGE_HOURS
+      # (default 6h) left by earlier killed runs; never fails setup.
+      - name: sweep_leftovers
+        phase: setup
+        command: "python3 ../scripts/iam/sweep_leftovers.py"
+        timeout: 300
+
+      # A setup step also makes the orchestrator run teardown after it.
+      - name: preflight
+        phase: setup
+        command: "python3 ../scripts/control-plane/check_api.py"
+        timeout: 120
+
+      - name: sa_credential_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/security/sa_credential_test.py"
+        timeout: 120
+
+      - name: oidc_user_auth_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/security/oidc_user_auth_test.py"
+        timeout: 120
+
+      - name: least_privilege_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/security/least_privilege_test.py"
+        timeout: 180
+
+      - name: audit_logging_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/security/audit_logging_test.py"
+        args: ["--audit-timeout", "180"]
+        timeout: 300
+
+      - name: insecure_protocols_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/security/insecure_protocols_test.py"
+        timeout: 120
+
+      - name: capacity_reservation_grouping
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/security/capacity_reservation_grouping.py"
+        timeout: 120
+
+      # Deletes every service account and project the steps above recorded,
+      # including those of steps that failed part-way.
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/iam/teardown.py"
+        args:
+          - "--service-account-ids={{ ((steps.sa_credential_test.created_service_account_ids | default([])) + (steps.least_privilege_test.created_service_account_ids | default([])) + (steps.audit_logging_test.created_service_account_ids | default([]))) | join(',') }}"
+          - "--project-ids={{ steps.least_privilege_test.created_project_ids | default([]) | join(',') }}"
+        timeout: 300
+
+tests:
+  cluster_name: "firebird-security-validation"
+  description: "Firebird infrastructure security validation"

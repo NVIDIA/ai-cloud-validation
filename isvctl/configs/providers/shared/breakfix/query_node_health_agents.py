@@ -19,6 +19,13 @@ Nodes are named through ``--nodes``. With none configured the step emits a
 structured skip: an unconfigured site is indistinguishable from one with no
 agents, and a pass there would assert nothing.
 
+SSH uses the caller's own configuration by default. ``--ssh-user`` and
+``--key-file`` name the login and private key instead, for providers that
+provision a host with a key generated for the run. Host keys are still checked
+against the caller's known hosts unless ``--no-host-key-check`` is also given:
+a freshly provisioned host's key cannot be known in advance, so a provider may
+opt out, as its own SSH helpers do for the hosts they provision.
+
 ``--expected-nodes`` is how a short list stops being a quiet pass. The probe
 judges the nodes it is given, so naming three of a site's sixty-four would
 otherwise carry BFX04-01 for the whole site. The fleet size is therefore
@@ -66,6 +73,10 @@ NODE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 # Unit names reach the remote shell inside the systemctl argument list, so they
 # are held to systemd's own alphabet rather than interpolated as given.
 UNIT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9@._-]*$")
+
+# Login names reach ssh(1) as the value of ``-l``; held to a portable user-name
+# alphabet so a value can never smuggle in another option.
+USER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9._-]*$")
 
 CONNECT_TIMEOUT_SECONDS = 10
 PROBE_TIMEOUT_SECONDS = 20
@@ -118,6 +129,20 @@ def _parse_units(value: str) -> tuple[str, ...]:
     return tuple(units)
 
 
+def _ssh_options(user: str, key_file: str, no_host_key_check: bool = False) -> tuple[str, ...]:
+    """Return the ssh(1) options selecting the login, key, and host-key policy; empty for the caller's defaults."""
+    options: list[str] = []
+    if user:
+        if not USER_PATTERN.fullmatch(user):
+            raise NodeHealthQueryError("Invalid SSH user name")
+        options += ["-l", user]
+    if key_file:
+        options += ["-i", key_file, "-o", "IdentitiesOnly=yes"]
+    if no_host_key_check:
+        options += ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    return tuple(options)
+
+
 def _parse_expected(value: str, nodes: list[str]) -> int:
     """Return the declared GPU fleet size, rejecting a count that asserts nothing."""
     if not nodes:
@@ -135,7 +160,7 @@ def _parse_expected(value: str, nodes: list[str]) -> int:
         raise NodeHealthQueryError(f"Invalid expected node count: {value!r}") from None
 
 
-def _active_unit(node: str, units: tuple[str, ...] = AGENT_UNITS) -> str:
+def _active_unit(node: str, units: tuple[str, ...] = AGENT_UNITS, ssh_options: tuple[str, ...] = ()) -> str:
     """Return the supported agent unit active on ``node``, or an empty string.
 
     ``systemctl is-active`` prints one state per unit argument, in order, and
@@ -151,6 +176,7 @@ def _active_unit(node: str, units: tuple[str, ...] = AGENT_UNITS) -> str:
         "BatchMode=yes",
         "-o",
         f"ConnectTimeout={CONNECT_TIMEOUT_SECONDS}",
+        *ssh_options,
         # Before the host, not after: ssh only stops option parsing at a `--`
         # that precedes its first non-option argument.
         "--",
@@ -176,7 +202,7 @@ def _active_unit(node: str, units: tuple[str, ...] = AGENT_UNITS) -> str:
     return next((unit for unit, state in zip(units, states, strict=True) if state == "active"), "")
 
 
-def _probe(node: str, units: tuple[str, ...] = AGENT_UNITS) -> str | None:
+def _probe(node: str, units: tuple[str, ...] = AGENT_UNITS, ssh_options: tuple[str, ...] = ()) -> str | None:
     """Return the active agent unit, or None when the node yielded no evidence.
 
     A node we could not read is not a node without an agent, so it must not
@@ -186,12 +212,17 @@ def _probe(node: str, units: tuple[str, ...] = AGENT_UNITS) -> str | None:
     every GPU node accounted for rather than the covered ones listed.
     """
     try:
-        return _active_unit(node, units)
+        return _active_unit(node, units, ssh_options)
     except NodeHealthQueryError:
         return None
 
 
-def _sweep(nodes: list[str], budget_seconds: float, units: tuple[str, ...] = AGENT_UNITS) -> dict[str, str | None]:
+def _sweep(
+    nodes: list[str],
+    budget_seconds: float,
+    units: tuple[str, ...] = AGENT_UNITS,
+    ssh_options: tuple[str, ...] = (),
+) -> dict[str, str | None]:
     """Probe every node concurrently, abandoning the sweep when the budget expires.
 
     Returns the units keyed by node; a node missing from the mapping was never
@@ -202,7 +233,7 @@ def _sweep(nodes: list[str], budget_seconds: float, units: tuple[str, ...] = AGE
     probed: dict[str, str | None] = {}
     pool = ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT_PROBES, len(nodes)))
     try:
-        pending = {pool.submit(_probe, node, units): node for node in nodes}
+        pending = {pool.submit(_probe, node, units, ssh_options): node for node in nodes}
         for future in as_completed(pending, timeout=budget_seconds):
             probed[pending[future]] = future.result()
     except TimeoutError:
@@ -218,6 +249,7 @@ def _query(
     expected: int,
     budget_seconds: float = PROBE_BUDGET_SECONDS,
     units: tuple[str, ...] = AGENT_UNITS,
+    ssh_options: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Return provider-neutral BFX04-01 evidence for every configured node.
 
@@ -243,7 +275,7 @@ def _query(
             f"Expected node count must be at least 1 with {len(nodes)} node(s) to probe, got {expected}; "
             "a platform reporting no GPU nodes cannot be covered by probing some"
         )
-    probed = _sweep(nodes, budget_seconds, units)
+    probed = _sweep(nodes, budget_seconds, units, ssh_options)
     # Every node that yielded nothing is named, so a fleet-wide access problem
     # takes one run to diagnose rather than one run per node. Abandoned and
     # unreadable are reported apart: the first is this sweep running out of
@@ -285,6 +317,17 @@ def main() -> int:
         default="",
         help=f"Comma-separated systemd units that count as a GPU health agent (default: {', '.join(AGENT_UNITS)})",
     )
+    parser.add_argument("--ssh-user", default="", help="SSH login name (default: the caller's SSH configuration)")
+    parser.add_argument(
+        "--key-file",
+        default="",
+        help="SSH private key for hosts provisioned with a run-generated key",
+    )
+    parser.add_argument(
+        "--no-host-key-check",
+        action="store_true",
+        help="Neither check nor record host keys (for hosts provisioned by the run, whose key is not known yet)",
+    )
     try:
         args = parser.parse_args()
         nodes = _parse_nodes(args.nodes)
@@ -292,6 +335,7 @@ def main() -> int:
             nodes,
             units=_parse_units(args.units),
             expected=_parse_expected(args.expected_nodes, nodes),
+            ssh_options=_ssh_options(args.ssh_user, args.key_file, args.no_host_key_check),
         )
     except NodeHealthQueryError as exc:
         result = {

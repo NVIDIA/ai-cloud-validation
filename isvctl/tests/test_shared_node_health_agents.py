@@ -479,3 +479,55 @@ def test_invalid_arguments_emit_failure_json(
     assert captured.err == ""
     assert payload["success"] is False
     assert "unrecognized arguments" in payload["error"]
+
+
+def test_ssh_identity_is_the_callers_own_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without --ssh-user/--key-file the probe adds no login, key, or host-key options."""
+    module = _load_script()
+    calls: list[list[str]] = []
+    monkeypatch.setattr(module.subprocess, "run", _ssh_stub({"gpu-01": _states("gpud")}, calls))
+    monkeypatch.setattr(sys, "argv", [SCRIPT.name, "--nodes=gpu-01", "--expected-nodes=1"])
+
+    assert module.main() == 0
+    options = calls[0][: calls[0].index("--")]
+    assert "-l" not in options
+    assert "-i" not in options
+    assert not any("HostKey" in option or "KnownHosts" in option for option in options)
+
+
+def test_a_key_file_alone_keeps_host_key_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """--key-file selects the key only; host keys are still checked unless --no-host-key-check is given."""
+    module = _load_script()
+    calls: list[list[str]] = []
+    monkeypatch.setattr(module.subprocess, "run", _ssh_stub({"gpu-01": _states("gpud")}, calls))
+    monkeypatch.setattr(sys, "argv", [SCRIPT.name, "--nodes=gpu-01", "--expected-nodes=1", "--key-file=/tmp/k"])
+
+    assert module.main() == 0
+    options = calls[0][: calls[0].index("--")]
+    assert options[options.index("-i") + 1] == "/tmp/k"
+    assert not any("HostKey" in option or "KnownHosts" in option for option in options)
+
+
+def test_run_key_and_login_reach_ssh_before_the_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A provisioned host's login and run-generated key precede ``--``; with the opt-in its host key is not checked."""
+    module = _load_script()
+    calls: list[list[str]] = []
+    monkeypatch.setattr(module.subprocess, "run", _ssh_stub({"10.0.0.5": _states("gpud")}, calls))
+
+    module._query(["10.0.0.5"], expected=1, ssh_options=module._ssh_options("ubuntu", "/tmp/run-key", True))
+
+    options = calls[0][: calls[0].index("--")]
+    assert options[options.index("-l") + 1] == "ubuntu"
+    assert options[options.index("-i") + 1] == "/tmp/run-key"
+    assert "StrictHostKeyChecking=no" in options
+    assert "UserKnownHostsFile=/dev/null" in options
+    assert calls[0][calls[0].index("--") + 1] == "10.0.0.5"
+
+
+@pytest.mark.parametrize("value", ["-oProxyCommand=x", "root;reboot", "$(reboot)"])
+def test_unsafe_ssh_user_names_are_rejected(value: str) -> None:
+    """The login name reaches ssh as an option value, so it cannot smuggle another option."""
+    module = _load_script()
+
+    with pytest.raises(module.NodeHealthQueryError, match="Invalid SSH user name"):
+        module._ssh_options(value, "")

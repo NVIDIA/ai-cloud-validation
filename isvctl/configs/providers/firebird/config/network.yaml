@@ -1,0 +1,348 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Firebird Network Validation Configuration
+#
+# Imports the provider-agnostic network contract and wires it to the Firebird
+# BMaaS REST API (https://dgxc.firebird.ai/api/v1). VPC, subnet, and firewall
+# rule changes go through the API. A rule counts as observed when its
+# Operation completes and its readback is READY; this measures control-plane
+# completion, not traffic propagation.
+#
+# Firebird has no security-group object: a VPC's firewall rules are its
+# security policy, so the SG checks run against VPC firewall rules (see each
+# script's docstring for the exact mapping).
+#
+# Steps:
+#   1. create_network - Creates a VPC with two subnets for the run, or passes a supplied one through (setup)
+#   2. list_vpcs - Lists the project's VPCs, finds the run's VPC (test)
+#   3. get_vpc - Reads the run's VPC (test)
+#   4. subnet_assignment - The run's subnet is listed under its VPC (test)
+#   5. vpc_crud - Create/read/delete a VPC; update_tags/update_dns fail as not supported (test)
+#   6. sg_crud - Firewall-rule lifecycle in the run's VPC/subnet A, as security-group CRUD (test)
+#   7. sg_policy_propagation - Times a probe rule's create and delete in the run's VPC/subnet A (test)
+#   8. sdn_filter_audit_trail - Rule create/modify/delete in the run's VPC/subnet A found in GET /audit;
+#      skips if audit is off (test)
+#   9. backend_switch_fabric - Leaf/spine/core switch IDs from /topology/nodes/{node} (test)
+#  10. dhcp_ip_test - Provisioned BM's DHCP lease and IP, checked over SSH (test)
+#  11. stable_ip_test - Provisioned BM's IP across power-off/power-on (test)
+#  12. stable_egress_ip_test - Provisioned BM's egress IP across probes; fails without egress (test)
+#  13. connectivity_test - Ping between the BM and a peer BM (test)
+#  14. traffic_validation - Allowed ping, ping blocked by a DENY rule, internet ICMP/HTTP (test)
+#  15. sg_node_scoping - A node-scoped DENY rule covers one BM and not the other (test)
+#  16. sg_subnet_scoping - A subnet-scoped DENY rule; needs the BMs on two subnets (test)
+#  17. teardown - Deletes the subnets, then the VPC, that create_network created (teardown)
+#
+# VLANs: every subnet created takes a VLAN from the tenant's pool, so a run
+# that creates its network uses two. Only create_network creates subnets;
+# supply a kept network (FIREBIRD_NETWORK_VPC_ID + _SUBNET_ID_A/_B) to create
+# none. The firewall-rule steps (6-8) use the run's VPC and subnet A:
+# a probe rule only reaches READY when at least one prefix is inside an
+# existing subnet of the VPC (depending on the deployment an invalid rule is
+# rejected immediately or through its Operation), so their probe rules pair a
+# /32 in subnet A with a TEST-NET-1 address.
+#
+# Provisioned BMs: this config does not provision BMs. Steps 10-16 run against
+# an already-provisioned BM (BM_INSTANCE_ID + BM_KEY_FILE, e.g. kept by a
+# bare_metal run with BM_SKIP_TEARDOWN=true); steps 13-16 also need a peer BM
+# in the same VPC (FIREBIRD_PEER_BM_ID + FIREBIRD_PEER_KEY_FILE). Without them
+# those steps emit a structured skip naming what is missing. stable_ip_test
+# powers the BM off and on. Checks 9-14 require the bare_metal capability:
+# run with --capability bare_metal to include them.
+#
+# Not wired (validations skip as step_not_configured):
+#   - subnet_config: requires multi-AZ subnets; the API has no availability zones.
+#   - vpc_isolation: needs route tables, which are not exposed, and there is no
+#     peering API to probe.
+#   - security_blocking: needs an explicit NACL deny; the API has no network
+#     ACL resource.
+#   - vpc_ip_config: needs DHCP DNS options; .../dhcp/status reports only pools.
+#   - sg_workload_scoping, sg_service_scoping, sg_port_security_policy: no
+#     workload, service-endpoint, or virtual-interface resource.
+#   - sdn_hardware_fault_logging, sdn_latency_perf_logging: no fault or
+#     metrics logging API.
+#   - byoip_test: VPC CIDRs are limited to an RFC 1918 allowlist.
+#   - floating_ip_test: no floating or public IP API.
+#   - dns_test: no DNS zone/record API.
+#   - peering_test: no peering API.
+#   - storage_l3_routing: needs several storage hosts across subnets.
+#   - nvlink_domain: no NVLink domain in the BM, machine-type, or topology API.
+#   - imex_domain, imex_service, imex_resilience, imex_departure, imex_reboot:
+#     need a multi-node NVLink (NVL72-class) allocation.
+#
+# Prerequisites:
+#   FIREBIRD_CLIENT_ID / FIREBIRD_CLIENT_SECRET   service-account credentials (or FIREBIRD_BEARER_TOKEN)
+#   FIREBIRD_PROJECT_ID                           project.ULID
+#   FIREBIRD_NETWORK_VPC_ID (optional)            supplied VPC for the run (vpc.ULID); with both subnet
+#   FIREBIRD_NETWORK_SUBNET_ID_A / _B (opt.)      IDs below nothing is created or deleted; with neither,
+#                                                 the two subnets are created inside it
+#   NETWORK_SKIP_TEARDOWN=true (optional)         keep a created network; teardown prints the IDs to supply
+#   FIREBIRD_NETWORK_VPC_CIDR (optional)          CIDR of the run's VPC (default 172.16.243.0/24)
+#   FIREBIRD_NETWORK_SUBNET_CIDR_A / _B (opt.)    the two subnet CIDRs inside it
+#                                                 (default 172.16.243.0/25 / 172.16.243.128/25)
+#   FIREBIRD_CRUD_VPC_CIDR (optional)             CIDR of vpc_crud's short-lived VPC (default 172.16.241.0/24)
+#   The API rejects a VPC or subnet CIDR that overlaps another in the project.
+#   The defaults are disjoint from each other and from bare_metal.yaml's
+#   172.16.240.0/24, so a network kept by a bare_metal run does not collide.
+#   BM_INSTANCE_ID / BM_KEY_FILE (optional)       provisioned BM for steps 10-16
+#   FIREBIRD_PEER_BM_ID / FIREBIRD_PEER_KEY_FILE  peer BM for steps 13-16
+#                      (optional)
+#   FIREBIRD_SSH_USER (optional)                  SSH user on the BMs (default ubuntu)
+#   FIREBIRD_API_BASE (optional)                  default https://dgxc.firebird.ai
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/network.yaml
+#   # BM_KEY_FILE is the key_file a kept bare_metal run reported (BM_SKIP_TEARDOWN=true)
+#   BM_INSTANCE_ID=bm.xxx BM_KEY_FILE=/tmp/isv-bm-test-gpu-abc123/isv-bm-test-gpu-key \
+#     uv run isvctl test run -f isvctl/configs/providers/firebird/config/network.yaml --capability bare_metal
+
+import:
+  - ../../../suites/network.yaml
+
+version: "1.0"
+
+commands:
+  network:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: create_network
+        phase: setup
+        command: "python3 ../scripts/network/create_network.py"
+        args:
+          - "--name"
+          - "isv-net-test"
+          - "--vpc-id={{network_vpc_id}}"
+          - "--subnet-id={{network_subnet_id_a}}"
+          - "--subnet-id={{network_subnet_id_b}}"
+          - "--vpc-cidr"
+          - "{{vpc_cidr}}"
+          - "--subnet-cidr"
+          - "{{subnet_cidr_a}}"
+          - "--subnet-cidr"
+          - "{{subnet_cidr_b}}"
+        timeout: 1800
+
+      - name: list_vpcs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/list_vpcs.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+        timeout: 120
+
+      - name: get_vpc
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/get_vpc.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+        timeout: 120
+
+      - name: subnet_assignment
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/subnet_assignment.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-id"
+          - "{{steps.create_network.subnets[0].subnet_id}}"
+        timeout: 120
+
+      # Creates and deletes its own VPC; update_tags/update_dns are reported
+      # failed as not supported, so VpcUpdatedCheck fails honestly.
+      - name: vpc_crud
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/vpc_crud_test.py"
+        args:
+          - "--cidr"
+          - "{{crud_vpc_cidr}}"
+        timeout: 1800
+
+      # SG = the rules the step creates in the run's VPC: create_vpc = that VPC
+      # reads READY, create_sg/read_sg = first rule, add/remove = a second rule,
+      # modify = PUT on the first, delete_sg/verify_deleted = both gone and 404.
+      # Probe rules in the run's network: one prefix must be inside a subnet of
+      # the VPC, so the rules of steps 6-8 target a /32 in subnet A
+      # from TEST-NET-1. No step here creates a subnet (each costs a VLAN).
+      - name: sg_crud
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/sg_crud_test.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-id"
+          - "{{steps.create_network.subnets[0].subnet_id}}"
+        timeout: 1800
+
+      - name: sg_policy_propagation
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/sg_policy_propagation_test.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-id"
+          - "{{steps.create_network.subnets[0].subnet_id}}"
+          - "--max-propagation-seconds"
+          - "10"
+        timeout: 900
+
+      - name: sdn_filter_audit_trail
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/sdn_filter_audit_trail_test.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-id"
+          - "{{steps.create_network.subnets[0].subnet_id}}"
+        timeout: 900
+
+      # Flat /topology route (not under /api/v1). Inspects the provisioned BM,
+      # or the first BM the tenant's topology lists when none is configured.
+      - name: backend_switch_fabric
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/backend_switch_fabric.py"
+        args:
+          - "--node-id={{bm_id}}"
+        timeout: 120
+
+      - name: dhcp_ip_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/dhcp_ip_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 120
+
+      # Powers the provisioned BM off and on.
+      - name: stable_ip_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/stable_ip_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 4800
+
+      - name: stable_egress_ip_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/stable_egress_ip_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--probes"
+          - "3"
+          - "--interval-seconds"
+          - "2"
+          - "--endpoint"
+          - "https://api.ipify.org"
+        timeout: 300
+
+      # ─── Two-BM checks: skip until a peer BM is configured ────────────
+      - name: connectivity_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/connectivity_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--peer-id={{peer_bm_id}}"
+          - "--peer-key-file={{peer_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 300
+
+      - name: traffic_validation
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/traffic_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--peer-id={{peer_bm_id}}"
+          - "--peer-key-file={{peer_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 900
+
+      - name: sg_node_scoping
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/sg_scoping_test.py"
+        args:
+          - "--scope"
+          - "node"
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--peer-id={{peer_bm_id}}"
+          - "--peer-key-file={{peer_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 900
+
+      - name: sg_subnet_scoping
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/network/sg_scoping_test.py"
+        args:
+          - "--scope"
+          - "subnet"
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--peer-id={{peer_bm_id}}"
+          - "--peer-key-file={{peer_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 900
+
+      # Delete only what create_network created (subnets, then the VPC).
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/network/teardown_network.py"
+        args:
+          - "--vpc-id={{steps.create_network.network_id | default('')}}"
+          - "--subnet-ids={{steps.create_network.created_subnet_ids | default([]) | join(',')}}"
+          - "{{ '--delete-vpc' if steps.create_network.created_vpc | default(false) else '' }}"
+          - "{{teardown_flag}}"
+          - "--keep-var=NETWORK_SKIP_TEARDOWN"
+          - "--reuse-vars=FIREBIRD_NETWORK_VPC_ID,FIREBIRD_NETWORK_SUBNET_ID_A,FIREBIRD_NETWORK_SUBNET_ID_B"
+        timeout: 1800
+
+tests:
+  cluster_name: "firebird-network-validation"
+  description: "Firebird VPC, subnet, and firewall-rule validation tests"
+
+  settings:
+    vpc_cidr: "{{env.FIREBIRD_NETWORK_VPC_CIDR | default('172.16.243.0/24', true)}}"
+    subnet_cidr_a: "{{env.FIREBIRD_NETWORK_SUBNET_CIDR_A | default('172.16.243.0/25', true)}}"
+    subnet_cidr_b: "{{env.FIREBIRD_NETWORK_SUBNET_CIDR_B | default('172.16.243.128/25', true)}}"
+    crud_vpc_cidr: "{{env.FIREBIRD_CRUD_VPC_CIDR | default('172.16.241.0/24', true)}}"
+    network_vpc_id: "{{env.FIREBIRD_NETWORK_VPC_ID | default('', true)}}"
+    network_subnet_id_a: "{{env.FIREBIRD_NETWORK_SUBNET_ID_A | default('', true)}}"
+    network_subnet_id_b: "{{env.FIREBIRD_NETWORK_SUBNET_ID_B | default('', true)}}"
+    teardown_flag: "{{(env.NETWORK_SKIP_TEARDOWN == 'true') | ternary('--skip-destroy', '')}}"
+    bm_id: "{{env.BM_INSTANCE_ID | default('', true)}}"
+    bm_key_file: "{{env.BM_KEY_FILE | default('', true)}}"
+    peer_bm_id: "{{env.FIREBIRD_PEER_BM_ID | default('', true)}}"
+    peer_key_file: "{{env.FIREBIRD_PEER_KEY_FILE | default('', true)}}"
+    ssh_user: "{{env.FIREBIRD_SSH_USER | default('ubuntu', true)}}"

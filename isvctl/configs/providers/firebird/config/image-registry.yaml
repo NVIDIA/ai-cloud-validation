@@ -1,0 +1,173 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Firebird Image Registry Validation Configuration
+#
+# Imports the provider-agnostic image-registry contract and wires it to the
+# Firebird BMaaS REST API (https://dgxc.firebird.ai/api/v1). Custom images are
+# uploaded through the API's multipart upload routes into the run's project.
+#
+# Steps:
+#   1. upload_image - Stream the image through /compute/images/{p}/uploads; confirm it registered (setup)
+#   2. create_network - VPC + subnet for the BM install, or the supplied subnet (setup; bare_metal)
+#   3. crud_image - Upload/get/list/delete a 1 MiB probe image of its own (test)
+#   4. install_image_bm - Provision the uploaded image on an AVAILABLE BM; RUNNING + SSH (test; bare_metal)
+#   5. teardown_bm - Deprovision/detach what install_image_bm did (teardown; bare_metal)
+#   6. teardown_network - Delete the network create_network created (teardown; bare_metal)
+#   7. teardown_image - DELETE the uploaded image, after the BM no longer references it (teardown)
+#
+# The upload steps emit a structured skip when the image upload API is not
+# enabled. The BM steps run only with --capability
+# bare_metal; a bare_metal run with the upload service off still creates and
+# deletes the network, since steps cannot be conditional.
+#
+# Contract mapping: storage_bucket is the scope the image is stored under (the
+# project) and disk_ids holds the upload's objectId (the stored file's
+# reference) - Firebird exposes no bucket or disk objects. The suite's default
+# image is a .vmdk, which the API refuses; the default here is Ubuntu's qcow2
+# cloud image (bare metal boots qcow2 or raw whole-disk images).
+#
+# Not wired (validations skip as step_not_configured):
+#   - crud_install_config / install_config_bm: no install-config resource;
+#     user-data is supplied per provision.
+#   - launch_instance / teardown_instance (VM): Firebird has no VMs.
+#
+# Prerequisites:
+#   FIREBIRD_CLIENT_ID / FIREBIRD_CLIENT_SECRET   service-account credentials (or FIREBIRD_BEARER_TOKEN);
+#                                                 the account needs tenant-scope image create (the upload
+#                                                 finish registers the image) and, for the BM install,
+#                                                 tenant-scope BM read (GET /compute/bms) - such as tenant ADMIN
+#   FIREBIRD_PROJECT_ID                           project.ULID the image is uploaded to
+#   FIREBIRD_IMAGE_URL / FIREBIRD_IMAGE_FORMAT    image source (http(s), file://, or path) and its format,
+#                      (optional)                 qcow2 or raw (default: Ubuntu 24.04 cloud image, qcow2)
+#   FIREBIRD_VPC_ID / FIREBIRD_SUBNET_ID (opt.)   network for the BM install; otherwise one is created
+#   FIREBIRD_IR_VPC_CIDR / FIREBIRD_IR_SUBNET_CIDR CIDRs of a created network (default 172.16.244.0/24
+#                      (optional)                 and 172.16.244.0/25, disjoint from the other configs)
+#   FIREBIRD_BM_ID / FIREBIRD_MACHINE_TYPE_ID     pin the BM or restrict selection by machine type
+#                      (optional)
+#   FIREBIRD_SSH_USER (optional)                  default user of the image (default ubuntu)
+#   IR_SKIP_TEARDOWN=true (optional)              keep the BM, network, and image
+#
+#   install_image_bm generates an SSH key pair per run in a fresh private
+#   directory (generated_key: true); teardown_bm deletes only that key.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/image-registry.yaml
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/image-registry.yaml --capability bare_metal
+
+import:
+  - ../../../suites/image-registry.yaml
+
+version: "1.0"
+
+commands:
+  image_registry:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: upload_image
+        phase: setup
+        command: "python3 ../scripts/image-registry/upload_image.py"
+        args:
+          - "--image-url"
+          - "{{image_url}}"
+          - "--image-format"
+          - "{{image_format}}"
+        timeout: 3600
+
+      - name: create_network
+        phase: setup
+        requires: [bare_metal]
+        command: "python3 ../scripts/network/create_network.py"
+        args:
+          - "--name"
+          - "isv-ir-test"
+          - "--vpc-id={{vpc_id}}"
+          - "--subnet-id={{subnet_id}}"
+          - "--vpc-cidr"
+          - "{{vpc_cidr}}"
+          - "--subnet-cidr"
+          - "{{subnet_cidr}}"
+        timeout: 1800
+
+      - name: crud_image
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/image-registry/crud_image.py"
+        timeout: 900
+
+      - name: install_image_bm
+        phase: test
+        requires: [bare_metal]
+        continue_on_failure: true
+        command: "python3 ../scripts/image-registry/install_image_bm.py"
+        args:
+          - "--image-id={{steps.upload_image.image_id | default('')}}"
+          - "{{ '--upload-skipped' if steps.upload_image.skipped | default(false) else '' }}"
+          - "--vpc-id={{steps.create_network.network_id | default('')}}"
+          - "--subnet-id={{steps.create_network.subnets[0].subnet_id | default('')}}"
+          - "--instance-type={{instance_type}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 4200
+
+      # Undo only what install_image_bm did; deprovisioning releases the image.
+      - name: teardown_bm
+        phase: teardown
+        requires: [bare_metal]
+        command: "python3 ../scripts/bare_metal/teardown.py"
+        args:
+          - "--instance-id={{steps.install_image_bm.instance_id | default('')}}"
+          - "{{ '--deprovision' if steps.install_image_bm.owned | default(false) else '' }}"
+          - "{{ '--detach-subnet' if steps.install_image_bm.attached_subnet | default(false) else '' }}"
+          - "{{ '--detach-project' if steps.install_image_bm.attached_project | default(false) else '' }}"
+          # Only the key install_image_bm generated for this run is deleted.
+          - "{{ '--delete-key-pair' if steps.install_image_bm.generated_key | default(false) else '' }}"
+          - "--key-file={{steps.install_image_bm.key_file | default('')}}"
+          - "{{teardown_flag}}"
+        timeout: 5000
+
+      - name: teardown_network
+        phase: teardown
+        requires: [bare_metal]
+        command: "python3 ../scripts/network/teardown_network.py"
+        args:
+          - "--vpc-id={{steps.create_network.network_id | default('')}}"
+          - "--subnet-ids={{steps.create_network.created_subnet_ids | default([]) | join(',')}}"
+          - "{{ '--delete-vpc' if steps.create_network.created_vpc | default(false) else '' }}"
+          - "{{teardown_flag}}"
+        timeout: 1800
+
+      - name: teardown_image
+        phase: teardown
+        command: "python3 ../scripts/image-registry/teardown_image.py"
+        args:
+          - "--image-id={{steps.upload_image.image_id | default('')}}"
+          - "{{ '--upload-skipped' if steps.upload_image.skipped | default(false) else '' }}"
+          - "{{teardown_flag}}"
+        timeout: 900
+
+tests:
+  cluster_name: "firebird-image-registry-validation"
+  description: "Firebird custom OS image upload, CRUD, and bare-metal install"
+
+  settings:
+    # The suite default (.vmdk) is refused by the API; bare metal boots qcow2 or raw.
+    image_url: "{{env.FIREBIRD_IMAGE_URL | default('https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img', true)}}"
+    image_format: "{{env.FIREBIRD_IMAGE_FORMAT | default('qcow2', true)}}"
+    instance_type: "{{env.FIREBIRD_MACHINE_TYPE_ID | default('', true)}}"
+    vpc_id: "{{env.FIREBIRD_VPC_ID | default('', true)}}"
+    subnet_id: "{{env.FIREBIRD_SUBNET_ID | default('', true)}}"
+    vpc_cidr: "{{env.FIREBIRD_IR_VPC_CIDR | default('172.16.244.0/24', true)}}"
+    subnet_cidr: "{{env.FIREBIRD_IR_SUBNET_CIDR | default('172.16.244.0/25', true)}}"
+    ssh_user: "{{env.FIREBIRD_SSH_USER | default('ubuntu', true)}}"

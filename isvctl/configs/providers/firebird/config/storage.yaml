@@ -1,0 +1,348 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Firebird Storage Validation Configuration
+#
+# Imports the provider-agnostic storage contract and wires it to the Firebird
+# Filesystem API (https://dgxc.firebird.ai/api/v1/projects/{p}/storage/fs),
+# which provisions filesystems in the tenant's organization on the parallel
+# filesystem. Creating, resizing, and deleting a filesystem is observed through
+# the API: the Operation completes and the readback is READY.
+#
+# Steps:
+#   1. setup - Mints the run ID and publishes the StorageProvider manifest path (setup)
+#   2. sweep_leftovers - Deletes isv-fs-* filesystems older than 6 h left by killed runs,
+#      and unmounts their stale /mnt/isv-* mounts on the BM (setup)
+#   3. setup_mount - Creates isv-fs-<run_id>-mount, installs the filesystem client on the BM
+#      if missing, delivers the mount token over SSH stdin, mounts it over wekafs at
+#      /mnt/isv-<run_id> and verifies a write/read (setup; a failure does not stop the run)
+#   4. provision_storage - HSS01-01: create a 1 GiB filesystem, READY, capacity matches; delete (test)
+#   5. multiple_filesystems - HSS09-01: two 1 GiB filesystems, within the org quota; delete (test)
+#   6. live_expansion - HSS10-01: grow 1 -> 2 GiB, readback + `/storage/fs/status` allocation; with a BM,
+#      inode count and uninterrupted I/O on its own mount; delete (test)
+#   7. provision_parallel_fs - HSS07-01: the mounted filesystem, API readback + mount probe (test)
+#   8. qos_throughput - HSS02-01: O_DIRECT bandwidth and 4 KiB IOPS on the mount (test)
+#   9. quota_enforcement - HSS12-01: directory quota soft/hard on the mount (test)
+#  10. root_squash - HSS13-01: owner of a root-created file (test)
+#  11. flock_mount - HSS14-01: exclusive, shared, and contended flock (test)
+#  12. changelog_audit - HSS15-01: the filesystem's audit state (test)
+#  13. multipath - HSS18-01: client paths and backend reachability (test)
+#  14. home_directory_storage - DIR01-01 capacity quota on its own filesystem (configure,
+#      resize, ENOSPC) and DIR01-02 uid/gid accounting on the mount (test)
+#  15. nfs_home_directory - DIR02-01: skip, NFS is not enabled on the filesystem cluster (test)
+#  16. teardown - Unmounts /mnt/isv-<run_id>*, removes the token file (the client stays
+#      installed), then deletes every filesystem still named isv-fs-<run_id>-* (teardown)
+#
+# StorageProviderApiCheck runs the Firebird shim (config/storage-provider-manifest.yaml,
+# scripts/storage/firebird/api.py) in the validation process: health = list
+# filesystems, create/delete volume = create/delete a 1 GiB filesystem,
+# tenant quota = GET .../storage/fs/status. Its filesystem carries the run ID
+# too, so teardown removes it if the check's own delete failed.
+#
+# Filesystem safety: every filesystem the run creates is named
+# isv-fs-<run_id>-<role> and deleted by the step that created it, with teardown
+# as the net. Every delete reads the name first and refuses anything not named
+# isv-fs-*, so the tenant's own filesystems are never touched. The per-filesystem
+# GET also returns a client login token (authCredentialsBase64); only the mounting
+# steps read it, and they pass it to the BM over SSH stdin, never in argv, a log,
+# a local file, or step output.
+#
+# Mount-dependent checks run on an already-provisioned BM (BM_INSTANCE_ID + BM_KEY_FILE, as the
+# network suite takes them): HSS07-01, HSS02-01, HSS12-01, HSS13-01, HSS14-01, HSS15-01, HSS18-01,
+# DIR01-01, DIR01-02, plus the mount half of HSS10-01. Without a BM they skip with "no BM configured
+# for mount checks". DIR02-01 skips: NFS is not enabled on the filesystem cluster. All but HSS13-01
+# require the bare_metal capability, so run with --capability bare_metal.
+#
+# Not wired (validations skip as step_not_configured, or are not requested):
+#   - Block-volume fixture and checks (VolumeHostRunningCheck, VolumeProvisionedCheck,
+#     DATASVC02-01/03-01/04-01, VolumeDeletedCheck): the API has no block-volume
+#     service.
+#   - HSS05-01 non_disruptive_upgrade, HSS06-01 rdma_memory_protection: operator
+#     and host side; no tenant API.
+#   - The 14 Kubernetes storage checks (requires: [kubernetes]): no cluster.
+#   - StorageDirectoryQuotaEnforcementCheck: needs a mounted PVC or native mount
+#     instructions; the manifest declares no directory quotas, so it skips.
+#
+# Prerequisites:
+#   FIREBIRD_CLIENT_ID / FIREBIRD_CLIENT_SECRET   service-account credentials (or FIREBIRD_BEARER_TOKEN)
+#   FIREBIRD_PROJECT_ID                           project.ULID whose filesystems the run creates
+#   FIREBIRD_API_BASE (optional)                  default https://dgxc.firebird.ai
+#   FIREBIRD_SWEEP_MIN_AGE_HOURS (optional)       minimum age of isv-fs-* leftovers to sweep (default 6)
+#   BM_INSTANCE_ID / BM_KEY_FILE (optional)       provisioned BM (RUNNING, sudo, python3, curl) that
+#                                                 routes to the filesystem service; enables the mount checks
+#   FIREBIRD_SSH_USER (optional)                  SSH user on the BM (default ubuntu)
+#   FIREBIRD_WEKA_MOUNT_OPTIONS (optional)        wekafs mount options (default net=udp)
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/storage.yaml --capability bare_metal
+#   # with the mount checks:
+#   BM_INSTANCE_ID=bm.xxx BM_KEY_FILE=/tmp/isv-bm-test-gpu-abc123/isv-bm-test-gpu-key \
+#     uv run isvctl test run -f isvctl/configs/providers/firebird/config/storage.yaml --capability bare_metal
+
+import:
+  - ../../../suites/storage.yaml
+
+version: "1.0"
+
+commands:
+  storage:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # The suite reads steps.setup.storage.manifest_path for StorageProviderApiCheck.
+      - name: setup
+        phase: setup
+        command: "python3 ../scripts/storage/setup.py"
+        timeout: 30
+
+      - name: sweep_leftovers
+        phase: setup
+        command: "python3 ../scripts/storage/sweep_leftovers.py"
+        args:
+          - "--timeout=1650"
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 1800
+
+      # Skips without a BM. A failure is reported by provision_parallel_fs (HSS07-01)
+      # and fails the mount checks; it does not stop the API-only checks.
+      - name: setup_mount
+        phase: setup
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/setup_mount.py"
+        args:
+          - "--run-id={{steps.setup.run_id}}"
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--capacity-gib=1"
+          - "--mount-options={{weka_mount_options}}"
+          - "--install-timeout=900"
+          - "--mount-timeout=900"
+          - "--timeout=900"
+        timeout: 3400
+
+      # ─── API-only checks: 1 GiB filesystems (the platform's minimum) ──
+      # Each script's --timeout covers its work and its cleanup (every delete
+      # shares one deadline) and stays under the step timeout.
+      - name: provision_storage
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/provision_storage_test.py"
+        args:
+          - "--run-id"
+          - "{{steps.setup.run_id}}"
+          - "--capacity-gib"
+          - "1"
+          - "--timeout"
+          - "2550"
+        timeout: 2700
+
+      - name: multiple_filesystems
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/multiple_filesystems_test.py"
+        args:
+          - "--run-id"
+          - "{{steps.setup.run_id}}"
+          - "--count"
+          - "2"
+          - "--capacity-gib"
+          - "1"
+          - "--max-fs-tib"
+          - "50"
+          - "--timeout"
+          - "3450"
+        timeout: 3600
+
+      # The readback alone is not evidence of a resize: capacity_expanded also
+      # needs `/storage/fs/status` to show the expected allocation increase.
+      - name: live_expansion
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/live_expansion_test.py"
+        args:
+          - "--run-id"
+          - "{{steps.setup.run_id}}"
+          - "--from-gib"
+          - "1"
+          - "--to-gib"
+          - "2"
+          - "--timeout"
+          - "3450"
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-options={{weka_mount_options}}"
+        timeout: 3600
+
+      # ─── Mount-dependent checks: on the BM's wekafs mount from setup_mount ──
+      # Each skips without a BM and fails with setup_mount's error when it did not mount.
+      - name: provision_parallel_fs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/parallel_fs_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-point={{steps.setup_mount.mount_point | default('', true)}}"
+          - "--mount-error={{steps.setup_mount.error | default('', true)}}"
+          - "--fs-id={{steps.setup_mount.fs_id | default('', true)}}"
+          - "--client-version={{steps.setup_mount.client_version | default('', true)}}"
+        timeout: 300
+
+      # The Filesystem API has no QoS class, so the floor is the suite reference minimum.
+      - name: qos_throughput
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/qos_throughput_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-point={{steps.setup_mount.mount_point | default('', true)}}"
+          - "--mount-error={{steps.setup_mount.error | default('', true)}}"
+          - "--min-mbps=1000"
+          - "--min-iops=50000"
+          - "--timeout=1500"
+        timeout: 1800
+
+      - name: quota_enforcement
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/quota_enforcement_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-point={{steps.setup_mount.mount_point | default('', true)}}"
+          - "--mount-error={{steps.setup_mount.error | default('', true)}}"
+        timeout: 900
+
+      - name: root_squash
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/root_squash_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-point={{steps.setup_mount.mount_point | default('', true)}}"
+          - "--mount-error={{steps.setup_mount.error | default('', true)}}"
+        timeout: 300
+
+      - name: flock_mount
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/flock_mount_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-point={{steps.setup_mount.mount_point | default('', true)}}"
+          - "--mount-error={{steps.setup_mount.error | default('', true)}}"
+        timeout: 300
+
+      - name: changelog_audit
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/changelog_audit_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-point={{steps.setup_mount.mount_point | default('', true)}}"
+          - "--mount-error={{steps.setup_mount.error | default('', true)}}"
+        timeout: 300
+
+      - name: multipath
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/multipath_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-point={{steps.setup_mount.mount_point | default('', true)}}"
+          - "--mount-error={{steps.setup_mount.error | default('', true)}}"
+        timeout: 600
+
+      # DIR01-01 grows its own filesystem 1 -> 2 GiB and fills it; DIR01-02 runs on the shared mount.
+      - name: home_directory_storage
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/home_directory_storage_test.py"
+        args:
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+          - "--mount-point={{steps.setup_mount.mount_point | default('', true)}}"
+          - "--mount-error={{steps.setup_mount.error | default('', true)}}"
+          - "--run-id={{steps.setup.run_id}}"
+          - "--capacity-gib=1"
+          - "--to-gib=2"
+          - "--mount-options={{weka_mount_options}}"
+          - "--timeout=3450"
+        timeout: 3600
+
+      # DIR02-01 needs NFSv4 served by the filesystem cluster; NFS is not enabled on it.
+      - name: nfs_home_directory
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/skip_check.py"
+        args: ["--test-name", "nfs_home_directory", "--reason", "NFS is not enabled on the filesystem cluster"]
+        timeout: 30
+
+      # The net for every filesystem the run created (named isv-fs-<run_id>-*).
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/storage/teardown.py"
+        args:
+          - "--run-id={{steps.setup.run_id | default('')}}"
+          - "--timeout=1650"
+          - "--instance-id={{bm_id}}"
+          - "--key-file={{bm_key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 1800
+
+tests:
+  cluster_name: "firebird-storage-validation"
+  description: "Firebird parallel filesystem storage validation tests"
+
+  settings:
+    bm_id: "{{env.BM_INSTANCE_ID | default('', true)}}"
+    bm_key_file: "{{env.BM_KEY_FILE | default('', true)}}"
+    ssh_user: "{{env.FIREBIRD_SSH_USER | default('ubuntu', true)}}"
+    weka_mount_options: "{{env.FIREBIRD_WEKA_MOUNT_OPTIONS | default('net=udp', true)}}"
+
+  validations:
+    # DIR01-01/02 run on home_directory_storage; DIR02-01 (NFS) gets its own skip step,
+    # so the group's shared step binding is replaced by one per check.
+    home_directory:
+      step: null
+      checks:
+        DirectoryFilesystemQuotaCheck:
+          step: home_directory_storage
+        DirectoryUsageAccountingCheck:
+          step: home_directory_storage
+        DirectoryNfsAvailabilityCheck:
+          step: nfs_home_directory
+
+    storage_provider_api:
+      checks:
+        # Names the shim's filesystem isv-fs-<run_id>-firebird-fs, so teardown finds it.
+        StorageProviderApiCheck:
+          run_id: "{{steps.setup.run_id | default('', true)}}"

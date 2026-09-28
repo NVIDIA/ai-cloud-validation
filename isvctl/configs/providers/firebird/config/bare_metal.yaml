@@ -1,0 +1,460 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Firebird Bare Metal (BMaaS) Validation Configuration
+#
+# Imports validations from the provider-agnostic BM canonical config and wires
+# them to the Firebird BMaaS REST API (https://dgxc.firebird.ai/api/v1).
+#
+# Firebird BMs are tenant-owned, pre-allocated hardware: "launch" attaches a BM
+# to the project/subnet and provisions an OS image; "teardown" deprovisions it
+# and detaches whatever launch attached. BMs are never deleted.
+#
+# Steps:
+#   1. create_network - Creates a VPC + subnet when FIREBIRD_SUBNET_ID is empty, else passes it through (setup)
+#   2. launch_instance - Attach BM to project/subnet, provision image + SSH key via cloud-init (setup)
+#   3. list_instances - Lists BMs in the VPC, verifies target exists (test)
+#   4. verify_tags - Verifies Name/CreatedBy tags set at provision (test)
+#   5. serial_console - Reads recent serial logs and proves 30-day retention (test)
+#   6. verify_image - Verifies the provisioned OS image (test)
+#   7. stop_instance - Powers off the BM, verifies STOPPED (test)
+#   8. start_instance - Powers on the BM, verifies RUNNING + SSH (test)
+#   9. reboot_instance - BMC reboot, verifies recovery via uptime (test)
+#  10. power_cycle_instance - Power off + power on, verifies cold-start recovery (test)
+#  11. describe_instance - Describes current state, SSH/GPU validation anchor (test)
+#  12. host_status_log - Samples journalctl/dmesg freshness over SSH (test)
+#  13. query_governance_metrics - Delivered/Healthy/Reserved/Active from the NCP fleet-capacity report (test)
+#  14. query_fleet_inventory - Per-node fleet records from the NCP fleet-capacity report (test)
+#  15. query_host_health - Per-node health classification from the NCP fleet-capacity report (test)
+#  16. query_resource_discovery - Polls the tenant BM pool for stable identifiers (test)
+#  17. query_stable_ips - IP of every provisioned (RUNNING/STOPPED) subnet-attached BM in the tenant pool (test)
+#  18. query_bmc_kernel_logs - Serial-log history of the BM over a time window (test)
+#  19. query_maintenance_events - Open maintenance events for the tenant's BMs (test)
+#  20. query_repair_history - Per-BM history of open and cleared maintenance events (test)
+#  21. query_ib_tenant_isolation - Project InfiniBand partitions and P_Keys (test)
+#  22. query_node_health_agents - GPU health agent over SSH, opt-in via FIREBIRD_HEALTH_AGENT_CHECK (test)
+#  23. reinstall_instance - Deprovision + provision the same image (test, skipped by default)
+#  24. deploy_nim - Deploys NIM container via SSH (test)
+#  25. teardown_nim - Stops NIM container via SSH (teardown)
+#  26. teardown - Deprovisions and releases the BM (teardown)
+#  27. verify_teardown - Confirms the BM is released and the key is deleted (teardown)
+#  28. teardown_network - Deletes the subnet, then the VPC, that create_network created (teardown)
+#
+# The fleet-capacity report (GET /reports/ncp/fleet-capacity) is optional; when
+# the route answers 404 or 501 the three fleet-capacity steps emit a structured
+# skip. query_ib_tenant_isolation skips when the IB partition API is not enabled.
+#
+# Not wired (validations skip as step_not_configured):
+#   - topology_placement: the API exposes node topology but has no customer
+#     placement-group operation to create/verify/delete.
+#   - query_health_aggregation, query_ib_keys, query_sanitization, query_topology,
+#     query_oob_health, query_attestation, query_key_access, query_serial_numbers,
+#     query_switch_firmware, query_retirement_notices, report_node_repair,
+#     return_node_maintenance, return_rack_maintenance, request_host_replacement,
+#     query_planned_notifications, query_failure_notifications, verify_ingestion,
+#     check_dpu_health, check_dpu_network: the tenant API exposes no data or
+#     operation that answers them honestly.
+#
+# Prerequisites:
+#   FIREBIRD_CLIENT_ID / FIREBIRD_CLIENT_SECRET   service-account credentials (or FIREBIRD_BEARER_TOKEN);
+#                                                 the account needs tenant-scope BM read, such as tenant
+#                                                 ADMIN (GET /compute/bms lists the tenant pool)
+#   FIREBIRD_PROJECT_ID                           project.ULID
+#   FIREBIRD_VPC_ID / FIREBIRD_SUBNET_ID (opt.)   vpc.ULID / subnet.ULID the BM attaches to; when the
+#                                                 subnet is empty a VPC (unless FIREBIRD_VPC_ID) and a
+#                                                 subnet are created for the run and deleted at teardown
+#   FIREBIRD_VPC_CIDR / FIREBIRD_SUBNET_CIDR      CIDRs of a created VPC/subnet (default 172.16.240.0/24
+#                     (optional)                  and 172.16.240.0/25; VPC prefix must be /8, /16 or /24)
+#   FIREBIRD_IMAGE_ID                             image.ULID to provision (Ubuntu with NVIDIA drivers)
+#   FIREBIRD_BM_ID (optional)                     bm.ULID; otherwise the first AVAILABLE BM is used
+#   FIREBIRD_MACHINE_TYPE_ID (optional)           restrict BM selection to one machine type
+#   FIREBIRD_API_BASE (optional)                  default https://dgxc.firebird.ai
+#   FIREBIRD_HEALTH_AGENT_CHECK (optional)        "true" probes the BM for a GPU health agent (BFX04-01)
+#   FIREBIRD_SSH_USER (optional)                  default user of the image (default ubuntu)
+#
+#   BM IPs live on the tenant subnet and are not internet-routable: run isvctl
+#   on a host that can reach the BM's subnet (VPN, or a shell on a jump host
+#   in that network) so SSH-based checks can connect. `isvctl deploy run` does
+#   not forward FIREBIRD_* variables; export them on the host that runs isvctl.
+#
+# SSH key: launch_instance generates a key pair per run in a fresh private
+# directory (mode 0700) and reports it as key_file with generated_key: true;
+# teardown deletes only a key the run generated. A key supplied with
+# BM_KEY_FILE is reused as is and never deleted.
+#
+# Dev workflow (reuse existing BM):
+#   # Run 1: provision + test, keep the BM provisioned. Note the key_file that
+#   # launch_instance reports (for example /tmp/isv-bm-test-gpu-abc123/isv-bm-test-gpu-key).
+#   BM_SKIP_TEARDOWN=true uv run isvctl test run -f isvctl/configs/providers/firebird/config/bare_metal.yaml
+#
+#   # Run 2+: reuse the BM and that key, iterate on tests. If run 1 created the
+#   # network, set FIREBIRD_VPC_ID/FIREBIRD_SUBNET_ID to it (teardown_network prints both IDs).
+#   BM_INSTANCE_ID=bm.xxx BM_KEY_FILE=<key_file of run 1> BM_SKIP_TEARDOWN=true \
+#     uv run isvctl test run -f isvctl/configs/providers/firebird/config/bare_metal.yaml
+#
+#   # Final: reuse run without BM_SKIP_TEARDOWN deprovisions the BM at the end
+#   # (teardown needs launch_instance output, so `--phase teardown` alone cannot release it;
+#   # attachments made by the first run are left in place, and the supplied key is yours to delete)
+#   BM_INSTANCE_ID=bm.xxx BM_KEY_FILE=<key_file of run 1> \
+#     uv run isvctl test run -f isvctl/configs/providers/firebird/config/bare_metal.yaml
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/providers/firebird/config/bare_metal.yaml
+
+import:
+  - ../../../suites/bare_metal.yaml
+
+version: "1.0"
+
+commands:
+  bare_metal:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # Supplied subnet: passed through, nothing created. Otherwise creates the
+      # VPC (unless supplied) and a subnet; teardown_network deletes exactly those.
+      - name: create_network
+        phase: setup
+        command: "python3 ../scripts/network/create_network.py"
+        args:
+          - "--name"
+          - "isv-bm-test"
+          - "--vpc-id={{vpc_id}}"
+          - "--subnet-id={{subnet_id}}"
+          - "--vpc-cidr"
+          - "{{vpc_cidr}}"
+          - "--subnet-cidr"
+          - "{{subnet_cidr}}"
+          # launch_instance reuses this BM instead of provisioning one.
+          - "--reused-bm-id={{reused_bm_id}}"
+        timeout: 1800
+
+      # Attach + provision (reuses BM_INSTANCE_ID + BM_KEY_FILE when set)
+      - name: launch_instance
+        phase: setup
+        command: "python3 ../scripts/bare_metal/launch_instance.py"
+        args:
+          - "--name"
+          - "isv-bm-test-gpu"
+          - "--instance-type={{instance_type}}"
+          - "--vpc-id"
+          - "{{steps.create_network.network_id}}"
+          - "--subnet-id"
+          - "{{steps.create_network.subnets[0].subnet_id}}"
+          - "--image-id"
+          - "{{image_id}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 4200
+
+      - name: list_instances
+        phase: test
+        command: "python3 ../scripts/bare_metal/list_instances.py"
+        args:
+          - "--vpc-id"
+          - "{{steps.launch_instance.vpc_id}}"
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 120
+
+      - name: verify_tags
+        phase: test
+        command: "python3 ../scripts/bare_metal/describe_tags.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 60
+
+      - name: serial_console
+        phase: test
+        command: "python3 ../scripts/bare_metal/serial_console.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 120
+
+      - name: verify_image
+        phase: test
+        command: "python3 ../scripts/bare_metal/verify_image.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--expected-image-id"
+          - "{{image_id}}"
+        timeout: 60
+
+      - name: stop_instance
+        phase: test
+        command: "python3 ../scripts/bare_metal/stop_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 1900
+
+      - name: start_instance
+        phase: test
+        command: "python3 ../scripts/bare_metal/start_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 3200
+
+      - name: reboot_instance
+        phase: test
+        command: "python3 ../scripts/bare_metal/reboot_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--public-ip"
+          - "{{steps.start_instance.public_ip}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 3200
+
+      # Hard power off + power on (cold start)
+      - name: power_cycle_instance
+        phase: test
+        command: "python3 ../scripts/bare_metal/power_cycle_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 5000
+
+      # SSH/GPU validation anchor - runs after power_cycle so the IP is current
+      - name: describe_instance
+        phase: test
+        command: "python3 ../scripts/bare_metal/describe_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 120
+
+      - name: host_status_log
+        phase: test
+        command: "python3 ../scripts/bare_metal/host_status_log.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--public-ip"
+          - "{{steps.describe_instance.public_ip}}"
+          - "--max-age-minutes"
+          - "5"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 300
+
+      # ─── Governance / health (CAP01-01, CAP02-01, CAP05-01) ───────────
+      # Tenant-scoped NCP fleet-capacity report (GET /reports/ncp/fleet-capacity)
+      # is optional; each step emits a structured skip when the route answers
+      # 404 or 501.
+      - name: query_governance_metrics
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/governance/query_governance_metrics.py"
+        timeout: 120
+
+      - name: query_fleet_inventory
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/governance/query_fleet_inventory.py"
+        timeout: 120
+
+      - name: query_host_health
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/health/query_host_health.py"
+        timeout: 120
+
+      # ─── Resource discovery (CAP03-01) and stable IPs (STG03-01) ──────
+      # Both read the tenant BM pool (GET /compute/bms).
+      - name: query_resource_discovery
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/governance/query_resource_discovery.py"
+        args:
+          - "--polls"
+          - "2"
+          - "--poll-interval"
+          - "5"
+        timeout: 120
+
+      - name: query_stable_ips
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/storage/query_stable_ips.py"
+        timeout: 120
+
+      # ─── Break-fix (BFX02-01, BFX02-03, BFX03-03) ─────────────────────
+      - name: query_bmc_kernel_logs
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/breakfix/query_bmc_kernel_logs.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+        timeout: 120
+
+      - name: query_maintenance_events
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/breakfix/query_maintenance_events.py"
+        timeout: 120
+
+      - name: query_repair_history
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/breakfix/query_repair_history.py"
+        timeout: 120
+
+      # ─── InfiniBand tenant isolation (SDN04-04) ───────────────────────
+      # Skips when the IB partition API is not enabled. Only this tenant's
+      # partitions are visible, so cross-tenant P_Key sharing is not observable.
+      - name: query_ib_tenant_isolation
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/infiniband/query_ib_tenant_isolation.py"
+        timeout: 120
+
+      # ─── Node health agents (BFX04-01) ────────────────────────────────
+      # Shared SSH reference, pointed at the provisioned BM when
+      # FIREBIRD_HEALTH_AGENT_CHECK=true; otherwise it skips. The fleet size is
+      # the project's in-use GPU nodes from the fleet-capacity report, so the
+      # check fails rather than passes when the BM is not the project's only
+      # running GPU node, or when the report is unavailable.
+      - name: query_node_health_agents
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../../shared/breakfix/query_node_health_agents.py"
+        args:
+          - "--nodes={{ steps.describe_instance.public_ip if health_agent_check == 'true' else '' }}"
+          - "--expected-nodes={{ steps.query_fleet_inventory.nodes | default([]) | selectattr('in_use') | selectattr('project_id', 'equalto', project_id) | selectattr('gpu_count', 'greaterthan', 0) | list | length }}"
+          - "--ssh-user={{ssh_user}}"
+          - "--key-file={{steps.launch_instance.key_file}}"
+          - "--no-host-key-check"
+        timeout: 300
+
+      # Deprovision + provision the same image. Slow (two full OS installs), so
+      # skipped by default like the other providers; set skip: false to run it.
+      - name: reinstall_instance
+        phase: test
+        skip: true
+        command: "python3 ../scripts/bare_metal/reinstall_instance.py"
+        args:
+          - "--instance-id"
+          - "{{steps.launch_instance.instance_id}}"
+          - "--key-file"
+          - "{{steps.launch_instance.key_file}}"
+          - "--ssh-user={{ssh_user}}"
+        timeout: 7500
+
+      # Deploy NIM container via SSH (shared script). Requires NGC_API_KEY.
+      - name: deploy_nim
+        phase: test
+        command: "python3 ../../shared/deploy_nim.py"
+        args:
+          - "--host"
+          - "{{steps.power_cycle_instance.public_ip}}"
+          - "--key-file"
+          - "{{steps.power_cycle_instance.key_file}}"
+          - "--user={{ssh_user}}"
+        timeout: 1800
+
+      - name: teardown_nim
+        phase: teardown
+        command: "python3 ../../shared/teardown_nim.py"
+        args:
+          # Defaults keep a run whose setup failed (no power_cycle_instance output)
+          # from reporting this step as a failed teardown; it skips instead.
+          - "--host={{steps.power_cycle_instance.public_ip | default('')}}"
+          - "--key-file={{steps.power_cycle_instance.key_file | default('')}}"
+          - "--user={{ssh_user}}"
+          # Skip teardown when deploy_nim was skipped or never ran; the script supplies the default skip reason.
+          - "{{ '--skip' if steps.deploy_nim is not defined or steps.deploy_nim.skipped | default(false) else '' }}"
+        timeout: 300
+
+      # Undo only what launch_instance did: deprovision when it provisioned (or
+      # reused) the BM, detach only what it attached. A BM launch rejected is untouched.
+      # Set BM_SKIP_TEARDOWN=true to keep the BM provisioned.
+      - name: teardown
+        phase: teardown
+        command: "python3 ../scripts/bare_metal/teardown.py"
+        args:
+          - "--instance-id={{steps.launch_instance.instance_id | default('')}}"
+          - "{{ '--deprovision' if steps.launch_instance.owned | default(false) else '' }}"
+          - "{{ '--detach-subnet' if steps.launch_instance.attached_subnet | default(false) else '' }}"
+          - "{{ '--detach-project' if steps.launch_instance.attached_project | default(false) else '' }}"
+          # Only a key this run generated is deleted; a supplied BM_KEY_FILE is kept.
+          - "{{ '--delete-key-pair' if steps.launch_instance.generated_key | default(false) else '' }}"
+          - "--key-file={{steps.launch_instance.key_file | default('')}}"
+          - "{{teardown_flag}}"
+        timeout: 5000
+
+      - name: verify_teardown
+        phase: teardown
+        command: "python3 ../scripts/bare_metal/verify_terminated.py"
+        args:
+          - "--instance-id={{steps.launch_instance.instance_id | default('')}}"
+          - "{{ '--expect-released' if steps.launch_instance.owned | default(false) else '' }}"
+          - "{{ ('--key-file=' ~ steps.launch_instance.key_file) if steps.launch_instance.generated_key | default(false) else '' }}"
+        timeout: 120
+
+      # Delete only what create_network created (subnets, then the VPC). Runs
+      # after teardown has detached the BM from the subnet.
+      - name: teardown_network
+        phase: teardown
+        command: "python3 ../scripts/network/teardown_network.py"
+        args:
+          - "--vpc-id={{steps.create_network.network_id | default('')}}"
+          - "--subnet-ids={{steps.create_network.created_subnet_ids | default([]) | join(',')}}"
+          - "{{ '--delete-vpc' if steps.create_network.created_vpc | default(false) else '' }}"
+          - "{{teardown_flag}}"
+        timeout: 1800
+
+tests:
+  cluster_name: "firebird-bm-validation"
+  description: "Firebird Bare Metal (BMaaS) validation tests"
+
+  settings:
+    instance_type: "{{env.FIREBIRD_MACHINE_TYPE_ID | default('')}}"
+    project_id: "{{env.FIREBIRD_PROJECT_ID | default('', true)}}"
+    vpc_id: "{{env.FIREBIRD_VPC_ID | default('', true)}}"
+    subnet_id: "{{env.FIREBIRD_SUBNET_ID | default('', true)}}"
+    # CIDRs for a network created by create_network: RFC 1918 space the API
+    # accepts (currently 172.16.0.0/16 or 192.168.0.0/16), VPC prefix /8, /16 or /24.
+    vpc_cidr: "{{env.FIREBIRD_VPC_CIDR | default('172.16.240.0/24', true)}}"
+    subnet_cidr: "{{env.FIREBIRD_SUBNET_CIDR | default('172.16.240.0/25', true)}}"
+    image_id: "{{env.FIREBIRD_IMAGE_ID}}"
+    # launch_instance's reuse mode needs both BM_INSTANCE_ID and BM_KEY_FILE.
+    reused_bm_id: "{{env.BM_INSTANCE_ID | default('', true) if env.BM_KEY_FILE | default('', true) else ''}}"
+    health_agent_check: "{{env.FIREBIRD_HEALTH_AGENT_CHECK | default('false', true) | lower}}"
+    ssh_user: "{{env.FIREBIRD_SSH_USER | default('ubuntu', true)}}"
+
+  # Overrides only - every other validation is inherited from the suite.
+  validations:
+    # BOOT02-01 runs after the test phase instead of gating it. Firebird delivers
+    # user-data on a config drive and serves no link-local metadata service, so
+    # the metadata_service subtest fails on every run; as a setup check that
+    # failure would skip every test-phase check. It still runs and still fails.
+    cloud_init:
+      phase: test

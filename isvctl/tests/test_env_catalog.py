@@ -22,8 +22,11 @@ from isvctl.config.env_catalog import (
     PROVIDER_GROUPS,
     EnvVar,
     Requirement,
+    env_to_section_key,
+    section_key_to_env,
     vars_for_provider,
 )
+from isvctl.redaction import is_secret_env_var
 
 
 def test_catalog_is_non_empty_and_well_formed() -> None:
@@ -44,6 +47,7 @@ def test_var_names_are_unique() -> None:
 def test_provider_groups() -> None:
     assert PROVIDER_GROUPS["nico"] == "NICo"
     assert PROVIDER_GROUPS["aws"] == "AWS"
+    assert PROVIDER_GROUPS["firebird"] == "Firebird"
 
 
 def test_vars_for_provider_none_returns_all() -> None:
@@ -59,6 +63,41 @@ def test_vars_for_provider_nico_scopes_to_group() -> None:
     assert "NICO_API_NAME" in names
     assert "NICO_CLIENT_SECRET" in names
     assert "AWS_REGION" not in names
+
+
+def test_vars_for_provider_firebird_scopes_to_group() -> None:
+    firebird_vars = vars_for_provider("firebird")
+    assert all(var.group == "Firebird" for var in firebird_vars)
+    names = {var.name for var in firebird_vars}
+    assert {
+        "FIREBIRD_API_BASE",
+        "FIREBIRD_PROJECT_ID",
+        "FIREBIRD_CLIENT_ID",
+        "FIREBIRD_CLIENT_SECRET",
+        "FIREBIRD_BEARER_TOKEN",
+        "FIREBIRD_SSH_USER",
+    } <= names
+    assert "NICO_API_BASE" not in names
+
+
+def test_firebird_vars_map_to_the_firebird_section() -> None:
+    assert env_to_section_key("FIREBIRD_API_BASE") == ("firebird", "api_base")
+    assert section_key_to_env("firebird", "client_secret") == "FIREBIRD_CLIENT_SECRET"
+
+
+@pytest.mark.parametrize(
+    ("name", "secret"),
+    [
+        ("FIREBIRD_CLIENT_SECRET", True),
+        ("FIREBIRD_BEARER_TOKEN", True),
+        ("FIREBIRD_CLIENT_ID", False),
+        ("FIREBIRD_API_BASE", False),
+        ("FIREBIRD_PROJECT_ID", False),
+    ],
+)
+def test_firebird_credentials_route_to_secrets(name: str, secret: bool) -> None:
+    """The client secret and bearer token go to secrets.yml; everything else to config.yml."""
+    assert is_secret_env_var(name) is secret
 
 
 def test_vars_for_provider_unknown_raises() -> None:

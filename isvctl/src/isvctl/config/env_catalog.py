@@ -202,6 +202,188 @@ ENV_VARS: tuple[EnvVar, ...] = (
         Requirement.OPTIONAL,
         "optional OIDC scope for NICo client_credentials auth",
     ),
+    # Firebird — optional by default; every Firebird config needs FIREBIRD_PROJECT_ID
+    # and one auth option (client credentials or a bearer token).
+    EnvVar(
+        "FIREBIRD_API_BASE",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "Firebird API base URL (default https://dgxc.firebird.ai)",
+    ),
+    EnvVar(
+        "FIREBIRD_PROJECT_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "project the run works in (project.ULID); required by every Firebird config",
+    ),
+    EnvVar(
+        "FIREBIRD_CLIENT_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "service-account client ID for client_credentials auth",
+    ),
+    EnvVar(
+        "FIREBIRD_CLIENT_SECRET",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "service-account client secret for client_credentials auth",
+    ),
+    EnvVar(
+        "FIREBIRD_BEARER_TOKEN",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "pre-minted access token, instead of client credentials",
+    ),
+    EnvVar(
+        "FIREBIRD_TENANT_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "tenant.ULID when the account belongs to several tenants",
+    ),
+    EnvVar(
+        "FIREBIRD_IMAGE_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "OS image the bare_metal config provisions (image.ULID)",
+    ),
+    EnvVar(
+        "FIREBIRD_BM_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "pin the BM to provision (bm.ULID); default is the first AVAILABLE BM",
+    ),
+    EnvVar(
+        "FIREBIRD_MACHINE_TYPE_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "restrict automatic BM selection to one machine type",
+    ),
+    EnvVar(
+        "FIREBIRD_SSH_USER",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "login on the provisioned BMs (default ubuntu)",
+    ),
+    EnvVar(
+        "FIREBIRD_VPC_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "existing VPC to use (vpc.ULID); otherwise one is created",
+    ),
+    EnvVar(
+        "FIREBIRD_SUBNET_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "existing subnet to attach the BM to (subnet.ULID); otherwise one is created",
+    ),
+    EnvVar(
+        "FIREBIRD_VPC_CIDR",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "CIDR of a VPC the bare_metal config creates",
+    ),
+    EnvVar(
+        "FIREBIRD_SUBNET_CIDR",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "CIDR of a subnet the bare_metal config creates",
+    ),
+    EnvVar(
+        "FIREBIRD_HEALTH_AGENT_CHECK",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "'true' probes the provisioned BM for a GPU health agent (BFX04-01)",
+    ),
+    EnvVar(
+        "FIREBIRD_NETWORK_VPC_CIDR",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "CIDR of the VPC the network config creates",
+    ),
+    EnvVar(
+        "FIREBIRD_NETWORK_SUBNET_CIDR_A",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "CIDR of the network config's first subnet",
+    ),
+    EnvVar(
+        "FIREBIRD_NETWORK_SUBNET_CIDR_B",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "CIDR of the network config's second subnet",
+    ),
+    EnvVar(
+        "FIREBIRD_CRUD_VPC_CIDR",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "CIDR of the short-lived VPC vpc_crud creates",
+    ),
+    EnvVar(
+        "FIREBIRD_NETWORK_VPC_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "existing VPC for the network config (vpc.ULID); otherwise one is created",
+    ),
+    EnvVar(
+        "FIREBIRD_NETWORK_SUBNET_ID_A",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "existing first subnet of FIREBIRD_NETWORK_VPC_ID (subnet.ULID); with _B nothing is created",
+    ),
+    EnvVar(
+        "FIREBIRD_NETWORK_SUBNET_ID_B",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "existing second subnet of FIREBIRD_NETWORK_VPC_ID (subnet.ULID)",
+    ),
+    EnvVar(
+        "FIREBIRD_PEER_BM_ID",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "peer BM for the network connectivity and scoping checks (bm.ULID)",
+    ),
+    EnvVar(
+        "FIREBIRD_PEER_KEY_FILE",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "SSH private key of the peer BM",
+    ),
+    EnvVar(
+        "FIREBIRD_IMAGE_URL",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "image-registry upload source (http(s), file://, or a path)",
+    ),
+    EnvVar(
+        "FIREBIRD_IMAGE_FORMAT",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "image-registry upload format, qcow2 or raw",
+    ),
+    EnvVar(
+        "FIREBIRD_IR_VPC_CIDR",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "CIDR of the VPC the image-registry config creates",
+    ),
+    EnvVar(
+        "FIREBIRD_IR_SUBNET_CIDR",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "CIDR of the subnet the image-registry config creates",
+    ),
+    EnvVar(
+        "FIREBIRD_SWEEP_MIN_AGE_HOURS",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "minimum age of isv-* leftovers the sweep deletes (default 6)",
+    ),
+    EnvVar(
+        "FIREBIRD_WEKA_MOUNT_OPTIONS",
+        "Firebird",
+        Requirement.OPTIONAL,
+        "wekafs mount options for the storage mount checks (default net=udp)",
+    ),
 )
 
 
@@ -211,6 +393,7 @@ ENV_VARS: tuple[EnvVar, ...] = (
 PROVIDER_GROUPS: dict[str, str] = {
     "aws": "AWS",
     "nico": "NICo",
+    "firebird": "Firebird",
 }
 
 
@@ -236,6 +419,7 @@ SECTIONS: tuple[Section, ...] = (
     Section("ngc", "NGC", "NGC_"),
     Section("aws", "AWS", "AWS_"),
     Section("nico", "NICo", "NICO_"),
+    Section("firebird", "Firebird", "FIREBIRD_"),
 )
 
 _GROUP_TO_SECTION: dict[str, Section] = {s.group: s for s in SECTIONS}
