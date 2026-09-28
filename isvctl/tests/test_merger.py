@@ -588,6 +588,45 @@ class TestImportEndToEnd:
         assert "TF_VAR_cluster_endpoint_public_access_cidrs" not in setup_env
         assert "0.0.0.0/0" not in str(setup_step)
 
+    # Scripts that run a Terraform module whose `region` variable defaults to
+    # us-west-2, so every one of them has to be told the run's region.
+    _TERRAFORM_SCRIPTS = (
+        "eks/setup.sh",
+        "eks/teardown.sh",
+        "eks/create_node_pool.sh",
+        "eks/destroy_node_pool.sh",
+    )
+
+    @pytest.mark.parametrize(
+        ("config_name", "group", "expected_steps"),
+        [
+            ("eks.yaml", "kubernetes", {"setup", "teardown", "destroy_test_node_pool"}),
+            ("storage.yaml", "storage", {"setup_cluster", "teardown_cluster"}),
+        ],
+    )
+    def test_aws_terraform_steps_share_one_region(self, config_name: str, group: str, expected_steps: set[str]) -> None:
+        """Every Terraform step renders the same region as the step that created the state.
+
+        A `terraform destroy` pointed at a region the state's resources are not
+        in refreshes them away as already-deleted, emptying the state and
+        orphaning a live EKS cluster.
+        """
+        result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / config_name])
+        config = RunConfig.model_validate(result)
+        context = Context(config)
+
+        terraform_steps = [
+            step
+            for step in config.get_steps(group)
+            if any(script in step.command for script in self._TERRAFORM_SCRIPTS)
+        ]
+        assert expected_steps <= {step.name for step in terraform_steps}
+
+        for step in terraform_steps:
+            template = (step.env or {}).get("TF_VAR_region")
+            assert template is not None, f"{step.name} runs Terraform without naming the region"
+            assert context.render_string(template) == context.data["region"]
+
     def test_aws_bare_metal_excludes_serial_console_retention_check(self) -> None:
         """AWS BM preserves the composite and excludes only unsupported retention."""
         result = merge_yaml_files([self.CONFIGS_DIR / "providers" / "aws" / "config" / "bare_metal.yaml"])

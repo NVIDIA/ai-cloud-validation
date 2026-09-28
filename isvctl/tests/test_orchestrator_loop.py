@@ -1147,6 +1147,69 @@ class TestMissingStepRefDetection:
         assert exc_info.value.missing_path == "create_network.network_id"
 
 
+class TestStepEnvRendering:
+    """Tests for Jinja2 rendering of a step's environment variables."""
+
+    @staticmethod
+    def _context(**settings: str) -> Context:
+        return Context(RunConfig(tests=ValidationConfig(settings=dict(settings))))
+
+    def test_settings_template_renders(self) -> None:
+        """A setting referenced from env reaches the command as its value."""
+        executor = StepExecutor()
+        context = self._context(region="us-east-1")
+
+        assert executor._render_env({"TF_VAR_region": "{{region}}"}, context) == {"TF_VAR_region": "us-east-1"}
+
+    def test_step_output_template_renders(self) -> None:
+        """Env values see step outputs, the same accumulated context args see."""
+        executor = StepExecutor()
+        context = self._context()
+        context.set_step_output("setup", {"cluster_name": "isv-gpu-dev"})
+
+        rendered = executor._render_env({"CLUSTER": "{{steps.setup.cluster_name}}"}, context)
+
+        assert rendered == {"CLUSTER": "isv-gpu-dev"}
+
+    def test_untemplated_and_empty_values_are_preserved(self) -> None:
+        """A literal value is untouched, and an empty render keeps its variable.
+
+        Dropping the variable would let the command fall back to a different
+        default than the one the config named.
+        """
+        executor = StepExecutor()
+        context = self._context(unset="")
+
+        rendered = executor._render_env({"TF_AUTO_APPROVE": "true", "OPTIONAL": "{{unset}}"}, context)
+
+        assert rendered == {"TF_AUTO_APPROVE": "true", "OPTIONAL": ""}
+
+    def test_unrenderable_template_is_passed_through(self) -> None:
+        """A malformed template fails its own step rather than aborting the run."""
+        executor = StepExecutor()
+
+        rendered = executor._render_env({"BROKEN": "{{ 1 + }}"}, self._context())
+
+        assert rendered == {"BROKEN": "{{ 1 + }}"}
+
+    def test_subprocess_receives_the_rendered_value(self) -> None:
+        """End-to-end: the executed command sees the rendered env, not the template."""
+        executor = StepExecutor()
+        context = self._context(region="eu-central-1")
+        step = StepConfig(
+            name="setup",
+            phase="setup",
+            command="python3 -c \"import json,os;print(json.dumps({'success':True,"
+            "'platform':'kubernetes','region':os.environ['TF_VAR_region']}))\"",
+            env={"TF_VAR_region": "{{region}}"},
+        )
+
+        results = executor.execute_steps([step], context)
+
+        assert results.steps[0].success
+        assert results.steps[0].output["region"] == "eu-central-1"
+
+
 class TestWriteTerminalJunitXml:
     """JUnit stub generation for entries pre-resolved before pytest."""
 

@@ -90,6 +90,7 @@ commands:
         timeout: 900 # 15 min - EKS node group join can take 5-8 min
         env:
           TF_AUTO_APPROVE: "true"
+          TF_VAR_region: "{{region}}"
           NODE_POOL_STATE_FILE: "terraform.tfstate"
           TF_VAR_test_pool_name: "isv-test-pool"
           TF_VAR_test_pool_instance_types: '["m6i.large"]'
@@ -109,6 +110,7 @@ commands:
         timeout: 900 # 15 min - EKS node group join can take 5-8 min
         env:
           TF_AUTO_APPROVE: "true"
+          TF_VAR_region: "{{region}}"
           NODE_POOL_STATE_FILE: "terraform-gpu.tfstate"
           TF_VAR_test_pool_name: "isv-test-gpu-pool"
           TF_VAR_test_pool_instance_types: '["g5.2xlarge"]'
@@ -127,6 +129,7 @@ commands:
         timeout: 900 # 15 min - EKS node group join can take 5-8 min
         env:
           TF_AUTO_APPROVE: "true"
+          TF_VAR_region: "{{region}}"
           NODE_POOL_STATE_FILE: "terraform-delete.tfstate"
           TF_VAR_test_pool_name: "isv-test-delete-pool"
           TF_VAR_test_pool_instance_types: '["m6i.large"]'
@@ -178,6 +181,7 @@ commands:
         env:
           NODE_POOL_ACTION: "Updating"
           TF_AUTO_APPROVE: "true"
+          TF_VAR_region: "{{region}}"
           NODE_POOL_STATE_FILE: "terraform.tfstate"
           TF_VAR_test_pool_name: "isv-test-pool"
           TF_VAR_test_pool_instance_types: '["m6i.large"]'
@@ -194,6 +198,7 @@ commands:
         timeout: 900
         env:
           TF_AUTO_APPROVE: "true"
+          TF_VAR_region: "{{region}}"
           NODE_POOL_STATE_FILE: "terraform-delete.tfstate"
 
       # Teardown order: destroy both test node pools before tearing down the
@@ -205,6 +210,7 @@ commands:
         timeout: 900
         env:
           TF_AUTO_APPROVE: "true"
+          TF_VAR_region: "{{region}}"
           NODE_POOL_STATE_FILE: "terraform.tfstate"
 
       - name: destroy_test_gpu_node_pool
@@ -213,6 +219,7 @@ commands:
         timeout: 900
         env:
           TF_AUTO_APPROVE: "true"
+          TF_VAR_region: "{{region}}"
           NODE_POOL_STATE_FILE: "terraform-gpu.tfstate"
 
       # Destroy the secondary shared-VPC cluster before the primary cluster
@@ -233,6 +240,7 @@ commands:
         timeout: 900
         env:
           TF_AUTO_APPROVE: "true"
+          TF_VAR_region: "{{region}}"
           NODE_POOL_STATE_FILE: "terraform-delete.tfstate"
 
       # BFX01-04: exercise cordon semantics through the shared Kubernetes
@@ -249,6 +257,11 @@ commands:
         timeout: 1800 # 30 min for Terraform destroy
         env:
           TF_AUTO_APPROVE: "true"
+          # Must match the setup step: `terraform destroy` resolves the provider
+          # region from this variable, and pointing it at a region the state's
+          # resources are not in refreshes them away as already-deleted,
+          # emptying the state and orphaning the cluster.
+          TF_VAR_region: "{{region}}"
 
 tests:
   description: "AWS EKS GPU cluster validation"
