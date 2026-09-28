@@ -31,13 +31,19 @@ replies are not matched, so traffic in the other direction is unaffected.
                   other_subnet_blocked the peer's subnet can no longer ping the BM
 
   create_sg       baseline: both directions ping before any rule (the VPC's rule
-                  set is the security group)
+                  set is the security group); retried for up to --removal-timeout
+                  seconds, since a rule deleted by the previous check can take
+                  minutes to stop affecting traffic
   apply_*_rule    the rule is created and its Operation completes
   cleanup         the rule is deleted (on every path)
 The output carries ``rule_polarity: "deny"`` and a ``probe`` per subtest naming
 the direction probed, so the inverted mapping is visible. Rule enforcement is
-polled for up to --enforce-timeout seconds. Skips, naming
-what is missing, unless both the BM and a peer BM are configured.
+polled for up to --enforce-timeout seconds. After cleanup the blocked direction
+is polled for up to --removal-timeout seconds until it answers again, so the
+next check starts on a clean data plane; ``cleanup_propagated`` records whether
+it did (a timeout there is a ``cleanup_warning``, not a failure: the rule is
+gone from the API and the next check's baseline waits for the rest). Skips,
+naming what is missing, unless both the BM and a peer BM are configured.
 
 Usage:
     python sg_scoping_test.py --scope node --instance-id bm.a --key-file /tmp/a \
@@ -49,6 +55,7 @@ Output JSON:
     "platform": "network",
     "scope": "node",
     "rule_polarity": "deny",
+    "cleanup_propagated": true,
     "tests": {"create_sg": {"passed": true, "probe": "bm.a <-> bm.b, no rule"},
               "apply_node_rule": {"passed": true, "probe": "DENY ICMP echo request 0.0.0.0/0 -> 172.16.243.10/32"},
               "target_node_allowed": {"passed": true, "probe": "bm.a -> bm.b, not covered by the DENY rule"},
@@ -90,6 +97,12 @@ def main() -> int:
     parser.add_argument("--peer-key-file", default="", help="SSH private key of the peer BM")
     parser.add_argument("--ssh-user", default="ubuntu", help="SSH username on both BMs")
     parser.add_argument("--enforce-timeout", type=int, default=60, help="Seconds to wait for a rule to take effect")
+    parser.add_argument(
+        "--removal-timeout",
+        type=int,
+        default=300,
+        help="Seconds to wait for a deleted rule to stop affecting traffic (baseline and cleanup)",
+    )
     parser.add_argument("--timeout", type=int, default=780, help="Overall timeout in seconds")
     args = parser.parse_args()
 
@@ -109,6 +122,7 @@ def main() -> int:
         return 0
     deadline = time.monotonic() + args.timeout
     guard = None
+    probe = None  # the (host, target) the DENY rule blocks, once it exists
     try:
         client = FirebirdClient()
         primary, peer, vpc_id = resolve_pair(client, args)
@@ -123,13 +137,23 @@ def main() -> int:
             rule = echo_request_rule(unique_name("isv-subnet-scope"), "DENY", peer_cidr, "0.0.0.0/0")
             covered = f"echo requests from {peer_cidr}"
 
-        baseline = ping(primary, peer.ip)[0] and ping(peer, primary.ip)[0]
+        # A rule deleted by the previous check can take minutes to stop affecting
+        # traffic, so the baseline waits for it (both directions share one window).
+        window = min(args.removal_timeout, remaining(deadline))
+        window_end = time.monotonic() + window
+        baseline = all(
+            wait_ping(src, dst.ip, reachable=True, timeout=max(0, int(window_end - time.monotonic())))
+            for src, dst in ((primary, peer), (peer, primary))
+        )
         tests[create_key] = {"passed": baseline, "probe": f"{primary.bm_id} <-> {peer.bm_id}, no rule"}
         if not baseline:
-            raise RuntimeError("the BMs cannot ping each other before any rule; scoping cannot be shown")
+            raise RuntimeError(
+                f"the BMs cannot ping each other before any rule (waited {window}s); scoping cannot be shown"
+            )
 
         guard = RuleGuard(client, vpc_id)
         log(f"Applying {args.scope}-scoped DENY rule...")
+        probe = (peer, primary.ip)
         rule_id = guard.create(rule, remaining(deadline))
         tests[apply_key] = {
             "passed": True,
@@ -158,6 +182,20 @@ def main() -> int:
         errors = guard.cleanup(cleanup_timeout(deadline)) if guard else []
         if errors:
             result["cleanup_errors"] = errors
+        elif probe:
+            # The rule is gone from the API; wait for the data plane so the next check
+            # starts clean. Within the step's deadline, so the step timeout still holds.
+            wait = min(args.removal_timeout, int(deadline - time.monotonic()))
+            try:
+                result["cleanup_propagated"] = wait > 0 and wait_ping(*probe, reachable=True, timeout=wait)
+            except Exception as e:
+                log(f"ERROR: probing the rule's removal: {e}")
+                result["cleanup_propagated"] = False
+            if not result["cleanup_propagated"]:
+                result["cleanup_warning"] = (
+                    f"the blocked direction still did not answer {max(wait, 0)}s after the rule was deleted"
+                )
+                log(f"WARNING: {result['cleanup_warning']}")
     tests["cleanup"] = {"passed": not result.get("cleanup_errors")}
 
     for key in KEYS[args.scope]:

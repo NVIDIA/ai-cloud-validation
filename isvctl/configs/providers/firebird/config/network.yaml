@@ -43,6 +43,9 @@
 #  14. traffic_validation - Allowed ping, ping blocked by a DENY rule, internet ICMP/HTTP (test)
 #  15. sg_node_scoping - A node-scoped DENY rule covers one BM and not the other (test)
 #  16. sg_subnet_scoping - A subnet-scoped DENY rule; needs the BMs on two subnets (test)
+#      Steps 14-16 each delete their DENY rule; its removal can take minutes to
+#      reach traffic, so each waits for the pair to ping again after cleanup and
+#      before its own first probe (--removal-timeout, within the step timeout).
 #  17. teardown - Deletes the subnets, then the VPC, that create_network created (teardown)
 #
 # VLANs: every subnet created takes a VLAN from the tenant's pool, so a run

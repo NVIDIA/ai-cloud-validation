@@ -1233,7 +1233,7 @@ def test_traffic_blocks_with_a_scoped_deny_rule_and_deletes_it(
         PAIR_ARGS,
         patches={
             "ping": _pings({}),
-            "wait_ping": lambda host, target, reachable, timeout: not reachable,
+            "wait_ping": lambda host, target, reachable, timeout: True,
             "run": _ssh_answers([(0, "")]),
         },
     )
@@ -1251,8 +1251,11 @@ def test_traffic_deletes_the_rule_when_a_probe_raises(
 ) -> None:
     """A probe failing mid-test still leaves no rule behind, and fails the check."""
     rules = Rules()
+    calls = itertools.count()
 
     def broken(*_a: Any, **_k: Any) -> bool:
+        if next(calls) == 0:  # the baseline answers; enforcement and the removal wait raise
+            return True
         raise subprocess.TimeoutExpired("ssh", 40)
 
     code, out, _ = _run(
@@ -1267,27 +1270,212 @@ def test_traffic_deletes_the_rule_when_a_probe_raises(
     assert code == 1
     assert rules.rules == {}
     assert out["tests"]["cleanup"]["passed"] is True
+    assert out["cleanup_propagated"] is False
     assert _check(TrafficFlowCheck, out)._passed is False
 
 
-def test_traffic_fails_before_any_rule_when_the_baseline_ping_fails(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Blocking cannot be shown for traffic that never flowed, so no rule is created."""
+class Fabric:
+    """Fake data plane for the BM pair, answering ``ssh_run`` pings from the fake VPC's rules.
+
+    A ping answers unless a live DENY rule covers it. Before any rule is created
+    the first ``draining`` pings fail (a previous check's rule still draining);
+    after a covering rule is deleted, ``lingering`` more pings of that direction
+    fail (its removal propagating). ``None`` means forever.
+    """
+
+    def __init__(self, rules: Rules, *, draining: int | None = 0, lingering: int | None = 0) -> None:
+        """Model the pair's pings on ``rules``."""
+        self.rules = rules
+        self.draining = draining
+        self.lingering = lingering
+        self.pings: list[tuple[str, str, bool]] = []
+
+    def ssh_run(self, ip: str, _user: str, _key: str, command: str, *, timeout: int = 40) -> tuple[int, str, str]:
+        """Answer a ping from ``ip``; any other command succeeds."""
+        if not command.startswith("ping "):
+            return 0, "", ""
+        target = command.split()[-1]
+        answered = self._answers(ip, target)
+        self.pings.append((ip, target, answered))
+        return (0, PING_OK, "") if answered else (1, "", "")
+
+    @staticmethod
+    def _covers(rule: dict[str, Any], src: str, dst: str) -> bool:
+        return ipaddress.ip_address(src) in ipaddress.ip_network(rule["srcPrefix"]) and ipaddress.ip_address(
+            dst
+        ) in ipaddress.ip_network(rule["dstPrefix"])
+
+    def _spend(self, budget: str) -> bool:
+        """Return whether a ping still fails under ``budget``, spending one ping of it."""
+        left = getattr(self, budget)
+        if left is None:
+            return True
+        if left > 0:
+            setattr(self, budget, left - 1)
+            return True
+        return False
+
+    def _answers(self, src: str, dst: str) -> bool:
+        if not self.rules.created:
+            return not self._spend("draining")
+        if any(self._covers(rule, src, dst) for rule in self.rules.rules.values()):
+            return False
+        if any(self._covers(rule, src, dst) for rule in self.rules.created):
+            return not self._spend("lingering")
+        return True
+
+
+# (script, extra args, peer subnet, check, direction the rule blocks as (source IP, target IP))
+RULE_CHECKS = [
+    pytest.param(
+        "network/traffic_test.py",
+        [],
+        "subnet.S",
+        TrafficFlowCheck,
+        ("172.16.240.10", "172.16.240.200"),
+        id="traffic",
+    ),
+    pytest.param(
+        "network/sg_scoping_test.py",
+        ["--scope", "node"],
+        "subnet.S",
+        SgNodeScopingCheck,
+        ("172.16.240.200", "172.16.240.10"),
+        id="node",
+    ),
+    pytest.param(
+        "network/sg_scoping_test.py",
+        ["--scope", "subnet"],
+        "subnet.T",
+        SgSubnetScopingCheck,
+        ("172.16.240.200", "172.16.240.10"),
+        id="subnet",
+    ),
+]
+
+
+def _run_on_fabric(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    script: str,
+    argv: list[str],
+    peer_subnet: str,
+    **fabric: int | None,
+) -> tuple[int, dict[str, Any], Rules, Fabric, list[float]]:
+    """Run a rule check with real ping polling against a ``Fabric`` and a fake clock."""
     rules = Rules()
-    code, out, _ = _run(
+    net = Fabric(rules, **fabric)
+    clock: list[list[float]] = []
+
+    def prepare(module: Any) -> None:
+        probes = module._common["probes"]
+        monkeypatch.setattr(probes, "ssh_run", net.ssh_run)
+        clock.append(_clocked(monkeypatch, probes))
+
+    code, out, _ = run(
         monkeypatch,
         capsys,
-        "network/traffic_test.py",
-        {**_pair_routes(), **rules.routes("firewall-rule.T")},
-        PAIR_ARGS,
-        patches={"ping": _pings({("bm.A", "172.16.240.200"): False})},
+        script,
+        {**_pair_routes(peer_subnet=peer_subnet), **rules.routes("firewall-rule.R")},
+        argv,
+        prepare=prepare,
+        wrap=_with_404,
+    )
+    return code, out, rules, net, clock[0]
+
+
+@pytest.mark.parametrize(("script", "extra", "peer_subnet", "check", "blocked"), RULE_CHECKS)
+def test_baseline_waits_for_a_previous_rule_to_drain(
+    script: str,
+    extra: list[str],
+    peer_subnet: str,
+    check: type[BaseValidation],
+    blocked: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A check that starts while an earlier rule's removal propagates waits for the ping instead of failing."""
+    code, out, rules, net, sleeps = _run_on_fabric(
+        monkeypatch, capsys, script, [*extra, *PAIR_ARGS], peer_subnet, draining=3
+    )
+
+    assert code == 0, out
+    assert [answered for *_, answered in net.pings[:4]] == [False, False, False, True]
+    assert sleeps[:3] == [5, 5, 5]
+    assert len(rules.created) == 1
+    assert _check(check, out)._passed is True
+
+
+@pytest.mark.parametrize(("script", "extra", "peer_subnet", "check", "blocked"), RULE_CHECKS)
+def test_baseline_fails_before_any_rule_when_the_pair_never_answers(
+    script: str,
+    extra: list[str],
+    peer_subnet: str,
+    check: type[BaseValidation],
+    blocked: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Blocking cannot be shown for traffic that never flowed: after the window, fail with no rule created."""
+    code, out, rules, _, sleeps = _run_on_fabric(
+        monkeypatch, capsys, script, [*extra, *PAIR_ARGS, "--removal-timeout", "20"], peer_subnet, draining=None
     )
 
     assert code == 1
-    assert "before any rule" in out["error"]
+    assert "before any rule (waited 20s)" in out["error"]
+    assert sum(sleeps) >= 20
     assert rules.created == []
-    assert out["tests"]["traffic_blocked"]["passed"] is False
+    assert "cleanup_propagated" not in out
+    assert _check(check, out)._passed is False
+
+
+@pytest.mark.parametrize(("script", "extra", "peer_subnet", "check", "blocked"), RULE_CHECKS)
+def test_cleanup_waits_for_the_rule_removal_to_propagate(
+    script: str,
+    extra: list[str],
+    peer_subnet: str,
+    check: type[BaseValidation],
+    blocked: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """After deleting its rule the check polls the blocked direction until it answers again."""
+    code, out, rules, net, _ = _run_on_fabric(
+        monkeypatch, capsys, script, [*extra, *PAIR_ARGS], peer_subnet, lingering=4
+    )
+
+    assert code == 0, out
+    assert rules.deleted == ["firewall-rule.R"]
+    assert out["cleanup_propagated"] is True
+    assert "cleanup_warning" not in out
+    # The last probes are the removal wait: four still blocked, then an answer.
+    tail = [answered for src, dst, answered in net.pings if (src, dst) == blocked][-5:]
+    assert tail == [False, False, False, False, True]
+    assert _check(check, out)._passed is True
+
+
+@pytest.mark.parametrize(("script", "extra", "peer_subnet", "check", "blocked"), RULE_CHECKS)
+def test_cleanup_records_a_removal_that_never_propagates_without_failing(
+    script: str,
+    extra: list[str],
+    peer_subnet: str,
+    check: type[BaseValidation],
+    blocked: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The rule is gone from the API, so a slow removal is a warning, not a failed check."""
+    code, out, rules, _, _ = _run_on_fabric(
+        monkeypatch, capsys, script, [*extra, *PAIR_ARGS, "--removal-timeout", "30"], peer_subnet, lingering=None
+    )
+
+    assert code == 0, out
+    assert out["success"] is True
+    assert rules.deleted == ["firewall-rule.R"]
+    assert out["cleanup_propagated"] is False
+    assert "30s after the rule was deleted" in out["cleanup_warning"]
+    assert out["tests"]["cleanup"]["passed"] is True
+    assert _check(check, out)._passed is True
 
 
 @pytest.mark.parametrize(
@@ -1301,7 +1489,9 @@ def test_rule_cleanup_keeps_its_own_budget_after_the_deadline(
     rules = Rules()
     waits: list[tuple[str, int]] = []
 
-    def broken(*_a: Any, **_k: Any) -> bool:
+    def broken(*_a: Any, reachable: bool, **_k: Any) -> bool:
+        if reachable:
+            return True
         raise subprocess.TimeoutExpired("ssh", 40)
 
     def prepare(module: Any) -> None:
@@ -1343,7 +1533,10 @@ def test_node_scoping_denies_requests_to_one_bm_only(
         "network/sg_scoping_test.py",
         {**_pair_routes(), **rules.routes("firewall-rule.N")},
         ["--scope", "node", *PAIR_ARGS],
-        patches={"ping": _pings({}), "wait_ping": lambda host, target, reachable, timeout: host.bm_id == "bm.B"},
+        patches={
+            "ping": _pings({}),
+            "wait_ping": lambda host, target, reachable, timeout: host.bm_id == "bm.B" or reachable,
+        },
     )
 
     assert code == 0, out
@@ -1361,7 +1554,7 @@ def test_node_scoping_fails_a_rule_that_blocks_both_ways(
 ) -> None:
     """If the uncovered direction is blocked too, the rule is not node-scoped."""
     rules = Rules()
-    reachable = iter([True, True, False])  # baseline both ways, then the BM->peer probe after the rule
+    reachable = iter([False])  # the BM->peer probe after the rule
     code, out, _ = _run(
         monkeypatch,
         capsys,
