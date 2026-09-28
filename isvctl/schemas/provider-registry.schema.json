@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NVIDIA/ai-cloud-validation/schemas/provider-registry.schema.json",
+  "title": "Provider Registry Entry",
+  "description": "One externally maintained provider, stored as isvctl/configs/provider-registry/<name>.yaml. The provider's config/ and scripts/ live in the partner's own repository; this entry pins the exact commit that was validated. The loader additionally checks that `name` equals the filename stem and that every entry in `suites` exists under isvctl/configs/suites/.",
+  "type": "object",
+  "required": ["name", "vendor", "description", "repo_url", "tested_with", "suites", "maintainers", "documentation_url", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "Registry name, used by `isvctl provider fetch <name>`. Must equal the filename stem.",
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "vendor": {
+      "description": "Legal entity that maintains the provider.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "description": "One-sentence summary shown by `isvctl provider list`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_url": {
+      "description": "HTTPS clone URL of the partner repository holding the provider's config/ and scripts/.",
+      "type": "string",
+      "pattern": "^https://\\S+$"
+    },
+    "commit": {
+      "description": "Full 40-character commit SHA that was validated. Required unless status is experimental.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "ref": {
+      "description": "Optional human-readable tag or branch for `commit`. An experimental entry may give only a ref, in which case fetched content is not reproducible.",
+      "type": "string",
+      "minLength": 1
+    },
+    "tested_with": {
+      "description": "isvctl release (X.Y.Z or X.Y.Z-rcN, without a leading v) this commit was validated against.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-rc[0-9]+)?$"
+    },
+    "suites": {
+      "description": "Suite names (isvctl/configs/suites/<suite>.yaml) the provider implements.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9_-]+$" }
+    },
+    "maintainers": {
+      "description": "Partner contacts. GitHub handles are the ones added to CODEOWNERS for this entry.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Maintainer" }
+    },
+    "documentation_url": {
+      "description": "HTTPS URL of instructions that let a user with appropriate access reproduce the validation results.",
+      "type": "string",
+      "pattern": "^https://\\S+$"
+    },
+    "status": {
+      "description": "qualified: pinned and validated. experimental: may be unpinned, results not reproducible. deprecated: hidden from `isvctl provider list` unless --all.",
+      "type": "string",
+      "enum": ["qualified", "experimental", "deprecated"]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "not": { "const": "experimental" } } } },
+      "then": { "required": ["commit"] }
+    },
+    {
+      "anyOf": [{ "required": ["commit"] }, { "required": ["ref"] }]
+    }
+  ],
+  "$defs": {
+    "Maintainer": {
+      "type": "object",
+      "required": ["github"],
+      "additionalProperties": false,
+      "properties": {
+        "github": {
+          "description": "GitHub handle, without the leading @.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$"
+        },
+        "email": {
+          "type": "string",
+          "pattern": "^[^@\\s]+@[^@\\s]+$"
+        }
+      }
+    }
+  }
+}
