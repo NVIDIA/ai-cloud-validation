@@ -21,6 +21,7 @@ import json
 import subprocess
 from unittest.mock import patch
 
+import pytest
 from isvtest.core.runners import CommandResult
 from isvtest.validations.k8s_networking import (
     _PROBE_ANSWER_IP,
@@ -53,7 +54,7 @@ class TestLoadBalancer:
 
         def fake_run(cmd: str, timeout=None, display_cmd=None) -> CommandResult:
             if "get svc" in cmd:
-                return _ok(stdout=_svc_json([{"ip": "203.0.113.9"}]))
+                return _ok(stdout=_svc_json([{"ip": "8.8.8.8"}]))
             return _ok()
 
         with (
@@ -68,11 +69,11 @@ class TestLoadBalancer:
         assert {s["name"] for s in check._subtest_results if s.get("skipped")} == {"internal", "static_ip"}
 
     def test_static_ip_mismatch_fails(self) -> None:
-        check = K8sLoadBalancerCheck(config={"static_ip": "203.0.113.100"})
+        check = K8sLoadBalancerCheck(config={"static_ip": "8.8.4.4"})
 
         def fake_run(cmd: str, timeout=None, display_cmd=None) -> CommandResult:
             if "get svc" in cmd:
-                return _ok(stdout=_svc_json([{"ip": "203.0.113.9"}]))  # not the requested IP
+                return _ok(stdout=_svc_json([{"ip": "8.8.8.8"}]))  # not the requested IP
             return _ok()
 
         with (
@@ -96,6 +97,42 @@ class TestLoadBalancer:
             check.run()
         assert not check.passed
 
+    def _run_single_external(self, ingress: dict[str, str]) -> K8sLoadBalancerCheck:
+        check = K8sLoadBalancerCheck(config={})
+
+        def fake_run(cmd: str, timeout=None, display_cmd=None) -> CommandResult:
+            if "get svc" in cmd:
+                return _ok(stdout=_svc_json([ingress]))
+            return _ok()
+
+        with (
+            patch.object(check, "run_command", side_effect=fake_run),
+            patch("isvtest.validations.k8s_networking.subprocess.run", return_value=_ok_proc()),
+        ):
+            check.run()
+        return check
+
+    def test_external_lb_with_private_ip_fails(self) -> None:
+        assert not self._run_single_external({"ip": "10.0.5.5"}).passed
+
+    def test_external_lb_hostname_resolving_public_passes(self) -> None:
+        with patch(
+            "isvtest.validations.k8s_networking.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("8.8.8.8", 0))]
+        ):
+            assert self._run_single_external({"hostname": "lb.example.com"}).passed
+
+    def test_external_lb_hostname_resolving_private_fails(self) -> None:
+        with patch(
+            "isvtest.validations.k8s_networking.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("10.1.1.1", 0))]
+        ):
+            assert not self._run_single_external({"hostname": "lb.internal"}).passed
+
+    def test_external_lb_unresolvable_hostname_is_marked_unverified(self) -> None:
+        with patch("isvtest.validations.k8s_networking.socket.getaddrinfo", side_effect=OSError):
+            check = self._run_single_external({"hostname": "lb.example.com"})
+        external = next(s for s in check._subtest_results if s["name"] == "external")
+        assert external["skipped"]
+
 
 # --------------------------- K8S30: CoreDNS forwarding ---------------------------
 class TestCoreDnsForwarding:
@@ -106,8 +143,15 @@ class TestCoreDnsForwarding:
             "run_command",
             return_value=_fail(stderr='Error from server (NotFound): configmaps "coredns" not found'),
         ):
+            with pytest.raises(pytest.skip.Exception):
+                check.run()
+
+    def test_invalid_test_zone_fails_fast(self) -> None:
+        check = K8sCoreDnsForwardingCheck(config={"test_zone": "bad\nzone"})
+        with patch.object(check, "run_command") as mock_run:
             check.run()
-        assert check.passed
+        mock_run.assert_not_called()
+        assert not check.passed
 
     def _fake_run(self, resolves: bool):
         def fake_run(cmd: str, timeout=None, display_cmd=None) -> CommandResult:
@@ -145,10 +189,9 @@ class TestCoreDnsForwarding:
 class TestCidrRanges:
     def test_skips_when_nothing_configured(self) -> None:
         check = K8sCidrRangesCheck(config={})
-        with patch.object(check, "run_command") as mock_run:
+        with patch.object(check, "run_command") as mock_run, pytest.raises(pytest.skip.Exception):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
 
     def test_service_cidr_in_range_passes(self) -> None:
         check = K8sCidrRangesCheck(config={"expected_service_cidr": "10.96.0.0/12"})

@@ -19,11 +19,16 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import shlex
+import socket
 import subprocess
 import time
 import uuid
 from typing import Any, ClassVar
+
+import pytest
+import yaml
 
 from isvtest.config.settings import get_k8s_coredns_image, get_k8s_dns_probe_image, get_k8s_network_policy_image
 from isvtest.core.k8s import (
@@ -40,6 +45,7 @@ _BACKEND_POD_NAME = "lb-backend"
 _BACKEND_LABEL = "isvtest-lb-backend"
 _PROBE_ANSWER_IP = "203.0.113.55"  # RFC 5737 TEST-NET-3: reserved, never routable.
 _RESOLVER_LABEL = "isvtest-coredns-resolver"
+_ZONE_RE = re.compile(r"[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*")
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +95,13 @@ class K8sLoadBalancerCheck(BaseValidation):
 
             any_failed = False
             if not self._run_subtest(
-                "external", "lb-external", probe_port, base_annotations, wait_timeout, poll_interval
+                "external",
+                "lb-external",
+                probe_port,
+                base_annotations,
+                wait_timeout,
+                poll_interval,
+                expect_scope="public",
             ):
                 any_failed = True
 
@@ -101,7 +113,7 @@ class K8sLoadBalancerCheck(BaseValidation):
                     {**base_annotations, **internal_annotations},
                     wait_timeout,
                     poll_interval,
-                    expect_private=True,
+                    expect_scope="private",
                 ):
                     any_failed = True
             else:
@@ -185,7 +197,7 @@ class K8sLoadBalancerCheck(BaseValidation):
         wait_timeout: int,
         poll_interval: int,
         load_balancer_ip: str | None = None,
-        expect_private: bool = False,
+        expect_scope: str | None = None,
     ) -> bool:
         spec: dict[str, Any] = {
             "type": "LoadBalancer",
@@ -214,19 +226,34 @@ class K8sLoadBalancerCheck(BaseValidation):
         if load_balancer_ip and ip != load_balancer_ip:
             self.report_subtest(name, passed=False, message=f"Requested {load_balancer_ip} but got {endpoint}")
             return False
-        if expect_private and ip:
-            try:
-                if ipaddress.ip_address(ip).is_global:
-                    self.report_subtest(name, passed=False, message=f"Internal LB but ingress IP {ip} is public")
+        if expect_scope is not None:
+            addresses = _ingress_addresses(ingress)
+            if not addresses:
+                self.report_subtest(
+                    name,
+                    passed=True,
+                    skipped=True,
+                    message=f"ingress={endpoint}; {expect_scope} address type not verified (no resolvable IP)",
+                )
+                return True
+            for addr in addresses:
+                try:
+                    is_global = ipaddress.ip_address(addr).is_global
+                except ValueError:
+                    self.report_subtest(name, passed=False, message=f"Could not parse ingress address {addr!r}")
                     return False
-            except ValueError:
-                pass
+                if is_global != (expect_scope == "public"):
+                    self.report_subtest(
+                        name,
+                        passed=False,
+                        message=f"Expected {expect_scope} ingress address but {addr} is "
+                        f"{'public' if is_global else 'private'}",
+                    )
+                    return False
         self.report_subtest(name, passed=True, message=f"ingress={endpoint}")
         return True
 
     def _apply(self, manifest: dict[str, Any], label: str) -> bool:
-        import yaml
-
         content = yaml.safe_dump(manifest, sort_keys=False)
         try:
             proc = subprocess.run(
@@ -280,6 +307,20 @@ def _coerce_mapping(value: Any, field: str) -> dict[str, str]:
     return out
 
 
+def _ingress_addresses(ingress: dict[str, Any]) -> list[str]:
+    """Return the IPs behind a LoadBalancer ingress entry (resolves hostnames; [] if unresolvable)."""
+    ip = ingress.get("ip")
+    if ip:
+        return [ip]
+    hostname = ingress.get("hostname")
+    if not hostname:
+        return []
+    try:
+        return sorted({info[4][0] for info in socket.getaddrinfo(hostname, None)})
+    except OSError:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # K8S30 - CoreDNS conditional forwarding
 # ---------------------------------------------------------------------------
@@ -299,6 +340,9 @@ class K8sCoreDnsForwardingCheck(BaseValidation):
         self._coredns_configmap = self.config.get("coredns_configmap", "coredns")
         self._corefile_key = self.config.get("corefile_key", "Corefile")
         self._test_zone = str(self.config.get("test_zone") or "isvtest-forward.internal").strip(".")
+        if not _ZONE_RE.fullmatch(self._test_zone):
+            self.set_failed(f"test_zone is not a valid DNS name: {self._test_zone!r}")
+            return
         namespace_prefix = self.config.get("namespace_prefix", "isvtest-coredns")
         resolver_image = self.config.get("resolver_image") or get_k8s_coredns_image()
         probe_image = self.config.get("probe_image") or get_k8s_dns_probe_image()
@@ -306,7 +350,7 @@ class K8sCoreDnsForwardingCheck(BaseValidation):
         poll_interval = max(1, int(self.config.get("poll_interval_s", 5)))
 
         original = self._get_configmap()
-        if original is None or original == "":
+        if original is None:
             return
 
         self._namespace = f"{namespace_prefix}-{uuid.uuid4().hex[:8]}"
@@ -352,8 +396,7 @@ class K8sCoreDnsForwardingCheck(BaseValidation):
         result = self.run_command(cmd)
         if result.exit_code != 0:
             if is_resource_absent(result.stderr):
-                self.set_passed("No editable CoreDNS ConfigMap found on this platform; K8S30 not assessable here")
-                return ""
+                pytest.skip("No editable CoreDNS ConfigMap found on this platform; K8S30 not assessable here")
             self.set_failed(f"Failed to read CoreDNS ConfigMap: {result.stderr}")
             return None
         try:
@@ -363,8 +406,7 @@ class K8sCoreDnsForwardingCheck(BaseValidation):
             return None
         corefile = (payload.get("data") or {}).get(self._corefile_key)
         if not isinstance(corefile, str):
-            self.set_passed(f"CoreDNS ConfigMap has no '{self._corefile_key}' key; K8S30 not assessable here")
-            return ""
+            pytest.skip(f"CoreDNS ConfigMap has no '{self._corefile_key}' key; K8S30 not assessable here")
         return corefile
 
     def _deploy_fake_resolver(self, image: str) -> str | None:
@@ -374,46 +416,47 @@ class K8sCoreDnsForwardingCheck(BaseValidation):
             f'        answer "{{{{ .Name }}}} 60 IN A {_PROBE_ANSWER_IP}"\n'
             "        fallthrough\n    }\n}\n"
         )
-        manifest = f"""\
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: fake-resolver-corefile
-  namespace: {self._namespace}
-data:
-  Corefile: |
-{_indent(resolver_corefile, 4)}
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: fake-resolver
-  namespace: {self._namespace}
-  labels:
-    app: {_RESOLVER_LABEL}
-spec:
-  restartPolicy: Never
-  containers:
-    - name: coredns
-      image: {image}
-      imagePullPolicy: IfNotPresent
-      args: ["-conf", "/etc/coredns/Corefile"]
-      ports: [{{containerPort: 53, protocol: UDP}}]
-      volumeMounts: [{{name: config, mountPath: /etc/coredns}}]
-  volumes:
-    - name: config
-      configMap: {{name: fake-resolver-corefile}}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: fake-resolver
-  namespace: {self._namespace}
-spec:
-  selector: {{app: {_RESOLVER_LABEL}}}
-  ports: [{{port: 53, targetPort: 53, protocol: UDP}}]
-"""
-        if not self._apply_yaml(manifest, "fake resolver"):
+        docs = [
+            {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {"name": "fake-resolver-corefile", "namespace": self._namespace},
+                "data": {"Corefile": resolver_corefile},
+            },
+            {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "metadata": {
+                    "name": "fake-resolver",
+                    "namespace": self._namespace,
+                    "labels": {"app": _RESOLVER_LABEL},
+                },
+                "spec": {
+                    "restartPolicy": "Never",
+                    "containers": [
+                        {
+                            "name": "coredns",
+                            "image": image,
+                            "imagePullPolicy": "IfNotPresent",
+                            "args": ["-conf", "/etc/coredns/Corefile"],
+                            "ports": [{"containerPort": 53, "protocol": "UDP"}],
+                            "volumeMounts": [{"name": "config", "mountPath": "/etc/coredns"}],
+                        }
+                    ],
+                    "volumes": [{"name": "config", "configMap": {"name": "fake-resolver-corefile"}}],
+                },
+            },
+            {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "metadata": {"name": "fake-resolver", "namespace": self._namespace},
+                "spec": {
+                    "selector": {"app": _RESOLVER_LABEL},
+                    "ports": [{"port": 53, "targetPort": 53, "protocol": "UDP"}],
+                },
+            },
+        ]
+        if not self._apply_yaml(yaml.safe_dump_all(docs, sort_keys=False), "fake resolver"):
             return None
         wait_cmd = (
             f"{self._kubectl_base} wait --for=condition=Ready --timeout={self.timeout}s "
@@ -451,21 +494,18 @@ spec:
         return True
 
     def _deploy_probe_pod(self, image: str) -> bool:
-        manifest = f"""\
-apiVersion: v1
-kind: Pod
-metadata:
-  name: dns-probe
-  namespace: {self._namespace}
-spec:
-  restartPolicy: Never
-  containers:
-    - name: probe
-      image: {image}
-      imagePullPolicy: IfNotPresent
-      command: ["sleep", "3600"]
-"""
-        if not self._apply_yaml(manifest, "probe pod"):
+        manifest = {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {"name": "dns-probe", "namespace": self._namespace},
+            "spec": {
+                "restartPolicy": "Never",
+                "containers": [
+                    {"name": "probe", "image": image, "imagePullPolicy": "IfNotPresent", "command": ["sleep", "3600"]}
+                ],
+            },
+        }
+        if not self._apply_yaml(yaml.safe_dump(manifest, sort_keys=False), "probe pod"):
             return False
         wait_cmd = (
             f"{self._kubectl_base} wait --for=condition=Ready --timeout={self.timeout}s "
@@ -507,11 +547,6 @@ spec:
         return True
 
 
-def _indent(text: str, spaces: int) -> str:
-    prefix = " " * spaces
-    return "\n".join(f"{prefix}{line}" if line else line for line in text.splitlines())
-
-
 # ---------------------------------------------------------------------------
 # K8S31 - Configurable CIDR ranges
 # ---------------------------------------------------------------------------
@@ -534,9 +569,7 @@ class K8sCidrRangesCheck(BaseValidation):
             return
 
         if expected_service_cidr is None and expected_pod_cidr is None and expected_node_cidr is None:
-            self.report_subtest("cidr_ranges", passed=True, message="No CIDR ranges configured; skipped", skipped=True)
-            self.set_passed("No CIDR ranges configured to verify")
-            return
+            pytest.skip("No expected_service_cidr / expected_pod_cidr / expected_node_cidr configured")
 
         any_failed = False
         if expected_service_cidr is not None and not self._check_service_cidr(kubectl_base, expected_service_cidr):
