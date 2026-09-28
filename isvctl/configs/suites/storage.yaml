@@ -253,7 +253,7 @@ tests:
 
     # Bound to the provider's storage_manifest step (shared/
     # storage_manifest_to_steps.py), which emits storage.manifest_path. Providers
-    # that have not onboarded a storage shim do not declare it, so both checks
+    # that have not onboarded a storage shim do not declare it, so these checks
     # skip as step_not_configured. The step runs in the test phase, so these
     # checks do too, and `--phase test` against an existing system keeps them.
     storage_provider_api:
@@ -298,7 +298,7 @@ tests:
           # (nobody) to match the BusyBox mount pod runAsUser. Skipped cleanly
           # when no provider declares full user-quota CRUD or no volume path is
           # available.
-          manifest_path: "{{ steps.setup.storage.manifest_path | default('', true) }}"
+          manifest_path: "{{ steps.storage_manifest.storage.manifest_path }}"
           storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           pvc_size: "5Gi"
           volume_size_bytes: 1073741824 # 1 GiB
