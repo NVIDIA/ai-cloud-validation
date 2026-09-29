@@ -117,11 +117,18 @@ class BaseWorkloadCheck(BaseValidation):
             res_pods = self.run_command(f"{kubectl_base} get pods -n {namespace} -l job-name={job_name}")
             self.log.error(f"Job Pods:\n{res_pods.stdout}")
 
+            # Pods that keep failing retry until the timeout, so their logs are the
+            # only record of why; the job delete below removes them.
+            res_logs = self.run_command(f"{kubectl_base} logs -n {namespace} -l job-name={job_name} --prefix --tail=50")
+            pod_logs = (res_logs.stdout or res_logs.stderr).strip()
+            self.log.error(f"Job Pod Logs:\n{pod_logs}")
+
             # Cleanup and return failure
             self.run_command(f"{kubectl_base} delete job {job_name} -n {namespace} --wait=false")
-            return CommandResult(
-                exit_code=-1, stdout="", stderr=f"Job timed out in status {job_status}", duration=duration
-            )
+            error = f"Job timed out in status {job_status}"
+            if pod_logs:
+                error += "\nLast pod log lines:\n" + "\n".join(pod_logs.splitlines()[-20:])
+            return CommandResult(exit_code=-1, stdout="", stderr=error, duration=duration)
 
         # 3. Get Logs (from the first pod of the job)
         self.log.info(f"Collecting logs for job {job_name}...")
