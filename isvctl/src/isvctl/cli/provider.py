@@ -31,12 +31,12 @@ from isvctl import __version__
 from isvctl.cli.common import print_error, print_progress, print_warning
 from isvctl.config.env_catalog import DEMO_MODE_ENV
 from isvctl.config.provider_registry import (
-    ProviderRegistryError,
+    REGISTRY_DIRNAME,
     RegistryEntry,
     external_checkout,
     fetched_commit,
     is_fetched_checkout,
-    load_registry,
+    load_registry_skipping_invalid,
     mark_fetched,
     run_git,
 )
@@ -55,7 +55,6 @@ TEMPLATE_PROVIDER_NAME = "my-isv"
 TEMPLATE_PROVIDER_TOKEN_RE = re.compile(r"(?<!\w)" + re.escape(TEMPLATE_PROVIDER_NAME) + r"(?!\w)")
 IGNORE_NAMES = ("__pycache__", ".pytest_cache")
 SCAFFOLD_META_FILE = ".scaffold-meta"
-REGISTRY_ENTRY_FILE = "registry-entry.yaml"
 # The header every file in this repository carries; registry entries are copied here.
 SPDX_HEADER = """\
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -260,13 +259,25 @@ def _copy_scaffold(template_dir: Path, target_dir: Path, provider_name: str) -> 
     _rewrite_text_files(target_dir, provider_name)
     _rewrite_config_paths(target_dir, template_dir)
     (target_dir / SCAFFOLD_META_FILE).write_text(f"provider_name={provider_name}\n", encoding="utf-8")
-    if not _is_in_tree(target_dir, template_dir):
-        (target_dir / REGISTRY_ENTRY_FILE).write_text(_registry_entry_stub(target_dir, provider_name), encoding="utf-8")
 
 
 def _is_in_tree(target_dir: Path, template_dir: Path) -> bool:
     """Return True for a scaffold inside this repository's providers/ directory."""
     return target_dir.resolve().is_relative_to(template_dir.parent.resolve())
+
+
+def _registry_entry_path(provider_name: str) -> Path:
+    """Return where the provider's registry entry lives in this checkout."""
+    return CONFIGS_ROOT / REGISTRY_DIRNAME / f"{provider_name}.yaml"
+
+
+def _write_registry_entry_stub(target_dir: Path, provider_name: str) -> None:
+    """Write the provider's registry entry stub, never replacing an existing entry."""
+    entry_path = _registry_entry_path(provider_name)
+    if entry_path.exists():
+        return
+    entry_path.parent.mkdir(parents=True, exist_ok=True)
+    entry_path.write_text(_registry_entry_stub(target_dir, provider_name), encoding="utf-8")
 
 
 def _registry_entry_stub(target_dir: Path, provider_name: str) -> str:
@@ -278,10 +289,10 @@ def _registry_entry_stub(target_dir: Path, provider_name: str) -> str:
     suites_dir = CONFIGS_ROOT / "suites"
     suites = sorted(path.stem for path in (target_dir / "config").glob("*.yaml") if (suites_dir / path.name).is_file())
     return f"""{SPDX_HEADER}
-# Registry entry for this provider. Once it is validated, copy this file to
-# isvctl/configs/providers-registry/{provider_name}.yaml in ai-cloud-validation and open a
-# pull request (see docs/guides/provider-registry.md). Replace every <...>
-# placeholder first: they fail validation on purpose.
+# Registry entry for the {provider_name} provider, written by `isvctl provider scaffold`.
+# Once the provider is validated, replace every <...> placeholder, commit this
+# file and open a pull request (see docs/guides/provider-registry.md). Until
+# then isvctl skips it with a warning, and the pre-commit check rejects it.
 
 schema_version: 1
 name: {provider_name}  # must match the file name
@@ -293,14 +304,14 @@ tested_with: "{__version__}"  # ai-cloud-validation release you validated agains
 suites: [{", ".join(suites)}]  # keep only the suites you implement
 maintainers:
   - github: "<GitHub handle, added to CODEOWNERS for this entry>"
-    email: "<optional contact email>"
+    # email: oss@example.com  # optional contact address
 documentation_url: "<https URL explaining the setup and how to reproduce your results>"
 {STATUS_COMMENT}status: qualified
 """
 
 
-def _print_next_steps(target_dir: Path, action: str, provider_name: str, in_tree: bool) -> None:
-    """Print scaffold creation output and next commands."""
+def _print_next_steps(target_dir: Path, action: str, provider_name: str, in_tree: bool, entry_note: str) -> None:
+    """Print scaffold creation output and next commands; ``entry_note`` describes the registry entry."""
     display_target = _display_path(target_dir)
     launch_script = shlex.quote(f"{display_target}/scripts/vm/launch_instance.py")
     typer.echo(f"{action} provider scaffold: {display_target}")
@@ -316,8 +327,8 @@ def _print_next_steps(target_dir: Path, action: str, provider_name: str, in_tree
     typer.echo(f"  {launch_script}")
     if not in_tree:
         typer.echo()
-        typer.echo("When it is validated, fill in and submit its registry entry:")
-        typer.echo(f"  {shlex.quote(f'{display_target}/{REGISTRY_ENTRY_FILE}')}")
+        typer.echo(f"{entry_note}; when the provider is validated, fill it in and submit it:")
+        typer.echo(f"  {shlex.quote(_display_path(_registry_entry_path(provider_name)))}")
 
 
 @app.command("scaffold")
@@ -358,6 +369,8 @@ def scaffold(
         target_dir = _resolve_target_path(provider_name, output_dir, template_dir)
 
         _assert_target_outside_template(target_dir, template_dir)
+        in_tree = _is_in_tree(target_dir, template_dir)
+        entry_exists = _registry_entry_path(provider_name).exists()
 
         if dry_run:
             if target_dir.exists():
@@ -365,27 +378,31 @@ def scaffold(
                     _assert_safe_to_overwrite(target_dir, template_dir)
                 else:
                     print_progress(f"Note: target exists; --overwrite would be required: {_display_path(target_dir)}")
-            _print_next_steps(target_dir, "Would create", provider_name, _is_in_tree(target_dir, template_dir))
+            entry_note = "Would keep its existing registry entry" if entry_exists else "Would create its registry entry"
+            _print_next_steps(target_dir, "Would create", provider_name, in_tree, entry_note)
             return
 
         if target_dir.exists() and not overwrite:
             raise FileExistsError(f"Target already exists: {_display_path(target_dir)}")
 
         _copy_scaffold(template_dir, target_dir, provider_name)
+        if not in_tree:
+            _write_registry_entry_stub(target_dir, provider_name)
     except (FileExistsError, FileNotFoundError, ValueError) as exc:
         print_error(str(exc))
         raise typer.Exit(code=1) from exc
 
-    _print_next_steps(target_dir, "Created", provider_name, _is_in_tree(target_dir, template_dir))
+    entry_note = "Kept its existing registry entry" if entry_exists else "Created its registry entry"
+    _print_next_steps(target_dir, "Created", provider_name, in_tree, entry_note)
 
 
-def _load_registry_or_exit() -> list[RegistryEntry]:
-    """Load the provider registry, exiting with the loader's problems if it is invalid."""
-    try:
-        return load_registry(CONFIGS_ROOT)
-    except ProviderRegistryError as exc:
-        print_error(str(exc))
-        raise typer.Exit(code=1) from exc
+def _load_valid_entries() -> list[RegistryEntry]:
+    """Load the valid registry entries, warning about each invalid one instead of failing."""
+    entries, problems = load_registry_skipping_invalid(CONFIGS_ROOT)
+    for name, errors in problems.items():
+        details = "".join(f"\n  {error}" for error in errors)
+        print_warning(f"Skipping invalid registry entry {name} (replace any <...> placeholders):{details}")
+    return entries
 
 
 @app.command("list")
@@ -401,7 +418,7 @@ def list_cmd(
         isvctl provider list
         isvctl provider list --all
     """
-    entries = _load_registry_or_exit()
+    entries = _load_valid_entries()
     if not show_all:
         entries = [entry for entry in entries if entry.status != "deprecated"]
     if not entries:
@@ -485,7 +502,7 @@ def fetch_cmd(
         isvctl provider fetch acme
         isvctl test run --provider acme --suite vm
     """
-    entry = next((entry for entry in _load_registry_or_exit() if entry.name == name), None)
+    entry = next((entry for entry in _load_valid_entries() if entry.name == name), None)
     if entry is None:
         print_error(f"Unknown provider '{name}'. Run 'isvctl provider list --all' to see registered providers.")
         raise typer.Exit(code=1)
@@ -536,16 +553,25 @@ def remove_cmd(
         bool,
         typer.Option("--all", help="Remove every fetched provider."),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Also delete providers that fetch did not create, such as your own scaffolds, git history included.",
+        ),
+    ] = False,
 ) -> None:
-    """Remove fetched providers from isvctl/configs/providers-external/.
+    """Remove providers from isvctl/configs/providers-external/.
 
-    Only checkouts made by `isvctl provider fetch` are deleted, including any
-    local edits to them. Scaffolds you are developing there, the registry, and
-    in-tree providers are never touched. Fetch again to restore one.
+    By default only checkouts made by `isvctl provider fetch` are deleted,
+    including any local edits to them; fetch again to restore one. Your own
+    scaffolds there are kept unless you add --force. The registry and in-tree
+    providers are never touched.
 
     Examples:
         isvctl provider remove acme
         isvctl provider remove --all
+        isvctl provider remove --all --force
     """
     if remove_all == bool(names):
         print_error("Give one or more provider names, or --all.")
@@ -553,29 +579,41 @@ def remove_cmd(
 
     external_dir = CONFIGS_ROOT / EXTERNAL_PROVIDERS_DIRNAME
     if remove_all:
-        entries = sorted(external_dir.iterdir()) if external_dir.is_dir() else []
-        fetched = [path for path in entries if is_fetched_checkout(path)]
+        entries = sorted(path for path in external_dir.iterdir() if path.is_dir()) if external_dir.is_dir() else []
+        providers = [path for path in entries if not path.name.startswith(".")]
+        targets = [path for path in providers if force or is_fetched_checkout(path)]
+        local = [path.name for path in targets if not is_fetched_checkout(path)]
         # Staging directories left by an interrupted fetch go too.
-        for path in [*fetched, *(path for path in entries if path.name.startswith(".fetch-"))]:
+        for path in [*targets, *(path for path in entries if path.name.startswith(".fetch-"))]:
             shutil.rmtree(path)
-        typer.echo(
-            f"Removed {len(fetched)} fetched provider(s)"
-            + (f": {', '.join(path.name for path in fetched)}" if fetched else ".")
-        )
-        kept = [path.name for path in entries if path.is_dir() and path not in fetched and path.name[0] != "."]
+        label = "provider(s)" if force else "fetched provider(s)"
+        typer.echo(f"Removed {len(targets)} {label}" + (f": {', '.join(p.name for p in targets)}" if targets else "."))
+        kept = [path.name for path in providers if path not in targets]
         if kept:
-            typer.echo(f"Kept (not created by fetch): {', '.join(kept)}")
+            typer.echo(f"Kept (not created by fetch; add --force to delete them too): {', '.join(kept)}")
+        _note_kept_registry_entries(local)
         return
 
     # The name pattern keeps a name such as '../providers' from reaching outside providers-external/.
     missing = [name for name in names if not PROVIDER_NAME_RE.fullmatch(name) or not (external_dir / name).is_dir()]
-    local = [name for name in names if name not in missing and not is_fetched_checkout(external_dir / name)]
-    if missing or local:
-        if missing:
-            print_error(f"Not fetched: {', '.join(missing)}. Run 'isvctl provider list' to see fetched providers.")
-        if local:
-            print_error(f"Not created by fetch, delete it yourself if you mean to: {', '.join(local)}")
+    if missing:
+        print_error(
+            f"Not in providers-external/: {', '.join(missing)}. Run 'isvctl provider list' to see fetched ones."
+        )
+        raise typer.Exit(code=1)
+    local = [name for name in names if not is_fetched_checkout(external_dir / name)]
+    if local and not force:
+        print_error(f"Not created by fetch (your own work?): {', '.join(local)}. Add --force to delete it anyway.")
         raise typer.Exit(code=1)
     for name in names:
         shutil.rmtree(external_dir / name)
         typer.echo(f"Removed {name} from {_display_path(external_dir / name)}")
+    _note_kept_registry_entries(local)
+
+
+def _note_kept_registry_entries(names: list[str]) -> None:
+    """Point out registry entries left behind for removed local providers; remove never edits the registry."""
+    for name in names:
+        entry_path = _registry_entry_path(name)
+        if entry_path.exists():
+            typer.echo(f"Left its registry entry in place: {_display_path(entry_path)}")

@@ -33,6 +33,22 @@ from isvctl.config.schema import RunConfig
 from isvctl.main import app as main_app
 
 runner = CliRunner()
+REAL_SUITES_DIR = provider_cli.CONFIGS_ROOT / "suites"
+
+
+@pytest.fixture(autouse=True)
+def _isolated_configs_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Point CONFIGS_ROOT at a temporary tree, so registry entry stubs never land in this checkout.
+
+    The real suites are linked in, because the stub lists the scaffold's configs
+    that match a suite.
+    """
+    configs_root = tmp_path / "configs-root"
+    configs_root.mkdir()
+    (configs_root / "suites").symlink_to(REAL_SUITES_DIR)
+    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", configs_root)
+    return configs_root
+
 
 # Storage provider manifests live alongside run-configs in a provider's config/
 # directory but are not RunConfigs (no commands/tests) and carry no path
@@ -83,45 +99,50 @@ def test_successful_scaffold_into_output_dir(tmp_path: Path) -> None:
     assert "scripts/vm/launch_instance.py" in result.output
 
 
-def test_scaffold_defaults_to_providers_external(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Without --output-dir the scaffold lands in providers-external/<name>/, runnable by --provider name."""
-    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", tmp_path / "configs")
-
+def test_scaffold_defaults_to_providers_external(_isolated_configs_root: Path) -> None:
+    """Without --output-dir the scaffold lands in providers-external/<name>/, with its registry entry stub."""
     result = runner.invoke(main_app, ["provider", "scaffold", "acme"])
 
-    target = tmp_path / "configs" / "providers-external" / "acme"
+    target = _isolated_configs_root / "providers-external" / "acme"
     assert result.exit_code == 0, result.output
     assert (target / "config" / "vm.yaml").is_file()
-    assert (target / provider_cli.REGISTRY_ENTRY_FILE).is_file()
+    assert (_isolated_configs_root / "providers-registry" / "acme.yaml").is_file()
     assert "ISVCTL_DEMO_MODE=1 uv run isvctl test run --provider acme --suite vm" in result.output
-    assert "fill in and submit its registry entry" in result.output
+    assert "Created its registry entry; when the provider is validated, fill it in and submit it:" in result.output
 
 
-def test_scaffold_default_rejects_in_tree_provider_name(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_scaffold_default_rejects_in_tree_provider_name(_isolated_configs_root: Path) -> None:
     """A default scaffold may not shadow an in-tree provider, or --provider would be ambiguous."""
-    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", tmp_path / "configs")
-
     result = runner.invoke(main_app, ["provider", "scaffold", "aws"])
 
     assert result.exit_code == 1
     assert "'aws' is already an in-tree provider" in result.output
-    assert not (tmp_path / "configs").exists()
+    assert not (_isolated_configs_root / "providers-external").exists()
+    assert not (_isolated_configs_root / "providers-registry").exists()
 
 
-def test_registry_entry_stub_is_prefilled_and_fails_until_completed(tmp_path: Path) -> None:
+def test_scaffold_keeps_existing_registry_entry(_isolated_configs_root: Path, tmp_path: Path) -> None:
+    """A scaffold never replaces a registry entry that already exists."""
+    entry = _isolated_configs_root / "providers-registry" / "acme.yaml"
+    entry.parent.mkdir()
+    entry.write_text("name: acme\n", encoding="utf-8")
+
+    result = runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(tmp_path / "acme")])
+
+    assert result.exit_code == 0, result.output
+    assert entry.read_text(encoding="utf-8") == "name: acme\n"
+    assert "Kept its existing registry entry" in result.output
+
+
+def test_registry_entry_stub_is_prefilled_and_fails_until_completed(
+    _isolated_configs_root: Path, tmp_path: Path
+) -> None:
     """The stub carries what the scaffold knows, fails validation as generated, and validates once filled."""
-    target = tmp_path / "acme"
-    runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(target)])
-    stub_text = (target / provider_cli.REGISTRY_ENTRY_FILE).read_text(encoding="utf-8")
+    runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(tmp_path / "acme")])
+    registry_file = _isolated_configs_root / "providers-registry" / "acme.yaml"
+    stub_text = registry_file.read_text(encoding="utf-8")
     stub = yaml.safe_load(stub_text)
-
-    configs_root = tmp_path / "configs"
-    (configs_root / "suites").mkdir(parents=True)
-    for suite in stub["suites"]:
-        (configs_root / "suites" / f"{suite}.yaml").write_text("tests: {}\n", encoding="utf-8")
-    registry_file = configs_root / "providers-registry" / "acme.yaml"
-    registry_file.parent.mkdir()
-    registry_file.write_text(stub_text, encoding="utf-8")
+    configs_root = _isolated_configs_root
     with pytest.raises(ProviderRegistryError) as unfilled:
         load_registry(configs_root)
 

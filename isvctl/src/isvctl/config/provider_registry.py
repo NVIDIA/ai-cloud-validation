@@ -109,30 +109,46 @@ def _to_entry(data: dict[str, Any]) -> RegistryEntry:
     )
 
 
-def load_registry(configs_root: Path = CONFIGS_ROOT) -> list[RegistryEntry]:
-    """Load every ``providers-registry/*.yaml`` entry, sorted by name.
+def load_registry_skipping_invalid(
+    configs_root: Path = CONFIGS_ROOT,
+) -> tuple[list[RegistryEntry], dict[str, list[str]]]:
+    """Load the valid ``providers-registry/*.yaml`` entries, sorted by name, and the problems of the others.
 
-    Raises:
-        ProviderRegistryError: If any entry is invalid. The message lists the
-            problems of every file; an entry's filename and suite checks run
-            only once it passes the schema.
+    For everyday commands: one unfinished entry, such as a stub that
+    ``isvctl provider scaffold`` wrote, must not block every other provider.
+    The problems are keyed by file name; an entry's filename and suite checks
+    run only once it passes the schema.
     """
     registry_dir = configs_root / REGISTRY_DIRNAME
     entries = []
-    problems = []
+    problems: dict[str, list[str]] = {}
     for path in sorted(registry_dir.glob("*.yaml")):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
         except yaml.YAMLError as exc:
-            problems.append(f"{path.name}: invalid YAML: {exc}")
+            problems[path.name] = [f"invalid YAML: {exc}"]
             continue
         errors = _entry_errors(path, data, configs_root)
         if errors:
-            problems.extend(f"{path.name}: {error}" for error in errors)
+            problems[path.name] = errors
         else:
             entries.append(_to_entry(data))
+    return entries, problems
+
+
+def load_registry(configs_root: Path = CONFIGS_ROOT) -> list[RegistryEntry]:
+    """Load every ``providers-registry/*.yaml`` entry, sorted by name, failing on any invalid one.
+
+    Used where the whole registry must be valid: the pre-commit hook and tests.
+
+    Raises:
+        ProviderRegistryError: If any entry is invalid. The message lists the
+            problems of every file.
+    """
+    entries, problems = load_registry_skipping_invalid(configs_root)
     if problems:
-        raise ProviderRegistryError("Invalid provider registry entries:\n" + "\n".join(f"  {p}" for p in problems))
+        lines = [f"  {name}: {error}" for name, errors in problems.items() for error in errors]
+        raise ProviderRegistryError("Invalid provider registry entries:\n" + "\n".join(lines))
     return entries
 
 
@@ -216,13 +232,17 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     that ``fetch`` did not create, such as the partner's own scaffold under
     development, is run as it is.
 
+    Invalid registry entries are skipped, so an unfinished entry for this very
+    provider leaves its local scaffold runnable.
+
     Raises:
-        ProviderRegistryError: If the provider is not fetched, is fetched at a
-            different commit than the registry pins, or the registry is invalid.
+        ProviderRegistryError: If the provider is not fetched, or is fetched at a
+            different commit than the registry pins.
     """
     if (configs_root / "providers" / provider).is_dir():
         return None
-    entry = next((entry for entry in load_registry(configs_root) if entry.name == provider), None)
+    entries, _ = load_registry_skipping_invalid(configs_root)
+    entry = next((entry for entry in entries if entry.name == provider), None)
     if entry is None:
         return None
     checkout = external_checkout(provider, configs_root)

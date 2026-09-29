@@ -24,6 +24,7 @@ from isvctl.config.provider_registry import (
     RegistryEntry,
     ensure_fetched,
     load_registry,
+    load_registry_skipping_invalid,
     mark_fetched,
 )
 from isvctl.orchestrator.loop import OrchestratorResult, Phase, PhaseResult
@@ -231,12 +232,35 @@ def test_list_empty_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     assert "No providers registered." in output
 
 
-def test_list_fails_on_invalid_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """An invalid entry fails the command and names the problem."""
-    exit_code, output = _list(monkeypatch, _configs_root(tmp_path, {"acme.yaml": _entry(name="other")}))
+def test_list_skips_invalid_entries_with_a_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """One unfinished entry, such as a scaffold's stub, is skipped with its problems; the others still list."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(name="other"), "zeta.yaml": _entry(name="zeta")})
 
-    assert exit_code == 1
+    exit_code, output = _list(monkeypatch, configs_root)
+
+    assert exit_code == 0, output
+    assert "Skipping invalid registry entry acme.yaml" in output
     assert "must match the filename 'acme'" in output
+    assert "zeta" in output
+
+
+def test_strict_loader_still_rejects_invalid_entries(tmp_path: Path) -> None:
+    """The pre-commit hook and tests use the strict loader, so an unfinished entry cannot be committed."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(name="other"), "zeta.yaml": _entry(name="zeta")})
+
+    entries, problems = load_registry_skipping_invalid(configs_root)
+
+    assert [entry.name for entry in entries] == ["zeta"]
+    assert list(problems) == ["acme.yaml"]
+    assert "must match the filename 'acme'" in _problems(configs_root)
+
+
+def test_ensure_fetched_skips_invalid_entry_for_local_scaffold(tmp_path: Path) -> None:
+    """An unfinished entry for a scaffold under development does not stop it from running."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(commit="<validated commit>")})
+    _local_provider(tmp_path, "acme")
+
+    assert ensure_fetched("acme", configs_root) is None
 
 
 def test_rejects_name_of_in_tree_provider(tmp_path: Path) -> None:
@@ -292,7 +316,7 @@ def _registry_entry(repo_url: str, **overrides: Any) -> RegistryEntry:
 def _fetch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, entry: RegistryEntry, *args: str) -> tuple[int, str]:
     """Run ``isvctl provider fetch`` against ``tmp_path/configs`` with the registry replaced by one entry."""
     monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", tmp_path / "configs")
-    monkeypatch.setattr(provider_cli, "load_registry", lambda configs_root: [entry])
+    monkeypatch.setattr(provider_cli, "load_registry_skipping_invalid", lambda configs_root: ([entry], {}))
     result = runner.invoke(provider_cli.app, ["fetch", *args])
     return result.exit_code, result.output
 
@@ -448,19 +472,44 @@ def test_remove_all_keeps_local_providers(monkeypatch: pytest.MonkeyPatch, tmp_p
 
     assert exit_code == 0, output
     assert "Removed 1 fetched provider(s): acme" in output
-    assert "Kept (not created by fetch): mine" in output
+    assert "Kept (not created by fetch; add --force to delete them too): mine" in output
     assert [path.name for path in external_dir.iterdir()] == ["mine"]
 
 
 def test_remove_refuses_local_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Removing a provider fetch did not create is refused and deletes nothing."""
+    """Removing a provider fetch did not create is refused without --force, and deletes nothing."""
     local = _local_provider(tmp_path, "mine")
 
     exit_code, output = _remove(monkeypatch, tmp_path, "mine")
 
     assert exit_code == 1
-    assert "Not created by fetch, delete it yourself if you mean to: mine" in output
+    assert "Not created by fetch (your own work?): mine. Add --force to delete it anyway." in output
     assert local.is_dir()
+
+
+def test_remove_force_deletes_local_provider_but_not_its_entry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """--force deletes a local provider; its registry entry is left in place and pointed out."""
+    configs_root = _configs_root(tmp_path, {"mine.yaml": _entry(name="mine")})
+    local = _local_provider(tmp_path, "mine")
+
+    exit_code, output = _remove(monkeypatch, tmp_path, "mine", "--force")
+
+    assert exit_code == 0, output
+    assert not local.exists()
+    assert (configs_root / "providers-registry" / "mine.yaml").is_file()
+    assert "Left its registry entry in place:" in output
+
+
+def test_remove_all_force_deletes_everything(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """--all --force deletes fetched and local providers alike."""
+    external_dir = _fake_checkouts(tmp_path, "acme")
+    _local_provider(tmp_path, "mine")
+
+    exit_code, output = _remove(monkeypatch, tmp_path, "--all", "--force")
+
+    assert exit_code == 0, output
+    assert "Removed 2 provider(s): acme, mine" in output
+    assert list(external_dir.iterdir()) == []
 
 
 def test_fetch_refuses_to_replace_local_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -518,16 +567,19 @@ def test_remove_all_with_nothing_fetched(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert "Removed 0 fetched provider(s)." in output
 
 
-def test_remove_refuses_unfetched_or_escaping_names(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Names that are not fetched, or that would leave providers-external/, remove nothing."""
+@pytest.mark.parametrize("force", [(), ("--force",)])
+def test_remove_refuses_missing_or_escaping_names(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, force: tuple[str, ...]
+) -> None:
+    """Names that are absent, or that would leave providers-external/, remove nothing, even with --force."""
     external_dir = _fake_checkouts(tmp_path, "acme")
     in_tree = tmp_path / "configs" / "providers" / "aws"
     in_tree.mkdir(parents=True)
 
-    exit_code, output = _remove(monkeypatch, tmp_path, "acme", "nope", "../providers/aws")
+    exit_code, output = _remove(monkeypatch, tmp_path, "acme", "nope", "../providers/aws", *force)
 
     assert exit_code == 1
-    assert "Not fetched: nope, ../providers/aws" in output
+    assert "Not in providers-external/: nope, ../providers/aws" in output
     assert (external_dir / "acme").is_dir()
     assert in_tree.is_dir()
 
@@ -554,7 +606,7 @@ def test_list_shows_fetch_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     )
     for name, commit in (("acme", first), ("beta", tip)):
         _fetch(monkeypatch, tmp_path, _registry_entry(url, name=name, commit=commit), name)
-    monkeypatch.setattr(provider_cli, "load_registry", load_registry)
+    monkeypatch.setattr(provider_cli, "load_registry_skipping_invalid", load_registry_skipping_invalid)
 
     exit_code, output = _list(monkeypatch, configs_root)
 
