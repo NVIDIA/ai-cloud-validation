@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Provider scaffold commands."""
+"""Provider scaffold and registry commands."""
 
 import os
 import re
@@ -23,14 +23,20 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.console import Console
+from rich.table import Table
 
 from isvctl.cli.common import print_error, print_progress
+from isvctl.config.provider_registry import ProviderRegistryError, load_registry
+from isvctl.config.suite_resolution import CONFIGS_ROOT
 
 app = typer.Typer(
     name="provider",
-    help="Manage provider scaffolds",
+    help="Manage provider scaffolds and the registry of externally maintained providers",
     no_args_is_help=True,
 )
+
+console = Console()
 
 PROVIDER_NAME_RE = re.compile(r"^[a-z0-9_-]+$")
 TEMPLATE_PROVIDER_NAME = "my-isv"
@@ -279,3 +285,48 @@ def scaffold(
         raise typer.Exit(code=1) from exc
 
     _print_next_steps(target_dir, "Created")
+
+
+@app.command("list")
+def list_cmd(
+    show_all: Annotated[
+        bool,
+        typer.Option("--all", help="Include deprecated providers."),
+    ] = False,
+) -> None:
+    """List externally maintained providers from the provider registry.
+
+    Examples:
+        isvctl provider list
+        isvctl provider list --all
+    """
+    try:
+        entries = load_registry(CONFIGS_ROOT)
+    except ProviderRegistryError as exc:
+        print_error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    if not show_all:
+        entries = [entry for entry in entries if entry.status != "deprecated"]
+    if not entries:
+        print_progress("No providers registered.")
+        return
+
+    table = Table(
+        title=f"Provider Registry ({len(entries)} providers)",
+        title_justify="left",
+        show_header=True,
+        header_style="bold",
+        padding=(0, 1),
+    )
+    table.add_column("Name", style="green", no_wrap=True)
+    table.add_column("Vendor")
+    table.add_column("Status")
+    table.add_column("Tested with", no_wrap=True)
+    table.add_column("Commit", style="magenta", no_wrap=True)
+
+    for entry in entries:
+        commit = entry.commit[:12] if entry.commit else f"{entry.ref} (unpinned)"
+        table.add_row(entry.name, entry.vendor, entry.status, entry.tested_with, commit)
+
+    console.print(table)
