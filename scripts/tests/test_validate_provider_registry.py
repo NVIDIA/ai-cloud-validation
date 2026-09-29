@@ -23,8 +23,8 @@ def _configs_root(tmp_path: Path, entry_name: str) -> Path:
     configs_root = tmp_path / "configs"
     (configs_root / "suites").mkdir(parents=True)
     (configs_root / "suites" / "vm.yaml").write_text("tests: {}\n", encoding="utf-8")
-    (configs_root / "provider-registry").mkdir()
-    (configs_root / "provider-registry" / "acme.yaml").write_text(
+    (configs_root / "providers-registry").mkdir()
+    (configs_root / "providers-registry" / "acme.yaml").write_text(
         f"""\
 schema_version: 1
 name: {entry_name}

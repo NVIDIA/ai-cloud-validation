@@ -60,4 +60,4 @@ repos:
         entry: uv run python scripts/validate_provider_registry.py --check
         language: system
         pass_filenames: false
-        files: ^(isvctl/configs/provider-registry/.*|isvctl/configs/suites/.*\.yaml|isvctl/schemas/provider-registry\.schema\.json|isvctl/src/isvctl/config/provider_registry\.py|scripts/validate_provider_registry\.py)$
+        files: ^(isvctl/configs/providers-registry/.*|isvctl/configs/suites/.*\.yaml|isvctl/schemas/provider-registry\.schema\.json|isvctl/src/isvctl/config/provider_registry\.py|scripts/validate_provider_registry\.py)$

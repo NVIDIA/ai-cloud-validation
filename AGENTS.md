@@ -158,7 +158,7 @@ forwarded env vars → optional isvreporter upload.
     `sys.path.insert(0, Path(__file__).resolve().parents[1])` per script
 - `isvctl/configs/providers/shared/` - cross-provider scripts (`deploy_nim.py`,
   `teardown_nim.py`).
-- `isvctl/configs/provider-registry/<name>.yaml` - externally maintained providers,
+- `isvctl/configs/providers-registry/<name>.yaml` - externally maintained providers,
   each pinned to a commit of the partner's repo (`docs/guides/provider-registry.md`).
 - `isvctl/configs/providers-external/<name>/` - git-ignored checkouts made by
   `isvctl provider fetch`; `--provider <name>` resolves them like `providers/<name>/`.

@@ -7,7 +7,7 @@ the exact commit that was validated, the release it was validated against, and
 who maintains it.
 
 ```text
-partner repo (config/, scripts/)  <-- pinned by --  isvctl/configs/provider-registry/<name>.yaml
+partner repo (config/, scripts/)  <-- pinned by --  isvctl/configs/providers-registry/<name>.yaml
                                                           |
                     isvctl provider list / isvctl provider fetch <name>
                                                           |
@@ -86,15 +86,15 @@ link is the entry's `documentation_url`, which is why it must explain them.
      results - this is the entry's `documentation_url`.
    - A license.
 4. **Open a pull request here** that adds:
-   - `isvctl/configs/provider-registry/<name>.yaml` - the format is described in
-     the [registry README](../../isvctl/configs/provider-registry/README.md) and
+   - `isvctl/configs/providers-registry/<name>.yaml` - the format is described in
+     the [registry README](../../isvctl/configs/providers-registry/README.md) and
      enforced by [its schema](../../isvctl/schemas/provider-registry.schema.json).
    - A [CODEOWNERS](../../.github/CODEOWNERS) line so changes to your entry are
      routed to you. Keep the maintainers team on it: the last matching
      CODEOWNERS rule wins, so a line naming only you would drop them.
 
      ```text
-     isvctl/configs/provider-registry/acme.yaml @acme-handle @NVIDIA/ncp-isv-lab-maintainer
+     isvctl/configs/providers-registry/acme.yaml @acme-handle @NVIDIA/ncp-isv-lab-maintainer
      ```
 
    Like every pull request here, it must be signed off (DCO), confirming you
@@ -103,7 +103,7 @@ link is the entry's `documentation_url`, which is why it must explain them.
 ### Submission checklist
 
 - [ ] The file starts with the repository's SPDX license header - copy it from
-      [`example.yaml`](../../isvctl/configs/provider-registry/example.yaml).
+      [`example.yaml`](../../isvctl/configs/providers-registry/example.yaml).
 - [ ] `name` matches the filename, and `commit` is the full 40-character SHA.
 - [ ] `tested_with` is the release you validated against, without a leading `v`.
 - [ ] Every `suites` entry has a matching `config/<suite>.yaml` in your repository.

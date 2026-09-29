@@ -19,7 +19,7 @@ import yaml
 from isvctl.config.suite_resolution import CONFIGS_ROOT, EXTERNAL_PROVIDERS_DIRNAME
 
 SCHEMA_PATH = CONFIGS_ROOT.parent / "schemas" / "provider-registry.schema.json"
-REGISTRY_DIRNAME = "provider-registry"
+REGISTRY_DIRNAME = "providers-registry"
 
 
 class ProviderRegistryError(Exception):
@@ -110,7 +110,7 @@ def _to_entry(data: dict[str, Any]) -> RegistryEntry:
 
 
 def load_registry(configs_root: Path = CONFIGS_ROOT) -> list[RegistryEntry]:
-    """Load every ``provider-registry/*.yaml`` entry, sorted by name.
+    """Load every ``providers-registry/*.yaml`` entry, sorted by name.
 
     Raises:
         ProviderRegistryError: If any entry is invalid. The message lists the

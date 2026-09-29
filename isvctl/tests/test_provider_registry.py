@@ -57,7 +57,7 @@ def _configs_root(tmp_path: Path, entries: dict[str, dict[str, Any]], suites: tu
     (configs_root / "suites").mkdir(parents=True)
     for suite in suites:
         (configs_root / "suites" / f"{suite}.yaml").write_text("tests: {}\n", encoding="utf-8")
-    registry_dir = configs_root / "provider-registry"
+    registry_dir = configs_root / "providers-registry"
     registry_dir.mkdir()
     (registry_dir / "README.md").write_text("# Provider Registry\n", encoding="utf-8")
     for filename, entry in entries.items():
@@ -176,7 +176,7 @@ def test_reports_every_problem_across_files(tmp_path: Path) -> None:
 def test_reports_invalid_yaml(tmp_path: Path) -> None:
     """A file that is not parseable YAML is reported by name."""
     configs_root = _configs_root(tmp_path, {})
-    (configs_root / "provider-registry" / "acme.yaml").write_text("name: [unclosed\n", encoding="utf-8")
+    (configs_root / "providers-registry" / "acme.yaml").write_text("name: [unclosed\n", encoding="utf-8")
 
     assert "acme.yaml: invalid YAML:" in _problems(configs_root)
 
@@ -613,7 +613,7 @@ def test_test_run_turns_on_demo_mode_for_demo_provider(monkeypatch: pytest.Monke
         cwd=checkout,
         check=True,
     )
-    (configs_root / "provider-registry" / "acme.yaml").write_text(
+    (configs_root / "providers-registry" / "acme.yaml").write_text(
         yaml.safe_dump(_entry(status="demo", commit=_head(checkout))), encoding="utf-8"
     )
     # Registers the variable for restoration; the CLI overwrites it in os.environ.
