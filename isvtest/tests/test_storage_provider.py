@@ -95,9 +95,8 @@ def _outcomes(check: StorageProviderApiCheck) -> dict[str, dict[str, Any]]:
 class TestStorageProviderApiCheckSkipPaths:
     def test_missing_manifest_path_skips_cleanly(self) -> None:
         check = StorageProviderApiCheck(config={})
-        check.run()
-        assert check.passed
-        assert "manifest_path unset" in check._output
+        with pytest.raises(pytest.skip.Exception, match="manifest_path unset"):
+            check.run()
 
     def test_manifest_missing_file_fails(self, tmp_path: Path) -> None:
         check = StorageProviderApiCheck(config={"manifest_path": str(tmp_path / "nope.yaml")})
@@ -125,10 +124,10 @@ class TestStorageProviderApiCheckSkipPaths:
             )
         )
         check = StorageProviderApiCheck(config={"manifest_path": str(manifest)})
-        check.run()
-        assert check.passed
-        assert "rest-fs" in check._output
-        assert "ebs" in check._output
+        with pytest.raises(pytest.skip.Exception) as skipped:
+            check.run()
+        assert "rest-fs" in skipped.value.msg
+        assert "ebs" in skipped.value.msg
 
 
 class TestStorageProviderApiCheckHappyPath:

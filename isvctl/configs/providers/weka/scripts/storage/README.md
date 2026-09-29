@@ -93,7 +93,7 @@ Most wall time is PVC provision + pod Ready. Create those once and pass
 its probe subdirectory and quota:
 
 ```yaml
-# quota-reuse.yaml — deep-merge with storage-k8s.yaml
+# quota-reuse.yaml — deep-merge with storage.yaml
 tests:
   validations:
     storage_provider_api:
@@ -141,8 +141,8 @@ the mount pod's `runAsUser`.
 ```bash
 ISVTEST_INCLUDE_UNRELEASED=1 \
   uv run isvctl test run \
-    -f isvctl/configs/providers/weka/config/storage-k8s.yaml \
-    -f /path/to/k8s-capability.yaml \
+    -f isvctl/configs/providers/weka/config/storage.yaml \
+    --capability kubernetes \
     -f /path/to/quota-reuse.yaml \
     -- -v -s -k "StorageUserQuotaEnforcement"
 ```
@@ -236,12 +236,14 @@ uv run isvctl test run \
 
 To also verify the directory-quota lifecycle **and** enforcement against the
 live cluster your kubectl points at (provisions a PVC, mounts it, and writes
-data), run the K8s config with the shared-fs StorageClass set:
+data), run the same config with `--capability kubernetes` and the shared-fs
+StorageClass set:
 
 ```bash
 export K8S_CSI_SHARED_FS_SC=weka-rwx
 uv run isvctl test run \
-    -f isvctl/configs/providers/weka/config/storage-k8s.yaml \
+    -f isvctl/configs/providers/weka/config/storage.yaml \
+    --capability kubernetes \
     -- -v -s -k "StorageDirectoryQuotaEnforcement"
 ```
 

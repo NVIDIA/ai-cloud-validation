@@ -13,20 +13,47 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# WEKA Storage Provider Shim - Standalone validation config.
+# WEKA storage validation configuration.
 #
-# Drives StorageProviderApiCheck against a live WEKA cluster via the
-# REST API shim. No Kubernetes cluster required for the shim itself, but
-# the WEKA API endpoints must be reachable from the test host.
+# Imports suites/storage.yaml. Two independent inputs:
 #
-# Required environment variables (see scripts/storage/README.md):
-#   WEKA_ENDPOINTS      Comma-separated host:port list
-#   WEKA_USERNAME       Cluster username
-#   WEKA_PASSWORD       Cluster password
-#   WEKA_FILESYSTEM     Filesystem name (e.g. default)
+#   1. StorageProviderApiCheck is driven from storage-provider-manifest.yaml
+#      (the storage_manifest step emits its manifest_path) against a live WEKA
+#      cluster via the REST API shim. No Kubernetes cluster required for the
+#      shim itself, but the WEKA API endpoints must be reachable from the test
+#      host. It needs:
+#        WEKA_ENDPOINTS      Comma-separated host:port list
+#        WEKA_USERNAME       Cluster username
+#        WEKA_PASSWORD       Cluster password
+#        WEKA_FILESYSTEM     Filesystem name (e.g. default)
 #
+#   2. With --capability kubernetes, the K8sCsi* / K8sFilesystem* checks run
+#      against the EXISTING cluster your kubectl points at. The setup_cluster step
+#      reports its StorageClasses; K8S_CSI_* env vars take precedence. The
+#      example StorageClass `weka-rwx` is the native wekafs POSIX client
+#      (provisioner csi.weka.io); it fills the shared_fs role, so set
+#      K8S_CSI_SHARED_FS_SC to your WEKA RWX class. wekafs is NOT NFS, so
+#      K8sNfsMountOptionsCheck skips (leave K8S_CSI_NFS_SC unset).
+#
+# Shim only (core run, no cluster):
+#
+#   uv run isvctl test run -f isvctl/configs/providers/weka/config/storage.yaml
+#
+# CSI health + provisioning + POSIX (no WEKA creds needed - shim check filtered
+# out with -k):
+#
+#   export K8S_CSI_SHARED_FS_SC=weka-rwx
 #   uv run isvctl test run \
-#       -f isvctl/configs/providers/weka/config/storage.yaml
+#       -f isvctl/configs/providers/weka/config/storage.yaml \
+#       --capability kubernetes \
+#       -- -v -s -k "K8sCsiDriverHealth or K8sCsiProvisioningModes or K8sCsiStorageTypes or K8sPosixCompliance"
+#
+# Add `--phase test` to skip the setup/teardown fixtures entirely: the shim
+# checks still run, and StorageClasses then come from the K8S_CSI_* env vars
+# only.
+
+import:
+  - ../../../suites/storage.yaml
 
 version: "1.0"
 
@@ -34,19 +61,49 @@ commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
-      - name: preflight
+      # Same scaffold the suite uses: reports the StorageClasses already
+      # installed on the current cluster (K8S_CSI_* env vars win) and
+      # provisions nothing.
+      - name: setup_cluster
         phase: setup
-        command: "echo"
-        args: ['{"success": true, "platform": "storage", "test_name": "preflight"}']
-        timeout: 10
+        command: "../../my-isv/scripts/k8s/setup.sh"
+        requires: [kubernetes]
+        output_schema: generic
+        timeout: 120
+
+      - name: storage_manifest
+        phase: test
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        timeout: 30
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
+
+      - name: teardown_cluster
+        phase: teardown
+        command: "../../my-isv/scripts/k8s/teardown.sh"
+        requires: [kubernetes]
+        timeout: 30
 
 tests:
   cluster_name: "weka-storage-validation"
-  description: "WEKA storage shim validation"
+  description: "WEKA storage validation"
 
   validations:
-    storage_provider_api:
+    k8s_storage:
       checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/weka/config/storage-provider-manifest.yaml"
-          volume_size_bytes: 1073741824 # 1 GiB
+        # WEKA is shared-fs only (no block class), so point the dynamic
+        # provisioning probe (mount + write/read canary) at the wekafs RWX class
+        # instead of the suite's default block class. Static-PV subtest stays
+        # disabled (empty handle/driver -> skipped): we exercise dynamic
+        # provisioning via csi.weka.io rather than pinning a pre-provisioned
+        # volume handle.
+        K8sCsiProvisioningModesCheck:
+          dynamic_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default(env.get('K8S_CSI_SHARED_FS_SC', ''), true) }}"
+          static_pv:
+            volume_handle: ""
+            csi_driver: ""
+            fs_type: "wekafs"
+            capacity: "1Gi"
+            access_mode: "ReadWriteMany"
+          bind_timeout_s: 180
+          namespace_prefix: "isvtest-csi-prov"

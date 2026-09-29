@@ -15,7 +15,7 @@ handoff folder (e.g. `providers/weka/`).
 | ---- | ------ |
 | `scripts/storage/api.py` | Replace `TODO` blocks in the existing `MyStorageApi` class |
 | `config/storage-provider-manifest.yaml` | Update `providers[]`, `shim.module`, `csi`, `attributes` |
-| `config/storage.yaml` | Already wired; tweak `manifest_path` only if paths change |
+| `config/storage.yaml` | Already declares the `storage_manifest` step; tweak `STORAGE_PROVIDER_MANIFEST` only if the path changes |
 | `scripts/storage/README.md` | Document env vars when the stub is complete |
 
 Read AWS/VAST shims as **reference patterns only** — do not copy them into new
@@ -107,7 +107,7 @@ expands scope.
 
 ## G. K8s config alignment
 
-31. **Which k8s suite config** will import? (`isvctl/configs/suites/k8s.yaml` via a provider `storage-k8s.yaml`?)
+31. **Which cluster** will the Kubernetes storage checks run against? (`storage.yaml --capability kubernetes` uses the current kubectl context)
 32. **StorageClass → role mapping** (set via `K8S_CSI_*` env vars or literal config overrides; NOT the manifest)
     - block → `K8S_CSI_BLOCK_SC`
     - shared FS (incl. Lustre / other parallel FS) → `K8S_CSI_SHARED_FS_SC`
