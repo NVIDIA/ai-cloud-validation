@@ -10,6 +10,7 @@ never live in this repository.
 - Every `suites` entry must name a file in [`suites/`](../suites/).
 
 ```yaml
+schema_version: 1
 name: acme
 vendor: Acme Cloud Inc.
 description: Acme Cloud GPU instances and networking.

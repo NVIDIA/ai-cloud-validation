@@ -4,9 +4,25 @@
   "title": "Provider Registry Entry",
   "description": "One externally maintained provider, stored as isvctl/configs/provider-registry/<name>.yaml. The provider's config/ and scripts/ live in the partner's own repository; this entry pins the exact commit that was validated. The loader additionally checks that `name` equals the filename stem and that every entry in `suites` exists under isvctl/configs/suites/.",
   "type": "object",
-  "required": ["name", "vendor", "description", "repo_url", "tested_with", "suites", "maintainers", "documentation_url", "status"],
+  "required": [
+    "schema_version",
+    "name",
+    "vendor",
+    "description",
+    "repo_url",
+    "tested_with",
+    "suites",
+    "maintainers",
+    "documentation_url",
+    "status"
+  ],
   "additionalProperties": false,
   "properties": {
+    "schema_version": {
+      "description": "Registry entry schema version, bumped only on a breaking change to the entry format.",
+      "type": "integer",
+      "enum": [1]
+    },
     "name": {
       "description": "Registry name, used by `isvctl provider fetch <name>`. Must equal the filename stem.",
       "type": "string",

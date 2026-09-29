@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,7 @@ import yaml
 from typer.testing import CliRunner
 
 from isvctl.cli import provider as provider_cli
-from isvctl.config.provider_registry import Maintainer, ProviderRegistryError, load_registry
+from isvctl.config.provider_registry import Maintainer, ProviderRegistryError, RegistryEntry, load_registry
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
@@ -23,6 +25,7 @@ runner = CliRunner()
 def _entry(**overrides: Any) -> dict[str, Any]:
     """Return a valid qualified entry named ``acme``, with fields overridden or removed (``None``)."""
     entry: dict[str, Any] = {
+        "schema_version": 1,
         "name": "acme",
         "vendor": "Acme Cloud Inc.",
         "description": "Acme GPU instances.",
@@ -91,6 +94,21 @@ def test_experimental_entry_may_pin_only_a_ref(tmp_path: Path) -> None:
 
     assert entry.commit is None
     assert entry.ref == "main"
+
+
+@pytest.mark.parametrize(
+    ("schema_version", "expected"),
+    [
+        (None, "'schema_version' is a required property"),
+        (2, "schema_version: 2 is not one of [1]"),
+        ("1", "schema_version: '1' is not of type 'integer'"),
+    ],
+)
+def test_requires_known_schema_version(tmp_path: Path, schema_version: int | str | None, expected: str) -> None:
+    """Every entry declares a schema version this build understands."""
+    problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(schema_version=schema_version)}))
+
+    assert expected in problems
 
 
 def test_rejects_name_that_does_not_match_filename(tmp_path: Path) -> None:
@@ -208,3 +226,180 @@ def test_list_fails_on_invalid_registry(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     assert exit_code == 1
     assert "must match the filename 'acme'" in output
+
+
+def _upstream_repo(tmp_path: Path) -> tuple[str, str, str]:
+    """Create a two-commit provider repo with tag ``v1`` on the tip; return its file:// URL and both SHAs."""
+    repo = tmp_path / "upstream"
+    repo.mkdir()
+
+    def git(*args: str) -> str:
+        """Run git in the upstream repo without depending on the user's identity or signing config."""
+        identity = ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"]
+        result = subprocess.run(["git", *identity, *args], cwd=repo, check=True, capture_output=True, text=True)
+        return result.stdout.strip()
+
+    git("init", "-q")
+    (repo / "config").mkdir()
+    (repo / "config" / "vm.yaml").write_text("tests: {}\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-q", "-m", "first")
+    first = git("rev-parse", "HEAD")
+    (repo / "config" / "network.yaml").write_text("tests: {}\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-q", "-m", "second")
+    git("tag", "v1")
+    return repo.as_uri(), first, git("rev-parse", "HEAD")
+
+
+def _fetch(monkeypatch: pytest.MonkeyPatch, entry: RegistryEntry, *args: str) -> tuple[int, str]:
+    """Run ``isvctl provider fetch`` with the registry replaced by one entry."""
+    monkeypatch.setattr(provider_cli, "load_registry", lambda configs_root: [entry])
+    result = runner.invoke(provider_cli.app, ["fetch", *args])
+    return result.exit_code, result.output
+
+
+def _registry_entry(repo_url: str, **overrides: Any) -> RegistryEntry:
+    """Return a qualified entry for ``repo_url``; the https rule is the loader's, so file:// is allowed here."""
+    entry = RegistryEntry(
+        name="acme",
+        vendor="Acme Cloud Inc.",
+        description="Acme GPU instances.",
+        repo_url=repo_url,
+        commit=None,
+        ref=None,
+        tested_with="0.13.0",
+        suites=("vm",),
+        maintainers=(Maintainer(github="acme-handle", email=None),),
+        documentation_url="https://example.com/acme",
+        status="qualified",
+    )
+    return dataclasses.replace(entry, **overrides)
+
+
+def _head(checkout: Path) -> str:
+    """Return the commit checked out in ``checkout``."""
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=checkout, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_fetch_checks_out_pinned_commit_not_tip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The pinned (older) commit is checked out, and the matching suite config is suggested."""
+    url, first, _ = _upstream_repo(tmp_path)
+    dest = tmp_path / "checkout"
+
+    exit_code, output = _fetch(monkeypatch, _registry_entry(url, commit=first), "acme", "--dest", str(dest))
+
+    assert exit_code == 0, output
+    assert _head(dest) == first
+    assert (dest / "config" / "vm.yaml").is_file()
+    assert not (dest / "config" / "network.yaml").exists()
+    assert "uv run isvctl test run -f" in output
+    assert "config/vm.yaml" in output
+
+
+def test_fetch_defaults_to_cache_and_refetch_replaces(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Without --dest the checkout lands in the XDG cache keyed by commit, and fetching again replaces it."""
+    url, first, _ = _upstream_repo(tmp_path)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    entry = _registry_entry(url, commit=first)
+    provider_dir = tmp_path / "cache" / "isvctl" / "providers" / "acme"
+
+    first_exit, first_output = _fetch(monkeypatch, entry, "acme")
+    (provider_dir / first / "stale.txt").write_text("local edit\n", encoding="utf-8")
+    second_exit, second_output = _fetch(monkeypatch, entry, "acme")
+
+    assert first_exit == 0, first_output
+    assert second_exit == 0, second_output
+    assert [path.name for path in provider_dir.iterdir()] == [first]
+    assert _head(provider_dir / first) == first
+    assert not (provider_dir / first / "stale.txt").exists()
+
+
+def test_fetch_experimental_ref_warns_and_keys_by_resolved_commit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A ref-only entry fetches the ref's current commit, stores it under that SHA, and warns."""
+    url, _, tip = _upstream_repo(tmp_path)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    entry = _registry_entry(url, status="experimental", ref="v1")
+
+    exit_code, output = _fetch(monkeypatch, entry, "acme")
+
+    assert exit_code == 0, output
+    assert "not reproducible" in output
+    assert _head(tmp_path / "cache" / "isvctl" / "providers" / "acme" / tip) == tip
+
+
+def test_fetch_missing_commit_fails_without_leftovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A commit the repo does not have fails the command and leaves no partial checkout."""
+    url, _, _ = _upstream_repo(tmp_path)
+    dest = tmp_path / "out" / "checkout"
+
+    exit_code, output = _fetch(monkeypatch, _registry_entry(url, commit="f" * 40), "acme", "--dest", str(dest))
+
+    assert exit_code == 1
+    assert "Could not fetch 'acme'" in output
+    assert list((tmp_path / "out").iterdir()) == []
+
+
+def test_fetch_treats_option_like_ref_as_a_ref(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A registry ref that looks like a git option is passed after ``--`` and never executed."""
+    url, _, _ = _upstream_repo(tmp_path)
+    marker = tmp_path / "marker"
+    entry = _registry_entry(url, status="experimental", ref=f"--upload-pack=touch {marker}")
+
+    exit_code, _ = _fetch(monkeypatch, entry, "acme", "--dest", str(tmp_path / "checkout"))
+
+    assert exit_code == 1
+    assert not marker.exists()
+
+
+def test_fetch_ignores_inherited_git_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A GIT_DIR exported by a calling git hook must not redirect the fetch into the caller's repo."""
+    url, first, _ = _upstream_repo(tmp_path)
+    caller_git_dir = tmp_path / "caller.git"
+    monkeypatch.setenv("GIT_DIR", str(caller_git_dir))
+    dest = tmp_path / "checkout"
+
+    exit_code, output = _fetch(monkeypatch, _registry_entry(url, commit=first), "acme", "--dest", str(dest))
+
+    monkeypatch.delenv("GIT_DIR")
+    assert exit_code == 0, output
+    assert _head(dest) == first
+    assert not caller_git_dir.exists()
+
+
+def test_fetch_refuses_existing_dest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An existing --dest is never overwritten."""
+    url, first, _ = _upstream_repo(tmp_path)
+    dest = tmp_path / "checkout"
+    dest.mkdir()
+
+    exit_code, output = _fetch(monkeypatch, _registry_entry(url, commit=first), "acme", "--dest", str(dest))
+
+    assert exit_code == 1
+    assert "Destination already exists" in output
+    assert list(dest.iterdir()) == []
+
+
+def test_fetch_unknown_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An unregistered name fails and points at the list command."""
+    exit_code, output = _fetch(monkeypatch, _registry_entry("https://example.com/acme", commit=COMMIT), "nope")
+
+    assert exit_code == 1
+    assert "Unknown provider 'nope'" in output
+    assert "isvctl provider list --all" in output
+
+
+def test_fetch_reports_missing_suite_configs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """When no declared suite has a config/<suite>.yaml, the checkout path is printed instead of a command."""
+    url, first, _ = _upstream_repo(tmp_path)
+    entry = _registry_entry(url, commit=first, suites=("storage",))
+
+    exit_code, output = _fetch(monkeypatch, entry, "acme", "--dest", str(tmp_path / "checkout"))
+
+    assert exit_code == 0, output
+    assert "No config/<suite>.yaml found for suites storage" in output
+    assert "uv run isvctl test run" not in output
