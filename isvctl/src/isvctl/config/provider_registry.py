@@ -42,8 +42,7 @@ class RegistryEntry:
     vendor: str
     description: str
     repo_url: str
-    commit: str | None
-    ref: str | None
+    commit: str
     tested_with: str
     suites: tuple[str, ...]
     maintainers: tuple[Maintainer, ...]
@@ -59,16 +58,8 @@ def _validator() -> jsonschema.Draft202012Validator:
 
 
 def _format_error(error: jsonschema.ValidationError) -> str:
-    """Render a schema error as ``<field>: <message>``.
-
-    A failed ``anyOf`` of ``required`` alternatives would otherwise print the
-    whole entry, so it is rewritten to name the fields instead.
-    """
+    """Render a schema error as ``<field>: <message>``."""
     location = "/".join(str(part) for part in error.absolute_path) or "entry"
-    alternatives = error.validator_value if error.validator == "anyOf" else []
-    if alternatives and all("required" in alt for alt in alternatives):
-        fields = " or ".join(f"'{field}'" for alt in alternatives for field in alt["required"])
-        return f"{location}: must set {fields}"
     return f"{location}: {error.message}"
 
 
@@ -99,8 +90,7 @@ def _to_entry(data: dict[str, Any]) -> RegistryEntry:
         vendor=data["vendor"],
         description=data["description"],
         repo_url=data["repo_url"],
-        commit=data.get("commit"),
-        ref=data.get("ref"),
+        commit=data["commit"],
         tested_with=data["tested_with"],
         suites=tuple(data["suites"]),
         maintainers=tuple(Maintainer(github=m["github"], email=m.get("email")) for m in data["maintainers"]),
@@ -252,7 +242,7 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     hint = f"Run: isvctl provider fetch {provider}"
     if head is None:
         raise ProviderRegistryError(f"Provider '{provider}' is registered but not fetched. {hint}")
-    if entry.commit is not None and head != entry.commit:
+    if head != entry.commit:
         raise ProviderRegistryError(
             f"Provider '{provider}' is fetched at {head[:12]}, but the registry pins {entry.commit[:12]}. {hint}"
         )

@@ -10,6 +10,7 @@
     "vendor",
     "description",
     "repo_url",
+    "commit",
     "tested_with",
     "suites",
     "maintainers",
@@ -44,14 +45,9 @@
       "pattern": "^https://\\S+$"
     },
     "commit": {
-      "description": "Full 40-character commit SHA that was validated. Required unless status is experimental.",
+      "description": "Full 40-character commit SHA that was validated; `isvctl provider fetch` checks out exactly this commit.",
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
-    },
-    "ref": {
-      "description": "Optional human-readable tag or branch for `commit`. An experimental entry may give only a ref, in which case fetched content is not reproducible.",
-      "type": "string",
-      "minLength": 1
     },
     "tested_with": {
       "description": "isvctl release (X.Y.Z or X.Y.Z-rcN, without a leading v) this commit was validated against.",
@@ -77,20 +73,11 @@
       "pattern": "^https://\\S+$"
     },
     "status": {
-      "description": "qualified: pinned and validated. experimental: may be unpinned, results not reproducible. deprecated: hidden from `isvctl provider list` unless --all. demo: scripts only return dummy results, like the living example; `isvctl test run --provider <name>` sets ISVCTL_DEMO_MODE=1 itself, and results are never uploaded.",
+      "description": "supported: maintained by its maintainers, and `commit` passed the declared suites against `tested_with` (support comes from the maintainers, not NVIDIA). deprecated: no longer maintained or validated; hidden from `isvctl provider list` unless --all. demo: scripts only return dummy results, like the living example; `isvctl test run --provider <name>` sets ISVCTL_DEMO_MODE=1 itself, and results are never uploaded.",
       "type": "string",
-      "enum": ["qualified", "experimental", "deprecated", "demo"]
+      "enum": ["supported", "deprecated", "demo"]
     }
   },
-  "allOf": [
-    {
-      "if": { "properties": { "status": { "not": { "const": "experimental" } } } },
-      "then": { "required": ["commit"] }
-    },
-    {
-      "anyOf": [{ "required": ["commit"] }, { "required": ["ref"] }]
-    }
-  ],
   "$defs": {
     "Maintainer": {
       "type": "object",
