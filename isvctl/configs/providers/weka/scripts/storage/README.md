@@ -141,8 +141,8 @@ the mount pod's `runAsUser`.
 ```bash
 ISVTEST_INCLUDE_UNRELEASED=1 \
   uv run isvctl test run \
-    -f isvctl/configs/providers/weka/config/storage-k8s.yaml \
-    -f /path/to/k8s-capability.yaml \
+    -f isvctl/configs/providers/weka/config/storage.yaml \
+    --capability kubernetes \
     -f /path/to/quota-reuse.yaml \
     -- -v -s -k "StorageUserQuotaEnforcement"
 ```
