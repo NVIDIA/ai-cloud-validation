@@ -12,6 +12,7 @@ from pathlib import Path
 from isvtest.core.resolution import ValidationEntry, parse_validations
 
 from isvctl.config.merger import merge_yaml_files
+from isvctl.config.suite_resolution import EXTERNAL_PROVIDERS_DIRNAME, provider_dir
 
 
 def _iter_config_validations(config_path: Path) -> Iterator[ValidationEntry]:
@@ -39,20 +40,19 @@ class ProviderConfigMatch:
 
 
 def list_providers(configs_root: Path) -> list[str]:
-    """Return provider names that expose a discoverable ``config/*.yaml`` directory."""
-    providers_dir = configs_root / "providers"
-    if not providers_dir.is_dir():
-        return []
-    return sorted(
-        provider_dir.name
-        for provider_dir in providers_dir.iterdir()
-        if provider_dir.is_dir() and any((provider_dir / "config").glob("*.yaml"))
-    )
+    """Return provider names, in-tree or fetched, that expose a discoverable ``config/*.yaml`` directory."""
+    names = set()
+    for providers_dir in (configs_root / "providers", configs_root / EXTERNAL_PROVIDERS_DIRNAME):
+        if providers_dir.is_dir():
+            names.update(
+                path.name for path in providers_dir.iterdir() if path.is_dir() and any((path / "config").glob("*.yaml"))
+            )
+    return sorted(names)
 
 
 def available_labels(provider: str, *, configs_root: Path) -> set[str]:
     """Return every label declared across a provider's resolved config wiring."""
-    provider_config_dir = configs_root / "providers" / provider / "config"
+    provider_config_dir = provider_dir(provider, configs_root) / "config"
     labels: set[str] = set()
     for config_path in provider_config_dir.glob("*.yaml"):
         for entry in _iter_config_validations(config_path):
@@ -68,7 +68,7 @@ def discover_provider_label_configs(
 ) -> list[ProviderConfigMatch]:
     """Return provider configs whose resolved validation wiring matches all labels."""
     requested = {label for label in labels if label}
-    provider_config_dir = configs_root / "providers" / provider / "config"
+    provider_config_dir = provider_dir(provider, configs_root) / "config"
     matches: list[ProviderConfigMatch] = []
 
     for config_path in sorted(provider_config_dir.glob("*.yaml")):

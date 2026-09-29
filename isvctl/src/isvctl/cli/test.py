@@ -46,6 +46,7 @@ from isvctl.config.label_discovery import (
     list_providers,
 )
 from isvctl.config.merger import merge_yaml_files
+from isvctl.config.provider_registry import ProviderRegistryError, ensure_fetched
 from isvctl.config.schema import RunConfig
 from isvctl.config.suite_resolution import (
     CONFIGS_ROOT,
@@ -404,6 +405,13 @@ def run(
         raise typer.Exit(code=1)
 
     suite_label: str | None = None
+
+    if provider:
+        try:
+            ensure_fetched(provider, CONFIGS_ROOT)
+        except ProviderRegistryError as exc:
+            print_error(str(exc))
+            raise typer.Exit(code=1)
 
     if suite:
         try:

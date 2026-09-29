@@ -11,11 +11,13 @@ import pytest
 from isvtest.core.resolution import DECLARABLE_CAPABILITIES, parse_validations
 from pydantic import ValidationError
 
+from isvctl.config.label_discovery import list_providers
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
 from isvctl.config.suite_resolution import (
     SuiteResolutionError,
     parse_capability,
+    provider_dir,
     resolve_suite,
     resolve_suite_name,
 )
@@ -52,6 +54,28 @@ def test_one_suite_flag_resolves_canonical_and_provider_suites(tmp_path: Path) -
     assert canonical_platform.platform == "kubernetes"
     assert canonical_plain.config_path == tmp_path / "suites" / "storage.yaml"
     assert canonical_plain.platform is None
+
+
+def test_fetched_external_provider_resolves_like_an_in_tree_one(tmp_path: Path) -> None:
+    """A provider fetched into providers-external/ is found by --suite and listed with in-tree providers."""
+    _write_catalog(tmp_path)
+    external = tmp_path / "providers-external" / "partner" / "config"
+    external.mkdir(parents=True)
+    (external / "storage.yaml").write_text("import: ../../../suites/storage.yaml\ncommands: {}\n")
+
+    resolved = resolve_suite("partner", "storage", configs_root=tmp_path)
+
+    assert resolved.config_path == external / "storage.yaml"
+    assert list_providers(tmp_path) == ["acme", "partner"]
+
+
+def test_provider_dir_prefers_in_tree_provider(tmp_path: Path) -> None:
+    """An in-tree provider wins over a same-named external one; the registry rejects such names anyway."""
+    _write_catalog(tmp_path)
+    (tmp_path / "providers-external" / "acme").mkdir(parents=True)
+
+    assert provider_dir("acme", tmp_path) == tmp_path / "providers" / "acme"
+    assert provider_dir("partner", tmp_path) == tmp_path / "providers-external" / "partner"
 
 
 def test_capability_uses_catalog_vocabulary(tmp_path: Path) -> None:
