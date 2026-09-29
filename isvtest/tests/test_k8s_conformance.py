@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -273,6 +274,59 @@ class TestVersionDetection:
 
 
 class TestRun:
+    def test_quick_mode_selects_configmap_lifecycle(self) -> None:
+        """The rendered focus selects a real, small conformance test, not volume tests."""
+        # Upstream catalog: kubernetes/kubernetes at v1.31.3 through v1.35.0,
+        # test/conformance/testdata/conformance.yaml, "ConfigMap lifecycle".
+        lifecycle = "[sig-node] ConfigMap should run through a ConfigMap lifecycle [Conformance]"
+        candidates = [
+            lifecycle,
+            "[sig-node] ConfigMap should fail to create ConfigMap with empty key [Conformance]",
+            "[sig-storage] ConfigMap updates should be reflected in volume [NodeConformance] [Conformance]",
+            lifecycle.replace(" [Conformance]", ""),
+        ]
+        with patch.object(K8sCncfConformanceCheck, "_apply_manifest", return_value=True) as apply:
+            check = _run_check(_happy_router(), {"mode": "quick"})
+
+        assert check.passed
+        manifest = list(yaml.safe_load_all(apply.call_args.args[0]))
+        pod = next(item for item in manifest if item["kind"] == "Pod")
+        env = {item["name"]: item["value"] for item in pod["spec"]["containers"][0]["env"]}
+        assert [name for name in candidates if re.search(env["E2E_FOCUS"], name)] == [lifecycle]
+
+    @pytest.mark.parametrize("mode", ["quick", "certified-conformance", "non-disruptive-conformance"])
+    @pytest.mark.parametrize("report_individual", [True, False])
+    def test_all_skipped_run_fails(self, mode: str, report_individual: bool) -> None:
+        """No executed passing tests means no conformance evidence, even in summary mode."""
+        junit = '<testsuite><testcase name="filtered"><skipped message="excluded by focus"/></testcase></testsuite>'
+        router = _happy_router({"cat /tmp/results/junit": ok(junit)})
+        check = _run_check(router, {"mode": mode, "report_individual_tests": report_individual})
+
+        assert not check.passed
+        assert "0/1 passed, 0 failed, 1 skipped" in check.message
+        assert "no conformance testcases passed" in check.message
+        assert len(check._subtest_results) == int(report_individual)
+        if report_individual:
+            assert check._subtest_results[0]["skipped"]
+            assert not check._subtest_results[0]["passed"]
+            assert check._subtest_results[0]["message"] == "excluded by focus"
+        assert any("delete namespace" in cmd for cmd in router.seen)
+        assert any("delete clusterrolebinding" in cmd for cmd in router.seen)
+
+    def test_empty_junit_run_fails(self) -> None:
+        """A valid but empty JUnit suite must not establish conformance."""
+        check = _run_check(_happy_router({"cat /tmp/results/junit": ok("<testsuite/>")}))
+        assert not check.passed
+        assert "no testcases parsed" in check.message
+
+    def test_junit_error_preserves_failure_details(self) -> None:
+        """A run with only errors retains its diagnostics instead of becoming a no-pass error."""
+        junit = '<testsuite><testcase name="broken"><error message="setup failed"/></testcase></testsuite>'
+        check = _run_check(_happy_router({"cat /tmp/results/junit": ok(junit)}))
+        assert not check.passed
+        assert "1 failed" in check.message
+        assert "First failures:\nbroken" in check._output
+
     def test_happy_path(self) -> None:
         router = _happy_router()
         check = _run_check(router)
