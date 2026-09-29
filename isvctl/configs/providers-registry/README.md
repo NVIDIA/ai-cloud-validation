@@ -16,21 +16,20 @@ vendor: Acme Cloud Inc.
 description: Acme Cloud GPU instances and networking.
 repo_url: https://github.com/acme/isvctl-provider-acme
 commit: 0123456789abcdef0123456789abcdef01234567
-ref: v1.2.0
 tested_with: "0.13.0"
 suites: [vm, network]
 maintainers:
   - github: acme-handle
     email: oss@acme.example
 documentation_url: https://github.com/acme/isvctl-provider-acme#reproducing
-status: qualified
+status: supported
 ```
 
-`status` is one of:
+Every entry pins a full `commit`. `status` is one of:
 
-- `qualified`: pinned to `commit` and validated against `tested_with`.
-- `experimental`: may give only a `ref`, so fetched content is not reproducible.
-- `deprecated`: kept for history, hidden from the default listing.
+- `supported`: maintained by its maintainers (not NVIDIA), and `commit` passed the
+  declared suites against `tested_with`.
+- `deprecated`: no longer maintained or validated; kept for history, hidden from the default listing.
 - `demo`: the scripts only return dummy results, like `example.yaml`.
   `isvctl test run --provider <name>` runs it with `ISVCTL_DEMO_MODE=1` and
   never uploads the results.

@@ -35,7 +35,7 @@ runner = CliRunner()
 
 
 def _entry(**overrides: Any) -> dict[str, Any]:
-    """Return a valid qualified entry named ``acme``, with fields overridden or removed (``None``)."""
+    """Return a valid, supported entry named ``acme``, with fields overridden or removed (``None``)."""
     entry: dict[str, Any] = {
         "schema_version": 1,
         "name": "acme",
@@ -47,7 +47,7 @@ def _entry(**overrides: Any) -> dict[str, Any]:
         "suites": ["vm"],
         "maintainers": [{"github": "acme-handle", "email": "oss@acme.example"}],
         "documentation_url": "https://github.com/acme/isvctl-provider-acme#reproducing",
-        "status": "qualified",
+        "status": "supported",
     }
     entry.update(overrides)
     return {key: value for key, value in entry.items() if value is not None}
@@ -80,10 +80,9 @@ def test_loads_valid_entry(tmp_path: Path) -> None:
 
     assert entry.name == "acme"
     assert entry.commit == COMMIT
-    assert entry.ref is None
     assert entry.suites == ("vm",)
     assert entry.maintainers == (Maintainer(github="acme-handle", email="oss@acme.example"),)
-    assert entry.status == "qualified"
+    assert entry.status == "supported"
 
 
 def test_entries_are_sorted_by_name(tmp_path: Path) -> None:
@@ -96,16 +95,6 @@ def test_entries_are_sorted_by_name(tmp_path: Path) -> None:
 def test_missing_registry_directory_is_empty(tmp_path: Path) -> None:
     """A configs root without a registry directory has no entries."""
     assert load_registry(tmp_path) == []
-
-
-def test_experimental_entry_may_pin_only_a_ref(tmp_path: Path) -> None:
-    """Experimental entries may track a ref instead of a commit."""
-    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(status="experimental", commit=None, ref="main")})
-
-    [entry] = load_registry(configs_root)
-
-    assert entry.commit is None
-    assert entry.ref == "main"
 
 
 @pytest.mark.parametrize(
@@ -130,18 +119,20 @@ def test_rejects_name_that_does_not_match_filename(tmp_path: Path) -> None:
     assert "acme.yaml: name: 'other' must match the filename 'acme'" in problems
 
 
-def test_qualified_entry_requires_commit(tmp_path: Path) -> None:
-    """Only experimental entries may omit the pinned commit."""
-    problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(commit=None, ref="v1.0.0")}))
+@pytest.mark.parametrize("status", ["supported", "deprecated", "demo"])
+def test_every_entry_requires_a_commit(tmp_path: Path, status: str) -> None:
+    """Every entry, whatever its status, pins the commit that fetch checks out."""
+    problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(status=status, commit=None)}))
 
     assert "acme.yaml: entry: 'commit' is a required property" in problems
 
 
-def test_experimental_entry_requires_commit_or_ref(tmp_path: Path) -> None:
-    """An entry with neither commit nor ref has nothing to fetch, and the error names both fields."""
-    problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(status="experimental", commit=None)}))
+@pytest.mark.parametrize(("field", "value"), [("status", "experimental"), ("ref", "main")])
+def test_rejects_removed_status_and_ref(tmp_path: Path, field: str, value: str) -> None:
+    """`experimental` and `ref` are not part of the format: every entry is pinned to a commit."""
+    problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(**{field: value})}))
 
-    assert "acme.yaml: entry: must set 'commit' or 'ref'" in problems
+    assert "acme.yaml:" in problems
 
 
 def test_rejects_unknown_suite(tmp_path: Path) -> None:
@@ -190,23 +181,14 @@ def _list(monkeypatch: pytest.MonkeyPatch, configs_root: Path, *args: str) -> tu
     return result.exit_code, result.output
 
 
-def test_list_shows_short_commit_and_unpinned_ref(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Pinned entries show a short commit; experimental ref-only entries are marked unpinned."""
-    configs_root = _configs_root(
-        tmp_path,
-        {
-            "acme.yaml": _entry(),
-            "beta.yaml": _entry(name="beta", status="experimental", commit=None, ref="main"),
-        },
-    )
-
-    exit_code, output = _list(monkeypatch, configs_root)
+def test_list_shows_short_commit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Entries show their pinned commit shortened to 12 characters."""
+    exit_code, output = _list(monkeypatch, _configs_root(tmp_path, {"acme.yaml": _entry()}))
 
     assert exit_code == 0, output
     assert "acme" in output
     assert COMMIT[:12] in output
     assert COMMIT not in output
-    assert "main (unpinned)" in output
 
 
 def test_list_hides_deprecated_unless_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -296,19 +278,18 @@ def _upstream_repo(tmp_path: Path) -> tuple[str, str, str]:
 
 
 def _registry_entry(repo_url: str, **overrides: Any) -> RegistryEntry:
-    """Return a qualified entry for ``repo_url``; the https rule is the loader's, so file:// is allowed here."""
+    """Return a supported entry for ``repo_url``; the https and SHA rules are the loader's, so tests may bend them."""
     entry = RegistryEntry(
         name="acme",
         vendor="Acme Cloud Inc.",
         description="Acme GPU instances.",
         repo_url=repo_url,
-        commit=None,
-        ref=None,
+        commit=COMMIT,
         tested_with="0.13.0",
         suites=("vm",),
         maintainers=(Maintainer(github="acme-handle", email=None),),
         documentation_url="https://example.com/acme",
-        status="qualified",
+        status="supported",
     )
     return dataclasses.replace(entry, **overrides)
 
@@ -367,17 +348,6 @@ def test_refetch_replaces_previous_checkout(monkeypatch: pytest.MonkeyPatch, tmp
     assert [path.name for path in _checkout(tmp_path).parent.iterdir()] == ["acme"]
 
 
-def test_fetch_experimental_ref_warns(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A ref-only entry fetches the ref's current commit and warns that results are not reproducible."""
-    url, _, tip = _upstream_repo(tmp_path)
-
-    exit_code, output = _fetch(monkeypatch, tmp_path, _registry_entry(url, status="experimental", ref="v1"), "acme")
-
-    assert exit_code == 0, output
-    assert "not reproducible" in output
-    assert _head(_checkout(tmp_path)) == tip
-
-
 def test_failed_fetch_keeps_previous_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A commit the repo does not have fails the command and leaves the existing checkout untouched."""
     url, first, _ = _upstream_repo(tmp_path)
@@ -391,11 +361,14 @@ def test_failed_fetch_keeps_previous_checkout(monkeypatch: pytest.MonkeyPatch, t
     assert [path.name for path in _checkout(tmp_path).parent.iterdir()] == ["acme"]
 
 
-def test_fetch_treats_option_like_ref_as_a_ref(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A registry ref that looks like a git option is passed after ``--`` and never executed."""
+def test_fetch_treats_option_like_revision_as_a_revision(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A revision that looks like a git option is passed after ``--`` and never executed.
+
+    The schema only admits 40-hex commits, so this guards git against an entry that bypassed the loader.
+    """
     url, _, _ = _upstream_repo(tmp_path)
     marker = tmp_path / "marker"
-    entry = _registry_entry(url, status="experimental", ref=f"--upload-pack=touch {marker}")
+    entry = _registry_entry(url, commit=f"--upload-pack=touch {marker}")
 
     exit_code, _ = _fetch(monkeypatch, tmp_path, entry, "acme")
 
@@ -658,13 +631,11 @@ def test_test_run_by_name_requires_a_fetch(monkeypatch: pytest.MonkeyPatch, tmp_
     assert "registered but not fetched. Run: isvctl provider fetch acme" in result.output
 
 
-def test_demo_status_requires_a_pinned_commit(tmp_path: Path) -> None:
-    """`demo` is a status like the others: only `experimental` may omit the commit."""
-    [demo] = load_registry(_configs_root(tmp_path / "pinned", {"acme.yaml": _entry(status="demo")}))
-    problems = _problems(_configs_root(tmp_path / "unpinned", {"acme.yaml": _entry(status="demo", commit=None)}))
+def test_demo_status_loads(tmp_path: Path) -> None:
+    """`demo` is a valid status, pinned to a commit like the others."""
+    [demo] = load_registry(_configs_root(tmp_path, {"acme.yaml": _entry(status="demo")}))
 
     assert demo.status == "demo"
-    assert "'commit' is a required property" in problems
 
 
 def test_fetch_says_demo_provider_needs_no_setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

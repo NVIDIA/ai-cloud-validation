@@ -58,9 +58,7 @@ link is the entry's `documentation_url`, which is why it must explain them.
   it replaces the previous checkout, including any local edits.
 - `provider list` shows each entry's checkout as `yes`, `no`, or
   `stale (<commit>)`.
-- `experimental` entries may be pinned to a branch or tag only; `fetch` warns
-  that their results are not reproducible. `deprecated` entries can still be
-  fetched, with a warning.
+- `deprecated` entries can still be fetched, with a warning.
 - `demo` entries, like `example`, only return dummy results:
   `test run --provider example` turns on `ISVCTL_DEMO_MODE=1` by itself.
 - Whenever `ISVCTL_DEMO_MODE=1` is set, however it was set, results are never
@@ -119,10 +117,13 @@ link is the entry's `documentation_url`, which is why it must explain them.
 
 ## Lifecycle
 
-`status` is `qualified` (pinned and validated), `experimental` (may be
-unpinned; results not reproducible), `deprecated` (hidden from
-`provider list` unless `--all`) or `demo` (dummy results only; run in demo
-mode and never uploaded).
+Every entry pins a full commit. `status` is one of:
+
+- `supported`: maintained by its maintainers (not NVIDIA), and the commit passed
+  the declared suites against `tested_with`.
+- `deprecated`: no longer maintained or validated; hidden from `provider list`
+  unless `--all`.
+- `demo`: dummy results only; runs in demo mode and is never uploaded.
 
 **Proposed, not yet in force:** an entry that has not been re-validated
 against a release in the last six months moves to `deprecated`. It stays

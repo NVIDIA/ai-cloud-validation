@@ -74,10 +74,9 @@ SPDX_HEADER = """\
 """
 STATUS_COMMENT = """\
 # status is one of:
-#   qualified     pinned to `commit` and validated against `tested_with`
-#   experimental  may give only a `ref` instead of `commit`; results are not reproducible
-#   deprecated    no longer validated; hidden from `isvctl provider list` unless --all
-#   demo          scripts only return dummy results; runs in demo mode and is never uploaded
+#   supported   maintained, and `commit` passed the declared suites against `tested_with`
+#   deprecated  no longer maintained or validated; hidden from `isvctl provider list` unless --all
+#   demo        scripts only return dummy results; runs in demo mode and is never uploaded
 """
 RELATIVE_PATH_RE = re.compile(r"\.\./[^\s\"',]+\.(?:yaml|yml|py|sh)")
 
@@ -306,7 +305,7 @@ maintainers:
   - github: "<GitHub handle, added to CODEOWNERS for this entry>"
     # email: oss@example.com  # optional contact address
 documentation_url: "<https URL explaining the setup and how to reproduce your results>"
-{STATUS_COMMENT}status: qualified
+{STATUS_COMMENT}status: supported
 """
 
 
@@ -440,8 +439,7 @@ def list_cmd(
     table.add_column("Fetched", no_wrap=True)
 
     for entry in entries:
-        commit = entry.commit[:12] if entry.commit else f"{entry.ref} (unpinned)"
-        table.add_row(entry.name, entry.vendor, entry.status, entry.tested_with, commit, _fetch_state(entry))
+        table.add_row(entry.name, entry.vendor, entry.status, entry.tested_with, entry.commit[:12], _fetch_state(entry))
 
     console.print(table)
 
@@ -451,7 +449,7 @@ def _fetch_state(entry: RegistryEntry) -> str:
     head = fetched_commit(entry.name, CONFIGS_ROOT)
     if head is None:
         return "local" if external_checkout(entry.name, CONFIGS_ROOT).is_dir() else "no"
-    if entry.commit is None or head == entry.commit:
+    if head == entry.commit:
         return "yes"
     return f"stale ({head[:12]})"
 
@@ -459,7 +457,7 @@ def _fetch_state(entry: RegistryEntry) -> str:
 def _fetch_revision(repo_url: str, revision: str, checkout_dir: Path) -> str:
     """Check out one revision of ``repo_url`` into the empty ``checkout_dir``; return its commit SHA.
 
-    ``--`` keeps a registry-supplied URL or ref that starts with ``-`` from
+    ``--`` keeps a registry-supplied URL or revision that starts with ``-`` from
     being read as a git option. ``--template=`` keeps the user's template hooks
     (for example ``post-checkout``) out of the fetched checkout.
     """
@@ -508,16 +506,12 @@ def fetch_cmd(
         raise typer.Exit(code=1)
     if entry.status == "deprecated":
         print_warning(f"'{name}' is deprecated and no longer validated against current releases.")
-    if entry.commit is None:
-        print_warning(
-            f"'{name}' is experimental and pinned only to ref '{entry.ref}'; its results are not reproducible."
-        )
 
     target = external_checkout(entry.name, CONFIGS_ROOT)
     if target.exists() and not is_fetched_checkout(target):
         print_error(
             f"{_display_path(target)} was not created by `isvctl provider fetch` (a scaffold you are "
-            "developing?). Move or delete it yourself before fetching."
+            f"developing?). Move it, or delete it with `isvctl provider remove {name} --force`, before fetching."
         )
         raise typer.Exit(code=1)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -526,8 +520,8 @@ def fetch_cmd(
     # failed fetch never leaves a partial checkout, or loses the previous one.
     staging = Path(tempfile.mkdtemp(prefix=f".fetch-{entry.name}-", dir=target.parent))
     try:
-        head = _fetch_revision(entry.repo_url, entry.commit or entry.ref, staging)
-        if entry.commit is not None and head != entry.commit:
+        head = _fetch_revision(entry.repo_url, entry.commit, staging)
+        if head != entry.commit:
             raise RuntimeError(f"checked out {head}, but the registry pins {entry.commit}")
     except RuntimeError as exc:
         shutil.rmtree(staging, ignore_errors=True)

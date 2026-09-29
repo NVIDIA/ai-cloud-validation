@@ -36,7 +36,7 @@ tested_with: "0.13.0"
 suites: [vm]
 maintainers: [{{github: acme-handle}}]
 documentation_url: https://github.com/acme/isvctl-provider-acme#reproducing
-status: qualified
+status: supported
 """,
         encoding="utf-8",
     )
