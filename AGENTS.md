@@ -160,8 +160,10 @@ forwarded env vars → optional isvreporter upload.
   `teardown_nim.py`).
 - `isvctl/configs/providers-registry/<name>.yaml` - externally maintained providers,
   each pinned to a commit of the partner's repo (`docs/guides/provider-registry.md`).
-- `isvctl/configs/providers-external/<name>/` - git-ignored checkouts made by
-  `isvctl provider fetch`; `--provider <name>` resolves them like `providers/<name>/`.
+- `isvctl/configs/providers-external/<name>/` - git-ignored: checkouts made by
+  `isvctl provider fetch` (marked inside `.git/`) and, by default, new scaffolds from
+  `isvctl provider scaffold`. `--provider <name>` resolves them like `providers/<name>/`;
+  `fetch`/`remove` only replace or delete the fetch-marked ones.
 - `isvctl/schemas/` - JSON Schema files.
 
 ### Provider notes

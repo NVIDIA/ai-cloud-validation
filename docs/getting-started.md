@@ -56,14 +56,15 @@ Create a ready-to-edit scaffold for your own provider:
 uv run isvctl provider scaffold acme
 ```
 
-Provider implementations can live in private repositories and be run by path;
-see the [my-isv scaffold README](../isvctl/configs/providers/my-isv/scripts/README.md#private-provider-repositories)
-for the current workflow.
+It is created in `isvctl/configs/providers-external/acme/` (git-ignored), ready
+to become your provider's own repository; see the
+[my-isv scaffold README](../isvctl/configs/providers/my-isv/scripts/README.md#private-provider-repositories)
+for the workflow.
 
 Then preview the generated VM flow without cloud access:
 
 ```bash
-ISVCTL_DEMO_MODE=1 uv run isvctl test run -f isvctl/configs/providers/acme/config/vm.yaml
+ISVCTL_DEMO_MODE=1 uv run isvctl test run --provider acme --suite vm
 ```
 
 Before a real provider run, check required tools, credentials, and config:

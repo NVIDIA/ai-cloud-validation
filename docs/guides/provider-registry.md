@@ -70,11 +70,11 @@ link is the entry's `documentation_url`, which is why it must explain them.
 
 ## Registering a provider
 
-1. **Scaffold it out of tree** and keep it in your own repository - see
+1. **Scaffold it** with `uv run isvctl provider scaffold acme` and keep it in
+   your own repository - see
    [Private provider repositories](../../isvctl/configs/providers/my-isv/scripts/README.md).
-   Delete the generated `.scaffold-meta` file once the directory is a git
-   repository: it lets `isvctl provider scaffold --overwrite` delete the whole
-   directory, `.git` included.
+   It is created in `isvctl/configs/providers-external/acme/`, runs with
+   `--provider acme`, and includes a prefilled `registry-entry.yaml`.
 2. **Validate it against a release tag** of this repository, not `main`.
 3. **Prepare your repository**:
    - A disclaimer at the top of its README, for example:
@@ -86,9 +86,10 @@ link is the entry's `documentation_url`, which is why it must explain them.
      results - this is the entry's `documentation_url`.
    - A license.
 4. **Open a pull request here** that adds:
-   - `isvctl/configs/providers-registry/<name>.yaml` - the format is described in
-     the [registry README](../../isvctl/configs/providers-registry/README.md) and
-     enforced by [its schema](../../isvctl/schemas/provider-registry.schema.json).
+   - `isvctl/configs/providers-registry/<name>.yaml` - start from the scaffold's
+     `registry-entry.yaml` and replace its `<...>` placeholders. The format is
+     described in the [registry README](../../isvctl/configs/providers-registry/README.md)
+     and enforced by [its schema](../../isvctl/schemas/provider-registry.schema.json).
    - A [CODEOWNERS](../../.github/CODEOWNERS) line so changes to your entry are
      routed to you. Keep the maintainers team on it: the last matching
      CODEOWNERS rule wins, so a line naming only you would drop them.
@@ -102,8 +103,8 @@ link is the entry's `documentation_url`, which is why it must explain them.
 
 ### Submission checklist
 
-- [ ] The file starts with the repository's SPDX license header - copy it from
-      [`example.yaml`](../../isvctl/configs/providers-registry/example.yaml).
+- [ ] The file starts with the repository's SPDX license header (the scaffold's
+      `registry-entry.yaml` already has it), and no `<...>` placeholder is left.
 - [ ] `name` matches the filename, and `commit` is the full 40-character SHA.
 - [ ] `tested_with` is the release you validated against, without a leading `v`.
 - [ ] Every `suites` entry has a matching `config/<suite>.yaml` in your repository.
