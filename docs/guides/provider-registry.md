@@ -1,0 +1,135 @@
+# Provider Registry
+
+Partners maintain their providers - the `config/` and `scripts/` that connect
+a platform to the validation suites - in their own repositories. This
+repository keeps a registry of them: one small YAML file per provider that pins
+the exact commit that was validated, the release it was validated against, and
+who maintains it.
+
+```text
+partner repo (config/, scripts/)  <-- pinned by --  isvctl/configs/provider-registry/<name>.yaml
+                                                          |
+                    isvctl provider list / isvctl provider fetch <name>
+                                                          |
+                         isvctl test run -f <checkout>/config/<suite>.yaml
+```
+
+Registry entries hold no provider code. The provider's code and its support
+stay with the partner.
+
+## Using a registered provider
+
+```bash
+uv run isvctl provider list            # registered providers; add --all for deprecated ones
+uv run isvctl provider fetch acme      # check out the pinned commit
+```
+
+`fetch` checks the provider out at its pinned commit, verifies the checked-out
+commit matches the registry, and prints a `test run` command for each suite the
+provider declares:
+
+```text
+Fetched acme at 0123...4567 into ~/.cache/isvctl/providers/acme/0123...4567
+Run from the validation suite checkout root:
+  uv run isvctl test run -f ~/.cache/isvctl/providers/acme/0123...4567/config/vm.yaml
+```
+
+- Run those commands from the root of this repository's checkout: provider
+  configs import suites by paths relative to it.
+- The cache is `${XDG_CACHE_HOME:-~/.cache}/isvctl/providers/<name>/<commit>`.
+  Fetching again replaces it; pass `--dest DIR` to check out somewhere else
+  (the directory must not exist).
+- `experimental` entries may be pinned to a branch or tag only; `fetch` warns
+  that their results are not reproducible. `deprecated` entries can still be
+  fetched, with a warning.
+
+## Registering a provider
+
+1. **Scaffold it out of tree** and keep it in your own repository - see
+   [Private provider repositories](../../isvctl/configs/providers/my-isv/scripts/README.md).
+   Delete the generated `.scaffold-meta` file once the directory is a git
+   repository: it lets `isvctl provider scaffold --overwrite` delete the whole
+   directory, `.git` included.
+2. **Validate it against a release tag** of this repository, not `main`.
+3. **Prepare your repository**:
+   - A disclaimer at the top of its README, for example:
+
+     > This provider is maintained by Acme Cloud Inc., not by NVIDIA. NVIDIA does
+     > not endorse or support it. Report issues to oss@acme.example.
+
+   - Instructions that let someone with appropriate access reproduce your
+     results - this is the entry's `documentation_url`.
+   - A license.
+4. **Open a pull request here** that adds:
+   - `isvctl/configs/provider-registry/<name>.yaml` - the format is described in
+     the [registry README](../../isvctl/configs/provider-registry/README.md) and
+     enforced by [its schema](../../isvctl/schemas/provider-registry.schema.json).
+   - A [CODEOWNERS](../../.github/CODEOWNERS) line so changes to your entry are
+     routed to you. Keep the maintainers team on it: the last matching
+     CODEOWNERS rule wins, so a line naming only you would drop them.
+
+     ```text
+     isvctl/configs/provider-registry/acme.yaml @acme-handle @NVIDIA/ncp-isv-lab-maintainer
+     ```
+
+   Like every pull request here, it must be signed off (DCO), confirming you
+   have the right to submit it.
+
+### Submission checklist
+
+- [ ] `name` matches the filename, and `commit` is the full 40-character SHA.
+- [ ] `tested_with` is the release you validated against, without a leading `v`.
+- [ ] Every `suites` entry has a matching `config/<suite>.yaml` in your repository.
+- [ ] `uv run isvctl provider fetch <name>` succeeds from a clean checkout.
+- [ ] Your README carries the disclaimer, and `documentation_url` explains how to reproduce the results.
+- [ ] CODEOWNERS names your GitHub handle and the maintainers team.
+
+## Lifecycle
+
+`status` is `qualified` (pinned and validated), `experimental` (may be
+unpinned; results not reproducible) or `deprecated` (hidden from
+`provider list` unless `--all`).
+
+**Proposed, not yet in force:** an entry that has not been re-validated
+against a release in the last six months moves to `deprecated`. It stays
+fetchable, so users can still try it against older releases. Re-validating
+means updating `commit` and `tested_with` in a new pull request.
+
+## Design notes
+
+- **External repositories, not a `contrib/` directory.** Partner code ages
+  differently from this repository's: in-tree, a stale integration becomes this
+  repository's problem to explain and to keep passing CI.
+- **The registry follows [krew-index](https://github.com/kubernetes-sigs/krew-index)**,
+  the plugin index for `kubectl`: one manifest per entry, named after the entry,
+  with an explicit schema version.
+- **Fetching follows [pre-commit](https://github.com/pre-commit/pre-commit)**:
+  `git init`, a shallow fetch of the pinned commit, a detached checkout, with
+  inherited `GIT_*` variables and git template hooks kept out, staged in a
+  temporary directory and moved into place only once the commit is verified.
+- **Pinning to a full commit SHA** is what makes results reproducible - the same
+  rule GitHub recommends for third-party Actions.
+- **Submission metadata follows [cncf/k8s-conformance](https://github.com/cncf/k8s-conformance)**:
+  vendor, maintainer contact, reproduction instructions, and a
+  re-certify-or-lapse lifecycle.
+
+## Open questions
+
+- **Evidence of a validation run.** A registry entry says a commit was
+  validated, but nothing in this repository shows the results. Results can be
+  uploaded to the ISV Lab Service, which requires service credentials; whether
+  a public, sanitized form of the evidence should accompany entries is
+  undecided.
+- **Recording the provider on reported runs.** Uploaded runs record the
+  validation suite's version and build, but not which provider, or which
+  provider commit, produced them.
+- **Provider contract versioning.** Nothing yet states which suite versions a
+  provider built against one release remains compatible with.
+- **Running by registry name.** `isvctl test run --provider <name>` only knows
+  providers in this repository's `providers/` directory; a fetched provider is
+  run by path.
+- **Registry freshness.** The registry ships inside the checkout, so a user on a
+  release tag does not see providers registered afterwards, even ones validated
+  against that release. Krew avoids this by keeping its index in a separate
+  repository that `krew update` fetches at runtime; reading the registry from
+  upstream at runtime, or a separate registry repository, are the alternatives.

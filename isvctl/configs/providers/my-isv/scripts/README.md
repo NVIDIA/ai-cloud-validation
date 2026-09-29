@@ -146,6 +146,9 @@ the validation suite checkout root. Suite imports and shared scripts use paths
 relative to that checkout; provider-owned scripts stay relative to the generated
 provider `config/` directory.
 
+To let others find and fetch your provider at a pinned commit, register it in
+the [Provider Registry](../../../../../docs/guides/provider-registry.md).
+
 ## Anatomy of a script
 
 Every Python script in this tree follows the same shape - this is what you're
