@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Validate the entries in ``isvctl/configs/provider-registry/``.
+"""Validate the entries in ``isvctl/configs/providers-registry/``.
 
 Each entry must match ``isvctl/schemas/provider-registry.schema.json``, be named
 after its file, and declare only suites that exist in ``isvctl/configs/suites/``.
