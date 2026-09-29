@@ -17,6 +17,12 @@ partner repo (config/, scripts/)  <-- pinned by --  isvctl/configs/provider-regi
 Registry entries hold no provider code. The provider's code and its support
 stay with the partner.
 
+The registry includes a living example,
+[isvctl-provider-example](https://github.com/abegnoche/isvctl-provider-example),
+registered as `example`: an unimplemented scaffold that passes in demo mode and
+runs weekly against the latest release. Use it as the model for your own
+repository and entry.
+
 ## Using a registered provider
 
 ```bash
@@ -77,6 +83,8 @@ Run from the validation suite checkout root:
 
 ### Submission checklist
 
+- [ ] The file starts with the repository's SPDX license header - copy it from
+      [`example.yaml`](../../isvctl/configs/provider-registry/example.yaml).
 - [ ] `name` matches the filename, and `commit` is the full 40-character SHA.
 - [ ] `tested_with` is the release you validated against, without a leading `v`.
 - [ ] Every `suites` entry has a matching `config/<suite>.yaml` in your repository.
