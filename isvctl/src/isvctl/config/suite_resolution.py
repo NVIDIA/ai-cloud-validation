@@ -23,16 +23,26 @@ CONFIGS_ROOT = Path(__file__).resolve().parents[3] / "configs"
 EXTERNAL_PROVIDERS_DIRNAME = "providers-external"
 
 
+def in_tree_provider_dir(provider: str, configs_root: Path) -> Path:
+    """Return where an in-tree provider lives; the path may not exist."""
+    return configs_root / "providers" / provider
+
+
+def external_provider_dir(provider: str, configs_root: Path) -> Path:
+    """Return where ``isvctl provider fetch`` and ``isvctl provider scaffold`` put a provider; the path may not exist."""
+    return configs_root / EXTERNAL_PROVIDERS_DIRNAME / provider
+
+
 def provider_dir(provider: str, configs_root: Path) -> Path:
     """Return a provider's directory: in-tree under ``providers/``, else fetched under ``providers-external/``.
 
     The provider registry rejects names that clash with an in-tree provider, so
     at most one of the two exists. The returned path may not exist.
     """
-    in_tree = configs_root / "providers" / provider
+    in_tree = in_tree_provider_dir(provider, configs_root)
     if in_tree.is_dir():
         return in_tree
-    return configs_root / EXTERNAL_PROVIDERS_DIRNAME / provider
+    return external_provider_dir(provider, configs_root)
 
 
 class SuiteResolutionError(Exception):

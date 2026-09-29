@@ -35,7 +35,7 @@
       "minLength": 1
     },
     "description": {
-      "description": "One-sentence summary shown by `isvctl provider list`.",
+      "description": "One-sentence summary of the provider.",
       "type": "string",
       "minLength": 1
     },

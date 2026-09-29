@@ -56,8 +56,9 @@ link is the entry's `documentation_url`, which is why it must explain them.
   fetched, or whose checkout is not at the commit the registry pins - for
   example after a `git pull` updated the entry. Run `provider fetch acme` again;
   it replaces the previous checkout, including any local edits.
-- `provider list` shows each entry's checkout as `yes`, `no`, or
-  `stale (<commit>)`.
+- `provider list` shows each entry's checkout as `yes`, `no`,
+  `stale (<commit>)`, or `local` (a directory `fetch` did not create, such as
+  your own scaffold).
 - `deprecated` entries can still be fetched, with a warning.
 - `demo` entries, like `example`, only return dummy results:
   `test run --provider example` turns on `ISVCTL_DEMO_MODE=1` by itself.
@@ -117,7 +118,7 @@ link is the entry's `documentation_url`, which is why it must explain them.
 
 ## Lifecycle
 
-Every entry pins a full commit. `status` is one of:
+`status` is one of:
 
 - `supported`: maintained by its maintainers (not NVIDIA), and the commit passed
   the declared suites against `tested_with`.
