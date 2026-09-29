@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the external provider registry loader."""
+"""Tests for the external provider registry loader and its CLI commands."""
 
 from __future__ import annotations
 
@@ -10,10 +10,14 @@ from typing import Any
 
 import pytest
 import yaml
+from typer.testing import CliRunner
 
+from isvctl.cli import provider as provider_cli
 from isvctl.config.provider_registry import Maintainer, ProviderRegistryError, load_registry
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+runner = CliRunner()
 
 
 def _entry(**overrides: Any) -> dict[str, Any]:
@@ -147,3 +151,60 @@ def test_reports_invalid_yaml(tmp_path: Path) -> None:
     (configs_root / "provider-registry" / "acme.yaml").write_text("name: [unclosed\n", encoding="utf-8")
 
     assert "acme.yaml: invalid YAML:" in _problems(configs_root)
+
+
+def _list(monkeypatch: pytest.MonkeyPatch, configs_root: Path, *args: str) -> tuple[int, str]:
+    """Run ``isvctl provider list`` against a temporary configs root."""
+    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", configs_root)
+    result = runner.invoke(provider_cli.app, ["list", *args])
+    return result.exit_code, result.output
+
+
+def test_list_shows_short_commit_and_unpinned_ref(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Pinned entries show a short commit; experimental ref-only entries are marked unpinned."""
+    configs_root = _configs_root(
+        tmp_path,
+        {
+            "acme.yaml": _entry(),
+            "beta.yaml": _entry(name="beta", status="experimental", commit=None, ref="main"),
+        },
+    )
+
+    exit_code, output = _list(monkeypatch, configs_root)
+
+    assert exit_code == 0, output
+    assert "acme" in output
+    assert COMMIT[:12] in output
+    assert COMMIT not in output
+    assert "main (unpinned)" in output
+
+
+def test_list_hides_deprecated_unless_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Deprecated entries are hidden by default and shown with --all."""
+    configs_root = _configs_root(
+        tmp_path,
+        {"acme.yaml": _entry(), "zeta.yaml": _entry(name="zeta", status="deprecated")},
+    )
+
+    _, default_output = _list(monkeypatch, configs_root)
+    _, all_output = _list(monkeypatch, configs_root, "--all")
+
+    assert "zeta" not in default_output
+    assert "zeta" in all_output
+    assert "deprecated" in all_output
+
+
+def test_list_empty_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An empty registry is not an error."""
+    exit_code, output = _list(monkeypatch, _configs_root(tmp_path, {}))
+
+    assert exit_code == 0, output
+    assert "No providers registered." in output
+
+
+def test_list_fails_on_invalid_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An invalid entry fails the command and names the problem."""
+    exit_code, output = _list(monkeypatch, _configs_root(tmp_path, {"acme.yaml": _entry(name="other")}))
+
+    assert exit_code == 1
+    assert "must match the filename 'acme'" in output
