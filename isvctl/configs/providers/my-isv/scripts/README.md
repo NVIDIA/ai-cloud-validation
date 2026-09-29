@@ -144,7 +144,8 @@ there that `fetch` did not create. To keep the repository elsewhere, pass
 `uv run isvctl test run -f ../isvctl-provider-acme/config/vm.yaml`.
 
 To let others find and fetch your provider at a pinned commit, fill in the
-scaffold's `registry-entry.yaml` and register it in the
+registry entry the scaffold wrote to `isvctl/configs/providers-registry/acme.yaml`
+(isvctl skips it with a warning until then) and register it in the
 [Provider Registry](../../../../../docs/guides/provider-registry.md).
 
 ## Anatomy of a script
