@@ -19,6 +19,8 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Annotated
 
@@ -26,8 +28,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from isvctl.cli.common import print_error, print_progress
-from isvctl.config.provider_registry import ProviderRegistryError, load_registry
+from isvctl.cli.common import print_error, print_progress, print_warning
+from isvctl.config.provider_registry import ProviderRegistryError, RegistryEntry, load_registry
 from isvctl.config.suite_resolution import CONFIGS_ROOT
 
 app = typer.Typer(
@@ -287,6 +289,15 @@ def scaffold(
     _print_next_steps(target_dir, "Created")
 
 
+def _load_registry_or_exit() -> list[RegistryEntry]:
+    """Load the provider registry, exiting with the loader's problems if it is invalid."""
+    try:
+        return load_registry(CONFIGS_ROOT)
+    except ProviderRegistryError as exc:
+        print_error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+
 @app.command("list")
 def list_cmd(
     show_all: Annotated[
@@ -300,12 +311,7 @@ def list_cmd(
         isvctl provider list
         isvctl provider list --all
     """
-    try:
-        entries = load_registry(CONFIGS_ROOT)
-    except ProviderRegistryError as exc:
-        print_error(str(exc))
-        raise typer.Exit(code=1) from exc
-
+    entries = _load_registry_or_exit()
     if not show_all:
         entries = [entry for entry in entries if entry.status != "deprecated"]
     if not entries:
@@ -330,3 +336,135 @@ def list_cmd(
         table.add_row(entry.name, entry.vendor, entry.status, entry.tested_with, commit)
 
     console.print(table)
+
+
+def _cache_dir() -> Path:
+    """Return the fetched-provider cache directory, honoring XDG_CACHE_HOME."""
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".cache"
+    return base / "isvctl" / "providers"
+
+
+def _git_env() -> dict[str, str]:
+    """Return the environment without ``GIT_*`` variables that redirect git to another repository.
+
+    Git exports variables such as ``GIT_DIR`` to hooks, so an isvctl run from a hook
+    would otherwise fetch into the caller's repository. Transport, auth and ``-c``-style
+    config variables are kept (the same allowlist as pre-commit's ``no_git_env``).
+    """
+    keep = {
+        "GIT_EXEC_PATH",
+        "GIT_SSH",
+        "GIT_SSH_COMMAND",
+        "GIT_SSL_CAINFO",
+        "GIT_SSL_NO_VERIFY",
+        "GIT_CONFIG_COUNT",
+        "GIT_HTTP_PROXY_AUTHMETHOD",
+        "GIT_ALLOW_PROTOCOL",
+        "GIT_ASKPASS",
+    }
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GIT_") or key in keep or key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+    }
+
+
+def _git(*args: str, cwd: Path) -> str:
+    """Run a git command and return its stripped stdout."""
+    try:
+        result = subprocess.run(["git", *args], cwd=cwd, env=_git_env(), capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise RuntimeError("git command not found in PATH") from exc
+    if result.returncode != 0:
+        raise RuntimeError(f"git {args[0]} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _fetch_revision(repo_url: str, revision: str, checkout_dir: Path) -> str:
+    """Check out one revision of ``repo_url`` into the empty ``checkout_dir``; return its commit SHA.
+
+    ``--`` keeps a registry-supplied URL or ref that starts with ``-`` from
+    being read as a git option. ``--template=`` keeps the user's template hooks
+    (for example ``post-checkout``) out of the fetched checkout.
+    """
+    _git("init", "-q", "--template=", cwd=checkout_dir)
+    _git("fetch", "-q", "--depth", "1", "--", repo_url, revision, cwd=checkout_dir)
+    _git("checkout", "-q", "--detach", "FETCH_HEAD", cwd=checkout_dir)
+    return _git("rev-parse", "HEAD", cwd=checkout_dir)
+
+
+def _print_fetch_next_steps(entry: RegistryEntry, checkout_dir: Path) -> None:
+    """Print the test commands for each declared suite the fetched provider ships a config for."""
+    configs = [checkout_dir / "config" / f"{suite}.yaml" for suite in entry.suites]
+    configs = [config for config in configs if config.is_file()]
+    if not configs:
+        typer.echo(f"No config/<suite>.yaml found for suites {', '.join(entry.suites)}.")
+        typer.echo(f"See {_display_path(checkout_dir)} for the provider's configs.")
+        return
+    typer.echo("Run from the validation suite checkout root:")
+    for config in configs:
+        typer.echo(f"  uv run isvctl test run -f {shlex.quote(_display_path(config))}")
+
+
+@app.command("fetch")
+def fetch_cmd(
+    name: Annotated[
+        str,
+        typer.Argument(help="Registry name of the provider, as shown by `isvctl provider list`."),
+    ],
+    dest: Annotated[
+        Path | None,
+        typer.Option(
+            "--dest",
+            help="Directory to check the provider out into; must not exist. "
+            "Defaults to ${XDG_CACHE_HOME:-~/.cache}/isvctl/providers/<name>/<commit>.",
+        ),
+    ] = None,
+) -> None:
+    """Fetch a registered provider at its pinned commit.
+
+    A fetch into the default cache location replaces any previous checkout of
+    the same commit.
+
+    Examples:
+        isvctl provider fetch acme
+        isvctl provider fetch acme --dest ../isvctl-provider-acme
+    """
+    entry = next((entry for entry in _load_registry_or_exit() if entry.name == name), None)
+    if entry is None:
+        print_error(f"Unknown provider '{name}'. Run 'isvctl provider list --all' to see registered providers.")
+        raise typer.Exit(code=1)
+    if entry.status == "deprecated":
+        print_warning(f"'{name}' is deprecated and no longer validated against current releases.")
+    if entry.commit is None:
+        print_warning(
+            f"'{name}' is experimental and pinned only to ref '{entry.ref}'; its results are not reproducible."
+        )
+
+    dest = dest.expanduser().resolve() if dest else None
+    if dest is not None and dest.exists():
+        print_error(f"Destination already exists: {_display_path(dest)}")
+        raise typer.Exit(code=1)
+    parent = dest.parent if dest else _cache_dir() / entry.name
+    parent.mkdir(parents=True, exist_ok=True)
+
+    # Check out into a sibling staging directory and rename it into place, so a
+    # failed fetch never leaves a partial checkout at the destination.
+    staging = Path(tempfile.mkdtemp(prefix=".fetch-", dir=parent))
+    try:
+        head = _fetch_revision(entry.repo_url, entry.commit or entry.ref, staging)
+        if entry.commit is not None and head != entry.commit:
+            raise RuntimeError(f"checked out {head}, but the registry pins {entry.commit}")
+    except RuntimeError as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        print_error(f"Could not fetch '{name}' from {entry.repo_url}: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    target = dest or parent / head
+    if target.exists():
+        shutil.rmtree(target)
+    staging.rename(target)
+
+    typer.echo(f"Fetched {name} at {head} into {_display_path(target)}")
+    _print_fetch_next_steps(entry, target)
