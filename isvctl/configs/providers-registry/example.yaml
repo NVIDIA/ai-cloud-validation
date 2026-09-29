@@ -18,7 +18,7 @@ name: example
 vendor: NVIDIA
 description: Living example of an externally maintained provider; an unimplemented scaffold that passes only in demo mode.
 repo_url: https://github.com/abegnoche/isvctl-provider-example
-commit: 4aa40a35408289a5828f2991cb4177359301450c
+commit: 7528196a40ca891eb93c0b6b373aa906c83ce4e2
 ref: main
 tested_with: "0.13.0"
 suites: [bare_metal, control-plane, iam, image-registry, network, observability, security, vm]
