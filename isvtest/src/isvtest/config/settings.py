@@ -18,14 +18,17 @@
 import os
 from dataclasses import dataclass
 
-# NGC image tags. CUDA 13.x runs on driver >= 580 (the suite minimum) through
-# minor-version compatibility. New CUDA 13.4 features need driver R615; these
-# checks use existing NCCL and nvidia-smi behavior.
-# hpc-benchmarks 26.02.01 ships NCCL 2.29.2 and does not bundle AWS OFI NCCL.
-# pytorch 26.08-py3 ships CUDA 13.4.1.
+# NGC image tags. The suite minimum driver is 580 (CUDA 13.0).
+# CUDA base images declare NVIDIA_REQUIRE_CUDA=cuda>=<image version>, which the
+# container toolkit checks against the host driver, so the base image stays on
+# 13.0. hpc-benchmarks and pytorch declare cuda>=9.0 and run their newer CUDA
+# through minor-version compatibility.
+# hpc-benchmarks 26.02.01 ships NCCL 2.29.2 and AWS OFI NCCL 1.17.0.
+# pytorch 26.08-py3 ships CUDA 13.4.1 and no longer includes CuPy (RAPIDS was
+# dropped in 25.09).
 DEFAULT_NCCL_IMAGE = "nvcr.io/nvidia/hpc-benchmarks:26.02.01"
 DEFAULT_PYTORCH_IMAGE = "nvcr.io/nvidia/pytorch:26.08-py3"
-DEFAULT_CUDA_IMAGE = "nvcr.io/nvidia/cuda:13.4.1-base-ubuntu24.04"
+DEFAULT_CUDA_IMAGE = "nvcr.io/nvidia/cuda:13.0.3-base-ubuntu24.04"
 NCCL_IMAGE_PLACEHOLDER = "__NCCL_IMAGE__"
 CUDA_IMAGE_PLACEHOLDER = "__CUDA_IMAGE__"
 
