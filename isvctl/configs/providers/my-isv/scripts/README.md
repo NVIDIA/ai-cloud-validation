@@ -68,8 +68,11 @@ make demo-test
 uv run isvctl provider scaffold acme
 ```
 
-Use `--dry-run` to preview the destination and next commands, or `--output-dir`
-to generate outside `isvctl/configs/providers/`.
+It is created in `isvctl/configs/providers-external/acme/` (git-ignored; see
+[Private provider repositories](#private-provider-repositories)). Use `--dry-run`
+to preview the destination and next commands, or `--output-dir` to generate it
+elsewhere, including `isvctl/configs/providers/acme` for a provider contributed
+to this repository.
 
 **3. Implement each script** - each has a `TODO:` block with pseudocode and a link to the AWS reference implementation.
 
@@ -84,7 +87,7 @@ uv run isvctl test run --provider acme --suite storage
 uv run isvctl test run --provider acme --suite storage --capability vm
 
 # Or point at the config file directly - the same capability rule applies
-uv run isvctl test run -f isvctl/configs/providers/acme/config/vm.yaml
+uv run isvctl test run -f isvctl/configs/providers-external/acme/config/vm.yaml
 ```
 
 Add `--dry-run` to any of these to list what would run and what would be
@@ -107,47 +110,42 @@ it, so 100% is always relative to what you declared.
 
 ## Private provider repositories
 
-You do not need to contribute your provider scripts back to this repository,
-Today `isvctl` runs provider configs by path: this repository supplies the
-CLI, validation suites, and validation code; your private repository supplies
-the provider `config/` and `scripts/` files.
+You do not need to contribute your provider scripts back to this repository.
+This repository supplies the CLI, validation suites, and validation code; your
+own repository supplies the provider `config/` and `scripts/` files.
 
-Generate the scaffold directly into the private provider repository path you
-intend to keep:
+By default the scaffold is created in `isvctl/configs/providers-external/<name>/`,
+which git ignores here, and `--provider <name>` runs it like an in-tree provider:
 
 ```bash
 git clone <ai-cloud-validation>
 cd ai-cloud-validation
 uv sync
 
-uv run isvctl provider scaffold acme --output-dir ../isvctl-provider-acme
+uv run isvctl provider scaffold acme
+ISVCTL_DEMO_MODE=1 uv run isvctl test run --provider acme --suite vm
 ```
 
-Then initialize or connect that generated directory to your private Git repo
-and implement the scripts there:
+Make that directory your provider's own Git repository and implement the
+scripts there. Delete `.scaffold-meta` once it is a repository: the marker lets
+`isvctl provider scaffold --overwrite` replace the directory.
 
 ```bash
-cd ../isvctl-provider-acme
+cd isvctl/configs/providers-external/acme
 git init
+rm .scaffold-meta
 git remote add origin git@github.com:acme/isvctl-provider-acme.git
 # implement scripts/*
 ```
 
-Run the private provider from the validation suite checkout by passing its
-config path:
+`isvctl provider fetch` and `isvctl provider remove` never touch a directory
+there that `fetch` did not create. To keep the repository elsewhere, pass
+`--output-dir` and run its configs by path from this checkout, e.g.
+`uv run isvctl test run -f ../isvctl-provider-acme/config/vm.yaml`.
 
-```bash
-cd ../ai-cloud-validation
-uv run isvctl test run -f ../isvctl-provider-acme/config/vm.yaml
-```
-
-Current limitation: out-of-tree provider YAML assumes you run `isvctl` from
-the validation suite checkout root. Suite imports and shared scripts use paths
-relative to that checkout; provider-owned scripts stay relative to the generated
-provider `config/` directory.
-
-To let others find and fetch your provider at a pinned commit, register it in
-the [Provider Registry](../../../../../docs/guides/provider-registry.md).
+To let others find and fetch your provider at a pinned commit, fill in the
+scaffold's `registry-entry.yaml` and register it in the
+[Provider Registry](../../../../../docs/guides/provider-registry.md).
 
 ## Anatomy of a script
 

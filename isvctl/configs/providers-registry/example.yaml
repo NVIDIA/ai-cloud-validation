@@ -25,4 +25,9 @@ suites: [bare_metal, control-plane, iam, image-registry, network, observability,
 maintainers:
   - github: abegnoche
 documentation_url: https://github.com/abegnoche/isvctl-provider-example#reproducing-the-results
+# status is one of:
+#   qualified     pinned to `commit` and validated against `tested_with`
+#   experimental  may give only a `ref` instead of `commit`; results are not reproducible
+#   deprecated    no longer validated; hidden from `isvctl provider list` unless --all
+#   demo          scripts only return dummy results; runs in demo mode and is never uploaded
 status: demo

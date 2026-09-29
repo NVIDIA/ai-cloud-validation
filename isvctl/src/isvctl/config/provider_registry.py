@@ -176,15 +176,31 @@ def run_git(*args: str, cwd: Path) -> str:
     return result.stdout.strip()
 
 
+# Written inside .git/ so it never shows in `git status`. Only checkouts carrying it
+# may be replaced or removed: anything else in providers-external/ is someone's work,
+# such as a scaffold under development.
+FETCH_MARKER = "isvctl-fetched"
+
+
 def external_checkout(name: str, configs_root: Path = CONFIGS_ROOT) -> Path:
-    """Return where ``isvctl provider fetch <name>`` checks a registered provider out."""
+    """Return where ``isvctl provider fetch <name>`` and ``isvctl provider scaffold <name>`` put a provider."""
     return configs_root / EXTERNAL_PROVIDERS_DIRNAME / name
 
 
+def is_fetched_checkout(path: Path) -> bool:
+    """Return True if ``path`` was created by ``isvctl provider fetch``."""
+    return (path / ".git" / FETCH_MARKER).is_file()
+
+
+def mark_fetched(path: Path) -> None:
+    """Record that ``path`` was created by ``isvctl provider fetch``."""
+    (path / ".git" / FETCH_MARKER).write_text("created by isvctl provider fetch\n", encoding="utf-8")
+
+
 def fetched_commit(name: str, configs_root: Path = CONFIGS_ROOT) -> str | None:
-    """Return the commit a registered provider is fetched at, or None if it is not fetched."""
+    """Return the commit a registered provider is fetched at, or None if there is no fetched checkout."""
     checkout = external_checkout(name, configs_root)
-    if not (checkout / ".git").is_dir():
+    if not is_fetched_checkout(checkout):
         return None
     try:
         return run_git("rev-parse", "HEAD", cwd=checkout)
@@ -196,7 +212,9 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     """Return the registry entry for ``provider`` once it is fetched at its pinned commit.
 
     In-tree providers and names the registry does not know return None, so the
-    caller's usual unknown-provider handling still applies.
+    caller's usual unknown-provider handling still applies. A local directory
+    that ``fetch`` did not create, such as the partner's own scaffold under
+    development, is run as it is.
 
     Raises:
         ProviderRegistryError: If the provider is not fetched, is fetched at a
@@ -207,6 +225,9 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     entry = next((entry for entry in load_registry(configs_root) if entry.name == provider), None)
     if entry is None:
         return None
+    checkout = external_checkout(provider, configs_root)
+    if checkout.is_dir() and not is_fetched_checkout(checkout):
+        return entry
     head = fetched_commit(provider, configs_root)
     hint = f"Run: isvctl provider fetch {provider}"
     if head is None:

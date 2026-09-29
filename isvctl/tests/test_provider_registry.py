@@ -24,6 +24,7 @@ from isvctl.config.provider_registry import (
     RegistryEntry,
     ensure_fetched,
     load_registry,
+    mark_fetched,
 )
 from isvctl.orchestrator.loop import OrchestratorResult, Phase, PhaseResult
 
@@ -422,10 +423,68 @@ def _remove(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *args: str) -> tupl
 
 
 def _fake_checkouts(tmp_path: Path, *names: str) -> Path:
-    """Create fetched-provider directories under ``tmp_path/configs/providers-external``."""
+    """Create checkouts under ``tmp_path/configs/providers-external`` carrying the fetch marker."""
     for name in names:
         (_checkout(tmp_path, name) / "config").mkdir(parents=True)
+        (_checkout(tmp_path, name) / ".git").mkdir()
+        mark_fetched(_checkout(tmp_path, name))
     return _checkout(tmp_path, names[0]).parent
+
+
+def _local_provider(tmp_path: Path, name: str) -> Path:
+    """Create a provider under providers-external/ that fetch did not make, like a scaffold in development."""
+    local = _checkout(tmp_path, name)
+    (local / ".git").mkdir(parents=True)
+    (local / "scripts").mkdir()
+    return local
+
+
+def test_remove_all_keeps_local_providers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """--all deletes only fetched checkouts, never a provider someone is developing there."""
+    external_dir = _fake_checkouts(tmp_path, "acme")
+    _local_provider(tmp_path, "mine")
+
+    exit_code, output = _remove(monkeypatch, tmp_path, "--all")
+
+    assert exit_code == 0, output
+    assert "Removed 1 fetched provider(s): acme" in output
+    assert "Kept (not created by fetch): mine" in output
+    assert [path.name for path in external_dir.iterdir()] == ["mine"]
+
+
+def test_remove_refuses_local_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Removing a provider fetch did not create is refused and deletes nothing."""
+    local = _local_provider(tmp_path, "mine")
+
+    exit_code, output = _remove(monkeypatch, tmp_path, "mine")
+
+    assert exit_code == 1
+    assert "Not created by fetch, delete it yourself if you mean to: mine" in output
+    assert local.is_dir()
+
+
+def test_fetch_refuses_to_replace_local_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Fetching a name whose directory fetch did not create leaves that work untouched."""
+    url, first, _ = _upstream_repo(tmp_path)
+    local = _local_provider(tmp_path, "acme")
+
+    exit_code, output = _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=first), "acme")
+
+    assert exit_code == 1
+    assert "was not created by `isvctl provider fetch`" in output
+    assert (local / "scripts").is_dir()
+
+
+def test_local_provider_runs_without_fetch_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A registered name with a local (non-fetched) directory is the partner's own work: run it, list it as local."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry()})
+    _local_provider(tmp_path, "acme")
+
+    entry = ensure_fetched("acme", configs_root)
+    _, output = _list(monkeypatch, configs_root)
+
+    assert entry is not None and entry.name == "acme"
+    assert "local" in output
 
 
 def test_remove_one_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -448,7 +507,7 @@ def test_remove_all_providers_and_staging_leftovers(monkeypatch: pytest.MonkeyPa
 
     assert exit_code == 0, output
     assert "Removed 2 fetched provider(s): acme, beta" in output
-    assert not external_dir.exists()
+    assert list(external_dir.iterdir()) == []
 
 
 def test_remove_all_with_nothing_fetched(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
