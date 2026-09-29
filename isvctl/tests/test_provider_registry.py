@@ -119,20 +119,25 @@ def test_rejects_name_that_does_not_match_filename(tmp_path: Path) -> None:
     assert "acme.yaml: name: 'other' must match the filename 'acme'" in problems
 
 
-@pytest.mark.parametrize("status", ["supported", "deprecated", "demo"])
-def test_every_entry_requires_a_commit(tmp_path: Path, status: str) -> None:
-    """Every entry, whatever its status, pins the commit that fetch checks out."""
-    problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(status=status, commit=None)}))
+def test_every_entry_requires_a_commit(tmp_path: Path) -> None:
+    """Every entry pins the commit that fetch checks out."""
+    problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(commit=None)}))
 
     assert "acme.yaml: entry: 'commit' is a required property" in problems
 
 
-@pytest.mark.parametrize(("field", "value"), [("status", "experimental"), ("ref", "main")])
-def test_rejects_removed_status_and_ref(tmp_path: Path, field: str, value: str) -> None:
-    """`experimental` and `ref` are not part of the format: every entry is pinned to a commit."""
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("status", "experimental", "status: 'experimental' is not one of"),
+        ("ref", "main", "Additional properties are not allowed ('ref' was unexpected)"),
+    ],
+)
+def test_rejects_unknown_status_and_field(tmp_path: Path, field: str, value: str, expected: str) -> None:
+    """Only the documented statuses and fields are accepted."""
     problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(**{field: value})}))
 
-    assert "acme.yaml:" in problems
+    assert expected in problems
 
 
 def test_rejects_unknown_suite(tmp_path: Path) -> None:
@@ -253,28 +258,27 @@ def test_rejects_name_of_in_tree_provider(tmp_path: Path) -> None:
     assert "acme.yaml: name: 'acme' is already an in-tree provider in providers/" in _problems(configs_root)
 
 
+def _git(repo: Path, *args: str) -> str:
+    """Run git in ``repo`` without depending on the user's identity or signing config; return its stdout."""
+    identity = ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"]
+    result = subprocess.run(["git", *identity, *args], cwd=repo, check=True, capture_output=True, text=True)
+    return result.stdout.strip()
+
+
 def _upstream_repo(tmp_path: Path) -> tuple[str, str, str]:
-    """Create a two-commit provider repo with tag ``v1`` on the tip; return its file:// URL and both SHAs."""
+    """Create a two-commit provider repo; return its file:// URL and both SHAs."""
     repo = tmp_path / "upstream"
     repo.mkdir()
-
-    def git(*args: str) -> str:
-        """Run git in the upstream repo without depending on the user's identity or signing config."""
-        identity = ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"]
-        result = subprocess.run(["git", *identity, *args], cwd=repo, check=True, capture_output=True, text=True)
-        return result.stdout.strip()
-
-    git("init", "-q")
+    _git(repo, "init", "-q")
     (repo / "config").mkdir()
     (repo / "config" / "vm.yaml").write_text("tests: {}\n", encoding="utf-8")
-    git("add", ".")
-    git("commit", "-q", "-m", "first")
-    first = git("rev-parse", "HEAD")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "first")
+    first = _git(repo, "rev-parse", "HEAD")
     (repo / "config" / "network.yaml").write_text("tests: {}\n", encoding="utf-8")
-    git("add", ".")
-    git("commit", "-q", "-m", "second")
-    git("tag", "v1")
-    return repo.as_uri(), first, git("rev-parse", "HEAD")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "second")
+    return repo.as_uri(), first, _git(repo, "rev-parse", "HEAD")
 
 
 def _registry_entry(repo_url: str, **overrides: Any) -> RegistryEntry:
@@ -309,9 +313,7 @@ def _checkout(tmp_path: Path, name: str = "acme") -> Path:
 
 def _head(checkout: Path) -> str:
     """Return the commit checked out in ``checkout``."""
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=checkout, check=True, capture_output=True, text=True
-    ).stdout.strip()
+    return _git(checkout, "rev-parse", "HEAD")
 
 
 def test_fetch_checks_out_pinned_commit_and_suggests_run_by_name(
@@ -632,7 +634,7 @@ def test_test_run_by_name_requires_a_fetch(monkeypatch: pytest.MonkeyPatch, tmp_
 
 
 def test_demo_status_loads(tmp_path: Path) -> None:
-    """`demo` is a valid status, pinned to a commit like the others."""
+    """`demo` is a valid status."""
     [demo] = load_registry(_configs_root(tmp_path, {"acme.yaml": _entry(status="demo")}))
 
     assert demo.status == "demo"
@@ -676,25 +678,8 @@ def test_test_run_turns_on_demo_mode_for_demo_provider(monkeypatch: pytest.Monke
     (checkout / "config" / "vm.yaml").write_text(
         "import: ../../../suites/vm.yaml\ncommands:\n  vm:\n    phases: [test]\n    steps: []\n", encoding="utf-8"
     )
-    subprocess.run(["git", "init", "-q"], cwd=checkout, check=True)
-    subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=t@example.com",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            "fetched",
-        ],
-        cwd=checkout,
-        check=True,
-    )
+    _git(checkout, "init", "-q")
+    _git(checkout, "commit", "-q", "--allow-empty", "-m", "fetched")
     (configs_root / "providers-registry" / "acme.yaml").write_text(
         yaml.safe_dump(_entry(status="demo", commit=_head(checkout))), encoding="utf-8"
     )

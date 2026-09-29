@@ -31,16 +31,19 @@ from isvctl import __version__
 from isvctl.cli.common import print_error, print_progress, print_warning
 from isvctl.config.env_catalog import DEMO_MODE_ENV
 from isvctl.config.provider_registry import (
-    REGISTRY_DIRNAME,
     RegistryEntry,
-    external_checkout,
-    fetched_commit,
+    fetch_state,
     is_fetched_checkout,
     load_registry_skipping_invalid,
     mark_fetched,
+    registry_entry_path,
     run_git,
 )
-from isvctl.config.suite_resolution import CONFIGS_ROOT, EXTERNAL_PROVIDERS_DIRNAME
+from isvctl.config.suite_resolution import (
+    CONFIGS_ROOT,
+    EXTERNAL_PROVIDERS_DIRNAME,
+    external_provider_dir,
+)
 
 app = typer.Typer(
     name="provider",
@@ -55,22 +58,10 @@ TEMPLATE_PROVIDER_NAME = "my-isv"
 TEMPLATE_PROVIDER_TOKEN_RE = re.compile(r"(?<!\w)" + re.escape(TEMPLATE_PROVIDER_NAME) + r"(?!\w)")
 IGNORE_NAMES = ("__pycache__", ".pytest_cache")
 SCAFFOLD_META_FILE = ".scaffold-meta"
-# The header every file in this repository carries; registry entries are copied here.
+# The SPDX header the repository's check-spdx-headers hook requires; registry entries are copied here.
 SPDX_HEADER = """\
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """
 STATUS_COMMENT = """\
 # status is one of:
@@ -106,7 +97,7 @@ def _resolve_target_path(provider_name: str, output_dir: Path | None, template_d
             f"'{provider_name}' is already an in-tree provider in providers/; "
             "pick another name so --provider stays unambiguous."
         )
-    return external_checkout(provider_name, CONFIGS_ROOT).resolve()
+    return external_provider_dir(provider_name, CONFIGS_ROOT).resolve()
 
 
 def _display_path(path: Path) -> str:
@@ -152,8 +143,7 @@ def _built_in_reference(path: Path, start: Path, target_dir: Path, template_dir:
     scaffolds are supported from the validation checkout root, so use paths
     relative to that root instead of generating long ``../../Users/...`` paths.
     """
-    providers_dir = template_dir.parent.resolve()
-    if target_dir.resolve().is_relative_to(providers_dir):
+    if _is_in_tree(target_dir, template_dir):
         return _relative_posix_path(path, start=start)
 
     repo_root = template_dir.parents[3]
@@ -265,14 +255,9 @@ def _is_in_tree(target_dir: Path, template_dir: Path) -> bool:
     return target_dir.resolve().is_relative_to(template_dir.parent.resolve())
 
 
-def _registry_entry_path(provider_name: str) -> Path:
-    """Return where the provider's registry entry lives in this checkout."""
-    return CONFIGS_ROOT / REGISTRY_DIRNAME / f"{provider_name}.yaml"
-
-
 def _write_registry_entry_stub(target_dir: Path, provider_name: str) -> None:
     """Write the provider's registry entry stub, never replacing an existing entry."""
-    entry_path = _registry_entry_path(provider_name)
+    entry_path = registry_entry_path(provider_name, CONFIGS_ROOT)
     if entry_path.exists():
         return
     entry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -296,7 +281,7 @@ def _registry_entry_stub(target_dir: Path, provider_name: str) -> str:
 schema_version: 1
 name: {provider_name}  # must match the file name
 vendor: "<legal entity that maintains this provider>"
-description: "<one sentence, shown by `isvctl provider list`>"
+description: "<one sentence describing the provider>"
 repo_url: "<https clone URL of this repository>"
 commit: "<validated commit, from git rev-parse HEAD>"
 tested_with: "{__version__}"  # ai-cloud-validation release you validated against, without a leading v
@@ -316,7 +301,7 @@ def _print_next_steps(target_dir: Path, action: str, provider_name: str, in_tree
     typer.echo(f"{action} provider scaffold: {display_target}")
     typer.echo()
     typer.echo("Preview without cloud:")
-    if target_dir == external_checkout(provider_name, CONFIGS_ROOT).resolve():
+    if target_dir == external_provider_dir(provider_name, CONFIGS_ROOT).resolve():
         typer.echo(f"  {DEMO_MODE_ENV}=1 uv run isvctl test run --provider {provider_name} --suite vm")
     else:
         demo_config = shlex.quote(f"{display_target}/config/vm.yaml")
@@ -327,7 +312,7 @@ def _print_next_steps(target_dir: Path, action: str, provider_name: str, in_tree
     if not in_tree:
         typer.echo()
         typer.echo(f"{entry_note}; when the provider is validated, fill it in and submit it:")
-        typer.echo(f"  {shlex.quote(_display_path(_registry_entry_path(provider_name)))}")
+        typer.echo(f"  {shlex.quote(_display_path(registry_entry_path(provider_name, CONFIGS_ROOT)))}")
 
 
 @app.command("scaffold")
@@ -369,7 +354,7 @@ def scaffold(
 
         _assert_target_outside_template(target_dir, template_dir)
         in_tree = _is_in_tree(target_dir, template_dir)
-        entry_exists = _registry_entry_path(provider_name).exists()
+        entry_exists = registry_entry_path(provider_name, CONFIGS_ROOT).exists()
 
         if dry_run:
             if target_dir.exists():
@@ -439,19 +424,17 @@ def list_cmd(
     table.add_column("Fetched", no_wrap=True)
 
     for entry in entries:
-        table.add_row(entry.name, entry.vendor, entry.status, entry.tested_with, entry.commit[:12], _fetch_state(entry))
+        table.add_row(entry.name, entry.vendor, entry.status, entry.tested_with, entry.commit[:12], _fetch_label(entry))
 
     console.print(table)
 
 
-def _fetch_state(entry: RegistryEntry) -> str:
+def _fetch_label(entry: RegistryEntry) -> str:
     """Describe the checkout of ``entry``: ``no``, ``yes``, ``stale (<commit>)``, or ``local`` (not from fetch)."""
-    head = fetched_commit(entry.name, CONFIGS_ROOT)
-    if head is None:
-        return "local" if external_checkout(entry.name, CONFIGS_ROOT).is_dir() else "no"
-    if head == entry.commit:
-        return "yes"
-    return f"stale ({head[:12]})"
+    state, head = fetch_state(entry, CONFIGS_ROOT)
+    if state == "stale":
+        return f"stale ({head[:12]})"
+    return {"missing": "no", "local": "local", "current": "yes"}[state]
 
 
 def _fetch_revision(repo_url: str, revision: str, checkout_dir: Path) -> str:
@@ -507,7 +490,7 @@ def fetch_cmd(
     if entry.status == "deprecated":
         print_warning(f"'{name}' is deprecated and no longer validated against current releases.")
 
-    target = external_checkout(entry.name, CONFIGS_ROOT)
+    target = external_provider_dir(entry.name, CONFIGS_ROOT)
     if target.exists() and not is_fetched_checkout(target):
         print_error(
             f"{_display_path(target)} was not created by `isvctl provider fetch` (a scaffold you are "
@@ -571,8 +554,8 @@ def remove_cmd(
         print_error("Give one or more provider names, or --all.")
         raise typer.Exit(code=1)
 
-    external_dir = CONFIGS_ROOT / EXTERNAL_PROVIDERS_DIRNAME
     if remove_all:
+        external_dir = CONFIGS_ROOT / EXTERNAL_PROVIDERS_DIRNAME
         entries = sorted(path for path in external_dir.iterdir() if path.is_dir()) if external_dir.is_dir() else []
         providers = [path for path in entries if not path.name.startswith(".")]
         targets = [path for path in providers if force or is_fetched_checkout(path)]
@@ -589,25 +572,30 @@ def remove_cmd(
         return
 
     # The name pattern keeps a name such as '../providers' from reaching outside providers-external/.
-    missing = [name for name in names if not PROVIDER_NAME_RE.fullmatch(name) or not (external_dir / name).is_dir()]
+    missing = [
+        name
+        for name in names
+        if not PROVIDER_NAME_RE.fullmatch(name) or not external_provider_dir(name, CONFIGS_ROOT).is_dir()
+    ]
     if missing:
         print_error(
             f"Not in providers-external/: {', '.join(missing)}. Run 'isvctl provider list' to see fetched ones."
         )
         raise typer.Exit(code=1)
-    local = [name for name in names if not is_fetched_checkout(external_dir / name)]
+    local = [name for name in names if not is_fetched_checkout(external_provider_dir(name, CONFIGS_ROOT))]
     if local and not force:
         print_error(f"Not created by fetch (your own work?): {', '.join(local)}. Add --force to delete it anyway.")
         raise typer.Exit(code=1)
     for name in names:
-        shutil.rmtree(external_dir / name)
-        typer.echo(f"Removed {name} from {_display_path(external_dir / name)}")
+        checkout = external_provider_dir(name, CONFIGS_ROOT)
+        shutil.rmtree(checkout)
+        typer.echo(f"Removed {name} from {_display_path(checkout)}")
     _note_kept_registry_entries(local)
 
 
 def _note_kept_registry_entries(names: list[str]) -> None:
     """Point out registry entries left behind for removed local providers; remove never edits the registry."""
     for name in names:
-        entry_path = _registry_entry_path(name)
+        entry_path = registry_entry_path(name, CONFIGS_ROOT)
         if entry_path.exists():
             typer.echo(f"Left its registry entry in place: {_display_path(entry_path)}")

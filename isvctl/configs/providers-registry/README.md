@@ -25,11 +25,5 @@ documentation_url: https://github.com/acme/isvctl-provider-acme#reproducing
 status: supported
 ```
 
-Every entry pins a full `commit`. `status` is one of:
-
-- `supported`: maintained by its maintainers (not NVIDIA), and `commit` passed the
-  declared suites against `tested_with`.
-- `deprecated`: no longer maintained or validated; kept for history, hidden from the default listing.
-- `demo`: the scripts only return dummy results, like `example.yaml`.
-  `isvctl test run --provider <name>` runs it with `ISVCTL_DEMO_MODE=1` and
-  never uploads the results.
+For what each `status` means, see
+[Lifecycle](../../../docs/guides/provider-registry.md#lifecycle).

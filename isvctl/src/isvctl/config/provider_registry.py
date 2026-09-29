@@ -11,15 +11,17 @@ import subprocess
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import jsonschema
 import yaml
 
-from isvctl.config.suite_resolution import CONFIGS_ROOT, EXTERNAL_PROVIDERS_DIRNAME
+from isvctl.config.suite_resolution import CONFIGS_ROOT, external_provider_dir, in_tree_provider_dir
 
 SCHEMA_PATH = CONFIGS_ROOT.parent / "schemas" / "provider-registry.schema.json"
 REGISTRY_DIRNAME = "providers-registry"
+
+FetchState = Literal["missing", "local", "stale", "current"]
 
 
 class ProviderRegistryError(Exception):
@@ -72,7 +74,7 @@ def _entry_errors(path: Path, data: Any, configs_root: Path) -> list[str]:
     errors = []
     if data["name"] != path.stem:
         errors.append(f"name: '{data['name']}' must match the filename '{path.stem}'")
-    if (configs_root / "providers" / data["name"]).exists():
+    if in_tree_provider_dir(data["name"], configs_root).exists():
         errors.append(f"name: '{data['name']}' is already an in-tree provider in providers/")
     suites_dir = configs_root / "suites"
     errors.extend(
@@ -97,6 +99,11 @@ def _to_entry(data: dict[str, Any]) -> RegistryEntry:
         documentation_url=data["documentation_url"],
         status=data["status"],
     )
+
+
+def registry_entry_path(name: str, configs_root: Path = CONFIGS_ROOT) -> Path:
+    """Return where the registry entry for provider ``name`` lives; the path may not exist."""
+    return configs_root / REGISTRY_DIRNAME / f"{name}.yaml"
 
 
 def load_registry_skipping_invalid(
@@ -188,11 +195,6 @@ def run_git(*args: str, cwd: Path) -> str:
 FETCH_MARKER = "isvctl-fetched"
 
 
-def external_checkout(name: str, configs_root: Path = CONFIGS_ROOT) -> Path:
-    """Return where ``isvctl provider fetch <name>`` and ``isvctl provider scaffold <name>`` put a provider."""
-    return configs_root / EXTERNAL_PROVIDERS_DIRNAME / name
-
-
 def is_fetched_checkout(path: Path) -> bool:
     """Return True if ``path`` was created by ``isvctl provider fetch``."""
     return (path / ".git" / FETCH_MARKER).is_file()
@@ -203,15 +205,22 @@ def mark_fetched(path: Path) -> None:
     (path / ".git" / FETCH_MARKER).write_text("created by isvctl provider fetch\n", encoding="utf-8")
 
 
-def fetched_commit(name: str, configs_root: Path = CONFIGS_ROOT) -> str | None:
-    """Return the commit a registered provider is fetched at, or None if there is no fetched checkout."""
-    checkout = external_checkout(name, configs_root)
+def fetch_state(entry: RegistryEntry, configs_root: Path = CONFIGS_ROOT) -> tuple[FetchState, str | None]:
+    """Classify the checkout of ``entry`` in ``providers-external/`` and return the commit it is at.
+
+    The state is ``missing`` (no usable fetched checkout), ``local`` (a directory
+    that ``fetch`` did not create, such as the partner's own scaffold), ``stale``
+    (fetched at another commit than the registry pins) or ``current``. The
+    commit is None unless the checkout was fetched.
+    """
+    checkout = external_provider_dir(entry.name, configs_root)
     if not is_fetched_checkout(checkout):
-        return None
+        return ("local" if checkout.is_dir() else "missing"), None
     try:
-        return run_git("rev-parse", "HEAD", cwd=checkout)
+        head = run_git("rev-parse", "HEAD", cwd=checkout)
     except RuntimeError:
-        return None
+        return "missing", None
+    return ("current" if head == entry.commit else "stale"), head
 
 
 def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> RegistryEntry | None:
@@ -229,20 +238,17 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
         ProviderRegistryError: If the provider is not fetched, or is fetched at a
             different commit than the registry pins.
     """
-    if (configs_root / "providers" / provider).is_dir():
+    if in_tree_provider_dir(provider, configs_root).is_dir():
         return None
     entries, _ = load_registry_skipping_invalid(configs_root)
     entry = next((entry for entry in entries if entry.name == provider), None)
     if entry is None:
         return None
-    checkout = external_checkout(provider, configs_root)
-    if checkout.is_dir() and not is_fetched_checkout(checkout):
-        return entry
-    head = fetched_commit(provider, configs_root)
+    state, head = fetch_state(entry, configs_root)
     hint = f"Run: isvctl provider fetch {provider}"
-    if head is None:
+    if state == "missing":
         raise ProviderRegistryError(f"Provider '{provider}' is registered but not fetched. {hint}")
-    if head != entry.commit:
+    if state == "stale":
         raise ProviderRegistryError(
             f"Provider '{provider}' is fetched at {head[:12]}, but the registry pins {entry.commit[:12]}. {hint}"
         )
