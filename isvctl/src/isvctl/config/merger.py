@@ -187,7 +187,9 @@ def _resolve_import_path(path: Path, imp: Any) -> Path:
     Prefer paths relative to the importing file. If that does not exist, fall
     back to the current working directory or one of its parents so out-of-tree
     provider configs can import validation-suite files using checkout-root-relative
-    paths even when commands run from a package subdirectory.
+    paths even when commands run from a package subdirectory. Last, try the
+    importing file's own parents, which resolves those paths for a provider
+    fetched into the checkout (``providers-external/``) from any working directory.
     """
     if not isinstance(imp, (str, Path)):
         raise ValueError(
@@ -204,7 +206,7 @@ def _resolve_import_path(path: Path, imp: Any) -> Path:
         return expanded.resolve()
 
     cwd = Path.cwd().resolve()
-    for root in (cwd, *cwd.parents):
+    for root in (cwd, *cwd.parents, *path.resolve().parents):
         candidate = root / expanded
         if candidate.exists():
             return candidate.resolve()

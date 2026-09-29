@@ -262,6 +262,27 @@ class TestImportDirective:
         result = merge_yaml_files([str(provider)])
         assert result == {"tests": {"cluster_name": "provider", "suite_only": "inherited"}}
 
+    def test_import_falls_back_to_importing_file_ancestors(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A provider fetched into the checkout resolves checkout-root-relative imports from any cwd."""
+        repo_root = tmp_path / "repo"
+        template = repo_root / "isvctl" / "configs" / "suites" / "vm.yaml"
+        template.parent.mkdir(parents=True)
+        template.write_text("tests:\n  suite_only: inherited\n", encoding="utf-8")
+
+        provider = repo_root / "isvctl" / "configs" / "providers-external" / "acme" / "config" / "vm.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text("import:\n  - isvctl/configs/suites/vm.yaml\n", encoding="utf-8")
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        assert merge_yaml_files([str(provider)]) == {"tests": {"suite_only": "inherited"}}
+
     def test_multiple_imports(self, tmp_path: Path) -> None:
         """Multiple imports are merged in order, child wins."""
         (tmp_path / "a.yaml").write_text("x: 1\ny: from_a")

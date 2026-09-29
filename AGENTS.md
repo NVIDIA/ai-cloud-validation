@@ -161,6 +161,10 @@ forwarded env vars → optional isvreporter upload.
 - `isvctl/configs/shared/` - cross-provider scripts invoked from provider
   configs, organized by domain (`nim/`, `security/`, `storage/`, `breakfix/`,
   `k8s/`).
+- `isvctl/configs/provider-registry/<name>.yaml` - externally maintained providers,
+  each pinned to a commit of the partner's repo (`docs/guides/provider-registry.md`).
+- `isvctl/configs/providers-external/<name>/` - git-ignored checkouts made by
+  `isvctl provider fetch`; `--provider <name>` resolves them like `providers/<name>/`.
 - `isvctl/schemas/` - JSON Schema files.
 
 ### Provider notes

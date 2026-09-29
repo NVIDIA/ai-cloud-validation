@@ -11,7 +11,9 @@ partner repo (config/, scripts/)  <-- pinned by --  isvctl/configs/provider-regi
                                                           |
                     isvctl provider list / isvctl provider fetch <name>
                                                           |
-                         isvctl test run -f <checkout>/config/<suite>.yaml
+                                     isvctl/configs/providers-external/<name>/
+                                                          |
+                           isvctl test run --provider <name> --suite <suite>
 ```
 
 Registry entries hold no provider code. The provider's code and its support
@@ -26,28 +28,41 @@ repository and entry.
 ## Using a registered provider
 
 ```bash
-uv run isvctl provider list            # registered providers; add --all for deprecated ones
-uv run isvctl provider fetch acme      # check out the pinned commit
+uv run isvctl provider list                          # registered providers and whether each is fetched
+uv run isvctl provider fetch acme                    # check out the pinned commit
+uv run isvctl test run --provider acme --suite vm    # run it like an in-tree provider
+uv run isvctl provider remove acme                   # delete the fetched copy; --all removes every one
 ```
 
-`fetch` checks the provider out at its pinned commit, verifies the checked-out
-commit matches the registry, and prints a `test run` command for each suite the
-provider declares:
+`fetch` checks the provider out at its pinned commit into
+`isvctl/configs/providers-external/acme/`, which git ignores, verifies the
+checked-out commit matches the registry, and lists the suites it can run:
 
 ```text
-Fetched acme at 0123...4567 into ~/.cache/isvctl/providers/acme/0123...4567
-Run from the validation suite checkout root:
-  uv run isvctl test run -f ~/.cache/isvctl/providers/acme/0123...4567/config/vm.yaml
+Fetched acme at 0123456789ab into isvctl/configs/providers-external/acme
+Suites: network, vm
+Setup and prerequisites (credentials, environment): https://github.com/acme/isvctl-provider-acme#reproducing
+Then run one with:
+  uv run isvctl test run --provider acme --suite network
 ```
 
-- Run those commands from the root of this repository's checkout: provider
-  configs import suites by paths relative to it.
-- The cache is `${XDG_CACHE_HOME:-~/.cache}/isvctl/providers/<name>/<commit>`.
-  Fetching again replaces it; pass `--dest DIR` to check out somewhere else
-  (the directory must not exist).
+Most providers need credentials or environment variables before a run; the
+link is the entry's `documentation_url`, which is why it must explain them.
+
+- A fetched provider works everywhere an in-tree one does:
+  `test run --provider acme --suite vm`, `--provider acme --label network`,
+  and `doctor --provider acme`.
+- `test run --provider acme` refuses to run a registered provider that is not
+  fetched, or whose checkout is not at the commit the registry pins - for
+  example after a `git pull` updated the entry. Run `provider fetch acme` again;
+  it replaces the previous checkout, including any local edits.
+- `provider list` shows each entry's checkout as `yes`, `no`, or
+  `stale (<commit>)`.
 - `experimental` entries may be pinned to a branch or tag only; `fetch` warns
   that their results are not reproducible. `deprecated` entries can still be
   fetched, with a warning.
+- Registry names never clash with in-tree providers: the registry rejects an
+  entry named after a directory in `isvctl/configs/providers/`.
 
 ## Registering a provider
 
@@ -133,9 +148,6 @@ means updating `commit` and `tested_with` in a new pull request.
   provider commit, produced them.
 - **Provider contract versioning.** Nothing yet states which suite versions a
   provider built against one release remains compatible with.
-- **Running by registry name.** `isvctl test run --provider <name>` only knows
-  providers in this repository's `providers/` directory; a fetched provider is
-  run by path.
 - **Registry freshness.** The registry ships inside the checkout, so a user on a
   release tag does not see providers registered afterwards, even ones validated
   against that release. Krew avoids this by keeping its index in a separate

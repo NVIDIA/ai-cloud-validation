@@ -35,3 +35,6 @@ ai-cloud-validation*.tar.gz
 
 # Vendored sources
 isvtest/vendor/
+
+# Registered external providers, fetched by `isvctl provider fetch`
+isvctl/configs/providers-external/

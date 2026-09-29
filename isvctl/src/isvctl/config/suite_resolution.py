@@ -18,6 +18,22 @@ from isvctl.config.merger import merge_yaml_files
 # sources it from the config layer that consumes it.
 CONFIGS_ROOT = Path(__file__).resolve().parents[3] / "configs"
 
+# Registered external providers are fetched here (git-ignored), next to the
+# in-tree ``providers/``, so ``--provider <name>`` resolves both the same way.
+EXTERNAL_PROVIDERS_DIRNAME = "providers-external"
+
+
+def provider_dir(provider: str, configs_root: Path) -> Path:
+    """Return a provider's directory: in-tree under ``providers/``, else fetched under ``providers-external/``.
+
+    The provider registry rejects names that clash with an in-tree provider, so
+    at most one of the two exists. The returned path may not exist.
+    """
+    in_tree = configs_root / "providers" / provider
+    if in_tree.is_dir():
+        return in_tree
+    return configs_root / EXTERNAL_PROVIDERS_DIRNAME / provider
+
 
 class SuiteResolutionError(Exception):
     """Raised when a suite selection cannot be resolved unambiguously."""
@@ -152,7 +168,7 @@ def resolve_suite(provider: str | None, suite: str, *, configs_root: Path) -> Re
         config_dir = configs_root / "suites"
         source = "Canonical suite catalog"
     else:
-        config_dir = configs_root / "providers" / provider / "config"
+        config_dir = provider_dir(provider, configs_root) / "config"
         source = f"Provider {provider!r}"
         if not config_dir.is_dir():
             raise SuiteResolutionError(f"Provider {provider!r} has no config directory at {config_dir}.")
