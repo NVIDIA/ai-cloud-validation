@@ -10,7 +10,7 @@
 #   NODES - Number of nodes
 #   GPUS_PER_NODE - GPUs per node
 #   TOTAL_GPUS - Total GPU count across all nodes
-#   IMAGE - Container image (e.g., nvcr.io/nvidia/hpc-benchmarks:25.04)
+#   IMAGE - Container image (default: NCCL_HPC_IMAGE)
 #   NCCL_SIZE_PARAMS - NCCL test size parameters (e.g., "-b 1M -e 256M -f 2")
 
 #SBATCH --job-name={{JOB_NAME}}

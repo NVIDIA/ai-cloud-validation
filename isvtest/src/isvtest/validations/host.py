@@ -40,6 +40,7 @@ import pytest
 if TYPE_CHECKING:
     import paramiko
 
+from isvtest.config.settings import get_cuda_image, get_gpu_stress_image, get_nccl_image
 from isvtest.core.ngc import get_ngc_api_key
 from isvtest.core.nvidia import parse_cuda_version
 from isvtest.core.ssh import (
@@ -1210,7 +1211,7 @@ class BmGpuStressCheck(BaseValidation):
         host, key_file, user: SSH connection details
         runtime (int): Stress duration in seconds (default: 30)
         memory_gb (int): Target GPU memory usage in GB (default: 16)
-        image (str): PyTorch container image (default: nvcr.io/nvidia/pytorch:25.04-py3)
+        image (str): PyTorch container image (default: get_gpu_stress_image())
         container_runtime (str): "docker" or "python" (default: "docker")
         expected_gpus (int): Expected GPU count to validate (optional)
     """
@@ -1236,7 +1237,7 @@ class BmGpuStressCheck(BaseValidation):
 
         runtime = self.config.get("runtime", 30)
         memory_gb = self.config.get("memory_gb", 16)
-        image = self.config.get("image", "nvcr.io/nvidia/pytorch:25.04-py3")
+        image = self.config.get("image") or get_gpu_stress_image()
         container_runtime = self.config.get("container_runtime")
         expected_gpus = self.config.get("expected_gpus", ssh_cfg.get("gpu_count"))
 
@@ -1328,7 +1329,7 @@ class BmNcclCheck(BaseValidation):
 
     Config:
         host, key_file, user: SSH connection details
-        image (str): Container image (default: nvcr.io/nvidia/hpc-benchmarks:25.04)
+        image (str): Container image (default: get_nccl_image())
         min_bus_bw_gbps (float): Minimum acceptable bus bandwidth in GB/s (default: 0 = no threshold)
         expected_gpus (int): Expected GPU count (optional, used for -np argument)
         message_sizes (str): NCCL test size range flags (default: "-b 1M -e 256M -f 2")
@@ -1336,7 +1337,6 @@ class BmNcclCheck(BaseValidation):
 
     description: ClassVar[str] = "NCCL AllReduce test via SSH"
     timeout: ClassVar[int] = 900
-    _DEFAULT_IMAGE = "nvcr.io/nvidia/hpc-benchmarks:25.04"
 
     def run(self) -> None:
         try:
@@ -1354,7 +1354,7 @@ class BmNcclCheck(BaseValidation):
             self.set_failed("Missing host or key_file")
             return
 
-        image = self.config.get("image", self._DEFAULT_IMAGE)
+        image = self.config.get("image") or get_nccl_image()
         min_bus_bw = float(self.config.get("min_bus_bw_gbps", 0))
         message_sizes = self.config.get("message_sizes", "-b 1M -e 256M -f 2")
 
@@ -1469,7 +1469,7 @@ class BmTrainingCheck(BaseValidation):
         steps (int): Number of training steps (default: 50)
         batch_size (int): Training batch size (default: 64)
         hidden_size (int): Hidden layer size (default: 2048)
-        image (str): PyTorch container image (default: nvcr.io/nvidia/pytorch:25.04-py3)
+        image (str): PyTorch container image (default: get_gpu_stress_image())
         container_runtime (str): "docker" or "python" (default: auto-detect)
         expected_gpus (int): Expected GPU count (optional)
     """
@@ -1496,7 +1496,7 @@ class BmTrainingCheck(BaseValidation):
         steps = self.config.get("steps", 50)
         batch_size = self.config.get("batch_size", 64)
         hidden_size = self.config.get("hidden_size", 2048)
-        image = self.config.get("image", "nvcr.io/nvidia/pytorch:25.04-py3")
+        image = self.config.get("image") or get_gpu_stress_image()
         container_runtime = self.config.get("container_runtime")
         expected_gpus = self.config.get("expected_gpus", ssh_cfg.get("gpu_count"))
 
@@ -1938,8 +1938,6 @@ class ContainerRuntimeCheck(BaseValidation):
     description: ClassVar[str] = "Tests GPU-capable container runtime support"
     timeout: ClassVar[int] = 300
 
-    _GPU_IMAGE: ClassVar[str] = "nvcr.io/nvidia/cuda:13.0.0-base-ubuntu24.04"
-
     def _check_cmd(self, ssh: object, cmd: str) -> str:
         """Run cmd via SSH and return stdout."""
         _, stdout, _ = run_ssh_command(ssh, cmd)
@@ -1999,11 +1997,12 @@ class ContainerRuntimeCheck(BaseValidation):
 
             rt_name: str | None = None
             login_cmd_tmpl: str | None = None
+            gpu_image = get_cuda_image()
 
             # ── Level 1: Docker ──────────────────────────────────────────────
             docker_ok, docker_ver = self._is_present(ssh, "docker")
             if docker_ok and rt_name is None:
-                gpu_ok = self._run_gpu_container(ssh, f"docker run --rm --gpus all {self._GPU_IMAGE} nvidia-smi")
+                gpu_ok = self._run_gpu_container(ssh, f"docker run --rm --gpus all {gpu_image} nvidia-smi")
                 if gpu_ok:
                     self.report_subtest("container_runtime", True, f"docker {docker_ver}")
                     self.report_subtest("gpu_container", True, "GPU container ran via docker")
@@ -2016,7 +2015,7 @@ class ContainerRuntimeCheck(BaseValidation):
             if rt_name is None:
                 nerdctl_ok, nerdctl_ver = self._is_present(ssh, "nerdctl")
                 if nerdctl_ok:
-                    gpu_ok = self._run_gpu_container(ssh, f"nerdctl run --rm --gpus all {self._GPU_IMAGE} nvidia-smi")
+                    gpu_ok = self._run_gpu_container(ssh, f"nerdctl run --rm --gpus all {gpu_image} nvidia-smi")
                     if gpu_ok:
                         self.report_subtest("container_runtime", True, f"nerdctl {nerdctl_ver}")
                         self.report_subtest("gpu_container", True, "GPU container ran via nerdctl")

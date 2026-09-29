@@ -27,7 +27,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: nccl-allreduce
-          image: nvcr.io/nvidia/hpc-benchmarks:25.04
+          image: __NCCL_IMAGE__
           imagePullPolicy: IfNotPresent
           command:
             - /bin/bash

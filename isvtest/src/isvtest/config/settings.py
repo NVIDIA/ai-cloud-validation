@@ -18,6 +18,17 @@
 import os
 from dataclasses import dataclass
 
+# NGC image tags. CUDA 13.x runs on driver >= 580 (the suite minimum) through
+# minor-version compatibility. New CUDA 13.4 features need driver R615; these
+# checks use existing NCCL and nvidia-smi behavior.
+# hpc-benchmarks 26.02.01 ships NCCL 2.29.2 and does not bundle AWS OFI NCCL.
+# pytorch 26.08-py3 ships CUDA 13.4.1.
+DEFAULT_NCCL_IMAGE = "nvcr.io/nvidia/hpc-benchmarks:26.02.01"
+DEFAULT_PYTORCH_IMAGE = "nvcr.io/nvidia/pytorch:26.08-py3"
+DEFAULT_CUDA_IMAGE = "nvcr.io/nvidia/cuda:13.4.1-base-ubuntu24.04"
+NCCL_IMAGE_PLACEHOLDER = "__NCCL_IMAGE__"
+CUDA_IMAGE_PLACEHOLDER = "__CUDA_IMAGE__"
+
 
 @dataclass
 class Settings:
@@ -35,7 +46,7 @@ class Settings:
         SKIP_K8S_TESTS: Set to "true" to skip Kubernetes tests (default: false)
 
         GPU Stress Test Configuration:
-        GPU_STRESS_IMAGE: Container image for GPU stress test (default: nvcr.io/nvidia/pytorch:25.04-py3)
+        GPU_STRESS_IMAGE: Container image for GPU stress test (default: DEFAULT_PYTORCH_IMAGE)
         GPU_STRESS_RUNTIME: GPU stress test runtime in seconds (default: 300)
         GPU_STRESS_TIMEOUT: Total timeout for test pod (runtime + overhead, default: 420)
         GPU_STRESS_GPU_COUNT: Number of GPUs to request per pod (default: auto-detect all)
@@ -43,17 +54,20 @@ class Settings:
         GPU_CUDA_ARCH: CUDA compute capability for CuPy on ARM64 (e.g., "80" for A100, "90" for H100, default: auto-detect)
 
         NCCL Allreduce Test Configuration:
-        NCCL_IMAGE: Container image for NCCL test (default: nvcr.io/nvidia/hpc-benchmarks:25.04)
+        NCCL_IMAGE: Container image for NCCL test (default: DEFAULT_NCCL_IMAGE)
         NCCL_TIMEOUT: Total timeout for NCCL test job (default: 600 = 10 minutes)
         NCCL_GPU_COUNT: Number of GPUs to request per job (default: auto-detect all)
         NCCL_MIN_BUS_BW_GBPS: Minimum expected bus bandwidth in GB/s (default: 0 = no check)
         NCCL_RESULTS_HOSTPATH: Host path for NCCL results volume (default: /data/nvstgt/results)
 
         NCCL Multi-Node Test Configuration:
-        NCCL_HPC_IMAGE: HPC benchmarks container for multi-node NCCL (default: nvcr.io/nvidia/hpc-benchmarks:25.04)
+        NCCL_HPC_IMAGE: HPC benchmarks container for multi-node NCCL (default: DEFAULT_NCCL_IMAGE)
         NCCL_MULTINODE_NODES: Number of nodes for multi-node test (default: 2)
         NCCL_MULTINODE_GPUS_PER_NODE: GPUs per node for multi-node test (default: 8)
         NCCL_MULTINODE_TIMEOUT: Timeout for multi-node NCCL test (default: 900 = 15 minutes)
+
+        CUDA base image:
+        CUDA_IMAGE: CUDA base image for GPU probes (default: DEFAULT_CUDA_IMAGE)
 
         NIM Helm Workload Configuration:
         NIM_HELM_MODEL: NIM model to deploy (default: meta/llama-3.2-3b-instruct)
@@ -114,7 +128,7 @@ def get_gpu_stress_image() -> str:
     Returns:
         Container image URL
     """
-    return os.getenv("GPU_STRESS_IMAGE", "nvcr.io/nvidia/pytorch:25.04-py3")
+    return os.getenv("GPU_STRESS_IMAGE", DEFAULT_PYTORCH_IMAGE)
 
 
 def get_gpu_stress_runtime() -> int:
@@ -170,10 +184,7 @@ def get_nccl_image() -> str:
     Returns:
         Container image URL
     """
-    return os.getenv(
-        "NCCL_IMAGE",
-        "nvcr.io/nvidia/hpc-benchmarks:25.04",
-    )
+    return os.getenv("NCCL_IMAGE", DEFAULT_NCCL_IMAGE)
 
 
 def get_nccl_timeout() -> int:
@@ -221,9 +232,32 @@ def get_nccl_hpc_image() -> str:
     """Get HPC benchmarks container image for multi-node NCCL test.
 
     Returns:
-        Container image URL (default: nvcr.io/nvidia/hpc-benchmarks:25.04)
+        Container image URL (default: DEFAULT_NCCL_IMAGE)
     """
-    return os.getenv("NCCL_HPC_IMAGE", "nvcr.io/nvidia/hpc-benchmarks:25.04")
+    return os.getenv("NCCL_HPC_IMAGE", DEFAULT_NCCL_IMAGE)
+
+
+# CUDA base image
+
+
+def get_cuda_image() -> str:
+    """Get the CUDA base image used by GPU visibility probes.
+
+    Returns:
+        Container image URL (default: DEFAULT_CUDA_IMAGE)
+    """
+    return os.getenv("CUDA_IMAGE", DEFAULT_CUDA_IMAGE)
+
+
+def render_image_placeholder(content: str, placeholder: str, image: str) -> str:
+    """Replace ``placeholder`` with ``image``.
+
+    Manifests store a placeholder instead of a tag, so an env or config
+    override still applies after the default tag changes.
+    """
+    if placeholder not in content:
+        raise ValueError(f"manifest is missing image placeholder {placeholder}")
+    return content.replace(placeholder, image)
 
 
 def get_nccl_multinode_nodes() -> int:

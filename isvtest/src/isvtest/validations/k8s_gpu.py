@@ -18,7 +18,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from isvtest.config.settings import get_k8s_namespace
+from isvtest.config.settings import get_cuda_image, get_k8s_namespace
 from isvtest.core.k8s import (
     get_kubectl_base_shell,
     kubectl_items_or_fail,
@@ -79,7 +79,7 @@ class K8sNvidiaSmiCheck(BaseValidation):
         self.log.info(f"Found {len(gpu_nodes)} GPU nodes: {', '.join(gpu_nodes)}")
 
         # Use a standard base image that definitely has nvidia-smi
-        image = self.config.get("cuda_image", "nvcr.io/nvidia/cuda:12.4.1-base-ubuntu22.04")
+        image = self.config.get("cuda_image") or get_cuda_image()
 
         # Get runtime class from config (e.g., "nvidia" for MicroK8s)
         runtime_class = self.config.get("runtime_class")

@@ -10,7 +10,7 @@
 #   GPUS_PER_NODE - GPUs per node (default: 8)
 #   TIME_LIMIT - Job time limit in HH:MM:SS format (default: 00:30:00)
 #   JOB_NAME - Name for the job (default: isvtest-nccl)
-#   CONTAINER_IMAGE - Container image to use (default: nvcr.io/nvidia/pytorch:24.01-py3)
+#   CONTAINER_IMAGE - Container image to use (default: GPU_STRESS_IMAGE)
 
 #SBATCH --job-name={{JOB_NAME}}
 #SBATCH --partition={{PARTITION}}
