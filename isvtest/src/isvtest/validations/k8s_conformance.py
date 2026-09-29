@@ -129,6 +129,14 @@ class K8sCncfConformanceCheck(BaseValidation):
     _JUNIT_PATH = f"{_RESULTS_DIR}/junit_01.xml"
     _POD_NAME = "e2e-conformance"
     _MANIFEST_TEMPLATE = Path(__file__).parent / "manifests" / "k8s" / "k8s_conformance.yaml"
+    _SUITE_HOOK_PREFIXES = (
+        "[BeforeSuite]",
+        "[AfterSuite]",
+        "[SynchronizedBeforeSuite]",
+        "[SynchronizedAfterSuite]",
+        "[ReportBeforeSuite]",
+        "[ReportAfterSuite]",
+    )
 
     def run(self) -> None:
         if not is_k8s_available():
@@ -529,6 +537,11 @@ class K8sCncfConformanceCheck(BaseValidation):
                 failure = case.find("failure")
                 error = case.find("error")
                 skipped = case.find("skipped")
+
+                # Ginkgo emits successful suite hooks even when every spec is skipped.
+                # Ignore those as evidence, but retain hook failures and their diagnostics.
+                if name.startswith(self._SUITE_HOOK_PREFIXES) and failure is None and error is None:
+                    continue
 
                 if skipped is not None:
                     summary.skipped += 1

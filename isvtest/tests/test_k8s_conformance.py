@@ -91,6 +91,18 @@ WRAPPED_JUNIT = """<?xml version="1.0"?>
 </testsuites>
 """
 
+# Reduced from the live v1.32.0 report: suite reporting hooks pass even when
+# the focus selects no specs. They must not establish conformance evidence.
+GINKGO_ALL_SKIPPED_JUNIT = """<testsuites>
+  <testsuite name="Kubernetes e2e suite" tests="3" failures="0" skipped="1">
+    <testcase name="[ReportBeforeSuite]" classname="Kubernetes e2e suite" status="passed"/>
+    <testcase name="[It] filtered" classname="Kubernetes e2e suite" status="skipped">
+      <skipped message="excluded by focus"/>
+    </testcase>
+    <testcase name="[ReportAfterSuite] Kubernetes e2e suite report" status="passed"/>
+  </testsuite>
+</testsuites>"""
+
 
 def ok(stdout: str = "", stderr: str = "") -> CommandResult:
     return CommandResult(exit_code=0, stdout=stdout, stderr=stderr, duration=0.01)
@@ -296,9 +308,12 @@ class TestRun:
 
     @pytest.mark.parametrize("mode", ["quick", "certified-conformance", "non-disruptive-conformance"])
     @pytest.mark.parametrize("report_individual", [True, False])
-    def test_all_skipped_run_fails(self, mode: str, report_individual: bool) -> None:
+    @pytest.mark.parametrize("suite_hooks", [False, True])
+    def test_all_skipped_run_fails(self, mode: str, report_individual: bool, suite_hooks: bool) -> None:
         """No executed passing tests means no conformance evidence, even in summary mode."""
         junit = '<testsuite><testcase name="filtered"><skipped message="excluded by focus"/></testcase></testsuite>'
+        if suite_hooks:
+            junit = GINKGO_ALL_SKIPPED_JUNIT
         router = _happy_router({"cat /tmp/results/junit": ok(junit)})
         check = _run_check(router, {"mode": mode, "report_individual_tests": report_individual})
 
@@ -696,6 +711,36 @@ class TestParseJunit:
         assert summary.failed == 0
         assert summary.skipped == 1
         assert summary.cases[0].duration == 1.2
+
+    @pytest.mark.parametrize(
+        "hook",
+        [
+            "BeforeSuite",
+            "AfterSuite",
+            "SynchronizedBeforeSuite",
+            "SynchronizedAfterSuite",
+            "ReportBeforeSuite",
+            "ReportAfterSuite",
+        ],
+    )
+    def test_successful_suite_hooks_do_not_count_as_tests(self, hook: str) -> None:
+        """Only executed specs, not Ginkgo setup or reporting hooks, provide passing evidence."""
+        xml = f'<testsuite><testcase name="[{hook}]"/><testcase name="[It] real spec"/></testsuite>'
+        summary = self._check()._parse_junit(xml)
+        assert summary.passed == summary.total == 1
+        assert [case.name for case in summary.cases] == ["[It] real spec"]
+
+    @pytest.mark.parametrize("result", ["failure", "error"])
+    def test_failed_suite_hooks_remain_failures(self, result: str) -> None:
+        """A broken suite must fail even when a spec passed before the hook failed."""
+        junit = (
+            '<testsuite><testcase name="[It] real spec"/>'
+            f'<testcase name="[AfterSuite]"><{result} message="cleanup failed"/></testcase></testsuite>'
+        )
+        check = _run_check(_happy_router({"cat /tmp/results/junit": ok(junit)}))
+        assert not check.passed
+        assert "1 failed" in check.message
+        assert "[AfterSuite]" in check._output
 
     def test_single_testsuite_with_failure(self) -> None:
         summary = self._check()._parse_junit(FAILING_JUNIT)
