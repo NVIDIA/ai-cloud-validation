@@ -21,8 +21,8 @@ stay with the partner.
 
 The registry includes a living example,
 [isvctl-provider-example](https://github.com/abegnoche/isvctl-provider-example),
-registered as `example`: an unimplemented scaffold that passes in demo mode and
-runs weekly against the latest release. Use it as the model for your own
+registered as `example` with `status: demo`: an unimplemented scaffold that
+passes in demo mode and runs weekly against the latest release. Use it as the model for your own
 repository and entry.
 
 ## Using a registered provider
@@ -61,6 +61,10 @@ link is the entry's `documentation_url`, which is why it must explain them.
 - `experimental` entries may be pinned to a branch or tag only; `fetch` warns
   that their results are not reproducible. `deprecated` entries can still be
   fetched, with a warning.
+- `demo` entries, like `example`, only return dummy results:
+  `test run --provider example` turns on `ISVCTL_DEMO_MODE=1` by itself.
+- Whenever `ISVCTL_DEMO_MODE=1` is set, however it was set, results are never
+  uploaded to the ISV Lab Service.
 - Registry names never clash with in-tree providers: the registry rejects an
   entry named after a directory in `isvctl/configs/providers/`.
 
@@ -110,8 +114,9 @@ link is the entry's `documentation_url`, which is why it must explain them.
 ## Lifecycle
 
 `status` is `qualified` (pinned and validated), `experimental` (may be
-unpinned; results not reproducible) or `deprecated` (hidden from
-`provider list` unless `--all`).
+unpinned; results not reproducible), `deprecated` (hidden from
+`provider list` unless `--all`) or `demo` (dummy results only; run in demo
+mode and never uploaded).
 
 **Proposed, not yet in force:** an entry that has not been re-validated
 against a release in the last six months moves to `deprecated`. It stays

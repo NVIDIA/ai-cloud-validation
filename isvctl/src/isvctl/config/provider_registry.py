@@ -192,10 +192,10 @@ def fetched_commit(name: str, configs_root: Path = CONFIGS_ROOT) -> str | None:
         return None
 
 
-def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> None:
-    """Fail if ``provider`` is a registered provider that is not fetched at its pinned commit.
+def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> RegistryEntry | None:
+    """Return the registry entry for ``provider`` once it is fetched at its pinned commit.
 
-    In-tree providers and names the registry does not know pass through, so the
+    In-tree providers and names the registry does not know return None, so the
     caller's usual unknown-provider handling still applies.
 
     Raises:
@@ -203,10 +203,10 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> None:
             different commit than the registry pins, or the registry is invalid.
     """
     if (configs_root / "providers" / provider).is_dir():
-        return
+        return None
     entry = next((entry for entry in load_registry(configs_root) if entry.name == provider), None)
     if entry is None:
-        return
+        return None
     head = fetched_commit(provider, configs_root)
     hint = f"Run: isvctl provider fetch {provider}"
     if head is None:
@@ -215,3 +215,4 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> None:
         raise ProviderRegistryError(
             f"Provider '{provider}' is fetched at {head[:12]}, but the registry pins {entry.commit[:12]}. {hint}"
         )
+    return entry

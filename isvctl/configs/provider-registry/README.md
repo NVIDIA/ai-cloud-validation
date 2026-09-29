@@ -31,3 +31,6 @@ status: qualified
 - `qualified`: pinned to `commit` and validated against `tested_with`.
 - `experimental`: may give only a `ref`, so fetched content is not reproducible.
 - `deprecated`: kept for history, hidden from the default listing.
+- `demo`: the scripts only return dummy results, like `example.yaml`.
+  `isvctl test run --provider <name>` runs it with `ISVCTL_DEMO_MODE=1` and
+  never uploads the results.

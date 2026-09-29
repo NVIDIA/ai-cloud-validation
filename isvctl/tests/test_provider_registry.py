@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import dataclasses
+import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 import yaml
@@ -24,6 +25,7 @@ from isvctl.config.provider_registry import (
     ensure_fetched,
     load_registry,
 )
+from isvctl.orchestrator.loop import OrchestratorResult, Phase, PhaseResult
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
@@ -543,6 +545,107 @@ def test_test_run_by_name_requires_a_fetch(monkeypatch: pytest.MonkeyPatch, tmp_
 
     assert result.exit_code == 1
     assert "registered but not fetched. Run: isvctl provider fetch acme" in result.output
+
+
+def test_demo_status_requires_a_pinned_commit(tmp_path: Path) -> None:
+    """`demo` is a status like the others: only `experimental` may omit the commit."""
+    [demo] = load_registry(_configs_root(tmp_path / "pinned", {"acme.yaml": _entry(status="demo")}))
+    problems = _problems(_configs_root(tmp_path / "unpinned", {"acme.yaml": _entry(status="demo", commit=None)}))
+
+    assert demo.status == "demo"
+    assert "'commit' is a required property" in problems
+
+
+def test_fetch_says_demo_provider_needs_no_setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """fetch tells a demo provider needs no setup instead of linking prerequisites."""
+    url, first, _ = _upstream_repo(tmp_path)
+
+    _, output = _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=first, status="demo"), "acme")
+
+    assert "Status 'demo': it runs in demo mode (dummy results, never uploaded) with no setup." in output
+    assert "Setup and prerequisites" not in output
+
+
+class _EnvCapturingOrchestrator:
+    """Record the demo-mode variable the steps would inherit, instead of running anything."""
+
+    demo_mode: ClassVar[str | None] = None
+
+    def __init__(self, config: Any, **kwargs: Any) -> None:
+        """Accept the CLI's orchestrator arguments."""
+
+    def run(self, **kwargs: Any) -> OrchestratorResult:
+        """Capture ISVCTL_DEMO_MODE as a step subprocess would see it."""
+        type(self).demo_mode = os.environ.get("ISVCTL_DEMO_MODE")
+        return OrchestratorResult(success=True, phases=[PhaseResult(phase=Phase.TEST, success=True, message="ok")])
+
+
+def _no_upload_allowed() -> tuple[bool, str, str]:
+    """Stand in for the credential check, which a demo run must never reach."""
+    raise AssertionError("a demo-mode run must not attempt an upload")
+
+
+def test_test_run_turns_on_demo_mode_for_demo_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`test run --provider <demo provider>` sets ISVCTL_DEMO_MODE=1 for its steps and never uploads."""
+    configs_root = _configs_root(tmp_path, {})
+    (configs_root / "suites" / "vm.yaml").write_text("tests:\n  capability: vm\n  validations: {}\n", encoding="utf-8")
+    checkout = configs_root / "providers-external" / "acme"
+    (checkout / "config").mkdir(parents=True)
+    (checkout / "config" / "vm.yaml").write_text(
+        "import: ../../../suites/vm.yaml\ncommands:\n  vm:\n    phases: [test]\n    steps: []\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "init", "-q"], cwd=checkout, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "fetched",
+        ],
+        cwd=checkout,
+        check=True,
+    )
+    (configs_root / "provider-registry" / "acme.yaml").write_text(
+        yaml.safe_dump(_entry(status="demo", commit=_head(checkout))), encoding="utf-8"
+    )
+    # Registers the variable for restoration; the CLI overwrites it in os.environ.
+    monkeypatch.setenv("ISVCTL_DEMO_MODE", "0")
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(test_cli, "Orchestrator", _EnvCapturingOrchestrator)
+    monkeypatch.setattr(test_cli, "check_upload_credentials", _no_upload_allowed)
+    _EnvCapturingOrchestrator.demo_mode = None
+
+    result = runner.invoke(test_cli.app, ["run", "--provider", "acme", "--suite", "vm"])
+
+    assert result.exit_code == 0, result.output
+    assert "'acme' has status 'demo': running with ISVCTL_DEMO_MODE=1." in result.output
+    assert "never uploaded to ISV Lab Service" in result.output
+    assert _EnvCapturingOrchestrator.demo_mode == "1"
+
+
+def test_demo_mode_never_uploads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """With ISVCTL_DEMO_MODE=1 set by hand, results are not uploaded even without --no-upload."""
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "commands:\n  vm:\n    phases: [test]\n    steps: []\ntests:\n  capability: vm\n  validations: {}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ISVCTL_DEMO_MODE", "1")
+    monkeypatch.setattr(test_cli, "Orchestrator", _EnvCapturingOrchestrator)
+    monkeypatch.setattr(test_cli, "check_upload_credentials", _no_upload_allowed)
+
+    result = runner.invoke(test_cli.app, ["run", "-f", str(config)])
+
+    assert result.exit_code == 0, result.output
+    assert "never uploaded to ISV Lab Service" in result.output
 
 
 def test_ensure_fetched_ignores_in_tree_and_unknown_providers(tmp_path: Path) -> None:

@@ -20,6 +20,7 @@ Handles the test lifecycle: setup cluster, run tests, teardown.
 
 import json
 import logging
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +40,7 @@ from isvctl.cli.common import (
     print_progress,
     print_warning,
 )
+from isvctl.config.env_catalog import DEMO_MODE_ENV, demo_mode_enabled
 from isvctl.config.label_discovery import (
     ProviderConfigMatch,
     available_labels,
@@ -408,10 +410,14 @@ def run(
 
     if provider:
         try:
-            ensure_fetched(provider, CONFIGS_ROOT)
+            registered = ensure_fetched(provider, CONFIGS_ROOT)
         except ProviderRegistryError as exc:
             print_error(str(exc))
             raise typer.Exit(code=1)
+        if registered is not None and registered.status == "demo":
+            # Steps inherit this process's environment, so every script sees it.
+            os.environ[DEMO_MODE_ENV] = "1"
+            print_progress(f"'{provider}' has status 'demo': running with {DEMO_MODE_ENV}=1.")
 
     if suite:
         try:
@@ -558,6 +564,9 @@ def run(
 
     # Check if we should upload results to ISV Lab Service
     upload_results = not no_upload
+    if upload_results and demo_mode_enabled():
+        print_warning(f"{DEMO_MODE_ENV}=1: scripts return dummy results, which are never uploaded to ISV Lab Service")
+        upload_results = False
     test_run_id: str | None = None
     start_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 

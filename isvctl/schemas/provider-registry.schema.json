@@ -77,9 +77,9 @@
       "pattern": "^https://\\S+$"
     },
     "status": {
-      "description": "qualified: pinned and validated. experimental: may be unpinned, results not reproducible. deprecated: hidden from `isvctl provider list` unless --all.",
+      "description": "qualified: pinned and validated. experimental: may be unpinned, results not reproducible. deprecated: hidden from `isvctl provider list` unless --all. demo: scripts only return dummy results, like the living example; `isvctl test run --provider <name>` sets ISVCTL_DEMO_MODE=1 itself, and results are never uploaded.",
       "type": "string",
-      "enum": ["qualified", "experimental", "deprecated"]
+      "enum": ["qualified", "experimental", "deprecated", "demo"]
     }
   },
   "allOf": [
