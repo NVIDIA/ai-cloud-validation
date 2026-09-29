@@ -54,3 +54,10 @@ repos:
         language: system
         pass_filenames: false
         files: ^(isvctl/configs/suites/.*\.yaml|isvtest/src/isvtest/catalog\.py|scripts/validate_suite_wiring\.py)$
+
+      - id: validate-provider-registry
+        name: check provider registry entries (schema + name + suites)
+        entry: uv run python scripts/validate_provider_registry.py --check
+        language: system
+        pass_filenames: false
+        files: ^(isvctl/configs/provider-registry/.*|isvctl/configs/suites/.*\.yaml|isvctl/schemas/provider-registry\.schema\.json|isvctl/src/isvctl/config/provider_registry\.py|scripts/validate_provider_registry\.py)$
