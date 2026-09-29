@@ -28,6 +28,7 @@ from rich.console import Console
 from rich.table import Table
 
 from isvctl.cli.common import print_error, print_progress, print_warning
+from isvctl.config.env_catalog import DEMO_MODE_ENV
 from isvctl.config.provider_registry import (
     ProviderRegistryError,
     RegistryEntry,
@@ -231,7 +232,7 @@ def _print_next_steps(target_dir: Path, action: str) -> None:
     typer.echo(f"{action} provider scaffold: {display_target}")
     typer.echo()
     typer.echo("Preview without cloud:")
-    typer.echo(f"  ISVCTL_DEMO_MODE=1 uv run isvctl test run -f {demo_config}")
+    typer.echo(f"  {DEMO_MODE_ENV}=1 uv run isvctl test run -f {demo_config}")
     typer.echo()
     typer.echo("Start implementing:")
     typer.echo(f"  {launch_script}")
@@ -333,8 +334,8 @@ def list_cmd(
     )
     table.add_column("Name", style="green", no_wrap=True)
     table.add_column("Vendor")
-    table.add_column("Status")
-    table.add_column("Tested with", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Tested on", no_wrap=True)
     table.add_column("Commit", style="magenta", no_wrap=True)
     table.add_column("Fetched", no_wrap=True)
 
@@ -376,7 +377,10 @@ def _print_fetch_next_steps(entry: RegistryEntry, checkout_dir: Path) -> None:
         typer.echo(f"See {_display_path(checkout_dir)} for the provider's configs.")
         return
     typer.echo(f"Suites: {', '.join(suites)}")
-    typer.echo(f"Setup and prerequisites (credentials, environment): {entry.documentation_url}")
+    if entry.status == "demo":
+        typer.echo("Status 'demo': it runs in demo mode (dummy results, never uploaded) with no setup.")
+    else:
+        typer.echo(f"Setup and prerequisites (credentials, environment): {entry.documentation_url}")
     typer.echo("Then run one with:")
     typer.echo(f"  uv run isvctl test run --provider {entry.name} --suite {suites[0]}")
 

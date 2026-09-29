@@ -25,4 +25,4 @@ suites: [bare_metal, control-plane, iam, image-registry, network, observability,
 maintainers:
   - github: abegnoche
 documentation_url: https://github.com/abegnoche/isvctl-provider-example#reproducing-the-results
-status: experimental
+status: demo
