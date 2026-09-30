@@ -621,7 +621,11 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
             return
 
         expectation_keys = ("expected_version", "expected_nconnect", "expected_proto", "expected_read_ahead_kb")
-        if not any(self.config.get(key) or self.config.get(key) == 0 for key in expectation_keys):
+        numeric_expectation_keys = {"expected_nconnect", "expected_read_ahead_kb"}
+        if not any(
+            self.config.get(key) or (key in numeric_expectation_keys and self.config.get(key) == 0)
+            for key in expectation_keys
+        ):
             self.set_skipped(f"No expected NFS mount option configured ({', '.join(expectation_keys)})")
             return
 

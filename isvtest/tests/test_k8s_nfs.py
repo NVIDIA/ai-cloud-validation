@@ -173,6 +173,17 @@ class TestK8sNfsMountOptionsCheckSkip:
             check.run()
         mock_run.assert_not_called()
 
+    @pytest.mark.parametrize("key", ["expected_version", "expected_proto"])
+    def test_zero_is_not_a_usable_string_expectation(self, key: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_sc_env(monkeypatch)
+        check = K8sNfsMountOptionsCheck(config={"nfs_storage_class": "sc-rwx", key: 0})
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No expected NFS mount option configured"),
+        ):
+            check.run()
+        mock_run.assert_not_called()
+
 
 class TestK8sNfsMountOptionsSubtests:
     def _run(
@@ -213,6 +224,11 @@ class TestK8sNfsMountOptionsSubtests:
         names = {s["name"]: s for s in check._subtest_results}
         assert names["nfs-nconnect"]["skipped"]
 
+    def test_nconnect_zero_is_checked(self) -> None:
+        check = self._run({"expected_nconnect": 0}, mountinfo=_NFS4_LINE)
+        names = {s["name"]: s for s in check._subtest_results}
+        assert not names["nfs-nconnect"]["skipped"]
+
     def test_proto_match_passes(self) -> None:
         check = self._run({"expected_proto": "tcp"})
         names = {s["name"]: s for s in check._subtest_results}
@@ -239,6 +255,11 @@ class TestK8sNfsMountOptionsSubtests:
         check = self._run({"expected_read_ahead_kb": "", "expected_proto": "tcp"})
         names = {s["name"]: s for s in check._subtest_results}
         assert names["read-ahead-kb"]["skipped"]
+
+    def test_readahead_zero_is_checked(self) -> None:
+        check = self._run({"expected_read_ahead_kb": 0}, readahead="0")
+        names = {s["name"]: s for s in check._subtest_results}
+        assert names["read-ahead-kb"]["passed"]
 
 
 # --------------------------------------------------------------------------
