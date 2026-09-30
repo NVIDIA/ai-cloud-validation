@@ -118,7 +118,7 @@ class K8sCncfConformanceCheck(BaseValidation):
         },
         "quick": {
             # Minimal focus for smoke-testing the harness end-to-end.
-            "focus": r"\[Conformance\]\[sig-api-machinery\].*configmap",
+            "focus": r"\[sig-node\] ConfigMap should run through a ConfigMap lifecycle \[Conformance\]",
             "skip": "",
             "parallel": "false",
         },
@@ -129,6 +129,14 @@ class K8sCncfConformanceCheck(BaseValidation):
     _JUNIT_PATH = f"{_RESULTS_DIR}/junit_01.xml"
     _POD_NAME = "e2e-conformance"
     _MANIFEST_TEMPLATE = Path(__file__).parent / "manifests" / "k8s" / "k8s_conformance.yaml"
+    _SUITE_HOOK_PREFIXES = (
+        "[BeforeSuite]",
+        "[AfterSuite]",
+        "[SynchronizedBeforeSuite]",
+        "[SynchronizedAfterSuite]",
+        "[ReportBeforeSuite]",
+        "[ReportAfterSuite]",
+    )
 
     def run(self) -> None:
         if not is_k8s_available():
@@ -258,6 +266,8 @@ class K8sCncfConformanceCheck(BaseValidation):
             elif summary.failed > 0:
                 failed_names = [c.name for c in summary.cases if not c.passed and not c.skipped][:10]
                 self.set_failed(msg, output="First failures:\n" + "\n".join(failed_names))
+            elif summary.passed == 0:
+                self.set_failed(f"{msg} - no conformance testcases passed; check focus/skip filters and prerequisites")
             else:
                 self.set_passed(msg)
 
@@ -527,6 +537,11 @@ class K8sCncfConformanceCheck(BaseValidation):
                 failure = case.find("failure")
                 error = case.find("error")
                 skipped = case.find("skipped")
+
+                # Ginkgo emits successful suite hooks even when every spec is skipped.
+                # Ignore those as evidence, but retain hook failures and their diagnostics.
+                if name.startswith(self._SUITE_HOOK_PREFIXES) and failure is None and error is None:
+                    continue
 
                 if skipped is not None:
                     summary.skipped += 1

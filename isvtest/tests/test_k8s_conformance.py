@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -89,6 +90,18 @@ WRAPPED_JUNIT = """<?xml version="1.0"?>
   </testsuite>
 </testsuites>
 """
+
+# Reduced from the live v1.32.0 report: suite reporting hooks pass even when
+# the focus selects no specs. They must not establish conformance evidence.
+GINKGO_ALL_SKIPPED_JUNIT = """<testsuites>
+  <testsuite name="Kubernetes e2e suite" tests="3" failures="0" skipped="1">
+    <testcase name="[ReportBeforeSuite]" classname="Kubernetes e2e suite" status="passed"/>
+    <testcase name="[It] filtered" classname="Kubernetes e2e suite" status="skipped">
+      <skipped message="excluded by focus"/>
+    </testcase>
+    <testcase name="[ReportAfterSuite] Kubernetes e2e suite report" status="passed"/>
+  </testsuite>
+</testsuites>"""
 
 
 def ok(stdout: str = "", stderr: str = "") -> CommandResult:
@@ -273,6 +286,62 @@ class TestVersionDetection:
 
 
 class TestRun:
+    def test_quick_mode_selects_configmap_lifecycle(self) -> None:
+        """The rendered focus selects a real, small conformance test, not volume tests."""
+        # Upstream catalog: kubernetes/kubernetes at v1.31.3 through v1.35.0,
+        # test/conformance/testdata/conformance.yaml, "ConfigMap lifecycle".
+        lifecycle = "[sig-node] ConfigMap should run through a ConfigMap lifecycle [Conformance]"
+        candidates = [
+            lifecycle,
+            "[sig-node] ConfigMap should fail to create ConfigMap with empty key [Conformance]",
+            "[sig-storage] ConfigMap updates should be reflected in volume [NodeConformance] [Conformance]",
+            lifecycle.replace(" [Conformance]", ""),
+        ]
+        with patch.object(K8sCncfConformanceCheck, "_apply_manifest", return_value=True) as apply:
+            check = _run_check(_happy_router(), {"mode": "quick"})
+
+        assert check.passed
+        manifest = list(yaml.safe_load_all(apply.call_args.args[0]))
+        pod = next(item for item in manifest if item["kind"] == "Pod")
+        env = {item["name"]: item["value"] for item in pod["spec"]["containers"][0]["env"]}
+        assert [name for name in candidates if re.search(env["E2E_FOCUS"], name)] == [lifecycle]
+
+    @pytest.mark.parametrize("mode", ["quick", "certified-conformance", "non-disruptive-conformance"])
+    @pytest.mark.parametrize("report_individual", [True, False])
+    @pytest.mark.parametrize("suite_hooks", [False, True])
+    def test_all_skipped_run_fails(self, mode: str, report_individual: bool, suite_hooks: bool) -> None:
+        """No executed passing tests means no conformance evidence, even in summary mode."""
+        junit = '<testsuite><testcase name="filtered"><skipped message="excluded by focus"/></testcase></testsuite>'
+        if suite_hooks:
+            junit = GINKGO_ALL_SKIPPED_JUNIT
+        router = _happy_router({"cat /tmp/results/junit": ok(junit)})
+        check = _run_check(router, {"mode": mode, "report_individual_tests": report_individual})
+
+        assert not check.passed
+        assert "0/1 passed, 0 failed, 1 skipped" in check.message
+        assert "no conformance testcases passed" in check.message
+        assert len(check._subtest_results) == int(report_individual)
+        if report_individual:
+            assert check._subtest_results[0]["skipped"]
+            assert not check._subtest_results[0]["passed"]
+            assert check._subtest_results[0]["message"] == "excluded by focus"
+        assert any("delete namespace" in cmd for cmd in router.seen)
+        assert any("delete clusterrolebinding" in cmd for cmd in router.seen)
+
+    def test_empty_junit_run_fails(self) -> None:
+        """A valid but empty JUnit suite must not establish conformance."""
+        check = _run_check(_happy_router({"cat /tmp/results/junit": ok("<testsuite/>")}))
+        assert not check.passed
+        assert "no testcases parsed" in check.message
+
+    def test_junit_error_preserves_failure_details(self) -> None:
+        """A run with only errors retains its diagnostics instead of becoming a no-pass error."""
+        junit = '<testsuite><testcase name="broken"><error message="setup failed"/></testcase></testsuite>'
+        check = _run_check(_happy_router({"cat /tmp/results/junit": ok(junit)}))
+        assert not check.passed
+        assert "1 failed" in check.message
+        assert "First failures:\nbroken" in check._output
+
     def test_happy_path(self) -> None:
         router = _happy_router()
         check = _run_check(router)
@@ -642,6 +711,36 @@ class TestParseJunit:
         assert summary.failed == 0
         assert summary.skipped == 1
         assert summary.cases[0].duration == 1.2
+
+    @pytest.mark.parametrize(
+        "hook",
+        [
+            "BeforeSuite",
+            "AfterSuite",
+            "SynchronizedBeforeSuite",
+            "SynchronizedAfterSuite",
+            "ReportBeforeSuite",
+            "ReportAfterSuite",
+        ],
+    )
+    def test_successful_suite_hooks_do_not_count_as_tests(self, hook: str) -> None:
+        """Only executed specs, not Ginkgo setup or reporting hooks, provide passing evidence."""
+        xml = f'<testsuite><testcase name="[{hook}]"/><testcase name="[It] real spec"/></testsuite>'
+        summary = self._check()._parse_junit(xml)
+        assert summary.passed == summary.total == 1
+        assert [case.name for case in summary.cases] == ["[It] real spec"]
+
+    @pytest.mark.parametrize("result", ["failure", "error"])
+    def test_failed_suite_hooks_remain_failures(self, result: str) -> None:
+        """A broken suite must fail even when a spec passed before the hook failed."""
+        junit = (
+            '<testsuite><testcase name="[It] real spec"/>'
+            f'<testcase name="[AfterSuite]"><{result} message="cleanup failed"/></testcase></testsuite>'
+        )
+        check = _run_check(_happy_router({"cat /tmp/results/junit": ok(junit)}))
+        assert not check.passed
+        assert "1 failed" in check.message
+        assert "[AfterSuite]" in check._output
 
     def test_single_testsuite_with_failure(self) -> None:
         summary = self._check()._parse_junit(FAILING_JUNIT)
