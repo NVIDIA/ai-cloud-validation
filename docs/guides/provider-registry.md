@@ -85,7 +85,8 @@ link is the entry's `documentation_url`, which is why it must explain them.
      > not endorse or support it. Report issues to oss@acme.example.
 
    - Instructions that let someone with appropriate access reproduce your
-     results - this is the entry's `documentation_url`.
+     results, including prerequisites (credentials, environment variables,
+     tools) - this is the entry's `documentation_url`.
    - A license.
 4. **Open a pull request here** that adds:
    - `isvctl/configs/providers-registry/<name>.yaml` - the entry the scaffold
@@ -126,10 +127,10 @@ link is the entry's `documentation_url`, which is why it must explain them.
   unless `--all`.
 - `demo`: dummy results only; runs in demo mode and is never uploaded.
 
-**Proposed, not yet in force:** an entry that has not been re-validated
-against a release in the last six months moves to `deprecated`. It stays
-fetchable, so users can still try it against older releases. Re-validating
-means updating `commit` and `tested_with` in a new pull request.
+An entry that has not been re-validated against a recent release for a
+while may be moved to `deprecated`. It stays fetchable, so users can still
+try it against older releases. Re-validating means updating `commit` and
+`tested_with` in a new pull request.
 
 ## Design notes
 
