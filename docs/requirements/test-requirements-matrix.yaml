@@ -1932,6 +1932,20 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: K8S23-08
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: K8S23-09
+    requirements:
+      - req_id: K8S23
+        source: offtake
+        coverage: partial
+    annotations: ''
+    notes: ''
   - test_id: K8S25-01
     requirements:
       - req_id: K8S25

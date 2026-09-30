@@ -2625,7 +2625,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S23-02]]K8S23-02
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| TODO: Helm version
+| Verify CSI driver installation through Helm, registration, and workload readiness
 | K8S23
 | offtake
 | full
@@ -2634,7 +2634,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S23-03]]K8S23-03
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| TODO: Kustomize version
+| Verify CSI driver installation through Kustomize, registration, and workload readiness
 | K8S23
 | offtake
 | full
@@ -2674,6 +2674,24 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | K8S23
 | offtake
 | full
+|
+
+| [[K8S23-08]]K8S23-08
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify a CSI snapshot restores point-in-time data into a distinct volume
+| K8S23
+| offtake
+| partial
+|
+
+| [[K8S23-09]]K8S23-09
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify CSI PVC expansion grows the mounted filesystem and preserves data
+| K8S23
+| offtake
+| partial
 |
 
 | [[K8S25-01]]K8S25-01
