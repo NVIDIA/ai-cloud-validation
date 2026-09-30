@@ -81,7 +81,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
         has_help = False
         has_type = False
         metric_names = set()
-        metric_labels: dict[str, set[str]] = {}
+        metric_labels: dict[str, list[set[str]]] = {}
 
         for line in output.splitlines():
             if line.startswith("# HELP "):
@@ -93,9 +93,11 @@ class K8sApiServerMetricsCheck(BaseValidation):
                 parts = metric_name.split()
                 if parts:
                     metric_names.add(parts[0])
-                    metric_labels.setdefault(parts[0], set()).update(
-                        match.group(1) for match in re.finditer(r"([a-zA-Z_][a-zA-Z0-9_]*)=\"", label_text)
-                    )
+                    labels = {
+                        match.group(1)
+                        for match in re.finditer(r"([a-zA-Z_][a-zA-Z0-9_]*)=\"", label_text)
+                    }
+                    metric_labels.setdefault(parts[0], []).append(labels)
 
         if not has_help or not has_type or not metric_names:
             self.set_failed(
@@ -116,8 +118,9 @@ class K8sApiServerMetricsCheck(BaseValidation):
                 continue
             matching_labels = [
                 labels
-                for name, labels in metric_labels.items()
+                for name, samples in metric_labels.items()
                 if name == expected_metric or name.startswith(f"{expected_metric}_")
+                for labels in samples
             ]
             if not any(required_labels <= labels for labels in matching_labels):
                 missing_labels.append(f"{expected_metric}: {', '.join(sorted(required_labels))}")

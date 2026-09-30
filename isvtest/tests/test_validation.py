@@ -2832,6 +2832,25 @@ class TestK8sApiServerMetricsCheck:
         assert "Expected SLO labels missing" in result["error"]
         assert "scope" in result["error"]
 
+    def test_slo_labels_must_be_present_on_one_sample(self) -> None:
+        """Labels split across samples must not satisfy the SLO contract."""
+        payload = SAMPLE_APISERVER_METRICS.replace(
+            'code="200",component="apiserver",group="",resource="pods",scope="cluster",verb="GET"',
+            'code="200",component="apiserver",group="",resource="pods"',
+        ).replace(
+            'code="201",component="apiserver",group="",resource="pods",scope="cluster",verb="POST"',
+            'scope="cluster",verb="POST"',
+        )
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = CommandResult(exit_code=0, stdout=payload, stderr="", duration=0.1)
+        validation = K8sApiServerMetricsCheck(runner=mock_runner, config={})
+
+        result = validation.execute()
+
+        assert result["passed"] is False
+        assert "Expected SLO labels missing" in result["error"]
+        assert "apiserver_request_total" in result["error"]
+
     def test_empty_response(self) -> None:
         """An empty 200 response is reported explicitly."""
         mock_runner = MagicMock()
