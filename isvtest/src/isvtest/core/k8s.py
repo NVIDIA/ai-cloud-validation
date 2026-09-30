@@ -362,6 +362,28 @@ def kubectl_items_or_empty(
         return []
 
 
+def command_detail(result: KubectlJsonResult) -> str:
+    """Return the most informative detail from a failed kubectl invocation."""
+    exit_code = getattr(result, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(result, "returncode", None)
+    return (result.stderr or "").strip() or (result.stdout or "").strip() or f"exit {exit_code}"
+
+
+def is_resource_absent(stderr: str) -> bool:
+    """Return True when kubectl reports the resource type or object is simply not there.
+
+    Covers both spellings: an API group the cluster does not serve (no CRD
+    installed) and a NotFound for an object within a served group.
+    """
+    lowered = (stderr or "").lower()
+    return (
+        "doesn't have a resource type" in lowered
+        or "could not find the requested resource" in lowered
+        or "notfound" in lowered.replace(" ", "")
+    )
+
+
 def names_from_items(items: list[dict[str, Any]]) -> list[str]:
     """Extract ``.metadata.name`` values from a list of Kubernetes API objects."""
     names: list[str] = []
@@ -390,6 +412,43 @@ def pod_status_reason(pod: dict[str, Any]) -> str:
     # before the bare phase so the kubectl STATUS column wording is preserved
     # for pods without informative container state.
     return str(status.get("reason") or phase)
+
+
+def pod_kubectl_status(pod: dict[str, Any]) -> str:
+    """Return ``pod_status_reason`` as ``kubectl get pods`` STATUS prints it.
+
+    Adds the ``Init:`` prefix for init-container failures and reports pods
+    marked for deletion as ``Terminating`` (``Unknown`` when the node was lost).
+    """
+    if (pod.get("metadata") or {}).get("deletionTimestamp"):
+        return "Unknown" if (pod.get("status") or {}).get("reason") == "NodeLost" else "Terminating"
+    reason = pod_status_reason(pod)
+    for container_status in (pod.get("status") or {}).get("initContainerStatuses") or []:
+        state = container_status.get("state") or {}
+        waiting_reason = (state.get("waiting") or {}).get("reason")
+        terminated_reason = (state.get("terminated") or {}).get("reason")
+        if waiting_reason or (terminated_reason and terminated_reason != "Completed"):
+            return f"Init:{reason}"
+    return reason
+
+
+def _ready_condition_is_true(item: dict[str, Any]) -> bool:
+    """Return whether an API object's ``Ready`` condition has ``status == "True"``."""
+    conditions = (item.get("status") or {}).get("conditions") or []
+    return any(
+        isinstance(condition, dict) and condition.get("type") == "Ready" and condition.get("status") == "True"
+        for condition in conditions
+    )
+
+
+def pod_is_ready(pod: dict[str, Any]) -> bool:
+    """Return whether a pod's ``Ready`` condition has ``status == "True"``."""
+    return _ready_condition_is_true(pod)
+
+
+def node_is_ready(node: dict[str, Any]) -> bool:
+    """Return whether a node's ``Ready`` condition has ``status == "True"``."""
+    return _ready_condition_is_true(node)
 
 
 def job_terminal_status(payload: dict[str, Any]) -> str | None:

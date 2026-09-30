@@ -18,19 +18,20 @@
 Deploys ai-cloud-validation to a remote machine and runs validation tests.
 """
 
+import json
 import logging
 import os
 import shlex
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from isvreporter.config import get_endpoint, get_ssa_issuer
 from isvreporter.platform import get_platform_from_config
+from isvreporter.version import BUILD_REF_ENV, build_ref
 from isvtest.core.ngc import get_ngc_api_key
-from isvtest.release_manifest import INCLUDE_UNRELEASED_ENV
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import get_output_dir, print_error, print_progress, print_step, print_warning
@@ -61,6 +62,17 @@ DEFAULT_ARCHIVE_PATHS = [
     "uv.lock",
 ]
 
+# Remote trees removed before each extract so files deleted locally don't linger:
+# every module under src/ is auto-imported and every suite feeds the catalog.
+# Provider directories are kept because they can hold Terraform state created on
+# the remote, which the archive excludes.
+REMOTE_REPLACED_DIRS = [
+    "isvtest/src",
+    "isvreporter/src",
+    "isvctl/src",
+    "isvctl/configs/suites",
+]
+
 app = typer.Typer(
     name="deploy",
     help="Deploy to remote machine and run validation tests",
@@ -78,6 +90,18 @@ def _pytest_passthrough(args: list[str]) -> str:
     return f"-- {shlex.join(args)}" if args else ""
 
 
+def _clear_replaced_dirs_script() -> str:
+    """Render the remote shell that removes the trees the archive fully replaces."""
+    dirs = " ".join(shlex.quote(d) for d in REMOTE_REPLACED_DIRS)
+    return (
+        f"for dir in {dirs}; do\n"
+        '    if [ -e "$dir" ]; then\n'
+        '        sudo rm -rf "$dir" 2>/dev/null || rm -rf "$dir" || { echo "Failed to remove $dir" >&2; exit 1; }\n'
+        "    fi\n"
+        "done"
+    )
+
+
 def _capability_option(capability: str | None) -> str:
     """Render the capability context for the remote ``test run`` command."""
     return f"--capability {shlex.quote(capability)}" if capability else ""
@@ -86,18 +110,17 @@ def _capability_option(capability: str | None) -> str:
 def _remote_env_assignments() -> str:
     """Render the environment the remote ``test run`` needs from this process.
 
-    Only values the target cannot obtain on its own: a credential and the
-    release gate, both set per invocation by whoever runs the deploy. Quoted
-    because they end up on a shell command line. Path-valued variables are
-    deliberately not forwarded, since they name files that exist only here.
+    Only values the target cannot obtain on its own. The source reference is
+    captured before ``.git`` is excluded from the archive so the remote artifact
+    identifies the source that actually executed.
     """
     forwarded: dict[str, str] = {}
     ngc_api_key = get_ngc_api_key()
     if ngc_api_key:
         forwarded["NGC_API_KEY"] = ngc_api_key
-    include_unreleased = os.environ.get(INCLUDE_UNRELEASED_ENV, "")
-    if include_unreleased:
-        forwarded[INCLUDE_UNRELEASED_ENV] = include_unreleased
+    source_ref = build_ref()
+    if source_ref:
+        forwarded[BUILD_REF_ENV] = source_ref
     return " ".join(f"{name}={shlex.quote(value)}" for name, value in forwarded.items())
 
 
@@ -512,6 +535,8 @@ def run(
 export PATH="$HOME/.local/bin:$PATH"
 
 cd "{effective_remote_dir}"
+echo "Removing previous source trees..."
+{_clear_replaced_dirs_script()}
 echo "Extracting archive..."
 tar -xzf "{archive_name}"
 
@@ -569,6 +594,18 @@ exit ${{TEST_RESULT:-1}}
             print_warning("Failed to copy JUnit XML from remote (may not exist)")
             local_junit = None
 
+        local_catalog: Path | None = output_dir / "test_catalog.json"
+        catalog_data: dict[str, Any] | None = None
+        if scp.download_optional(f"{effective_remote_dir}/_output/test_catalog.json", local_catalog):
+            print_step(f"Test catalog identity copied to {local_catalog}")
+            try:
+                catalog_data = json.loads(local_catalog.read_text())
+            except (OSError, json.JSONDecodeError) as exc:
+                print_warning(f"Failed to read remote test catalog identity: {exc}")
+        else:
+            print_warning("Failed to copy remote test catalog identity")
+            local_catalog = None
+
         # Step 7: Upload results to isvreporter (only if upload_results is enabled)
         if upload_results and test_run_id and lab_id:
             print_step("Uploading test results to isvreporter...")
@@ -581,6 +618,7 @@ exit ${{TEST_RESULT:-1}}
                 log_file=local_log if local_log.exists() else None,
                 junit_xml=local_junit if local_junit and local_junit.exists() else None,
                 isv_software_version=isv_software_version,
+                catalog_document=catalog_data,
             ):
                 print_step("Test results uploaded successfully")
             else:
@@ -592,6 +630,8 @@ exit ${{TEST_RESULT:-1}}
                 local_log.unlink()
             if local_junit and local_junit.exists():
                 local_junit.unlink()
+            if local_catalog and local_catalog.exists():
+                local_catalog.unlink()
 
         # Final status
         if test_exit_code != 0:

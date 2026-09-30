@@ -30,8 +30,7 @@ writing past the hard limit:
 
 Skipped when no manifest provider declares full directory-quota CRUD support,
 no Kubernetes/CSI or native volume-acquisition path is available, or the native
-volume does not return mount instructions. Unreleased —
-run with ``ISVTEST_INCLUDE_UNRELEASED=1``.
+volume does not return mount instructions.
 
 Config keys (with defaults):
     manifest_path: Provider manifest YAML (same as StorageProviderApiCheck).
@@ -62,6 +61,8 @@ import time
 import uuid
 from collections.abc import Callable
 from typing import ClassVar
+
+import pytest
 
 from isvtest.config.settings import get_k8s_csi_shared_fs_storage_class
 from isvtest.core.k8s import (
@@ -127,7 +128,7 @@ class StorageDirectoryQuotaEnforcementCheck(BaseValidation):
       a below-limit write succeeds and sustained over-limit writes are
       eventually blocked with a no-space / quota-exceeded error.
 
-    Skipped (passed) when the manifest is unset, no provider declares full
+    Skipped when the manifest is unset, no provider declares full
     directory-quota CRUD, or no Kubernetes/CSI or native volume-acquisition path
     is available.
     """
@@ -163,11 +164,10 @@ class StorageDirectoryQuotaEnforcementCheck(BaseValidation):
             p for p in providers if p.has_shim and all(p.expected_capabilities.get(cap) for cap in required_caps)
         ]
         if not candidates:
-            self.set_passed(
-                "Skipped: no manifest provider declares full directory-quota CRUD supported "
+            pytest.skip(
+                "No manifest provider declares full directory-quota CRUD supported "
                 f"(requires {', '.join(required_caps)})"
             )
-            return
 
         self._storage_class = str(self.config.get("storage_class") or get_k8s_csi_shared_fs_storage_class() or "")
         self._pvc_namespace = str(self.config.get("pvc_namespace") or "default")
@@ -190,6 +190,9 @@ class StorageDirectoryQuotaEnforcementCheck(BaseValidation):
 
         if any_failed:
             self.set_failed("One or more directory-quota subtests failed; see subtest details")
+        elif self._subtest_results and all(result["skipped"] for result in self._subtest_results):
+            reasons = dict.fromkeys(result["message"] for result in self._subtest_results)
+            pytest.skip("No directory-quota probe ran: " + "; ".join(reasons))
         else:
             self.set_passed(
                 "Directory-quota CRUD + enforcement verified for " + ", ".join(sorted(p.name for p in candidates))

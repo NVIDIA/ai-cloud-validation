@@ -251,7 +251,13 @@ tests:
           requires: [vm, bare_metal]
           step: multipath
 
+    # Bound to the provider's storage_manifest step (shared/
+    # storage_manifest_to_steps.py), which emits storage.manifest_path. Providers
+    # that have not onboarded a storage shim do not declare it, so these checks
+    # skip as step_not_configured. The step runs in the test phase, so these
+    # checks do too, and `--phase test` against an existing system keeps them.
     storage_provider_api:
+      step: storage_manifest
       checks:
         StorageProviderApiCheck:
           test_id: "N/A"
@@ -262,9 +268,7 @@ tests:
           # Python file in-process and runs health_check / create+delete_volume /
           # get_tenant_quota against it. It does not require Kubernetes; K8s
           # provider configs may still point manifest_path at a mounted ConfigMap.
-          # manifest_path is empty by default so the check is skipped cleanly on
-          # providers that haven't onboarded the shim yet.
-          manifest_path: "{{ steps.setup.storage.manifest_path | default('', true) }}"
+          manifest_path: "{{ steps.storage_manifest.storage.manifest_path }}"
           volume_size_bytes: 1073741824 # 1 GiB
         StorageDirectoryQuotaEnforcementCheck:
           test_id: "N/A"
@@ -278,12 +282,29 @@ tests:
           # Skipped cleanly when no provider declares full directory-quota CRUD,
           # no Kubernetes/CSI or native acquisition path is available, or a
           # native volume returns no mount instructions.
-          manifest_path: "{{ steps.setup.storage.manifest_path | default('', true) }}"
+          manifest_path: "{{ steps.storage_manifest.storage.manifest_path }}"
           storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           pvc_size: "5Gi"
           volume_size_bytes: 1073741824 # 1 GiB
           create_hard_bytes: 1073741824 # 1 GiB
           enforcement_hard_bytes: 67108864 # 64 MiB
+        StorageUserQuotaEnforcementCheck:
+          test_id: "N/A"
+          labels: ["storage", "storage_provider_api", "slow"]
+          requires: []
+          # Real per-UID quota lifecycle + enforcement (vs. the sentinel-id probes
+          # in StorageProviderApiCheck). Same volume-acquisition paths as
+          # StorageDirectoryQuotaEnforcementCheck. Defaults probe_user to 65534
+          # (nobody) to match the BusyBox mount pod runAsUser. Skipped cleanly
+          # when no provider declares full user-quota CRUD or no volume path is
+          # available.
+          manifest_path: "{{ steps.storage_manifest.storage.manifest_path }}"
+          storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
+          pvc_size: "5Gi"
+          volume_size_bytes: 1073741824 # 1 GiB
+          create_hard_bytes: 1073741824 # 1 GiB
+          enforcement_hard_bytes: 67108864 # 64 MiB
+          probe_user: "65534"
 
     # Kubernetes storage checks probe the current cluster, so they bind to no
     # step: a `step:` here would skip them whenever no provider supplies that

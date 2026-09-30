@@ -23,6 +23,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from isvreporter.version import build_is_release
+
 # Constants
 OUTPUT_DIR = Path("_output")
 TEST_RUN_ID_FILE = OUTPUT_DIR / "testrun_id.txt"
@@ -141,6 +143,8 @@ def update_test_run(
     log_output: str | None = None,
     isv_software_version: str | None = None,
     isv_test_version: str | None = None,
+    isv_test_catalog_digest: str | None = None,
+    isv_test_build_ref: str | None = None,
 ) -> dict[str, Any]:
     """
     Update an existing test run record with completion status.
@@ -156,6 +160,14 @@ def update_test_run(
         log_output: Full test execution log output (optional)
         isv_software_version: ISV software stack version (opaque string from ISV)
         isv_test_version: ISV test tool version (e.g., "1.12.3")
+        isv_test_catalog_digest: Digest of the checks this build contains, from
+            ``isvtest.catalog.catalog_digest``. The service compares it against
+            the catalog published for isv_test_version to classify catalog
+            provenance independently. Omitted when it cannot be computed.
+        isv_test_build_ref: ``git describe`` output for the checkout, when there
+            is one (e.g. ``"v0.9.0-9-g08339c7"``). It independently classifies
+            source provenance and is absent for the many partners running from
+            a copied tree or an air-gapped cluster.
 
     Returns:
         API response dictionary
@@ -184,6 +196,12 @@ def update_test_run(
 
     if isv_test_version is not None:
         payload["isvTestVersion"] = isv_test_version
+
+    if isv_test_catalog_digest is not None:
+        payload["isvTestCatalogDigest"] = isv_test_catalog_digest
+
+    if isv_test_build_ref is not None:
+        payload["isvTestBuildRef"] = isv_test_build_ref
 
     headers = {
         "Content-Type": "application/json",
@@ -299,12 +317,14 @@ def upload_test_catalog(
     schema_version: int,
     capabilities: list[str],
     suites: list[str],
+    catalog_digest: str,
+    isv_test_build_ref: str,
 ) -> bool:
-    """Upload test catalog for a suite version (idempotent per version).
+    """Publish a release catalog, idempotent for an identical identity.
 
     Sends the full list of available validation tests for a given isvtest
-    version. If the backend already has a catalog for this version, it
-    returns 409 Conflict which is treated as success (dedup).
+    version. A 409 means a different identity already occupies the version and
+    is returned as a publication failure.
 
     Args:
         endpoint: ISV Lab Service endpoint URL
@@ -315,27 +335,37 @@ def upload_test_catalog(
         schema_version: Catalog document schema version.
         capabilities: Declarable capability vocabulary (platform suites).
         suites: Plain suite names declared by the catalog.
+        catalog_digest: Digest carried by the generated catalog artifact.
+        isv_test_build_ref: Build reference carried by that same artifact.
 
     Returns:
-        True if catalog was uploaded or already exists, False on error
+        True if the identical catalog was accepted, False on rejection or error
     """
-    # Check if this version's catalog already exists
-    try:
-        check_url = f"{endpoint}/v1/test-catalog"
-        check_req = Request(check_url, headers={"Authorization": f"Bearer {jwt_token}"}, method="GET")
-        with urlopen(check_req, timeout=10) as resp:
-            versions = json.loads(resp.read().decode())
-            if isv_test_version in versions:
-                print(f"Test catalog already exists for version {isv_test_version} (skipped)")
-                return True
-    except Exception:
-        pass
+    # A catalog is a release's published contract: the thing every lab's coverage
+    # is scored against, and what "latest catalog" resolves to for good. Publish
+    # one only from a build positively known to be that release.
+    #
+    # Deliberately requires True and not merely "not False". A build that cannot
+    # tell - no checkout to describe, which is the ordinary case for a partner
+    # running from a copied tree - is not thereby a release, and letting the
+    # unknown case through is precisely how a working tree's catalog would come
+    # to be published under a release's number. Releases are published by the
+    # release pipeline, which does have a checkout, so nothing legitimate is lost.
+    if build_is_release(isv_test_version, isv_test_build_ref) is not True:
+        print(
+            f"Test catalog not uploaded: this build is not verifiably the {isv_test_version} "
+            "release, and a catalog is only published for a release. Results are still "
+            "uploaded, and the coverage report says which catalog it scored them against."
+        )
+        return False
 
     url = f"{endpoint}/v1/test-catalog"
 
     payload = {
         "schemaVersion": schema_version,
         "isvTestVersion": isv_test_version,
+        "catalogDigest": catalog_digest,
+        "isvTestBuildRef": isv_test_build_ref,
         "capabilities": capabilities,
         "suites": suites,
         "entries": [
@@ -343,7 +373,6 @@ def upload_test_catalog(
                 "name": e["name"],
                 "description": e.get("description", ""),
                 "labels": e.get("labels", []),
-                "source": e.get("source", ""),
                 "suite": e.get("suite", ""),
                 "capability": e.get("capability"),
                 "requires": e.get("requires", []),
@@ -366,8 +395,11 @@ def upload_test_catalog(
             return True
     except HTTPError as e:
         if e.code == 409:
-            print(f"Test catalog already exists for version {isv_test_version} (skipped)")
-            return True
+            print(
+                f"ERROR: A different catalog already exists for version {isv_test_version}",
+                file=sys.stderr,
+            )
+            return False
         print(f"ERROR: Failed to upload test catalog (HTTP {e.code})", file=sys.stderr)
         print(f"Response: {e.read().decode()}", file=sys.stderr)
         return False

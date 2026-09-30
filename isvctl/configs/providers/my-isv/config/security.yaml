@@ -177,8 +177,6 @@ commands:
       - name: capacity_reservation_grouping
         phase: test
         command: "python ../scripts/capacity/reservation_grouping.py"
-        requires_available_validations:
-          - CapacityReservationGroupingCheck
         args:
           - "--account-id"
           - "{{tenant_id}}"
@@ -191,8 +189,6 @@ commands:
       - name: topology_block_atomic_allocation
         phase: test
         command: "python ../scripts/capacity/topology_block_atomic_allocation.py"
-        requires_available_validations:
-          - CapacityTopologyBlockAtomicAllocationCheck
         args:
           - "--tenant-id"
           - "{{tenant_id}}"

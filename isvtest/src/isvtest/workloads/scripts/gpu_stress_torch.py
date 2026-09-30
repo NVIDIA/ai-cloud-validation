@@ -41,7 +41,19 @@ a = [torch.randn(sz, sz, device=f"cuda:{i}", dtype=torch.float32) for i in range
 t0 = time.time()
 loops = 0
 while time.time() - t0 < r:
-    for x in a:
-        torch.mm(x, x)
+    out = [torch.mm(x, x) for x in a]
+    if n > 1:
+        # Round-trip each result through another GPU; a mismatch means the
+        # GPU-to-GPU path corrupted data.
+        for i, y in enumerate(out):
+            peer = (i + 1 + loops % (n - 1)) % n
+            if not torch.equal(y.to(f"cuda:{peer}").to(f"cuda:{i}"), y):
+                print(f"FAILURE: GPU {i} -> GPU {peer} transfer corrupted data on {h}")
+                exit(1)
+    for i in range(n):
+        torch.cuda.synchronize(i)
     loops += 1
+if loops < n:
+    print(f"FAILURE: Too few loops completed ({loops}) on {h}")
+    exit(1)
 print(f"SUCCESS: {h} completed {loops} loops with {n} GPU(s)")

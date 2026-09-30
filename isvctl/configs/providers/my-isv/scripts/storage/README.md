@@ -78,30 +78,29 @@ The schema is `isvctl/schemas/storage-provider-manifest.schema.json`.
 ## Driving the tests
 
 The manifest drives `StorageProviderApiCheck` ONLY. `storage_manifest_to_steps.py`
-(`../../../shared/`) resolves the manifest path in a setup step and emits
-`steps.setup.storage.manifest_path`, which the check loads in-process.
+(`../../../shared/`) resolves the manifest path in a `storage_manifest` step and emits
+`steps.storage_manifest.storage.manifest_path`, which the check loads in-process.
 
 The CSI / NFS / POSIX filesystem checks are config-driven like every other suite
 check: set their StorageClass names via the `K8S_CSI_*` env vars (or literal
 overrides in your config). Resolution is **explicit YAML → `K8S_CSI_*` env var →
-skip**. Two configs wire this up:
+skip**. [`../../config/storage.yaml`](../../config/storage.yaml) wires both:
 
-- `../../config/storage.yaml` — bare-metal shim-only run (no cluster):
+- Core run (shim check, no cluster):
 
   ```bash
-  ISVCTL_DEMO_MODE=1 ISVTEST_INCLUDE_UNRELEASED=1 \
+  ISVCTL_DEMO_MODE=1 \
     uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
   ```
 
-- `../../config/storage-k8s.yaml` — runs the Kubernetes storage suite against an
-  existing cluster (StorageProviderApiCheck from the manifest; CSI/filesystem
-  checks from `K8S_CSI_*` env vars):
+- Kubernetes run (StorageProviderApiCheck from the manifest; CSI/filesystem
+  checks against an existing cluster, StorageClasses from `K8S_CSI_*` env vars):
 
   ```bash
   export K8S_CSI_SHARED_FS_SC=my-isv-rwx
-  ISVTEST_INCLUDE_UNRELEASED=1 \
-    uv run isvctl test run \
-      -f isvctl/configs/providers/my-isv/config/storage-k8s.yaml \
+  uv run isvctl test run \
+      -f isvctl/configs/providers/my-isv/config/storage.yaml \
+      --capability kubernetes \
       -- -k "K8sCsi or K8sFile or K8sNfs or StorageProviderApi"
   ```
 
@@ -146,12 +145,10 @@ The skeleton ships with a `DEMO_MODE = os.environ.get("ISVCTL_DEMO_MODE")
 `AuthenticationError` to make it obvious the backend isn't wired up; demo runs
 return dummy data so the validation passes end-to-end. The optional
 `create_volume` / `delete_volume` stay raising `NotSupportedError` either way
-(volume-provisioning then reports a clean skip). To exercise the storage check
-in demo mode (the new check ships unreleased, so the orchestrator skips it by
-default):
+(volume-provisioning then reports a clean skip). To exercise the storage check in demo mode:
 
 ```bash
-ISVCTL_DEMO_MODE=1 ISVTEST_INCLUDE_UNRELEASED=1 \
+ISVCTL_DEMO_MODE=1 \
   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
 ```
 

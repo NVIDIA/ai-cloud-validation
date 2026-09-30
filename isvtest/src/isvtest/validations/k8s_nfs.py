@@ -34,6 +34,8 @@ import shlex
 import uuid
 from typing import Any, ClassVar
 
+import pytest
+
 from isvtest.config.settings import (
     get_k8s_csi_nfs_storage_class,
     get_k8s_csi_shared_fs_storage_class,
@@ -42,6 +44,7 @@ from isvtest.core.k8s import (
     get_kubectl_base_shell,
     get_kubectl_command,
     kubectl_items_or_empty,
+    node_is_ready,
     render_k8s_manifest,
     run_kubectl,
 )
@@ -311,14 +314,6 @@ class _K8sSharedFsCheck(BaseValidation):
         )
 
     @staticmethod
-    def _item_is_ready(node_item: dict[str, Any]) -> bool:
-        """Return True when a node item's ``Ready`` condition has ``status == "True"``."""
-        for condition in (node_item.get("status") or {}).get("conditions") or []:
-            if isinstance(condition, dict) and condition.get("type") == "Ready":
-                return condition.get("status") == "True"
-        return False
-
-    @staticmethod
     def _has_untolerated_noexecute_taint(
         node_item: dict[str, Any],
         user_tolerations: list[dict[str, Any]],
@@ -355,7 +350,7 @@ class _K8sSharedFsCheck(BaseValidation):
         return sorted(
             str(name)
             for item in kubectl_items_or_empty(result)
-            if self._item_is_ready(item)
+            if node_is_ready(item)
             and not self._has_untolerated_noexecute_taint(item, user_tolerations)
             and (name := (item.get("metadata") or {}).get("name"))
         )
@@ -442,8 +437,7 @@ class K8sNodeKernelModulesCheck(_K8sSharedFsCheck):
             raw_modules = [raw_modules]
         modules = [str(m) for m in raw_modules if m]
         if not modules:
-            self.set_passed("Skipped: kernel_modules not configured")
-            return
+            pytest.skip("kernel_modules not configured")
 
         self._setup_kubectl()
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
@@ -558,7 +552,9 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
     Provisions a single RWX PVC and BusyBox pod, reads
     ``/proc/self/mountinfo`` once, then asserts each configured option.
     Subtests whose expected value is left empty are skipped rather than
-    failed, so providers only need to set the options they care about.
+    failed, so providers only need to set the options they care about. The
+    whole check is skipped when no expected value is configured (before any
+    PVC is provisioned) or when the volume is not mounted as NFS.
 
     Subtests:
         nfs-version    asserts ``vers == expected_version``
@@ -620,8 +616,10 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
     def run(self) -> None:
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_passed("Skipped: no shared_fs_storage_class / nfs_storage_class configured")
-            return
+            pytest.skip("No shared_fs_storage_class / nfs_storage_class configured")
+        expectation_keys = ("expected_version", "expected_nconnect", "expected_proto", "expected_read_ahead_kb")
+        if not any(self.config.get(key) or self.config.get(key) == 0 for key in expectation_keys):
+            pytest.skip(f"No expected NFS mount option configured ({', '.join(expectation_keys)})")
 
         self._setup_kubectl()
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
@@ -666,7 +664,8 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
                 return
 
             fstype, options = parsed
-            not_nfs = fstype not in ("nfs", "nfs4")
+            if fstype not in ("nfs", "nfs4"):
+                pytest.skip(f"{_DATA_DIR} is mounted as {fstype!r}, not NFS")
 
             any_failed = False
 
@@ -676,8 +675,6 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
                 self.report_subtest(
                     "nfs-version", passed=True, message="expected_version not configured; skipped", skipped=True
                 )
-            elif not_nfs:
-                self.report_subtest("nfs-version", passed=True, message=f"fstype={fstype!r}; not NFS", skipped=True)
             else:
                 actual = options.get("vers", "")
                 passed = actual == expected_version
@@ -698,8 +695,6 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
                 self.report_subtest(
                     "nfs-nconnect", passed=True, message="expected_nconnect not configured; skipped", skipped=True
                 )
-            elif not_nfs:
-                self.report_subtest("nfs-nconnect", passed=True, message=f"fstype={fstype!r}; not NFS", skipped=True)
             else:
                 try:
                     expected_nconnect = int(raw_nconnect)
@@ -745,8 +740,6 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
                 self.report_subtest(
                     "nfs-proto", passed=True, message="expected_proto not configured; skipped", skipped=True
                 )
-            elif not_nfs:
-                self.report_subtest("nfs-proto", passed=True, message=f"fstype={fstype!r}; not NFS", skipped=True)
             else:
                 actual_proto = options.get("proto", "")
                 passed = actual_proto == expected_proto
@@ -767,8 +760,6 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
                 self.report_subtest(
                     "read-ahead-kb", passed=True, message="expected_read_ahead_kb not configured; skipped", skipped=True
                 )
-            elif not_nfs:
-                self.report_subtest("read-ahead-kb", passed=True, message=f"fstype={fstype!r}; not NFS", skipped=True)
             else:
                 ra_passed, ra_message = self._check_read_ahead(pod_name, options)
                 self.report_subtest("read-ahead-kb", passed=ra_passed, message=ra_message)

@@ -46,19 +46,18 @@ def test_integrity_errors_empty_when_all_known() -> None:
     assert test_plan_coverage.integrity_errors({"A-1", "B-2"}, {"C": ["A-1"], "D": ["B-2"]}) == []
 
 
-def test_build_coverage_counts_covered_and_released() -> None:
-    """Coverage counts plan items implemented by any class vs a released class."""
+def test_build_coverage_counts_covered_items() -> None:
+    """Coverage counts plan items implemented by any catalog entry."""
     plan = {
         "SEC01-01": {"req_id": "SEC01"},
         "SEC02-01": {"req_id": "SEC02"},
         "AUX-01": {"req_id": "AUX"},
     }
-    class_map = {"ReleasedCheck": ["SEC01-01"], "UnreleasedCheck": ["SEC02-01"]}
-    coverage = test_plan_coverage.build_coverage(plan, class_map, released={"ReleasedCheck"})
+    class_map = {"FirstCheck": ["SEC01-01"], "SecondCheck": ["SEC02-01"]}
+    coverage = test_plan_coverage.build_coverage(plan, class_map)
 
     assert coverage["plan_test_ids"] == 3
     assert coverage["plan_test_ids_covered"] == 2
-    assert coverage["plan_test_ids_covered_by_released_class"] == 1
 
 
 def test_real_test_ids_excludes_sentinel() -> None:

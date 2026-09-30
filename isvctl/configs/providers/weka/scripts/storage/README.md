@@ -93,15 +93,20 @@ Most wall time is PVC provision + pod Ready. Create those once and pass
 its probe subdirectory and quota:
 
 ```yaml
-# quota-reuse.yaml — deep-merge with storage-k8s.yaml
+# quota-reuse.yaml — deep-merge with storage.yaml
 tests:
   validations:
-    k8s_storage:
+    storage_provider_api:
       checks:
         StorageDirectoryQuotaEnforcementCheck:
           pvc_namespace: isvtest-quota
           pvc_name: quota-probe
           pod_name: quota-probe
+        StorageUserQuotaEnforcementCheck:
+          pvc_namespace: isvtest-quota
+          pvc_name: quota-probe
+          pod_name: quota-probe
+          probe_user: "65534"
 ```
 
 Match the harness pod identity (`runAsUser`/`runAsGroup`/`fsGroup` 65534) so
@@ -118,6 +123,29 @@ PVC+pod manifest example.
 `hard_limit_bytes`, `soft_limit_bytes`) travel as query parameters, and `GET`
 paginates via `next_token`. WEKA exposes no per-UID read, so `get_user_quota`
 filters the list.
+
+#### End-to-end lifecycle + enforcement (`StorageUserQuotaEnforcementCheck`)
+
+[`StorageUserQuotaEnforcementCheck`](../../../../../../isvtest/src/isvtest/validations/storage_user_quota_enforcement.py)
+is the user-quota counterpart to `StorageDirectoryQuotaEnforcementCheck`. It
+reports:
+
+| Subtest | What it does |
+| ------- | ------------ |
+| `user-quota-crud[weka-shared-fs]` | `set` → `get` → `set` (update) → `list` → `delete` → `get` (gone) for `probe_user` (default `65534`) on a real `weka/v2` volume |
+| `user-quota-enforcement[weka-shared-fs]` | With the hard limit set for that UID, writes below the limit succeed and over-limit writes are blocked |
+
+Reuse the same PVC/pod as the directory check; keep `probe_user` aligned with
+the mount pod's `runAsUser`.
+
+```bash
+ISVTEST_INCLUDE_UNRELEASED=1 \
+  uv run isvctl test run \
+    -f isvctl/configs/providers/weka/config/storage.yaml \
+    --capability kubernetes \
+    -f /path/to/quota-reuse.yaml \
+    -- -v -s -k "StorageUserQuotaEnforcement"
+```
 
 User subjects must be numeric UIDs — WEKA has no username form on this route, so
 a non-numeric subject raises `ValidationError`. A hard limit of `0` means
@@ -201,21 +229,21 @@ export WEKA_INSECURE_SKIP_VERIFY=1   # if using cluster-internal TLS
 uv run python .cursor/skills/storage-api-stub-authoring/scripts/probe_shim.py \
   --manifest isvctl/configs/providers/weka/config/storage-provider-manifest.yaml
 
-# Full check (unreleased -> gate env var required):
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
+# Full check:
+uv run isvctl test run \
     -f isvctl/configs/providers/weka/config/storage.yaml
 ```
 
 To also verify the directory-quota lifecycle **and** enforcement against the
 live cluster your kubectl points at (provisions a PVC, mounts it, and writes
-data), run the K8s config with the shared-fs StorageClass set:
+data), run the same config with `--capability kubernetes` and the shared-fs
+StorageClass set:
 
 ```bash
 export K8S_CSI_SHARED_FS_SC=weka-rwx
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
-    -f isvctl/configs/providers/weka/config/storage-k8s.yaml \
+uv run isvctl test run \
+    -f isvctl/configs/providers/weka/config/storage.yaml \
+    --capability kubernetes \
     -- -v -s -k "StorageDirectoryQuotaEnforcement"
 ```
 
@@ -250,7 +278,6 @@ EOF
 | `AuthenticationError` | Wrong creds or org | Verify with `POST /api/v2/login` from a client pod |
 | `hard_limit_bytes=0` | Wrong filesystem name | Check `WEKA_FILESYSTEM` matches `filesystemName` on the StorageClass |
 | `observed 0 ... via list_volumes` | No filesystems visible to the organization | Create a PVC against your WEKA RWX StorageClass |
-| `Skipping unreleased validation` | Gate env unset | Set `ISVTEST_INCLUDE_UNRELEASED=1` |
 
 ## See also
 

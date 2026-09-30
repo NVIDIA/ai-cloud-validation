@@ -54,6 +54,44 @@ commands:
         command: "../scripts/k8s/teardown.sh"
         timeout: 30
 
+      # Control-plane size pinning (K8S27-01). Drop this step if your managed
+      # offering exposes no control-plane sizing knob - K8sControlPlaneSizePinnedCheck
+      # then skips instead of reporting a pin nobody can make.
+      - name: pin_control_plane
+        phase: setup
+        command: "python3 ../scripts/k8s/pin_control_plane.py"
+        args:
+          - "--instance-count={{control_plane_instance_count}}"
+        output_schema: control_plane_size
+        timeout: 900
+
+      # Upstream reference for K8S02 (shared, not provider-specific).
+      # Best-effort: an unreachable index skips the checks rather than
+      # stopping setup. Pass `--source=file:///path/to/index.json` under args
+      # to read a mirrored copy of the index when air-gapped.
+      - name: fetch_upstream_k8s_versions
+        phase: setup
+        continue_on_failure: true
+        command: "python3 ../../shared/k8s/fetch_upstream_versions.py"
+        output_schema: k8s_upstream_versions
+        timeout: 60
+
+      # Offered versions (K8S02-01) and patching configuration (K8S02-02).
+      # Each feeds one check, so a failed read is that check's finding.
+      - name: list_k8s_versions
+        phase: setup
+        continue_on_failure: true
+        command: "python3 ../scripts/k8s/list_k8s_versions.py"
+        output_schema: k8s_offered_versions
+        timeout: 120
+
+      - name: describe_control_plane_patching
+        phase: setup
+        continue_on_failure: true
+        command: "python3 ../scripts/k8s/describe_control_plane_patching.py"
+        output_schema: k8s_control_plane_patching
+        timeout: 120
+
       # Break-fix actions (BFX01). Demo stubs until real cluster APIs are wired.
       - name: reset_gpus
         phase: test
@@ -72,8 +110,6 @@ commands:
         args:
           - "--node={{breakfix_node}}"
         timeout: 1200
-        requires_available_validations:
-          - CordonNodeCheck
 
 tests:
   description: "my-isv Kubernetes platform suite (real cluster required)"
@@ -81,3 +117,6 @@ tests:
     region: ""
     machine_id: ""
     breakfix_node: "{{env.ISVTEST_BREAKFIX_NODE | default('', true)}}"
+    # Control-plane instance count to pin (K8S27-01). Set this to the size that
+    # carries the load limit you are certifying for.
+    control_plane_instance_count: 3

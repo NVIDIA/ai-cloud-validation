@@ -34,15 +34,11 @@
 #   - AWS_SKIP_TEARDOWN: Set to "true" to skip teardown and preserve resources (default: false)
 #   - NGC_API_KEY: NGC API key for NIM workloads
 #   - AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY: AWS credentials (if not using IAM roles)
-#   - AWS_REGION: Region for the FSx Lustre storage shim (required when running StorageProviderApiCheck)
-#   - FSX_DEPLOYMENT_TYPE: FSx deployment type for quota code resolution (default: PERSISTENT_2)
-#   - FSX_QUOTA_CODE: Override the quota code directly (optional)
-#   - AWS_ACCOUNT_ID: Override STS-resolved account id (optional)
+#
+# Storage (CSI, filesystem, and the FSx Lustre StorageProviderApiCheck) is
+# validated by ./storage.yaml, which reuses this EKS stack via the same setup.sh.
 
-import:
-  - ../../../suites/k8s.yaml
-  # StorageProviderApiCheck + CSI/filesystem checks live in the storage suite.
-  - ../../../suites/storage.yaml
+import: ../../../suites/k8s.yaml
 
 version: "1.0"
 
@@ -56,7 +52,7 @@ commands:
         timeout: 1800 # 30 min for Terraform provisioning
         env:
           TF_AUTO_APPROVE: "true"
-          TF_VAR_region: "us-west-2"
+          TF_VAR_region: "{{region}}"
           TF_VAR_gpu_node_instance_types: '["g5.2xlarge"]'
           TF_VAR_gpu_node_desired_size: "1"
 
@@ -69,8 +65,6 @@ commands:
         phase: setup
         command: "../scripts/eks/create_shared_vpc_cluster.sh"
         output_schema: multi_cluster
-        requires_available_validations:
-          - K8sMultiClusterSameVpcCheck
         timeout: 1800
         env:
           TF_AUTO_APPROVE: "true"
@@ -134,6 +128,37 @@ commands:
           TF_VAR_test_pool_instance_types: '["m6i.large"]'
           TF_VAR_test_pool_desired_size: "1"
           TF_VAR_test_pool_node_type: "cpu"
+
+      # K8S02 reads. None of these provisions anything, so `--phase test` runs
+      # K8S02 against an existing cluster without Terraform - set
+      # EKS_CLUSTER_NAME when doing that. They come first in the phase because
+      # the node-pool steps below are long Terraform operations whose failure
+      # stops the phase.
+      - name: fetch_upstream_k8s_versions
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../../shared/k8s/fetch_upstream_versions.py"
+        output_schema: k8s_upstream_versions
+        timeout: 60
+
+      - name: list_k8s_versions
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/eks/list_k8s_versions.py"
+        args:
+          - "--region={{region}}"
+        output_schema: k8s_offered_versions
+        timeout: 120
+
+      - name: describe_control_plane_patching
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/eks/describe_control_plane_patching.py"
+        args:
+          - "--cluster-name={{ steps.setup.cluster_name | default(env.EKS_CLUSTER_NAME, true) }}"
+          - "--region={{region}}"
+        output_schema: k8s_control_plane_patching
+        timeout: 120
 
       # Scale the CPU pool to a new target count. Re-applies the
       # terraform-node-pool module with a bumped desired_size; create_node_pool.sh
@@ -214,8 +239,6 @@ commands:
         args:
           - "--node={{breakfix_node}}"
         timeout: 1200
-        requires_available_validations:
-          - CordonNodeCheck
       - name: teardown
         phase: teardown
         command: "../scripts/eks/teardown.sh"
@@ -228,15 +251,9 @@ tests:
 
   settings:
     breakfix_node: "{{env.ISVTEST_BREAKFIX_NODE | default('', true)}}"
+    region: "{{env.AWS_REGION | default('us-west-2', true)}}"
 
   validations:
-    storage_provider_api:
-      checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/aws/config/storage-provider-manifest.yaml"
-    k8s_storage:
-      checks:
-        K8sCsiDriverHealthCheck: {}
     k8s_multi_cluster:
       checks:
         K8sMultiClusterSameVpcCheck:

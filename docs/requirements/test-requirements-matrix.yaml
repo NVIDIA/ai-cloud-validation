@@ -863,6 +863,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: SDN17-02
+    requirements:
+      - req_id: SDN17
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: The Kubernetes DRA reading of SDN17; SDN17-01 covers the host reading.
   - test_id: SDN18-01
     requirements:
       - req_id: SDN18
@@ -870,6 +877,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: SDN18-02
+    requirements:
+      - req_id: SDN18
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: The Kubernetes DRA reading of SDN18; SDN18-01 covers the host reading.
   - test_id: SDN19-01
     requirements:
       - req_id: SDN19
@@ -877,6 +891,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: SDN19-02
+    requirements:
+      - req_id: SDN19
+        source: reference
+        coverage: full
+    annotations: ''
+    notes: The Kubernetes DRA reading of SDN19; SDN19-01 covers the host reading.
   - test_id: SDN20-01
     requirements:
       - req_id: SDN20
@@ -2058,13 +2079,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
-  - test_id: K8S37-01
+  - test_id: K8S28-01
     requirements:
-      - req_id: K8S37
-        source: reference
+      - req_id: K8S28
+        source: offtake
         coverage: full
-    annotations: ''
-    notes: ''
+    annotations: 'Former reference requirement K8S37 was consolidated into the canonical offtake K8S28 requirement.'
+    notes: 'Legacy test IDs: K8S-XX-09, K8S37-01.'
   - test_id: K8S26-01
     requirements:
       - req_id: K8S26

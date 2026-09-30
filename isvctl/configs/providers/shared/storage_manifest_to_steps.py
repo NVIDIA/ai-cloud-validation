@@ -26,7 +26,7 @@ their own config (suite/provider YAML literals or ``K8S_CSI_*`` env vars), not
 from this manifest.
 
 This only *resolves* the path - it does NOT load the provider shims (no backend
-connections), so it is safe to run in a setup phase. The authoritative manifest
+connections), so it is safe to run in any phase. The authoritative manifest
 parsing happens when ``StorageProviderApiCheck`` loads the manifest in-process.
 
 The manifest path is taken from ``STORAGE_PROVIDER_MANIFEST`` (or the first CLI
@@ -67,7 +67,6 @@ def _resolve_manifest_path() -> Path | None:
 
 
 def main() -> int:
-    platform = os.environ.get("STORAGE_STEP_PLATFORM", "storage")
     manifest_path = _resolve_manifest_path()
     if manifest_path is None:
         # No manifest configured: emit an empty path so StorageProviderApiCheck
@@ -76,7 +75,7 @@ def main() -> int:
             json.dumps(
                 {
                     "success": True,
-                    "platform": platform,
+                    "platform": "storage",
                     "test_name": "storage_manifest",
                     "storage": {"manifest_path": ""},
                 }
@@ -91,7 +90,7 @@ def main() -> int:
         json.dumps(
             {
                 "success": True,
-                "platform": platform,
+                "platform": "storage",
                 "test_name": "storage_manifest",
                 "storage": {"manifest_path": str(manifest_path)},
             }

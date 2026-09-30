@@ -30,6 +30,55 @@ Workflow:
 > attached to a milestone. The file you are reading now is the canonical
 > per-tag changelog.
 
+## [0.13.0] - 2026-09-15
+
+### Added
+
+- **IMEX availability, connectivity, and resilience validations** ([#621](https://github.com/NVIDIA/ai-cloud-validation/pull/621), [#627](https://github.com/NVIDIA/ai-cloud-validation/pull/627), [#631](https://github.com/NVIDIA/ai-cloud-validation/pull/631), [#633](https://github.com/NVIDIA/ai-cloud-validation/pull/633), [#634](https://github.com/NVIDIA/ai-cloud-validation/pull/634), [#636](https://github.com/NVIDIA/ai-cloud-validation/pull/636), [#639](https://github.com/NVIDIA/ai-cloud-validation/pull/639))
+  Adds SDN17-01/02 and SDN21-01 coverage for preinstalled host tooling, Kubernetes DRA compute-domain availability, and mutual connectivity across every domain member. SDN18-01 verifies host-managed boot persistence and recovery, while SDN18-02 verifies driver-managed recovery. SDN19-01 verifies that surviving peers observe a deliberate node departure, and SDN20-01 verifies that IMEX returns to service and rejoins its domain after an unassisted reboot.
+- **Tenant-controlled GPU Operator driver overrides** ([#618](https://github.com/NVIDIA/ai-cloud-validation/pull/618))
+  Adds `K8sGpuOperatorOverrideCheck` (K8S25-02) to verify that tenants can replace provider-default GPU drivers through authorized, admission-approved configuration changes without mutating the cluster during validation.
+- **Pinned Kubernetes control-plane sizing** ([#628](https://github.com/NVIDIA/ai-cloud-validation/pull/628))
+  Adds `K8sControlPlaneSizePinnedCheck` (K8S27-01) to confirm the provider delivered the requested control-plane size and to detect clusters that register more ready API servers than the tenant's pin allows.
+
+### Fixed
+
+- **Portable macOS deployment archives** ([#632](https://github.com/NVIDIA/ai-cloud-validation/pull/632))
+  Deployment archives created on macOS no longer include extended file attributes that produce warnings when extracted on Linux hosts.
+
+### Internal
+
+- Update the NVIDIA Requirements for AI Clouds reference to v2.4 ([#629](https://github.com/NVIDIA/ai-cloud-validation/pull/629)).
+- Clarify test and pre-commit verification commands for contributors ([#635](https://github.com/NVIDIA/ai-cloud-validation/pull/635)).
+
+## [0.12.0] - 2026-09-09
+
+### Added
+
+- **Expanded break-fix validation coverage** ([#572](https://github.com/NVIDIA/ai-cloud-validation/pull/572), [#607](https://github.com/NVIDIA/ai-cloud-validation/pull/607), [#611](https://github.com/NVIDIA/ai-cloud-validation/pull/611), [#613](https://github.com/NVIDIA/ai-cloud-validation/pull/613), [#616](https://github.com/NVIDIA/ai-cloud-validation/pull/616))
+  Adds BFX01-02/04/06, BFX03-02, and BFX04-01 coverage for safely returning, cordoning, and reporting nodes for repair, inspecting NVSwitch firmware, and verifying GPU health-monitoring processes, with explicit safeguards around disruptive operations.
+- **Source and catalog provenance** ([#620](https://github.com/NVIDIA/ai-cloud-validation/pull/620))
+  Test runs now report their package version, source reference, and a stable digest of the complete canonical catalog, while release workflows publish and promote one validated catalog artifact across environments.
+
+### Fixed
+
+- **Break-fix evidence and repair recovery** ([#612](https://github.com/NVIDIA/ai-cloud-validation/pull/612), [#614](https://github.com/NVIDIA/ai-cloud-validation/pull/614), [#617](https://github.com/NVIDIA/ai-cloud-validation/pull/617))
+  Tightens break-fix checks to require actionable, resource-scoped evidence and ensures BFX01-06 clears online-repair state when a request may have succeeded despite a timeout, connection loss, or server error.
+- **Cluster-wide CSI credential validation** ([#587](https://github.com/NVIDIA/ai-cloud-validation/pull/587))
+  `K8sCsiTenantScopedCredentialsCheck` now discovers CSI controller and node-plugin pods in every namespace, preventing operators outside `kube-system` from bypassing tenant-secret permission checks.
+- **Credential, template, and remote execution hardening** ([#605](https://github.com/NVIDIA/ai-cloud-validation/pull/605), [#615](https://github.com/NVIDIA/ai-cloud-validation/pull/615))
+  Protects NGC credentials and remote environment values from shell interpretation, prevents unsafe Jinja template attribute access, and warns operators when storage API TLS verification is disabled.
+
+### Removed
+
+- **Unreleased-validation gating** ([#620](https://github.com/NVIDIA/ai-cloud-validation/pull/620))
+  Removes the release manifest, unreleased-check filtering, and `ISVTEST_INCLUDE_UNRELEASED`; configured checks now run subject to normal suite and capability selection, while ISV workflows document explicit release-tag checkouts.
+
+### Internal
+
+- Classify canonical test requirements by actor and reconcile Kubernetes requirement IDs ([#622](https://github.com/NVIDIA/ai-cloud-validation/pull/622)).
+- Expand contributor onboarding, help, and roadmap guidance ([#619](https://github.com/NVIDIA/ai-cloud-validation/pull/619)).
+
 ## [0.11.0] - 2026-08-19
 
 ### Added

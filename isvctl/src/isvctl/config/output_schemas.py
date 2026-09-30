@@ -136,6 +136,16 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "backend_switch_fabric_test": "backend_switch_fabric",
     "nvlink_domain": "nvlink_domain",
     "nvlink_domain_test": "nvlink_domain",
+    "imex_domain": "imex_domain",
+    "imex_domain_test": "imex_domain",
+    "imex_service": "imex_service",
+    "imex_service_test": "imex_service",
+    "imex_resilience": "imex_resilience",
+    "imex_resilience_test": "imex_resilience",
+    "imex_departure": "imex_departure",
+    "imex_departure_test": "imex_departure",
+    "imex_reboot": "imex_reboot",
+    "imex_reboot_test": "imex_reboot",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -148,6 +158,12 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     # Multi-cluster operations
     "create_test_shared_vpc_cluster": "multi_cluster",
     "destroy_test_shared_vpc_cluster": "teardown",
+    # Control-plane size pinning
+    "pin_control_plane": "control_plane_size",
+    # Kubernetes version support and control-plane patching
+    "fetch_upstream_k8s_versions": "k8s_upstream_versions",
+    "list_k8s_versions": "k8s_offered_versions",
+    "describe_control_plane_patching": "k8s_control_plane_patching",
 }
 
 # Common fields present in all outputs
@@ -914,6 +930,381 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "then": {"required": ["nvlink_domain_id"]},
         "additionalProperties": True,
     },
+    "imex_domain": {
+        "type": "object",
+        "required": ["success", "platform", "domain", "nodes"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_domain'"},
+            "domain": {
+                "type": "object",
+                "required": ["domain_id", "state", "expected_members"],
+                "properties": {
+                    "domain_id": {"type": "string", "description": "IMEX domain identifier"},
+                    "state": {
+                        "type": "string",
+                        "description": "Normalized domain state; operational when 'up'",
+                    },
+                    "expected_members": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        # No minItems: the schema describes payload shape, while
+                        # the "at least two members" rule is enforced by
+                        # ImexDomainConnectivityCheck. Requiring 2 here would
+                        # also reject the skipped payload emitted when no IMEX
+                        # domain is configured for the run.
+                        "description": "Node IDs expected to have joined the IMEX domain",
+                    },
+                    "fully_connected": {
+                        "type": "boolean",
+                        "description": (
+                            "Provider-reported aggregate connectivity claim. Carried for reporting only - "
+                            "ImexDomainConnectivityCheck deliberately ignores it and recomputes pairwise "
+                            "connectivity from each node's peers_reachable so a one-way fault cannot pass."
+                        ),
+                    },
+                },
+                "additionalProperties": True,
+                "description": "Domain-level state and expected membership",
+            },
+            "nodes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["node_id"],
+                    "properties": {
+                        "node_id": {"type": "string", "minLength": 1, "description": "Node identifier"},
+                        "service_state": {
+                            "type": "string",
+                            "description": "IMEX service state on the node; reported only, not asserted on",
+                        },
+                        "domain_member": {
+                            "type": "boolean",
+                            "description": "Whether this node reports itself as a member of the domain",
+                        },
+                        "peers_reachable": {
+                            "type": "array",
+                            "items": {"type": "string", "minLength": 1},
+                            "description": "Peer node IDs this node observes as reachable",
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "description": "Per-node domain reports, one per queried member",
+            },
+            "nodes_checked": {"type": "integer", "description": "How many members were queried"},
+            "nodes_validated": {"type": "integer", "description": "How many members returned a usable report"},
+            "skipped": {"type": "boolean", "description": "True when no IMEX domain was configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX domain check was skipped"},
+        },
+        "additionalProperties": True,
+    },
+    "imex_service": {
+        "type": "object",
+        "required": ["success", "platform", "nodes"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_service'"},
+            "nodes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["node_id"],
+                    "properties": {
+                        "node_id": {"type": "string", "minLength": 1, "description": "Node identifier"},
+                        "in_nvlink_allocation": {
+                            "type": "boolean",
+                            "description": (
+                                "Whether the node belongs to a multi-node NVLink allocation. Set from the "
+                                "allocation, not the node's self-report, so a node cannot opt itself out of scope."
+                            ),
+                        },
+                        "service_present": {
+                            "type": "boolean",
+                            "description": "Whether the IMEX daemon ships in the delivered node image",
+                        },
+                        "control_tooling_present": {
+                            "type": "boolean",
+                            "description": "Whether the IMEX control tooling is present and invocable",
+                        },
+                        "service_registration": {
+                            "type": "string",
+                            "enum": ["loaded", "masked", "not_found", "error"],
+                            "description": (
+                                "Normalized service-manager registration state, queried from the manager rather "
+                                "than the filesystem. Only 'loaded' passes; 'masked' is a deployment-model mismatch."
+                            ),
+                        },
+                        "boot_disposition": {
+                            "type": "string",
+                            "enum": ["enabled", "disabled", "static", "none", "unknown"],
+                            "description": "Normalized boot disposition, reported as evidence and never asserted on",
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "description": "Per-node IMEX service/tooling reports",
+            },
+            "nodes_checked": {"type": "integer", "description": "How many nodes were examined"},
+            "nodes_validated": {"type": "integer", "description": "How many nodes returned a usable report"},
+            "skipped": {"type": "boolean", "description": "True when no nodes were configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX service check was skipped"},
+        },
+        "additionalProperties": True,
+    },
+    "imex_resilience": {
+        "type": "object",
+        # Only the universal fields are required. This check reports in stages -
+        # an unconfigured run emits an empty node_id and no operations, and an
+        # arrival or termination failure emits only the operations it reached.
+        # Requiring the full shape here would fail those payloads at schema
+        # validation, before the validator could skip the run or report which
+        # stage failed. Stage requirements are enforced by
+        # ImexServiceResilienceCheck, which is where the attribution lives.
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_resilience'"},
+            "node_id": {"type": "string", "description": "Node under test; empty on a skipped run"},
+            "operations": {
+                "type": "object",
+                "properties": {
+                    "unaided_presence": {
+                        "type": "object",
+                        "properties": {
+                            "running_on_arrival": {
+                                "type": "boolean",
+                                "description": "Whether IMEX was already running when the check arrived",
+                            },
+                            "domain_member": {
+                                "type": "boolean",
+                                "description": "Whether the node was an operational domain member on arrival",
+                            },
+                            "started_by_test": {
+                                "type": "boolean",
+                                "description": (
+                                    "Must be false. Recorded so the unaided observation is auditable - the check "
+                                    "observes a running service and never starts one."
+                                ),
+                            },
+                            "boot_persistence_configured": {
+                                "type": "boolean",
+                                "description": "Whether the service is configured to return after a node restart",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "terminate": {
+                        "type": "object",
+                        "properties": {
+                            "method": {
+                                "type": "string",
+                                "enum": ["kill"],
+                                "description": (
+                                    "Only an outright kill is valid. A supervisor is expected not to restart a "
+                                    "graceful stop, so a stop would fail on a correct node."
+                                ),
+                            },
+                            "confirmed": {
+                                "type": "boolean",
+                                "description": "Whether the daemon was confirmed terminated before recovery timing",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "recovery": {
+                        "type": "object",
+                        "properties": {
+                            "domain_member": {
+                                "type": "boolean",
+                                "description": "Whether the node returned to operational domain membership",
+                            },
+                            "elapsed_seconds": {
+                                "type": "number",
+                                "minimum": 0,
+                                "description": "Observed recovery time, reported on pass and on fail",
+                            },
+                            "operator_intervention": {
+                                "type": "boolean",
+                                "description": "Must be false - recovery has to be automatic",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "restore": {
+                        "type": "object",
+                        "description": "Teardown evidence that prior state was put back",
+                        "additionalProperties": True,
+                    },
+                },
+                "additionalProperties": True,
+            },
+            "skipped": {"type": "boolean", "description": "True when no node was configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX resilience check was skipped"},
+        },
+        "additionalProperties": True,
+    },
+    "imex_departure": {
+        "type": "object",
+        # Only the universal fields are required. Like imex_resilience this
+        # check reports in stages, so a skipped run or a failure before peer
+        # convergence must still validate and let the check attribute it.
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_departure'"},
+            "target_node": {"type": "string", "description": "Node whose service was stopped"},
+            "operations": {
+                "type": "object",
+                "properties": {
+                    "prior_state": {
+                        "type": "object",
+                        "description": (
+                            "The target's state before anything was disturbed. Recorded so an already-stopped "
+                            "node cannot report a departure the check never caused."
+                        ),
+                        "properties": {
+                            "service_state": {"type": "string", "description": "Service state before the stop"},
+                            "domain_member": {
+                                "type": "boolean",
+                                "description": "Whether the target was an operational domain member before the stop",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "stop": {
+                        "type": "object",
+                        "properties": {
+                            "requested": {
+                                "type": "boolean",
+                                "description": "Whether a deliberate stop was requested via the service manager",
+                            },
+                            "clean_exit": {
+                                "type": "boolean",
+                                "description": "Whether the service shut down cleanly rather than being killed",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "peer_convergence": {
+                        "type": "object",
+                        "properties": {
+                            "observed_from": {
+                                "type": "string",
+                                "description": "Surviving member the observation was made from",
+                            },
+                            "target_reported": {
+                                "type": "string",
+                                "enum": ["available", "unavailable", "unknown"],
+                                "description": (
+                                    "Normalized peer view of the stopped node. The provider script maps vendor "
+                                    "state onto this enum so the validation never substring-matches raw output."
+                                ),
+                            },
+                            "elapsed_seconds": {
+                                "type": "number",
+                                "minimum": 0,
+                                "description": "Time for the surviving member to observe the departure",
+                            },
+                            "surviving_members_operational": {
+                                "type": "boolean",
+                                "description": "Whether the domain stayed operational among the remaining members",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                    "restore": {
+                        "type": "object",
+                        "description": "Mandatory teardown evidence that the departed node was put back",
+                        "properties": {
+                            "restored_to": {
+                                "type": "string",
+                                "description": "Service state the node was left in; must be 'active' to pass",
+                            },
+                            "domain_member": {
+                                "type": "boolean",
+                                "description": "Whether the restored node is an operational domain member again",
+                            },
+                        },
+                        "additionalProperties": True,
+                    },
+                },
+                "additionalProperties": True,
+            },
+            "skipped": {"type": "boolean", "description": "True when no nodes were configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX departure check was skipped"},
+        },
+        "additionalProperties": True,
+    },
+    "imex_reboot": {
+        "type": "object",
+        # Only the universal fields are required: this check reports in stages,
+        # so a skipped run or a failure before the node came back must still
+        # validate and let the check attribute it.
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'imex_reboot'"},
+            "node_id": {"type": "string", "description": "Node that was rebooted"},
+            "prior_state": {
+                "type": "object",
+                "description": (
+                    "The node's state before the reboot. Recorded so a node that was not already an active "
+                    "domain member cannot report a rejoin it never performed."
+                ),
+                "properties": {
+                    "service_state": {"type": "string", "description": "Service state before the reboot"},
+                    "domain_member": {
+                        "type": "boolean",
+                        "description": "Whether the node was an operational domain member before the reboot",
+                    },
+                },
+                "additionalProperties": True,
+            },
+            "persistence_configured": {
+                "type": "boolean",
+                "description": "Whether IMEX was set to start at boot before the reboot",
+            },
+            "reboot_confirmed": {
+                "type": "boolean",
+                "description": (
+                    "Whether the reboot was affirmatively confirmed by uptime going backwards. Reachability "
+                    "alone is not evidence, since a node that never rebooted is reachable too."
+                ),
+            },
+            "uptime_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Uptime observed after the reboot",
+            },
+            "post_reboot": {
+                "type": "object",
+                "properties": {
+                    "service_ready": {
+                        "type": "boolean",
+                        "description": "Whether the IMEX service returned to service after boot",
+                    },
+                    "domain_member": {
+                        "type": "boolean",
+                        "description": "Whether the node rejoined its domain",
+                    },
+                    "elapsed_seconds": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Boot to domain membership, reported on pass and on fail",
+                    },
+                    "intervention_required": {
+                        "type": "boolean",
+                        "description": "Must be false - the return has to be unassisted",
+                    },
+                },
+                "additionalProperties": True,
+            },
+            "skipped": {"type": "boolean", "description": "True when no node was configured for the run"},
+            "skip_reason": {"type": "string", "description": "Why the IMEX reboot check was skipped"},
+        },
+        "additionalProperties": True,
+    },
     "sg_crud": {
         "type": "object",
         "required": ["success", "platform"],
@@ -1043,6 +1434,82 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "type": "string",
                 "enum": ["cpu", "gpu"],
                 "description": "Informational node pool flavor",
+            },
+        },
+        "additionalProperties": True,
+    },
+    # =========================================================================
+    # Control-plane size pinning schemas
+    # =========================================================================
+    "control_plane_size": {
+        "type": "object",
+        "required": [
+            "success",
+            "platform",
+            "requested_instance_count",
+            "instance_count",
+        ],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "requested_instance_count": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Control-plane instance count the tenant pinned",
+            },
+            "instance_count": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Control-plane instance count the provider runs after the pin",
+            },
+        },
+        "additionalProperties": True,
+    },
+    # =========================================================================
+    # Kubernetes version support and control-plane patching schemas
+    # =========================================================================
+    "k8s_upstream_versions": {
+        "type": "object",
+        "required": ["success", "platform", "cycles_json"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            # A JSON string rather than an array: step outputs reach validation
+            # config through Jinja2, which renders scalars, so the structure
+            # survives the trip the same way the node_pool payloads do.
+            "cycles_json": {
+                "type": "string",
+                "description": (
+                    "JSON-encoded list of upstream release cycles, each "
+                    "{minor, released, latest_patch, latest_patch_released}"
+                ),
+            },
+        },
+        "additionalProperties": True,
+    },
+    "k8s_offered_versions": {
+        "type": "object",
+        "required": ["success", "platform", "offered_versions"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "offered_versions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Kubernetes versions the provider offers for cluster create/upgrade",
+            },
+        },
+        "additionalProperties": True,
+    },
+    "k8s_control_plane_patching": {
+        "type": "object",
+        "required": ["success", "platform", "automated_patching_enabled", "current_version"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "automated_patching_enabled": {
+                "type": "boolean",
+                "description": "Whether the provider patches the control plane without tenant action",
+            },
+            "current_version": {
+                "type": "string",
+                "description": "Kubernetes patch version the control plane runs, as the provider reports it",
             },
         },
         "additionalProperties": True,

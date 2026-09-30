@@ -87,7 +87,6 @@ def _resolve(
     include_labels: set[str] | None = None,
     exclude_labels: set[str] | None = None,
     exclude_tests: set[str] | None = None,
-    released_tests: set[str] | None = None,
     render_context: dict[str, Any] | None = None,
     capability: str | None = None,
     skipped_steps: set[str] | None = None,
@@ -101,7 +100,6 @@ def _resolve(
         include_labels=set() if include_labels is None else include_labels,
         exclude_labels=set() if exclude_labels is None else exclude_labels,
         exclude_tests=set() if exclude_tests is None else exclude_tests,
-        released_tests=released_tests,
         render_context={} if render_context is None else render_context,
         capability=capability,
         skipped_steps=set() if skipped_steps is None else skipped_steps,
@@ -151,7 +149,6 @@ def test_a_skipped_step_is_distinguished_from_an_unconfigured_one() -> None:
 @pytest.mark.parametrize(
     ("entry", "kwargs", "expected_reason"),
     [
-        (_entry("NewCheck"), {"released_tests": {"PlainCheck"}}, SkipReason.UNRELEASED),
         (_entry("PlainCheck"), {"exclude_tests": {"PlainCheck"}}, SkipReason.EXCLUDED),
         (_entry("LabelCheck", labels=("accelerator",)), {"exclude_labels": {"accelerator"}}, SkipReason.EXCLUDED),
         (_entry(step="create_cluster"), {"step_phases": {}}, SkipReason.STEP_NOT_CONFIGURED),
@@ -283,7 +280,6 @@ def test_resolve_entries_is_idempotent_from_original_entries() -> None:
         "include_labels": set(),
         "exclude_labels": {"slow"},
         "exclude_tests": set(),
-        "released_tests": None,
         "render_context": {},
     }
 
@@ -309,7 +305,6 @@ def test_resolve_entries_requires_all_include_labels() -> None:
         include_labels={"gpu", "slow"},
         exclude_labels=set(),
         exclude_tests=set(),
-        released_tests=None,
         render_context={},
     )
 
@@ -400,19 +395,6 @@ def test_parse_validations_emits_invalid_for_non_dict_list_items() -> None:
     assert all(entry.name == "<invalid>" for entry in invalid)
 
 
-def test_resolve_entries_treats_variant_names_as_released() -> None:
-    """``ClassName-Variant`` resolves against the bare ClassName in the manifest.
-
-    Mirrors the pytest-discovery path's ``_is_released_validation`` so the
-    pre-resolution gate doesn't diverge from runtime test discovery.
-    """
-    entry = _entry("PlainCheck-myCustomVariant")
-
-    resolved = _resolve(entry, released_tests={"PlainCheck"})
-
-    assert resolved.skip_reason is None, "variant of a released class must not be marked UNRELEASED"
-
-
 def test_resolve_entries_warns_when_default_filter_masks_missing_step_field(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -446,6 +428,50 @@ def test_resolve_entries_warns_when_default_filter_masks_missing_step_field(
     assert "node_count_invalid" in caplog.text, "warning must surface the missing field name"
 
 
+def test_resolve_entries_groups_masked_references_with_context(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Masked references are reported once each, followed by every parameter that fell back.
+
+    Each missing key is listed with where it was looked up and the closest
+    existing key (exposing the misnamed step), then one line per
+    ``<validation>.<parameter path>`` with the template it rendered.
+    """
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    template = "{{ steps.setup_cluster.csi.%s | default('', true) }}"
+    entries = [
+        _entry(
+            "BlockCheck",
+            params={"block_sc": template % "block_sc", "nfs_sc": template % "nfs_sc"},
+        ),
+        _entry("NfsCheck", params={"drivers": [{"storage_classes": [template % "nfs_sc", template % "block_sc"]}]}),
+    ]
+    steps = {"setup": {"csi": {"block_sc": "gp3"}}, "cordon_node": {}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        resolve_entries(
+            entries,
+            step_outputs=steps,
+            step_phases={"setup": "setup", "cordon_node": "test"},
+            requested_phases={"setup", "test"},
+            include_labels=set(),
+            exclude_labels=set(),
+            exclude_tests=set(),
+            render_context={"steps": steps},
+        )
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "4 validation parameter(s) fell back to their default(...) because a referenced value is missing:",
+        "  'setup_cluster' not found in steps (did you mean 'setup'?) - 4 parameter(s):",
+        f"    BlockCheck.block_sc = {template % 'block_sc'}",
+        f"    BlockCheck.nfs_sc = {template % 'nfs_sc'}",
+        f"    NfsCheck.drivers[0].storage_classes[0] = {template % 'nfs_sc'}",
+        f"    NfsCheck.drivers[0].storage_classes[1] = {template % 'block_sc'}",
+    ]
+
+
 def test_resolve_entries_is_quiet_when_the_run_has_no_steps(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -466,3 +492,103 @@ def test_resolve_entries_is_quiet_when_the_run_has_no_steps(
     assert resolved.rendered_params is not None
     assert resolved.rendered_params["storage_class"] == ""
     assert "default(" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("step_phases", "skipped_steps"),
+    [
+        pytest.param({"setup_cluster": "setup", "storage_manifest": "test"}, set(), id="phase-not-requested"),
+        pytest.param({"storage_manifest": "test"}, {"setup_cluster"}, id="skipped-by-capability"),
+    ],
+)
+def test_resolve_entries_is_quiet_for_a_configured_step_that_did_not_run(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    step_phases: dict[str, str],
+    skipped_steps: set[str],
+) -> None:
+    """A declared step with no output this invocation is the designed fallback, not a typo.
+
+    `--phase test` leaves setup steps unrun and a capability gate skips a
+    kubernetes-only fixture, while other steps still produce output - so the
+    empty-steps rule alone would report every reference to the unrun step.
+    """
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    entry = _entry(params={"storage_class": "{{ steps.setup_cluster.csi.block_sc | default('', true) }}"})
+    steps = {"storage_manifest": {"storage": {"manifest_path": "/m.yaml"}}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        resolved = _resolve(
+            entry,
+            step_outputs=steps,
+            step_phases=step_phases,
+            skipped_steps=skipped_steps,
+            render_context={"steps": steps},
+        )
+
+    assert resolved.rendered_params is not None
+    assert resolved.rendered_params["storage_class"] == ""
+    assert "default(" not in caplog.text
+
+
+def test_resolve_entries_keeps_masked_warnings_when_a_later_reference_fails(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A default(...) hit is still reported when a later unmasked lookup aborts render."""
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    entry = _entry(
+        params={"sc": "{{ steps.setup.csi.block_sc | default('', true) }}{{ steps.gone }}"},
+    )
+    steps = {"setup": {"csi": {"nfs_sc": "efs"}}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        resolved = _resolve(entry, render_context={"steps": steps})
+
+    assert resolved.error_reason == ErrorReason.TEMPLATE_RENDER_FAILED
+    assert "block_sc" in caplog.text
+    assert "steps.setup.csi" in caplog.text
+
+
+def test_resolve_entries_warns_when_a_nested_step_mapping_is_empty(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty nested step is a real miss, unlike a validation-only empty steps root."""
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    entry = _entry(params={"storage_class": "{{ steps.setup.csi.block_sc | default('', true) }}"})
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        resolved = _resolve(entry, render_context={"steps": {"setup": {}}})
+
+    assert resolved.rendered_params is not None
+    assert resolved.rendered_params["storage_class"] == ""
+    assert [record.getMessage() for record in caplog.records] == [
+        "1 validation parameter(s) fell back to their default(...) because a referenced value is missing:",
+        "  'csi' not found in steps.setup - 1 parameter(s):",
+        "    PlainCheck.storage_class = {{ steps.setup.csi.block_sc | default('', true) }}",
+    ]
+
+
+def test_resolve_entries_describes_bracketed_lookup_paths(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Quoted-bracket Jinja paths still name the container in the grouped warning."""
+    monkeypatch.setattr(logging.getLogger("isvtest"), "propagate", True)
+
+    template = "{{ steps['setup_cluster'].csi.block_sc | default('', true) }}"
+    entry = _entry(params={"block_sc": template})
+    steps = {"setup_cluster": {"csi": {"nfs_sc": "efs"}}}
+
+    with caplog.at_level("WARNING", logger="isvtest.core.resolution"):
+        _resolve(entry, render_context={"steps": steps})
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "1 validation parameter(s) fell back to their default(...) because a referenced value is missing:",
+        "  'block_sc' not found in steps['setup_cluster'].csi - 1 parameter(s):",
+        f"    PlainCheck.block_sc = {template}",
+    ]

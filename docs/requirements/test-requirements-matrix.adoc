@@ -1137,6 +1137,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[SDN17-02]]SDN17-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): On a cluster offering multi-node NVLink through the resource-allocation driver, assert the compute-domain device classes are registered and every GPU node in an NVLink clique publishes compute-domain resources through the driver's per-node plugin, without tenant installation.
+| SDN17
+| reference
+| full
+| The Kubernetes DRA reading of SDN17; SDN17-01 covers the host reading.
+
 | [[SDN18-01]]SDN18-01
 | Infrastructure and Data Services
 | SDN Controller
@@ -1146,6 +1155,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[SDN18-02]]SDN18-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): On a cluster where the resource-allocation driver owns the IMEX daemon, assert every node of an allocated compute domain runs a driver-started daemon and is a ready domain member, then terminate one daemon in place and assert the driver restores that node to ready membership unaided within a bounded time.
+| SDN18
+| reference
+| full
+| The Kubernetes DRA reading of SDN18; SDN18-01 covers the host reading.
+
 | [[SDN19-01]]SDN19-01
 | Infrastructure and Data Services
 | SDN Controller
@@ -1154,6 +1172,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | reference
 | full
 |
+
+| [[SDN19-02]]SDN19-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): Remove one node from an allocated compute domain on purpose, and assert its driver-managed daemon exits cleanly, a surviving member reports the node unavailable within a bounded time, and the domain stays operational among the nodes that remain.
+| SDN19
+| reference
+| full
+| The Kubernetes DRA reading of SDN19; SDN19-01 covers the host reading.
 
 | [[SDN20-01]]SDN20-01
 | Infrastructure and Data Services
@@ -2454,7 +2481,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S05-01]]K8S05-01
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Create a K8s Instance using the software platform (CLI, Terraform)
+| Create a K8s Instance using the software platform API/CLI
 | K8S05
 | offtake
 | full
@@ -2463,7 +2490,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S38-01]]K8S38-01
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Run through all the steps of the k8s lifecycle management, including user-initated CP update
+| As a tenant, exercise the complete managed Kubernetes control plane lifecycle through the tenant-facing API/CLI, including requesting a supported control plane version update and observing provider-reported status through completion.
 | K8S38
 | reference
 | full
@@ -2679,7 +2706,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S02-02]]K8S02-02
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Verify automated control plane security patching with no/minimal downtime
+| Verify control plane security patching is automated and keeps the control plane on a current upstream patch
 | K8S02
 | offtake
 | full
@@ -2838,14 +2865,14 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
-| [[K8S37-01]]K8S37-01
+| [[K8S28-01]]K8S28-01
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Verify the managed K8s service meets standard Kubernetes performance tests to max cluster size
-| K8S37
-| reference
+| Verify the managed Kubernetes service meets standard Kubernetes performance and control plane SLO targets at up to 5,000 nodes or the provider's declared maximum cluster size, whichever is smaller
+| K8S28
+| offtake
 | full
-|
+| Legacy test IDs: K8S-XX-09, K8S37-01.
 
 | [[K8S26-01]]K8S26-01
 | Workload Orchestration

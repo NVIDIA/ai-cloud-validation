@@ -378,6 +378,97 @@ commands:
         timeout: 900
         output_schema: storage_l3_routing
 
+      # IMEX domain operational + fully connected (SDN21-01). Observes an
+      # already-running IMEX domain over SSH; does not launch nodes or bring
+      # IMEX up (see imex_domain_test.py docstring). Requires an existing
+      # multi-node GPU cluster - point it at one via imex_node_ids/imex_key_file.
+      - name: imex_domain
+        phase: test
+        command: "python3 ../scripts/network/imex_domain_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "{{imex_node_ids | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        # Headroom over the script's own 90s sweep deadline (plus one in-flight
+        # per-node SSH timeout), so the script always emits its JSON contract
+        # rather than being killed here with no output on a large or
+        # unresponsive domain.
+        timeout: 300
+        output_schema: imex_domain
+
+      # IMEX ships in the delivered node image (SDN17-01). Host-model check:
+      # daemon + control tooling present and registered with the node's service
+      # manager. Reuses the same node list/key as the domain check above.
+      - name: imex_service
+        phase: test
+        command: "python3 ../scripts/network/imex_service_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "{{imex_node_ids | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 300
+        output_schema: imex_service
+
+      # IMEX runs unaided, persists, and self-heals (SDN18-01).
+      # DESTRUCTIVE: kills a running IMEX daemon, so point this only at an idle
+      # or drained domain. Timeout covers the script's own recovery bound plus
+      # the arrival/kill/restore round trips.
+      - name: imex_resilience
+        phase: test
+        command: "python3 ../scripts/network/imex_resilience_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "{{imex_resilience_node | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 300
+        output_schema: imex_resilience
+
+      # Domain members observe a deliberate node departure (SDN19-01).
+      # DESTRUCTIVE: stops IMEX on one member, leaving the domain a member
+      # short until restore. Takes its own target/observer settings so wiring
+      # the read-only IMEX checks never implicitly arms this one.
+      - name: imex_departure
+        phase: test
+        command: "python3 ../scripts/network/imex_departure_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--target-node"
+          - "{{imex_departure_target | default('', true)}}"
+          - "--observer-node"
+          - "{{imex_departure_observer | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 300
+        output_schema: imex_departure
+
+      # IMEX rejoins its domain after a node reboot (SDN20-01).
+      # DESTRUCTIVE and SLOW: reboots the node and waits out boot plus domain
+      # rejoin. Takes its own single-node setting so wiring the read-only IMEX
+      # checks never implicitly arms it. Step timeout covers the script's own
+      # SSH-return and rejoin bounds with headroom.
+      - name: imex_reboot
+        phase: test
+        command: "python3 ../scripts/network/imex_reboot_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "{{imex_reboot_node | default('', true)}}"
+          - "--key-file"
+          - "{{imex_key_file | default('', true)}}"
+        timeout: 1200
+        output_schema: imex_reboot
+
       # Teardown: Clean up shared VPC from create_network
       - name: teardown
         phase: teardown
@@ -397,3 +488,12 @@ tests:
   settings:
     region: "us-west-2"
     storage_l3_routing_cidr: "{{env.AWS_STORAGE_L3_ROUTING_CIDR | default('', true)}}"
+    imex_node_ids: "{{env.AWS_IMEX_NODE_IDS | default('', true)}}"
+    imex_key_file: "{{env.AWS_IMEX_KEY_FILE | default('', true)}}"
+    # Single node for the destructive SDN18-01 check; unset means it skips.
+    imex_resilience_node: "{{env.AWS_IMEX_RESILIENCE_NODE | default('', true)}}"
+    # Target/observer pair for the destructive SDN19-01 check; unset means it skips.
+    imex_departure_target: "{{env.AWS_IMEX_DEPARTURE_TARGET | default('', true)}}"
+    imex_departure_observer: "{{env.AWS_IMEX_DEPARTURE_OBSERVER | default('', true)}}"
+    # Single node for the destructive, slow SDN20-01 reboot; unset means it skips.
+    imex_reboot_node: "{{env.AWS_IMEX_REBOOT_NODE | default('', true)}}"

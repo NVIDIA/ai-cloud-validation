@@ -20,9 +20,8 @@ This module provides two independent ``BaseValidation`` subclasses:
 * ``K8sNetworkPolicyCheck`` - applies a pair of NetworkPolicies in an
   ephemeral namespace and verifies that ingress/egress are enforced as
   expected against both IPv4 and (when available) IPv6 pod addresses.
-* ``K8sDualStackNodeCheck`` - inspects every node's ``InternalIP``
-  addresses and verifies that the cluster is dual-stack (IPv4 + IPv6) when
-  configuration requires it.
+* ``K8sDualStackNodeCheck`` - inspects node ``InternalIP`` and running pod
+  addresses, verifying both families when configuration requires dual-stack.
 
 The classes are kept split so clusters that only support one stack can still
 exercise the NetworkPolicy validation.
@@ -39,11 +38,19 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar
 
+import pytest
+
 from isvtest.config.settings import (
     get_k8s_network_policy_image,
     get_k8s_require_dual_stack,
 )
-from isvtest.core.k8s import KubectlParseError, get_kubectl_base_shell, get_kubectl_command, parse_kubectl_json
+from isvtest.core.k8s import (
+    KubectlParseError,
+    get_kubectl_base_shell,
+    get_kubectl_command,
+    parse_kubectl_json,
+    parse_kubectl_json_items,
+)
 from isvtest.core.validation import BaseValidation
 
 _MANIFEST_DIR = Path(__file__).parent / "manifests" / "k8s"
@@ -337,7 +344,7 @@ class K8sNetworkPolicyCheck(BaseValidation):
 
 
 class K8sDualStackNodeCheck(BaseValidation):
-    """Verify that cluster nodes have both IPv4 and IPv6 InternalIP addresses.
+    """Verify IPv4 and IPv6 on nodes and observed running pods using the CNI.
 
     Config keys (with defaults):
         require_dual_stack: One of ``True``, ``False``, or ``"auto"``. Defaults
@@ -345,19 +352,26 @@ class K8sDualStackNodeCheck(BaseValidation):
             ``isvtest.config.settings.get_k8s_require_dual_stack``
             (``"auto"`` unless ``K8S_REQUIRE_DUAL_STACK`` is set).
 
+    Pod inspection requires permission to list pods across namespaces. Only running,
+    scheduled, non-terminating pods without hostNetwork provide CNI evidence. At least
+    one such pod is required when validating dual-stack. This is an observation of
+    existing pods, not a provisioning or connectivity test on every node.
+
     Decision matrix:
-        * ``True`` - any node missing either family fails the validation.
+        * ``True`` - any node or eligible pod missing either family fails.
         * ``False`` - always passes; per-node summary is still emitted.
-        * ``"auto"`` - if at least one node has both families the cluster is
-          treated as dual-stack and every node must be; if no node has both
+        * ``"auto"`` - if node InternalIPs, pod CIDRs, or pod IPs hint at both
+          families, every node and eligible pod must have both; without a hint
           the check skips.
+
+    An empty node list fails regardless of ``require_dual_stack``.
     """
 
-    description: ClassVar[str] = "Verify IPv4 and IPv6 addresses on dual-stack nodes."
+    description: ClassVar[str] = "Verify IPv4 and IPv6 addresses on dual-stack nodes and running pods."
     timeout: ClassVar[int] = 60
 
     def run(self) -> None:
-        """List cluster nodes and apply the ``require_dual_stack`` decision matrix, setting the validation pass/fail state."""
+        """Observe node and pod address families and apply the configured dual-stack policy."""
         require_dual_stack = self.config.get("require_dual_stack", get_k8s_require_dual_stack())
         try:
             normalized = _normalize_require_dual_stack(require_dual_stack)
@@ -380,7 +394,7 @@ class K8sDualStackNodeCheck(BaseValidation):
 
         nodes = payload.get("items", [])
         if not nodes:
-            self.set_passed("No nodes found in cluster")
+            self.set_failed("No nodes found in cluster")
             return
 
         node_families: list[tuple[str, bool, bool]] = []
@@ -396,17 +410,45 @@ class K8sDualStackNodeCheck(BaseValidation):
             if (has_v4 or cidr_v4) and (has_v6 or cidr_v6):
                 cluster_has_dual_stack_hint = True
 
+        pod_families: list[tuple[str, bool, bool]] = []
+        if normalized is not False:
+            result = self.run_command(f"{get_kubectl_base_shell()} get pods --all-namespaces -o json")
+            if result.exit_code != 0:
+                self.set_failed(f"Failed to list pods: {result.stderr}")
+                return
+            try:
+                pods = parse_kubectl_json_items(result, "pods")
+            except KubectlParseError as exc:
+                self.set_failed(str(exc))
+                return
+
+            for pod in pods:
+                spec = pod.get("spec") or {}
+                status = pod.get("status") or {}
+                metadata = pod.get("metadata") or {}
+                if (
+                    spec.get("hostNetwork")
+                    or not spec.get("nodeName")
+                    or status.get("phase") != "Running"
+                    or metadata.get("deletionTimestamp")
+                ):
+                    continue
+                name = f"{metadata.get('namespace', 'default')}/{metadata.get('name', 'unknown')}"
+                has_v4, has_v6 = _classify_pod(pod)
+                pod_families.append((name, has_v4, has_v6))
+                if has_v4 and has_v6:
+                    cluster_has_dual_stack_hint = True
+
         if normalized == "auto" and not cluster_has_dual_stack_hint:
             # Still emit per-node subtests for visibility, then skip.
             for name, has_v4, has_v6 in node_families:
                 self.report_subtest(
                     f"node/{name}",
-                    passed=True,
+                    passed=False,
                     message=f"single-stack cluster (auto mode); node has {_family_summary(has_v4, has_v6)}",
                     skipped=True,
                 )
-            self.set_passed("Skipped: cluster is single-stack (auto mode)")
-            return
+            pytest.skip("Cluster is single-stack (auto mode); dual-stack support was not validated")
 
         require_both = normalized is True or (normalized == "auto" and cluster_has_dual_stack_hint)
         failures: list[str] = []
@@ -421,12 +463,22 @@ class K8sDualStackNodeCheck(BaseValidation):
             else:
                 self.report_subtest(f"node/{name}", passed=True, message=summary)
 
-        if failures:
-            self.set_failed(f"{len(failures)} node(s) missing required address family: {', '.join(failures)}")
-            return
-
         if require_both:
-            self.set_passed(f"All {len(node_families)} nodes have IPv4 and IPv6 InternalIPs")
+            for name, has_v4, has_v6 in pod_families:
+                summary = _family_summary(has_v4, has_v6)
+                pod_ok = has_v4 and has_v6
+                self.report_subtest(f"pod/{name}", passed=pod_ok, message=summary)
+                if not pod_ok:
+                    failures.append(f"pod/{name} ({summary})")
+            if not pod_families:
+                failures.append("No running non-host-network pods available to validate pod address families")
+            if failures:
+                self.set_failed("Dual-stack validation failed: " + "; ".join(failures))
+                return
+            self.set_passed(
+                f"All {len(node_families)} nodes have IPv4 and IPv6 InternalIPs; "
+                f"all {len(pod_families)} observed running pods have IPv4 and IPv6 podIPs"
+            )
         else:
             self.set_passed(
                 f"Informational: per-node IPv4/IPv6 summary recorded for "
@@ -489,6 +541,14 @@ def _classify_node(node: dict[str, Any]) -> tuple[bool, bool]:
             has_v6 = True
 
     return has_v4, has_v6
+
+
+def _classify_pod(pod: dict[str, Any]) -> tuple[bool, bool]:
+    """Classify allocated pod IPs, falling back to the singular legacy podIP field."""
+    status = pod.get("status") or {}
+    entries = status.get("podIPs") or [{"ip": status.get("podIP", "")}]
+    addresses = [entry.get("ip", "") for entry in entries if isinstance(entry, dict)]
+    return any(_is_ipv4(ip) for ip in addresses), any(_is_ipv6(ip) for ip in addresses)
 
 
 def _node_podcidr_families(node: dict[str, Any]) -> tuple[bool, bool]:

@@ -17,8 +17,9 @@
 #
 # Drives StorageProviderApiCheck ONLY, via the WEKA REST API shim
 # (../scripts/storage/weka/api.py) - config/storage.yaml (no cluster required).
-# The K8sCsi* / K8sFilesystem* checks get the WEKA StorageClass name from
-# config/storage-k8s.yaml (or K8S_CSI_* env vars), NOT from this manifest.
+# The K8sCsi* / K8sFilesystem* checks (config/storage.yaml, --capability
+# kubernetes) get the WEKA StorageClass name from K8S_CSI_* env vars or the
+# cluster, NOT from this manifest.
 #
 # v1alpha2 mirrors the upstream StorageProvider package manifest: a package-level
 # namespace + vendor, a per-provider `provider` identity block, and a
@@ -30,8 +31,7 @@
 # Needs WEKA_ENDPOINTS (or WEKA_ENDPOINT), WEKA_USERNAME, WEKA_PASSWORD and
 # WEKA_FILESYSTEM at runtime:
 #
-#   ISVTEST_INCLUDE_UNRELEASED=1 \
-#     uv run isvctl test run -f isvctl/configs/providers/weka/config/storage.yaml
+#   uv run isvctl test run -f isvctl/configs/providers/weka/config/storage.yaml
 #
 # Tenant = WEKA organization name (defaults to `Root` via WEKA_ORGANIZATION).
 

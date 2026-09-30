@@ -25,6 +25,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from isvreporter.version import build_ref, parse_build_ref, run_identity
+
 from isvctl.redaction import redact_text
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,51 @@ def get_isv_test_version() -> str | None:
         return None
 
 
+def warn_if_unreleased(isv_test_version: str | None) -> None:
+    """Warn at run creation when this checkout is demonstrably not a release.
+
+    Said here rather than only in the report because this is the moment the
+    operator is watching. A build taken between releases is supported, but it
+    is not the exact source release named by the static package version.
+
+    Only speaks when the checkout proves the point. There is no warning when
+    there is nothing to go on, which is the ordinary case for a partner running
+    from a copied tree or an air-gapped cluster; the service reports that source
+    fact as unverified without guessing.
+
+    Reads the reference itself rather than asking ``build_is_release`` and then
+    re-reading it, so the parts named in the message are the same parts the
+    decision was made from.
+    """
+    parsed = parse_build_ref(build_ref())
+    if isv_test_version is None or parsed is None:
+        return
+    tag, distance, commit, dirty = parsed
+    if distance == 0 and not dirty and tag == isv_test_version:
+        return
+
+    if tag != isv_test_version:
+        logger.warning(
+            "Reporting as %s, but this checkout is at v%s. The installed packages are stale "
+            "with respect to the tree. Re-sync the workspace (uv sync) to report "
+            "the intended version; results are still accepted.",
+            isv_test_version,
+            tag,
+        )
+        return
+
+    logger.warning(
+        "Reporting as %s, but this checkout is %d commit(s) past v%s (at %s%s). "
+        "Results are accepted, and the service will label their source as custom. "
+        "Check out a release tag for a supported ISV production run.",
+        isv_test_version,
+        distance,
+        tag,
+        commit,
+        ", with uncommitted changes" if dirty else "",
+    )
+
+
 def create_test_run(
     lab_id: int,
     platform: str,
@@ -114,8 +161,8 @@ def create_test_run(
 
     endpoint, ssa_issuer = get_environment_config()
 
-    # Auto-detect ISV test version from package
     isv_test_version = get_isv_test_version()
+    warn_if_unreleased(isv_test_version)
 
     try:
         jwt_token = get_jwt_token(ssa_issuer, client_id, client_secret)
@@ -165,7 +212,7 @@ def update_test_run(
         junit_xml: Path to JUnit XML file (optional)
         log_content: Direct log content string (optional, alternative to log_file)
         isv_software_version: ISV software stack version (opaque string from ISV)
-        catalog_document: Complete test catalog document for coverage tracking (optional)
+        catalog_document: Catalog identity artifact produced by the executing build (optional)
 
     Returns:
         True if successful, False otherwise
@@ -208,30 +255,14 @@ def update_test_run(
         log_output = log_output.replace("\x00", "")
         log_output = redact_text(log_output)
 
-    # Auto-detect ISV test version from package
-    isv_test_version = get_isv_test_version()
+    # An artifact may have crossed machines in a remote or split flow, so the
+    # executing build's own record of what it was wins over this reporter's
+    # local package metadata.
+    identity = run_identity(catalog_document, get_isv_test_version())
+    isv_test_version = identity.isv_test_version
 
     try:
         jwt_token = get_jwt_token(ssa_issuer, client_id, client_secret)
-
-        # Upload test catalog for coverage tracking (if provided)
-        if catalog_document:
-            try:
-                from isvreporter.client import upload_test_catalog as client_upload_catalog
-
-                client_upload_catalog(
-                    endpoint=endpoint,
-                    jwt_token=jwt_token,
-                    isv_test_version=catalog_document["isvTestVersion"],
-                    entries=catalog_document["entries"],
-                    schema_version=catalog_document["schemaVersion"],
-                    capabilities=catalog_document["capabilities"],
-                    suites=catalog_document["suites"],
-                )
-            except SystemExit:
-                logger.warning("Failed to upload test catalog to ISV Lab Service")
-            except Exception as e:
-                logger.warning("Failed to upload test catalog: %s", e)
 
         # Upload JUnit XML test results first (if provided)
         if junit_xml and junit_xml.exists():
@@ -251,7 +282,7 @@ def update_test_run(
             except Exception as e:
                 logger.warning("Failed to upload JUnit XML: %s", e)
 
-        # Update test run with status and log, even if JUnit upload failed
+        # Update test run with status and log, even if JUnit upload failed.
         client_update_test_run(
             endpoint=endpoint,
             lab_id=lab_id,
@@ -262,6 +293,8 @@ def update_test_run(
             log_output=log_output,
             isv_software_version=isv_software_version,
             isv_test_version=isv_test_version,
+            isv_test_catalog_digest=identity.catalog_digest,
+            isv_test_build_ref=identity.build_ref,
         )
         return True
     except SystemExit:

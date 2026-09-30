@@ -719,6 +719,25 @@ Using this optional policy does not establish full K8S23 storage-type coverage.
 | `non-disruptive-conformance` | `[Conformance]` minus `[Disruptive]` and `[Serial]` tests. Safe to run against clusters carrying other workloads. |
 | `quick` | Single ConfigMap test. Smoke-tests the harness end-to-end without exercising real conformance coverage. |
 
+### Dual-stack node and pod validation
+
+`K8sDualStackNodeCheck` observes node `InternalIP` addresses and the allocated `status.podIPs`
+of running, scheduled, non-terminating pods that do not use `hostNetwork`.
+Pod inspection requires permission to list pods across all namespaces.
+
+- `require_dual_stack: "auto"` (default): skips when node addresses, pod CIDRs,
+  and observed pod addresses provide no dual-stack hint. A skipped result does not prove
+  dual-stack support. When either family is observed together with the other on a node
+  or pod, the check requires both families on every node and every eligible observed pod.
+- `require_dual_stack: true`: requires both families regardless of detection.
+- `require_dual_stack: false`: preserves the informational node-only summary without
+  querying pods or asserting dual-stack support.
+
+When dual-stack validation is required, at least one eligible pod must be observable;
+node addresses or advertised pod CIDRs alone cannot establish a passing result.
+Host-network pods do not exercise the CNI and therefore cannot supply that evidence.
+The check does not provision probe pods on every node or test network connectivity.
+
 ## Excluding Tests
 
 Use the `tests.exclude` section to deselect tests before they run. Excluded tests are removed from collection entirely (they do not appear as skipped or failed).

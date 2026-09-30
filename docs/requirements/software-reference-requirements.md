@@ -240,7 +240,7 @@ This document lists requirements derived from the *NCP Software Reference Guide*
 
 | Req ID | Requirement Area | Description | Reference Mapping | Covers test | Status |
 | :----- | :--------------- | :---------- | :---------------- | :---------- | :----- |
-| K8S38 | Managed Kubernetes Control Plane | Run through all the steps of the k8s lifecycle management, including user-initated CP update | NSRG: Container-as-a-Service: Kubernetes | `K8S38-01` |  |
+| K8S38 | Managed Kubernetes Control Plane | A tenant shall be able to exercise the complete managed Kubernetes control plane lifecycle through the tenant-facing API/CLI. The tenant initiates create, read, update, and delete operations, including requesting a supported control plane version update; the platform operator executes the managed operation and exposes status until the requested version and terminal state are reached. Application continuity during the update is covered separately by K8S09. | NSRG: Container-as-a-Service: Kubernetes | `K8S38-01` |  |
 | K8S39 | Managed Kubernetes Control Plane | Be able to run k8s workloads | NSRG: Container-as-a-Service: Kubernetes | `K8S39-01` |  |
 | K8S40 | Managed Kubernetes Control Plane | K8s Nim Inference | NSRG: K8s-Native ML/AI Frameworks (Dynamo/NIM) | `K8S40-01` |  |
 | K8S32 | Managed Kubernetes Control Plane | K8s Nim Helm | NSRG: K8s-Native ML/AI Frameworks | `K8S32-01` |  |
@@ -248,7 +248,6 @@ This document lists requirements derived from the *NCP Software Reference Guide*
 | K8S34 | Managed Kubernetes Control Plane | validate adherence to upstream proxy requirements (service to pod load balancing, acces to internal services) | NSRG: Container-as-a-Service: Kubernetes | `K8S34-01` |  |
 | K8S35 | Managed Kubernetes Control Plane | Verify that pod-to-pod L3 traffic flow logs are available and queryable | NSRG: Container-as-a-Service: Kubernetes / Telemetry | `K8S35-01` |  |
 | K8S36 | Managed Kubernetes Control Plane | Verify Cluster Autoscaler integration (upstream) | NSRG: Container-as-a-Service: Kubernetes (autoscaling/Karpenter) | `K8S36-01` |  |
-| K8S37 | Managed Kubernetes Control Plane | Verify the managed K8s service meets standard Kubernetes performance tests to max cluster size | NSRG: Container-as-a-Service: Kubernetes | `K8S37-01` |  |
 | K8S41 | Managed Kubernetes Control Plane | The control plane should automatically add more capacity when load increases (control-plane autoscaling) | NSRG: Container-as-a-Service: Kubernetes (autoscaling) | `K8S41-01` |  |
 
 ### Power Policy Management

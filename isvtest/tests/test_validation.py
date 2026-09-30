@@ -44,6 +44,9 @@ from isvtest.validations.network import (
     BackendSwitchFabricCheck,
     ByoipCheck,
     FloatingIpCheck,
+    ImexDomainConnectivityCheck,
+    ImexServicePresenceCheck,
+    ImexServiceResilienceCheck,
     LocalizedDnsCheck,
     NvlinkDomainCheck,
     SgPolicyPropagationTimingCheck,
@@ -1733,6 +1736,532 @@ class TestNvlinkDomainCheck:
         result = v.execute()
         assert result["passed"] is False
         assert "nvlink_domain_id_present" in result["error"]
+
+
+def _imex_node(node_id: str, peers: list[str], *, member: bool = True, service_state: str = "active") -> dict[str, Any]:
+    """Build one per-node entry of the SDN21-01 step output contract."""
+    return {
+        "node_id": node_id,
+        "service_state": service_state,
+        "domain_member": member,
+        "peers_reachable": peers,
+    }
+
+
+def _imex_domain_output(extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build a step_output dict for IMEX domain connectivity tests (2 mutually-connected nodes).
+
+    Shape follows the SDN21-01 step output contract in the issue: a nested
+    ``domain`` object plus a ``nodes`` array of per-node reports.
+    """
+    step_output: dict[str, Any] = {
+        "success": True,
+        "platform": "network",
+        "domain": {
+            "domain_id": "imex-0",
+            "state": "up",
+            "expected_members": ["node-a", "node-b"],
+            # Deliberately true everywhere: the check must never rely on it.
+            "fully_connected": True,
+        },
+        "nodes_checked": 2,
+        "nodes_validated": 2,
+        "nodes": [_imex_node("node-a", ["node-b"]), _imex_node("node-b", ["node-a"])],
+    }
+    if extra:
+        domain_extra = extra.pop("domain", None)
+        if domain_extra is not None:
+            step_output["domain"].update(domain_extra)
+        step_output.update(extra)
+    return {"step_output": step_output}
+
+
+class TestImexDomainConnectivityCheck:
+    """Tests for ImexDomainConnectivityCheck validation (SDN21-01)."""
+
+    def test_all_passed(self) -> None:
+        """Two mutually-connected members with an operational domain passes."""
+        v = ImexDomainConnectivityCheck(config=_imex_domain_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "imex-0" in result["output"]
+
+    def test_missing_domain_object(self) -> None:
+        """Reject output without the contract's `domain` object."""
+        config = _imex_domain_output()
+        del config["step_output"]["domain"]
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "`domain`" in result["error"]
+
+    def test_domain_not_operational(self) -> None:
+        """Reject a domain state other than operational."""
+        config = _imex_domain_output({"domain": {"state": "down"}})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "down" in result["error"]
+
+    def test_state_matched_case_insensitively(self) -> None:
+        """Providers may normalize state casing differently; 'UP' is still operational."""
+        config = _imex_domain_output({"domain": {"state": "UP"}})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is True
+
+    def test_single_node_auto_fails_naming_environment(self) -> None:
+        """A single expected member fails with a message naming the environment as
+        too small - a 1-node connectivity matrix is trivially complete and would
+        otherwise pass vacuously."""
+        config = _imex_domain_output(
+            {
+                "domain": {"expected_members": ["node-a"]},
+                "nodes": [_imex_node("node-a", [])],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "too small" in result["error"]
+        assert "at least two" in result["error"]
+
+    def test_missing_member_fails(self) -> None:
+        """An expected member that never reports membership fails."""
+        config = _imex_domain_output({"nodes": [_imex_node("node-a", []), _imex_node("node-b", [], member=False)]})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "missing" in result["error"]
+
+    def test_unexpected_member_flagged_as_tenancy_finding(self) -> None:
+        """A node we were not allocated appearing in the domain is a tenancy finding."""
+        config = _imex_domain_output(
+            {
+                "nodes": [
+                    _imex_node("node-a", ["node-b", "node-c"]),
+                    _imex_node("node-b", ["node-a", "node-c"]),
+                    _imex_node("node-c", ["node-a", "node-b"]),
+                ]
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "unexpected" in result["error"]
+        assert "tenancy" in result["error"]
+        assert "node-c" in result["error"]
+
+    def test_skipped_payload_skips_instead_of_failing(self) -> None:
+        """An unconfigured run emits skipped=true. BaseValidation.execute() must
+        short-circuit to a pytest skip before run() inspects the payload, so
+        wiring this check into the network suite cannot fail a run that simply
+        has no IMEX cluster to point at."""
+        config = _imex_domain_output(
+            {
+                "skipped": True,
+                "skip_reason": "IMEX domain not configured for this run (no node IDs or SSH key set)",
+                "domain": {"domain_id": "", "state": "", "expected_members": []},
+                "nodes": [],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        with pytest.raises(pytest.skip.Exception, match="not configured"):
+            v.execute()
+
+    def test_duplicate_expected_members_rejected(self) -> None:
+        """A duplicate expected_members entry must not let a single real member
+        satisfy the multi-node minimum via set-collapsing: len(["node-a",
+        "node-a"]) >= 2 while the set has one element, so a 1-node domain could
+        otherwise pass as a valid 2-node one."""
+        config = _imex_domain_output(
+            {
+                "domain": {"expected_members": ["node-a", "node-a"]},
+                "nodes": [_imex_node("node-a", [])],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "duplicate" in result["error"]
+
+    def test_duplicate_reported_members_rejected(self) -> None:
+        """Duplicate node IDs among reporting members must not collapse into the expected set."""
+        config = _imex_domain_output({"nodes": [_imex_node("node-a", ["node-b"]), _imex_node("node-a", ["node-b"])]})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "duplicate" in result["error"]
+
+    def test_one_way_connectivity_fault_detected(self) -> None:
+        """A node reporting a peer that does not report it back must fail, even
+        though domain.fully_connected claims the domain is healthy."""
+        config = _imex_domain_output({"nodes": [_imex_node("node-a", ["node-b"]), _imex_node("node-b", [])]})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "one-way only" in result["error"]
+
+    def test_fully_connected_flag_is_not_trusted(self) -> None:
+        """fully_connected=true must not rescue a domain with no real connectivity."""
+        config = _imex_domain_output(
+            {
+                "domain": {"fully_connected": True},
+                "nodes": [_imex_node("node-a", []), _imex_node("node-b", [])],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "no connectivity observed" in result["error"]
+
+    def test_missing_peers_reachable_fails(self) -> None:
+        """A member without a peers_reachable list must fail explicitly."""
+        node_b = _imex_node("node-b", [])
+        del node_b["peers_reachable"]
+        config = _imex_domain_output({"nodes": [_imex_node("node-a", ["node-b"]), node_b]})
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "peers_reachable" in result["error"]
+
+    def test_service_state_is_not_asserted_on(self) -> None:
+        """Service lifecycle is out of scope: a member reporting an unusual
+        service_state still passes as long as membership and connectivity hold."""
+        config = _imex_domain_output(
+            {
+                "nodes": [
+                    _imex_node("node-a", ["node-b"], service_state="degraded"),
+                    _imex_node("node-b", ["node-a"], service_state="active"),
+                ]
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is True
+
+    def test_three_node_domain_all_pairs_checked(self) -> None:
+        """A 3-node fully connected domain verifies all 3 pairs."""
+        config = _imex_domain_output(
+            {
+                "domain": {"expected_members": ["node-a", "node-b", "node-c"]},
+                "nodes": [
+                    _imex_node("node-a", ["node-b", "node-c"]),
+                    _imex_node("node-b", ["node-a", "node-c"]),
+                    _imex_node("node-c", ["node-a", "node-b"]),
+                ],
+            }
+        )
+        v = ImexDomainConnectivityCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is True
+        assert "3 pair" in result["output"]
+
+
+def _imex_service_node(
+    node_id: str,
+    *,
+    in_alloc: bool = True,
+    service: bool = True,
+    tooling: bool = True,
+    registration: str = "loaded",
+    boot: str = "disabled",
+) -> dict[str, Any]:
+    """Build one per-node entry of the SDN17-01 step output contract."""
+    return {
+        "node_id": node_id,
+        "in_nvlink_allocation": in_alloc,
+        "service_present": service,
+        "control_tooling_present": tooling,
+        "service_registration": registration,
+        "boot_disposition": boot,
+    }
+
+
+def _imex_service_output(nodes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Build a step_output dict for IMEX service presence tests."""
+    nodes = [_imex_service_node("node-a"), _imex_service_node("node-b")] if nodes is None else nodes
+    return {
+        "step_output": {
+            "success": True,
+            "platform": "network",
+            "nodes_checked": len(nodes),
+            "nodes_validated": len(nodes),
+            "nodes": nodes,
+        }
+    }
+
+
+class TestImexServicePresenceCheck:
+    """Tests for ImexServicePresenceCheck validation (SDN17-01)."""
+
+    def test_all_passed(self) -> None:
+        """Service and tooling present and registered on every in-scope node passes."""
+        v = ImexServicePresenceCheck(config=_imex_service_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "2 in-scope node(s)" in result["output"]
+
+    def test_zero_asserted_nodes_fails(self) -> None:
+        """An 8-node run that asserts against none of them must FAIL, not report
+        nodes_checked: 8 and pass vacuously."""
+        nodes = [_imex_service_node(f"node-{n}", in_alloc=False) for n in range(8)]
+        v = ImexServicePresenceCheck(config=_imex_service_output(nodes))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "none marked as part of a multi-node NVLink allocation" in result["error"]
+
+    def test_empty_node_list_fails(self) -> None:
+        """No nodes at all is a failure, not a pass."""
+        v = ImexServicePresenceCheck(config=_imex_service_output([]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "No nodes were asserted against" in result["error"]
+
+    def test_missing_service_fails(self) -> None:
+        """A node without the IMEX daemon in its image fails."""
+        v = ImexServicePresenceCheck(
+            config=_imex_service_output([_imex_service_node("node-a"), _imex_service_node("node-b", service=False)])
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "node-b" in result["error"]
+        assert "service not present" in result["error"]
+
+    def test_missing_control_tooling_fails(self) -> None:
+        """A node without invocable control tooling fails."""
+        v = ImexServicePresenceCheck(
+            config=_imex_service_output([_imex_service_node("node-a", tooling=False), _imex_service_node("node-b")])
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "control tooling not present" in result["error"]
+
+    def test_masked_service_fails_as_deployment_mismatch(self) -> None:
+        """A masked definition FAILS, and is reported as a deployment-model
+        mismatch rather than a missing package."""
+        v = ImexServicePresenceCheck(config=_imex_service_output([_imex_service_node("node-a", registration="masked")]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "masked" in result["error"]
+        assert "deployment-model mismatch" in result["error"]
+
+    @pytest.mark.parametrize("registration", ["not_found", "error"])
+    def test_unregistered_service_fails(self, registration: str) -> None:
+        """Only a loaded definition passes; a unit file the manager never loaded does not."""
+        v = ImexServicePresenceCheck(
+            config=_imex_service_output([_imex_service_node("node-a", registration=registration)])
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "expected 'loaded'" in result["error"]
+
+    def test_unknown_registration_value_rejected(self) -> None:
+        """A registration value outside the normalized enum is rejected."""
+        v = ImexServicePresenceCheck(config=_imex_service_output([_imex_service_node("node-a", registration="active")]))
+        result = v.execute()
+        assert result["passed"] is False
+        assert "service_registration" in result["error"]
+
+    def test_out_of_scope_nodes_not_asserted(self) -> None:
+        """Nodes outside the allocation are not asserted against, so their state
+        cannot fail the run as long as at least one in-scope node is checked."""
+        nodes = [
+            _imex_service_node("node-a"),
+            _imex_service_node("node-b", in_alloc=False, service=False, registration="not_found"),
+        ]
+        v = ImexServicePresenceCheck(config=_imex_service_output(nodes))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "1 in-scope node(s) of 2 reported" in result["output"]
+
+    def test_boot_disposition_is_not_asserted_on(self) -> None:
+        """Boot disposition is out of scope: a disabled service still passes, and
+        the value is surfaced as evidence."""
+        nodes = [_imex_service_node("node-a", boot="disabled"), _imex_service_node("node-b", boot="static")]
+        v = ImexServicePresenceCheck(config=_imex_service_output(nodes))
+        result = v.execute()
+        assert result["passed"] is True
+        assert "boot disposition" in result["output"]
+
+    def test_malformed_nodes_rejected(self) -> None:
+        """A non-list `nodes` value is rejected rather than raising."""
+        v = ImexServicePresenceCheck(config={"step_output": {"nodes": "oops"}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "`nodes` must be a list" in result["error"]
+
+    def test_skipped_payload_skips_instead_of_failing(self) -> None:
+        """An unconfigured run skips rather than failing the whole network run."""
+        config = _imex_service_output([])
+        config["step_output"]["skipped"] = True
+        config["step_output"]["skip_reason"] = "IMEX nodes not configured for this run (no node IDs set)"
+        v = ImexServicePresenceCheck(config=config)
+        with pytest.raises(pytest.skip.Exception, match="not configured"):
+            v.execute()
+
+
+def _imex_resilience_output(ops: dict[str, Any] | None = None, **top: Any) -> dict[str, Any]:
+    """Build a step_output dict for IMEX resilience tests (SDN18-01)."""
+    operations: dict[str, Any] = {
+        "unaided_presence": {
+            "running_on_arrival": True,
+            "domain_member": True,
+            "started_by_test": False,
+            "boot_persistence_configured": True,
+        },
+        "terminate": {"method": "kill", "confirmed": True},
+        "recovery": {"domain_member": True, "elapsed_seconds": 9, "operator_intervention": False},
+        "restore": {"restored_to": "active", "domain_member": True},
+    }
+    for key, value in (ops or {}).items():
+        if isinstance(value, dict) and isinstance(operations.get(key), dict):
+            operations[key] = {**operations[key], **value}
+        else:
+            operations[key] = value
+    step_output = {"success": True, "platform": "network", "node_id": "node-a", "operations": operations}
+    step_output.update(top)
+    return {"step_output": step_output}
+
+
+class TestImexServiceResilienceCheck:
+    """Tests for ImexServiceResilienceCheck validation (SDN18-01)."""
+
+    def test_all_passed(self) -> None:
+        """Running unaided, persistent, and self-healed within bound passes."""
+        v = ImexServiceResilienceCheck(config=_imex_resilience_output())
+        result = v.execute()
+        assert result["passed"] is True
+        assert "rejoined the domain 9s" in result["output"]
+
+    def test_started_by_test_must_be_false(self) -> None:
+        """If the test started the service, the unaided observation is void."""
+        config = _imex_resilience_output({"unaided_presence": {"started_by_test": True}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "started_by_test" in result["error"]
+
+    def test_not_running_on_arrival_indicts_provisioning(self) -> None:
+        """Not running on arrival is a FAIL naming provisioning - never a repair step."""
+        config = _imex_resilience_output({"unaided_presence": {"running_on_arrival": False}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "indicts provisioning" in result["error"]
+
+    def test_boot_persistence_not_configured_indicts_image(self) -> None:
+        """Persistence not configured is a distinct failure naming the image."""
+        config = _imex_resilience_output({"unaided_presence": {"boot_persistence_configured": False}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "indicts the image" in result["error"]
+
+    def test_no_rejoin_indicts_supervision(self) -> None:
+        """Failing to rejoin is a distinct failure naming supervision, and still
+        reports elapsed time so 'never came back' is distinguishable from 'slow'."""
+        config = _imex_resilience_output({"recovery": {"domain_member": False, "elapsed_seconds": 60}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "indicts supervision" in result["error"]
+        assert "60s" in result["error"]
+
+    def test_graceful_stop_rejected_as_stimulus(self) -> None:
+        """A graceful stop is the wrong stimulus: a correct supervisor will not
+        restart a deliberate stop, so a stop-based run would fail good nodes."""
+        config = _imex_resilience_output({"terminate": {"method": "stop"}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "must be 'kill'" in result["error"]
+
+    def test_unconfirmed_termination_rejected(self) -> None:
+        """Recovery cannot be attributed to a kill that was never confirmed."""
+        config = _imex_resilience_output({"terminate": {"confirmed": False}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "not confirmed" in result["error"]
+
+    def test_operator_intervention_fails(self) -> None:
+        """Recovery that needed a human is not self-healing."""
+        config = _imex_resilience_output({"recovery": {"operator_intervention": True}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "operator intervention" in result["error"]
+
+    def test_recovery_beyond_configured_bound_fails(self) -> None:
+        """Rejoining too slowly fails when the wiring supplies a bound."""
+        config = _imex_resilience_output({"recovery": {"elapsed_seconds": 120}})
+        config["recovery_timeout_seconds"] = 60
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "beyond the 60s recovery bound" in result["error"]
+
+    def test_recovery_within_configured_bound_passes(self) -> None:
+        """A rejoin inside the bound passes."""
+        config = _imex_resilience_output({"recovery": {"elapsed_seconds": 5}})
+        config["recovery_timeout_seconds"] = 60
+        v = ImexServiceResilienceCheck(config=config)
+        assert v.execute()["passed"] is True
+
+    @pytest.mark.parametrize("elapsed", ["nine", None, True, -1])
+    def test_invalid_elapsed_rejected(self, elapsed: Any) -> None:
+        """elapsed_seconds must be a real non-negative number."""
+        config = _imex_resilience_output({"recovery": {"elapsed_seconds": elapsed}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "elapsed_seconds" in result["error"]
+
+    def test_failed_restoration_fails_the_check(self) -> None:
+        """This check is destructive: a node that self-healed but was then left
+        not-active by restoration must not report success, or a green result
+        hides an unavailable node."""
+        config = _imex_resilience_output({"restore": {"restored_to": "failed"}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "leave the node unavailable" in result["error"]
+
+    def test_restoration_losing_domain_membership_fails(self) -> None:
+        """Restoration that leaves the node out of the domain also fails."""
+        config = _imex_resilience_output({"restore": {"restored_to": "active", "domain_member": False}})
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "not an operational domain" in result["error"]
+
+    def test_missing_restore_evidence_fails(self) -> None:
+        """A destructive check must not pass on the word of a run that never
+        showed the node was put back - by this point restoration has necessarily
+        been attempted, so absent evidence means it may have been left down."""
+        config = _imex_resilience_output()
+        del config["step_output"]["operations"]["restore"]
+        v = ImexServiceResilienceCheck(config=config)
+        result = v.execute()
+        assert result["passed"] is False
+        assert "no restoration evidence" in result["error"]
+
+    def test_malformed_operations_rejected(self) -> None:
+        """A non-object operations value is rejected rather than raising."""
+        v = ImexServiceResilienceCheck(config={"step_output": {"node_id": "n", "operations": "oops"}})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "`operations`" in result["error"]
+
+    def test_skipped_payload_skips_instead_of_failing(self) -> None:
+        """An unconfigured run skips rather than failing the whole network run."""
+        config = _imex_resilience_output(
+            skipped=True, skip_reason="IMEX node not configured for this run (no node IDs set)"
+        )
+        v = ImexServiceResilienceCheck(config=config)
+        with pytest.raises(pytest.skip.Exception, match="not configured"):
+            v.execute()
 
 
 class TestValidationResultCapture:

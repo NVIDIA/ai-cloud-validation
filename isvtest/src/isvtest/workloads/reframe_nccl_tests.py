@@ -13,18 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""NCCL AllReduce performance test using HPC benchmarks container.
+"""NCCL AllReduce performance test using the HPC benchmarks container.
 
-This test uses the NVIDIA HPC Benchmarks container from NGC:
-https://catalog.ngc.nvidia.com/orgs/nvidia/containers/hpc-benchmarks?version=25.04
-
-The container includes:
-- NVIDIA HPL 25.04
-- NVIDIA HPL-MxP 25.04
-- NVIDIA HPCG 25.04
-- NVIDIA STREAM 25.04
-- NVIDIA NVSHMEM 3.4.5
-- NVIDIA NVPL 25.1
+The image comes from ``get_nccl_image()`` (``NCCL_IMAGE``).
 
 Note: This test requires:
 - Slurm with container support (Enroot/Singularity/Pyxis), OR
@@ -36,6 +27,8 @@ from typing import Any, ClassVar
 import reframe as rfm
 import reframe.core.builtins as rfm_builtins
 import reframe.utility.sanity as rfm_sanity
+
+from isvtest.config.settings import get_nccl_image
 
 
 @rfm.simple_test
@@ -61,7 +54,7 @@ class NCCLAllReduceTest(rfm.RunOnlyRegressionTest):
     def set_container_image(self) -> None:
         """Configure container image for NCCL tests using ReFrame's native container support."""
         # ReFrame converts container_platform string to object before this hook
-        self.container_platform.image = "nvcr.io/nvidia/hpc-benchmarks:25.04"  # type: ignore[attr-defined]
+        self.container_platform.image = get_nccl_image()  # type: ignore[attr-defined]
         self.container_platform.command = "all_reduce_perf"  # type: ignore[attr-defined]
 
     @rfm_builtins.run_before("run")

@@ -208,42 +208,11 @@ EOF
         assert result.inventory is not None
         assert "setup_cluster" in result.inventory
 
-    def test_unavailable_validation_gate_skips_setup_step(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Steps gated on unreleased validations must not execute by default."""
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: {"ReleasedCheck"})
-        config = RunConfig(
-            commands={
-                "kubernetes": PlatformCommands(
-                    steps=[
-                        StepConfig(
-                            name="unreleased_setup",
-                            command="false",
-                            phase="setup",
-                            requires_available_validations=["NewCheck"],
-                        ),
-                    ]
-                )
-            },
-            tests=ValidationConfig(capability="kubernetes"),
-        )
-
-        result = Orchestrator(config).run(phases=[Phase.SETUP])
-
-        assert result.success
-        assert result.phases[0].details
-        step = result.phases[0].details["steps"][0]
-        assert step["name"] == "unreleased_setup"
-        assert step["error"] == "Step skipped"
-        assert result.inventory is not None
-        assert "unreleased_setup" not in result.inventory
-
-    def test_validation_gate_allows_step_when_unreleased_checks_are_included(
+    def test_setup_step_runs_without_a_release_gate(
         self,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """The same gate opens when the release filter is disabled."""
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
+        """Every step in the checkout is eligible without environment switches."""
         script_path = _write_script(
             tmp_path,
             "setup.sh",
@@ -257,7 +226,6 @@ EOF
                             name="unreleased_setup",
                             command=script_path,
                             phase="setup",
-                            requires_available_validations=["NewCheck"],
                         ),
                     ]
                 )
@@ -425,7 +393,6 @@ EOF
 
     def test_config_without_commands_runs_live_validations_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A suite config can probe an already-running system without a provider lifecycle."""
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
         config = RunConfig(
             tests=ValidationConfig(
                 validations={
@@ -446,7 +413,10 @@ EOF
         assert result.success
         assert [phase.phase for phase in result.phases] == [Phase.TEST]
         assert [entry.entry.name for entry in result.validations] == ["K8sCsiStorageTypesCheck"]
-        assert result.validations[0].state is State.PASSED
+        # No StorageClass is configured, so the check runs and skips itself: a
+        # runtime skip proves it executed rather than being filtered out.
+        assert result.validations[0].state is State.SKIPPED
+        assert result.validations[0].skip_reason is SkipReason.RUNTIME_SKIP
 
     def test_config_without_commands_or_validations_is_not_a_pass(self) -> None:
         """Validations are all a commandless run has, so wiring none asserts nothing."""
@@ -463,7 +433,6 @@ EOF
         Regression test for issue where validation failures in setup caused
         teardown to be skipped, leaking cloud resources.
         """
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
         setup_script = _write_script(tmp_path, "setup.sh", _INVENTORY_SCRIPT)
 
         config = RunConfig(
@@ -563,7 +532,6 @@ EOF
 
     def test_validation_without_step_output_is_reported_as_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A configured validation whose step produced no JSON is skipped visibly."""
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
         config = RunConfig(
             commands={
                 "kubernetes": PlatformCommands(
@@ -607,7 +575,6 @@ EOF
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Validation parameter render failures are terminal validation errors."""
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
         ok_script = _write_script(tmp_path, "ok.sh", _OK_SCRIPT)
         config = RunConfig(
             commands={
@@ -649,7 +616,6 @@ EOF
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Merged JUnit includes terminal entries that never went through pytest."""
-        monkeypatch.setattr("isvctl.orchestrator.loop.load_released_test_filter", lambda: None)
         ok_script = _write_script(tmp_path, "ok.sh", _OK_SCRIPT)
         junit_path = tmp_path / "junit.xml"
         config = RunConfig(
@@ -1169,6 +1135,39 @@ class TestMissingStepRefDetection:
         )
 
         assert rendered == ["--issuer-url=", "--audience=", "--target-url="]
+
+    def test_step_env_values_are_rendered_like_args(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``env:`` templates render against the context, so Terraform never sees ``{{region}}``."""
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        script = _write_script(
+            tmp_path,
+            "show_env.sh",
+            '#!/bin/sh\necho "{\\"success\\": true, \\"platform\\": \\"storage\\", \\"region\\": \\"$TF_VAR_region\\"}"\n',
+        )
+        config = RunConfig(
+            tests=ValidationConfig(settings={"region": "{{env.AWS_REGION | default('us-west-2', true)}}"})
+        )
+        steps = [StepConfig(name="show_env", command=script, phase="setup", env={"TF_VAR_region": "{{region}}"})]
+
+        results = StepExecutor().execute_steps(steps, Context(config))
+
+        assert results.success, results.steps[0].error
+        assert results.steps[0].output == {"success": True, "platform": "storage", "region": "eu-west-1"}
+
+    def test_step_env_render_error_fails_the_step(self) -> None:
+        """A malformed ``env:`` template fails that step like any other step failure."""
+        steps = [
+            StepConfig(
+                name="bad_env", command="true", phase="setup", env={"TF_VAR_region": "{{ region | no_such_filter }}"}
+            ),
+            StepConfig(name="after", command="true", phase="setup"),
+        ]
+
+        results = StepExecutor().execute_steps(steps, Context(RunConfig()))
+
+        assert not results.success
+        assert [s.name for s in results.steps] == ["bad_env"]
+        assert "Failed to render env" in (results.steps[0].error or "")
 
     def test_missing_ref_raised_from_render_args_directly(self) -> None:
         """_render_args raises MissingStepRefError for bare references."""

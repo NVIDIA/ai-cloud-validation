@@ -205,7 +205,7 @@ requirements:
     subsection: Kubernetes Operational Excellence
     area: Versioning
     test_details: INFO
-    description: Provider-managed control plane upgrade processes.
+    description: The platform operator shall own and execute provider-managed control plane upgrade processes, including routine maintenance and security updates. The operator shall define the supported upgrade policy and transitions, expose upgrade status, and notify affected tenants. This requirement concerns operator-driven maintenance; it does not cover a tenant requesting a control plane version update through the tenant-facing service API.
   - req_id: K8S09
     section: Kubernetes As a Service (KaaS) Requirements
     subsection: Kubernetes Operational Excellence

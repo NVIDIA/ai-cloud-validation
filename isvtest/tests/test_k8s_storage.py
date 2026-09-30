@@ -217,12 +217,12 @@ class TestK8sCsiStorageTypesCheck:
     def test_no_storage_classes_configured_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No StorageClass configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
-        assert "no StorageClass" in check._output
 
     @pytest.mark.parametrize(
         "present",
@@ -770,11 +770,12 @@ class TestK8sCsiStorageQuotaApiCheck:
     def test_no_storage_class_configured_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No storage_class configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
 
     def test_happy_path_all_subtests_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
@@ -1532,21 +1533,14 @@ class TestK8sCsiTenantScopedCredentialsCheck:
         cluster_roles = cluster_roles or []
 
         def _route(cmd: str, timeout: int | None = None) -> CommandResult:
+            """Answer one kubectl invocation issued by the check under test."""
             if fail_on and fail_on in cmd:
                 return _fail(stderr="boom")
             if "get csidriver -o json" in cmd:
                 return _ok(stdout=_items_json(csi_drivers))
-            if "get pods -n " in cmd and "-o json" in cmd:
-                # Extract the namespace from the quoted `-n '<ns>'` fragment.
-                # shlex.quote renders most identifiers without quoting, so
-                # fall back to a simple split on whitespace.
-                parts = cmd.split()
-                ns = ""
-                for i, part in enumerate(parts):
-                    if part == "-n" and i + 1 < len(parts):
-                        ns = parts[i + 1].strip("'\"")
-                        break
-                return _ok(stdout=_items_json(pods_by_ns.get(ns, [])))
+            if "get pods --all-namespaces -o json" in cmd:
+                all_pods = [pod for pods in pods_by_ns.values() for pod in pods]
+                return _ok(stdout=_items_json(all_pods))
             if cmd.rstrip().endswith("get pv -o json"):
                 return _ok(stdout=_items_json(pvs))
             if "get secret " in cmd and "-o json" in cmd:
@@ -1581,10 +1575,12 @@ class TestK8sCsiTenantScopedCredentialsCheck:
 
     def test_no_csi_drivers_skips_all_subtests(self) -> None:
         check = self._make({})
-        with patch.object(check, "run_command", side_effect=self._router(csi_drivers=[], pods_by_ns={}, pvs=[])):
+        with (
+            patch.object(check, "run_command", side_effect=self._router(csi_drivers=[], pods_by_ns={}, pvs=[])),
+            pytest.raises(pytest.skip.Exception, match="No CSIDriver objects found"),
+        ):
             check.run()
 
-        assert check.passed
         outcomes = {r["name"]: r for r in check._subtest_results}
         for name in (
             "csi-secrets-discovered",
@@ -1782,6 +1778,62 @@ class TestK8sCsiTenantScopedCredentialsCheck:
         outcomes = {r["name"]: r for r in check._subtest_results}
         assert not outcomes["serviceaccount-rbac-scoped"]["passed"]
         assert "csi-secret-reader" in outcomes["serviceaccount-rbac-scoped"]["message"]
+
+    def test_unrestricted_cluster_secret_grant_fails_outside_kube_system(self) -> None:
+        """Regression test: controller pods outside kube-system must still be caught.
+
+        Reproduces the Longhorn/OpenNebula gap - Longhorn's CSI controller
+        pods run in ``longhorn-system``, not ``kube-system``, and its
+        ``longhorn-role`` ClusterRole grants unrestricted Secret access
+        identically to the ``csi-controller`` case above. With the old
+        ``csi_driver_namespaces``-gated pod discovery this would have gone
+        unseen and silently passed; cluster-wide discovery must catch it
+        without any provider config override.
+        """
+        check = self._make({})  # No csi_driver_namespaces override - default config only.
+        csi_drivers = [{"kind": "CSIDriver", "metadata": {"name": "driver.longhorn.io"}}]
+        pods = [
+            _pod(
+                name="longhorn-csi-plugin-controller",
+                namespace="longhorn-system",
+                images=["csi-provisioner:v4"],
+                service_account="longhorn-service-account",
+            ),
+            _pod(
+                name="longhorn-csi-plugin-node",
+                namespace="longhorn-system",
+                images=["csi-node-driver-registrar:v2"],
+                service_account="longhorn-service-account",
+            ),
+        ]
+        pvs: list[dict[str, Any]] = []
+        crbs = [
+            _crb(
+                name="longhorn-bind",
+                cluster_role="longhorn-role",
+                subject_namespace="longhorn-system",
+                subject_name="longhorn-service-account",
+            )
+        ]
+        croles = [_cluster_role_secrets(name="longhorn-role", verbs=["get", "list", "watch"])]
+        with patch.object(
+            check,
+            "run_command",
+            side_effect=self._router(
+                csi_drivers=csi_drivers,
+                pods_by_ns={"longhorn-system": pods},
+                pvs=pvs,
+                cluster_role_bindings=crbs,
+                cluster_roles=croles,
+            ),
+        ):
+            check.run()
+
+        assert not check.passed
+        outcomes = {r["name"]: r for r in check._subtest_results}
+        assert not outcomes["serviceaccount-rbac-scoped"]["skipped"]
+        assert not outcomes["serviceaccount-rbac-scoped"]["passed"]
+        assert "longhorn-bind" in outcomes["serviceaccount-rbac-scoped"]["message"]
 
     def test_node_plugin_with_persistent_volume_claim_fails(self) -> None:
         check = self._make({})
@@ -2139,12 +2191,12 @@ class TestK8sCsiProvisioningModesCheck:
     def test_no_dynamic_sc_configured_skips_without_work(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({})
-        with patch.object(check, "run_command") as mock_run:
+        with (
+            patch.object(check, "run_command") as mock_run,
+            pytest.raises(pytest.skip.Exception, match="No dynamic_storage_class configured"),
+        ):
             check.run()
         mock_run.assert_not_called()
-        assert check.passed
-        assert "Skipped" in check._output
-        assert "dynamic_storage_class" in check._output
 
     def test_dynamic_happy_path_static_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
@@ -2471,14 +2523,15 @@ class TestK8sCsiDriverHealthCheck:
 
     def test_skips_whole_check_when_no_storage_classes_resolve(self) -> None:
         # Blank/whitespace StorageClasses (e.g. unrendered Jinja defaults) mean
-        # the whole check is a no-op pass and no kubectl call is issued.
+        # the whole check is skipped and no kubectl call is issued.
         check = self._make({"drivers": [{"storage_classes": ["", "   "]}]})
 
-        with patch.object(check, "run_command", side_effect=AssertionError("should not query")):
+        with (
+            patch.object(check, "run_command", side_effect=AssertionError("should not query")),
+            pytest.raises(pytest.skip.Exception, match="No storage_classes configured"),
+        ):
             check.run()
 
-        assert check.passed
-        assert "no storage_classes" in check._output
         assert check._subtest_results == []
 
     def test_healthy_controller_and_daemonset_pass(self) -> None:

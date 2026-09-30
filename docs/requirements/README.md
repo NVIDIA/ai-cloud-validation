@@ -105,7 +105,29 @@ ID must change, we keep the previous ID in a list in the `test-plan.yaml` file
 in a field called `legacy_ids`. This list should only be appended to, never
 removed from.
 
-## 4. Labels & selective runs
+## 4. Actor scope
+
+Every test in `test-plan.yaml` must declare exactly one `actor` value describing
+who uses the capability under test:
+
+- `tenant`: a renter/customer operation through a tenant-facing API or from
+  within allocated compute, network, storage, Kubernetes, or Slurm resources.
+- `operator`: a cloud/provider operation against the management plane, fleet,
+  physical infrastructure, BMC, fabric, sanitization, or provider maintenance
+  systems.
+- `both`: a cross-role operation, such as a tenant request that the provider
+  executes and the tenant subsequently verifies.
+- `provider-dependent`: the provider-neutral contract does not determine which
+  party performs the operation. Use this sparingly and clarify the boundary when
+  a real provider implementation is added.
+
+Actor scope describes the user of the capability, not merely the credentials
+held by the validation harness. For example, a runner may need broad AWS account
+permissions while testing a tenant-facing VPC operation. Provider overlays may
+record more specific execution roles, but they must not change the canonical
+actor without reconciling the test plan.
+
+## 5. Labels & selective runs
 
 The end goal is to run **subsets** of tests - an arbitrary tag, or *every test
 belonging to a given requirements document*. We keep the data flexible for this:
@@ -120,7 +142,7 @@ belonging to a given requirements document*. We keep the data flexible for this:
   convenience labels (e.g. a generated `doc:offtake` tag) may be produced later
   from the index, but the index stays the source of truth.
 
-## 5. Onboarding a new requirements document (runbook)
+## 6. Onboarding a new requirements document (runbook)
 
 When a new team's requirements document is blessed, reconcile it here:
 
@@ -137,7 +159,8 @@ When a new team's requirements document is blessed, reconcile it here:
 
 > Kept as a subsection for now; promote to its own `ONBOARDING.md` if it grows.
 
-## 6. Validation & enforcement
+## 7. Validation & enforcement
 
 `reqtrace validate` (run via `make reqcheck`, and in CI through
-`scripts/tests/test_reqtrace.py`) is the machine-checked guard.
+`scripts/tests/test_reqtrace.py`) is the machine-checked guard. It also requires
+every canonical test to declare one of the actor values in section 4.

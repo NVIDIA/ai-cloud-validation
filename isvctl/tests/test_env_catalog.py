@@ -72,7 +72,7 @@ def test_flags_group_is_not_persistable() -> None:
     assert all(not var.persistable for var in flags)
     # Specific per-run toggles that must never be persisted.
     names = {var.name for var in flags}
-    assert {"KUBECTL", "ISVCTL_DEMO_MODE", "ISVTEST_INCLUDE_UNRELEASED", "AWS_SKIP_TEARDOWN"} <= names
+    assert {"KUBECTL", "ISVCTL_DEMO_MODE", "AWS_SKIP_TEARDOWN"} <= names
 
 
 def test_non_flag_vars_are_persistable() -> None:

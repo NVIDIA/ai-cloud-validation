@@ -705,7 +705,7 @@ requirements:
   - req_id: K8S38
     domain: Workload Orchestration
     component: Managed Kubernetes Control Plane
-    description: Run through all the steps of the k8s lifecycle management, including user-initated CP update
+    description: A tenant shall be able to exercise the complete managed Kubernetes control plane lifecycle through the tenant-facing API/CLI. The tenant initiates create, read, update, and delete operations, including requesting a supported control plane version update; the platform operator executes the managed operation and exposes status until the requested version and terminal state are reached. Application continuity during the update is covered separately by K8S09.
     reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes'
     covers_test: K8S38-01
     status: ''
@@ -757,13 +757,6 @@ requirements:
     description: Verify Cluster Autoscaler integration (upstream)
     reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes (autoscaling/Karpenter)'
     covers_test: K8S36-01
-    status: ''
-  - req_id: K8S37
-    domain: Workload Orchestration
-    component: Managed Kubernetes Control Plane
-    description: Verify the managed K8s service meets standard Kubernetes performance tests to max cluster size
-    reference_mapping: 'NSRG: Container-as-a-Service: Kubernetes'
-    covers_test: K8S37-01
     status: ''
   - req_id: K8S41
     domain: Workload Orchestration

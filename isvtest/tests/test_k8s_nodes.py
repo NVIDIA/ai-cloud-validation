@@ -25,6 +25,7 @@ from isvtest.core.runners import CommandResult, Runner
 from isvtest.validations.k8s_nodes import (
     K8sExpectedNodesCheck,
     K8sNodeCountCheck,
+    K8sNodeReadyCheck,
     _combine_label_selectors,
 )
 
@@ -186,6 +187,15 @@ def test_expected_nodes_uses_node_json() -> None:
         check.run()
     assert check.passed
     assert mock_run.call_args[0][0] == "kubectl get nodes -o json"
+
+
+def test_node_ready_fails_with_zero_nodes() -> None:
+    """Verify an empty cluster fails instead of vacuously passing."""
+    check = K8sNodeReadyCheck(config={})
+    with patch.object(check, "run_command", return_value=_ok(_nodes_json())):
+        check.run()
+    assert not check.passed
+    assert check.message == "No nodes found in cluster"
 
 
 def test_expected_nodes_fails_on_invalid_json() -> None:

@@ -28,6 +28,8 @@ import reframe as rfm
 import reframe.utility.sanity as sn
 from reframe.core.builtins import performance_function, run_after, sanity_function
 
+from isvtest.config.settings import get_nccl_image
+
 
 @rfm.simple_test
 class NCCLAllReduceLocalTest(rfm.RunOnlyRegressionTest):
@@ -45,13 +47,14 @@ class NCCLAllReduceLocalTest(rfm.RunOnlyRegressionTest):
     @run_after("init")
     def detect_container_runtime(self) -> None:
         """Detect and configure available container runtime."""
+        image = get_nccl_image()
         # Check for Singularity
         if shutil.which("singularity"):
             self.executable = "singularity"
             self.executable_opts = [
                 "exec",
                 "--nv",  # Enable NVIDIA GPU support
-                "docker://nvcr.io/nvidia/hpc-benchmarks:25.04",
+                f"docker://{image}",
                 "all_reduce_perf",
                 "-b",
                 "8",
@@ -75,7 +78,7 @@ class NCCLAllReduceLocalTest(rfm.RunOnlyRegressionTest):
                 "memlock=-1",  # Required for pinned memory
                 "--ulimit",
                 "stack=67108864",  # 64MB stack size
-                "nvcr.io/nvidia/hpc-benchmarks:25.04",
+                image,
                 "all_reduce_perf",
                 "-b",
                 "8",
@@ -92,7 +95,7 @@ class NCCLAllReduceLocalTest(rfm.RunOnlyRegressionTest):
             self.executable_opts = [
                 "start",
                 "--rw",
-                "nvcr.io#nvidia#hpc-benchmarks:25.04",
+                image.replace("/", "#"),
                 "all_reduce_perf",
                 "-b",
                 "8",

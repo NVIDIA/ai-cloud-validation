@@ -39,6 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Constraint shared by `labels` and `dependencies` entries: identifier-like only.
 LABEL_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 ISSUE_REF_RE = re.compile(r"#(\d+)")
+VALID_ACTORS = {"tenant", "operator", "both", "provider-dependent"}
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +120,7 @@ def _validate_string_list(field_name: str, values: Any, test_id: str, errors: li
 
 
 def validate_test_plan(data: dict[str, Any]) -> None:
-    """Walk every test and verify `labels` and `dependencies` are well-formed.
+    """Walk every test and verify actor and list metadata are well-formed.
 
     Raises ``SystemExit`` with a list of all problems found, so a single run
     surfaces every issue instead of failing on the first.
@@ -130,6 +131,9 @@ def validate_test_plan(data: dict[str, Any]) -> None:
             for cap in comp.get("capabilities", []):
                 for t in cap.get("tests", []):
                     tid = t.get("test_id", "<no test_id>")
+                    actor = t.get("actor")
+                    if not isinstance(actor, str) or actor not in VALID_ACTORS:
+                        errors.append(f"{tid}: actor must be one of {sorted(VALID_ACTORS)}, got {actor!r}")
                     _validate_string_list("labels", t.get("labels"), tid, errors)
                     _validate_string_list("dependencies", t.get("dependencies"), tid, errors)
                     for entry in t.get("github_issues") or []:
@@ -156,9 +160,9 @@ def generate_adoc(data: dict[str, Any], outfile: str) -> None:
         ":toc:",
         ":max-width: none",
         "",
-        '[cols="2,2,5,2,2,1,1,1,1,1,3,1,1,1,6,1,4",options="header"]',
+        '[cols="2,2,5,2,2,1,1,1,1,1,1,3,1,1,1,6,1,4",options="header"]',
         "|===",
-        "| Test Domain | Function | Description | Example | Test ID | Req ID | GH | Labels | Notes | Priority | Issues | Dependencies | Milestone | Release | Test Cases | Status | Justification",
+        "| Test Domain | Function | Description | Example | Test ID | Req ID | GH | Labels | Actor | Notes | Priority | Issues | Dependencies | Milestone | Release | Test Cases | Status | Justification",
         "",
     ]
 
@@ -202,6 +206,7 @@ def generate_adoc(data: dict[str, Any], outfile: str) -> None:
                             first_gh_link = f"https://github.com/{GH_REPO}/issues/{num}[#{num}]"
                     parts.append(cell(first_gh_link))
                     parts.append(cell(fmt_list(test.get("labels", []))))
+                    parts.append(cell(esc_adoc(test.get("actor", ""))))
                     parts.append(cell(esc_adoc(test.get("notes", ""))))
                     parts.append(cell(esc_adoc(test.get("priority", ""))))
                     parts.append(acell(fmt_gh_issues_adoc(test.get("github_issues", []))))

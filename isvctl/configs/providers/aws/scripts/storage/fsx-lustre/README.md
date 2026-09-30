@@ -50,7 +50,7 @@ Not needed (intentionally - keeps the IAM surface tight):
 
 | Variable | Required? | Effect |
 | -------- | --------- | ------ |
-| `AWS_REGION` | Yes | Region for all AWS clients (Service Quotas, FSx, STS). Must match the cluster's FSx region. |
+| `AWS_REGION` | No (default: `AWS_DEFAULT_REGION` or the AWS profile's region) | Region for all AWS clients (Service Quotas, FSx, STS). Must match the cluster's FSx region. |
 | `AWS_PROFILE` _or_ `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` [+ `AWS_SESSION_TOKEN`] | Yes | Standard boto3 credential chain - no custom logic. |
 | `FSX_DEPLOYMENT_TYPE` | No (default `PERSISTENT_2`) | One of `PERSISTENT_2`, `PERSISTENT_1`, `SCRATCH_1`, `SCRATCH_2`. Chooses the Service Quota code. |
 | `FSX_QUOTA_CODE` | No | Overrides the `FSX_DEPLOYMENT_TYPE` -> quota-code mapping (e.g. for a code we don't ship). |
@@ -83,10 +83,9 @@ aws fsx describe-file-systems --max-results 1 --region "$AWS_REGION"
 aws service-quotas get-service-quota \
   --service-code fsx --quota-code L-8F1B9C74 --region "$AWS_REGION"
 
-# Run the storage check (unreleased -> gate env var required):
-ISVTEST_INCLUDE_UNRELEASED=1 \
-  uv run isvctl test run \
-    -f isvctl/configs/providers/aws/config/eks.yaml
+# Run the storage check:
+uv run isvctl test run \
+    -f isvctl/configs/providers/aws/config/storage.yaml
 ```
 
 `volume-provisioning[aws-fsx-lustre]` reports **skipped (passed)** with
@@ -101,8 +100,7 @@ fallback, not a failure.
 | `api-authentication[...] FAILED ... AuthenticationError` | Missing creds, expired SSO, IAM role missing `servicequotas:GetServiceQuota` | Refresh creds; attach the IAM actions above |
 | `tenant-quota[...] FAILED ... hard_limit_bytes=0` | Wrong `FSX_DEPLOYMENT_TYPE` (account has zero of that tier) | Set `FSX_DEPLOYMENT_TYPE` to match your FSx SC's `parameters.deploymentType` |
 | `Failed to load provider manifest: ... not found` | Working dir is not the repo root | `cd` to repo root before `isvctl test run` |
-| Orchestrator logs `Skipping unreleased validation 'StorageProviderApiCheck'` | `ISVTEST_INCLUDE_UNRELEASED=1` not set | Re-run with the env var |
-| `AWS_REGION must be set` | `AWS_REGION` env var unset | `export AWS_REGION=...` matching the cluster region |
+| `No AWS region for the FSx Lustre shim` | No `AWS_REGION`, `AWS_DEFAULT_REGION`, or profile region | `export AWS_REGION=...` matching the cluster region |
 | `volume-provisioning[...] SKIPPED ... observed 0 ...` | Account has no FSx Lustre filesystems yet | Create a PVC against the FSx StorageClass first, then re-run |
 
 ## See also

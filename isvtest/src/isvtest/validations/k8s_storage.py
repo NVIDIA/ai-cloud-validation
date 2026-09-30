@@ -47,6 +47,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
+import pytest
 from kubernetes.utils import parse_quantity
 
 from isvtest.config.settings import (
@@ -56,6 +57,7 @@ from isvtest.config.settings import (
 )
 from isvtest.core.k8s import (
     KubectlParseError,
+    command_detail,
     get_kubectl_base_shell,
     get_kubectl_command,
     parse_kubectl_json,
@@ -118,7 +120,7 @@ def _get_pvc_json(run_command, kubectl_base: str, namespace: str, pvc_name: str)
     cmd = f"{kubectl_base} get pvc {shlex.quote(pvc_name)} -n {shlex.quote(namespace)} -o json"
     result = run_command(cmd)
     if result.exit_code != 0:
-        return None, result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
+        return None, command_detail(result)
     try:
         return parse_kubectl_json(result, f"PVC {pvc_name!r}"), ""
     except KubectlParseError as exc:
@@ -217,11 +219,7 @@ def _collect_storage_diagnostics(
                 break
             try:
                 result = run_command(command, timeout=min(_DIAGNOSTIC_COMMAND_TIMEOUT, max(1, int(remaining))))
-                output = (
-                    result.stdout
-                    if result.exit_code == 0
-                    else (result.stderr or result.stdout or f"command exited {result.exit_code}")
-                )
+                output = result.stdout if result.exit_code == 0 else command_detail(result)
             except Exception as exc:
                 output = f"diagnostic command failed: {type(exc).__name__}: {exc}"
             sections.append(_bounded_diagnostic_section(section_label, output))
@@ -345,8 +343,7 @@ class K8sCsiStorageTypesCheck(BaseValidation):
             return
 
         if not configured:
-            self.set_passed("Skipped: no StorageClass configured for block/shared-fs/nfs")
-            return
+            pytest.skip("No StorageClass configured for block/shared-fs/nfs")
 
         self._namespace = f"{namespace_prefix}-{uuid.uuid4().hex[:8]}"
         ns_quoted = shlex.quote(self._namespace)
@@ -572,8 +569,7 @@ class K8sCsiStorageQuotaApiCheck(BaseValidation):
         """Drive the four-subtest quota-API probe against a single ephemeral namespace."""
         storage_class = self.config.get("storage_class") or get_k8s_csi_block_storage_class()
         if not storage_class:
-            self.set_passed("Skipped: no storage_class configured")
-            return
+            pytest.skip("No storage_class configured")
 
         total_quota = str(self.config.get("total_quota", "10Gi"))
         per_sc_quota = str(self.config.get("per_sc_quota", "5Gi"))
@@ -1037,9 +1033,10 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
       Secrets they reference via ``PersistentVolume.spec.csi.*SecretRef``
       and via CSI controller/node pod specs (``envFrom``, ``env.valueFrom``,
       Secret volume mounts). Skipped when no ``CSIDriver`` objects exist.
-    * ``secrets-not-cross-namespace`` - every discovered Secret lives in
-      ``csi_driver_namespaces`` (or ``allowed_workload_namespaces``), never
-      in ``default`` or an unlisted workload namespace.
+    * ``secrets-not-cross-namespace`` - every discovered Secret lives in a
+      namespace where a CSI controller/node pod was actually found, or in
+      ``csi_driver_namespaces``/``allowed_workload_namespaces``, never in
+      ``default`` or an unlisted workload namespace.
     * ``no-shared-cluster-markers`` - no discovered Secret carries any of
       ``forbidden_labels`` or an annotation like
       ``csi.nvidia.com/shared=true``.
@@ -1052,9 +1049,20 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
       configMap, projected, downwardAPI, serviceAccountToken, csi). Any
       ``nfs``/``iscsi``/``persistentVolumeClaim`` volume fails this subtest.
 
+    CSI controller/node pods are discovered cluster-wide (``kubectl get
+    pods --all-namespaces``), filtered by the same sidecar-image heuristic
+    used elsewhere in this module, rather than by a configured namespace
+    list. Most CSI operators (Longhorn, Piraeus, Rook-Ceph, ...) do not
+    install into ``kube-system``; gating discovery on a namespace allowlist
+    let those drivers' controller pods go unseen entirely, silently
+    skipping ``serviceaccount-rbac-scoped`` and reporting a false pass
+    regardless of the ServiceAccount's actual RBAC.
+
     Config keys (with defaults):
-        csi_driver_namespaces: Namespaces where CSI controller/node pods
-            live (default: ``["kube-system"]``).
+        csi_driver_namespaces: Extra namespaces where CSI Secrets are
+            permitted, on top of namespaces where a CSI pod was actually
+            discovered (default: ``["kube-system"]``, kept for backward
+            compatibility with existing provider configs).
         allowed_workload_namespaces: Extra namespaces where CSI Secrets are
             permitted (default: ``[]``).
         forbidden_labels: ``key=value`` label pairs whose presence on a CSI
@@ -1076,8 +1084,6 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
         forbidden_labels_raw = self.config.get("forbidden_labels") or ["shared-across-clusters=true"]
         forbidden_labels = _parse_label_pairs(forbidden_labels_raw)
 
-        permitted_namespaces = set(driver_namespaces) | set(allowed_workload_namespaces)
-
         # Discover CSIDriver objects up front. If none exist we have nothing
         # to validate; the check is skipped so it is safe to enable on
         # clusters without any CSI driver installed.
@@ -1094,16 +1100,28 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
                 "node-plugin-uses-hostpath-not-shared-mount",
             ):
                 self.report_subtest(name, passed=True, message="No CSIDriver objects present", skipped=True)
-            self.set_passed("Skipped: no CSIDriver objects found")
+            pytest.skip("No CSIDriver objects found")
+
+        # Discover CSI controller/node pods cluster-wide rather than by a
+        # configured namespace allowlist - most CSI operators do not
+        # install into kube-system, and gating discovery on
+        # csi_driver_namespaces let their pods go unseen entirely (see
+        # class docstring).
+        all_pods = self._list_all_pods()
+        if all_pods is None:
+            self.set_failed("Failed to list pods across all namespaces")
             return
 
         pods_by_ns: dict[str, list[dict[str, Any]]] = {}
-        for ns in driver_namespaces:
-            pods = self._list_pods(ns)
-            if pods is None:
-                self.set_failed(f"Failed to list pods in namespace {ns!r}")
-                return
-            pods_by_ns[ns] = pods
+        for pod in all_pods:
+            if not _pod_has_csi_image(pod):
+                continue
+            ns = str((pod.get("metadata") or {}).get("namespace") or "")
+            if not ns:
+                continue
+            pods_by_ns.setdefault(ns, []).append(pod)
+
+        permitted_namespaces = set(driver_namespaces) | set(allowed_workload_namespaces) | set(pods_by_ns.keys())
 
         pvs = self._list_pvs()
         if pvs is None:
@@ -1276,10 +1294,11 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
             return None
         return _load_items(result.stdout)
 
-    def _list_pods(self, namespace: str) -> list[dict[str, Any]] | None:
-        result = self.run_command(f"{self._kubectl_base} get pods -n {shlex.quote(namespace)} -o json")
+    def _list_all_pods(self) -> list[dict[str, Any]] | None:
+        """List Pods across all namespaces, or ``None`` if the ``kubectl`` command fails."""
+        result = self.run_command(f"{self._kubectl_base} get pods --all-namespaces -o json")
         if result.exit_code != 0:
-            self.log.error("kubectl get pods -n %s failed: %s", namespace, result.stderr.strip())
+            self.log.error("kubectl get pods --all-namespaces failed: %s", result.stderr.strip())
             return None
         return _load_items(result.stdout)
 
@@ -1655,8 +1674,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         ns_prefix = self.config.get("namespace_prefix", "isvtest-csi-prov")
 
         if not dynamic_sc:
-            self.set_passed("Skipped: no dynamic_storage_class configured")
-            return
+            pytest.skip("No dynamic_storage_class configured")
 
         self._namespace = f"{ns_prefix}-{uuid.uuid4().hex[:8]}"
         ns_quoted = shlex.quote(self._namespace)
@@ -2147,8 +2165,7 @@ class K8sCsiConcurrentPvcCheck(BaseValidation):
         """Create N PVCs + consumer pods concurrently, assert all bind to distinct PVs."""
         storage_class = str(self.config.get("storage_class") or get_k8s_csi_block_storage_class() or "")
         if not storage_class:
-            self.set_passed("Skipped: no storage_class configured")
-            return
+            pytest.skip("No storage_class configured")
 
         pvc_count = int(self.config.get("pvc_count", 2))
         if pvc_count < 2:
@@ -2315,8 +2332,7 @@ class K8sCsiPvcExpandCheck(BaseValidation):
         """Provision a PVC, resize it, and assert PV + df reflect the new capacity."""
         storage_class = str(self.config.get("storage_class") or get_k8s_csi_block_storage_class() or "")
         if not storage_class:
-            self.set_passed("Skipped: no storage_class configured")
-            return
+            pytest.skip("No storage_class configured")
 
         initial_size = str(self.config.get("initial_size", "1Gi"))
         expanded_size = str(self.config.get("expanded_size", "2Gi"))
@@ -2345,8 +2361,7 @@ class K8sCsiPvcExpandCheck(BaseValidation):
             skip_msg = f"StorageClass {storage_class!r} does not set allowVolumeExpansion=true"
             for name in ("sc-allows-expansion", "pvc-patch-accepted", "pv-capacity-updated", "df-shows-new-size"):
                 self.report_subtest(name, passed=True, message=skip_msg, skipped=True)
-            self.set_passed(f"Skipped: {skip_msg}")
-            return
+            pytest.skip(skip_msg)
 
         self.report_subtest(
             "sc-allows-expansion",
@@ -2747,8 +2762,7 @@ class K8sCsiDriverHealthCheck(BaseValidation):
         """Resolve each driver spec's StorageClasses to provisioners and run health subtests."""
         sc_to_workloads = self._collect_driver_specs()
         if not sc_to_workloads:
-            self.set_passed("Skipped: no storage_classes configured")
-            return
+            pytest.skip("No storage_classes configured")
 
         min_replicas = self._parse_positive_int("min_controller_replicas", default=1)
         if min_replicas is None:

@@ -123,7 +123,6 @@ def test_kubernetes_providers_wire_the_shared_reference(provider_config: Path, c
     assert step["command"] == command
     assert step["phase"] == "test"
     assert step["timeout"] == 1200
-    assert step["requires_available_validations"] == ["CordonNodeCheck"]
     assert step["args"] == ["--node={{breakfix_node}}"]
     assert config["tests"]["settings"]["breakfix_node"] == "{{env.ISVTEST_BREAKFIX_NODE | default('', true)}}"
 

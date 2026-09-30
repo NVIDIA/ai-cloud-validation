@@ -420,7 +420,6 @@ print(json.dumps({
 
     monkeypatch.setattr(test_cli, "get_output_dir", _test_output_dir)
     monkeypatch.setenv("ACME_IMPORT_MARKER", str(marker_path))
-    monkeypatch.setenv("ISVTEST_INCLUDE_UNRELEASED", "1")
 
     run = runner.invoke(
         main_app,

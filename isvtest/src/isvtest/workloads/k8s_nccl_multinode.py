@@ -36,12 +36,14 @@ from typing import ClassVar
 import pytest
 
 from isvtest.config.settings import (
+    NCCL_IMAGE_PLACEHOLDER,
     get_k8s_namespace,
     get_nccl_hpc_image,
     get_nccl_min_bus_bw_gbps,
     get_nccl_multinode_gpus_per_node,
     get_nccl_multinode_nodes,
     get_nccl_multinode_timeout,
+    render_image_placeholder,
 )
 from isvtest.core.k8s import (
     get_gpu_nodes,
@@ -92,7 +94,7 @@ class K8sNcclMultiNodeWorkload(BaseWorkloadCheck):
         timeout (int): Job timeout in seconds (default: 900 via env)
         startup_timeout (int): Seconds to wait for launcher pod to appear (default: 300).
             Covers image pulls on workers, SSH key setup, and StatefulSet creation.
-        image (str): Container image (default: nvcr.io/nvidia/hpc-benchmarks:25.04)
+        image (str): Container image (default: get_nccl_hpc_image())
         quick_mode (bool): Use reduced message sizes for faster execution (default: False)
             - True: 1M-256M range, ~30 seconds (CI/dev validation)
             - False: 8B-4G range, 2-5 minutes (full performance test)
@@ -244,8 +246,7 @@ class K8sNcclMultiNodeWorkload(BaseWorkloadCheck):
         yaml_content = yaml_content.replace("replicas: 2", f"replicas: {node_count}")
         yaml_content = yaml_content.replace("nvidia.com/gpu: 4", f"nvidia.com/gpu: {gpus_per_node}")
         yaml_content = yaml_content.replace("-np 8", f"-np {total_gpus}")
-        if image != "nvcr.io/nvidia/hpc-benchmarks:25.04":
-            yaml_content = yaml_content.replace("nvcr.io/nvidia/hpc-benchmarks:25.04", image)
+        yaml_content = render_image_placeholder(yaml_content, NCCL_IMAGE_PLACEHOLDER, image)
         if quick_mode:
             yaml_content = yaml_content.replace("-b 8 -e 4G -f 2", "-b 1M -e 256M -f 2")
 
