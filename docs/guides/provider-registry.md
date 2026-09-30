@@ -127,6 +127,11 @@ link is the entry's `documentation_url`, which is why it must explain them.
   unless `--all`.
 - `demo`: dummy results only; runs in demo mode and is never uploaded.
 
+This repository's CI fetches entries at their pinned commits and dry-runs
+each declared suite: the configs must load against the current suites, but
+no script runs, except for `demo` entries. A pull request checks the entries
+it adds or changes; a weekly job checks every entry except `deprecated` ones.
+
 An entry that has not been re-validated against a recent release for a
 while may be moved to `deprecated`. It stays fetchable, so users can still
 try it against older releases. Re-validating means updating `commit` and
