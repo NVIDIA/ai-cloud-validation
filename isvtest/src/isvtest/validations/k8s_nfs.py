@@ -617,7 +617,12 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
     def run(self) -> None:
         sc = self._resolve_shared_sc()
         if not sc:
-            self.set_skipped("Skipped: no shared_fs_storage_class / nfs_storage_class configured")
+            self.set_skipped("No shared_fs_storage_class / nfs_storage_class configured")
+            return
+
+        expectation_keys = ("expected_version", "expected_nconnect", "expected_proto", "expected_read_ahead_kb")
+        if not any(self.config.get(key) or self.config.get(key) == 0 for key in expectation_keys):
+            self.set_skipped(f"No expected NFS mount option configured ({', '.join(expectation_keys)})")
             return
 
         self._setup_kubectl()
