@@ -103,9 +103,9 @@
 | K8S26 | Clusters | Support multiple clusters in the same tenancy; support multiple clusters in the same VPC. | add | active |
 | K8S27 | Kubernetes Control Plane size pinning | Pin Control Plane instances to handle a particular load-limit | add | active |
 | K8S28 | Performance | Meet the standard Kubernetes performance test certified up to 5000 nodes (or to the maximum size of the cluster, whichever is smaller) - size CP as necessary. Managed Kubernetes Control Plane SLO and Performance meets or better than the Kubernetes standards results. | add | active |
-| K8S29 | Kubernetes LoadBalancer Service Support | The platform shall support Kubernetes Service resources of type LoadBalancer, including: External load balancers with publicly routable IPs Internal load balancers with private IPs reachable via private network access Static IP assignment |  | active |
-| K8S30 | DNS Configuration | The platform shall support configuring Kubernetes internal DNS (e.g. CoreDNS) with conditional forwarding rules for specified DNS zones to designated enterprise or internal DNS resolvers. |  | active |
-| K8S31 | Configurable Kubernetes CIDR ranges | Ability to configure Kubernetes service IP range, Node IP range, and Pod IP range. |  | active |
+| K8S29 | Kubernetes LoadBalancer Service Support | The platform shall support Kubernetes Service resources of type LoadBalancer, including: External load balancers with publicly routable IPs Internal load balancers with private IPs reachable via private network access Static IP assignment | add | active |
+| K8S30 | DNS Configuration | The platform shall support configuring Kubernetes internal DNS (e.g. CoreDNS) with conditional forwarding rules for specified DNS zones to designated enterprise or internal DNS resolvers. | add | active |
+| K8S31 | Configurable Kubernetes CIDR ranges | Ability to configure Kubernetes service IP range, Node IP range, and Pod IP range. | add | active |
 
 ## Security & Identity Management
 

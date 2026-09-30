@@ -436,6 +436,47 @@ tests:
           probe_timeout_s: 10
           api_endpoint: "{{ steps.setup.kubernetes.api_endpoint | default('', true) }}"
 
+        # K8S29: external LB always runs; internal/static-ip subtests are
+        # skipped until a provider config supplies the cloud-specific
+        # annotation(s) / pre-allocated IP - those aren't guessable
+        # provider-agnostically. See isvctl/configs/providers/*/config for
+        # per-cloud examples once added (e.g. AWS NLB internal-scheme
+        # annotation, GKE `cloud.google.com/load-balancer-type: Internal`).
+        K8sLoadBalancerCheck:
+          test_id: "K8S29-01"
+          labels: ["kubernetes", "min_req", "slow"]
+          namespace_prefix: "isvtest-lb"
+          wait_timeout: 300
+          poll_interval: 5
+          annotations: "{{ steps.setup.kubernetes.lb_annotations_json | default('{}', true) }}"
+          internal_annotations: "{{ steps.setup.kubernetes.internal_lb_annotations_json | default('{}', true) }}"
+          static_ip: "{{ steps.setup.kubernetes.lb_static_ip | default('', true) }}"
+          static_ip_annotations: "{{ steps.setup.kubernetes.lb_static_ip_annotations_json | default('{}', true) }}"
+
+        # K8S30: patches the real coredns ConfigMap in kube-system with a
+        # forwarding stub for an ephemeral test zone, backed by a throwaway
+        # authoritative resolver, then proves in-cluster DNS actually
+        # forwards to it. Skips (not fails) on platforms with no editable
+        # CoreDNS ConfigMap. Always restores the original Corefile.
+        K8sCoreDnsForwardingCheck:
+          test_id: "K8S30-01"
+          labels: ["kubernetes", "min_req"]
+          coredns_namespace: "{{ steps.setup.kubernetes.coredns_namespace | default('kube-system', true) }}"
+          coredns_configmap: "{{ steps.setup.kubernetes.coredns_configmap | default('coredns', true) }}"
+          test_zone: "isvtest-forward.internal"
+          namespace_prefix: "isvtest-coredns"
+          propagation_timeout_s: 120
+
+        # K8S31: verifies live cluster state against provider-declared
+        # ranges. Each range is independently skippable - not every provider
+        # config exercises all three.
+        K8sCidrRangesCheck:
+          test_id: "K8S31-01"
+          labels: ["kubernetes", "min_req"]
+          expected_service_cidr: "{{ steps.setup.kubernetes.service_cidr | default('', true) }}"
+          expected_pod_cidr: "{{ steps.setup.kubernetes.pod_cidr | default('', true) }}"
+          expected_node_cidr: "{{ steps.setup.kubernetes.node_cidr | default('', true) }}"
+
     # Break-fix actions that are Kubernetes-shaped (BFX01). Bare-metal
     # BFX checks live in bare_metal.yaml.
     gpu_reset:
