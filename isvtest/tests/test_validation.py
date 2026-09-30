@@ -2804,6 +2804,18 @@ class TestK8sApiServerMetricsCheck:
         assert result["passed"] is True
         assert "Prometheus format" in result["output"]
 
+    @pytest.mark.parametrize("separator", [" = ", "\t=\t"])
+    def test_label_assignment_whitespace_is_accepted(self, separator: str) -> None:
+        """Whitespace around a Prometheus label assignment must remain valid."""
+        payload = SAMPLE_APISERVER_METRICS.replace('scope="cluster"', f'scope{separator}"cluster"')
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = CommandResult(exit_code=0, stdout=payload, stderr="", duration=0.1)
+        validation = K8sApiServerMetricsCheck(runner=mock_runner, config={})
+
+        result = validation.execute()
+
+        assert result["passed"] is True
+
     def test_missing_expected_metrics(self) -> None:
         """Payload missing the default metrics fails with both names listed."""
         payload = (

@@ -95,7 +95,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
                     metric_names.add(parts[0])
                     labels = {
                         match.group(1)
-                        for match in re.finditer(r"([a-zA-Z_][a-zA-Z0-9_]*)=\"", label_text)
+                        for match in re.finditer(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*\"", label_text)
                     }
                     metric_labels.setdefault(parts[0], []).append(labels)
 
