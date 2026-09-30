@@ -34,3 +34,9 @@ def test_script_removes_each_source_tree() -> None:
     script = _clear_replaced_dirs_script()
     assert script.startswith("for dir in isvtest/src isvreporter/src isvctl/src isvctl/configs/suites; do")
     assert 'rm -rf "$dir"' in script
+
+
+def test_script_stops_the_deploy_when_a_tree_cannot_be_removed() -> None:
+    """A tree that survives cleanup would run stale code, so the deploy must stop."""
+    script = _clear_replaced_dirs_script()
+    assert 'rm -rf "$dir" || { echo "Failed to remove $dir" >&2; exit 1; }' in script

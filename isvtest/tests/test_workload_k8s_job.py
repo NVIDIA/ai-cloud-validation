@@ -58,3 +58,26 @@ def test_timeout_reports_pod_logs_before_the_job_is_deleted() -> None:
     delete_index = next(i for i, c in enumerate(commands) if " delete job " in c)
     assert "-l job-name=nccl" in commands[logs_index]
     assert logs_index < delete_index
+
+
+def test_timeout_does_not_report_a_kubectl_error_as_pod_logs() -> None:
+    """When no pod has logs yet, kubectl's error text is not pod output."""
+    workload = _JobWorkload()
+
+    def fake_run_command(cmd: str, **_: object) -> CommandResult:
+        if " logs " in cmd:
+            return CommandResult(
+                exit_code=1, stdout="", stderr='container "nccl" is waiting to start: ContainerCreating', duration=0.0
+            )
+        return _ok()
+
+    applied = subprocess.CompletedProcess(args=[], returncode=0, stdout="job created", stderr="")
+    with (
+        patch("isvtest.core.workload.get_kubectl_command", return_value=["kubectl"]),
+        patch("isvtest.core.workload.get_kubectl_base_shell", return_value="kubectl"),
+        patch("isvtest.core.workload.subprocess.run", return_value=applied),
+        patch.object(workload, "run_command", side_effect=fake_run_command),
+    ):
+        result = workload.run_k8s_job(job_name="nccl", namespace="default", yaml_content="", timeout=0)
+
+    assert result.stderr == "Job timed out in status Unknown"

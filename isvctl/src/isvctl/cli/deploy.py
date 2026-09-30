@@ -96,7 +96,7 @@ def _clear_replaced_dirs_script() -> str:
     return (
         f"for dir in {dirs}; do\n"
         '    if [ -e "$dir" ]; then\n'
-        '        sudo rm -rf "$dir" 2>/dev/null || rm -rf "$dir"\n'
+        '        sudo rm -rf "$dir" 2>/dev/null || rm -rf "$dir" || { echo "Failed to remove $dir" >&2; exit 1; }\n'
         "    fi\n"
         "done"
     )
