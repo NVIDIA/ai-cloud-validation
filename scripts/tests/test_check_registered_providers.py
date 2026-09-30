@@ -48,12 +48,15 @@ status: {status}
 
 @pytest.fixture
 def isvctl_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    """Record isvctl invocations instead of running them; a call containing 'fail' exits 1."""
+    """Record isvctl invocations instead of running them; 'fail' exits 1 and 'hang' times out."""
     calls: list[list[str]] = []
 
-    def fake_run(command: list[str], check: bool) -> subprocess.CompletedProcess[str]:
+    def fake_run(command: list[str], check: bool, timeout: float) -> subprocess.CompletedProcess[str]:
+        """Record the isvctl arguments and return the scripted outcome."""
         args = command[len(check_registered_providers.ISVCTL) :]
         calls.append(args)
+        if "hang" in args:
+            raise subprocess.TimeoutExpired(command, timeout)
         return subprocess.CompletedProcess(command, 1 if "fail" in args else 0)
 
     monkeypatch.setattr(check_registered_providers.subprocess, "run", fake_run)
@@ -88,6 +91,19 @@ def test_failure_stops_that_entry_and_exits_1(
     assert ["test", "run", "--provider", "fail", "--suite", "vm", "--dry-run"] not in isvctl_calls
     assert ["test", "run", "--provider", "acme", "--suite", "iam", "--dry-run"] in isvctl_calls
     assert "FAILED: fail" in capsys.readouterr().err
+
+
+def test_timeout_counts_as_failure(
+    tmp_path: Path, isvctl_calls: list[list[str]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A command that times out fails its entry, and the other entries are still checked."""
+    configs_root = _configs_root(tmp_path, {"acme": "supported", "hang": "supported"})
+
+    assert check_registered_providers.main([], configs_root) == 1
+    assert ["test", "run", "--provider", "acme", "--suite", "iam", "--dry-run"] in isvctl_calls
+    err = capsys.readouterr().err
+    assert "Timed out after" in err
+    assert "FAILED: hang" in err
 
 
 def test_named_entries_only(tmp_path: Path, isvctl_calls: list[list[str]]) -> None:

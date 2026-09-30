@@ -350,6 +350,25 @@ def test_refetch_replaces_previous_checkout(monkeypatch: pytest.MonkeyPatch, tmp
     assert [path.name for path in _checkout(tmp_path).parent.iterdir()] == ["acme"]
 
 
+def test_refetch_restores_previous_checkout_if_rename_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """If the new checkout cannot be moved into place, the previous one is put back."""
+    url, first, tip = _upstream_repo(tmp_path)
+    _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=first), "acme")
+    real_rename = Path.rename
+
+    def rename(self: Path, target: Path) -> Path:
+        """Fail only for the staged checkout."""
+        if self.name.startswith(".fetch-") and not self.name.endswith("-previous"):
+            raise OSError("rename failed")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    exit_code, _ = _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=tip), "acme")
+
+    assert exit_code != 0
+    assert _head(_checkout(tmp_path)) == first
+
+
 def test_failed_fetch_keeps_previous_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A commit the repo does not have fails the command and leaves the existing checkout untouched."""
     url, first, _ = _upstream_repo(tmp_path)
