@@ -121,6 +121,13 @@ class TestBaseValidation:
         assert validation._passed is True
         assert validation._output == ""
 
+    def test_set_skipped_raises_pytest_skip(self) -> None:
+        """Unconfigured validations must be reported as skipped, not passed."""
+        validation = ConcreteValidation()
+
+        with pytest.raises(pytest.skip.Exception, match="not configured"):
+            validation.set_skipped("not configured")
+
     def test_set_failed(self) -> None:
         """Test set_failed method."""
         validation = ConcreteValidation()

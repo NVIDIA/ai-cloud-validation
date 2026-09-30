@@ -67,13 +67,13 @@ class K8sNimInferenceWorkload(BaseWorkloadCheck):
         # Verify NGC secrets exist (using shared utility)
         success, error = ensure_ngc_secrets(namespace)
         if not success:
-            self.set_passed(f"Skipped: {error}")
+            self.set_skipped(f"Skipped: {error}")
             return
 
         # Verify GPU nodes available
         nodes = get_gpu_nodes()
         if not nodes:
-            self.set_passed("Skipped: No GPU nodes found in cluster")
+            self.set_skipped("Skipped: No GPU nodes found in cluster")
             return
 
         # Ensure PVC for model cache exists and is usable

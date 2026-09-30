@@ -38,7 +38,7 @@ class K8sNodeCountCheck(BaseValidation):
         min_count = self.config.get("min_count")
         if expected_count is None and min_count is None:
             self.log.info("Skipping: expected count/min_count not configured")
-            self.set_passed("Skipped: expected count/min_count not configured")
+            self.set_skipped("Skipped: expected count/min_count not configured")
             return
         if expected_count is not None and min_count is not None:
             self.set_failed("Configure only one of 'count' or 'min_count'")
@@ -192,7 +192,7 @@ class K8sExpectedNodesCheck(BaseValidation):
     def run(self) -> None:
         expected_names = self.config.get("names", [])
         if not expected_names:
-            self.set_passed("Skipped: expected_nodes.names not configured")
+            self.set_skipped("Skipped: expected_nodes.names not configured")
             return
 
         kubectl_base = get_kubectl_base_shell()

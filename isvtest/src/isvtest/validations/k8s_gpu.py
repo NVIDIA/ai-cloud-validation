@@ -223,7 +223,7 @@ class K8sDriverVersionCheck(K8sNvidiaSmiCheck):
     def run(self) -> None:
         expected_driver = self.config.get("driver_version")
         if not expected_driver:
-            self.set_passed("Skipped: driver_version not configured")
+            self.set_skipped("Skipped: driver_version not configured")
             return
 
         # Inherit timeout from config if present, else default to 60
@@ -267,7 +267,7 @@ class K8sGpuPodAccessCheck(K8sNvidiaSmiCheck):
         total_gpu_count = self.config.get("total_gpu_count")
 
         if gpu_count_per_node is None and total_gpu_count is None:
-            self.set_passed("Skipped: neither gpu_count nor total_gpu_count configured")
+            self.set_skipped("Skipped: neither gpu_count nor total_gpu_count configured")
             return
 
         # Convert to int for Jinja2 templated values

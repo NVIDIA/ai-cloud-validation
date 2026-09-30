@@ -437,7 +437,8 @@ class K8sNodeKernelModulesCheck(_K8sSharedFsCheck):
             raw_modules = [raw_modules]
         modules = [str(m) for m in raw_modules if m]
         if not modules:
-            pytest.skip("kernel_modules not configured")
+            self.set_skipped("Skipped: kernel_modules not configured")
+            return
 
         self._setup_kubectl()
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
@@ -616,10 +617,8 @@ class K8sNfsMountOptionsCheck(_K8sSharedFsCheck):
     def run(self) -> None:
         sc = self._resolve_shared_sc()
         if not sc:
-            pytest.skip("No shared_fs_storage_class / nfs_storage_class configured")
-        expectation_keys = ("expected_version", "expected_nconnect", "expected_proto", "expected_read_ahead_kb")
-        if not any(self.config.get(key) or self.config.get(key) == 0 for key in expectation_keys):
-            pytest.skip(f"No expected NFS mount option configured ({', '.join(expectation_keys)})")
+            self.set_skipped("Skipped: no shared_fs_storage_class / nfs_storage_class configured")
+            return
 
         self._setup_kubectl()
         bind_timeout = int(self.config.get("bind_timeout_s", self._DEFAULT_BIND_TIMEOUT_S))
