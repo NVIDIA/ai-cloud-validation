@@ -295,7 +295,9 @@ tests:
           test_id: "K8S23-04"
           labels: ["kubernetes", "min_req", "storage"]
           requires: [kubernetes]
-          # StorageClass names by type; omit (or leave empty) to skip that type.
+          # K8S23 requires block, shared filesystem, and NFS capabilities.
+          # Missing class configuration fails before any probe resources are created.
+          require_all_types: true
           # Env overrides: K8S_CSI_BLOCK_SC, K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
           block_storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"

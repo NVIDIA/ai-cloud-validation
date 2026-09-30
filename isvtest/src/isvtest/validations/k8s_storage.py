@@ -289,11 +289,14 @@ class K8sCsiStorageTypesCheck(BaseValidation):
       with ``volumeBindingMode: WaitForFirstConsumer`` (the default for
       most cloud block CSIs).
 
-    Types with no configured StorageClass are reported as skipped, so the
-    check is safe to enable on every provider; pass if every configured type
-    passes both subtests.
+    With ``require_all_types=True``, missing block, shared-fs, or NFS configuration
+    fails before provisioning any resources. The canonical storage suite uses this
+    policy to enforce K8S23. Standalone callers default to optional types: missing
+    types skip, and every configured type must pass both subtests.
 
     Config keys (with defaults):
+        require_all_types: Require all three storage types (default: ``False``).
+            Must be a boolean; the canonical storage suite sets ``True``.
         block_storage_class: StorageClass for block (RWO) storage
             (default: from :func:`get_k8s_csi_block_storage_class`).
         shared_fs_storage_class: StorageClass for shared filesystem (RWX)
@@ -319,11 +322,27 @@ class K8sCsiStorageTypesCheck(BaseValidation):
         namespace_prefix = self.config.get("namespace_prefix", "isvtest-csi-types")
         pvc_size = str(self.config.get("pvc_size", "1Gi"))
 
+        require_all = self.config.get("require_all_types", False)
+        if not isinstance(require_all, bool):
+            self.set_failed("require_all_types must be a boolean")
+            return
+
         configured: dict[str, str] = {}
         for type_name, _ in _STORAGE_TYPES:
             sc_name = self.config.get(f"{type_name.replace('-', '_')}_storage_class") or _env_fallback(type_name)
             if sc_name:
                 configured[type_name] = sc_name
+
+        missing = [name for name, _ in _STORAGE_TYPES if name not in configured]
+        if require_all and missing:
+            for name in missing:
+                message = f"Required {name} StorageClass not configured"
+                self.report_subtest(f"sc-exists[{name}]", passed=False, message=message)
+                self.report_subtest(
+                    f"pvc-binds[{name}]", passed=False, message=f"{message}; PVC probe skipped", skipped=True
+                )
+            self.set_failed("Missing required StorageClass configuration: " + ", ".join(missing))
+            return
 
         if not configured:
             self.set_passed("Skipped: no StorageClass configured for block/shared-fs/nfs")

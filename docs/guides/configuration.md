@@ -691,6 +691,24 @@ the step executor runs schema checks automatically.
 | `TenantListedCheck` | Check tenant appears in list |
 | `TenantInfoCheck` | Check tenant info retrieved |
 
+### Required CSI storage types
+
+The canonical storage suite sets `K8sCsiStorageTypesCheck.require_all_types: true`
+to enforce K8S23's block, shared filesystem, and NFS requirements. If any of
+`block_storage_class`, `shared_fs_storage_class`, or `nfs_storage_class` is absent,
+the check fails before provisioning probe resources. Names can come from the
+cluster setup fixture or the existing `K8S_CSI_BLOCK_SC`, `K8S_CSI_SHARED_FS_SC`,
+and `K8S_CSI_NFS_SC` environment variables.
+
+A driver that supplies both shared filesystem and NFS capabilities can use the
+same StorageClass for those two entries. Each configured type still gets a PVC
+and consumer-pod probe. Driver installation, snapshot support, and resizing are
+separate capabilities; passing the storage-types check does not establish them.
+
+Standalone callers default to `require_all_types: false`, which skips unconfigured
+types and checks configured ones. An entirely unconfigured optional check skips.
+Using this optional policy does not establish full K8S23 storage-type coverage.
+
 ### Kubernetes Conformance Modes
 
 `K8sCncfConformanceCheck` (in `validations/k8s_conformance.py`) runs the upstream CNCF e2e suite in-cluster. The `mode` parameter selects which subset of tests runs:

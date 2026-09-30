@@ -179,3 +179,14 @@ def test_ad_hoc_config_falls_back_to_its_own_stem(tmp_path: Path) -> None:
 
     assert resolve_suite_name([ad_hoc], tmp_path) == "one_off"
     assert resolve_suite_name([], tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "relative", ["suites/storage.yaml", "providers/aws/config/storage.yaml", "providers/my-isv/config/storage.yaml"]
+)
+def test_storage_suite_requires_all_k8s_storage_capabilities(relative: str) -> None:
+    """Provider imports retain the K8S23 requirement for all three storage types."""
+    config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / relative)]))
+    assert config.tests is not None
+    check = config.tests.validations["k8s_storage"]["checks"]["K8sCsiStorageTypesCheck"]
+    assert check["require_all_types"] is True
