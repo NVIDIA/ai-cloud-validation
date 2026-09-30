@@ -39,6 +39,7 @@ from isvctl.config.provider_registry import ProviderRegistryError, RegistryEntry
 from isvctl.config.suite_resolution import CONFIGS_ROOT
 
 ISVCTL = [sys.executable, "-m", "isvctl.main"]
+COMMAND_TIMEOUT_SECONDS = 600
 
 
 def _commands(entry: RegistryEntry) -> list[list[str]]:
@@ -77,7 +78,14 @@ def main(argv: list[str] | None = None, configs_root: Path = CONFIGS_ROOT) -> in
             continue
         for isvctl_args in _commands(entry):
             print(f"$ isvctl {shlex.join(isvctl_args)}", flush=True)
-            if subprocess.run([*ISVCTL, *isvctl_args], check=False).returncode != 0:
+            try:
+                returncode = subprocess.run(
+                    [*ISVCTL, *isvctl_args], check=False, timeout=COMMAND_TIMEOUT_SECONDS
+                ).returncode
+            except subprocess.TimeoutExpired:
+                sys.stderr.write(f"Timed out after {COMMAND_TIMEOUT_SECONDS}s.\n")
+                returncode = 1
+            if returncode != 0:
                 failed.append(entry.name)
                 break
 

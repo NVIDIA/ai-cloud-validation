@@ -35,8 +35,13 @@ jobs:
       image: ghcr.io/nvidia/dsx-cds-tools:latest
 
     steps:
+      # Full history, so the PR's changes can be diffed against its merge base
+      # with main; no persisted token, since demo entries run provider scripts.
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Fix git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -50,8 +55,7 @@ jobs:
         run: |
           names=""
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            git fetch --no-tags --depth=1 origin main
-            names=$(git diff --name-only --diff-filter=AM origin/main HEAD -- 'isvctl/configs/providers-registry/*.yaml' \
+            names=$(git diff --name-only --diff-filter=AM origin/main...HEAD -- 'isvctl/configs/providers-registry/*.yaml' \
               | xargs -r -n1 basename | sed 's/\.yaml$//')
           fi
           # shellcheck disable=SC2086 # names is a space-separated list

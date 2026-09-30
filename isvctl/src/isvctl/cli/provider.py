@@ -512,9 +512,17 @@ def fetch_cmd(
         raise typer.Exit(code=1) from exc
     mark_fetched(staging)
 
-    if target.exists():
-        shutil.rmtree(target)
-    staging.rename(target)
+    previous = staging.with_name(f"{staging.name}-previous") if target.exists() else None
+    if previous is not None:
+        target.rename(previous)
+    try:
+        staging.rename(target)
+    except OSError:
+        if previous is not None:
+            previous.rename(target)
+        raise
+    if previous is not None:
+        shutil.rmtree(previous)
 
     typer.echo(f"Fetched {name} at {head[:12]} into {_display_path(target)}")
     _print_fetch_next_steps(entry, target)
