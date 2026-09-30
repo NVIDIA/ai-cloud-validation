@@ -50,6 +50,18 @@ def test_aws_eks_test_exclusions_remain_visible_in_reports() -> None:
     """Provider-specific AWS exclusions must remain visible as skipped outcomes."""
     config = yaml.safe_load((CONFIGS_DIR / "providers" / "aws" / "config" / "eks.yaml").read_text())
     assert config["tests"]["settings"]["show_skipped_tests"] is True
+    assert {
+        "K8sControlPlaneLogsCheck",
+        "K8sNetworkPolicyCheck",
+        "K8sApiNetworkAclCheck",
+    }.issubset(set(config["tests"]["exclude"]["tests"]))
+
+
+def test_my_isv_label_exclusions_remain_visible_in_reports() -> None:
+    """Scaffold providers must keep SSH-only checks excluded and visible."""
+    for name in ("vm", "bare_metal", "image-registry", "network"):
+        config = yaml.safe_load((CONFIGS_DIR / "providers" / "my-isv" / "config" / f"{name}.yaml").read_text())
+        assert config["tests"]["exclude"]["labels"] == ["ssh"]
 
 
 # --------------------------------------------------------------------------
