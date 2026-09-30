@@ -65,7 +65,7 @@ class SlurmGpuStressWorkload(BaseWorkloadCheck):
             (default: auto-detect, enroot > singularity > docker).
             Set "python" to run directly with system Python (requires PyTorch
             pre-installed on compute nodes).
-        image (str): Container image (default: nvcr.io/nvidia/pytorch:25.04-py3)
+        image (str): Container image (default: get_gpu_stress_image())
         cuda_arch (str): CUDA compute capability (e.g., "100" for GB200)
         num_gpus (int): GPUs per node. None yields --gres=gpu (Slurm default, commonly
             1 GPU per task); specify an integer to request multiple GPUs explicitly.

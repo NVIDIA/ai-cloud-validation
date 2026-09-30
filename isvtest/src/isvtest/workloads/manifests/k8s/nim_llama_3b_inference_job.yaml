@@ -113,7 +113,7 @@ spec:
 
         # Inference Test Container
         - name: inference-test
-          image: nvcr.io/nvidia/cuda:13.0.0-base-ubuntu24.04
+          image: __CUDA_IMAGE__
           imagePullPolicy: IfNotPresent
           command: ["/bin/bash", "-c"]
           args:

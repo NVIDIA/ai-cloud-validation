@@ -11,7 +11,7 @@
 #   NODES - Number of nodes
 #   TOTAL_TASKS - Total tasks (nodes * gpus_per_node)
 #   GPUS_PER_NODE - GPUs per node
-#   IMAGE - Container image (e.g., nvcr.io/nvidia/hpc-benchmarks:25.04)
+#   IMAGE - Container image (default: NCCL_HPC_IMAGE)
 #   CONTAINER_RUNTIME - Container runtime (pyxis, enroot, singularity)
 #   CONTAINER_OPTS - Runtime-specific srun options
 #   NCCL_CMD - Full NCCL test command

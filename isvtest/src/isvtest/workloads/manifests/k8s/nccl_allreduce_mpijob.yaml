@@ -30,7 +30,7 @@ spec:
         spec:
           containers:
             - name: launcher
-              image: nvcr.io/nvidia/hpc-benchmarks:25.04
+              image: __NCCL_IMAGE__
               command:
                 - /bin/bash
                 - -c
@@ -57,7 +57,7 @@ spec:
         spec:
           containers:
             - name: worker
-              image: nvcr.io/nvidia/hpc-benchmarks:25.04
+              image: __NCCL_IMAGE__
               command:
                 - /bin/bash
                 - -c

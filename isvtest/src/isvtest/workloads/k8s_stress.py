@@ -19,7 +19,6 @@ import uuid
 from pathlib import Path
 
 from isvtest.config.settings import (
-    get_gpu_cuda_arch,
     get_gpu_memory_gb,
     get_gpu_stress_gpu_count,
     get_gpu_stress_image,
@@ -43,7 +42,6 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
         timeout = self.config.get("timeout") or get_gpu_stress_timeout()
         memory_gb = self.config.get("memory_gb") or get_gpu_memory_gb()
         configured_gpu_count = self.config.get("gpu_count") or get_gpu_stress_gpu_count()
-        cuda_arch = self.config.get("cuda_arch") or get_gpu_cuda_arch()
         # runtime_class_name controls runtimeClassName in the pod spec.
         # Default "nvidia" works for most platforms; set "" to omit (e.g. GKE
         # COS where containerd uses the device-plugin model without a named
@@ -58,7 +56,6 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
             return
 
         self.log.info(f"Running GPU stress test on {len(nodes)} nodes: {', '.join(nodes)}")
-        self.log.info(f"CUDA arch setting: {cuda_arch or 'native (default)'}")
 
         failed_nodes = []
 
@@ -86,7 +83,6 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
                 image=image,
                 runtime=runtime,
                 memory_gb=memory_gb,
-                cuda_arch=cuda_arch,
                 runtime_class_name=runtime_class_name,
             )
 
@@ -175,12 +171,10 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
         image: str,
         runtime: int,
         memory_gb: int,
-        cuda_arch: str | None = None,
         runtime_class_name: str = "nvidia",
     ) -> str:
         """Create pod YAML for GPU stress test."""
-        # Get the path to the gpu_stress_workload.py script
-        script_path = Path(__file__).parent / "scripts" / "gpu_stress_workload.py"
+        script_path = Path(__file__).parent / "scripts" / "gpu_stress_torch.py"
 
         if not script_path.exists():
             raise FileNotFoundError(f"Stress workload script not found at {script_path}")
@@ -196,14 +190,6 @@ class K8sGpuStressWorkload(BaseWorkloadCheck):
             f'    - name: GPU_STRESS_RUNTIME\n      value: "{runtime}"',
             f'    - name: GPU_MEMORY_GB\n      value: "{memory_gb}"',
         ]
-
-        # Add CuPy CUDA architecture settings for ARM64 compatibility
-        if cuda_arch:
-            # Set specific compute capability
-            env_vars.append(f'    - name: CUPY_CUDA_ARCH_LIST\n      value: "{cuda_arch}"')
-        else:
-            # Use native arch detection (works on most systems)
-            env_vars.append('    - name: CUPY_CUDA_ARCH_LIST\n      value: "native"')
 
         env_section = "\n".join(env_vars)
         runtime_class_line = f"  runtimeClassName: {runtime_class_name}\n" if runtime_class_name else ""
