@@ -29,8 +29,6 @@ import uuid
 from collections.abc import Callable
 from typing import ClassVar
 
-import pytest
-
 from isvtest.core.storage import (
     ManifestError,
     Provider,
@@ -179,7 +177,7 @@ class StorageProviderApiCheck(BaseValidation):
                 note.append(f"REST shims skipped: {', '.join(sorted(rest_only))}")
             if csi_only:
                 note.append(f"CSI-only providers (no management API to test) skipped: {', '.join(sorted(csi_only))}")
-            pytest.skip(
+            self.set_skipped(
                 "No provider in the manifest declares a Python `shim:` block; " + "; ".join(note)
                 if note
                 else "No provider in the manifest declares a Python `shim:` block."
