@@ -175,6 +175,7 @@ class TestK8sNfsMountOptionsCheckSkip:
 
     @pytest.mark.parametrize("key", ["expected_version", "expected_proto"])
     def test_zero_is_not_a_usable_string_expectation(self, key: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Skip when a string-valued NFS expectation is configured as numeric zero."""
         _clear_sc_env(monkeypatch)
         check = K8sNfsMountOptionsCheck(config={"nfs_storage_class": "sc-rwx", key: 0})
         with (
@@ -225,6 +226,7 @@ class TestK8sNfsMountOptionsSubtests:
         assert names["nfs-nconnect"]["skipped"]
 
     def test_nconnect_zero_is_checked(self) -> None:
+        """Validate numeric zero as an explicitly configured nconnect expectation."""
         check = self._run({"expected_nconnect": 0}, mountinfo=_NFS4_LINE)
         names = {s["name"]: s for s in check._subtest_results}
         assert not names["nfs-nconnect"]["skipped"]
@@ -257,6 +259,7 @@ class TestK8sNfsMountOptionsSubtests:
         assert names["read-ahead-kb"]["skipped"]
 
     def test_readahead_zero_is_checked(self) -> None:
+        """Validate numeric zero as an explicitly configured read-ahead expectation."""
         check = self._run({"expected_read_ahead_kb": 0}, readahead="0")
         names = {s["name"]: s for s in check._subtest_results}
         assert names["read-ahead-kb"]["passed"]
