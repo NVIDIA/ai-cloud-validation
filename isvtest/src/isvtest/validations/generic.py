@@ -259,14 +259,12 @@ class CrudOperationsCheck(BaseValidation):
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
-        expected_ops = self.config.get("operations", [])
-
         ops = step_output.get("operations")
         if not isinstance(ops, dict):
             self.set_failed("No 'operations' dict in step output")
             return
 
-        expected = expected_ops or list(ops)
+        expected = self.config.get("operations") or list(ops)
         if not check_required_tests(self, expected, "CRUD operations failed", key="operations"):
             return
 

@@ -180,10 +180,6 @@ class VpcIsolationCheck(BaseValidation):
         step_output = self.config.get("step_output", {})
         tests = step_output.get("tests", {})
 
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         required_tests = ["no_peering", "no_cross_routes_a", "no_cross_routes_b"]
         required_tests += [key for key in tests if key.startswith("sg_isolation")]
         if not check_required_tests(self, required_tests, "Isolation violations"):
@@ -3483,15 +3479,14 @@ class FloatingIpCheck(BaseValidation):
             "verify_on_b",
             "verify_not_on_a",
         ]
-        if not check_required_tests(self, required, "Floating IP tests failed"):
+        fail_label = "Floating IP tests failed"
+        if not check_required_tests(self, required, fail_label):
             return
 
         tests = self.config.get("step_output", {}).get("tests", {})
         switch_time = tests.get("reassociate_to_b", {}).get("switch_seconds")
         if switch_time is not None and switch_time > max_seconds:
-            self.set_failed(
-                f"Floating IP tests failed: reassociate_to_b: switch took {switch_time}s, limit is {max_seconds}s"
-            )
+            self.set_failed(f"{fail_label}: reassociate_to_b: switch took {switch_time}s, limit is {max_seconds}s")
             return
 
         eip = tests.get("allocate_eip", {}).get("public_ip", "N/A")
