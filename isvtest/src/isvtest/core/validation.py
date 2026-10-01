@@ -36,29 +36,41 @@ def check_required_tests(
     validation: BaseValidation,
     required_keys: list[str],
     fail_label: str,
+    *,
+    key: str = "tests",
 ) -> bool:
-    """Check that step_output.tests contains every required key with passed=True.
+    """Check that step_output[key] contains every required entry with passed=True.
 
-    Sets failed on the validation if tests are missing or any required key did
-    not pass. On success, returns True without setting passed - the caller is
-    expected to call ``set_passed`` with a context-appropriate message.
+    Sets failed on the validation if the dict is missing or any required entry
+    did not pass. If none failed but a required entry is marked ``skipped``,
+    skips the validation instead of passing it. On success, returns True
+    without setting passed - the caller is expected to call ``set_passed`` with
+    a context-appropriate message.
     """
     step_output = validation.config.get("step_output", {})
-    tests = step_output.get("tests", {})
+    tests = step_output.get(key, {})
     if not tests:
-        validation.set_failed("No 'tests' in step output")
+        validation.set_failed(f"No '{key}' in step output")
         return False
 
     failed = []
+    skipped = []
     for test_name in required_keys:
         test_result = tests.get(test_name, {})
-        if not test_result.get("passed"):
+        if test_result.get("skipped") is True:
+            reason = test_result.get("skip_reason") or test_result.get("message") or "skipped"
+            skipped.append(f"{test_name}: {reason}")
+        elif not test_result.get("passed"):
             error = test_result.get("error", "test not found")
             failed.append(f"{test_name}: {error}")
 
     if failed:
         validation.set_failed(f"{fail_label}: {'; '.join(failed)}")
         return False
+    if skipped:
+        import pytest
+
+        pytest.skip(f"Required test(s) skipped: {'; '.join(skipped)}")
     return True
 
 

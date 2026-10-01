@@ -21,7 +21,7 @@ schema validation, and common success/failure patterns.
 
 from typing import Any, ClassVar
 
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, check_required_tests
 
 
 class FieldExistsCheck(BaseValidation):
@@ -243,32 +243,6 @@ class StepSuccessCheck(BaseValidation):
             self.set_failed("No 'success' or 'status' in step output")
 
 
-def check_operations_passed(ops: dict[str, Any], expected: list[str] | None = None) -> tuple[list[str], list[str]]:
-    """Check which operations in an operations dict passed or failed.
-
-    Args:
-        ops: Dict of operation name -> {"passed": bool, ...}
-        expected: List of operation names to check (defaults to all keys)
-
-    Returns:
-        Tuple of (passed_names, failed_descriptions)
-    """
-    if expected is None:
-        expected = list(ops.keys())
-
-    failed = []
-    passed = []
-    for op_name in expected:
-        op = ops.get(op_name, {})
-        if op.get("passed"):
-            passed.append(op_name)
-        else:
-            error = op.get("error", "not passed")
-            failed.append(f"{op_name}: {error}")
-
-    return passed, failed
-
-
 class CrudOperationsCheck(BaseValidation):
     """Validate that all CRUD operations in a step output passed.
 
@@ -292,9 +266,8 @@ class CrudOperationsCheck(BaseValidation):
             self.set_failed("No 'operations' dict in step output")
             return
 
-        passed, failed = check_operations_passed(ops, expected_ops or None)
+        expected = expected_ops or list(ops)
+        if not check_required_tests(self, expected, "CRUD operations failed", key="operations"):
+            return
 
-        if failed:
-            self.set_failed(f"CRUD operations failed: {'; '.join(failed)}")
-        else:
-            self.set_passed(f"All CRUD operations passed: {', '.join(passed)}")
+        self.set_passed(f"All CRUD operations passed: {', '.join(expected)}")

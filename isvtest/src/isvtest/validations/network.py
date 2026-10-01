@@ -101,13 +101,6 @@ class VpcCrudCheck(BaseValidation):
     description: ClassVar[str] = "Check VPC CRUD operations"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         # Operations to assert; defaults to the full CRUD set. Callers can pass
         # a subset (e.g. ["create_vpc"]) to scope one wiring to a single plan id.
         required_tests = self.config.get("operations") or [
@@ -117,21 +110,10 @@ class VpcCrudCheck(BaseValidation):
             "update_dns",
             "delete_vpc",
         ]
-        passed_tests = []
-        failed_tests = []
+        if not check_required_tests(self, required_tests, "Failed tests"):
+            return
 
-        for test_name in required_tests:
-            test_result = tests.get(test_name, {})
-            if test_result.get("passed"):
-                passed_tests.append(test_name)
-            else:
-                error = test_result.get("error", "unknown error")
-                failed_tests.append(f"{test_name}: {error}")
-
-        if not failed_tests:
-            self.set_passed(f"All {len(passed_tests)} CRUD tests passed")
-        else:
-            self.set_failed(f"Failed tests: {', '.join(failed_tests)}")
+        self.set_passed(f"All {len(required_tests)} CRUD tests passed")
 
 
 class SubnetConfigCheck(BaseValidation):
@@ -174,17 +156,11 @@ class SubnetConfigCheck(BaseValidation):
                 self.set_failed(f"Subnets in only {az_count} AZ(s), multi-AZ required")
                 return
 
-        # Check all tests passed
-        failed_tests = []
-        for test_name, test_result in tests.items():
-            if not test_result.get("passed"):
-                failed_tests.append(test_name)
+        if not check_required_tests(self, list(tests), "Failed tests"):
+            return
 
-        if failed_tests:
-            self.set_failed(f"Failed tests: {', '.join(failed_tests)}")
-        else:
-            azs = tests.get("az_distribution", {}).get("azs", [])
-            self.set_passed(f"{len(subnets)} subnets across {len(azs)} AZs")
+        azs = tests.get("az_distribution", {}).get("azs", [])
+        self.set_passed(f"{len(subnets)} subnets across {len(azs)} AZs")
 
 
 class VpcIsolationCheck(BaseValidation):
@@ -209,25 +185,13 @@ class VpcIsolationCheck(BaseValidation):
             return
 
         required_tests = ["no_peering", "no_cross_routes_a", "no_cross_routes_b"]
-        failed_tests = []
+        required_tests += [key for key in tests if key.startswith("sg_isolation")]
+        if not check_required_tests(self, required_tests, "Isolation violations"):
+            return
 
-        for test_name in required_tests:
-            test_result = tests.get(test_name, {})
-            if not test_result.get("passed"):
-                error = test_result.get("error", "test not found")
-                failed_tests.append(f"{test_name}: {error}")
-
-        # Also check SG isolation tests
-        for key, value in tests.items():
-            if key.startswith("sg_isolation") and not value.get("passed"):
-                failed_tests.append(f"{key}: {value.get('error', 'failed')}")
-
-        if failed_tests:
-            self.set_failed(f"Isolation violations: {'; '.join(failed_tests)}")
-        else:
-            vpc_a = step_output.get("vpc_a", {}).get("id", "?")
-            vpc_b = step_output.get("vpc_b", {}).get("id", "?")
-            self.set_passed(f"VPCs {vpc_a} and {vpc_b} are properly isolated")
+        vpc_a = step_output.get("vpc_a", {}).get("id", "?")
+        vpc_b = step_output.get("vpc_b", {}).get("id", "?")
+        self.set_passed(f"VPCs {vpc_a} and {vpc_b} are properly isolated")
 
 
 class SgCrudCheck(BaseValidation):
@@ -245,13 +209,6 @@ class SgCrudCheck(BaseValidation):
     description: ClassVar[str] = "Check security group CRUD operations"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         # Operations to assert; defaults to the full SG CRUD set. Callers can
         # pass a subset to scope one wiring to a single plan id.
         required_tests = self.config.get("operations") or [
@@ -264,21 +221,10 @@ class SgCrudCheck(BaseValidation):
             "delete_sg",
             "verify_deleted",
         ]
-        passed_tests = []
-        failed_tests = []
+        if not check_required_tests(self, required_tests, "Failed tests"):
+            return
 
-        for test_name in required_tests:
-            test_result = tests.get(test_name, {})
-            if test_result.get("passed"):
-                passed_tests.append(test_name)
-            else:
-                error = test_result.get("error", "unknown error")
-                failed_tests.append(f"{test_name}: {error}")
-
-        if not failed_tests:
-            self.set_passed(f"All {len(passed_tests)} SG CRUD tests passed")
-        else:
-            self.set_failed(f"Failed tests: {', '.join(failed_tests)}")
+        self.set_passed(f"All {len(required_tests)} SG CRUD tests passed")
 
 
 class SecurityBlockingCheck(BaseValidation):
@@ -295,13 +241,6 @@ class SecurityBlockingCheck(BaseValidation):
     description: ClassVar[str] = "Check security blocking rules"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         security_tests = [
             "sg_default_deny_inbound",
             "sg_allows_specific_ssh",
@@ -309,21 +248,10 @@ class SecurityBlockingCheck(BaseValidation):
             "nacl_explicit_deny",
             "sg_restricted_egress",
         ]
+        if not check_required_tests(self, security_tests, "Security tests failed"):
+            return
 
-        passed = 0
-        failed_tests = []
-
-        for test_name in security_tests:
-            test_result = tests.get(test_name, {})
-            if test_result.get("passed"):
-                passed += 1
-            else:
-                failed_tests.append(test_name)
-
-        if failed_tests:
-            self.set_failed(f"Security tests failed: {', '.join(failed_tests)}")
-        else:
-            self.set_passed(f"All {passed} security blocking tests passed")
+        self.set_passed(f"All {len(security_tests)} security blocking tests passed")
 
 
 class NetworkConnectivityCheck(BaseValidation):
@@ -360,11 +288,8 @@ class NetworkConnectivityCheck(BaseValidation):
             return
 
         # Check connectivity tests if present
-        if tests:
-            failed = [k for k, v in tests.items() if not v.get("passed")]
-            if failed:
-                self.set_failed(f"Connectivity tests failed: {', '.join(failed)}")
-                return
+        if tests and not check_required_tests(self, list(tests), "Connectivity tests failed"):
+            return
 
         self.set_passed(f"{instances_with_ip} instances with network connectivity")
 
@@ -382,30 +307,13 @@ class TrafficFlowCheck(BaseValidation):
     description: ClassVar[str] = "Check traffic flow"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
+        traffic_tests = ["traffic_allowed", "traffic_blocked", "internet_icmp", "internet_http"]
+        if not check_required_tests(self, traffic_tests, "Traffic tests failed"):
             return
 
-        traffic_tests = ["traffic_allowed", "traffic_blocked", "internet_icmp", "internet_http"]
-        passed = []
-        failed = []
-
-        for test_name in traffic_tests:
-            test_result = tests.get(test_name, {})
-            if test_result.get("passed"):
-                passed.append(test_name)
-            else:
-                error = test_result.get("error", "not found")
-                failed.append(f"{test_name}: {error}")
-
-        if failed:
-            self.set_failed(f"Traffic tests failed: {'; '.join(failed)}")
-        else:
-            latency = tests.get("traffic_allowed", {}).get("latency_ms", "N/A")
-            self.set_passed(f"All {len(passed)} traffic tests passed (latency: {latency}ms)")
+        tests = self.config.get("step_output", {}).get("tests", {})
+        latency = tests.get("traffic_allowed", {}).get("latency_ms", "N/A")
+        self.set_passed(f"All {len(traffic_tests)} traffic tests passed (latency: {latency}ms)")
 
 
 class DhcpIpManagementCheck(BaseValidation):
@@ -3432,13 +3340,6 @@ class ByoipCheck(BaseValidation):
     description: ClassVar[str] = "Check BYOIP support"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         required = [
             "custom_cidr_create",
             "custom_cidr_verify",
@@ -3446,19 +3347,12 @@ class ByoipCheck(BaseValidation):
             "no_conflict",
             "custom_cidr_subnet",
         ]
-        failed = []
+        if not check_required_tests(self, required, "BYOIP tests failed"):
+            return
 
-        for test_name in required:
-            test_result = tests.get(test_name, {})
-            if not test_result.get("passed"):
-                error = test_result.get("error", "test not found")
-                failed.append(f"{test_name}: {error}")
-
-        if failed:
-            self.set_failed(f"BYOIP tests failed: {'; '.join(failed)}")
-        else:
-            cidr = tests.get("custom_cidr_create", {}).get("cidr", "N/A")
-            self.set_passed(f"BYOIP validated with custom CIDR {cidr}")
+        tests = self.config.get("step_output", {}).get("tests", {})
+        cidr = tests.get("custom_cidr_create", {}).get("cidr", "N/A")
+        self.set_passed(f"BYOIP validated with custom CIDR {cidr}")
 
 
 class StablePrivateIpCheck(BaseValidation):
@@ -3475,13 +3369,6 @@ class StablePrivateIpCheck(BaseValidation):
     description: ClassVar[str] = "Check private IP stability"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         required = [
             "create_instance",
             "record_ip",
@@ -3489,20 +3376,12 @@ class StablePrivateIpCheck(BaseValidation):
             "start_instance",
             "ip_unchanged",
         ]
-        failed = []
+        if not check_required_tests(self, required, "Stable IP tests failed"):
+            return
 
-        for test_name in required:
-            test_result = tests.get(test_name, {})
-            if not test_result.get("passed"):
-                error = test_result.get("error", "test not found")
-                failed.append(f"{test_name}: {error}")
-
-        if failed:
-            self.set_failed(f"Stable IP tests failed: {'; '.join(failed)}")
-        else:
-            ip_result = tests.get("ip_unchanged", {})
-            ip = ip_result.get("ip_before", "N/A")
-            self.set_passed(f"Private IP {ip} stable across stop/start")
+        tests = self.config.get("step_output", {}).get("tests", {})
+        ip = tests.get("ip_unchanged", {}).get("ip_before", "N/A")
+        self.set_passed(f"Private IP {ip} stable across stop/start")
 
 
 class StorageL3RoutingCheck(BaseValidation):
@@ -3564,35 +3443,20 @@ class StableEgressIpCheck(BaseValidation):
 
     def run(self) -> None:
         """Validate stable egress IP subtest results and record the outcome."""
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         required = [
             "create_instance",
             "probe_egress_ip",
             "egress_ip_stable",
         ]
-        failed = []
+        if not check_required_tests(self, required, "Stable egress IP tests failed"):
+            return
 
-        for test_name in required:
-            test_result = tests.get(test_name, {})
-            if not test_result.get("passed"):
-                error = test_result.get("error", "test not found")
-                failed.append(f"{test_name}: {error}")
-
-        if failed:
-            self.set_failed(f"Stable egress IP tests failed: {'; '.join(failed)}")
+        tests = self.config.get("step_output", {}).get("tests", {})
+        probes = tests.get("probe_egress_ip", {}).get("probes")
+        if probes is None:
+            self.set_failed("Malformed stable egress IP step output: missing probe_egress_ip.probes")
         else:
-            probe_result = tests.get("probe_egress_ip", {})
-            probes = probe_result.get("probes")
-            if probes is None:
-                self.set_failed("Malformed stable egress IP step output: missing probe_egress_ip.probes")
-            else:
-                self.set_passed(f"Egress IP stable across {probes} probes")
+            self.set_passed(f"Egress IP stable across {probes} probes")
 
 
 class FloatingIpCheck(BaseValidation):
@@ -3610,14 +3474,7 @@ class FloatingIpCheck(BaseValidation):
     description: ClassVar[str] = "Check floating IP switch"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
         max_seconds = self.config.get("max_switch_seconds", 10)
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         required = [
             "allocate_eip",
             "associate_to_a",
@@ -3626,24 +3483,19 @@ class FloatingIpCheck(BaseValidation):
             "verify_on_b",
             "verify_not_on_a",
         ]
-        failed = []
+        if not check_required_tests(self, required, "Floating IP tests failed"):
+            return
 
-        for test_name in required:
-            test_result = tests.get(test_name, {})
-            if not test_result.get("passed"):
-                error = test_result.get("error", "test not found")
-                failed.append(f"{test_name}: {error}")
-
-        # Extra check: switch time
+        tests = self.config.get("step_output", {}).get("tests", {})
         switch_time = tests.get("reassociate_to_b", {}).get("switch_seconds")
         if switch_time is not None and switch_time > max_seconds:
-            failed.append(f"reassociate_to_b: switch took {switch_time}s, limit is {max_seconds}s")
+            self.set_failed(
+                f"Floating IP tests failed: reassociate_to_b: switch took {switch_time}s, limit is {max_seconds}s"
+            )
+            return
 
-        if failed:
-            self.set_failed(f"Floating IP tests failed: {'; '.join(failed)}")
-        else:
-            eip = tests.get("allocate_eip", {}).get("public_ip", "N/A")
-            self.set_passed(f"Floating IP {eip} switched in {switch_time}s (limit: {max_seconds}s)")
+        eip = tests.get("allocate_eip", {}).get("public_ip", "N/A")
+        self.set_passed(f"Floating IP {eip} switched in {switch_time}s (limit: {max_seconds}s)")
 
 
 class LocalizedDnsCheck(BaseValidation):
@@ -3660,13 +3512,6 @@ class LocalizedDnsCheck(BaseValidation):
     description: ClassVar[str] = "Check localized DNS"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         required = [
             "create_vpc_with_dns",
             "create_hosted_zone",
@@ -3674,20 +3519,13 @@ class LocalizedDnsCheck(BaseValidation):
             "verify_dns_settings",
             "resolve_record",
         ]
-        failed = []
+        if not check_required_tests(self, required, "DNS tests failed"):
+            return
 
-        for test_name in required:
-            test_result = tests.get(test_name, {})
-            if not test_result.get("passed"):
-                error = test_result.get("error", "test not found")
-                failed.append(f"{test_name}: {error}")
-
-        if failed:
-            self.set_failed(f"DNS tests failed: {'; '.join(failed)}")
-        else:
-            fqdn = tests.get("create_dns_record", {}).get("fqdn", "N/A")
-            resolved = tests.get("resolve_record", {}).get("resolved_ip", "N/A")
-            self.set_passed(f"DNS resolution: {fqdn} -> {resolved}")
+        tests = self.config.get("step_output", {}).get("tests", {})
+        fqdn = tests.get("create_dns_record", {}).get("fqdn", "N/A")
+        resolved = tests.get("resolve_record", {}).get("resolved_ip", "N/A")
+        self.set_passed(f"DNS resolution: {fqdn} -> {resolved}")
 
 
 class VpcPeeringCheck(BaseValidation):
@@ -3705,13 +3543,6 @@ class VpcPeeringCheck(BaseValidation):
     description: ClassVar[str] = "Check VPC peering"
 
     def run(self) -> None:
-        step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
-
-        if not tests:
-            self.set_failed("No 'tests' in step output")
-            return
-
         required = [
             "create_vpc_a",
             "create_vpc_b",
@@ -3720,17 +3551,10 @@ class VpcPeeringCheck(BaseValidation):
             "add_routes",
             "peering_active",
         ]
-        failed = []
+        if not check_required_tests(self, required, "Peering tests failed"):
+            return
 
-        for test_name in required:
-            test_result = tests.get(test_name, {})
-            if not test_result.get("passed"):
-                error = test_result.get("error", "test not found")
-                failed.append(f"{test_name}: {error}")
-
-        if failed:
-            self.set_failed(f"Peering tests failed: {'; '.join(failed)}")
-        else:
-            vpc_a = step_output.get("vpc_a", {}).get("id", "?")
-            vpc_b = step_output.get("vpc_b", {}).get("id", "?")
-            self.set_passed(f"VPC peering active: {vpc_a} <-> {vpc_b}")
+        step_output = self.config.get("step_output", {})
+        vpc_a = step_output.get("vpc_a", {}).get("id", "?")
+        vpc_b = step_output.get("vpc_b", {}).get("id", "?")
+        self.set_passed(f"VPC peering active: {vpc_a} <-> {vpc_b}")

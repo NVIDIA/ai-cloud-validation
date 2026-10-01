@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from isvtest.core.runners import CommandResult
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, check_required_tests
 from isvtest.tests.test_validations import (
     _validation_results,
     clear_validation_results,
@@ -225,6 +225,45 @@ class TestBaseValidation:
         validation = ConcreteValidation()
         assert validation.log is not None
         assert validation.log.name == "ConcreteValidation"
+
+
+class TestCheckRequiredTests:
+    """Tests for check_required_tests skip/fail propagation."""
+
+    @staticmethod
+    def _validation(tests: dict[str, Any]) -> ConcreteValidation:
+        return ConcreteValidation(config={"step_output": {"tests": tests}})
+
+    def test_all_passed_returns_true(self) -> None:
+        validation = self._validation({"a": {"passed": True}, "b": {"passed": True}})
+        assert check_required_tests(validation, ["a", "b"], "label") is True
+
+    def test_skipped_subcheck_skips_parent(self) -> None:
+        """A skipped sub-check must not count as a pass, even with passed=True."""
+        validation = self._validation(
+            {"a": {"passed": True}, "b": {"passed": True, "skipped": True, "skip_reason": "not exposed"}}
+        )
+        with pytest.raises(pytest.skip.Exception, match="b: not exposed"):
+            check_required_tests(validation, ["a", "b"], "label")
+
+    def test_skipped_without_passed_skips_parent(self) -> None:
+        validation = self._validation({"a": {"skipped": True, "message": "n/a"}})
+        with pytest.raises(pytest.skip.Exception, match="a: n/a"):
+            check_required_tests(validation, ["a"], "label")
+
+    def test_failure_wins_over_skip(self) -> None:
+        validation = self._validation({"a": {"passed": False, "error": "boom"}, "b": {"skipped": True}})
+        assert check_required_tests(validation, ["a", "b"], "label") is False
+        assert validation._error == "label: a: boom"
+
+    def test_unrequired_skipped_subcheck_ignored(self) -> None:
+        validation = self._validation({"a": {"passed": True}, "extra": {"skipped": True}})
+        assert check_required_tests(validation, ["a"], "label") is True
+
+    def test_custom_key(self) -> None:
+        validation = ConcreteValidation(config={"step_output": {"operations": {"get": {"skipped": True}}}})
+        with pytest.raises(pytest.skip.Exception, match="get: skipped"):
+            check_required_tests(validation, ["get"], "label", key="operations")
 
 
 class TestInstanceListCheck:
