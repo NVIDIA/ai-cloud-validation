@@ -27,7 +27,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: nccl-allreduce
-          image: nvcr.io/nvidia/hpc-benchmarks:25.04
+          image: __NCCL_IMAGE__
           imagePullPolicy: IfNotPresent
           command:
             - /bin/bash
@@ -44,6 +44,8 @@ spec:
           volumeMounts:
             - name: results
               mountPath: /results
+            - name: shm
+              mountPath: /dev/shm
           resources:
             limits:
               nvidia.com/gpu: 8 # overridden at runtime by K8sNcclWorkload
@@ -62,3 +64,7 @@ spec:
           hostPath:
             path: /data/nvstgt/results
             type: DirectoryOrCreate
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi

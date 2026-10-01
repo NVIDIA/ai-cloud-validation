@@ -10,9 +10,9 @@ Edit in place — fill `scripts/storage/api.py` TODO blocks and update
 `config/storage-provider-manifest.yaml`. Do not copy to `providers/<name>/`
 unless the user explicitly requests a handoff folder.
 
-**Test harness:** `my-isv/config/storage.yaml` already exists and points at the
-manifest. Tweak in place; or add a `manifest_path` override in an external k8s
-config only when the user wants k8s-integrated runs.
+**Test harness:** `my-isv/config/storage.yaml` declares the `storage_manifest`
+step (below). Run it plain for the shim checks, or with `--capability kubernetes`
+when the user wants k8s-integrated runs.
 
 ## Two-artifact model
 
@@ -28,52 +28,35 @@ scripts/storage/api.py                    # MyStorageApi + build_api() (my-isv f
 
 ## manifest_path sources
 
-| Mode | `manifest_path` value |
-| ---- | --------------------- |
-| Standalone (`storage.yaml`) | Repo-relative path to manifest on disk |
-| K8s provider override (`eks.yaml`) | Same on-disk path for dev; mounted ConfigMap path in prod |
-| Suite default (`k8s.yaml`) | `{{ steps.setup.storage.manifest_path \| default('', true) }}` — empty skips check |
+The suite binds the `storage_provider_api` group to a `storage_manifest` step and
+reads `{{ steps.storage_manifest.storage.manifest_path }}`. That step runs
+`shared/storage_manifest_to_steps.py`, which resolves `STORAGE_PROVIDER_MANIFEST`
+(relative to the config dir; the mounted ConfigMap path in prod) to an absolute
+path.
 
-**Empty manifest_path = check skipped (pass).** Onboarded providers must override.
+**No `storage_manifest` step = checks skipped (`step_not_configured`).** Onboarded
+providers declare the step.
 
 ## Provider YAML patterns
 
-### Standalone storage validation
-
-Use the existing `my-isv/config/storage.yaml` (update in place if needed):
+One `storage.yaml` per provider imports `suites/storage.yaml` (never alongside
+`suites/k8s.yaml`) and declares the step, as in `my-isv/config/storage.yaml`:
 
 ```yaml
 commands:
   storage:
     phases: ["setup", "test", "teardown"]
     steps:
-      - name: preflight
-        phase: setup
-        command: "echo"
-        args: ['{"success": true, "platform": "storage", "test_name": "preflight"}']
-
-tests:
-  platform: storage
-  validations:
-    storage_provider_api:
-      checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml"
-          volume_size_bytes: 1073741824
+      - name: storage_manifest
+        phase: test
+        command: "python ../../shared/storage_manifest_to_steps.py"
+        env:
+          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 ```
 
-### K8s-integrated override
-
-See `aws/config/eks.yaml` — imports `suites/k8s.yaml` + `suites/storage.yaml`, overrides:
-
-```yaml
-tests:
-  validations:
-    k8s_storage:
-      checks:
-        StorageProviderApiCheck:
-          manifest_path: "isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml"
-```
+The same config runs the Kubernetes CSI/filesystem checks with
+`--capability kubernetes`; its `setup_cluster` step (`requires: [kubernetes]`) reports
+the cluster's StorageClasses.
 
 ## Manifest entry fields (schema v1alpha2)
 
@@ -127,7 +110,7 @@ every other suite check — they do NOT read the storage manifest. Checks in
 `K8sNfsMountOptionsCheck` / `K8sNodeKernelModulesCheck` filesystem checks.
 
 Set their StorageClass names via the `K8S_CSI_*` env vars (the suite templates
-read these), or as literal overrides in a provider `storage-k8s.yaml`.
+read these), or as literal overrides in the provider `storage.yaml`.
 Resolution order is **explicit YAML → `K8S_CSI_*` env var → skip**.
 
 Env vars (one per role):
@@ -139,16 +122,16 @@ Env vars (one per role):
 NFS mount-option expectations (`K8sNfsMountOptionsCheck`), `node_selector`, and
 `kernel_modules` (`K8sNodeKernelModulesCheck`) are likewise literal values in the
 config (a check skips when its inputs are unset). See
-`isvctl/configs/providers/vast/config/storage-k8s.yaml` for an example that sets
+`isvctl/configs/providers/vast/config/storage.yaml` for an example that sets
 the VAST NFS expectations and documents the `K8S_CSI_*` exports.
 
 **Agent task:** After `kubectl get storageclass`, map SC names into the
-`K8S_CSI_*` env vars (or literal overrides in the provider `storage-k8s.yaml`).
+`K8S_CSI_*` env vars (or literal overrides in the provider `storage.yaml`).
 The storage manifest stays focused on the shim contract.
 
 ## Directory-quota enforcement check
 
-`StorageDirectoryQuotaEnforcementCheck` (suite `k8s_storage`) needs a reachable
+`StorageDirectoryQuotaEnforcementCheck` (suite `storage_provider_api`) needs a reachable
 cluster and a shared-fs StorageClass (or an existing PVC). Optional reuse keys
 avoid re-provisioning on every iteration:
 

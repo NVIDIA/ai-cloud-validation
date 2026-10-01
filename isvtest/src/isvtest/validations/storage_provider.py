@@ -29,6 +29,8 @@ import uuid
 from collections.abc import Callable
 from typing import ClassVar
 
+import pytest
+
 from isvtest.core.storage import (
     ManifestError,
     Provider,
@@ -141,8 +143,8 @@ class StorageProviderApiCheck(BaseValidation):
       ``hard_limit_bytes`` (and ``tenant_id`` matching the manifest's
       ``tenant_id`` when declared)
 
-    Skipped (passed) when the manifest is unset, missing providers, or
-    contains no providers with a shim block.
+    Skipped when the manifest is unset, missing providers, or contains no
+    providers with a shim block.
 
     Config keys (with defaults):
         manifest_path: Path to the provider manifest YAML. In K8s mode
@@ -165,8 +167,7 @@ class StorageProviderApiCheck(BaseValidation):
             return
 
         if not providers:
-            self.set_passed("Skipped: no provider manifest configured (manifest_path unset). ")
-            return
+            pytest.skip("No provider manifest configured (manifest_path unset)")
 
         shim_providers = [p for p in providers if p.has_shim]
         if not shim_providers:
@@ -177,12 +178,11 @@ class StorageProviderApiCheck(BaseValidation):
                 note.append(f"REST shims skipped: {', '.join(sorted(rest_only))}")
             if csi_only:
                 note.append(f"CSI-only providers (no management API to test) skipped: {', '.join(sorted(csi_only))}")
-            self.set_passed(
-                "Skipped: no provider in the manifest declares a Python `shim:` block; " + "; ".join(note)
+            pytest.skip(
+                "No provider in the manifest declares a Python `shim:` block; " + "; ".join(note)
                 if note
-                else "Skipped: no provider in the manifest declares a Python `shim:` block."
+                else "No provider in the manifest declares a Python `shim:` block."
             )
-            return
 
         run_id = str(self.config.get("run_id") or uuid.uuid4().hex[:12])
         volume_size_bytes = int(self.config.get("volume_size_bytes") or (1 << 30))

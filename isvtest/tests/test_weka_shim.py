@@ -138,16 +138,29 @@ def _user_quota_response(store: dict[str, list[dict[str, Any]]], fs_uid: str, me
     if method == "GET":
         return {"data": list(rows)}
     uid = int((params or {})["user_id"])
-    rows[:] = [row for row in rows if row["uid_or_gid"] != uid]
+
+    def _uid_of(row: dict[str, Any]) -> int:
+        if row.get("uid_or_gid") is not None:
+            return int(row["uid_or_gid"])
+        qid = str(row.get("quota_id") or "")
+        if qid.upper().startswith("USER:"):
+            return int(qid.split(":", 1)[1])
+        return -1
+
+    rows[:] = [row for row in rows if _uid_of(row) != uid]
     if method == "POST":
-        rows.append(
-            {
-                "uid_or_gid": uid,
-                "total_bytes": 0,
-                "hard_limit_bytes": int(params["hard_limit_bytes"]),
-                "soft_limit_bytes": int(params["soft_limit_bytes"]),
-            }
-        )
+        hard = int(params["hard_limit_bytes"])
+        # Mirror the live 5.1.31 shape (quota_id USER:<uid>, no uid_or_gid).
+        # hard_limit_bytes=0 means unlimited on the backend and is omitted from LIST.
+        if hard > 0:
+            rows.append(
+                {
+                    "quota_id": f"USER:{uid}",
+                    "total_bytes": 0,
+                    "hard_limit_bytes": hard,
+                    "soft_limit_bytes": int(params["soft_limit_bytes"]),
+                }
+            )
     return {"data": {}}
 
 
@@ -362,6 +375,24 @@ class TestUserQuotaCrud:
         assert got.hard is not None and got.hard.bytes == 4096
         with pytest.raises(NotFoundError):
             api.get_user_quota(GetUserQuotaRequest(tenant_id="Root", volume_id=_PVC_HANDLE, user="2000"))
+
+    def test_list_parses_quota_id_user_prefix_without_uid_or_gid(self):
+        """5.1.31 rows use quota_id USER:<uid> and omit uid_or_gid."""
+        api, _ = _make_api(
+            user_quotas={
+                "uid-pvc-abc": [
+                    {"quota_id": "USER:1000", "total_bytes": 512, "hard_limit_bytes": 1 << 20},
+                    {"quota_id": "USER:2000", "total_bytes": 0, "hard_limit_bytes": None},
+                ]
+            }
+        )
+        quotas = api.list_user_quotas(ListUserQuotasRequest(tenant_id="Root", volume_id=_PVC_HANDLE)).user_quotas
+        assert [(q.user, None if q.hard is None else q.hard.bytes) for q in quotas] == [
+            ("1000", 1 << 20),
+            ("2000", None),
+        ]
+        got = api.get_user_quota(GetUserQuotaRequest(tenant_id="Root", volume_id=_PVC_HANDLE, user="1000"))
+        assert got.user == "1000"
 
     def test_set_sends_the_limits_as_query_params_and_reads_back(self):
         api, calls = _make_api(user_quotas={"uid-pvc-abc": []})

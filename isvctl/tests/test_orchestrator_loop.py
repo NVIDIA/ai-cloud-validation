@@ -413,7 +413,10 @@ EOF
         assert result.success
         assert [phase.phase for phase in result.phases] == [Phase.TEST]
         assert [entry.entry.name for entry in result.validations] == ["K8sCsiStorageTypesCheck"]
-        assert result.validations[0].state is State.PASSED
+        # No StorageClass is configured, so the check runs and skips itself: a
+        # runtime skip proves it executed rather than being filtered out.
+        assert result.validations[0].state is State.SKIPPED
+        assert result.validations[0].skip_reason is SkipReason.RUNTIME_SKIP
 
     def test_config_without_commands_or_validations_is_not_a_pass(self) -> None:
         """Validations are all a commandless run has, so wiring none asserts nothing."""
@@ -1132,6 +1135,39 @@ class TestMissingStepRefDetection:
         )
 
         assert rendered == ["--issuer-url=", "--audience=", "--target-url="]
+
+    def test_step_env_values_are_rendered_like_args(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``env:`` templates render against the context, so Terraform never sees ``{{region}}``."""
+        monkeypatch.setenv("AWS_REGION", "eu-west-1")
+        script = _write_script(
+            tmp_path,
+            "show_env.sh",
+            '#!/bin/sh\necho "{\\"success\\": true, \\"platform\\": \\"storage\\", \\"region\\": \\"$TF_VAR_region\\"}"\n',
+        )
+        config = RunConfig(
+            tests=ValidationConfig(settings={"region": "{{env.AWS_REGION | default('us-west-2', true)}}"})
+        )
+        steps = [StepConfig(name="show_env", command=script, phase="setup", env={"TF_VAR_region": "{{region}}"})]
+
+        results = StepExecutor().execute_steps(steps, Context(config))
+
+        assert results.success, results.steps[0].error
+        assert results.steps[0].output == {"success": True, "platform": "storage", "region": "eu-west-1"}
+
+    def test_step_env_render_error_fails_the_step(self) -> None:
+        """A malformed ``env:`` template fails that step like any other step failure."""
+        steps = [
+            StepConfig(
+                name="bad_env", command="true", phase="setup", env={"TF_VAR_region": "{{ region | no_such_filter }}"}
+            ),
+            StepConfig(name="after", command="true", phase="setup"),
+        ]
+
+        results = StepExecutor().execute_steps(steps, Context(RunConfig()))
+
+        assert not results.success
+        assert [s.name for s in results.steps] == ["bad_env"]
+        assert "Failed to render env" in (results.steps[0].error or "")
 
     def test_missing_ref_raised_from_render_args_directly(self) -> None:
         """_render_args raises MissingStepRefError for bare references."""

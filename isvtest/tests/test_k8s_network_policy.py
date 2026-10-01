@@ -30,7 +30,6 @@ from isvtest.validations.k8s_network_policy import (
     K8sDualStackNodeCheck,
     K8sNetworkPolicyCheck,
     _classify_node,
-    _classify_pods_by_node,
     _family_summary,
     _is_ipv4,
     _is_ipv6,
@@ -135,22 +134,6 @@ class TestClassifyNode:
         assert _classify_node({}) == (False, False)
 
 
-def test_classify_pods_by_node_tracks_both_ip_families() -> None:
-    pods = [
-        {
-            "spec": {"nodeName": "node-0"},
-            "status": {"podIPs": [{"ip": "10.0.0.10"}, {"ip": "fd00::10"}]},
-        },
-        {"spec": {"nodeName": "node-1"}, "status": {"podIPs": [{"ip": "10.0.0.11"}]}},
-    ]
-    assert _classify_pods_by_node(pods) == {"node-0": [(True, True)], "node-1": [(True, False)]}
-
-
-def test_classify_pods_by_node_ignores_pods_without_addresses() -> None:
-    pods = [{"spec": {"nodeName": "node-0"}, "status": {"podIPs": []}}]
-    assert _classify_pods_by_node(pods) == {}
-
-
 class TestNodePodCidrFamilies:
     """Tests for ``_node_podcidr_families``."""
 
@@ -201,6 +184,15 @@ def _nodes_json(
     return json.dumps({"items": items})
 
 
+def _pod(name: str = "app", ips: tuple[str, ...] = ("10.244.0.2", "fd00:10::2")) -> dict[str, Any]:
+    """Build an eligible running pod with the given allocated addresses."""
+    return {
+        "metadata": {"namespace": "workloads", "name": name},
+        "spec": {"nodeName": "node-0"},
+        "status": {"phase": "Running", "podIPs": [{"ip": ip} for ip in ips]},
+    }
+
+
 class TestDualStackNodeCheck:
     """Tests for ``K8sDualStackNodeCheck``."""
 
@@ -238,13 +230,6 @@ class TestDualStackNodeCheck:
         assert not check.passed
         assert "No nodes" in check._error
 
-    def test_auto_fails_when_no_nodes_exist(self) -> None:
-        check = self._make({"require_dual_stack": "auto"})
-        with patch.object(check, "run_command", return_value=_ok(stdout=json.dumps({"items": []}))):
-            check.run()
-        assert not check.passed
-        assert "No nodes" in check._error
-
     def test_require_true_fails_on_single_stack_node(self) -> None:
         payload = _nodes_json(
             [
@@ -266,7 +251,7 @@ class TestDualStackNodeCheck:
             ]
         )
         check = self._make({"require_dual_stack": True})
-        with patch.object(check, "run_command", return_value=_ok(stdout=payload)):
+        with patch.object(check, "run_command", side_effect=[_ok(payload), _ok(json.dumps({"items": [_pod()]}))]):
             check.run()
         assert check.passed
         assert "All 2 nodes" in check._output
@@ -279,7 +264,7 @@ class TestDualStackNodeCheck:
         assert check.passed
         assert "Informational" in check._output
 
-    def test_auto_fails_when_cluster_is_single_stack(self) -> None:
+    def test_auto_skips_when_no_node_dual_stack(self) -> None:
         payload = _nodes_json(
             [
                 [("InternalIP", "10.0.0.1")],
@@ -287,10 +272,17 @@ class TestDualStackNodeCheck:
             ]
         )
         check = self._make({"require_dual_stack": "auto"})
-        with patch.object(check, "run_command", return_value=_ok(stdout=payload)):
+        with (
+            patch.object(
+                check,
+                "run_command",
+                side_effect=[_ok(payload), _ok(json.dumps({"items": [_pod(ips=("10.244.0.2",))]}))],
+            ),
+            pytest.raises(pytest.skip.Exception, match="single-stack"),
+        ):
             check.run()
         assert not check.passed
-        assert "single-stack" in check._error
+        assert all(result["skipped"] and not result["passed"] for result in check._subtest_results)
 
     def test_auto_requires_all_when_any_node_dual_stack(self) -> None:
         payload = _nodes_json(
@@ -313,66 +305,10 @@ class TestDualStackNodeCheck:
             ]
         )
         check = self._make({"require_dual_stack": "auto"})
-        with patch.object(check, "run_command", return_value=_ok(stdout=payload)):
+        with patch.object(check, "run_command", side_effect=[_ok(payload), _ok(json.dumps({"items": [_pod()]}))]):
             check.run()
         assert check.passed
         assert "All 2 nodes" in check._output
-
-    def test_auto_fails_when_pods_are_single_stack(self) -> None:
-        nodes = _nodes_json(
-            [[("InternalIP", "10.0.0.1"), ("InternalIP", "fd00::1")]],
-        )
-        pods = json.dumps(
-            {
-                "items": [
-                    {
-                        "spec": {"nodeName": "node-0"},
-                        "status": {"podIPs": [{"ip": "10.0.0.10"}]},
-                    }
-                ]
-            }
-        )
-        check = self._make({"require_dual_stack": "auto"})
-        with patch.object(check, "run_command", side_effect=[_ok(stdout=nodes), _ok(stdout=pods)]):
-            check.run()
-        assert not check.passed
-        assert "node-0" in check._error
-
-    def test_auto_fails_when_pod_families_are_split_across_pods(self) -> None:
-        nodes = _nodes_json(
-            [[("InternalIP", "10.0.0.1"), ("InternalIP", "fd00::1")]],
-        )
-        pods = json.dumps(
-            {
-                "items": [
-                    {"spec": {"nodeName": "node-0"}, "status": {"podIPs": [{"ip": "10.0.0.10"}]}},
-                    {"spec": {"nodeName": "node-0"}, "status": {"podIPs": [{"ip": "fd00::10"}]}},
-                ]
-            }
-        )
-        check = self._make({"require_dual_stack": "auto"})
-        with patch.object(check, "run_command", side_effect=[_ok(stdout=nodes), _ok(stdout=pods)]):
-            check.run()
-        assert not check.passed
-        assert "node-0" in check._error
-
-    def test_auto_uses_pod_addresses_as_dual_stack_evidence(self) -> None:
-        nodes = _nodes_json([[("InternalIP", "10.0.0.1")]])
-        pods = json.dumps(
-            {
-                "items": [
-                    {
-                        "spec": {"nodeName": "node-0"},
-                        "status": {"podIPs": [{"ip": "10.0.0.10"}, {"ip": "fd00::10"}]},
-                    }
-                ]
-            }
-        )
-        check = self._make({"require_dual_stack": "auto"})
-        with patch.object(check, "run_command", side_effect=[_ok(stdout=nodes), _ok(stdout=pods)]):
-            check.run()
-        assert not check.passed
-        assert "node-0" in check._error
 
     def test_auto_pod_cidrs_hint_requires_internal_ip_per_node(self) -> None:
         # No node has both InternalIP families, but podCIDRs span both: the
@@ -387,6 +323,79 @@ class TestDualStackNodeCheck:
             check.run()
         assert not check.passed
         assert "node-0" in check._error
+
+    def _with_pods(self, pods: list[dict[str, Any]], mode: bool | str = "auto") -> K8sDualStackNodeCheck:
+        """Run with a dual-stack node and an independently supplied pod response."""
+        check = self._make({"require_dual_stack": mode})
+        nodes = _nodes_json([[("InternalIP", "10.0.0.1"), ("InternalIP", "fd00::1")]])
+        with patch.object(check, "run_command", side_effect=[_ok(nodes), _ok(json.dumps({"items": pods}))]) as run:
+            check.run()
+        assert "get pods --all-namespaces -o json" in run.call_args.args[0]
+        return check
+
+    @pytest.mark.parametrize("mode", [True, "auto"])
+    @pytest.mark.parametrize("ips", [("10.244.0.2",), ("fd00:10::2",), (), ("invalid",), ("10.244.0.2", "invalid")])
+    def test_pod_missing_address_family_fails(self, mode: bool | str, ips: tuple[str, ...]) -> None:
+        """Node addresses and pod CIDRs cannot substitute for allocated pod addresses."""
+        check = self._with_pods([_pod(ips=ips)], mode)
+        assert not check.passed
+        assert "pod/workloads/app" in check.message
+
+    def test_pod_families_cannot_be_combined_across_pods(self) -> None:
+        """Separate IPv4-only and IPv6-only pods do not prove dual-stack pod networking."""
+        check = self._with_pods([_pod("v4", ("10.244.0.2",)), _pod("v6", ("fd00:10::2",))])
+        assert not check.passed
+        assert "pod/workloads/v4" in check.message
+        assert "pod/workloads/v6" in check.message
+
+    def test_no_eligible_pods_does_not_pass(self) -> None:
+        """An otherwise dual-stack cluster still needs observable pod evidence."""
+        check = self._with_pods([])
+        assert not check.passed
+        assert "No running non-host-network pods" in check.message
+
+    @pytest.mark.parametrize("reason", ["host_network", "pending", "succeeded", "failed", "terminating", "unscheduled"])
+    def test_ineligible_pods_do_not_supply_or_invalidate_evidence(self, reason: str) -> None:
+        """Only live scheduled pods using the CNI are relevant to observed address allocation."""
+        excluded = _pod("excluded", ("10.244.0.3",))
+        if reason == "host_network":
+            excluded["spec"]["hostNetwork"] = True
+        elif reason == "terminating":
+            excluded["metadata"]["deletionTimestamp"] = "2026-09-30T00:00:00Z"
+        elif reason == "unscheduled":
+            excluded["spec"].pop("nodeName")
+        else:
+            excluded["status"]["phase"] = reason.capitalize()
+        assert self._with_pods([_pod(), excluded]).passed
+        assert not self._with_pods([excluded]).passed
+
+    @pytest.mark.parametrize("response", [_fail(stderr="forbidden"), _ok("bad-json"), _ok("[]"), _ok('{"items": {}}')])
+    def test_pod_query_errors_fail(self, response: CommandResult) -> None:
+        """RBAC errors and malformed responses must not turn missing evidence into success."""
+        check = self._make({"require_dual_stack": "auto"})
+        nodes = _nodes_json([[("InternalIP", "10.0.0.1"), ("InternalIP", "fd00::1")]])
+        with patch.object(check, "run_command", side_effect=[_ok(nodes), response]):
+            check.run()
+        assert not check.passed
+        assert "pods" in check.message
+
+    def test_pod_evidence_prevents_auto_from_skipping_misconfigured_node(self) -> None:
+        """Dual-stack pods are a hint even if node InternalIPs and CIDRs expose only IPv4."""
+        check = self._make({"require_dual_stack": "auto"})
+        nodes = _nodes_json([[("InternalIP", "10.0.0.1")]])
+        with patch.object(check, "run_command", side_effect=[_ok(nodes), _ok(json.dumps({"items": [_pod()]}))]):
+            check.run()
+        assert not check.passed
+        assert "node-0" in check.message
+
+    def test_legacy_pod_ip_is_not_dual_stack_evidence(self) -> None:
+        """The singular podIP fallback supplies at most one address family."""
+        pod = _pod()
+        pod["status"].pop("podIPs")
+        pod["status"]["podIP"] = "10.244.0.2"
+        check = self._with_pods([pod])
+        assert not check.passed
+        assert "families=[IPv4]" in check.message
 
 
 def _primed_check(config: dict[str, Any] | None = None, *, probe_timeout: int = 5) -> K8sNetworkPolicyCheck:

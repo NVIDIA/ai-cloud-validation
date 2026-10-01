@@ -186,6 +186,27 @@ See the [Local Development Guide](docs/guides/local-development.md) for MicroK8s
 - Be responsive to feedback and code review comments.
 - Assign reviewer as `NCP ISV Lab Maintainer` - at least one engineer will review the PR.
 
+### AI-Assisted Contributions
+
+AI-assisted PRs are welcome. Unattended ones are not: a PR must come from a person who
+chose the problem, read the code, and can explain and defend every line. PRs produced by
+pointing an agent at open issues and submitting its output without human involvement will
+be closed, even if the change is correct. Autonomous agents should not open PRs or
+issues.
+
+Say in the PR description which tool you used and how much of the change it wrote.
+
+This suite validates real clusters, so a fix needs evidence that it works:
+
+- Show the failure before and the pass after (logs or command output), ideally from a
+  live cluster or cloud account.
+- State what you ran and what you could not. "Not run on a live cluster" is an
+  acceptable answer; saying nothing is not.
+- Unit tests alone do not show that a validation behaves correctly against a real system.
+
+Please keep open PRs to a few at a time and respond to review comments. Accounts that
+repeatedly ignore this policy may be blocked.
+
 ## Review Process
 
 Maintainers review PRs on a best-effort basis. Reviews are collaborative — suggested

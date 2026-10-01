@@ -17,14 +17,29 @@ import uuid
 from pathlib import Path
 
 from isvtest.config.settings import (
+    NCCL_IMAGE_PLACEHOLDER,
     get_k8s_namespace,
     get_nccl_gpu_count,
+    get_nccl_image,
     get_nccl_min_bus_bw_gbps,
     get_nccl_timeout,
+    render_image_placeholder,
 )
 from isvtest.core.k8s import get_gpu_nodes, get_node_gpu_count
 from isvtest.core.workload import BaseWorkloadCheck
 from isvtest.workloads.nccl_common import parse_nccl_output
+
+
+def render_k8s_nccl_job(yaml_content: str, *, job_name: str, gpu_count: int, image: str) -> str:
+    """Fill the single-node NCCL Job manifest.
+
+    The image placeholder is always replaced, including when ``image`` is the
+    default tag, so ``NCCL_IMAGE`` cannot be skipped by a stale string match.
+    """
+    yaml_content = yaml_content.replace("name: nccl-allreduce-gpu", f"name: {job_name}", 1)
+    yaml_content = yaml_content.replace("nvidia.com/gpu: 8", f"nvidia.com/gpu: {gpu_count}")
+    yaml_content = yaml_content.replace("-np 8", f"-np {gpu_count}")
+    return render_image_placeholder(yaml_content, NCCL_IMAGE_PLACEHOLDER, image)
 
 
 class K8sNcclWorkload(BaseWorkloadCheck):
@@ -32,6 +47,7 @@ class K8sNcclWorkload(BaseWorkloadCheck):
 
     Config:
         min_bus_bw_gbps (float): Minimum expected bus bandwidth in GB/s (default: env or 0 = no check)
+        image (str): Container image (default: get_nccl_image())
     """
 
     description = "Run NCCL allreduce test on Kubernetes."
@@ -78,13 +94,10 @@ class K8sNcclWorkload(BaseWorkloadCheck):
             return
 
         yaml_content = manifest_path.read_text()
+        image = self.config.get("image") or get_nccl_image()
+        yaml_content = render_k8s_nccl_job(yaml_content, job_name=job_name, gpu_count=gpu_count, image=image)
 
-        # Replace job name and GPU count to match available resources
-        yaml_content = yaml_content.replace("name: nccl-allreduce-gpu", f"name: {job_name}", 1)
-        yaml_content = yaml_content.replace("nvidia.com/gpu: 8", f"nvidia.com/gpu: {gpu_count}")
-        yaml_content = yaml_content.replace("-np 8", f"-np {gpu_count}")
-
-        self.log.info(f"Starting NCCL test with {gpu_count} GPUs (timeout: {timeout}s)")
+        self.log.info(f"Starting NCCL test with {gpu_count} GPUs, image {image} (timeout: {timeout}s)")
 
         # Run the job using the helper
         result = self.run_k8s_job(job_name=job_name, namespace=namespace, yaml_content=yaml_content, timeout=timeout)

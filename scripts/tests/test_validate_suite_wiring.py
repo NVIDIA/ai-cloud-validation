@@ -461,3 +461,13 @@ tests:
     )
 
     assert validate_suite_wiring.provider_wiring_errors(providers) == []
+
+
+def test_provider_wiring_errors_ignores_terraform_module_cache(tmp_path: Path) -> None:
+    """Local terraform init drops multi-document YAML under .terraform/; that is not config."""
+    providers = tmp_path / "providers"
+    cached = providers / "aws" / ".terraform" / "modules"
+    cached.mkdir(parents=True)
+    (cached / "karpenter.yaml").write_text("a: 1\n---\nb: 2\n")
+
+    assert validate_suite_wiring.provider_wiring_errors(providers) == []

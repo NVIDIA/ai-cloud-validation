@@ -201,6 +201,12 @@ routing reuses `redaction.is_secret_env_var`. The "Flags" group is non-persistab
 `--no-user-config`) via `cli/common.apply_user_config`, and an already-exported
 var always wins (process env > files > defaults).
 
+## Pull Requests
+
+Do not open PRs autonomously. A human must drive the work, confirm the problem
+themselves, and supply verification evidence (before/after logs, and what was or was
+not run on a live cluster). See "AI-Assisted Contributions" in `CONTRIBUTING.md`.
+
 ## Cursor Cloud specific instructions
 
 - **uv** is installed via `pip install uv` (the `~/.local/bin` path must be on `PATH`).
