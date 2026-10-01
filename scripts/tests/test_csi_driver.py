@@ -21,6 +21,7 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -190,7 +191,7 @@ def test_teardown_refuses_active_or_replaced_objects(
     """Never uninstall a driver with live storage or delete a replacement object."""
     cluster = Cluster()
     runner = installer(tmp_path, monkeypatch, cluster)
-    runner.install(config("helm"))
+    runner.install({**config("helm"), "timeout_s": 0})
     if fault == "active-volume":
         cluster.pvs = [{"spec": {"csi": {"driver": "test.csi"}}}]
     else:
@@ -199,6 +200,55 @@ def test_teardown_refuses_active_or_replaced_objects(
         runner.remove()
     assert not any(args[1] in {"uninstall", "delete"} for args in cluster.commands)
     assert runner.state_path.exists()
+
+
+@pytest.mark.parametrize("method", ["helm", "kustomize"])
+@pytest.mark.parametrize("deleted_at", [0, 2, 3, None])
+def test_teardown_waits_for_pvs_until_recorded_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str, deleted_at: int | None
+) -> None:
+    """Wait for asynchronous deletion, ignoring other drivers and retaining state on timeout."""
+    cluster = Cluster(method)
+    runner = installer(tmp_path, monkeypatch, cluster)
+    runner.install({**config(method), "timeout_s": 3})
+    runner.timeout = 99  # Teardown must reload the recorded installation timeout.
+    original_objects = copy.deepcopy(cluster.objects)
+    elapsed = 0.0
+    sleeps: list[float] = []
+    polls: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        """Advance a deterministic clock without delaying the test."""
+        nonlocal elapsed
+        sleeps.append(seconds)
+        elapsed += seconds
+
+    monkeypatch.setattr(MODULE, "time", SimpleNamespace(monotonic=lambda: elapsed, sleep=sleep), raising=False)
+
+    def command(args: list[str], data: str | None = None) -> str:
+        """Keep unrelated storage present and finish probe deletion at the specified time."""
+        if args[1:3] == ["get", "pv"]:
+            polls.append(elapsed)
+            cluster.pvs = [{"spec": {"csi": {"driver": "other.csi"}}}, {"spec": {}}]
+            if deleted_at is None or elapsed < deleted_at:
+                cluster.pvs.append({"spec": {"csi": {"driver": "test.csi"}}})
+        if args[1] in {"uninstall", "delete"}:
+            assert deleted_at is not None and elapsed >= deleted_at
+        return cluster.command(args, data)
+
+    monkeypatch.setattr(runner, "command", command)
+    if deleted_at is None:
+        with pytest.raises(RuntimeError, match="CSI installation still has PVs"):
+            runner.remove()
+        assert cluster.objects == original_objects
+        assert runner.state_path.exists()
+    else:
+        runner.remove()
+        assert not cluster.objects
+        assert not runner.state_path.exists()
+    assert elapsed == (deleted_at if deleted_at is not None else 3)
+    assert sleeps == ([] if deleted_at == 0 else [2] if deleted_at == 2 else [2, 1])
+    assert polls == ([0] if deleted_at == 0 else [0, 2] if deleted_at == 2 else [0, 2, 3])
 
 
 def test_default_storage_class_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

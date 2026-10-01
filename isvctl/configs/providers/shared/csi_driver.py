@@ -33,6 +33,7 @@ import json
 import os
 import shlex
 import subprocess
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -311,9 +312,15 @@ class CsiInstaller:
             raise ValueError("Teardown must use the original KUBECTL and HELM command prefixes")
         self.timeout = self.state["timeout_s"]
         self.recover()
-        pvs = json.loads(self.command(self.kubectl + ["get", "pv", "-o", "json"]))
-        if any(pv.get("spec", {}).get("csi", {}).get("driver") in self.state["drivers"] for pv in pvs["items"]):
-            raise RuntimeError("CSI installation still has PVs; remove its probe PVCs and wait for deletion first")
+        deadline = time.monotonic() + self.timeout
+        while True:
+            pvs = json.loads(self.command(self.kubectl + ["get", "pv", "-o", "json"]))
+            if not any(pv.get("spec", {}).get("csi", {}).get("driver") in self.state["drivers"] for pv in pvs["items"]):
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("CSI installation still has PVs; remove its probe PVCs and wait for deletion first")
+            time.sleep(min(2, remaining))
         owned_uids = {obj["metadata"]["uid"] for obj in self.state["resources"]}
         for obj in self.state["resources"]:
             current = self.get(self.identity(obj))
