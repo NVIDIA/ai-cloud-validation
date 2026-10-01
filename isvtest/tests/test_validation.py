@@ -16,7 +16,7 @@
 """Tests for validation module."""
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,8 +31,9 @@ from isvtest.tests.test_validations import (
     test_validation as run_validation_entry_point,
 )
 from isvtest.validations.bm_host_status import BmHostStatusLogCheck
-from isvtest.validations.generic import FieldValueCheck
+from isvtest.validations.generic import CrudOperationsCheck, FieldValueCheck
 from isvtest.validations.instance import (
+    BmTopologyPlacementCheck,
     InstanceListCheck,
     InstancePowerCycleCheck,
     InstanceStartCheck,
@@ -48,12 +49,15 @@ from isvtest.validations.network import (
     ImexServicePresenceCheck,
     ImexServiceResilienceCheck,
     LocalizedDnsCheck,
+    NetworkConnectivityCheck,
     NvlinkDomainCheck,
     SgPolicyPropagationTimingCheck,
     SgPortSecurityPolicyCheck,
     StableEgressIpCheck,
     StablePrivateIpCheck,
     StorageL3RoutingCheck,
+    SubnetConfigCheck,
+    VpcIsolationCheck,
     VpcPeeringCheck,
 )
 from isvtest.validations.nim import NimHealthCheck, NimInferenceCheck, NimModelCheck
@@ -3220,3 +3224,63 @@ class TestVcpuPinningCheckLocalMode:
 
         assert result["passed"] is False
         assert "Missing host or key_file" in result["error"]
+
+
+class TestFixedRequiredEntries:
+    """Checks that used to require every emitted entry now require a fixed set."""
+
+    @staticmethod
+    def _subnet_config(tests: dict[str, Any]) -> dict[str, Any]:
+        return {"step_output": {"tests": tests, "subnets": [{}, {}]}, "require_multi_az": False}
+
+    SUBNET_TESTS: ClassVar[dict[str, dict[str, Any]]] = {
+        "create_vpc": {"passed": True},
+        "create_subnets": {"passed": True},
+        "az_distribution": {"passed": True, "azs": ["a", "b"]},
+        "subnets_available": {"passed": True},
+        "route_table_exists": {"passed": True},
+    }
+
+    def test_subnet_config_passes_with_required_entries(self) -> None:
+        result = SubnetConfigCheck(config=self._subnet_config(dict(self.SUBNET_TESTS))).execute()
+        assert result["passed"] is True
+
+    def test_subnet_config_fails_on_missing_required_entry(self) -> None:
+        tests = {k: v for k, v in self.SUBNET_TESTS.items() if k != "route_table_exists"}
+        result = SubnetConfigCheck(config=self._subnet_config(tests)).execute()
+        assert result["passed"] is False
+        assert "route_table_exists: test not found" in result["error"]
+
+    def test_subnet_config_ignores_skipped_unrequired_entry(self) -> None:
+        tests = {**self.SUBNET_TESTS, "ipv6_assigned": {"passed": True, "skipped": True}}
+        result = SubnetConfigCheck(config=self._subnet_config(tests)).execute()
+        assert result["passed"] is True
+
+    def test_vpc_isolation_requires_both_sg_isolation_entries(self) -> None:
+        tests = {name: {"passed": True} for name in ("no_peering", "no_cross_routes_a", "no_cross_routes_b")}
+        tests["sg_isolation_a"] = {"passed": True}
+        result = VpcIsolationCheck(config={"step_output": {"tests": tests}}).execute()
+        assert result["passed"] is False
+        assert "sg_isolation_b: test not found" in result["error"]
+
+    def test_network_connectivity_requires_connectivity_tests(self) -> None:
+        step_output = {"instances": [{"private_ip": "10.0.0.1"}]}
+        result = NetworkConnectivityCheck(config={"step_output": step_output}).execute()
+        assert result["passed"] is False
+        assert "No 'tests' in step output" in result["error"]
+
+    def test_topology_placement_requires_every_operation(self) -> None:
+        step_output = {
+            "instance_id": "i-1",
+            "placement_supported": True,
+            "operations": {name: {"passed": True} for name in ("create_group", "verify_instance", "describe_group")},
+        }
+        result = BmTopologyPlacementCheck(config={"step_output": step_output}).execute()
+        assert result["passed"] is False
+        assert "delete_group: test not found" in result["error"]
+
+    def test_crud_operations_requires_operations_list(self) -> None:
+        step_output = {"operations": {"get": {"passed": True}}}
+        result = CrudOperationsCheck(config={"step_output": step_output}).execute()
+        assert result["passed"] is False
+        assert "`operations` must list" in result["error"]

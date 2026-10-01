@@ -615,7 +615,6 @@ class BmTopologyPlacementCheck(BaseValidation):
 
     Checks that the platform supports placement groups (or equivalent
     topology-aware scheduling) and that all placement operations passed.
-    Delegates operations checking to ``CrudOperationsCheck``.
 
     Config:
         step_output: The topology_placement step output
@@ -625,7 +624,7 @@ class BmTopologyPlacementCheck(BaseValidation):
         availability_zone: Instance availability zone
         placement_group: Name of the test placement group
         placement_strategy: Placement strategy (e.g., cluster)
-        operations: Dict of operation results
+        operations: dict with create_group, verify_instance, describe_group, delete_group
     """
 
     description: ClassVar[str] = "Check topology-based placement support"
@@ -647,8 +646,8 @@ class BmTopologyPlacementCheck(BaseValidation):
             self.set_failed(f"Topology placement not supported for {instance_id}: {error}")
             return
 
-        ops = step_output.get("operations", {})
-        if ops and not check_required_tests(self, list(ops), "Placement operations failed", key="operations"):
+        required_ops = ["create_group", "verify_instance", "describe_group", "delete_group"]
+        if not check_required_tests(self, required_ops, "Placement operations failed", key="operations"):
             return
 
         details = [f"AZ={az}", f"strategy={strategy}"]

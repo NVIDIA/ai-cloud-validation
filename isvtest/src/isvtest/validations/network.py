@@ -125,7 +125,8 @@ class SubnetConfigCheck(BaseValidation):
         require_multi_az: Require subnets across multiple AZs (default: True)
 
     Step output:
-        tests: dict with create_subnets, az_distribution, subnets_available
+        tests: dict with create_vpc, create_subnets, az_distribution,
+               subnets_available, route_table_exists
         subnets: list of subnet info
     """
 
@@ -156,7 +157,14 @@ class SubnetConfigCheck(BaseValidation):
                 self.set_failed(f"Subnets in only {az_count} AZ(s), multi-AZ required")
                 return
 
-        if not check_required_tests(self, list(tests), "Failed tests"):
+        required_tests = [
+            "create_vpc",
+            "create_subnets",
+            "az_distribution",
+            "subnets_available",
+            "route_table_exists",
+        ]
+        if not check_required_tests(self, required_tests, "Failed tests"):
             return
 
         azs = tests.get("az_distribution", {}).get("azs", [])
@@ -170,7 +178,8 @@ class VpcIsolationCheck(BaseValidation):
         step_output: The step output to check
 
     Step output:
-        tests: dict with no_peering, no_cross_routes_a, no_cross_routes_b, sg_isolation_*
+        tests: dict with no_peering, no_cross_routes_a, no_cross_routes_b,
+               sg_isolation_a, sg_isolation_b
         vpc_a, vpc_b: VPC info
     """
 
@@ -178,10 +187,8 @@ class VpcIsolationCheck(BaseValidation):
 
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
 
-        required_tests = ["no_peering", "no_cross_routes_a", "no_cross_routes_b"]
-        required_tests += [key for key in tests if key.startswith("sg_isolation")]
+        required_tests = ["no_peering", "no_cross_routes_a", "no_cross_routes_b", "sg_isolation_a", "sg_isolation_b"]
         if not check_required_tests(self, required_tests, "Isolation violations"):
             return
 
@@ -258,7 +265,7 @@ class NetworkConnectivityCheck(BaseValidation):
 
     Step output:
         instances: list of instance info with public_ip, private_ip
-        tests: optional dict with connectivity test results
+        tests: dict with instance_to_instance, instance_to_internet
     """
 
     description: ClassVar[str] = "Check network connectivity"
@@ -266,7 +273,6 @@ class NetworkConnectivityCheck(BaseValidation):
     def run(self) -> None:
         step_output = self.config.get("step_output", {})
         instances = step_output.get("instances", [])
-        tests = step_output.get("tests", {})
 
         if not instances:
             self.set_failed("No 'instances' in step output")
@@ -283,8 +289,8 @@ class NetworkConnectivityCheck(BaseValidation):
             self.set_failed("No instances have IP addresses assigned")
             return
 
-        # Check connectivity tests if present
-        if tests and not check_required_tests(self, list(tests), "Connectivity tests failed"):
+        required_tests = ["instance_to_instance", "instance_to_internet"]
+        if not check_required_tests(self, required_tests, "Connectivity tests failed"):
             return
 
         self.set_passed(f"{instances_with_ip} instances with network connectivity")

@@ -251,7 +251,7 @@ class CrudOperationsCheck(BaseValidation):
 
     Config:
         step_output: The step output containing an ``operations`` dict
-        operations: List of operation names to check (e.g. ["get", "list", "create", "delete"])
+        operations: Required list of operation names to check (e.g. ["get", "list", "create", "delete"])
     """
 
     description: ClassVar[str] = "Check all CRUD operations passed"
@@ -264,7 +264,10 @@ class CrudOperationsCheck(BaseValidation):
             self.set_failed("No 'operations' dict in step output")
             return
 
-        expected = self.config.get("operations") or list(ops)
+        expected = self.config.get("operations")
+        if not expected:
+            self.set_failed("`operations` must list the operation names to check")
+            return
         if not check_required_tests(self, expected, "CRUD operations failed", key="operations"):
             return
 
