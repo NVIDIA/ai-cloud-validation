@@ -61,7 +61,7 @@ variable "single_nat_gateway" {
 variable "kubernetes_version" {
   description = "Kubernetes version for the EKS cluster"
   type        = string
-  default     = "1.32"
+  default     = "1.36"
 }
 
 variable "cluster_endpoint_public_access_cidrs" {
@@ -182,7 +182,7 @@ variable "install_gpu_operator" {
 variable "gpu_operator_version" {
   description = "NVIDIA GPU Operator Helm chart version"
   type        = string
-  default     = "v24.9.0"
+  default     = "v26.7.1"
 }
 
 variable "mig_strategy" {
