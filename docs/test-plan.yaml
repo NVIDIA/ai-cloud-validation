@@ -3597,27 +3597,33 @@ domains:
                 github_issues:
                   - "#219"
                 milestone: ""
-          - description: "TODO: Dynamic provisioning, snapshots, and resizing"
+          - description: CSI installation, provisioning, snapshots, and resizing
             tests:
-              - summary: "TODO: Helm version"
+              - summary: Verify CSI driver installation through Helm, registration, and workload readiness
                 labels:
+                  - kubernetes
                   - min_req
-                notes: K8s21
+                  - storage
+                notes: "K8S23 permits Helm or Kustomize; the unused alternative skips only after verified successful installation."
                 req_id: K8S23
                 test_id: K8S23-02
                 actor: tenant
-                status: approved
-                priority: ""
+                status: published
+                priority: P0
+                github_issues: ["#650"]
                 milestone: ""
-              - summary: "TODO: Kustomize version"
+              - summary: Verify CSI driver installation through Kustomize, registration, and workload readiness
                 labels:
+                  - kubernetes
                   - min_req
-                notes: K8s21
+                  - storage
+                notes: "K8S23 permits Helm or Kustomize; the unused alternative skips only after verified successful installation."
                 req_id: K8S23
                 test_id: K8S23-03
                 actor: tenant
-                status: approved
-                priority: ""
+                status: published
+                priority: P0
+                github_issues: ["#650"]
                 milestone: ""
               - summary: Verify CSI supports block, shared filesystem, and NFS storage
                 labels:
@@ -3675,6 +3681,32 @@ domains:
                 test_id: K8S23-07
                 actor: tenant
                 status: published
+              - summary: Verify a CSI snapshot restores point-in-time data into a distinct volume
+                labels:
+                  - kubernetes
+                  - min_req
+                  - storage
+                req_id: K8S23
+                test_id: K8S23-08
+                actor: tenant
+                status: published
+                priority: P0
+                github_issues: ["#650"]
+                milestone: ""
+                notes: ""
+              - summary: Verify CSI PVC expansion grows the mounted filesystem and preserves data
+                labels:
+                  - kubernetes
+                  - min_req
+                  - storage
+                req_id: K8S23
+                test_id: K8S23-09
+                actor: tenant
+                status: published
+                priority: P0
+                github_issues: ["#650"]
+                milestone: ""
+                notes: ""
           - description: NVIDIA Operator support
             tests:
               - summary: "TODO: Compatibility with the mainline NVIDIA GPU Operator"

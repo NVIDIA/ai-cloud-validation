@@ -224,10 +224,53 @@ class TestK8sCsiStorageTypesCheck:
             check.run()
         mock_run.assert_not_called()
 
-    def test_all_configured_storage_classes_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "present",
+        [(), ("block",), ("shared-fs",), ("nfs",), ("block", "shared-fs"), ("block", "nfs"), ("shared-fs", "nfs")],
+    )
+    def test_required_storage_types_fail_before_provisioning(
+        self, monkeypatch: pytest.MonkeyPatch, present: tuple[str, ...]
+    ) -> None:
+        """An incomplete K8S23 configuration cannot pass or skip required capabilities."""
+        self._stub_env(monkeypatch)
+        config = {f"{name.replace('-', '_')}_storage_class": f"sc-{name}" for name in present}
+        check = self._make({**config, "require_all_types": True})
+        with patch.object(check, "run_command") as run:
+            try:
+                check.run()
+            except pytest.skip.Exception:
+                pytest.fail("Missing required storage must fail, not skip")
+        run.assert_not_called()
+        assert not check.passed
+        assert "Missing required StorageClass configuration" in check.message
+        outcomes = {result["name"]: result for result in check._subtest_results}
+        for name in {"block", "shared-fs", "nfs"} - set(present):
+            assert name in check.message
+            assert not outcomes[f"sc-exists[{name}]"]["passed"]
+            assert not outcomes[f"sc-exists[{name}]"]["skipped"]
+            assert outcomes[f"pvc-binds[{name}]"]["skipped"]
+
+    @pytest.mark.parametrize("invalid", [None, "true", "false", 1, [], {}])
+    def test_invalid_required_policy_fails_without_work(self, monkeypatch: pytest.MonkeyPatch, invalid: Any) -> None:
+        """Malformed policy values must not silently disable required capabilities."""
+        self._stub_env(monkeypatch)
+        check = self._make({"require_all_types": invalid})
+        with patch.object(check, "run_command") as run:
+            try:
+                check.run()
+            except pytest.skip.Exception:
+                pytest.fail("Invalid policy must fail, not skip")
+        run.assert_not_called()
+        assert not check.passed
+        assert "require_all_types must be a boolean" in check.message
+
+    @pytest.mark.parametrize("required", [False, True])
+    def test_all_configured_storage_classes_pass(self, monkeypatch: pytest.MonkeyPatch, required: bool) -> None:
+        """All three successful PVC probes satisfy either required or optional policy."""
         self._stub_env(monkeypatch)
         check = self._make(
             {
+                "require_all_types": required,
                 "block_storage_class": "gp3",
                 "shared_fs_storage_class": "efs-sc",
                 "nfs_storage_class": "efs-sc",
