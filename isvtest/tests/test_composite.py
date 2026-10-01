@@ -16,6 +16,7 @@
 """Tests for composite checks."""
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -250,6 +251,20 @@ class TestCompositeCheck:
             composite.execute()
 
         assert composite._subtest_results == []
+
+    def test_member_subtests_go_through_the_parent_fixture(self) -> None:
+        """A member's own subtests are emitted once, through the composite's fixture."""
+        composite = CompositeCheck(
+            config=_config(
+                [{"CrudOperationsCheck": {"operations": ["put", "get"]}}],
+                step_output={"success": True, "operations": {"put": {"passed": True}, "get": {"passed": True}}},
+            )
+        )
+        composite._subtests = MagicMock()
+        composite.execute()
+
+        emitted = [c.kwargs["msg"] for c in composite._subtests.test.call_args_list]
+        assert emitted == ["put", "get", "CrudOperationsCheck"]
 
     def test_member_skip_does_not_hide_an_earlier_failure(self) -> None:
         """A skipping member records a skipped subtest; other members' failures still fail the composite."""

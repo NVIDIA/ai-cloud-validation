@@ -61,7 +61,14 @@ from isvtest.validations.network import (
     VpcPeeringCheck,
 )
 from isvtest.validations.nim import NimHealthCheck, NimInferenceCheck, NimModelCheck
-from isvtest.validations.security import VirtualDeviceHardeningCheck, VmConsoleRbacCheck
+from isvtest.validations.observability import TelemetryDeliveryLatencyCheck, VpcFlowLogsCheck
+from isvtest.validations.security import (
+    CentralizedKmsCheck,
+    CertRotationCycleCheck,
+    ShortLivedCredentialsCheck,
+    VirtualDeviceHardeningCheck,
+    VmConsoleRbacCheck,
+)
 
 
 class ConcreteValidation(BaseValidation):
@@ -3278,6 +3285,95 @@ class TestFixedRequiredEntries:
         result = BmTopologyPlacementCheck(config={"step_output": step_output}).execute()
         assert result["passed"] is False
         assert "delete_group: test not found" in result["error"]
+
+    @pytest.mark.parametrize(
+        ("check_class", "step_output", "expected_error"),
+        [
+            (
+                SgPolicyPropagationTimingCheck,
+                {
+                    "tests": {
+                        **{n: {"passed": True} for n in ("create_probe_rule", "rule_observed", "revoke_probe_rule")},
+                        "removal_observed": {"skipped": True},
+                        "cleanup": {"passed": True},
+                    },
+                    "target_rule_id": "sg-1",
+                    "add_observed_seconds": 45,
+                    "remove_observed_seconds": 1,
+                    "max_propagation_seconds": 10,
+                },
+                "add 45.00s exceeds 10.00s",
+            ),
+            (
+                VpcFlowLogsCheck,
+                {
+                    "tests": {
+                        "flow_log_endpoint_reachable": {"passed": True},
+                        "flow_logs_configured": {"passed": True},
+                        "traffic_type_all": {"passed": True, "probes": {"traffic_type": "REJECT"}},
+                        "log_destination_accessible": {"skipped": True},
+                    }
+                },
+                "traffic_type='REJECT'",
+            ),
+            (
+                TelemetryDeliveryLatencyCheck,
+                {
+                    "tests": {
+                        "telemetry_endpoint_reachable": {"passed": True},
+                        "delivery_sample_present": {"passed": True, "probes": {"observed_delivery_seconds": 500}},
+                        "delivery_within_threshold": {"skipped": True},
+                    }
+                },
+                "500s exceeds threshold 120s",
+            ),
+            (
+                CentralizedKmsCheck,
+                {
+                    "tests": {
+                        "kms_service_reachable": {"passed": True},
+                        "kms_keys_present": {"passed": True},
+                        "all_encrypted_resources_use_kms": {"skipped": True},
+                    },
+                    "non_kms_resources": 3,
+                },
+                "3 encrypted resource(s) not using KMS",
+            ),
+            (
+                CertRotationCycleCheck,
+                {
+                    "tests": {
+                        "cert_inventory_non_empty": {"passed": True},
+                        "no_certs_out_of_policy": {"skipped": True},
+                        "rotation_evidence_present": {"passed": True},
+                    },
+                    "out_of_policy": 2,
+                },
+                "2 out-of-policy certificate(s)",
+            ),
+            (
+                ShortLivedCredentialsCheck,
+                {
+                    "tests": {
+                        "node_credential_has_expiry": {"passed": True},
+                        "node_credential_ttl_within_bound": {"skipped": True},
+                        "workload_credential_has_expiry": {"passed": True},
+                        "workload_credential_ttl_within_bound": {"passed": True},
+                    },
+                    "max_ttl_seconds": 3600,
+                    "node_credential_ttl_seconds": 86400,
+                    "workload_credential_ttl_seconds": 900,
+                },
+                "node_credential_ttl_seconds=86400s exceeds max_ttl_seconds=3600s",
+            ),
+        ],
+    )
+    def test_skipped_entry_does_not_hide_a_limit_violation(
+        self, check_class: type[BaseValidation], step_output: dict[str, Any], expected_error: str
+    ) -> None:
+        result = check_class(config={"step_output": step_output}).execute()
+        assert result["passed"] is False
+        assert expected_error in result["error"]
 
     def test_crud_operations_requires_operations_list(self) -> None:
         step_output = {"operations": {"get": {"passed": True}}}

@@ -859,6 +859,32 @@ class SgPolicyPropagationTimingCheck(BaseValidation):
 
     def run(self) -> None:
         """Check policy propagation timing evidence from step output."""
+        step_output = self.config.get("step_output", {})
+        threshold_source = self.config.get(
+            "max_propagation_seconds",
+            step_output.get("max_propagation_seconds", 10),
+        )
+        max_seconds, threshold_error = _coerce_nonnegative_float(threshold_source, "max_propagation_seconds")
+        add_seconds, add_error = _coerce_nonnegative_float(
+            step_output.get("add_observed_seconds"),
+            "add_observed_seconds",
+        )
+        remove_seconds, remove_error = _coerce_nonnegative_float(
+            step_output.get("remove_observed_seconds"),
+            "remove_observed_seconds",
+        )
+
+        # Checked before the required tests so a skipped entry cannot hide a timing violation.
+        slow = []
+        if max_seconds is not None:
+            if add_seconds is not None and add_seconds > max_seconds:
+                slow.append(f"add {add_seconds:.2f}s exceeds {max_seconds:.2f}s")
+            if remove_seconds is not None and remove_seconds > max_seconds:
+                slow.append(f"remove {remove_seconds:.2f}s exceeds {max_seconds:.2f}s")
+        if slow:
+            self.set_failed(f"Security policy propagation timing exceeded: {', '.join(slow)}")
+            return
+
         required_tests = [
             "create_probe_rule",
             "rule_observed",
@@ -869,7 +895,6 @@ class SgPolicyPropagationTimingCheck(BaseValidation):
         if not check_required_tests(self, required_tests, "Security policy propagation tests failed"):
             return
 
-        step_output = self.config.get("step_output", {})
         missing_evidence = [
             key
             for key in ("target_rule_id", "add_observed_seconds", "remove_observed_seconds")
@@ -879,23 +904,10 @@ class SgPolicyPropagationTimingCheck(BaseValidation):
             self.set_failed(f"Missing SDN policy propagation evidence: {', '.join(missing_evidence)}")
             return
 
-        threshold_source = self.config.get(
-            "max_propagation_seconds",
-            step_output.get("max_propagation_seconds", 10),
-        )
-        max_seconds, threshold_error = _coerce_nonnegative_float(threshold_source, "max_propagation_seconds")
         if threshold_error:
             self.set_failed(threshold_error)
             return
 
-        add_seconds, add_error = _coerce_nonnegative_float(
-            step_output.get("add_observed_seconds"),
-            "add_observed_seconds",
-        )
-        remove_seconds, remove_error = _coerce_nonnegative_float(
-            step_output.get("remove_observed_seconds"),
-            "remove_observed_seconds",
-        )
         errors = [error for error in (add_error, remove_error) if error]
         if errors:
             self.set_failed("; ".join(errors))
@@ -904,15 +916,6 @@ class SgPolicyPropagationTimingCheck(BaseValidation):
         assert add_seconds is not None
         assert remove_seconds is not None
         assert max_seconds is not None
-
-        slow = []
-        if add_seconds > max_seconds:
-            slow.append(f"add {add_seconds:.2f}s exceeds {max_seconds:.2f}s")
-        if remove_seconds > max_seconds:
-            slow.append(f"remove {remove_seconds:.2f}s exceeds {max_seconds:.2f}s")
-        if slow:
-            self.set_failed(f"Security policy propagation timing exceeded: {', '.join(slow)}")
-            return
 
         self.set_passed(
             "Security policy propagation within threshold "
@@ -3488,6 +3491,7 @@ class FloatingIpCheck(BaseValidation):
         fail_label = "Floating IP tests failed"
         tests = self.config.get("step_output", {}).get("tests", {})
         switch_time = tests.get("reassociate_to_b", {}).get("switch_seconds")
+        # Checked before the required tests so a skipped entry cannot hide a switch-time violation.
         if switch_time is not None and switch_time > max_seconds:
             self.set_failed(f"{fail_label}: reassociate_to_b: switch took {switch_time}s, limit is {max_seconds}s")
             return
