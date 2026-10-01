@@ -3480,13 +3480,12 @@ class FloatingIpCheck(BaseValidation):
             "verify_not_on_a",
         ]
         fail_label = "Floating IP tests failed"
-        if not check_required_tests(self, required, fail_label):
-            return
-
         tests = self.config.get("step_output", {}).get("tests", {})
         switch_time = tests.get("reassociate_to_b", {}).get("switch_seconds")
         if switch_time is not None and switch_time > max_seconds:
             self.set_failed(f"{fail_label}: reassociate_to_b: switch took {switch_time}s, limit is {max_seconds}s")
+            return
+        if not check_required_tests(self, required, fail_label):
             return
 
         eip = tests.get("allocate_eip", {}).get("public_ip", "N/A")

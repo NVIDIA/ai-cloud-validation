@@ -1342,6 +1342,21 @@ class TestFloatingIpCheck:
         assert result["passed"] is False
         assert "15.0" in result["error"]
 
+    def test_slow_switch_fails_even_when_an_entry_is_skipped(self) -> None:
+        """A skipped entry must not turn a switch-time violation into a skip."""
+        tests = {
+            "allocate_eip": {"passed": True, "public_ip": "54.1.2.3"},
+            "associate_to_a": {"passed": True},
+            "verify_on_a": {"passed": True},
+            "reassociate_to_b": {"passed": True, "switch_seconds": 15.0},
+            "verify_on_b": {"skipped": True, "skip_reason": "n/a"},
+            "verify_not_on_a": {"passed": True},
+        }
+        v = FloatingIpCheck(config={**_sdn_step_output(tests), "max_switch_seconds": 10})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "15.0" in result["error"]
+
     def test_eip_not_removed(self) -> None:
         tests = {
             "allocate_eip": {"passed": True, "public_ip": "54.1.2.3"},
