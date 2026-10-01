@@ -41,11 +41,11 @@ def check_required_tests(
 ) -> bool:
     """Check that step_output[key] contains every required entry with passed=True.
 
-    Sets failed on the validation if the dict is missing or any required entry
-    did not pass. If none failed but a required entry is marked ``skipped``,
-    skips the validation instead of passing it. On success, returns True
-    without setting passed - the caller is expected to call ``set_passed`` with
-    a context-appropriate message.
+    Each required entry is reported as a subtest. Sets failed on the validation
+    if the dict is missing or any required entry did not pass. If none failed
+    but a required entry is marked ``skipped``, skips the validation instead of
+    passing it. On success, returns True without setting passed - the caller is
+    expected to call ``set_passed`` with a context-appropriate message.
     """
     step_output = validation.config.get("step_output", {})
     tests = step_output.get(key, {})
@@ -60,9 +60,13 @@ def check_required_tests(
         if test_result.get("skipped") is True:
             reason = test_result.get("skip_reason") or test_result.get("message") or "skipped"
             skipped.append(f"{test_name}: {reason}")
+            validation.report_subtest(test_name, False, reason, skipped=True)
         elif not test_result.get("passed"):
             error = test_result.get("error", "test not found")
             failed.append(f"{test_name}: {error}")
+            validation.report_subtest(test_name, False, error)
+        else:
+            validation.report_subtest(test_name, True, test_result.get("message", ""))
 
     if failed:
         validation.set_failed(f"{fail_label}: {'; '.join(failed)}")

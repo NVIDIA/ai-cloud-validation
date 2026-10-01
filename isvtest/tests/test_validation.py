@@ -260,6 +260,22 @@ class TestCheckRequiredTests:
         validation = self._validation({"a": {"passed": True}, "extra": {"skipped": True}})
         assert check_required_tests(validation, ["a"], "label") is True
 
+    def test_reports_each_required_entry_as_subtest(self) -> None:
+        validation = self._validation(
+            {
+                "a": {"passed": True, "message": "ok"},
+                "b": {"passed": False, "error": "boom"},
+                "c": {"passed": True, "skipped": True, "skip_reason": "n/a"},
+                "extra": {"passed": True},
+            }
+        )
+        check_required_tests(validation, ["a", "b", "c"], "label")
+        assert [(r["name"], r["passed"], r["skipped"], r["message"]) for r in validation._subtest_results] == [
+            ("a", True, False, "ok"),
+            ("b", False, False, "boom"),
+            ("c", False, True, "n/a"),
+        ]
+
     def test_custom_key(self) -> None:
         validation = ConcreteValidation(config={"step_output": {"operations": {"get": {"skipped": True}}}})
         with pytest.raises(pytest.skip.Exception, match="get: skipped"):
