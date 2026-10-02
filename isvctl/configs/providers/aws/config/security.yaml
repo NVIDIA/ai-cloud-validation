@@ -49,11 +49,11 @@
 #
 # Note: SEC12-* (BMC) tests cannot be fully validated on AWS because the
 # Nitro/hypervisor BMC plane is provider-hidden. The references inspect the
-# customer-visible boundary (tenant CIDRs, route tables, NACLs, SG rules) and
-# pass with a "provider_hidden" marker when no customer-tagged BMC resources
-# are present. Self-managed NCPs running their own BMC fabric should tag
-# resources with bmc/ipmi/redfish/oob/out-of-band to enable strict
-# enforcement.
+# customer-visible boundary (tenant CIDRs, route tables, NACLs, SG rules).
+# SEC12-03 and CNP10-01 emit a "provider_hidden" marker, and therefore skip,
+# when no customer BMC surface exists. Self-managed NCPs running their own
+# BMC fabric should tag resources with bmc/ipmi/redfish/oob/out-of-band to
+# enable strict enforcement.
 
 import:
   - ../../../suites/security.yaml

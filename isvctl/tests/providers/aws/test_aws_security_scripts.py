@@ -468,6 +468,7 @@ def test_bmc_protocol_security_reports_no_customer_bmc_surface() -> None:
         "redfish_accounting_enabled",
     }
     assert all(test["passed"] is True for test in result["tests"].values())
+    assert all(test["provider_hidden"] is True for test in result["tests"].values())
     assert "do not receive customer-accessible IPMI or Redfish" in result["evidence"]
 
 

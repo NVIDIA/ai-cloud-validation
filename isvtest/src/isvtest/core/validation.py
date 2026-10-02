@@ -78,6 +78,33 @@ def check_required_tests(
     return True
 
 
+def skip_if_provider_hidden(validation: BaseValidation, required_keys: list[str], label: str) -> None:
+    """Skip the validation when every required subtest is marked ``provider_hidden``.
+
+    A plane the tenant cannot observe is not evidence that the property holds,
+    so it must not count as a pass. The skip keeps the provider's explanation
+    visible in reports instead.
+    """
+    tests = validation.config.get("step_output", {}).get("tests", {})
+    if not isinstance(tests, dict):
+        return
+
+    required_results = [tests.get(name) for name in required_keys]
+    if not all(isinstance(result, dict) and result.get("provider_hidden") is True for result in required_results):
+        return
+
+    messages = [
+        message.strip()
+        for result in required_results
+        if isinstance(result, dict) and isinstance((message := result.get("message")), str) and message.strip()
+    ]
+    detail = messages[0] if messages else "plane is provider-owned"
+    # Lazy import keeps the core validation module usable outside pytest runs.
+    import pytest
+
+    pytest.skip(f"{label} provider-hidden: {detail}")
+
+
 class BaseValidation(ABC):
     """Base class for all ISV validation tests."""
 

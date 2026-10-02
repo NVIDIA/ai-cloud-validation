@@ -31,8 +31,8 @@ reference exercises the customer-visible side of the contract:
      on SSH (port 22).
 
 When no BMC management network is found in the account (the typical AWS
-case, since BMC is provider-hidden), each subtest passes with a
-``provider_hidden`` marker so the validation is non-spurious. Self-managed
+case, since BMC is provider-hidden), each subtest carries a
+``provider_hidden`` marker and the validation skips. Self-managed
 NCPs running their own BMC fabric should tag their resources with
 ``bmc/ipmi/redfish/oob/out-of-band`` to enable strict enforcement.
 
@@ -346,10 +346,9 @@ def main() -> int:
 
     no_management_resources = not management_sgs and not management_subnets
     if no_management_resources:
-        # Hyperscaler reality: BMC is provider-hidden. Pass each subtest with a
-        # marker so the validation contract is satisfied without false-positive
-        # signal. The contract still fails for self-managed NCPs that tag their
-        # BMC fabric.
+        # Hyperscaler reality: BMC is provider-hidden. The marker makes the
+        # validation skip instead of pass. The contract still fails for
+        # self-managed NCPs that tag their BMC fabric.
         for subtest in (
             "bastion_identifiable",
             "management_ingress_via_bastion_only",

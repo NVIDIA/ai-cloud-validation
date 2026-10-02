@@ -24,7 +24,7 @@ from typing import ClassVar
 
 import pytest
 
-from isvtest.core.validation import BaseValidation, check_required_tests
+from isvtest.core.validation import BaseValidation, check_required_tests, skip_if_provider_hidden
 
 
 class BmcManagementNetworkCheck(BaseValidation):
@@ -163,6 +163,9 @@ class BmcProtocolSecurityCheck(BaseValidation):
         tests: dict with ipmi_disabled, redfish_tls_enabled,
                redfish_plain_http_disabled, redfish_authentication_required,
                redfish_authorization_enforced, redfish_accounting_enabled
+        When the platform exposes no customer BMC surface, all required
+        subtests may report provider_hidden=true; the check then skips
+        rather than passes.
     """
 
     description: ClassVar[str] = "Check BMC protocol security posture"
@@ -179,6 +182,7 @@ class BmcProtocolSecurityCheck(BaseValidation):
         ]
         if not check_required_tests(self, required, "BMC protocol security tests failed"):
             return
+        skip_if_provider_hidden(self, required, "BMC protocol security")
         bmc_count = self.config.get("step_output", {}).get("bmc_endpoints_tested", "N/A")
         self.set_passed(f"BMC protocol security posture verified ({bmc_count} endpoints tested)")
 
@@ -290,10 +294,10 @@ class BmcBastionAccessCheck(BaseValidation):
     no direct route to the public internet.
 
     Hyperscalers that hide the BMC plane from customers (e.g. AWS) cannot
-    fully exercise this check; the AWS reference reports each subtest as
-    passed with a ``provider_hidden`` note when no customer-visible BMC
-    network is present. Self-managed NCPs running their own BMC fabric
-    should report concrete pass/fail per subtest.
+    fully exercise this check; the AWS reference marks each subtest
+    ``provider_hidden`` when no customer-visible BMC network is present, and
+    the check then skips rather than passes. Self-managed NCPs running their
+    own BMC fabric should report concrete pass/fail per subtest.
 
     Config:
         step_output: The step output to check
@@ -315,6 +319,7 @@ class BmcBastionAccessCheck(BaseValidation):
         ]
         if not check_required_tests(self, required, "BMC bastion access tests failed"):
             return
+        skip_if_provider_hidden(self, required, "BMC bastion access")
         endpoints = self.config.get("step_output", {}).get("management_networks_checked", "N/A")
         self.set_passed(f"BMC reachable only via hardened bastion ({endpoints} networks checked)")
 

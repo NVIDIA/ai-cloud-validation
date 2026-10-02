@@ -20,7 +20,8 @@ AWS does not expose customer-accessible IPMI or Redfish BMC endpoints for
 EC2/EKS tenant workloads. The BMC protocol attack surface is owned by the
 AWS managed infrastructure plane rather than the customer VPC or instance
 network. This reference script emits the provider-agnostic CNP10-01 contract
-with evidence explaining that no tenant/customer BMC protocol surface exists.
+with each subtest marked ``provider_hidden`` and evidence explaining that no
+tenant/customer BMC protocol surface exists, so the validation skips.
 
 Usage:
     python bmc_protocol_security_test.py --region us-west-2
@@ -60,26 +61,32 @@ def _aws_no_customer_bmc_result(region: str) -> dict[str, Any]:
         "tests": {
             "ipmi_disabled": {
                 "passed": True,
+                "provider_hidden": True,
                 "message": f"{evidence}; IPMI UDP 623 is not exposed to tenant networks",
             },
             "redfish_tls_enabled": {
                 "passed": True,
+                "provider_hidden": True,
                 "message": f"{evidence}; no customer Redfish endpoint requires TLS validation",
             },
             "redfish_plain_http_disabled": {
                 "passed": True,
+                "provider_hidden": True,
                 "message": f"{evidence}; plain HTTP Redfish is not exposed",
             },
             "redfish_authentication_required": {
                 "passed": True,
+                "provider_hidden": True,
                 "message": f"{evidence}; unauthenticated Redfish access is not available",
             },
             "redfish_authorization_enforced": {
                 "passed": True,
+                "provider_hidden": True,
                 "message": f"{evidence}; customer Redfish role actions are not available",
             },
             "redfish_accounting_enabled": {
                 "passed": True,
+                "provider_hidden": True,
                 "message": f"{evidence}; customer Redfish accounting is not applicable",
             },
         },

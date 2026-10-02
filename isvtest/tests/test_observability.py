@@ -567,16 +567,25 @@ def test_observability_checks_pass_with_required_evidence(
         ),
     ],
 )
-def test_bmc_observability_checks_pass_with_provider_hidden_evidence(
+def test_observability_checks_skip_with_provider_hidden_evidence(
     validation_cls: type[BaseValidation],
     step_output: dict[str, Any],
     expected: str,
 ) -> None:
-    """BMC observability checks accept provider-hidden evidence without endpoint counts."""
-    result = validation_cls(config=_config(step_output)).execute()
+    """Provider-hidden evidence proves nothing, so the check skips instead of passing."""
+    with pytest.raises(pytest.skip.Exception, match=expected):
+        validation_cls(config=_config(step_output)).execute()
 
-    assert result["passed"] is True
-    assert expected in result["output"]
+
+def test_partially_provider_hidden_evidence_still_requires_probes() -> None:
+    """One concrete subtest without probes fails; hidden siblings do not excuse it."""
+    tests = _provider_hidden_tests(["sel_log_endpoint_reachable", "sel_log_source_present"])
+    tests["sel_entries_queryable"] = {"passed": True}
+    step_output = {"success": True, "platform": "observability", "test_name": "bmc_sel_logs", "tests": tests}
+
+    result = BmcSelLogsCheck(config=_config(step_output)).execute()
+
+    assert result["passed"] is False
 
 
 def test_vpc_flow_logs_requires_all_traffic_type() -> None:
