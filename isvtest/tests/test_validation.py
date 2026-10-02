@@ -2859,12 +2859,12 @@ class TestCloudInitCheckMetadataHeaders:
 SAMPLE_APISERVER_METRICS = """\
 # HELP apiserver_request_total Counter of apiserver requests broken out for each verb, dry run value, group, version, resource, scope, component, and HTTP response code.
 # TYPE apiserver_request_total counter
-apiserver_request_total{code="200",component="apiserver",group="",resource="pods",verb="GET"} 1234
-apiserver_request_total{code="201",component="apiserver",group="",resource="pods",verb="POST"} 56
+apiserver_request_total{code="200",component="apiserver",group="",resource="pods",scope="cluster",verb="GET"} 1234
+apiserver_request_total{code="201",component="apiserver",group="",resource="pods",scope="cluster",verb="POST"} 56
 # HELP apiserver_request_duration_seconds Response latency distribution in seconds for each verb, dry run value, group, version, resource, subresource, scope, and component.
 # TYPE apiserver_request_duration_seconds histogram
-apiserver_request_duration_seconds_bucket{component="apiserver",verb="GET",le="0.1"} 500
-apiserver_request_duration_seconds_count{component="apiserver",verb="GET"} 1000
+apiserver_request_duration_seconds_bucket{component="apiserver",resource="pods",scope="cluster",verb="GET",le="0.1"} 500
+apiserver_request_duration_seconds_count{component="apiserver",resource="pods",scope="cluster",verb="GET"} 1000
 # HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
 # TYPE process_cpu_seconds_total counter
 process_cpu_seconds_total 42.5
@@ -2885,6 +2885,18 @@ class TestK8sApiServerMetricsCheck:
         assert result["passed"] is True
         assert "Prometheus format" in result["output"]
 
+    @pytest.mark.parametrize("separator", [" = ", "\t=\t"])
+    def test_label_assignment_whitespace_is_accepted(self, separator: str) -> None:
+        """Whitespace around a Prometheus label assignment must remain valid."""
+        payload = SAMPLE_APISERVER_METRICS.replace('scope="cluster"', f'scope{separator}"cluster"')
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = CommandResult(exit_code=0, stdout=payload, stderr="", duration=0.1)
+        validation = K8sApiServerMetricsCheck(runner=mock_runner, config={})
+
+        result = validation.execute()
+
+        assert result["passed"] is True
+
     def test_missing_expected_metrics(self) -> None:
         """Payload missing the default metrics fails with both names listed."""
         payload = (
@@ -2899,6 +2911,38 @@ class TestK8sApiServerMetricsCheck:
         assert result["passed"] is False
         assert "apiserver_request_total" in result["error"]
         assert "apiserver_request_duration_seconds" in result["error"]
+
+    def test_missing_slo_labels_fails(self) -> None:
+        """API request metrics must expose labels needed for SLO dimensions."""
+        payload = SAMPLE_APISERVER_METRICS.replace(',scope="cluster"', "")
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = CommandResult(exit_code=0, stdout=payload, stderr="", duration=0.1)
+        validation = K8sApiServerMetricsCheck(runner=mock_runner, config={})
+
+        result = validation.execute()
+
+        assert result["passed"] is False
+        assert "Expected SLO labels missing" in result["error"]
+        assert "scope" in result["error"]
+
+    def test_slo_labels_must_be_present_on_one_sample(self) -> None:
+        """Labels split across samples must not satisfy the SLO contract."""
+        payload = SAMPLE_APISERVER_METRICS.replace(
+            'code="200",component="apiserver",group="",resource="pods",scope="cluster",verb="GET"',
+            'code="200",component="apiserver",group="",resource="pods"',
+        ).replace(
+            'code="201",component="apiserver",group="",resource="pods",scope="cluster",verb="POST"',
+            'scope="cluster",verb="POST"',
+        )
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = CommandResult(exit_code=0, stdout=payload, stderr="", duration=0.1)
+        validation = K8sApiServerMetricsCheck(runner=mock_runner, config={})
+
+        result = validation.execute()
+
+        assert result["passed"] is False
+        assert "Expected SLO labels missing" in result["error"]
+        assert "apiserver_request_total" in result["error"]
 
     def test_empty_response(self) -> None:
         """An empty 200 response is reported explicitly."""
