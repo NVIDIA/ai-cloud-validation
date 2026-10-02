@@ -300,6 +300,47 @@ class TestK8sCsiStorageTypesCheck:
             assert outcomes[f"sc-exists[{t}]"]["skipped"]
             assert outcomes[f"pvc-binds[{t}]"]["skipped"]
 
+    def test_required_storage_type_missing_fails_instead_of_skipping(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_env(monkeypatch)
+        check = self._make(
+            {
+                "block_storage_class": "gp3",
+                "required_storage_types": ["block", "shared-fs", "nfs"],
+            }
+        )
+
+        with patch.object(check, "run_command") as mock_run:
+            check.run()
+
+        mock_run.assert_not_called()
+        assert not check.passed
+        outcomes = {r["name"]: r for r in check._subtest_results}
+        for type_name in ("shared-fs", "nfs"):
+            assert not outcomes[f"sc-exists[{type_name}]"]["passed"]
+            assert not outcomes[f"sc-exists[{type_name}]"]["skipped"]
+            assert outcomes[f"pvc-binds[{type_name}]"]["skipped"]
+
+    def test_unknown_required_storage_type_fails_without_cluster_access(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_env(monkeypatch)
+        check = self._make({"required_storage_types": ["object-store"]})
+
+        with patch.object(check, "run_command") as mock_run:
+            check.run()
+
+        mock_run.assert_not_called()
+        assert not check.passed
+        assert "Unknown required_storage_types" in check._error
+
+    def test_null_required_storage_types_uses_optional_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub_env(monkeypatch)
+        check = self._make({"required_storage_types": None})
+
+        with patch.object(check, "run_command") as mock_run:
+            check.run()
+
+        assert check.passed
+        mock_run.assert_not_called()
+
     def test_missing_storageclass_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._stub_env(monkeypatch)
         check = self._make({"block_storage_class": "nope", "bind_timeout_s": 5, "namespace_prefix": "ut"})
