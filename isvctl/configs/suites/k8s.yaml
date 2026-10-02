@@ -299,6 +299,12 @@ tests:
           namespace_prefix: "isvtest-crd-webhook"
           wait_timeout: 180
           poll_interval: 2
+        K8sDraCheck:
+          test_id: "K8S24-01"
+          labels: ["kubernetes", "gpu", "min_req"]
+          device_class: "gpu.nvidia.com"
+          image: "ubuntu:22.04"
+          wait_timeout: 300
 
     k8s_identity:
       checks:

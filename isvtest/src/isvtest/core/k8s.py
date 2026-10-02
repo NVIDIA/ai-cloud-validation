@@ -333,6 +333,16 @@ def kubectl_items_or_fail(
         return None
 
 
+def kubectl_list_or_fail(
+    validation: "BaseValidation",
+    resource: str,
+    *args: str,
+) -> list[dict[str, Any]] | None:
+    """Return one ``kubectl get <resource> -o json`` listing, or None after failing the validation."""
+    result = validation.run_command(get_kubectl_base_shell("get", resource, *args, "-o", "json"))
+    return kubectl_items_or_fail(validation, result, resource)
+
+
 def kubectl_payload_or_none(
     result: KubectlJsonResult,
 ) -> dict[str, Any] | None:
