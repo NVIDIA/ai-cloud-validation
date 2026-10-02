@@ -51,6 +51,8 @@ def run_command_process(
     Raises:
         subprocess.TimeoutExpired: The command exceeded ``timeout``. Captured
             stdout and stderr are attached after the process tree is stopped.
+        KeyboardInterrupt: The orchestrator was interrupted. The interrupt is
+            forwarded to the process tree, which is stopped before re-raising.
         OSError: The command could not be started.
     """
     command = list(args)
@@ -79,8 +81,29 @@ def run_command_process(
             _kill_process_tree(process)
 
         raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr) from None
+    except KeyboardInterrupt:
+        # The new session does not receive the terminal's Ctrl-C, so forward it.
+        _interrupt_process_tree(process)
+        try:
+            process.communicate(timeout=_TERMINATION_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        _kill_process_tree(process)
+        process.wait()
+        raise
 
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _interrupt_process_tree(process: subprocess.Popen[str]) -> None:
+    """Forward an interactive interrupt to a process group or direct process."""
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGINT)
+        else:
+            process.send_signal(signal.SIGINT)
+    except ProcessLookupError:
+        pass
 
 
 def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
