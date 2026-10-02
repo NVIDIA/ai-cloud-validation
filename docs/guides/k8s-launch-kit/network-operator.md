@@ -153,23 +153,37 @@ replace the connectivity test result.
 
 ## Results and errors
 
-`LaunchKitConnectivityCheck` finds the `connectivity.PingResults` array in the
-unmodified JSON stream. Each emitted row becomes a named subtest:
+`LaunchKitConnectivityCheck` imports Launch Kit's native JUnit cases using the
+same `report_subtest` mechanism as Kubernetes conformance tests. Use a Launch
+Kit binary supporting `validate --junit-path` (NVIDIA/k8s-launch-kit#288).
+Names, durations, failures, native disabled-check skips, and diagnostic evidence
+are preserved. A failed command or a report with no executed connectivity cases
+fails the owning validation.
 
-```text
-<family>/<source-node>-><destination-node>/<source-rail>-><destination-rail>
+The adapter keeps the raw report and creates a second report with four skipped
+suites for the opposing fabric. For an Ethernet cluster, an example suite is:
+
+```xml
+<testsuite name="K8sEastWestNetworkRDMAPing-infiniband"
+           tests="1" failures="0" errors="0" skipped="1" time="0.000">
+  <testcase name="K8sEastWestNetworkRDMAPing-infiniband"
+            classname="network.connectivity" time="0.000">
+    <skipped type="fabric_not_configured"
+             message="Cluster fabric is not configured for this fabric type: infiniband" />
+  </testcase>
+</testsuite>
 ```
 
-Failure messages preserve Launch Kit's expectation, observed result, bandwidth
-and minimum when present, endpoint GPU information when present, stderr, and
-structured error text. Explicit future `Family` values are forwarded without
-requiring an AI Cloud Validation catalog update. Older numeric `Kind` values
-remain supported as a compatibility fallback.
+The other three families receive equivalent entries. InfiniBand clusters get
+Ethernet skips. Fabric comes from the native suite names; user configuration
+is not parsed by the adapter. Reports with no fabric suites (for example, an
+early setup failure) retain their native errors without guessing a fabric.
 
-The check fails when any emitted row has `OK != true`, when no connectivity
-matrix is present, or when the matrix contains no results. A command that fails
-before producing connectivity output retains its provider error in the
-validation and JUnit output.
+The standard `isvctl --junitxml` output (default `_output/junit-validation.xml`)
+contains these cases as `LaunchKitConnectivityCheck::<native-case-name>` under
+the phase suite, like other composite validations. Existing phase merging,
+remote report download, and `isvreporter` upload therefore include the skips.
+The native report retains its family suites and aggregate metadata separately.
 
 The sosreport finalizer runs after this assertion. If sosreport itself fails,
 the connectivity result remains intact and the overall orchestration reports
@@ -184,6 +198,8 @@ _output/k8s-launch-kit/network-operator/
   work/
   evidence/
     k8s-launch-kit-validation-report.html
+    launch-kit-junit.raw.xml
+    launch-kit-junit.xml
     commands/validate/
       command.json
       stdout.txt
@@ -207,6 +223,13 @@ written by Launch Kit, normally below the supplied deployment directory. A
 report emitted for a failed connectivity matrix is copied in the same way. If
 Launch Kit advertises a report that cannot be read, the provider returns an
 evidence-retention error instead of silently reusing an older report.
+
+The raw and completed JUnit paths are registered as `validation_junit_raw` and
+`validation_junit` artifacts. Stale files are removed before each validation;
+a missing or malformed report is an evidence error even when the process exits
+successfully. Reports emitted by failing runs are retained and imported too.
+The main merged JUnit file is uploaded through the existing reporting service;
+the separate native XML and HTML files remain local evidence artifacts.
 
 The sosreport command currently streams human-readable output even when the
 global `--output` flag is available. The adapter therefore preserves that

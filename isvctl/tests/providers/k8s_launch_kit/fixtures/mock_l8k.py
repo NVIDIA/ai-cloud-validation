@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ _VALUE_FLAGS: dict[str, set[str]] = {
         "--output",
     },
     "validate": {
+        "--junit-path",
         "--kubeconfig",
         "--user-config",
         "--deployment-files",
@@ -639,6 +641,38 @@ def _run_validate(flags: dict[str, str]) -> int:
     report.parent.mkdir(parents=True, exist_ok=True)
     verdict = "FAILED" if connectivity["Summary"]["Failed"] else "PASSED"
     report.write_text(f"<!doctype html><html><body><h1>VALIDATION {verdict}</h1></body></html>\n", encoding="utf-8")
+    if junit_path := flags.get("--junit-path"):
+        root = ET.Element("testsuites", name="l8k validation tests")
+        families = {
+            "icmp": "ICMPPing",
+            "rping": "RDMAPing",
+            "ib_write_bw": "IBWriteBandwidth",
+            "gpudirect_dmabuf": "DMABufBandwidth",
+        }
+        for family, suffix in families.items():
+            name = f"K8sEastWestNetwork{suffix}-{scenario['fabric']}"
+            rows = [row for row in connectivity["PingResults"] if row["Family"] == family]
+            suite = ET.SubElement(
+                root,
+                "testsuite",
+                name=name,
+                tests=str(len(rows) or 1),
+                failures=str(sum(not row["OK"] for row in rows)),
+                errors="0",
+                skipped="0" if rows else "1",
+                time="0.018",
+            )
+            if not rows:
+                case = ET.SubElement(suite, "testcase", name=name, classname="network.connectivity", time="0.000")
+                ET.SubElement(case, "skipped", message="Check is not enabled")
+            for index, row in enumerate(rows):
+                case = ET.SubElement(
+                    suite, "testcase", name=f"{name}::probe-{index}", classname="network.connectivity", time="0.000"
+                )
+                ET.SubElement(case, "system-out").text = json.dumps(row)
+                if not row["OK"]:
+                    ET.SubElement(case, "failure", message=row["Error"]).text = row["Stderr"]
+        ET.ElementTree(root).write(junit_path, encoding="utf-8", xml_declaration=True)
     _emit(static)
     _emit({"connectivity": connectivity})
     _emit({"reportPath": str(report)})

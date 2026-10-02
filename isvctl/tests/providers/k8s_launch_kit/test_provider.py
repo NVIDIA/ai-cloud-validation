@@ -480,7 +480,8 @@ def test_provider_runs_the_real_launch_kit_workflow_shape(tmp_path: Path) -> Non
         assert output["operation"] == command
         assert output["working_directory"] == str(working_dir.resolve())
         command_index = output["argv"].index(command)
-        assert output["argv"][command_index + 1 :] == [*arguments, "--output", "json"]
+        junit_args = ["--junit-path", str(artifact_dir / "launch-kit-junit.raw.xml")] if command == "validate" else []
+        assert output["argv"][command_index + 1 :] == [*arguments, *junit_args, "--output", "json"]
         assert validate_output(output, "k8s_launch_kit") == (True, [])
         assert all(Path(path).is_file() for path in output["artifacts"].values())
         outputs[command] = output
@@ -893,7 +894,7 @@ def test_network_operator_provider_runs_validate_then_sosreport(tmp_path: Path) 
     assert validation.state is State.PASSED
     assert validation.subtest_summary.passed == 32
     assert validation.subtest_summary.failed == 0
-    assert validation.subtest_summary.skipped == 0
+    assert validation.subtest_summary.skipped == 4
 
     argv = result.inventory["launch_kit_validate"]["argv"]
     assert argv[1] == "validate"
@@ -1133,3 +1134,109 @@ def test_missing_advertised_validation_report_is_an_evidence_error(tmp_path: Pat
     assert str(missing_report) in output["error"]
     assert "validation_report" not in output["artifacts"]
     assert not retained_report.exists()
+
+
+@pytest.mark.parametrize("fabric,opposing", [("ethernet", "infiniband"), ("infiniband", "ethernet")])
+def test_junit_completes_opposing_fabric(tmp_path: Path, fabric: str, opposing: str) -> None:
+    """Completion retains native cases and supplies one skip per opposing family."""
+    adapter = _load_provider_module()
+    raw = tmp_path / "raw.xml"
+    completed = tmp_path / "completed.xml"
+    root = ET.Element("testsuites", tests="1", failures="0", errors="0", skipped="0")
+    suite = ET.SubElement(root, "testsuite", name=f"K8sEastWestNetworkRDMAPing-{fabric}", tests="1")
+    ET.SubElement(suite, "testcase", name="native-probe")
+    ET.ElementTree(root).write(raw)
+    adapter._complete_validation_junit(raw, completed)
+    result = ET.parse(completed).getroot()
+    assert result.get("tests") == "5"
+    assert result.get("skipped") == "4"
+    skips = result.findall(".//skipped")
+    assert len(skips) == 4
+    assert all(
+        skip.get("message") == f"Cluster fabric is not configured for this fabric type: {opposing}" for skip in skips
+    )
+    assert len(list(ET.parse(raw).getroot().iter("testcase"))) == 1
+    # Completion is idempotent and never invents skipped cases for an already present fabric.
+    adapter._complete_validation_junit(completed, completed)
+    assert len(ET.parse(completed).getroot().findall(".//skipped")) == 4
+
+
+def test_opposing_fabric_skips_reach_standard_junit(tmp_path: Path) -> None:
+    """The report uploaded by isvctl contains native cases and opposing-fabric skips."""
+    config = _mocked_network_operator_config(tmp_path)
+    junit = tmp_path / "junit-validation.xml"
+    result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
+        phases=[Phase.TEST],
+        capability="kubernetes",
+        junitxml=str(junit),
+    )
+    assert result.success
+    cases = list(ET.parse(junit).getroot().iter("testcase"))
+    opposing = [case for case in cases if "-infiniband" in case.get("name", "")]
+    assert len(opposing) == 4
+    assert all(case.find("skipped") is not None for case in opposing)
+    assert all("Cluster fabric is not configured" in case.find("skipped").get("message", "") for case in opposing)
+    artifacts = result.inventory["launch_kit_validate"]["artifacts"]
+    assert Path(artifacts["validation_junit_raw"]).is_file()
+    assert len(ET.parse(artifacts["validation_junit"]).getroot().findall("testsuite")) == 8
+
+
+@pytest.mark.parametrize("contents", ["", "<broken", "<not-junit/>"])
+def test_invalid_native_junit_is_not_replaced_with_skips(tmp_path: Path, contents: str) -> None:
+    adapter = _load_provider_module()
+    raw = tmp_path / "raw.xml"
+    completed = tmp_path / "completed.xml"
+    raw.write_text(contents)
+    with pytest.raises((ValueError, ET.ParseError)):
+        adapter._complete_validation_junit(raw, completed)
+    assert not completed.exists()
+
+
+def test_validate_cannot_reuse_stale_junit(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "evidence"
+    artifact_dir.mkdir()
+    for name in ("launch-kit-junit.raw.xml", "launch-kit-junit.xml"):
+        (artifact_dir / name).write_text("<testsuites/>")
+    executable = tmp_path / "l8k"
+    executable.write_text("#!/bin/sh\nprintf '{}\\n'\n")
+    executable.chmod(0o755)
+    completed, output = _run_provider(
+        "run",
+        "--executable",
+        str(executable),
+        "--command",
+        "validate",
+        "--arguments-json",
+        "[]",
+        "--working-dir",
+        str(tmp_path / "work"),
+        "--artifact-dir",
+        str(artifact_dir),
+    )
+    assert completed.returncode == 1
+    assert not output["success"]
+    assert "--junit-path" in output["error"]
+    assert "validation_junit" not in output["artifacts"]
+    assert not (artifact_dir / "launch-kit-junit.xml").exists()
+
+
+@pytest.mark.parametrize("arguments", [["--junit-path", "other.xml"], ["--junit-path=other.xml"]])
+def test_junit_output_path_is_provider_owned(tmp_path: Path, arguments: list[str]) -> None:
+    completed, output = _run_workflow(
+        "validate", arguments, working_dir=tmp_path / "work", artifact_dir=tmp_path / "evidence"
+    )
+    assert completed.returncode == 1
+    assert "--junit-path is managed" in output["error"]
+
+
+def test_early_error_without_fabric_is_not_guessed(tmp_path: Path) -> None:
+    adapter = _load_provider_module()
+    raw = tmp_path / "raw.xml"
+    raw.write_text(
+        '<testsuites><testsuite name="network/validation"><testcase name="ValidationExecution"><error message="setup failed"/></testcase></testsuite></testsuites>'
+    )
+    completed = tmp_path / "completed.xml"
+    adapter._complete_validation_junit(raw, completed)
+    result = ET.parse(completed).getroot()
+    assert result.find(".//error").get("message") == "setup failed"
+    assert not result.findall(".//skipped")
