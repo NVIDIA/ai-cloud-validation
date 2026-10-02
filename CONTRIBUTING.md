@@ -52,6 +52,7 @@ When reporting issues:
 - Browse [`good first issue`](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) for beginner-friendly tasks, or [`help wanted`](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) for slightly larger ones.
 - **Claiming an issue:** comment on it to let others know you're taking it, so effort isn't duplicated.
 - Not sure where to start? Adding a provider stub via the [my-isv scaffold](isvctl/configs/providers/my-isv/scripts/README.md) with `make demo-test` is a self-contained first contribution that needs no real cloud hardware.
+- Maintaining a provider in your own repository? Register it in the [Provider Registry](docs/guides/provider-registry.md) instead of contributing its code here.
 
 ## About This Codebase
 

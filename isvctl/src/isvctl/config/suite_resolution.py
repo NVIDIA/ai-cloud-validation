@@ -18,6 +18,68 @@ from isvctl.config.merger import merge_yaml_files
 # sources it from the config layer that consumes it.
 CONFIGS_ROOT = Path(__file__).resolve().parents[3] / "configs"
 
+# Registered external providers are fetched here (git-ignored), next to the
+# in-tree ``providers/``, so ``--provider <name>`` resolves both the same way.
+EXTERNAL_PROVIDERS_DIRNAME = "providers-external"
+
+# Written inside .git/ so it never shows in `git status`. Only checkouts carrying it
+# may be replaced or removed: anything else in providers-external/ is someone's work,
+# such as a scaffold under development. It also records where the provider lives
+# inside the checkout, for repositories that hold several providers.
+FETCH_MARKER = "isvctl-fetched"
+_MARKER_PATH_PREFIX = "path: "
+
+
+def is_fetched_checkout(path: Path) -> bool:
+    """Return True if ``path`` was created by ``isvctl provider fetch``."""
+    return (path / ".git" / FETCH_MARKER).is_file()
+
+
+def mark_fetched(path: Path, provider_path: str | None) -> None:
+    """Record that ``path`` was created by ``isvctl provider fetch``, with the provider at ``provider_path`` in it."""
+    lines = ["created by isvctl provider fetch"]
+    if provider_path:
+        lines.append(f"{_MARKER_PATH_PREFIX}{provider_path}")
+    (path / ".git" / FETCH_MARKER).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _fetched_provider_path(checkout: Path) -> str | None:
+    """Return the provider's directory inside a fetched checkout, or None if it is the checkout itself."""
+    for line in (checkout / ".git" / FETCH_MARKER).read_text(encoding="utf-8").splitlines():
+        if line.startswith(_MARKER_PATH_PREFIX):
+            return line.removeprefix(_MARKER_PATH_PREFIX)
+    return None
+
+
+def in_tree_provider_dir(provider: str, configs_root: Path) -> Path:
+    """Return where an in-tree provider lives; the path may not exist."""
+    return configs_root / "providers" / provider
+
+
+def external_provider_dir(provider: str, configs_root: Path) -> Path:
+    """Return where ``isvctl provider fetch`` and ``isvctl provider scaffold`` put a provider; the path may not exist.
+
+    For a fetched provider this is the repository checkout, which may hold the
+    provider in a subdirectory (see ``provider_dir``).
+    """
+    return configs_root / EXTERNAL_PROVIDERS_DIRNAME / provider
+
+
+def provider_dir(provider: str, configs_root: Path) -> Path:
+    """Return a provider's directory: in-tree under ``providers/``, else fetched under ``providers-external/``.
+
+    The provider registry rejects names that clash with an in-tree provider, so
+    at most one of the two exists. A fetched provider may live in a
+    subdirectory of its checkout. The returned path may not exist.
+    """
+    in_tree = in_tree_provider_dir(provider, configs_root)
+    if in_tree.is_dir():
+        return in_tree
+    external = external_provider_dir(provider, configs_root)
+    if is_fetched_checkout(external) and (provider_path := _fetched_provider_path(external)):
+        return external / provider_path
+    return external
+
 
 class SuiteResolutionError(Exception):
     """Raised when a suite selection cannot be resolved unambiguously."""
@@ -152,7 +214,7 @@ def resolve_suite(provider: str | None, suite: str, *, configs_root: Path) -> Re
         config_dir = configs_root / "suites"
         source = "Canonical suite catalog"
     else:
-        config_dir = configs_root / "providers" / provider / "config"
+        config_dir = provider_dir(provider, configs_root) / "config"
         source = f"Provider {provider!r}"
         if not config_dir.is_dir():
             raise SuiteResolutionError(f"Provider {provider!r} has no config directory at {config_dir}.")

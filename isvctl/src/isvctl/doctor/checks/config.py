@@ -19,6 +19,7 @@ from pathlib import Path
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
+from isvctl.config.suite_resolution import provider_dir
 from isvctl.doctor.result import CategoryReport, CheckResult, Status
 
 
@@ -72,10 +73,9 @@ def _check_repo_layout(root: Path) -> list[CheckResult]:
 def _check_provider_arg(root: Path, providers: list[str]) -> list[CheckResult]:
     """Validate every --provider value against the on-disk provider directories."""
     results: list[CheckResult] = []
-    base = root / "isvctl" / "configs" / "providers"
+    configs_root = root / "isvctl" / "configs"
     for prov in providers:
-        prov_dir = base / prov
-        scripts_dir = prov_dir / "scripts"
+        scripts_dir = provider_dir(prov, configs_root) / "scripts"
         if scripts_dir.is_dir():
             results.append(
                 CheckResult(
@@ -91,7 +91,10 @@ def _check_provider_arg(root: Path, providers: list[str]) -> list[CheckResult]:
                     name=f"--provider {prov}",
                     status=Status.FAIL,
                     message="provider scripts directory not found",
-                    remediation=f"expected path: {scripts_dir}",
+                    remediation=(
+                        f"expected path: {configs_root / 'providers' / prov / 'scripts'}, "
+                        f"or run `isvctl provider fetch {prov}` if it is a registered external provider"
+                    ),
                 )
             )
     return results

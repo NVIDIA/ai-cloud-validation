@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NVIDIA/ai-cloud-validation/schemas/provider-registry.schema.json",
+  "title": "Provider Registry Entry",
+  "description": "One externally maintained provider, stored as isvctl/configs/providers-registry/<name>.yaml. The provider's config/ and scripts/ live in the partner's own repository, at its root or under `path`; one repository can hold several providers, each with its own entry. This entry pins the exact commit that was validated. The loader additionally checks that `name` equals the filename stem and that every entry in `suites` exists under isvctl/configs/suites/.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "name",
+    "vendor",
+    "description",
+    "repo_url",
+    "commit",
+    "tested_with",
+    "suites",
+    "maintainers",
+    "documentation_url",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "description": "Registry entry schema version, bumped only on a breaking change to the entry format.",
+      "type": "integer",
+      "enum": [1]
+    },
+    "name": {
+      "description": "Registry name, used by `isvctl provider fetch <name>`. Must equal the filename stem.",
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "vendor": {
+      "description": "Legal entity that maintains the provider.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "description": "One-sentence summary of the provider.",
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_url": {
+      "description": "HTTPS clone URL of the partner repository holding the provider's config/ and scripts/.",
+      "type": "string",
+      "pattern": "^https://\\S+$"
+    },
+    "path": {
+      "description": "Directory inside the repository that holds the provider's config/ and scripts/, for a repository with several providers (e.g. `acme-gpu`). Omit it when they are at the repository root. Relative, without `.` or `..` segments.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$"
+    },
+    "commit": {
+      "description": "Full 40-character commit SHA that was validated; `isvctl provider fetch` checks out exactly this commit.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "tested_with": {
+      "description": "isvctl release (X.Y.Z or X.Y.Z-rcN, without a leading v) this commit was validated against.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-rc[0-9]+)?$"
+    },
+    "suites": {
+      "description": "Suite names (isvctl/configs/suites/<suite>.yaml) the provider implements.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9_-]+$" }
+    },
+    "maintainers": {
+      "description": "Partner contacts. GitHub handles are the ones added to CODEOWNERS for this entry.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Maintainer" }
+    },
+    "documentation_url": {
+      "description": "HTTPS URL of instructions that let a user with appropriate access reproduce the validation results.",
+      "type": "string",
+      "pattern": "^https://\\S+$"
+    },
+    "status": {
+      "description": "supported: maintained by its maintainers, and `commit` passed the declared suites against `tested_with` (support comes from the maintainers, not NVIDIA). deprecated: no longer maintained or validated; hidden from `isvctl provider list` unless --all. demo: scripts only return dummy results, like the living example; `isvctl test run --provider <name>` sets ISVCTL_DEMO_MODE=1 itself, and results are never uploaded.",
+      "type": "string",
+      "enum": ["supported", "deprecated", "demo"]
+    }
+  },
+  "$defs": {
+    "Maintainer": {
+      "type": "object",
+      "required": ["github"],
+      "additionalProperties": false,
+      "properties": {
+        "github": {
+          "description": "GitHub handle, without the leading @.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$"
+        },
+        "email": {
+          "type": "string",
+          "pattern": "^[^@\\s]+@[^@\\s]+$"
+        }
+      }
+    }
+  }
+}
