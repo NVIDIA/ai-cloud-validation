@@ -35,7 +35,6 @@ from isvctl.orchestrator.loop import (
     Orchestrator,
     Phase,
     _apply_capability_step_gates,
-    _apply_selected_validation_gates,
     _entries_missing_from_junit,
     _merge_junit_xmls,
     _write_terminal_junit_xml,
@@ -78,58 +77,6 @@ def test_explicit_step_requires_gate_unbound_lifecycle_steps() -> None:
 
     assert all(step.skip for step in vm_steps)
     assert all(not step.skip for step in kubernetes_steps)
-
-
-def test_selected_validation_gate_prunes_unselected_lifecycle_steps() -> None:
-    """Label selection prevents commands owned by another test group from running."""
-    steps = [
-        StepConfig(
-            name="run_ethernet",
-            command="ethernet",
-            phase="test",
-            requires_selected_validations=["EthernetCheck"],
-        ),
-        StepConfig(
-            name="run_infiniband",
-            command="infiniband",
-            phase="test",
-            requires_selected_validations=["InfiniBandCheck"],
-        ),
-    ]
-    entries = [
-        ValidationEntry(
-            name="EthernetCheck",
-            category="network",
-            params_template={},
-            labels=("ethernet",),
-        ),
-        ValidationEntry(
-            name="InfiniBandCheck",
-            category="network",
-            params_template={},
-            labels=("infiniband",),
-        ),
-    ]
-
-    all_steps = _apply_selected_validation_gates(
-        steps,
-        entries,
-        include_labels=set(),
-        exclude_labels=set(),
-        exclude_tests=set(),
-        capability=None,
-    )
-    ethernet_steps = _apply_selected_validation_gates(
-        steps,
-        entries,
-        include_labels={"ethernet"},
-        exclude_labels=set(),
-        exclude_tests=set(),
-        capability=None,
-    )
-
-    assert all(not step.skip for step in all_steps)
-    assert [step.skip for step in ethernet_steps] == [False, True]
 
 
 def test_python_script_path_falls_back_to_current_working_directory(
@@ -943,74 +890,6 @@ EOF
                 "subtest_summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
             }
         ]
-
-    def test_failed_owned_step_is_reported_as_validation_error(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """An early workflow failure cannot become a harmless missing-output skip."""
-        failing_step = _write_script(
-            tmp_path,
-            "deploy.sh",
-            "#!/bin/sh\necho 'driver image not found' >&2\nexit 4\n",
-        )
-        junit_path = tmp_path / "junit.xml"
-        config = RunConfig(
-            commands={
-                "kubernetes": PlatformCommands(
-                    phases=["use-case"],
-                    steps=[
-                        StepConfig(
-                            name="deploy_fixture",
-                            command=failing_step,
-                            phase="use-case",
-                            requires_selected_validations=["ProbeSucceededCheck"],
-                        ),
-                        StepConfig(
-                            name="validate_fixture",
-                            command="true",
-                            phase="use-case",
-                            requires_selected_validations=["ProbeSucceededCheck"],
-                        ),
-                    ],
-                )
-            },
-            tests=ValidationConfig(
-                capability="kubernetes",
-                validations={
-                    "probe_checks": {
-                        "step": "validate_fixture",
-                        "checks": {"ProbeSucceededCheck": {"compose": ["StepSuccessCheck"]}},
-                    },
-                },
-            ),
-        )
-
-        result = Orchestrator(config).run(
-            phases=[Phase.TEST],
-            capability="kubernetes",
-            junitxml=str(junit_path),
-        )
-
-        assert result.success is False
-        validation = result.validations[0]
-        assert validation.state is State.ERROR
-        assert validation.error_reason is ErrorReason.STEP_FAILED
-        assert validation.message == (
-            "workflow step 'deploy_fixture' failed: Command exited with code 4: driver image not found"
-        )
-
-        suite = ET.parse(junit_path).getroot().find("testsuite")
-        assert suite is not None
-        assert suite.get("errors") == "1"
-        assert suite.get("skipped") == "0"
-        case = suite.find("testcase")
-        assert case is not None
-        assert case.get("name") == "ProbeSucceededCheck"
-        error = case.find("error")
-        assert error is not None
-        assert error.get("type") == ErrorReason.STEP_FAILED.value
-        assert case.find("skipped") is None
 
     def test_validation_template_error_is_reported_as_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

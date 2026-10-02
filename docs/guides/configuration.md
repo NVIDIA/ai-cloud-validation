@@ -243,7 +243,6 @@ Each step defines a command to execute:
 | `finalizer_for` | No | Run as linked teardown after the named step's phase when that command was attempted |
 | `output_schema` | No | Schema name for output validation |
 | `requires` | No | Capability contexts this step runs in (see [Capabilities](#capabilities-and-requires)) |
-| `requires_selected_validations` | No | Configured validation names that must remain selected after capability, label, and suite-exclusion filtering; failed steps become errors on these owning validations |
 
 The timeout is an orchestration watchdog, not a provider-specific setting. Set
 it to `null` only when the invoked tool owns a bounded deadline; isvctl will
@@ -279,8 +278,8 @@ commands:
 
 The finalizer target must resolve to one unique step, precede the configured
 `teardown` phase, and cannot itself be a finalizer. The finalizer must use the
-same capability and validation-selection gates as its target. Configuration
-validation rejects violations of these rules.
+same capability gate (`requires`) as its target. Configuration validation
+rejects violations of these rules.
 
 The orchestrator withholds linked teardown from normal phase execution, runs
 the target phase validations, and then executes the eligible cleanup in
@@ -334,49 +333,6 @@ need, give it an explicit `requires:`** — and give both halves of the fixture 
 same one, so setup and teardown always move together. A step that survives the
 gate must not reference a gated-off step's output; use `default(...)` if it
 legitimately might be absent.
-
-#### Gating Mutating Steps by Test Selection
-
-Use `requires_selected_validations` when a lifecycle step exists only to serve
-specific validation entries. This applies selection before the command runs,
-so `--label` and `--exclude-label` do not execute an unrelated deployment and
-then discard its result:
-
-```yaml
-commands:
-  network:
-    steps:
-      - name: deploy_ethernet_fixture
-        phase: ethernet
-        command: ./deploy-ethernet.sh
-        requires_selected_validations: [EthernetConnectivityCheck]
-
-tests:
-  validations:
-    network:
-      checks:
-        EthernetConnectivityCheck:
-          step: deploy_ethernet_fixture
-          labels: [ethernet]
-```
-
-With no label filter, the validation is selected and the step runs. With
-`--label ethernet`, it also runs; with `--label infiniband`, the step is
-skipped before execution. Every listed validation must be configured and
-selected. The gate also honors capability requirements, `tests.exclude.tests`,
-and effective label exclusions.
-
-The same list is the reporting ownership edge for the lifecycle step. If a
-selected step fails before its validation can run, each listed validation is
-reported as `error` with reason `step_failed`, including in JUnit. This prevents
-an early deploy or setup failure from being misreported as a harmless
-`step_no_output` skip merely because a later validation step was never reached.
-The error message names the failed step and retains its redacted command
-diagnostic.
-
-Pytest `-k` and `-m` expressions are evaluated inside pytest and therefore do
-not drive `requires_selected_validations`. Use framework `--label` filtering
-for lifecycle pruning in mutating suites.
 
 Selection-filtered validations remain in the structured result and JUnit
 report. With the default `tests.settings.show_skipped_tests: false`, terminal

@@ -148,12 +148,6 @@ failure blocks later non-teardown phases. See
 [Linked teardown finalizers](../guides/configuration.md#linked-teardown-finalizers)
 for activation, ordering, and process-failure limitations.
 
-Steps gated with `requires_selected_validations` also declare which validation
-owns their lifecycle result. If one of those steps fails, the named validation
-is emitted as a `step_failed` error in structured results and JUnit even when a
-later validation-producing step never runs. See
-[Gating mutating steps by test selection](../guides/configuration.md#gating-mutating-steps-by-test-selection).
-
 ### Unified Config Structure
 
 ```yaml

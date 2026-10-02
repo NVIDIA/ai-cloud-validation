@@ -49,7 +49,6 @@ commands:
         timeout: null
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
 
       # A linked same-phase finalizer runs after the connectivity assertion even
       # when validate exits nonzero. It is not a separate catalog test.
@@ -73,5 +72,4 @@ commands:
         timeout: 1800
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
         finalizer_for: launch_kit_validate

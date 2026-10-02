@@ -105,9 +105,7 @@ Semantic assertions belong in
   Kit flags, schema, or defaults, and never parse the user config (infer fabric
   from native JUnit suite names).
 - Missing or malformed JUnit, no executed connectivity cases, or a failed
-  command must fail, never pass vacuously. The validate step declares
-  `requires_selected_validations` so command failures are reported on the
-  owning catalog validation.
+  command must fail, never pass vacuously.
 - Do not invent results or reinterpret Launch Kit's verdict.
 - `l8k clean` is the only supported deletion path; never reproduce Launch Kit
   cleanup with kubectl.

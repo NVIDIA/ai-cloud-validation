@@ -40,14 +40,13 @@ from isvtest.core.resolution import (
     parse_validations,
     requirements_satisfied,
     resolve_entries,
-    resolve_entry_selection,
 )
 from isvtest.main import run_validations_via_pytest
 
 from isvctl.config.schema import RunConfig, StepConfig
 from isvctl.orchestrator.commands import CommandExecutor
 from isvctl.orchestrator.context import Context
-from isvctl.orchestrator.step_executor import StepExecutor, StepResult, StepResults
+from isvctl.orchestrator.step_executor import StepExecutor, StepResults
 from isvctl.redaction import redact_dict, redact_junit_xml_tree
 
 logger = logging.getLogger(__name__)
@@ -290,65 +289,6 @@ def _resolved_entry_to_result_dict(entry: ResolvedEntry) -> dict[str, Any]:
     }
 
 
-def _step_failure_message(result: StepResult) -> str:
-    """Return an operator-facing diagnostic for one failed workflow step."""
-    detail = result.error
-    if not detail and result.schema_errors:
-        detail = f"output schema validation failed: {'; '.join(result.schema_errors)}"
-    if not detail:
-        detail = f"command exited with code {result.exit_code}"
-    return f"workflow step '{result.name}' failed: {detail}"
-
-
-def _apply_owned_step_failures(
-    entries: list[ResolvedEntry],
-    phase_steps: list[StepConfig],
-    step_results: StepResults,
-) -> list[ResolvedEntry]:
-    """Turn failed lifecycle steps into errors on their owning validations.
-
-    ``requires_selected_validations`` is both the command-selection gate and
-    the explicit ownership edge between a workflow step and its selectable
-    tests. Without this propagation, an early step failure prevents the bound
-    validation step from producing output and JUnit incorrectly records a
-    harmless ``step_no_output`` skip.
-    """
-    configs_by_name = {step.name: step for step in phase_steps}
-    errors_by_validation: dict[str, list[tuple[str, str]]] = {}
-
-    for result in step_results.steps:
-        if result.success:
-            continue
-        step = configs_by_name.get(result.name)
-        if step is None:
-            continue
-        message = _step_failure_message(result)
-        for validation_name in step.requires_selected_validations:
-            errors_by_validation.setdefault(validation_name, []).append((step.name, message))
-
-    propagated: list[ResolvedEntry] = []
-    for entry in entries:
-        step_errors = errors_by_validation.get(entry.entry.name, [])
-        if entry.is_ready:
-            # A failed validation-producing step can still return structured
-            # output that the validation interprets into failures/subtests.
-            # Only earlier owned lifecycle failures should suppress that run.
-            step_errors = [(name, message) for name, message in step_errors if name != entry.entry.step]
-        may_override = entry.is_ready or entry.skip_reason == SkipReason.STEP_NO_OUTPUT
-        if not step_errors or not may_override:
-            propagated.append(entry)
-            continue
-        propagated.append(
-            ResolvedEntry(
-                entry=entry.entry,
-                state=State.ERROR,
-                error_reason=ErrorReason.STEP_FAILED,
-                message="; ".join(message for _, message in step_errors),
-            )
-        )
-    return propagated
-
-
 def _resolved_entry_success(entry: ResolvedEntry) -> bool:
     """Return whether a resolved validation outcome should keep the phase successful."""
     return entry.state in {State.PASSED, State.SKIPPED}
@@ -378,48 +318,6 @@ def _has_explicit_pytest_selection(extra_pytest_args: list[str] | None) -> bool:
     return any(
         arg == "-k" or arg.startswith("-k=") or arg == "-m" or arg.startswith("-m=") for arg in extra_pytest_args
     )
-
-
-def _apply_selected_validation_gates(
-    steps: list[Any],
-    validation_entries: list[ValidationEntry],
-    *,
-    include_labels: set[str],
-    exclude_labels: set[str],
-    exclude_tests: set[str],
-    capability: str | None,
-) -> list[Any]:
-    """Skip lifecycle steps whose required validations are not selected."""
-    entries_by_name = {entry.name: entry for entry in validation_entries}
-    gated_steps: list[Any] = []
-    for step in steps:
-        required_validations = getattr(step, "requires_selected_validations", [])
-        unselected: list[str] = []
-        for validation_name in required_validations:
-            entry = entries_by_name.get(validation_name)
-            if entry is None:
-                unselected.append(f"{validation_name} (not configured)")
-                continue
-            result = resolve_entry_selection(
-                entry,
-                include_labels=include_labels,
-                exclude_labels=exclude_labels,
-                exclude_tests=exclude_tests,
-                capability=capability,
-            )
-            if result is not None:
-                unselected.append(f"{validation_name} ({result.message})")
-        if not unselected:
-            gated_steps.append(step)
-            continue
-        skipped_step = step.model_copy(update={"skip": True})
-        logger.info(
-            "Skipping step '%s' because required validation(s) are not selected: %s",
-            skipped_step.name,
-            "; ".join(unselected),
-        )
-        gated_steps.append(skipped_step)
-    return gated_steps
 
 
 def _apply_capability_step_gates(
@@ -622,32 +520,6 @@ class Orchestrator:
                     )
                 ],
             )
-        exclude_labels: list[str] = []
-        exclude_tests: list[str] = []
-        if self.config.tests and self.config.tests.exclude:
-            exclude_labels = self.config.tests.exclude.get("labels", [])
-            exclude_tests = self.config.tests.exclude.get("tests", [])
-        skip_config_label_exclusions = bool(self._include_labels) or _has_explicit_pytest_selection(
-            self._extra_pytest_args
-        )
-        resolution_exclude_labels = set(self._exclude_labels)
-        if not skip_config_label_exclusions:
-            resolution_exclude_labels.update(exclude_labels)
-
-        steps_before_selection = steps
-        steps = _apply_selected_validation_gates(
-            steps,
-            validation_entries,
-            include_labels=set(self._include_labels),
-            exclude_labels=resolution_exclude_labels,
-            exclude_tests=set(exclude_tests),
-            capability=self._capability,
-        )
-        selection_skipped_steps = {
-            selected.name
-            for original, selected in zip(steps_before_selection, steps, strict=True)
-            if not original.skip and selected.skip
-        }
         steps = _apply_capability_step_gates(steps, validation_entries, self._capability)
 
         logger.info(f"Configured phases: {config_phases}")
@@ -668,8 +540,6 @@ class Orchestrator:
 
         steps_by_phase: dict[str, list] = {phase: [] for phase in config_phases}
         for step in steps:
-            if step.name in selection_skipped_steps:
-                continue
             step_phase = (step.phase or "setup").lower()
             steps_by_phase[step_phase].append(step)
 
@@ -693,6 +563,18 @@ class Orchestrator:
             finalizers_by_target_phase.setdefault(target_phase, []).append(finalizer)
 
         resolved_validations_by_index: dict[int, ResolvedEntry] = {}
+
+        exclude_labels: list[str] = []
+        exclude_tests: list[str] = []
+        if self.config.tests and self.config.tests.exclude:
+            exclude_labels = self.config.tests.exclude.get("labels", [])
+            exclude_tests = self.config.tests.exclude.get("tests", [])
+        skip_config_label_exclusions = bool(self._include_labels) or _has_explicit_pytest_selection(
+            self._extra_pytest_args
+        )
+        resolution_exclude_labels = set(self._exclude_labels)
+        if not skip_config_label_exclusions:
+            resolution_exclude_labels.update(exclude_labels)
 
         phase_results: list[PhaseResult] = []
         overall_success = True
@@ -795,11 +677,6 @@ class Orchestrator:
                     set(self._include_labels),
                     resolution_exclude_labels,
                     set(exclude_tests),
-                )
-                resolved_phase_entries = _apply_owned_step_failures(
-                    resolved_phase_entries,
-                    phase_steps,
-                    step_results,
                 )
                 ready_entries = [entry for entry in resolved_phase_entries if entry.is_ready]
                 terminal_before_pytest = [entry for entry in resolved_phase_entries if not entry.is_ready]

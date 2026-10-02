@@ -76,7 +76,6 @@ class TestStepConfig:
         assert step.phase == "setup"
         assert step.skip is False
         assert step.requires == []
-        assert step.requires_selected_validations == []
 
     def test_full_step(self) -> None:
         """Test creating a fully specified step config."""
@@ -90,7 +89,6 @@ class TestStepConfig:
             phase="setup",
             skip=False,
             requires=["vm", "bare_metal"],
-            requires_selected_validations=["SelectedCheck"],
             continue_on_failure=True,
             output_schema="vpc",
         )
@@ -101,7 +99,6 @@ class TestStepConfig:
         assert step.env == {"AWS_REGION": "us-west-2"}
         assert step.phase == "setup"
         assert step.requires == ["vm", "bare_metal"]
-        assert step.requires_selected_validations == ["SelectedCheck"]
         assert step.continue_on_failure is True
         assert step.output_schema == "vpc"
 
