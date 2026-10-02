@@ -208,16 +208,19 @@ forwarded env vars → optional isvreporter upload.
   catalog test, `LaunchKitConnectivityCheck`. There are no fabric, deployment,
   or connectivity-family use-case tests. Those choices come from the complete
   Launch Kit config and current cluster state.
-- `isvtest/validations/k8s_launch_kit/checks.py` consumes only
-  `connectivity.PingResults`. Every emitted row becomes a subtest with its
-  family, endpoints, and rails. Preserve bandwidth, GPU, stderr, and error
-  details when present. Do not require a fixed family list: disabled families
-  are absent without skips, and explicit new families pass through.
-- A missing or empty connectivity matrix fails rather than passing vacuously.
+- `isvtest/validations/k8s_launch_kit/checks.py` imports the retained native
+  JUnit cases through `report_subtest`, like Kubernetes conformance. Preserve
+  names, durations, skips, failures, and system-out/system-err evidence.
+  The adapter requests `--junit-path`, retains the raw file, and creates a copy
+  with four skipped connectivity suites for the opposing fabric. Infer fabric
+  from native suite names, never by parsing user configuration. Preserve native
+  disabled-family skips and pass through additional native cases.
+- Missing/malformed JUnit, no executed connectivity cases, or a failed command
+  must fail rather than pass vacuously.
   The provider binds its step with `requires_selected_validations` so command
   failures remain owned by the catalog validation and appear in structured
   reporting.
-- The adapter adds only `--output json` to commands that emit structured
+- The adapter adds `--output json` to commands that emit structured
   output, wraps the unmodified concatenated JSON documents, and records argv,
   cwd, stdout, stderr, exit code, and timing. For `validate`, use the emitted
   `reportPath` as the authoritative HTML report source and copy it to

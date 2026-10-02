@@ -58,17 +58,25 @@ when the dedicated inputs are used. Launch Kit remains responsible for fabric,
 deployment type, enabled checks, GPUDirect applicability, thresholds, runtime
 budgets, and every other value in its config.
 
-The one catalog validation, `LaunchKitConnectivityCheck`, converts every
-emitted `connectivity.PingResults` row into a subtest. It does not expect a
-fixed family list: a disabled family is absent, while a newly emitted family is
-reported automatically.
+The one catalog validation, `LaunchKitConnectivityCheck`, imports native JUnit
+cases through the same subtest reporting path as Kubernetes conformance tests.
+Native disabled-check skips are preserved. Four skipped suites are added for
+the opposing fabric, with the reason that the cluster fabric is not configured
+for that fabric type. Fabric is inferred from native suite names.
+
+Launch Kit must support `validate --junit-path` (NVIDIA/k8s-launch-kit#288).
+The adapter retains `launch-kit-junit.raw.xml` and `launch-kit-junit.xml` in the
+evidence directory. The latter includes opposing-fabric skips. All cases flow
+into isvctl's standard `--junitxml` report (default `_output/junit-validation.xml`)
+for existing merge, remote download, and upload automation.
 
 ## Adapter contract
 
 For every structured workflow invocation, `adapter.py`:
 
 1. resolves the configured executable;
-2. adds `--output json` unless the caller already selected JSON;
+2. adds `--output json` unless the caller already selected JSON, and a provider-owned
+   `--junit-path` for validation;
 3. executes exactly one Launch Kit command;
 4. preserves stdout, stderr, argv, exit code, and duration;
 5. parses concatenated JSON objects without renaming their fields;

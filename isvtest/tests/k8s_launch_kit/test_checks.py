@@ -1,11 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for Kubernetes Launch Kit connectivity interpretation."""
+"""Native JUnit import tests."""
 
-from __future__ import annotations
-
-from typing import Any
+from pathlib import Path
 
 import pytest
 
@@ -14,165 +12,108 @@ from isvtest.validations.k8s_launch_kit.checks import LaunchKitConnectivityCheck
 pytestmark = pytest.mark.unit
 
 
-def _matrix_row(
-    family: str | None,
-    kind: int,
-    *,
-    passed: bool = True,
-    destination_rail: str = "rail-0",
-) -> dict[str, Any]:
-    """Build one Launch Kit connectivity result."""
-    bandwidth = family in {"ib_write_bw", "gpudirect_dmabuf"}
-    return {
-        "Test": {
-            "Kind": kind,
-            "SrcNode": "worker-a",
-            "DstNode": "worker-b",
-            "SrcRail": "rail-0",
-            "DstRail": destination_rail,
-            "Expectation": "required",
-            **(
-                {
-                    "SrcGPUIndex": 2,
-                    "DstGPUIndex": 5,
-                    "SrcGPUPCIAddress": "0000:41:00.0",
-                    "DstGPUPCIAddress": "0000:71:00.0",
-                }
-                if family == "gpudirect_dmabuf"
-                else {}
-            ),
-        },
-        **({"Family": family} if family is not None else {}),
-        "OK": passed,
-        "ObservedOK": passed,
-        "Expectation": "required",
-        **(
-            {
-                "BandwidthGbps": 187.6 if passed else 42.5,
-                "MinBandwidthGbps": 100.0,
+def _execute(tmp_path: Path, cases: str, *, success: bool = True) -> dict:
+    report = tmp_path / "junit.xml"
+    report.write_text(f"<testsuites><testsuite>{cases}</testsuite></testsuites>")
+    return LaunchKitConnectivityCheck(
+        config={
+            "step_output": {
+                "operation": "validate",
+                "success": success,
+                "error": "process failed",
+                "artifacts": {"validation_junit": str(report)},
             }
-            if bandwidth
-            else {}
-        ),
-        **(
-            {
-                "Stderr": f"{family}: connection refused on rail-0",
-                "Error": f"{family} validation failed",
-            }
-            if not passed
-            else {}
-        ),
-    }
+        }
+    ).execute()
 
 
-def _validate(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Wrap matrix rows in the provider contract consumed by the check."""
-    failed = sum(row.get("OK") is not True for row in rows)
-    return {
-        "success": failed == 0,
-        "platform": "kubernetes",
-        "operation": "validate",
-        "exit_code": 0 if failed == 0 else 4,
-        "documents": [
-            {"versionCheck": {}, "manifests": [], "summary": {}},
-            {
-                "connectivity": {
-                    "PingResults": rows,
-                    "Summary": {"TotalTests": len(rows), "Failed": failed},
-                }
-            },
-        ],
-        **({"error": "one or more connectivity rows failed"} if failed else {}),
-    }
+def test_native_names_status_duration_and_evidence(tmp_path: Path) -> None:
+    result = _execute(
+        tmp_path,
+        """
+      <testcase name="K8sEastWestNetworkRDMAPing-ethernet::a→b" classname="network.connectivity" time="0.125">
+        <system-out>srcGPU=2 bandwidthGbps=187.6</system-out>
+      </testcase>
+      <testcase name="K8sEastWestNetworkRDMAPing-infiniband" classname="network.connectivity">
+        <skipped message="Cluster fabric is not configured for this fabric type: infiniband"/>
+      </testcase>""",
+    )
+    assert result["passed"]
+    passed, skipped = result["subtests"]
+    assert passed["name"] == "K8sEastWestNetworkRDMAPing-ethernet::a→b"
+    assert passed["duration"] == 0.125
+    assert "bandwidthGbps=187.6" in passed["message"]
+    assert skipped["skipped"]
+    assert "not configured" in skipped["message"]
 
 
-def _execute(output: dict[str, Any]) -> dict[str, Any]:
-    """Execute the catalog check against one provider envelope."""
-    return LaunchKitConnectivityCheck(config={"step_output": output}).execute()
-
-
-def test_reports_every_emitted_connectivity_family() -> None:
-    """The single check exposes every Launch Kit matrix row in stream order."""
-    rows = [
-        _matrix_row("icmp", 0),
-        _matrix_row("rping", 2),
-        _matrix_row("ib_write_bw", 4),
-        _matrix_row("gpudirect_dmabuf", 6),
-    ]
-
-    result = _execute(_validate(rows))
-
-    assert result["passed"] is True
-    assert [subtest["name"] for subtest in result["subtests"]] == [
-        f"{family}/worker-a->worker-b/rail-0->rail-0" for family in ("icmp", "rping", "ib_write_bw", "gpudirect_dmabuf")
-    ]
-
-
-def test_failure_preserves_endpoints_rails_bandwidth_and_stderr() -> None:
-    """A failed row retains the diagnostics emitted by Launch Kit."""
-    result = _execute(_validate([_matrix_row("ib_write_bw", 4, passed=False)]))
-
-    assert result["passed"] is False
-    assert result["subtests"][0]["passed"] is False
-    assert "ib_write_bw/worker-a->worker-b/rail-0->rail-0" in result["error"]
-    assert "bandwidthGbps=42.5" in result["error"]
-    assert "minimumGbps=100.0" in result["error"]
-    assert "connection refused on rail-0" in result["error"]
-
-
-def test_gpudirect_details_are_reported_without_a_separate_expected_check() -> None:
-    """GPUDirect rows are ordinary connectivity rows when Launch Kit emits them."""
-    result = _execute(_validate([_matrix_row("gpudirect_dmabuf", 6)]))
-
-    assert result["passed"] is True
-    message = result["subtests"][0]["message"]
-    assert "gpuIndices=2->5" in message
-    assert "sourceGpuPci=0000:41:00.0" in message
-    assert "destinationGpuPci=0000:71:00.0" in message
-
-
-def test_disabled_gpudirect_requires_no_skip_or_placeholder() -> None:
-    """Families disabled by user config are absent instead of becoming skipped tests."""
-    result = _execute(_validate([_matrix_row("icmp", 0), _matrix_row("rping", 2)]))
-
-    assert result["passed"] is True
-    assert all("gpudirect" not in subtest["name"] for subtest in result["subtests"])
-    assert all(subtest["skipped"] is False for subtest in result["subtests"])
-
-
-def test_explicit_future_family_is_not_filtered_out() -> None:
-    """The wrapper forwards new Launch Kit families without a catalog update."""
-    result = _execute(_validate([_matrix_row("future_connectivity", 999)]))
-
-    assert result["passed"] is True
-    assert result["subtests"][0]["name"].startswith("future_connectivity/")
-
-
-def test_legacy_numeric_kind_resolves_a_family() -> None:
-    """Older Launch Kit output without Family remains readable."""
-    result = _execute(_validate([_matrix_row(None, 3)]))
-
-    assert result["passed"] is True
-    assert result["subtests"][0]["name"].startswith("rping/")
+@pytest.mark.parametrize("tag", ["failure", "error"])
+def test_native_failures_keep_evidence(tmp_path: Path, tag: str) -> None:
+    result = _execute(
+        tmp_path,
+        f"""<testcase name="probe" classname="network.connectivity">
+      <{tag} message="bandwidth below threshold">42.5 &lt; 100</{tag}>
+      <system-err>connection refused</system-err></testcase>""",
+    )
+    assert not result["passed"]
+    assert "42.5 < 100" in result["error"]
+    assert "connection refused" in result["error"]
+    assert not result["subtests"][0]["passed"]
 
 
 @pytest.mark.parametrize(
-    "output",
+    "cases",
     [
-        {"operation": "validate", "documents": [], "error": "Kubernetes client failed"},
-        {"operation": "discover", "documents": [{"connectivity": {"PingResults": []}}]},
+        "",
+        '<testcase name="disabled" classname="network.connectivity"><skipped/></testcase>',
+        '<testcase name="static"/>',
     ],
 )
-def test_rejects_missing_or_wrong_validate_output(output: dict[str, Any]) -> None:
-    """Transport failures remain actionable instead of passing vacuously."""
-    result = _execute(output)
-
-    assert result["passed"] is False
+def test_no_executed_connectivity_fails(tmp_path: Path, cases: str) -> None:
+    assert not _execute(tmp_path, cases)["passed"]
 
 
-def test_empty_connectivity_matrix_fails() -> None:
-    """A validate response with no connectivity rows is not evidence of success."""
-    result = _execute(_validate([]))
+def test_process_failure_cannot_be_hidden_by_passing_xml(tmp_path: Path) -> None:
+    result = _execute(tmp_path, '<testcase name="probe" classname="network.connectivity"/>', success=False)
+    assert not result["passed"]
+    assert result["subtests"][0]["passed"]
+    assert result["error"] == "process failed"
 
-    assert result["passed"] is False
-    assert result["error"] == "Launch Kit connectivity matrix produced no results"
+
+@pytest.mark.parametrize("contents", [None, "<broken", "<testcase time='invalid'/>"])
+def test_missing_or_malformed_xml_fails(tmp_path: Path, contents: str | None) -> None:
+    report = tmp_path / "junit.xml"
+    if contents is not None:
+        report.write_text(contents)
+    result = LaunchKitConnectivityCheck(
+        config={
+            "step_output": {
+                "operation": "validate",
+                "success": True,
+                "artifacts": {"validation_junit": str(report)},
+            }
+        }
+    ).execute()
+    assert not result["passed"]
+
+
+@pytest.mark.parametrize("duration", ["NaN", "-1", "Infinity", "invalid"])
+def test_invalid_duration_fails(tmp_path: Path, duration: str) -> None:
+    result = _execute(tmp_path, f'<testcase name="probe" classname="network.connectivity" time="{duration}"/>')
+    assert not result["passed"]
+
+
+def test_static_error_is_preserved_alongside_connectivity(tmp_path: Path) -> None:
+    result = _execute(
+        tmp_path,
+        """
+      <testcase name="future-family::probe" classname="network.connectivity"/>
+      <testcase name="ValidationExecution" classname="network.validation"><error message="setup failed"/></testcase>
+      <testcase name="K8sEastWestNetworkDMABufBandwidth-ethernet" classname="network.connectivity">
+        <skipped message="Check disabled by validation configuration"/>
+      </testcase>""",
+    )
+    assert not result["passed"]
+    assert result["subtests"][0]["name"] == "future-family::probe"
+    assert "setup failed" in result["error"]
+    assert result["subtests"][2]["skipped"]
