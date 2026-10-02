@@ -104,6 +104,17 @@ def _run_workflow(
     return _run_provider(*provider_arguments, env=env)
 
 
+def _recorded_argv(output: dict[str, Any]) -> list[str]:
+    """Return the l8k argv retained in the command evidence."""
+    return json.loads(Path(output["artifacts"]["command"]).read_text(encoding="utf-8"))["argv"]
+
+
+def _recorded_documents(output: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the l8k JSON documents retained in the stdout evidence."""
+    stdout = Path(output["artifacts"]["stdout"]).read_text(encoding="utf-8")
+    return _load_provider_module()._parse_json_stream(stdout, "stdout")
+
+
 def _mocked_network_operator_config(tmp_path: Path) -> RunConfig:
     """Load production wiring, then inject test-owned executables and paths."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
@@ -467,6 +478,7 @@ def test_provider_runs_the_real_launch_kit_workflow_shape(tmp_path: Path) -> Non
         ("clean", ["--kubeconfig", kubeconfig]),
     ]
     outputs: dict[str, dict[str, Any]] = {}
+    documents: dict[str, list[dict[str, Any]]] = {}
 
     for command, arguments in commands:
         completed, output = _run_workflow(
@@ -478,17 +490,18 @@ def test_provider_runs_the_real_launch_kit_workflow_shape(tmp_path: Path) -> Non
         assert completed.returncode == 0
         assert output["success"] is True
         assert output["operation"] == command
-        assert output["working_directory"] == str(working_dir.resolve())
-        command_index = output["argv"].index(command)
+        argv = _recorded_argv(output)
+        command_index = argv.index(command)
         junit_args = ["--junit-path", str(artifact_dir / "launch-kit-junit.raw.xml")] if command == "validate" else []
-        assert output["argv"][command_index + 1 :] == [*arguments, *junit_args, "--output", "json"]
+        assert argv[command_index + 1 :] == [*arguments, *junit_args, "--output", "json"]
         assert validate_output(output, "k8s_launch_kit") == (True, [])
         assert all(Path(path).is_file() for path in output["artifacts"].values())
         outputs[command] = output
+        documents[command] = _recorded_documents(output)
 
-    assert len(outputs["discover"]["documents"]) == 1
-    assert len(outputs["generate"]["documents"]) == 1
-    generated_files = [Path(path) for path in outputs["generate"]["documents"][0]["generatedFiles"]]
+    assert len(documents["discover"]) == 1
+    assert len(documents["generate"]) == 1
+    generated_files = [Path(path) for path in documents["generate"][0]["generatedFiles"]]
     daemonset_path = next(path for path in generated_files if "example-daemonset" in path.name)
     daemonset = yaml.safe_load(daemonset_path.read_text(encoding="utf-8"))
     assert [container["name"] for container in daemonset["spec"]["template"]["spec"]["containers"]] == [
@@ -498,15 +511,15 @@ def test_provider_runs_the_real_launch_kit_workflow_shape(tmp_path: Path) -> Non
     test_container = daemonset["spec"]["template"]["spec"]["containers"][0]
     assert test_container["resources"]["requests"]["nvidia.com/gpu"] == "2"
     assert test_container["resources"]["limits"]["nvidia.com/gpu"] == "2"
-    assert outputs["deploy"]["documents"] == []
-    assert len(outputs["validate"]["documents"]) == 3
+    assert documents["deploy"] == []
+    assert len(documents["validate"]) == 3
     source_report = working_dir / "deployment" / "k8s-launch-kit-validation-report.html"
     retained_report = artifact_dir / "k8s-launch-kit-validation-report.html"
     assert outputs["validate"]["artifacts"]["validation_report"] == str(retained_report)
     assert retained_report.read_bytes() == source_report.read_bytes()
-    families = {row["Family"] for row in outputs["validate"]["documents"][1]["connectivity"]["PingResults"]}
+    families = {row["Family"] for row in documents["validate"][1]["connectivity"]["PingResults"]}
     assert families == {"icmp", "rping", "ib_write_bw", "gpudirect_dmabuf"}
-    assert outputs["clean"]["documents"][0]["cleanup"] == {
+    assert documents["clean"][0]["cleanup"] == {
         "namespace": "nvidia-network-operator",
         "customResourcesDeleted": 12,
         "helmReleaseRemoved": True,
@@ -531,9 +544,7 @@ def test_sosreport_preserves_text_output_and_registers_its_directory(tmp_path: P
     assert completed.returncode == 0
     assert output["success"] is True
     assert output["operation"] == "sosreport"
-    assert output["documents"] == []
-    assert output["argv"][1:] == ["sosreport", "--output-dir", str(artifact_dir / "sosreport")]
-    assert output["sosreport_output_directory"] == str(artifact_dir / "sosreport")
+    assert _recorded_argv(output)[1:] == ["sosreport", "--output-dir", str(artifact_dir / "sosreport")]
     assert output["artifacts"]["sosreport"] == str(artifact_dir / "sosreport")
     assert (artifact_dir / "sosreport" / "network-operator-sosreport.tar.gz").is_file()
     assert "Sosreport collected" in Path(output["artifacts"]["stdout"]).read_text(encoding="utf-8")
@@ -584,7 +595,7 @@ credentials:
         "retained": False,
     }
     assert output["artifacts"]["user_config"] == str(metadata_path.resolve())
-    assert output["argv"][-6:] == [
+    assert _recorded_argv(output)[-6:] == [
         "--user-config",
         str(staged.resolve()),
         "--save-cluster-config",
@@ -715,8 +726,8 @@ def test_clean_forwards_launch_kit_boolean_flags_unchanged(tmp_path: Path) -> No
     )
 
     assert completed.returncode == 0
-    assert output["argv"][-3:] == ["--keep-helm-chart", "--output", "json"]
-    assert output["documents"][0]["cleanup"] == {
+    assert _recorded_argv(output)[-3:] == ["--keep-helm-chart", "--output", "json"]
+    assert _recorded_documents(output)[0]["cleanup"] == {
         "namespace": "nvidia-network-operator",
         "customResourcesDeleted": 12,
         "helmReleaseRemoved": False,
@@ -771,9 +782,9 @@ def test_mock_supports_each_launch_kit_profile(
         assert completed.returncode == 0
         outputs[command] = output
 
-    manifest_kinds = {row["Kind"] for row in outputs["validate"]["documents"][0]["manifests"]}
+    manifest_kinds = {row["Kind"] for row in _recorded_documents(outputs["validate"])[0]["manifests"]}
     assert network_kind in manifest_kinds
-    assert outputs["clean"]["documents"][0]["phase"] == "clean"
+    assert _recorded_documents(outputs["clean"])[0]["phase"] == "clean"
 
 
 def test_preflight_uses_the_workflow_kubeconfig(tmp_path: Path) -> None:
@@ -896,7 +907,7 @@ def test_network_operator_provider_runs_validate_then_sosreport(tmp_path: Path) 
     assert validation.subtest_summary.failed == 0
     assert validation.subtest_summary.skipped == 4
 
-    argv = result.inventory["launch_kit_validate"]["argv"]
+    argv = _recorded_argv(result.inventory["launch_kit_validate"])
     assert argv[1] == "validate"
     assert argv[argv.index("--user-config") + 1] == str((tmp_path / "cluster-config.yaml").resolve())
     assert argv[argv.index("--deployment-files") + 1] == str((tmp_path / "deployment").resolve())
@@ -905,7 +916,7 @@ def test_network_operator_provider_runs_validate_then_sosreport(tmp_path: Path) 
     assert result.inventory["launch_kit_validate"]["artifacts"]["validation_report"] == str(report)
     assert report.is_file()
     sosreport = result.inventory["launch_kit_sosreport"]
-    assert sosreport["argv"][1:] == ["sosreport", "--output-dir", str(tmp_path / "evidence" / "sosreport")]
+    assert _recorded_argv(sosreport)[1:] == ["sosreport", "--output-dir", str(tmp_path / "evidence" / "sosreport")]
     assert Path(sosreport["artifacts"]["sosreport"]).is_dir()
 
 
@@ -951,8 +962,9 @@ def test_network_operator_provider_expands_input_paths(tmp_path: Path, monkeypat
     )
 
     assert completed.returncode == 0
-    assert output["argv"][output["argv"].index("--user-config") + 1] == str(user_config)
-    assert output["argv"][output["argv"].index("--deployment-files") + 1] == str(deployment_files)
+    argv = _recorded_argv(output)
+    assert argv[argv.index("--user-config") + 1] == str(user_config)
+    assert argv[argv.index("--deployment-files") + 1] == str(deployment_files)
 
 
 @pytest.mark.parametrize(
@@ -1094,7 +1106,7 @@ def test_failed_validate_preserves_documents_and_process_error(tmp_path: Path) -
 
     assert completed.returncode == 4
     assert output["success"] is False
-    assert len(output["documents"]) == 3
+    assert len(_recorded_documents(output)) == 3
     assert "l8k validate exited with code 4" in output["error"]
     assert Path(output["artifacts"]["validation_report"]).is_file()
     assert Path(output["artifacts"]["stdout"]).read_text(encoding="utf-8")

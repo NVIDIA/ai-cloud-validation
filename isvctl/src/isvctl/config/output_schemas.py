@@ -1356,21 +1356,6 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "description": "The actual Launch Kit or provider prerequisite operation",
             },
             "executable": {"type": "string"},
-            "argv": {"type": "array", "items": {"type": "string"}},
-            "working_directory": {
-                "type": "string",
-                "description": "Absolute working directory used for the Launch Kit command",
-            },
-            "exit_code": {"type": "integer"},
-            "documents": {
-                "type": "array",
-                "items": {"type": "object"},
-                "description": "Unmodified JSON documents emitted by l8k",
-            },
-            "sosreport_output_directory": {
-                "type": "string",
-                "description": "Absolute directory selected for l8k sosreport output",
-            },
             "checks": {
                 "oneOf": [
                     {"type": "object"},
