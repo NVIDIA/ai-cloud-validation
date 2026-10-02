@@ -643,6 +643,23 @@ def _run_validate(flags: dict[str, str]) -> int:
     report.write_text(f"<!doctype html><html><body><h1>VALIDATION {verdict}</h1></body></html>\n", encoding="utf-8")
     if junit_path := flags.get("--junit-path"):
         root = ET.Element("testsuites", name="l8k validation tests")
+        static_cases = [
+            ("NetworkOperatorVersion", static["versionCheck"]),
+            *((f"{row['Kind']}/{row['Namespace']}/{row['Name']}", row) for row in manifests),
+        ]
+        static_suite = ET.SubElement(
+            root,
+            "testsuite",
+            name="network/validation",
+            tests=str(len(static_cases)),
+            failures="0",
+            errors="0",
+            skipped="0",
+            time="0.010",
+        )
+        for case_name, evidence in static_cases:
+            case = ET.SubElement(static_suite, "testcase", name=case_name, classname="network.validation")
+            ET.SubElement(case, "system-out").text = json.dumps(evidence)
         families = {
             "icmp": "ICMPPing",
             "rping": "RDMAPing",

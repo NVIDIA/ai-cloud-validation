@@ -31,7 +31,7 @@ outer watchdogs.
 ## Network Operator provider
 
 `config/network-operator.yaml` intentionally does not import the generic
-provider. It defines one catalog-owning test step:
+provider. It defines one test step that feeds every catalog test:
 
 ```text
 l8k validate --user-config <file> --deployment-files <directory> --output json
@@ -58,17 +58,24 @@ when the dedicated inputs are used. Launch Kit remains responsible for fabric,
 deployment type, enabled checks, GPUDirect applicability, thresholds, runtime
 budgets, and every other value in its config.
 
-The one catalog validation, `LaunchKitConnectivityCheck`, imports native JUnit
-cases through the same subtest reporting path as Kubernetes conformance tests.
-Native disabled-check skips are preserved. Four skipped suites are added for
-the opposing fabric, with the reason that the cluster fabric is not configured
-for that fabric type. Fabric is inferred from native suite names.
-
 Launch Kit must support `validate --junit-path` (NVIDIA/k8s-launch-kit#288).
-The adapter retains `launch-kit-junit.raw.xml` and `launch-kit-junit.xml` in the
-evidence directory. The latter includes opposing-fabric skips. All cases flow
-into isvctl's standard `--junitxml` report (default `_output/junit-validation.xml`)
-for existing merge, remote download, and upload automation.
+The adapter writes that report to `launch-kit-junit.xml` in the evidence
+directory and does not modify it. Nine catalog tests, all bound to the one
+validate step, each report one native suite with its cases as subtests:
+
+| Catalog test | Native suite |
+|---|---|
+| `K8sNetworkOperatorDeployment` | `network/validation` (release, components, Helm values, manifests, topology presets) |
+| `K8sEastWestNetwork<Family>-<fabric>` | the suite of the same name; families `ICMPPing`, `RDMAPing`, `IBWriteBandwidth`, `DMABufBandwidth`; fabrics `ethernet`, `infiniband` |
+
+Launch Kit only emits suites for the configured fabric, so the other fabric's
+four tests skip with "Cluster fabric is not configured for this fabric type".
+A family suite holding only a skipped case (check disabled) skips with Launch
+Kit's reason. `K8sNetworkOperatorDeployment` also fails when `l8k validate`
+failed and no native case explains it, so a failed run is never all green.
+Results flow into isvctl's standard `--junitxml` report (default
+`_output/junit-validation.xml`) for existing merge, remote download, and upload
+automation.
 
 ## Adapter contract
 

@@ -351,48 +351,6 @@ def _bind_validate_inputs(
     ]
 
 
-_CONNECTIVITY_FAMILIES = (
-    "K8sEastWestNetworkICMPPing",
-    "K8sEastWestNetworkRDMAPing",
-    "K8sEastWestNetworkIBWriteBandwidth",
-    "K8sEastWestNetworkDMABufBandwidth",
-)
-
-
-def _complete_validation_junit(source: Path, destination: Path) -> None:
-    """Preserve native results and mark the unconfigured fabric as skipped."""
-    tree = ET.parse(source)
-    root = tree.getroot()
-    if root.tag != "testsuites":
-        raise ValueError("Launch Kit JUnit must have a testsuites root")
-    names = {suite.get("name") for suite in root.iter("testsuite")}
-    fabrics = {
-        fabric
-        for fabric in ("ethernet", "infiniband")
-        if any(f"{family}-{fabric}" in names for family in _CONNECTIVITY_FAMILIES)
-    }
-    if len(fabrics) == 1:
-        opposing = "infiniband" if "ethernet" in fabrics else "ethernet"
-        for family in _CONNECTIVITY_FAMILIES:
-            name = f"{family}-{opposing}"
-            suite = ET.SubElement(
-                root, "testsuite", name=name, tests="1", failures="0", errors="0", skipped="1", time="0.000"
-            )
-            case = ET.SubElement(suite, "testcase", name=name, classname="network.connectivity", time="0.000")
-            ET.SubElement(
-                case,
-                "skipped",
-                type="fabric_not_configured",
-                message=f"Cluster fabric is not configured for this fabric type: {opposing}",
-            )
-    # Launch Kit does not currently emit root counters. Keep them consistent if added later.
-    for attribute in ("tests", "failures", "errors", "skipped"):
-        if attribute in root.attrib:
-            root.set(attribute, str(sum(int(suite.get(attribute, "0")) for suite in root.findall("testsuite"))))
-    ET.indent(tree, space="  ")
-    tree.write(destination, encoding="utf-8", xml_declaration=True)
-
-
 def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     """Invoke exactly one real Launch Kit workflow command."""
     executable = _resolve_executable(args.executable)
@@ -403,17 +361,15 @@ def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     working_dir = Path(args.working_dir).expanduser().resolve()
     working_dir.mkdir(parents=True, exist_ok=True)
     artifact_dir = Path(args.artifact_dir).expanduser().resolve()
-    raw_junit = artifact_dir / "launch-kit-junit.raw.xml"
-    completed_junit = artifact_dir / "launch-kit-junit.xml"
+    junit = artifact_dir / "launch-kit-junit.xml"
     retained_validation_report = artifact_dir / _VALIDATION_REPORT_NAME
     if args.command == "validate":
         retained_validation_report.unlink(missing_ok=True)
-        raw_junit.unlink(missing_ok=True)
-        completed_junit.unlink(missing_ok=True)
+        junit.unlink(missing_ok=True)
         if any(token == "--junit-path" or token.startswith("--junit-path=") for token in arguments):
             raise ValueError("--junit-path is managed by the Launch Kit provider")
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        arguments.extend(["--junit-path", str(raw_junit)])
+        arguments.extend(["--junit-path", str(junit)])
     staged_user_config: Path | None = None
     user_config_metadata_path: Path | None = None
     sosreport_output_dir: Path | None = None
@@ -478,12 +434,11 @@ def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
 
     junit_error: str | None = None
     if args.command == "validate":
-        if raw_junit.is_file():
-            artifacts["validation_junit_raw"] = str(raw_junit)
+        if junit.is_file():
+            artifacts["validation_junit"] = str(junit)
         try:
-            _complete_validation_junit(raw_junit, completed_junit)
-            artifacts["validation_junit"] = str(completed_junit)
-        except (OSError, ET.ParseError, ValueError) as exc:
+            ET.parse(junit)
+        except (OSError, ET.ParseError) as exc:
             junit_error = f"failed to read Launch Kit JUnit report (l8k must support --junit-path): {exc}"
     success = result["exit_code"] == 0 and not any((parse_error, report_retention_error, junit_error))
     error = parse_error or _structured_error(documents)
