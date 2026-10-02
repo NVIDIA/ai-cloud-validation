@@ -33,7 +33,8 @@ Required JSON output fields:
   }
 
 When a component class is not customer-visible, mark that subtest
-``provider_hidden: true`` with ``passed: true`` instead of failing.
+``provider_hidden: true`` with ``passed: true``; the validation then skips
+rather than passes, since the component was not verified.
 
 Usage:
     python component_key_access.py --instance-id <id> --key-file <path> \\

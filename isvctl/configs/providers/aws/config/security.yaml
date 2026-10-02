@@ -111,7 +111,7 @@ commands:
       # Without endpoints the shared script emits a structured skip. East-west
       # is provider-hidden on AWS unless EAST_WEST_ENDPOINTS is set (intra-VPC
       # service mTLS is customer-owned mesh/sidecar), expressed via the
-      # provider-hidden message below.
+      # provider-hidden message below; SEC13-01 then skips rather than passes.
       - name: mutual_tls_test
         phase: test
         command: "python3 ../../shared/mutual_tls_test.py"

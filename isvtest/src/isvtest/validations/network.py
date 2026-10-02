@@ -55,7 +55,7 @@ from isvtest.core.ssh import (
     get_ssh_config,
     run_ssh_command,
 )
-from isvtest.core.validation import BaseValidation, check_required_tests
+from isvtest.core.validation import BaseValidation, check_required_tests, skip_if_provider_hidden
 
 
 class NetworkProvisionedCheck(BaseValidation):
@@ -717,6 +717,7 @@ def _run_sdn_logging_check(
     """Shared logic for SDN logging validations."""
     if not check_required_tests(validation, required_keys, f"{label} logging tests failed"):
         return
+    skip_if_provider_hidden(validation, required_keys, f"{label} logging")
 
     step_output = validation.config.get("step_output", {})
     missing_evidence = [key for key in evidence_keys if not _is_evidence_present(step_output, key)]

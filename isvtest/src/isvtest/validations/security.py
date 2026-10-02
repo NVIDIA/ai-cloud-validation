@@ -240,7 +240,7 @@ class MutualTlsCheck(BaseValidation):
     Verifies that configured endpoints reject anonymous TLS clients and accept
     authenticated client certificates on both traffic planes. Providers may mark
     a plane ``provider_hidden`` when it is not customer-probeable (for example
-    AWS east-west mesh).
+    AWS east-west mesh); the check then skips rather than passes.
 
     Config:
         step_output: The mutual_tls_test step output to check
@@ -274,15 +274,9 @@ class MutualTlsCheck(BaseValidation):
         if type(endpoints_tested) is not int or endpoints_tested < 1:
             self.set_failed("mTLS output missing positive int 'endpoints_tested'")
             return
+        skip_if_provider_hidden(self, required, "mTLS enforcement")
 
-        tests = step_output.get("tests", {})
-        hidden = [
-            name
-            for name in required
-            if isinstance(tests.get(name), dict) and tests[name].get("provider_hidden") is True
-        ]
-        hidden_note = f", provider_hidden={','.join(hidden)}" if hidden else ""
-        self.set_passed(f"mTLS enforced ({endpoints_tested} endpoints tested{hidden_note})")
+        self.set_passed(f"mTLS enforced ({endpoints_tested} endpoints tested)")
 
 
 class BmcBastionAccessCheck(BaseValidation):

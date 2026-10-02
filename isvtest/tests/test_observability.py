@@ -577,15 +577,31 @@ def test_observability_checks_skip_with_provider_hidden_evidence(
         validation_cls(config=_config(step_output)).execute()
 
 
-def test_partially_provider_hidden_evidence_still_requires_probes() -> None:
-    """One concrete subtest without probes fails; hidden siblings do not excuse it."""
-    tests = _provider_hidden_tests(["sel_log_endpoint_reachable", "sel_log_source_present"])
-    tests["sel_entries_queryable"] = {"passed": True}
+def test_partially_provider_hidden_evidence_skips() -> None:
+    """One hidden subtest leaves the property unverified, so concrete siblings cannot carry a pass."""
+    tests = _provider_hidden_tests(["sel_log_source_present"])
+    tests.update(
+        _tests(
+            ["sel_log_endpoint_reachable", "sel_entries_queryable"],
+            {"bmc_endpoints_checked": 1, "log_source": "redfish-sel", "entry_count": 3},
+        )
+    )
     step_output = {"success": True, "platform": "observability", "test_name": "bmc_sel_logs", "tests": tests}
+
+    with pytest.raises(pytest.skip.Exception, match=r"hidden: sel_log_source_present\)"):
+        BmcSelLogsCheck(config=_config(step_output)).execute()
+
+
+def test_failed_subtest_wins_over_provider_hidden() -> None:
+    """A real failure is reported even when sibling subtests are provider-hidden."""
+    tests = _provider_hidden_tests(["sel_log_endpoint_reachable", "sel_log_source_present"])
+    tests["sel_entries_queryable"] = {"passed": False, "error": "SEL query timed out"}
+    step_output = {"success": False, "platform": "observability", "test_name": "bmc_sel_logs", "tests": tests}
 
     result = BmcSelLogsCheck(config=_config(step_output)).execute()
 
     assert result["passed"] is False
+    assert "SEL query timed out" in result["error"]
 
 
 def test_vpc_flow_logs_requires_all_traffic_type() -> None:
