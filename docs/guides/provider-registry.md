@@ -144,39 +144,3 @@ An entry that has not been re-validated against a recent release for a
 while may be moved to `deprecated`. It stays fetchable, so users can still
 try it against older releases. Re-validating means updating `commit` and
 `tested_with` in a new pull request.
-
-## Design notes
-
-- **External repositories, not a `contrib/` directory.** Partner code ages
-  differently from this repository's: in-tree, a stale integration becomes this
-  repository's problem to explain and to keep passing CI.
-- **The registry follows [krew-index](https://github.com/kubernetes-sigs/krew-index)**,
-  the plugin index for `kubectl`: one manifest per entry, named after the entry,
-  with an explicit schema version.
-- **Fetching follows [pre-commit](https://github.com/pre-commit/pre-commit)**:
-  `git init`, a shallow fetch of the pinned commit, a detached checkout, with
-  inherited `GIT_*` variables and git template hooks kept out, staged in a
-  temporary directory and moved into place only once the commit is verified.
-- **Pinning to a full commit SHA** is what makes results reproducible - the same
-  rule GitHub recommends for third-party Actions.
-- **Submission metadata follows [cncf/k8s-conformance](https://github.com/cncf/k8s-conformance)**:
-  vendor, maintainer contact, reproduction instructions, and a
-  re-certify-or-lapse lifecycle.
-
-## Open questions
-
-- **Evidence of a validation run.** A registry entry says a commit was
-  validated, but nothing in this repository shows the results. Results can be
-  uploaded to the ISV Lab Service, which requires service credentials; whether
-  a public, sanitized form of the evidence should accompany entries is
-  undecided.
-- **Recording the provider on reported runs.** Uploaded runs record the
-  validation suite's version and build, but not which provider, or which
-  provider commit, produced them.
-- **Provider contract versioning.** Nothing yet states which suite versions a
-  provider built against one release remains compatible with.
-- **Registry freshness.** The registry ships inside the checkout, so a user on a
-  release tag does not see providers registered afterwards, even ones validated
-  against that release. Krew avoids this by keeping its index in a separate
-  repository that `krew update` fetches at runtime; reading the registry from
-  upstream at runtime, or a separate registry repository, are the alternatives.
