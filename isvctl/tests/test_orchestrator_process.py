@@ -93,6 +93,48 @@ time.sleep(60)
             os.kill(child_pid, signal.SIGKILL)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="process-group behavior is POSIX-specific")
+def test_keyboard_interrupt_stops_descendant_process(tmp_path: Path) -> None:
+    """Ctrl-C must not leave a step's provider CLI child running."""
+    child_pid_path = tmp_path / "child.pid"
+    wrapper = """
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+Path(sys.argv[1]).write_text(str(child.pid))
+time.sleep(60)
+"""
+    child_pid: int | None = None
+
+    def _interrupt(signum: int, frame: object) -> None:
+        raise KeyboardInterrupt
+
+    previous_handler = signal.signal(signal.SIGALRM, _interrupt)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 1.0)
+        with pytest.raises(KeyboardInterrupt):
+            run_command_process(
+                [sys.executable, "-c", wrapper, str(child_pid_path)],
+                cwd=tmp_path,
+                env=None,
+                timeout=None,
+            )
+
+        child_pid = int(child_pid_path.read_text())
+        deadline = time.monotonic() + 2
+        while _process_exists(child_pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not _process_exists(child_pid)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if child_pid is not None and _process_exists(child_pid):
+            os.kill(child_pid, signal.SIGKILL)
+
+
 def _process_exists(pid: int) -> bool:
     """Return whether a process currently exists."""
     try:
