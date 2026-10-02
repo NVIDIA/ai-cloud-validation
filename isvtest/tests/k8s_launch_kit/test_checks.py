@@ -55,7 +55,7 @@ def test_family_reports_only_its_native_suite(tmp_path: Path) -> None:
     )
     assert result["passed"]
     [subtest] = result["subtests"]
-    assert subtest["name"] == "K8sEastWestNetworkRDMAPing-ethernet::a→b"
+    assert subtest["name"] == "a→b"
     assert subtest["duration"] == 0.125
     assert "bandwidthGbps=187.6" in subtest["message"]
 
