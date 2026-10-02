@@ -114,10 +114,17 @@ class TestBuildCatalog:
             assert isinstance(entry["requires"], list)
             if entry["capability"]:
                 assert entry["requires"] == []
-        assert "LaunchKitConnectivityCheck" in names
-        launch_kit = next(entry for entry in catalog if entry["name"] == "LaunchKitConnectivityCheck")
-        assert launch_kit["suite"] == "network_operator"
-        assert launch_kit["test_ids"] == ["K8S42-01"]
+        network_operator = sorted(entry["name"] for entry in catalog if entry["suite"] == "network_operator")
+        assert network_operator == sorted(
+            [
+                "K8sNetworkOperatorDeployment",
+                *(
+                    f"K8sEastWestNetwork{family}-{fabric}"
+                    for family in ("ICMPPing", "RDMAPing", "IBWriteBandwidth", "DMABufBandwidth")
+                    for fabric in ("ethernet", "infiniband")
+                ),
+            ]
+        )
 
     def test_extract_checks_supports_direct_dict_category_form(self, tmp_path) -> None:
         """Direct dict category wiring is included in catalog config scans."""

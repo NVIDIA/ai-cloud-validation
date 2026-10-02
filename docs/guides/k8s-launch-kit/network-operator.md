@@ -44,9 +44,9 @@ Network Operator provider YAML
         -> l8k validate --user-config ... --deployment-files ... --output json
         -> retained argv, stdout, stderr, exit code, duration, and HTML report
   -> Network Operator suite YAML
-     -> LaunchKitConnectivityCheck
-        -> one subtest for every Launch Kit connectivity row
-  -> linked finalizer, after the connectivity assertion
+     -> nine catalog tests, one per native Launch Kit JUnit suite
+        -> one subtest for every case in that suite
+  -> linked finalizer, after the catalog assertions
      -> adapter.py
         -> l8k sosreport --output-dir .../evidence/sosreport
         -> retained diagnostic directory, stdout, stderr, exit code, and duration
@@ -128,9 +128,9 @@ path.
 ## Selecting connectivity checks
 
 Selection happens in the Launch Kit config, not with AI Cloud Validation
-labels. For example, disabling Launch Kit GPUDirect validation means no
-`gpudirect_dmabuf` rows are emitted. The wrapper then reports the remaining
-rows only; it does not create a skipped or failed GPUDirect placeholder.
+labels. For example, disabling Launch Kit GPUDirect validation makes Launch Kit
+emit a skipped `K8sEastWestNetworkDMABufBandwidth-<fabric>` case, and that
+catalog test skips with Launch Kit's reason.
 
 Likewise, the suite does not infer a fabric or deployment mode from labels.
 Run it once for the exact cluster state described by the supplied files. To
@@ -153,39 +153,35 @@ replace the connectivity test result.
 
 ## Results and errors
 
-`LaunchKitConnectivityCheck` imports Launch Kit's native JUnit cases using the
-same `report_subtest` mechanism as Kubernetes conformance tests. Use a Launch
-Kit binary supporting `validate --junit-path` (NVIDIA/k8s-launch-kit#288).
-Names, durations, failures, native disabled-check skips, and diagnostic evidence
-are preserved. A failed command or a report with no executed connectivity cases
-fails the owning validation.
+Use a Launch Kit binary supporting `validate --junit-path`
+(NVIDIA/k8s-launch-kit#288). Launch Kit writes a `network/validation` suite of
+deployment-state cases and one `K8sEastWestNetwork<Family>-<fabric>` suite per
+connectivity family for the configured fabric. The suite wires one catalog
+test per native suite, using the same `report_subtest` mechanism as
+Kubernetes conformance tests:
 
-The adapter keeps the raw report and creates a second report with four skipped
-suites for the opposing fabric. For an Ethernet cluster, an example suite is:
+| Catalog test | Result |
+|---|---|
+| `K8sNetworkOperatorDeployment` | `network/validation` cases: release, component versions, Helm values, stray resources, each manifest, topology presets |
+| `K8sEastWestNetwork{ICMPPing,RDMAPing,IBWriteBandwidth,DMABufBandwidth}-{ethernet,infiniband}` | that family's probes on that fabric |
 
-```xml
-<testsuite name="K8sEastWestNetworkRDMAPing-infiniband"
-           tests="1" failures="0" errors="0" skipped="1" time="0.000">
-  <testcase name="K8sEastWestNetworkRDMAPing-infiniband"
-            classname="network.connectivity" time="0.000">
-    <skipped type="fabric_not_configured"
-             message="Cluster fabric is not configured for this fabric type: infiniband" />
-  </testcase>
-</testsuite>
-```
-
-The other three families receive equivalent entries. InfiniBand clusters get
-Ethernet skips. Fabric comes from the native suite names; user configuration
-is not parsed by the adapter. Reports with no fabric suites (for example, an
-early setup failure) retain their native errors without guessing a fabric.
+Native names, durations, failures, skips, and diagnostic evidence are kept as
+subtests. A family test whose suite is absent skips with
+`Cluster fabric is not configured for this fabric type: <fabric>`, so an
+Ethernet cluster reports four skipped `-infiniband` tests and vice versa.
+Fabric comes from the native suite names; user configuration is not parsed.
+A missing or malformed report fails every test. `K8sNetworkOperatorDeployment`
+also fails when `l8k validate` failed and no native case explains it, so a
+failed command is never reported as all green.
 
 The standard `isvctl --junitxml` output (default `_output/junit-validation.xml`)
-contains these cases as `LaunchKitConnectivityCheck::<native-case-name>` under
-the phase suite, like other composite validations. Existing phase merging,
-remote report download, and `isvreporter` upload therefore include the skips.
-The native report retains its family suites and aggregate metadata separately.
+contains one testcase per catalog test, named after the catalog entry (for
+example `K8sEastWestNetworkICMPPing-ethernet`), with native cases as
+`<catalog-test>::<native-case-name>` subtests. Existing phase merging, remote
+report download, and `isvreporter` upload therefore report against the static
+catalog.
 
-The sosreport finalizer runs after this assertion. If sosreport itself fails,
+The sosreport finalizer runs after these assertions. If sosreport itself fails,
 the connectivity result remains intact and the overall orchestration reports
 the diagnostic-collection failure separately.
 
@@ -198,7 +194,6 @@ _output/k8s-launch-kit/network-operator/
   work/
   evidence/
     k8s-launch-kit-validation-report.html
-    launch-kit-junit.raw.xml
     launch-kit-junit.xml
     commands/validate/
       command.json
@@ -224,8 +219,8 @@ report emitted for a failed connectivity matrix is copied in the same way. If
 Launch Kit advertises a report that cannot be read, the provider returns an
 evidence-retention error instead of silently reusing an older report.
 
-The raw and completed JUnit paths are registered as `validation_junit_raw` and
-`validation_junit` artifacts. Stale files are removed before each validation;
+The native JUnit report is registered unmodified as the `validation_junit`
+artifact. A stale report is removed before each validation;
 a missing or malformed report is an evidence error even when the process exits
 successfully. Reports emitted by failing runs are retained and imported too.
 The main merged JUnit file is uploaded through the existing reporting service;

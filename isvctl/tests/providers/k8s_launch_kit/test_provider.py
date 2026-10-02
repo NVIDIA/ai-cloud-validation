@@ -35,6 +35,11 @@ _MOCK_L8K = _FIXTURES / "mock_l8k.py"
 _MOCK_KUBECTL = _FIXTURES / "mock_kubectl.py"
 _GENERIC_CONFIG = _LAUNCH_KIT_PROVIDER / "config" / "provider.yaml"
 _NETWORK_OPERATOR_CONFIG = _LAUNCH_KIT_PROVIDER / "config" / "network-operator.yaml"
+_FAMILIES = ("ICMPPing", "RDMAPing", "IBWriteBandwidth", "DMABufBandwidth")
+_CATALOG_TESTS = [
+    "K8sNetworkOperatorDeployment",
+    *(f"K8sEastWestNetwork{family}-{fabric}" for family in _FAMILIES for fabric in ("ethernet", "infiniband")),
+]
 
 
 def _load_provider_module() -> ModuleType:
@@ -239,13 +244,15 @@ def test_network_operator_provider_defaults_to_real_cli_tools() -> None:
     assert sosreport_step.requires == validate_step.requires
 
 
-def test_network_operator_suite_has_one_catalog_check() -> None:
-    """Fabric and deployment choices are prerequisites, not test entries."""
+def test_network_operator_suite_matches_the_static_catalog() -> None:
+    """One deployment test plus one test per connectivity family and fabric."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
     checks = merged["tests"]["validations"]["network_operator"]["checks"]
 
-    assert list(checks) == ["LaunchKitConnectivityCheck"]
-    assert checks["LaunchKitConnectivityCheck"]["test_id"] == "K8S42-01"
+    assert list(checks) == _CATALOG_TESTS
+    for name, params in checks.items():
+        if name.startswith("K8sEastWestNetwork"):
+            assert params["fabric"] == name.rsplit("-", 1)[1]
 
 
 def test_kubectl_defaults_to_the_real_binary() -> None:
@@ -490,7 +497,7 @@ def test_provider_runs_the_real_launch_kit_workflow_shape(tmp_path: Path) -> Non
         assert output["operation"] == command
         argv = _recorded_argv(output)
         command_index = argv.index(command)
-        junit_args = ["--junit-path", str(artifact_dir / "launch-kit-junit.raw.xml")] if command == "validate" else []
+        junit_args = ["--junit-path", str(artifact_dir / "launch-kit-junit.xml")] if command == "validate" else []
         assert argv[command_index + 1 :] == [*arguments, *junit_args, "--output", "json"]
         assert validate_output(output, "k8s_launch_kit") == (True, [])
         assert all(Path(path).is_file() for path in output["artifacts"].values())
@@ -897,13 +904,14 @@ def test_network_operator_provider_runs_validate_then_sosreport(tmp_path: Path) 
     assert result.success is True
     assert list(result.inventory) == ["launch_kit_validate", "launch_kit_sosreport"]
     assert [phase.name for phase in result.phases] == ["test", "test-teardown"]
-    assert len(result.validations) == 1
-    validation = result.validations[0]
-    assert validation.entry.name == "LaunchKitConnectivityCheck"
-    assert validation.state is State.PASSED
-    assert validation.subtest_summary.passed == 32
-    assert validation.subtest_summary.failed == 0
-    assert validation.subtest_summary.skipped == 4
+    validations = {validation.entry.name: validation for validation in result.validations}
+    assert list(validations) == _CATALOG_TESTS
+    for name, validation in validations.items():
+        expected = State.SKIPPED if name.endswith("-infiniband") else State.PASSED
+        assert validation.state is expected, name
+    ethernet = [validation for name, validation in validations.items() if name.endswith("-ethernet")]
+    assert sum(validation.subtest_summary.passed for validation in ethernet) == 32
+    assert all(validation.subtest_summary.failed == 0 for validation in validations.values())
 
     argv = _recorded_argv(result.inventory["launch_kit_validate"])
     assert argv[1] == "validate"
@@ -1036,12 +1044,17 @@ def test_failed_connectivity_is_a_junit_failure(tmp_path: Path, monkeypatch: Any
     assert result.inventory["launch_kit_validate"]["artifacts"]["validation_report"] == str(report)
     assert report.is_file()
     assert (tmp_path / "evidence" / "sosreport" / "network-operator-sosreport.tar.gz").is_file()
-    assert result.validations[0].state is State.FAILED
-    assert result.validations[0].subtest_summary.failed == 1
+    states = {validation.entry.name: validation.state for validation in result.validations}
+    assert states["K8sEastWestNetworkIBWriteBandwidth-ethernet"] is State.FAILED
+    assert states["K8sEastWestNetworkICMPPing-ethernet"] is State.PASSED
+    # The failed family explains the l8k exit code, so the deployment test stays green.
+    assert states["K8sNetworkOperatorDeployment"] is State.PASSED
+    failed = next(v for v in result.validations if v.entry.name == "K8sEastWestNetworkIBWriteBandwidth-ethernet")
+    assert failed.subtest_summary.failed == 1
     case = next(
         case
         for case in ET.parse(junit_path).getroot().iter("testcase")
-        if case.get("name") == "LaunchKitConnectivityCheck"
+        if case.get("name") == "K8sEastWestNetworkIBWriteBandwidth-ethernet"
     )
     assert case.find("failure") is not None
     assert case.find("error") is None
@@ -1146,33 +1159,8 @@ def test_missing_advertised_validation_report_is_an_evidence_error(tmp_path: Pat
     assert not retained_report.exists()
 
 
-@pytest.mark.parametrize("fabric,opposing", [("ethernet", "infiniband"), ("infiniband", "ethernet")])
-def test_junit_completes_opposing_fabric(tmp_path: Path, fabric: str, opposing: str) -> None:
-    """Completion retains native cases and supplies one skip per opposing family."""
-    adapter = _load_provider_module()
-    raw = tmp_path / "raw.xml"
-    completed = tmp_path / "completed.xml"
-    root = ET.Element("testsuites", tests="1", failures="0", errors="0", skipped="0")
-    suite = ET.SubElement(root, "testsuite", name=f"K8sEastWestNetworkRDMAPing-{fabric}", tests="1")
-    ET.SubElement(suite, "testcase", name="native-probe")
-    ET.ElementTree(root).write(raw)
-    adapter._complete_validation_junit(raw, completed)
-    result = ET.parse(completed).getroot()
-    assert result.get("tests") == "5"
-    assert result.get("skipped") == "4"
-    skips = result.findall(".//skipped")
-    assert len(skips) == 4
-    assert all(
-        skip.get("message") == f"Cluster fabric is not configured for this fabric type: {opposing}" for skip in skips
-    )
-    assert len(list(ET.parse(raw).getroot().iter("testcase"))) == 1
-    # Completion is idempotent and never invents skipped cases for an already present fabric.
-    adapter._complete_validation_junit(completed, completed)
-    assert len(ET.parse(completed).getroot().findall(".//skipped")) == 4
-
-
-def test_opposing_fabric_skips_reach_standard_junit(tmp_path: Path) -> None:
-    """The report uploaded by isvctl contains native cases and opposing-fabric skips."""
+def test_catalog_names_reach_standard_junit(tmp_path: Path) -> None:
+    """The report uploaded by isvctl has one testcase per catalog test; the other fabric skips."""
     config = _mocked_network_operator_config(tmp_path)
     junit = tmp_path / "junit-validation.xml"
     result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
@@ -1181,32 +1169,26 @@ def test_opposing_fabric_skips_reach_standard_junit(tmp_path: Path) -> None:
         junitxml=str(junit),
     )
     assert result.success
-    cases = list(ET.parse(junit).getroot().iter("testcase"))
-    opposing = [case for case in cases if "-infiniband" in case.get("name", "")]
-    assert len(opposing) == 4
-    assert all(case.find("skipped") is not None for case in opposing)
-    assert all("Cluster fabric is not configured" in case.find("skipped").get("message", "") for case in opposing)
-    artifacts = result.inventory["launch_kit_validate"]["artifacts"]
-    assert Path(artifacts["validation_junit_raw"]).is_file()
-    assert len(ET.parse(artifacts["validation_junit"]).getroot().findall("testsuite")) == 8
-
-
-@pytest.mark.parametrize("contents", ["", "<broken", "<not-junit/>"])
-def test_invalid_native_junit_is_not_replaced_with_skips(tmp_path: Path, contents: str) -> None:
-    adapter = _load_provider_module()
-    raw = tmp_path / "raw.xml"
-    completed = tmp_path / "completed.xml"
-    raw.write_text(contents)
-    with pytest.raises((ValueError, ET.ParseError)):
-        adapter._complete_validation_junit(raw, completed)
-    assert not completed.exists()
+    cases = {case.get("name"): case for case in ET.parse(junit).getroot().iter("testcase")}
+    assert set(_CATALOG_TESTS) <= set(cases)
+    for name in _CATALOG_TESTS:
+        skipped = cases[name].find("skipped")
+        if name.endswith("-infiniband"):
+            assert skipped is not None
+            assert "Cluster fabric is not configured for this fabric type: infiniband" in skipped.get("message", "")
+        else:
+            assert skipped is None
+    native = result.inventory["launch_kit_validate"]["artifacts"]["validation_junit"]
+    assert [suite.get("name") for suite in ET.parse(native).getroot().findall("testsuite")] == [
+        "network/validation",
+        *(f"K8sEastWestNetwork{family}-ethernet" for family in _FAMILIES),
+    ]
 
 
 def test_validate_cannot_reuse_stale_junit(tmp_path: Path) -> None:
     artifact_dir = tmp_path / "evidence"
     artifact_dir.mkdir()
-    for name in ("launch-kit-junit.raw.xml", "launch-kit-junit.xml"):
-        (artifact_dir / name).write_text("<testsuites/>")
+    (artifact_dir / "launch-kit-junit.xml").write_text("<testsuites/>")
     executable = tmp_path / "l8k"
     executable.write_text("#!/bin/sh\nprintf '{}\\n'\n")
     executable.chmod(0o755)
@@ -1237,16 +1219,3 @@ def test_junit_output_path_is_provider_owned(tmp_path: Path, arguments: list[str
     )
     assert completed.returncode == 1
     assert "--junit-path is managed" in output["error"]
-
-
-def test_early_error_without_fabric_is_not_guessed(tmp_path: Path) -> None:
-    adapter = _load_provider_module()
-    raw = tmp_path / "raw.xml"
-    raw.write_text(
-        '<testsuites><testsuite name="network/validation"><testcase name="ValidationExecution"><error message="setup failed"/></testcase></testsuite></testsuites>'
-    )
-    completed = tmp_path / "completed.xml"
-    adapter._complete_validation_junit(raw, completed)
-    result = ET.parse(completed).getroot()
-    assert result.find(".//error").get("message") == "setup failed"
-    assert not result.findall(".//skipped")

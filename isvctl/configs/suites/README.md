@@ -220,19 +220,18 @@ its plan item is not platform-scoped.
 
 ### Network Operator (`k8s-launch-kit/network-operator.yaml`)
 
-The Network Operator suite contains one catalog entry,
-`LaunchKitConnectivityCheck`. Its production provider invokes `l8k validate`
-with a caller-supplied complete `user_config` and existing `deployment_files`
-directory, then invokes `l8k sosreport` as an always-run linked finalizer. The
-Kubernetes cluster, Network Operator deployment, Launch Kit installation
-(including its sosreport helper), configuration, and generated manifests are
-prerequisites.
-
-Fabric, deployment type, enabled checks, and GPUDirect applicability are not
-modeled as suite labels or separate tests. Every
-`connectivity.PingResults` row emitted by Launch Kit becomes a subtest. A
-disabled family is simply absent, and new explicit family values are reported
-without suite changes.
+The Network Operator suite contains nine catalog entries fed by one
+`l8k validate` run: `K8sNetworkOperatorDeployment`, plus
+`K8sEastWestNetwork{ICMPPing,RDMAPing,IBWriteBandwidth,DMABufBandwidth}` for
+each of `-ethernet` and `-infiniband`. Each entry reports the native Launch Kit
+JUnit suite of the same name (`network/validation` for the deployment entry),
+with its cases as subtests. Launch Kit only runs the configured fabric, so the
+other fabric's four entries skip. Its production provider invokes
+`l8k validate` with a caller-supplied complete `user_config` and existing
+`deployment_files` directory, then invokes `l8k sosreport` as an always-run
+linked finalizer. The Kubernetes cluster, Network Operator deployment, Launch
+Kit installation (including its sosreport helper), configuration, and
+generated manifests are prerequisites.
 
 ```bash
 uv run isvctl test run \

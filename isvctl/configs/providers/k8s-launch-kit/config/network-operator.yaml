@@ -50,7 +50,7 @@ commands:
         output_schema: k8s_launch_kit
         requires: [kubernetes]
 
-      # A linked same-phase finalizer runs after the connectivity assertion even
+      # A linked same-phase finalizer runs after the catalog assertions even
       # when validate exits nonzero. It is not a separate catalog test.
       - name: launch_kit_sosreport
         phase: test
