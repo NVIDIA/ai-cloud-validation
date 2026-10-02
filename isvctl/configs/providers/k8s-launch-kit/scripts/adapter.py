@@ -499,21 +499,10 @@ def _run_workflow(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "success": success,
         "platform": "kubernetes",
         "operation": args.command,
-        "executable": str(executable),
-        "argv": argv,
-        "working_directory": str(working_dir),
-        "exit_code": result["exit_code"],
-        "duration_seconds": result["duration_seconds"],
-        "documents": documents,
         "artifacts": artifacts,
     }
-    if sosreport_output_dir is not None:
-        envelope["sosreport_output_directory"] = str(sosreport_output_dir)
     if error:
         envelope["error"] = error
-    excerpt = _stderr_excerpt(str(result["stderr"]))
-    if excerpt:
-        envelope["stderr_excerpt"] = excerpt
     exit_code = int(result["exit_code"])
     return envelope, exit_code if exit_code > 0 else (0 if success else 1)
 

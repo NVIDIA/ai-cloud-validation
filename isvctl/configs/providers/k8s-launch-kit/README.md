@@ -78,11 +78,14 @@ For every structured workflow invocation, `adapter.py`:
 2. adds `--output json` unless the caller already selected JSON, and a provider-owned
    `--junit-path` for validation;
 3. executes exactly one Launch Kit command;
-4. preserves stdout, stderr, argv, exit code, and duration;
+4. preserves stdout, stderr, argv, exit code, and duration as files under
+   `<artifact_dir>/commands/<command>/`;
 5. parses concatenated JSON objects without renaming their fields;
 6. copies the HTML file advertised by a validation `reportPath` into the
    provider evidence directory;
-7. returns one provider envelope containing the raw documents and artifact paths.
+7. returns a minimal envelope: `success`, `platform`, `operation`, `artifacts`
+   (evidence paths), and `error` on failure. Raw Launch Kit output stays in the
+   evidence files, not in step JSON.
 
 For `sosreport`, the adapter does not force JSON because the current Launch Kit
 command streams text output. It defaults `--output-dir` to the provider evidence
