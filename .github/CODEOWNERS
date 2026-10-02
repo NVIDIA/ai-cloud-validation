@@ -9,3 +9,4 @@
 # Provider registry entries: the partner maintainers plus the default owners
 # (the last matching rule wins, so each line must repeat the team).
 isvctl/configs/providers-registry/example.yaml @abegnoche @NVIDIA/ncp-isv-lab-maintainer
+isvctl/configs/providers-registry/showcase.yaml @abegnoche @NVIDIA/ncp-isv-lab-maintainer

@@ -45,7 +45,9 @@ def list_providers(configs_root: Path) -> list[str]:
     for providers_dir in (configs_root / "providers", configs_root / EXTERNAL_PROVIDERS_DIRNAME):
         if providers_dir.is_dir():
             names.update(
-                path.name for path in providers_dir.iterdir() if path.is_dir() and any((path / "config").glob("*.yaml"))
+                path.name
+                for path in providers_dir.iterdir()
+                if path.is_dir() and any((provider_dir(path.name, configs_root) / "config").glob("*.yaml"))
             )
     return sorted(names)
 
