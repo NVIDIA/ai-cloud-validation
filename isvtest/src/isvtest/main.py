@@ -36,7 +36,7 @@ from isvtest.config.constants import RESOLVED_ENTRIES_FLAG
 from isvtest.config.loader import ConfigLoader
 from isvtest.core import runners as reframe_runner
 from isvtest.core.logger import setup_logger
-from isvtest.core.resolution import ErrorReason, ResolvedEntry, SkipReason, State
+from isvtest.core.resolution import ErrorReason, ResolvedEntry, SkipReason, State, SubtestSummary
 from isvtest.tests.test_validations import (
     clear_validation_results,
     get_validation_results,
@@ -223,6 +223,12 @@ def _result_to_resolved_entry(entry: ResolvedEntry, result: dict[str, Any]) -> R
     """Convert a captured pytest validation result to a terminal resolved entry."""
     message = str(result.get("message", ""))
     duration = float(result.get("duration", 0.0) or 0.0)
+    raw_subtests = result.get("subtest_summary", {})
+    subtest_summary = SubtestSummary(
+        passed=int(raw_subtests.get("passed", 0)) if isinstance(raw_subtests, dict) else 0,
+        failed=int(raw_subtests.get("failed", 0)) if isinstance(raw_subtests, dict) else 0,
+        skipped=int(raw_subtests.get("skipped", 0)) if isinstance(raw_subtests, dict) else 0,
+    )
     if result.get("skipped"):
         return ResolvedEntry(
             entry=entry.entry,
@@ -231,6 +237,7 @@ def _result_to_resolved_entry(entry: ResolvedEntry, result: dict[str, Any]) -> R
             skip_reason=SkipReason.RUNTIME_SKIP,
             message=message,
             duration_seconds=duration,
+            subtest_summary=subtest_summary,
         )
     if result.get("passed", False):
         return ResolvedEntry(
@@ -239,6 +246,7 @@ def _result_to_resolved_entry(entry: ResolvedEntry, result: dict[str, Any]) -> R
             state=State.PASSED,
             message=message,
             duration_seconds=duration,
+            subtest_summary=subtest_summary,
         )
     if result.get("error_reason") == ErrorReason.RUNTIME_EXCEPTION.value:
         return ResolvedEntry(
@@ -248,6 +256,7 @@ def _result_to_resolved_entry(entry: ResolvedEntry, result: dict[str, Any]) -> R
             error_reason=ErrorReason.RUNTIME_EXCEPTION,
             message=message,
             duration_seconds=duration,
+            subtest_summary=subtest_summary,
         )
     return ResolvedEntry(
         entry=entry.entry,
@@ -255,6 +264,7 @@ def _result_to_resolved_entry(entry: ResolvedEntry, result: dict[str, Any]) -> R
         state=State.FAILED,
         message=message,
         duration_seconds=duration,
+        subtest_summary=subtest_summary,
     )
 
 
