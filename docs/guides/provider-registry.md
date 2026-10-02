@@ -19,11 +19,19 @@ partner repo (config/, scripts/)  <-- pinned by --  isvctl/configs/providers-reg
 Registry entries hold no provider code. The provider's code and its support
 stay with the partner.
 
+One repository can hold several providers, for example one per product or
+version: each lives in its own directory with its own `config/` and
+`scripts/`, and has its own registry entry whose `path` names that directory.
+Each entry pins its own commit, so one provider can move forward without the
+others. `fetch` checks out the whole repository, so providers can share code
+kept elsewhere in it.
+
 The registry includes a living example,
-[isvctl-provider-example](https://github.com/abegnoche/isvctl-provider-example),
-registered as `example` with `status: demo`: an unimplemented scaffold that
-passes in demo mode and runs weekly against the latest release. Use it as the model for your own
-repository and entry.
+[isvctl-provider-example](https://github.com/abegnoche/isvctl-provider-example):
+one repository holding two providers, registered as `example` and `showcase`
+with `status: demo`. Both are unimplemented scaffolds that pass in demo mode
+and run weekly against the latest release. Use it as the model for your own
+repository and entries.
 
 ## Using a registered provider
 

@@ -16,7 +16,12 @@ from typing import Any, Literal
 import jsonschema
 import yaml
 
-from isvctl.config.suite_resolution import CONFIGS_ROOT, external_provider_dir, in_tree_provider_dir
+from isvctl.config.suite_resolution import (
+    CONFIGS_ROOT,
+    external_provider_dir,
+    in_tree_provider_dir,
+    is_fetched_checkout,
+)
 
 SCHEMA_PATH = CONFIGS_ROOT.parent / "schemas" / "provider-registry.schema.json"
 REGISTRY_DIRNAME = "providers-registry"
@@ -44,6 +49,7 @@ class RegistryEntry:
     vendor: str
     description: str
     repo_url: str
+    path: str | None
     commit: str
     tested_with: str
     suites: tuple[str, ...]
@@ -92,6 +98,7 @@ def _to_entry(data: dict[str, Any]) -> RegistryEntry:
         vendor=data["vendor"],
         description=data["description"],
         repo_url=data["repo_url"],
+        path=data.get("path"),
         commit=data["commit"],
         tested_with=data["tested_with"],
         suites=tuple(data["suites"]),
@@ -187,22 +194,6 @@ def run_git(*args: str, cwd: Path) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"git {args[0]} failed: {result.stderr.strip()}")
     return result.stdout.strip()
-
-
-# Written inside .git/ so it never shows in `git status`. Only checkouts carrying it
-# may be replaced or removed: anything else in providers-external/ is someone's work,
-# such as a scaffold under development.
-FETCH_MARKER = "isvctl-fetched"
-
-
-def is_fetched_checkout(path: Path) -> bool:
-    """Return True if ``path`` was created by ``isvctl provider fetch``."""
-    return (path / ".git" / FETCH_MARKER).is_file()
-
-
-def mark_fetched(path: Path) -> None:
-    """Record that ``path`` was created by ``isvctl provider fetch``."""
-    (path / ".git" / FETCH_MARKER).write_text("created by isvctl provider fetch\n", encoding="utf-8")
 
 
 def fetch_state(entry: RegistryEntry, configs_root: Path = CONFIGS_ROOT) -> tuple[FetchState, str | None]:

@@ -14,11 +14,11 @@
 # limitations under the License.
 
 schema_version: 1
-name: example
+name: showcase
 vendor: NVIDIA
-description: Living example of an externally maintained provider; an unimplemented scaffold that passes only in demo mode.
+description: Second provider in the living example repository, showing one repository holding several providers; an unimplemented scaffold that passes only in demo mode.
 repo_url: https://github.com/abegnoche/isvctl-provider-example
-path: example
+path: showcase
 commit: ec26a65b17140942aafac5b579982cc24bfc80cc
 tested_with: "0.13.0"
 suites: [bare_metal, control-plane, iam, image-registry, network, observability, security, vm]

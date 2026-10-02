@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/NVIDIA/ai-cloud-validation/schemas/provider-registry.schema.json",
   "title": "Provider Registry Entry",
-  "description": "One externally maintained provider, stored as isvctl/configs/providers-registry/<name>.yaml. The provider's config/ and scripts/ live in the partner's own repository; this entry pins the exact commit that was validated. The loader additionally checks that `name` equals the filename stem and that every entry in `suites` exists under isvctl/configs/suites/.",
+  "description": "One externally maintained provider, stored as isvctl/configs/providers-registry/<name>.yaml. The provider's config/ and scripts/ live in the partner's own repository, at its root or under `path`; one repository can hold several providers, each with its own entry. This entry pins the exact commit that was validated. The loader additionally checks that `name` equals the filename stem and that every entry in `suites` exists under isvctl/configs/suites/.",
   "type": "object",
   "required": [
     "schema_version",
@@ -43,6 +43,11 @@
       "description": "HTTPS clone URL of the partner repository holding the provider's config/ and scripts/.",
       "type": "string",
       "pattern": "^https://\\S+$"
+    },
+    "path": {
+      "description": "Directory inside the repository that holds the provider's config/ and scripts/, for a repository with several providers (e.g. `acme-gpu`). Omit it when they are at the repository root. Relative, without `.` or `..` segments.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$"
     },
     "commit": {
       "description": "Full 40-character commit SHA that was validated; `isvctl provider fetch` checks out exactly this commit.",

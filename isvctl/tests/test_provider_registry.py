@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 
 from isvctl.cli import provider as provider_cli
 from isvctl.cli import test as test_cli
+from isvctl.config.label_discovery import list_providers
 from isvctl.config.provider_registry import (
     Maintainer,
     ProviderRegistryError,
@@ -25,8 +26,8 @@ from isvctl.config.provider_registry import (
     ensure_fetched,
     load_registry,
     load_registry_skipping_invalid,
-    mark_fetched,
 )
+from isvctl.config.suite_resolution import mark_fetched, provider_dir
 from isvctl.orchestrator.loop import OrchestratorResult, Phase, PhaseResult
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -79,6 +80,7 @@ def test_loads_valid_entry(tmp_path: Path) -> None:
     [entry] = load_registry(_configs_root(tmp_path, {"acme.yaml": _entry()}))
 
     assert entry.name == "acme"
+    assert entry.path is None
     assert entry.commit == COMMIT
     assert entry.suites == ("vm",)
     assert entry.maintainers == (Maintainer(github="acme-handle", email="oss@acme.example"),)
@@ -117,6 +119,21 @@ def test_rejects_name_that_does_not_match_filename(tmp_path: Path) -> None:
     problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(name="other")}))
 
     assert "acme.yaml: name: 'other' must match the filename 'acme'" in problems
+
+
+def test_accepts_provider_path(tmp_path: Path) -> None:
+    """An entry can point at a provider in a subdirectory of its repository."""
+    [entry] = load_registry(_configs_root(tmp_path, {"acme.yaml": _entry(path="providers/acme-gpu")}))
+
+    assert entry.path == "providers/acme-gpu"
+
+
+@pytest.mark.parametrize("path", ["../acme", "/acme", "acme/../other", ".hidden", "acme/", ""])
+def test_rejects_path_outside_or_hidden(tmp_path: Path, path: str) -> None:
+    """``path`` stays inside the checkout: relative, no ``.``/``..`` or hidden segments."""
+    problems = _problems(_configs_root(tmp_path, {"acme.yaml": _entry(path=path)}))
+
+    assert "path: " in problems
 
 
 def test_every_entry_requires_a_commit(tmp_path: Path) -> None:
@@ -288,6 +305,7 @@ def _registry_entry(repo_url: str, **overrides: Any) -> RegistryEntry:
         vendor="Acme Cloud Inc.",
         description="Acme GPU instances.",
         repo_url=repo_url,
+        path=None,
         commit=COMMIT,
         tested_with="0.13.0",
         suites=("vm",),
@@ -422,6 +440,45 @@ def test_fetch_unknown_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     assert "isvctl provider list --all" in output
 
 
+def _multi_provider_repo(tmp_path: Path) -> tuple[str, str]:
+    """Create a repo holding providers ``gpu`` (vm) and ``cpu`` (network); return its file:// URL and SHA."""
+    repo = tmp_path / "multi"
+    for subdir, suite in (("gpu", "vm"), ("cpu", "network")):
+        (repo / subdir / "config").mkdir(parents=True)
+        (repo / subdir / "config" / f"{suite}.yaml").write_text("tests: {}\n", encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "two providers")
+    return repo.as_uri(), _git(repo, "rev-parse", "HEAD")
+
+
+def test_fetch_provider_in_subdirectory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """With ``path``, the repository is checked out whole and the provider resolves to that subdirectory."""
+    url, commit = _multi_provider_repo(tmp_path)
+    entry = _registry_entry(url, commit=commit, path="gpu")
+
+    exit_code, output = _fetch(monkeypatch, tmp_path, entry, "acme")
+
+    configs_root = tmp_path / "configs"
+    assert exit_code == 0, output
+    assert "Suites: vm" in output
+    assert (_checkout(tmp_path) / "cpu").is_dir()
+    assert provider_dir("acme", configs_root) == _checkout(tmp_path) / "gpu"
+    assert list_providers(configs_root) == ["acme"]
+
+
+def test_fetch_rejects_path_without_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A ``path`` with no config/ directory at the pinned commit fails, and nothing is left behind."""
+    url, commit = _multi_provider_repo(tmp_path)
+    entry = _registry_entry(url, commit=commit, path="missing")
+
+    exit_code, output = _fetch(monkeypatch, tmp_path, entry, "acme")
+
+    assert exit_code == 1
+    assert "has no missing/config/ directory" in output
+    assert list((tmp_path / "configs" / "providers-external").iterdir()) == []
+
+
 def test_fetch_reports_missing_suite_configs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """When no declared suite has a config/<suite>.yaml, the checkout path is printed instead of a command."""
     url, first, _ = _upstream_repo(tmp_path)
@@ -445,7 +502,7 @@ def _fake_checkouts(tmp_path: Path, *names: str) -> Path:
     for name in names:
         (_checkout(tmp_path, name) / "config").mkdir(parents=True)
         (_checkout(tmp_path, name) / ".git").mkdir()
-        mark_fetched(_checkout(tmp_path, name))
+        mark_fetched(_checkout(tmp_path, name), None)
     return _checkout(tmp_path, names[0]).parent
 
 

@@ -20,7 +20,7 @@ import re
 import shlex
 import shutil
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated
 
 import typer
@@ -33,9 +33,7 @@ from isvctl.config.env_catalog import DEMO_MODE_ENV
 from isvctl.config.provider_registry import (
     RegistryEntry,
     fetch_state,
-    is_fetched_checkout,
     load_registry_skipping_invalid,
-    mark_fetched,
     registry_entry_path,
     run_git,
 )
@@ -43,6 +41,9 @@ from isvctl.config.suite_resolution import (
     CONFIGS_ROOT,
     EXTERNAL_PROVIDERS_DIRNAME,
     external_provider_dir,
+    is_fetched_checkout,
+    mark_fetched,
+    provider_dir,
 )
 
 app = typer.Typer(
@@ -283,6 +284,7 @@ name: {provider_name}  # must match the file name
 vendor: "<legal entity that maintains this provider>"
 description: "<one sentence describing the provider>"
 repo_url: "<https clone URL of this repository>"
+# path: {provider_name}  # only if config/ and scripts/ are in this directory, not at the repository root
 commit: "<validated commit, from git rev-parse HEAD>"
 tested_with: "{__version__}"  # ai-cloud-validation release you validated against, without a leading v
 suites: [{", ".join(suites)}]  # keep only the suites you implement
@@ -450,12 +452,12 @@ def _fetch_revision(repo_url: str, revision: str, checkout_dir: Path) -> str:
     return run_git("rev-parse", "HEAD", cwd=checkout_dir)
 
 
-def _print_fetch_next_steps(entry: RegistryEntry, checkout_dir: Path) -> None:
+def _print_fetch_next_steps(entry: RegistryEntry, provider_root: Path) -> None:
     """Print the declared suites the fetched provider ships a config for, and how to run one."""
-    suites = [suite for suite in entry.suites if (checkout_dir / "config" / f"{suite}.yaml").is_file()]
+    suites = [suite for suite in entry.suites if (provider_root / "config" / f"{suite}.yaml").is_file()]
     if not suites:
         typer.echo(f"No config/<suite>.yaml found for suites {', '.join(entry.suites)}.")
-        typer.echo(f"See {_display_path(checkout_dir)} for the provider's configs.")
+        typer.echo(f"See {_display_path(provider_root)} for the provider's configs.")
         return
     typer.echo(f"Suites: {', '.join(suites)}")
     if entry.status == "demo":
@@ -506,11 +508,14 @@ def fetch_cmd(
         head = _fetch_revision(entry.repo_url, entry.commit, staging)
         if head != entry.commit:
             raise RuntimeError(f"checked out {head}, but the registry pins {entry.commit}")
+        config_dir = PurePosixPath(entry.path or ".") / "config"
+        if not (staging / config_dir).is_dir():
+            raise RuntimeError(f"the repository has no {config_dir}/ directory at that commit")
     except RuntimeError as exc:
         shutil.rmtree(staging, ignore_errors=True)
         print_error(f"Could not fetch '{name}' from {entry.repo_url}: {exc}")
         raise typer.Exit(code=1) from exc
-    mark_fetched(staging)
+    mark_fetched(staging, entry.path)
 
     previous = staging.with_name(f"{staging.name}-previous") if target.exists() else None
     if previous is not None:
@@ -525,7 +530,7 @@ def fetch_cmd(
         shutil.rmtree(previous)
 
     typer.echo(f"Fetched {name} at {head[:12]} into {_display_path(target)}")
-    _print_fetch_next_steps(entry, target)
+    _print_fetch_next_steps(entry, provider_dir(entry.name, CONFIGS_ROOT))
 
 
 @app.command("remove")
