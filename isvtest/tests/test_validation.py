@@ -16,13 +16,13 @@
 """Tests for validation module."""
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from isvtest.core.runners import CommandResult
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, check_required_tests
 from isvtest.tests.test_validations import (
     _validation_results,
     clear_validation_results,
@@ -31,8 +31,9 @@ from isvtest.tests.test_validations import (
     test_validation as run_validation_entry_point,
 )
 from isvtest.validations.bm_host_status import BmHostStatusLogCheck
-from isvtest.validations.generic import FieldValueCheck
+from isvtest.validations.generic import CrudOperationsCheck, FieldValueCheck
 from isvtest.validations.instance import (
+    BmTopologyPlacementCheck,
     InstanceListCheck,
     InstancePowerCycleCheck,
     InstanceStartCheck,
@@ -48,16 +49,26 @@ from isvtest.validations.network import (
     ImexServicePresenceCheck,
     ImexServiceResilienceCheck,
     LocalizedDnsCheck,
+    NetworkConnectivityCheck,
     NvlinkDomainCheck,
     SgPolicyPropagationTimingCheck,
     SgPortSecurityPolicyCheck,
     StableEgressIpCheck,
     StablePrivateIpCheck,
     StorageL3RoutingCheck,
+    SubnetConfigCheck,
+    VpcIsolationCheck,
     VpcPeeringCheck,
 )
 from isvtest.validations.nim import NimHealthCheck, NimInferenceCheck, NimModelCheck
-from isvtest.validations.security import VirtualDeviceHardeningCheck, VmConsoleRbacCheck
+from isvtest.validations.observability import TelemetryDeliveryLatencyCheck, VpcFlowLogsCheck
+from isvtest.validations.security import (
+    CentralizedKmsCheck,
+    CertRotationCycleCheck,
+    ShortLivedCredentialsCheck,
+    VirtualDeviceHardeningCheck,
+    VmConsoleRbacCheck,
+)
 
 
 class ConcreteValidation(BaseValidation):
@@ -225,6 +236,61 @@ class TestBaseValidation:
         validation = ConcreteValidation()
         assert validation.log is not None
         assert validation.log.name == "ConcreteValidation"
+
+
+class TestCheckRequiredTests:
+    """Tests for check_required_tests skip/fail propagation."""
+
+    @staticmethod
+    def _validation(tests: dict[str, Any]) -> ConcreteValidation:
+        return ConcreteValidation(config={"step_output": {"tests": tests}})
+
+    def test_all_passed_returns_true(self) -> None:
+        validation = self._validation({"a": {"passed": True}, "b": {"passed": True}})
+        assert check_required_tests(validation, ["a", "b"], "label") is True
+
+    def test_skipped_subcheck_skips_parent(self) -> None:
+        """A skipped sub-check must not count as a pass, even with passed=True."""
+        validation = self._validation(
+            {"a": {"passed": True}, "b": {"passed": True, "skipped": True, "skip_reason": "not exposed"}}
+        )
+        with pytest.raises(pytest.skip.Exception, match="b: not exposed"):
+            check_required_tests(validation, ["a", "b"], "label")
+
+    def test_skipped_without_passed_skips_parent(self) -> None:
+        validation = self._validation({"a": {"skipped": True, "message": "n/a"}})
+        with pytest.raises(pytest.skip.Exception, match="a: n/a"):
+            check_required_tests(validation, ["a"], "label")
+
+    def test_failure_wins_over_skip(self) -> None:
+        validation = self._validation({"a": {"passed": False, "error": "boom"}, "b": {"skipped": True}})
+        assert check_required_tests(validation, ["a", "b"], "label") is False
+        assert validation._error == "label: a: boom"
+
+    def test_unrequired_skipped_subcheck_ignored(self) -> None:
+        validation = self._validation({"a": {"passed": True}, "extra": {"skipped": True}})
+        assert check_required_tests(validation, ["a"], "label") is True
+
+    def test_reports_each_required_entry_as_subtest(self) -> None:
+        validation = self._validation(
+            {
+                "a": {"passed": True, "message": "ok"},
+                "b": {"passed": False, "error": "boom"},
+                "c": {"passed": True, "skipped": True, "skip_reason": "n/a"},
+                "extra": {"passed": True},
+            }
+        )
+        check_required_tests(validation, ["a", "b", "c"], "label")
+        assert [(r["name"], r["passed"], r["skipped"], r["message"]) for r in validation._subtest_results] == [
+            ("a", True, False, "ok"),
+            ("b", False, False, "boom"),
+            ("c", False, True, "n/a"),
+        ]
+
+    def test_custom_key(self) -> None:
+        validation = ConcreteValidation(config={"step_output": {"operations": {"get": {"skipped": True}}}})
+        with pytest.raises(pytest.skip.Exception, match="get: skipped"):
+            check_required_tests(validation, ["get"], "label", key="operations")
 
 
 class TestInstanceListCheck:
@@ -1280,6 +1346,21 @@ class TestFloatingIpCheck:
             "verify_on_a": {"passed": True},
             "reassociate_to_b": {"passed": True, "switch_seconds": 15.0},
             "verify_on_b": {"passed": True},
+            "verify_not_on_a": {"passed": True},
+        }
+        v = FloatingIpCheck(config={**_sdn_step_output(tests), "max_switch_seconds": 10})
+        result = v.execute()
+        assert result["passed"] is False
+        assert "15.0" in result["error"]
+
+    def test_slow_switch_fails_even_when_an_entry_is_skipped(self) -> None:
+        """A skipped entry must not turn a switch-time violation into a skip."""
+        tests = {
+            "allocate_eip": {"passed": True, "public_ip": "54.1.2.3"},
+            "associate_to_a": {"passed": True},
+            "verify_on_a": {"passed": True},
+            "reassociate_to_b": {"passed": True, "switch_seconds": 15.0},
+            "verify_on_b": {"skipped": True, "skip_reason": "n/a"},
             "verify_not_on_a": {"passed": True},
         }
         v = FloatingIpCheck(config={**_sdn_step_output(tests), "max_switch_seconds": 10})
@@ -3150,3 +3231,152 @@ class TestVcpuPinningCheckLocalMode:
 
         assert result["passed"] is False
         assert "Missing host or key_file" in result["error"]
+
+
+class TestFixedRequiredEntries:
+    """Checks that used to require every emitted entry now require a fixed set."""
+
+    @staticmethod
+    def _subnet_config(tests: dict[str, Any]) -> dict[str, Any]:
+        return {"step_output": {"tests": tests, "subnets": [{}, {}]}, "require_multi_az": False}
+
+    SUBNET_TESTS: ClassVar[dict[str, dict[str, Any]]] = {
+        "create_vpc": {"passed": True},
+        "create_subnets": {"passed": True},
+        "az_distribution": {"passed": True, "azs": ["a", "b"]},
+        "subnets_available": {"passed": True},
+        "route_table_exists": {"passed": True},
+    }
+
+    def test_subnet_config_passes_with_required_entries(self) -> None:
+        result = SubnetConfigCheck(config=self._subnet_config(dict(self.SUBNET_TESTS))).execute()
+        assert result["passed"] is True
+
+    def test_subnet_config_fails_on_missing_required_entry(self) -> None:
+        tests = {k: v for k, v in self.SUBNET_TESTS.items() if k != "route_table_exists"}
+        result = SubnetConfigCheck(config=self._subnet_config(tests)).execute()
+        assert result["passed"] is False
+        assert "route_table_exists: test not found" in result["error"]
+
+    def test_subnet_config_ignores_skipped_unrequired_entry(self) -> None:
+        tests = {**self.SUBNET_TESTS, "ipv6_assigned": {"passed": True, "skipped": True}}
+        result = SubnetConfigCheck(config=self._subnet_config(tests)).execute()
+        assert result["passed"] is True
+
+    def test_vpc_isolation_requires_both_sg_isolation_entries(self) -> None:
+        tests = {name: {"passed": True} for name in ("no_peering", "no_cross_routes_a", "no_cross_routes_b")}
+        tests["sg_isolation_a"] = {"passed": True}
+        result = VpcIsolationCheck(config={"step_output": {"tests": tests}}).execute()
+        assert result["passed"] is False
+        assert "sg_isolation_b: test not found" in result["error"]
+
+    def test_network_connectivity_requires_connectivity_tests(self) -> None:
+        step_output = {"instances": [{"private_ip": "10.0.0.1"}]}
+        result = NetworkConnectivityCheck(config={"step_output": step_output}).execute()
+        assert result["passed"] is False
+        assert "No 'tests' in step output" in result["error"]
+
+    def test_topology_placement_requires_every_operation(self) -> None:
+        step_output = {
+            "instance_id": "i-1",
+            "placement_supported": True,
+            "operations": {name: {"passed": True} for name in ("create_group", "verify_instance", "describe_group")},
+        }
+        result = BmTopologyPlacementCheck(config={"step_output": step_output}).execute()
+        assert result["passed"] is False
+        assert "delete_group: test not found" in result["error"]
+
+    @pytest.mark.parametrize(
+        ("check_class", "step_output", "expected_error"),
+        [
+            (
+                SgPolicyPropagationTimingCheck,
+                {
+                    "tests": {
+                        **{n: {"passed": True} for n in ("create_probe_rule", "rule_observed", "revoke_probe_rule")},
+                        "removal_observed": {"skipped": True},
+                        "cleanup": {"passed": True},
+                    },
+                    "target_rule_id": "sg-1",
+                    "add_observed_seconds": 45,
+                    "remove_observed_seconds": 1,
+                    "max_propagation_seconds": 10,
+                },
+                "add 45.00s exceeds 10.00s",
+            ),
+            (
+                VpcFlowLogsCheck,
+                {
+                    "tests": {
+                        "flow_log_endpoint_reachable": {"passed": True},
+                        "flow_logs_configured": {"passed": True},
+                        "traffic_type_all": {"passed": True, "probes": {"traffic_type": "REJECT"}},
+                        "log_destination_accessible": {"skipped": True},
+                    }
+                },
+                "traffic_type='REJECT'",
+            ),
+            (
+                TelemetryDeliveryLatencyCheck,
+                {
+                    "tests": {
+                        "telemetry_endpoint_reachable": {"passed": True},
+                        "delivery_sample_present": {"passed": True, "probes": {"observed_delivery_seconds": 500}},
+                        "delivery_within_threshold": {"skipped": True},
+                    }
+                },
+                "500s exceeds threshold 120s",
+            ),
+            (
+                CentralizedKmsCheck,
+                {
+                    "tests": {
+                        "kms_service_reachable": {"passed": True},
+                        "kms_keys_present": {"passed": True},
+                        "all_encrypted_resources_use_kms": {"skipped": True},
+                    },
+                    "non_kms_resources": 3,
+                },
+                "3 encrypted resource(s) not using KMS",
+            ),
+            (
+                CertRotationCycleCheck,
+                {
+                    "tests": {
+                        "cert_inventory_non_empty": {"passed": True},
+                        "no_certs_out_of_policy": {"skipped": True},
+                        "rotation_evidence_present": {"passed": True},
+                    },
+                    "out_of_policy": 2,
+                },
+                "2 out-of-policy certificate(s)",
+            ),
+            (
+                ShortLivedCredentialsCheck,
+                {
+                    "tests": {
+                        "node_credential_has_expiry": {"passed": True},
+                        "node_credential_ttl_within_bound": {"skipped": True},
+                        "workload_credential_has_expiry": {"passed": True},
+                        "workload_credential_ttl_within_bound": {"passed": True},
+                    },
+                    "max_ttl_seconds": 3600,
+                    "node_credential_ttl_seconds": 86400,
+                    "workload_credential_ttl_seconds": 900,
+                },
+                "node_credential_ttl_seconds=86400s exceeds max_ttl_seconds=3600s",
+            ),
+        ],
+    )
+    def test_skipped_entry_does_not_hide_a_limit_violation(
+        self, check_class: type[BaseValidation], step_output: dict[str, Any], expected_error: str
+    ) -> None:
+        result = check_class(config={"step_output": step_output}).execute()
+        assert result["passed"] is False
+        assert expected_error in result["error"]
+
+    def test_crud_operations_requires_operations_list(self) -> None:
+        step_output = {"operations": {"get": {"passed": True}}}
+        result = CrudOperationsCheck(config={"step_output": step_output}).execute()
+        assert result["passed"] is False
+        assert "`operations` must list" in result["error"]

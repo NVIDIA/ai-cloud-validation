@@ -116,6 +116,13 @@ class VpcFlowLogsCheck(BaseValidation):
 
     def run(self) -> None:
         """Validate required VPC Flow Log results and evidence."""
+        probes = _merged_probes(self)
+        # Checked before the required tests so a skipped entry cannot hide a policy violation.
+        reported_type = probes.get("traffic_type")
+        if _is_non_empty_string(reported_type) and str(reported_type).upper() != "ALL":
+            self.set_failed(f"VPC Flow Logs must capture ALL traffic, got traffic_type={str(reported_type).upper()!r}")
+            return
+
         required = [
             "flow_log_endpoint_reachable",
             "flow_logs_configured",
@@ -124,17 +131,12 @@ class VpcFlowLogsCheck(BaseValidation):
         ]
         if not check_required_tests(self, required, "VPC Flow Log tests failed"):
             return
-        probes = _merged_probes(self)
         if not _require_non_empty_strings(
             self, probes, ["network_id", "log_destination", "traffic_type"], "VPC Flow Log"
         ):
             return
 
         traffic_type = str(probes["traffic_type"]).upper()
-        if traffic_type != "ALL":
-            self.set_failed(f"VPC Flow Logs must capture ALL traffic, got traffic_type={traffic_type!r}")
-            return
-
         self.set_passed(
             f"VPC Flow Logs available for {probes['network_id']} "
             f"(destination={probes['log_destination']}, traffic_type={traffic_type})"
@@ -447,25 +449,26 @@ class TelemetryDeliveryLatencyCheck(BaseValidation):
 
     def run(self) -> None:
         """Validate telemetry delivery latency results and evidence."""
-        required = ["telemetry_endpoint_reachable", "delivery_sample_present", "delivery_within_threshold"]
-        if not check_required_tests(self, required, "Telemetry delivery latency tests failed"):
-            return
-        probes = _merged_probes(self)
-        if not _require_non_empty_strings(self, probes, ["telemetry_source"], "telemetry delivery"):
-            return
-        if not _require_non_negative_int(self, probes, "observed_delivery_seconds", "telemetry delivery"):
-            return
-
         max_delivery_seconds = self._parse_positive_int("max_delivery_seconds", default=120)
         if max_delivery_seconds is None:
             return
 
-        observed = probes["observed_delivery_seconds"]
-        if observed > max_delivery_seconds:
+        probes = _merged_probes(self)
+        # Checked before the required tests so a skipped entry cannot hide a latency violation.
+        observed = probes.get("observed_delivery_seconds")
+        if type(observed) is int and observed > max_delivery_seconds:
             self.set_failed(
                 f"Telemetry delivery latency {observed}s exceeds threshold {max_delivery_seconds}s "
-                f"via {probes['telemetry_source']}"
+                f"via {probes.get('telemetry_source') or 'unknown source'}"
             )
+            return
+
+        required = ["telemetry_endpoint_reachable", "delivery_sample_present", "delivery_within_threshold"]
+        if not check_required_tests(self, required, "Telemetry delivery latency tests failed"):
+            return
+        if not _require_non_empty_strings(self, probes, ["telemetry_source"], "telemetry delivery"):
+            return
+        if not _require_non_negative_int(self, probes, "observed_delivery_seconds", "telemetry delivery"):
             return
 
         self.set_passed(

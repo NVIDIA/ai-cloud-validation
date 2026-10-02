@@ -378,6 +378,13 @@ class CentralizedKmsCheck(BaseValidation):
 
     def run(self) -> None:
         """Validate required centralized-KMS results from step output."""
+        step_output = self.config.get("step_output", {})
+        # Checked before the required tests so a skipped entry cannot hide a policy violation.
+        non_kms_resources = step_output.get("non_kms_resources")
+        if type(non_kms_resources) is int and non_kms_resources != 0:
+            self.set_failed(f"Centralized KMS found {non_kms_resources} encrypted resource(s) not using KMS")
+            return
+
         required = [
             "kms_service_reachable",
             "kms_keys_present",
@@ -386,18 +393,13 @@ class CentralizedKmsCheck(BaseValidation):
         if not check_required_tests(self, required, "Centralized KMS tests failed"):
             return
 
-        step_output = self.config.get("step_output", {})
         kms_keys_total = step_output.get("kms_keys_total")
         if type(kms_keys_total) is not int or kms_keys_total < 1:
             self.set_failed("Centralized KMS output missing positive 'kms_keys_total'")
             return
 
-        non_kms_resources = step_output.get("non_kms_resources")
         if type(non_kms_resources) is not int:
             self.set_failed("Centralized KMS output missing integer 'non_kms_resources'")
-            return
-        if non_kms_resources != 0:
-            self.set_failed(f"Centralized KMS found {non_kms_resources} encrypted resource(s) not using KMS")
             return
 
         inspected = step_output.get("encrypted_resources_inspected")
@@ -430,6 +432,12 @@ class CertRotationCycleCheck(BaseValidation):
         if step_output.get("skipped") is True:
             pytest.skip(step_output.get("skip_reason") or "Certificate rotation validation skipped")
 
+        # Checked before the required tests so a skipped entry cannot hide a policy violation.
+        out_of_policy = step_output.get("out_of_policy")
+        if type(out_of_policy) is int and out_of_policy != 0:
+            self.set_failed(f"Certificate rotation found {out_of_policy} out-of-policy certificate(s)")
+            return
+
         required = [
             "cert_inventory_non_empty",
             "no_certs_out_of_policy",
@@ -448,12 +456,8 @@ class CertRotationCycleCheck(BaseValidation):
             self.set_failed("Certificate rotation output missing integer 'rotation_window_days' in range 1..60")
             return
 
-        out_of_policy = step_output.get("out_of_policy")
         if type(out_of_policy) is not int:
             self.set_failed("Certificate rotation output missing integer 'out_of_policy'")
-            return
-        if out_of_policy != 0:
-            self.set_failed(f"Certificate rotation found {out_of_policy} out-of-policy certificate(s)")
             return
 
         self.set_passed(
@@ -810,6 +814,16 @@ class ShortLivedCredentialsCheck(BaseValidation):
         if step_output.get("skipped") is True:
             pytest.skip(step_output.get("skip_reason") or "Short-lived credentials validation skipped (not configured)")
 
+        ttl_fields = ("node_credential_ttl_seconds", "workload_credential_ttl_seconds")
+        max_ttl = step_output.get("max_ttl_seconds")
+        # Checked before the required tests so a skipped entry cannot hide a TTL violation.
+        if type(max_ttl) is int and max_ttl >= 1:
+            for field in ttl_fields:
+                value = step_output.get(field)
+                if type(value) is int and value > max_ttl:
+                    self.set_failed(f"{field}={value}s exceeds max_ttl_seconds={max_ttl}s")
+                    return
+
         required = [
             "node_credential_has_expiry",
             "node_credential_ttl_within_bound",
@@ -819,18 +833,14 @@ class ShortLivedCredentialsCheck(BaseValidation):
         if not check_required_tests(self, required, "Short-lived credentials tests failed"):
             return
 
-        max_ttl = step_output.get("max_ttl_seconds")
         if type(max_ttl) is not int or max_ttl < 1:
             self.set_failed("Short-lived credentials output missing positive int 'max_ttl_seconds'")
             return
 
-        for field in ("node_credential_ttl_seconds", "workload_credential_ttl_seconds"):
+        for field in ttl_fields:
             value = step_output.get(field)
             if type(value) is not int or value < 1:
                 self.set_failed(f"Short-lived credentials output missing positive int '{field}'")
-                return
-            if value > max_ttl:
-                self.set_failed(f"{field}={value}s exceeds max_ttl_seconds={max_ttl}s")
                 return
 
         node_ttl = step_output["node_credential_ttl_seconds"]

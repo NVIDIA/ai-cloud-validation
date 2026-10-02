@@ -16,6 +16,7 @@
 """Tests for composite checks."""
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -250,6 +251,67 @@ class TestCompositeCheck:
             composite.execute()
 
         assert composite._subtest_results == []
+
+    def test_member_subtests_go_through_the_parent_fixture(self) -> None:
+        """A member's own subtests are emitted once, through the composite's fixture."""
+        composite = CompositeCheck(
+            config=_config(
+                [{"CrudOperationsCheck": {"operations": ["put", "get"]}}],
+                step_output={"success": True, "operations": {"put": {"passed": True}, "get": {"passed": True}}},
+            )
+        )
+        composite._subtests = MagicMock()
+        composite.execute()
+
+        emitted = [c.kwargs["msg"] for c in composite._subtests.test.call_args_list]
+        assert emitted == ["put", "get", "CrudOperationsCheck"]
+
+    def test_member_skip_does_not_hide_an_earlier_failure(self) -> None:
+        """A skipping member records a skipped subtest; other members' failures still fail the composite."""
+        composite = CompositeCheck(
+            config=_config(
+                ["StepSuccessCheck", {"CrudOperationsCheck": {"operations": ["put"]}}],
+                step_output={"success": False, "error": "boom", "operations": {"put": {"skipped": True}}},
+            )
+        )
+        result = composite.execute()
+
+        assert result["passed"] is False
+        assert "StepSuccessCheck: Step failed: boom" in result["error"]
+        assert [(sub["name"], sub["skipped"]) for sub in composite._subtest_results] == [
+            ("StepSuccessCheck", False),
+            ("CrudOperationsCheck", True),
+        ]
+
+    def test_member_skip_does_not_stop_later_members(self) -> None:
+        """Members after a skipping one still run, and a later failure still fails the composite."""
+        composite = CompositeCheck(
+            config=_config(
+                [{"CrudOperationsCheck": {"operations": ["put"]}}, {"FieldExistsCheck": {"fields": ["missing"]}}],
+                step_output={"success": True, "operations": {"put": {"skipped": True}}},
+            )
+        )
+        result = composite.execute()
+
+        assert result["passed"] is False
+        assert "FieldExistsCheck: Missing fields: missing" in result["error"]
+        assert [sub["name"] for sub in composite._subtest_results] == ["CrudOperationsCheck", "FieldExistsCheck"]
+
+    def test_skips_when_a_member_skips_and_none_fail(self) -> None:
+        """With no failures, a skipping member skips the composite with its reason."""
+        composite = CompositeCheck(
+            config=_config(
+                ["StepSuccessCheck", {"CrudOperationsCheck": {"operations": ["put"]}}],
+                step_output={"success": True, "operations": {"put": {"skipped": True, "skip_reason": "n/a"}}},
+            )
+        )
+        with pytest.raises(pytest.skip.Exception, match="CrudOperationsCheck: Required test\\(s\\) skipped: put: n/a"):
+            composite.execute()
+
+        assert [(sub["name"], sub["skipped"]) for sub in composite._subtest_results] == [
+            ("StepSuccessCheck", False),
+            ("CrudOperationsCheck", True),
+        ]
 
     def test_generic_checks_are_marked_compose_only(self) -> None:
         """The generic checks describe a mechanism, so they need a composite.
