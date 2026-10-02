@@ -68,7 +68,8 @@ class _LaunchKitSuiteCheck(BaseValidation):
         skip_reasons: list[str] = []
         executed = 0
         for case, duration in zip(cases, durations, strict=True):
-            case_name = case.get("name", "unnamed")
+            # Native case names repeat their suite name, which is already this test's name.
+            case_name = case.get("name", "unnamed").removeprefix(f"{name}::")
             skipped = case.find("skipped") is not None
             problems = [*case.findall("failure"), *case.findall("error")]
             messages = [

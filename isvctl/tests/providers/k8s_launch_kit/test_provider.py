@@ -1171,6 +1171,8 @@ def test_catalog_names_reach_standard_junit(tmp_path: Path) -> None:
     assert result.success
     cases = {case.get("name"): case for case in ET.parse(junit).getroot().iter("testcase")}
     assert set(_CATALOG_TESTS) <= set(cases)
+    assert "K8sEastWestNetworkICMPPing-ethernet::probe-0" in cases
+    assert not any(f"{name}::{name}::" in case_name for name in _CATALOG_TESTS for case_name in cases)
     for name in _CATALOG_TESTS:
         skipped = cases[name].find("skipped")
         if name.endswith("-infiniband"):
