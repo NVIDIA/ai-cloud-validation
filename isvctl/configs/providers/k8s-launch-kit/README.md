@@ -94,5 +94,30 @@ prefix.
 Semantic assertions belong in
 `isvtest.validations.k8s_launch_kit`, not the transport.
 
+## Rules for changes
+
+- Do not add prepare, verify, preflight, discover, generate, deploy, clean, or
+  other finalizer steps to `config/network-operator.yaml`.
+- Workflow settings stay raw argument arrays. Do not model or duplicate Launch
+  Kit flags, schema, or defaults, and never parse the user config (infer fabric
+  from native JUnit suite names).
+- Missing or malformed JUnit, no executed connectivity cases, or a failed
+  command must fail, never pass vacuously. The validate step declares
+  `requires_selected_validations` so command failures are reported on the
+  owning catalog validation.
+- Do not invent results or reinterpret Launch Kit's verdict.
+- `l8k clean` is the only supported deletion path; never reproduce Launch Kit
+  cleanup with kubectl.
+
+## Tests and traceability
+
+- Provider tests in `isvctl/tests/providers/k8s_launch_kit/` load the
+  production YAML and inject the test-owned executables from `fixtures/`.
+- Result interpretation tests live in `isvtest/tests/k8s_launch_kit/`.
+- The PRD source is
+  `docs/requirements/network-operator-readiness-requirements.yaml`; its
+  traceability edges live in `docs/requirements/test-requirements-matrix.yaml`.
+  Regenerate committed views with `make plan`.
+
 See the [Network Operator integration guide](../../../../docs/guides/k8s-launch-kit/network-operator.md)
 for prerequisites, invocation, output, and evidence layout.
