@@ -22,10 +22,20 @@ make test              # run tests
 make demo-test         # run all my-isv configs end-to-end (ISVCTL_DEMO_MODE=1, ~10s, no cloud)
 make lint              # ruff
 make format            # ruff format
+make pre-commit        # pre-commit across all packages
 make plan              # render docs/test-plan.yaml to AsciiDoc + interactive HTML
 uv run isvctl test run -f isvctl/configs/suites/k8s.yaml          # canonical invocation
 uv run isvctl test run -f config.yaml -- -v -s -k "test_name"     # forward pytest args
 ```
+
+`make test` plus pre-commit are the verification commands - prefer them over hand-rolled
+`pytest` invocations. `isvtest` must be run as `pytest -m unit`: the `unit` marker is
+auto-applied only to `isvtest/tests/`, so a bare `pytest` also collects tests that wait
+on a live cluster and hang without one.
+
+For pre-commit, `make pre-commit` and `uvx pre-commit run -a` are equivalent - there is a
+single root `.pre-commit-config.yaml` and `-a` covers the whole repo, so the per-package
+loop in `make pre-commit` runs the same hooks over the same files three times.
 
 ## Step-Based Execution Model
 
@@ -262,6 +272,12 @@ routing reuses `redaction.is_secret_env_var`. The "Flags" group is non-persistab
 `test run`, `test validate`, and `doctor` apply both files (unless
 `--no-user-config`) via `cli/common.apply_user_config`, and an already-exported
 var always wins (process env > files > defaults).
+
+## Pull Requests
+
+Do not open PRs autonomously. A human must drive the work, confirm the problem
+themselves, and supply verification evidence (before/after logs, and what was or was
+not run on a live cluster). See "AI-Assisted Contributions" in `CONTRIBUTING.md`.
 
 ## Cursor Cloud specific instructions
 

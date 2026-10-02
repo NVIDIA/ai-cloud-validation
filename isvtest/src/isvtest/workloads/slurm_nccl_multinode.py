@@ -83,7 +83,7 @@ class SlurmNcclMultiNodeWorkload(BaseWorkloadCheck):
         gpus_per_node (int): GPUs per node (default: auto-detect from GRES, fallback 8)
         min_bus_bw_gbps (float): Minimum expected bus bandwidth in GB/s (default: 0 = no check)
         timeout (int): Job timeout in seconds (default: 900 via env)
-        image (str): Container image (default: nvcr.io/nvidia/hpc-benchmarks:25.04)
+        image (str): Container image (default: get_nccl_hpc_image())
         container_runtime (str): "enroot" | "pyxis" | "singularity" | "docker"
             (default: auto-detect, enroot > singularity > docker)
         quick_mode (bool): Use reduced message sizes for faster execution (default: False)

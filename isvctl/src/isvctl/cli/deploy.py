@@ -62,6 +62,17 @@ DEFAULT_ARCHIVE_PATHS = [
     "uv.lock",
 ]
 
+# Remote trees removed before each extract so files deleted locally don't linger:
+# every module under src/ is auto-imported and every suite feeds the catalog.
+# Provider directories are kept because they can hold Terraform state created on
+# the remote, which the archive excludes.
+REMOTE_REPLACED_DIRS = [
+    "isvtest/src",
+    "isvreporter/src",
+    "isvctl/src",
+    "isvctl/configs/suites",
+]
+
 app = typer.Typer(
     name="deploy",
     help="Deploy to remote machine and run validation tests",
@@ -77,6 +88,18 @@ def _pytest_passthrough(args: list[str]) -> str:
     option and fails the run before pytest sees it.
     """
     return f"-- {shlex.join(args)}" if args else ""
+
+
+def _clear_replaced_dirs_script() -> str:
+    """Render the remote shell that removes the trees the archive fully replaces."""
+    dirs = " ".join(shlex.quote(d) for d in REMOTE_REPLACED_DIRS)
+    return (
+        f"for dir in {dirs}; do\n"
+        '    if [ -e "$dir" ]; then\n'
+        '        sudo rm -rf "$dir" 2>/dev/null || rm -rf "$dir" || { echo "Failed to remove $dir" >&2; exit 1; }\n'
+        "    fi\n"
+        "done"
+    )
 
 
 def _capability_option(capability: str | None) -> str:
@@ -512,6 +535,8 @@ def run(
 export PATH="$HOME/.local/bin:$PATH"
 
 cd "{effective_remote_dir}"
+echo "Removing previous source trees..."
+{_clear_replaced_dirs_script()}
 echo "Extracting archive..."
 tar -xzf "{archive_name}"
 

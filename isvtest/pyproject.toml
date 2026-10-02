@@ -1,6 +1,6 @@
 [project]
 name = "isvtest"
-version = "0.12.0"
+version = "0.13.0"
 description = "NV ISV Lab tests"
 readme = "README.md"
 license = "Apache-2.0"
@@ -9,7 +9,6 @@ requires-python = ">=3.12"
 dependencies = [
     "attrs>=25.4.0,<26.0.0",
     "boto3>=1.35.0",
-    "cupy-cuda12x>=13.6.0; sys_platform == 'linux'",
     "isvreporter",
     "jinja2>=3.1.6,<4.0.0",
     "kubernetes>=30.1.0",

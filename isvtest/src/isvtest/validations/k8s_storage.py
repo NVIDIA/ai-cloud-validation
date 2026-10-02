@@ -47,6 +47,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
+import pytest
 from kubernetes.utils import parse_quantity
 
 from isvtest.config.settings import (
@@ -56,6 +57,7 @@ from isvtest.config.settings import (
 )
 from isvtest.core.k8s import (
     KubectlParseError,
+    command_detail,
     get_kubectl_base_shell,
     get_kubectl_command,
     parse_kubectl_json,
@@ -118,7 +120,7 @@ def _get_pvc_json(run_command, kubectl_base: str, namespace: str, pvc_name: str)
     cmd = f"{kubectl_base} get pvc {shlex.quote(pvc_name)} -n {shlex.quote(namespace)} -o json"
     result = run_command(cmd)
     if result.exit_code != 0:
-        return None, result.stderr.strip() or result.stdout.strip() or f"exit code {result.exit_code}"
+        return None, command_detail(result)
     try:
         return parse_kubectl_json(result, f"PVC {pvc_name!r}"), ""
     except KubectlParseError as exc:
@@ -217,11 +219,7 @@ def _collect_storage_diagnostics(
                 break
             try:
                 result = run_command(command, timeout=min(_DIAGNOSTIC_COMMAND_TIMEOUT, max(1, int(remaining))))
-                output = (
-                    result.stdout
-                    if result.exit_code == 0
-                    else (result.stderr or result.stdout or f"command exited {result.exit_code}")
-                )
+                output = result.stdout if result.exit_code == 0 else command_detail(result)
             except Exception as exc:
                 output = f"diagnostic command failed: {type(exc).__name__}: {exc}"
             sections.append(_bounded_diagnostic_section(section_label, output))
@@ -326,8 +324,7 @@ class K8sCsiStorageTypesCheck(BaseValidation):
                 configured[type_name] = sc_name
 
         if not configured:
-            self.set_passed("Skipped: no StorageClass configured for block/shared-fs/nfs")
-            return
+            pytest.skip("No StorageClass configured for block/shared-fs/nfs")
 
         self._namespace = f"{namespace_prefix}-{uuid.uuid4().hex[:8]}"
         ns_quoted = shlex.quote(self._namespace)
@@ -553,8 +550,7 @@ class K8sCsiStorageQuotaApiCheck(BaseValidation):
         """Drive the four-subtest quota-API probe against a single ephemeral namespace."""
         storage_class = self.config.get("storage_class") or get_k8s_csi_block_storage_class()
         if not storage_class:
-            self.set_passed("Skipped: no storage_class configured")
-            return
+            pytest.skip("No storage_class configured")
 
         total_quota = str(self.config.get("total_quota", "10Gi"))
         per_sc_quota = str(self.config.get("per_sc_quota", "5Gi"))
@@ -1085,8 +1081,7 @@ class K8sCsiTenantScopedCredentialsCheck(BaseValidation):
                 "node-plugin-uses-hostpath-not-shared-mount",
             ):
                 self.report_subtest(name, passed=True, message="No CSIDriver objects present", skipped=True)
-            self.set_passed("Skipped: no CSIDriver objects found")
-            return
+            pytest.skip("No CSIDriver objects found")
 
         # Discover CSI controller/node pods cluster-wide rather than by a
         # configured namespace allowlist - most CSI operators do not
@@ -1660,8 +1655,7 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         ns_prefix = self.config.get("namespace_prefix", "isvtest-csi-prov")
 
         if not dynamic_sc:
-            self.set_passed("Skipped: no dynamic_storage_class configured")
-            return
+            pytest.skip("No dynamic_storage_class configured")
 
         self._namespace = f"{ns_prefix}-{uuid.uuid4().hex[:8]}"
         ns_quoted = shlex.quote(self._namespace)
@@ -2152,8 +2146,7 @@ class K8sCsiConcurrentPvcCheck(BaseValidation):
         """Create N PVCs + consumer pods concurrently, assert all bind to distinct PVs."""
         storage_class = str(self.config.get("storage_class") or get_k8s_csi_block_storage_class() or "")
         if not storage_class:
-            self.set_passed("Skipped: no storage_class configured")
-            return
+            pytest.skip("No storage_class configured")
 
         pvc_count = int(self.config.get("pvc_count", 2))
         if pvc_count < 2:
@@ -2320,8 +2313,7 @@ class K8sCsiPvcExpandCheck(BaseValidation):
         """Provision a PVC, resize it, and assert PV + df reflect the new capacity."""
         storage_class = str(self.config.get("storage_class") or get_k8s_csi_block_storage_class() or "")
         if not storage_class:
-            self.set_passed("Skipped: no storage_class configured")
-            return
+            pytest.skip("No storage_class configured")
 
         initial_size = str(self.config.get("initial_size", "1Gi"))
         expanded_size = str(self.config.get("expanded_size", "2Gi"))
@@ -2350,8 +2342,7 @@ class K8sCsiPvcExpandCheck(BaseValidation):
             skip_msg = f"StorageClass {storage_class!r} does not set allowVolumeExpansion=true"
             for name in ("sc-allows-expansion", "pvc-patch-accepted", "pv-capacity-updated", "df-shows-new-size"):
                 self.report_subtest(name, passed=True, message=skip_msg, skipped=True)
-            self.set_passed(f"Skipped: {skip_msg}")
-            return
+            pytest.skip(skip_msg)
 
         self.report_subtest(
             "sc-allows-expansion",
@@ -2752,8 +2743,7 @@ class K8sCsiDriverHealthCheck(BaseValidation):
         """Resolve each driver spec's StorageClasses to provisioners and run health subtests."""
         sc_to_workloads = self._collect_driver_specs()
         if not sc_to_workloads:
-            self.set_passed("Skipped: no storage_classes configured")
-            return
+            pytest.skip("No storage_classes configured")
 
         min_replicas = self._parse_positive_int("min_controller_replicas", default=1)
         if min_replicas is None:

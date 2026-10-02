@@ -1744,6 +1744,9 @@ domains:
                 notes: ""
                 priority: ""
               - summary: "IMEX: Assert nvidia-imex and nvidia-imex-ctl packages are installed and nvidia-imex.service unit is registered with systemd."
+                labels:
+                  - min_req
+                  - network
                 dependencies:
                   - LimitedEnv
                 milestone: M4
@@ -1754,7 +1757,26 @@ domains:
                 status: approved
                 notes: ""
                 priority: ""
+              - summary: "IMEX (Kubernetes DRA): On a cluster offering multi-node NVLink through the resource-allocation driver, assert the compute-domain device classes are registered and every GPU node in an NVLink clique publishes compute-domain resources through the driver's per-node plugin, without tenant installation."
+                labels:
+                  - kubernetes
+                  - min_req
+                  - network
+                dependencies:
+                  - LimitedEnv
+                milestone: M9
+                notes: The Kubernetes half of SDN17, asserting cluster objects rather than packages on a host. Says nothing about any host IMEX daemon - the driver's two ownership modes disagree on whether one should be running.
+                github_issues:
+                  - "#598"
+                req_id: SDN17
+                test_id: SDN17-02
+                actor: tenant
+                status: approved
+                priority: P0
               - summary: "IMEX: Start nvidia-imex via systemctl start nvidia-imex and assert the service reaches active/ready state."
+                labels:
+                  - min_req
+                  - network
                 dependencies:
                   - LimitedEnv
                 milestone: M4
@@ -1765,7 +1787,27 @@ domains:
                 status: approved
                 notes: ""
                 priority: ""
+              - summary: "IMEX (Kubernetes DRA): On a cluster where the resource-allocation driver owns the IMEX daemon, assert every node of an allocated compute domain runs a driver-started daemon and is a ready domain member, then terminate one daemon in place and assert the driver restores that node to ready membership unaided within a bounded time."
+                labels:
+                  - kubernetes
+                  - min_req
+                  - network
+                  - slow
+                dependencies:
+                  - LimitedEnv
+                milestone: M9
+                notes: The Kubernetes DRA reading of SDN18, asserting cluster objects rather than a host service unit. Destructive - allocates a compute domain, deletes a daemon inside it, and releases the domain afterwards, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service, read from the mode the driver declares rather than from the absence of a daemon.
+                github_issues:
+                  - "#623"
+                req_id: SDN18
+                test_id: SDN18-02
+                actor: tenant
+                status: approved
+                priority: P1
               - summary: "IMEX: Stop nvidia-imex via systemctl stop nvidia-imex and assert clean shutdown (other nodes show disabled node status)."
+                labels:
+                  - min_req
+                  - network
                 dependencies:
                   - LimitedEnv
                 milestone: M4
@@ -1776,7 +1818,28 @@ domains:
                 status: approved
                 notes: ""
                 priority: ""
+              - summary: "IMEX (Kubernetes DRA): Remove one node from an allocated compute domain on purpose, and assert its driver-managed daemon exits cleanly, a surviving member reports the node unavailable within a bounded time, and the domain stays operational among the nodes that remain."
+                labels:
+                  - kubernetes
+                  - min_req
+                  - network
+                  - slow
+                dependencies:
+                  - LimitedEnv
+                milestone: M9
+                notes: The Kubernetes DRA reading of SDN19, asserting cluster objects rather than a host service unit. The departure is a shrink of the domain - withdrawing one node's channel claim - because a drain leaves the driver's DaemonSet pods running and would report a departure that never happened. What peers observed is read from a surviving daemon's own report, never from the domain's record of the departed node, so stale controller bookkeeping is not mistaken for members noticing. Destructive - removes a node from a live domain, restores it, and releases the domain afterwards, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service.
+                github_issues:
+                  - "#624"
+                req_id: SDN19
+                test_id: SDN19-02
+                actor: tenant
+                status: approved
+                priority: P1
               - summary: "IMEX: Enable IMEX at boot with systemctl enable nvidia-imex, reboot, and confirm IMEX starts automatically."
+                labels:
+                  - min_req
+                  - network
+                  - slow
                 dependencies:
                   - LimitedEnv
                 milestone: M4
@@ -3352,6 +3415,7 @@ domains:
                 milestone: ""
               - summary: Pin Control Plane instances to a specific count to handle a particular load-limit
                 labels:
+                  - kubernetes
                   - min_req
                 req_id: K8S27
                 test_id: K8S27-01
@@ -3626,6 +3690,7 @@ domains:
                 milestone: ""
               - summary: Verify provider-default accelerator operators and drivers can be replaced or overridden with tenant-required versions
                 labels:
+                  - kubernetes
                   - min_req
                 notes: ""
                 req_id: K8S25
@@ -3658,22 +3723,26 @@ domains:
             tests:
               - summary: Verify support for the three most recent minor releases (N-2)
                 labels:
+                  - kubernetes
                   - min_req
                 priority: INFO
                 milestone: M5
                 notes: ""
-                github_issues: []
+                github_issues:
+                  - "#659"
                 req_id: K8S02
                 test_id: K8S02-01
                 actor: tenant
                 status: pending
-              - summary: Verify automated control plane security patching with no/minimal downtime
+              - summary: Verify control plane security patching is automated and keeps the control plane on a current upstream patch
                 labels:
+                  - kubernetes
                   - min_req
                 priority: INFO
                 milestone: M5
-                notes: ""
-                github_issues: []
+                notes: Downtime during control plane updates is covered by K8S09-01.
+                github_issues:
+                  - "#659"
                 req_id: K8S02
                 test_id: K8S02-02
                 actor: operator

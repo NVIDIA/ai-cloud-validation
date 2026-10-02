@@ -18,7 +18,14 @@
 import os
 from unittest.mock import patch
 
+import pytest
+
 from isvtest.config.settings import (
+    DEFAULT_CUDA_IMAGE,
+    DEFAULT_NCCL_IMAGE,
+    DEFAULT_PYTORCH_IMAGE,
+    NCCL_IMAGE_PLACEHOLDER,
+    get_cuda_image,
     get_gpu_cuda_arch,
     get_gpu_memory_gb,
     get_gpu_stress_gpu_count,
@@ -43,6 +50,7 @@ from isvtest.config.settings import (
     get_nim_helm_model,
     get_nim_helm_model_tag,
     get_nim_helm_timeout,
+    render_image_placeholder,
 )
 
 
@@ -87,7 +95,7 @@ class TestGpuStressSettings:
         """Test default GPU stress image."""
         with patch.dict(os.environ, {}, clear=True):
             result = get_gpu_stress_image()
-            assert "pytorch" in result
+            assert result == DEFAULT_PYTORCH_IMAGE
 
     def test_get_gpu_stress_image_custom(self) -> None:
         """Test custom GPU stress image."""
@@ -157,7 +165,7 @@ class TestNcclSettings:
         """Test default NCCL image."""
         with patch.dict(os.environ, {}, clear=True):
             result = get_nccl_image()
-            assert "hpc-benchmarks" in result
+            assert result == DEFAULT_NCCL_IMAGE
 
     def test_get_nccl_timeout_default(self) -> None:
         """Test default NCCL timeout."""
@@ -209,7 +217,7 @@ class TestNcclMultinodeSettings:
         """Test default HPC image."""
         with patch.dict(os.environ, {}, clear=True):
             result = get_nccl_hpc_image()
-            assert "hpc-benchmarks" in result
+            assert result == DEFAULT_NCCL_IMAGE
 
     def test_get_nccl_multinode_nodes_default(self) -> None:
         """Test default multi-node node count."""
@@ -228,6 +236,36 @@ class TestNcclMultinodeSettings:
         with patch.dict(os.environ, {}, clear=True):
             result = get_nccl_multinode_timeout()
             assert result == 900
+
+
+class TestCudaImageSettings:
+    """Tests for the shared CUDA base image."""
+
+    def test_get_cuda_image_default(self) -> None:
+        """Test default CUDA base image."""
+        with patch.dict(os.environ, {}, clear=True):
+            assert get_cuda_image() == DEFAULT_CUDA_IMAGE
+
+    def test_get_cuda_image_custom(self) -> None:
+        """Test CUDA_IMAGE overrides the default."""
+        with patch.dict(os.environ, {"CUDA_IMAGE": "custom/cuda:tag"}):
+            assert get_cuda_image() == "custom/cuda:tag"
+
+
+class TestImagePlaceholder:
+    """Tests for manifest image substitution."""
+
+    def test_render_image_placeholder_replaces_every_occurrence(self) -> None:
+        """An override replaces the placeholder even when it is the default tag."""
+        content = f"image: {NCCL_IMAGE_PLACEHOLDER}\nimage: {NCCL_IMAGE_PLACEHOLDER}\n"
+        rendered = render_image_placeholder(content, NCCL_IMAGE_PLACEHOLDER, DEFAULT_NCCL_IMAGE)
+        assert rendered == f"image: {DEFAULT_NCCL_IMAGE}\nimage: {DEFAULT_NCCL_IMAGE}\n"
+        assert NCCL_IMAGE_PLACEHOLDER not in rendered
+
+    def test_render_image_placeholder_requires_token(self) -> None:
+        """A manifest that still hardcodes a tag fails instead of ignoring the override."""
+        with pytest.raises(ValueError, match=NCCL_IMAGE_PLACEHOLDER):
+            render_image_placeholder("image: nvcr.io/nvidia/hpc-benchmarks:25.04\n", NCCL_IMAGE_PLACEHOLDER, "x")
 
 
 class TestNimHelmSettings:

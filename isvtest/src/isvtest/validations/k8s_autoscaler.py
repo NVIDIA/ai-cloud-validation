@@ -25,6 +25,7 @@ import pytest
 
 from isvtest.core.k8s import (
     KubectlParseError,
+    command_detail,
     get_kubectl_base_shell,
     parse_kubectl_json,
     parse_kubectl_json_items,
@@ -164,8 +165,7 @@ class K8sClusterAutoscalerCheck(BaseValidation):
 
         result = self.run_command(command)
         if result.exit_code != 0:
-            detail = (result.stderr or result.stdout or f"exit {result.exit_code}").strip()
-            self.set_failed(f"Provider-managed autoscaler command failed: {detail}")
+            self.set_failed(f"Provider-managed autoscaler command failed: {command_detail(result)}")
             return
 
         try:
@@ -367,5 +367,4 @@ def _is_not_found(stderr: str) -> bool:
 
 def _format_error(scope: str, result: CommandResult) -> str:
     """Format a concise kubectl error."""
-    detail = (result.stderr or result.stdout or "").strip()
-    return f"Failed to get {scope}: {detail or f'exit {result.exit_code}'}"
+    return f"Failed to get {scope}: {command_detail(result)}"

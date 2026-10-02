@@ -1137,6 +1137,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[SDN17-02]]SDN17-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): On a cluster offering multi-node NVLink through the resource-allocation driver, assert the compute-domain device classes are registered and every GPU node in an NVLink clique publishes compute-domain resources through the driver's per-node plugin, without tenant installation.
+| SDN17
+| reference
+| full
+| The Kubernetes DRA reading of SDN17; SDN17-01 covers the host reading.
+
 | [[SDN18-01]]SDN18-01
 | Infrastructure and Data Services
 | SDN Controller
@@ -1146,6 +1155,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[SDN18-02]]SDN18-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): On a cluster where the resource-allocation driver owns the IMEX daemon, assert every node of an allocated compute domain runs a driver-started daemon and is a ready domain member, then terminate one daemon in place and assert the driver restores that node to ready membership unaided within a bounded time.
+| SDN18
+| reference
+| full
+| The Kubernetes DRA reading of SDN18; SDN18-01 covers the host reading.
+
 | [[SDN19-01]]SDN19-01
 | Infrastructure and Data Services
 | SDN Controller
@@ -1154,6 +1172,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | reference
 | full
 |
+
+| [[SDN19-02]]SDN19-02
+| Infrastructure and Data Services
+| SDN Controller
+| IMEX (Kubernetes DRA): Remove one node from an allocated compute domain on purpose, and assert its driver-managed daemon exits cleanly, a surviving member reports the node unavailable within a bounded time, and the domain stays operational among the nodes that remain.
+| SDN19
+| reference
+| full
+| The Kubernetes DRA reading of SDN19; SDN19-01 covers the host reading.
 
 | [[SDN20-01]]SDN20-01
 | Infrastructure and Data Services
@@ -2679,7 +2706,7 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | [[K8S02-02]]K8S02-02
 | Workload Orchestration
 | Managed Kubernetes Control Plane
-| Verify automated control plane security patching with no/minimal downtime
+| Verify control plane security patching is automated and keeps the control plane on a current upstream patch
 | K8S02
 | offtake
 | full

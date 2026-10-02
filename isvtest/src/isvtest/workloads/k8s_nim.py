@@ -24,7 +24,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from isvtest.config.settings import get_k8s_namespace
+from isvtest.config.settings import CUDA_IMAGE_PLACEHOLDER, get_cuda_image, get_k8s_namespace, render_image_placeholder
 from isvtest.core.k8s import (
     get_gpu_nodes,
     get_job_pods,
@@ -90,6 +90,7 @@ class K8sNimInferenceWorkload(BaseWorkloadCheck):
             return
 
         yaml_content = yaml_path.read_text()
+        yaml_content = render_image_placeholder(yaml_content, CUDA_IMAGE_PLACEHOLDER, get_cuda_image())
 
         # Replace job name
         yaml_content = yaml_content.replace("name: nim-llama-3b-inference-test", f"name: {job_name}")

@@ -353,6 +353,58 @@ commands:
         timeout: 60
         output_schema: imex_domain
 
+      - name: imex_service
+        phase: test
+        command: "python ../scripts/network/imex_service_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "compute-node-1,compute-node-2"
+        timeout: 60
+        output_schema: imex_service
+
+      # DESTRUCTIVE: kills a running IMEX daemon (SDN18-01). Idle/drained only.
+      - name: imex_resilience
+        phase: test
+        command: "python ../scripts/network/imex_resilience_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "compute-node-1"
+        timeout: 120
+        output_schema: imex_resilience
+
+      # DESTRUCTIVE: removes a node from a live domain (SDN19-01). Idle/drained only.
+      - name: imex_departure
+        phase: test
+        command: "python ../scripts/network/imex_departure_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--target-node"
+          - "compute-node-1"
+          - "--observer-node"
+          - "compute-node-2"
+        timeout: 120
+        output_schema: imex_departure
+
+      # DESTRUCTIVE and SLOW: reboots a node (SDN20-01). Idle/drained only.
+      - name: imex_reboot
+        phase: test
+        command: "python ../scripts/network/imex_reboot_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--node-ids"
+          - "compute-node-1"
+        # Above the suite's 900s rejoin bound: a real implementation waits out
+        # SSH recovery and domain rejoin, and the executor would otherwise kill
+        # it before it could emit its JSON.
+        timeout: 1200
+        output_schema: imex_reboot
+
       - name: teardown
         phase: teardown
         command: "python ../scripts/network/teardown.py"

@@ -334,6 +334,69 @@ tests:
           labels: ["min_req", "network"]
           requires: [vm, bare_metal]
           step: imex_domain
+        ImexServicePresenceCheck:
+          test_id: "SDN17-01"
+          labels: ["min_req", "network"]
+          requires: [vm, bare_metal]
+          step: imex_service
+        ImexServiceResilienceCheck:
+          test_id: "SDN18-01"
+          labels: ["min_req", "network"]
+          requires: [vm, bare_metal]
+          step: imex_resilience
+          # Enforced here as well as in the producer, so a run that observes
+          # recovery late cannot report success past the bound.
+          recovery_timeout_seconds: 60
+        ImexNodeDepartureCheck:
+          test_id: "SDN19-01"
+          labels: ["min_req", "network"]
+          requires: [vm, bare_metal]
+          step: imex_departure
+          # Enforced here as well as in the producer, so a run that observes
+          # convergence late cannot report success past the bound.
+          convergence_timeout_seconds: 60
+        # Destructive and slow: reboots one member and waits out boot plus
+        # domain rejoin, which on bare-metal GB200-class hardware is minutes.
+        # Carries min_req alongside slow so the trait label cannot drop it from
+        # a certification run - the suite excludes no labels by default.
+        ImexRebootRejoinCheck:
+          test_id: "SDN20-01"
+          labels: ["min_req", "network", "slow"]
+          requires: [vm, bare_metal]
+          step: imex_reboot
+          # Enforced here as well as in the producer, so a run that rejoins
+          # very late cannot report success past the bound.
+          rejoin_timeout_seconds: 900
+        # The Kubernetes half of SDN17: the same "IMEX without tenant
+        # installation" requirement, read as cluster objects instead of as
+        # packages on a host. Gated on kubernetes so a vm/bare_metal run of this
+        # suite neither runs it nor provisions a cluster for it.
+        #
+        # No `step:`. Everything asserted is a cluster object and none of it is
+        # a provider's to report, so the check reads the cluster API itself and
+        # every provider with a cluster gets it without wiring anything.
+        ImexComputeDomainCapabilityCheck:
+          test_id: "SDN17-02"
+          labels: ["kubernetes", "min_req", "network"]
+          requires: [kubernetes]
+        # Destructive: allocates a compute domain, deletes one of the driver's
+        # daemons inside it, and releases the domain afterwards. Labelled slow
+        # because it waits out domain formation and then recovery. Like
+        # SDN17-02 it carries no `step:` - the mutation and every observation
+        # are cluster API operations, none of them a provider's to perform.
+        ImexDaemonRecoveryCheck:
+          test_id: "SDN18-02"
+          labels: ["kubernetes", "min_req", "network", "slow"]
+          requires: [kubernetes]
+        # Destructive in the other direction: takes a node out of the domain on
+        # purpose and asserts the surviving members notice, rather than that the
+        # driver puts it back. Same wiring shape as SDN18-02 - no step, since
+        # withdrawing a channel claim and reading what a surviving daemon
+        # reports are both cluster API operations.
+        ImexDomainDepartureCheck:
+          test_id: "SDN19-02"
+          labels: ["kubernetes", "min_req", "network", "slow"]
+          requires: [kubernetes]
 
     teardown_checks:
       step: teardown
