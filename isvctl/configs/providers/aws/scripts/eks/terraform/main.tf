@@ -390,7 +390,7 @@ module "eks" {
     gpu = {
       name           = "gpu"
       instance_types = var.gpu_node_instance_types
-      ami_type       = "AL2_x86_64_GPU"
+      ami_type       = "AL2023_x86_64_NVIDIA"
 
       min_size     = var.gpu_node_min_size
       max_size     = var.gpu_node_max_size
