@@ -96,14 +96,6 @@ class StepConfig(BaseModel):
             "Capability contexts allowed to run this step. Empty delegates capability gating to bound validations."
         ),
     )
-    requires_selected_validations: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Configured validation names that must be selected after release, capability, label, and suite "
-            "exclusion filtering for this step to run. A failed step is also reported as an error on these "
-            "owning validations."
-        ),
-    )
     continue_on_failure: bool = Field(default=False, description="Continue to next step even if this step fails")
     finalizer_for: str | None = Field(
         default=None,
@@ -225,20 +217,8 @@ class PlatformCommands(BaseModel):
                     raise ValueError(f"step '{finalizer.name}' teardown must be ordered after target '{target.name}'")
             if target.finalizer_for is not None:
                 raise ValueError(f"step '{finalizer.name}' cannot finalize finalizer step '{target.name}'")
-            gate_fields = (
-                "requires",
-                "requires_selected_validations",
-            )
-            mismatched_gates = [
-                field_name
-                for field_name in gate_fields
-                if getattr(finalizer, field_name) != getattr(target, field_name)
-            ]
-            if mismatched_gates:
-                raise ValueError(
-                    f"step '{finalizer.name}' must use the same gates as target '{target.name}': "
-                    + ", ".join(mismatched_gates)
-                )
+            if finalizer.requires != target.requires:
+                raise ValueError(f"step '{finalizer.name}' must use the same gates as target '{target.name}': requires")
         return self
 
 

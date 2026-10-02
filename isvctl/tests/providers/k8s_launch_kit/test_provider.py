@@ -233,12 +233,10 @@ def test_network_operator_provider_defaults_to_real_cli_tools() -> None:
     assert validate_step.timeout is None
     assert "--user-config={{ context.k8s_launch_kit.user_config }}" in validate_step.args
     assert "--deployment-files={{ context.k8s_launch_kit.deployment_files }}" in validate_step.args
-    assert validate_step.requires_selected_validations == ["LaunchKitConnectivityCheck"]
     assert sosreport_step.timeout == 1800
     assert sosreport_step.phase == "test"
     assert sosreport_step.finalizer_for == "launch_kit_validate"
     assert sosreport_step.requires == validate_step.requires
-    assert sosreport_step.requires_selected_validations == validate_step.requires_selected_validations
 
 
 def test_network_operator_suite_has_one_catalog_check() -> None:

@@ -61,7 +61,6 @@ commands:
         timeout: 900
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
 
       # Test-phase verification is intentional: --phase test may bypass setup.
       - name: launch_kit_verify
@@ -79,7 +78,6 @@ commands:
         timeout: 60
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
 
       # This gate always runs in the test phase, before l8k can mutate a cluster.
       - name: launch_kit_kubernetes_preflight
@@ -100,7 +98,6 @@ commands:
         timeout: 60
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
 
       - name: launch_kit_discover
         phase: test
@@ -123,7 +120,6 @@ commands:
         timeout: 1800
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
 
       - name: launch_kit_generate
         phase: test
@@ -145,7 +141,6 @@ commands:
         timeout: 600
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
 
       - name: launch_kit_deploy
         phase: test
@@ -167,7 +162,6 @@ commands:
         timeout: 7200
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
 
       - name: launch_kit_validate
         phase: test
@@ -191,7 +185,6 @@ commands:
         timeout: null
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
 
       # Runs after phase validations when deploy was attempted, even if deploy,
       # validate, or a validation check failed.
@@ -215,5 +208,4 @@ commands:
         timeout: 7200
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        requires_selected_validations: [LaunchKitConnectivityCheck]
         finalizer_for: launch_kit_deploy
