@@ -405,4 +405,26 @@ def get_k8s_network_policy_image() -> str:
     return os.getenv("K8S_NETPOL_IMAGE", "registry.k8s.io/e2e-test-images/agnhost:2.47")
 
 
+def get_k8s_coredns_image() -> str:
+    """Get the CoreDNS image used for K8sCoreDnsForwardingCheck's fake authoritative resolver.
+
+    Returns:
+        Container image URL (default: registry.k8s.io/coredns/coredns:v1.11.3)
+    """
+    return os.getenv(
+        "K8S_COREDNS_TEST_IMAGE", "registry.k8s.io/coredns/coredns:v1.11.3"
+    )
+
+
+def get_k8s_dns_probe_image() -> str:
+    """Get the image providing ``nslookup`` for K8sCoreDnsForwardingCheck's probe pod.
+
+    Returns:
+        Container image URL (default: registry.k8s.io/e2e-test-images/jessie-dnsutils:1.7)
+    """
+    return os.getenv(
+        "K8S_DNS_PROBE_IMAGE", "registry.k8s.io/e2e-test-images/jessie-dnsutils:1.7"
+    )
+
+
 settings = Settings()
