@@ -51,6 +51,8 @@ import uuid
 from collections.abc import Callable
 from typing import ClassVar
 
+import pytest
+
 from isvtest.config.settings import get_k8s_csi_shared_fs_storage_class
 from isvtest.core.k8s import (
     get_kubectl_base_shell,
@@ -113,7 +115,7 @@ class StorageUserQuotaEnforcementCheck(BaseValidation):
       below-limit write as that UID succeeds and sustained over-limit writes
       are eventually blocked with a no-space / quota-exceeded error.
 
-    Skipped (passed) when the manifest is unset, no provider declares full
+    Skipped when the manifest is unset, no provider declares full
     user-quota CRUD, or no Kubernetes/CSI or native volume-acquisition path
     is available.
     """
@@ -149,11 +151,9 @@ class StorageUserQuotaEnforcementCheck(BaseValidation):
             p for p in providers if p.has_shim and all(p.expected_capabilities.get(cap) for cap in required_caps)
         ]
         if not candidates:
-            self.set_passed(
-                "Skipped: no manifest provider declares full user-quota CRUD supported "
-                f"(requires {', '.join(required_caps)})"
+            pytest.skip(
+                f"No manifest provider declares full user-quota CRUD supported (requires {', '.join(required_caps)})"
             )
-            return
 
         self._storage_class = str(self.config.get("storage_class") or get_k8s_csi_shared_fs_storage_class() or "")
         self._pvc_namespace = str(self.config.get("pvc_namespace") or "default")
@@ -177,6 +177,9 @@ class StorageUserQuotaEnforcementCheck(BaseValidation):
 
         if any_failed:
             self.set_failed("One or more user-quota subtests failed; see subtest details")
+        elif self._subtest_results and all(result["skipped"] for result in self._subtest_results):
+            reasons = dict.fromkeys(result["message"] for result in self._subtest_results)
+            pytest.skip("No user-quota probe ran: " + "; ".join(reasons))
         else:
             self.set_passed(
                 "User-quota CRUD + enforcement verified for " + ", ".join(sorted(p.name for p in candidates))

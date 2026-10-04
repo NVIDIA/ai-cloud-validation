@@ -123,13 +123,15 @@ class TestCandidateSelection:
                 return_value=[provider],
             ),
             patch("isvtest.validations.storage_user_quota_enforcement.is_k8s_available") as available,
+            pytest.raises(pytest.skip.Exception) as skipped,
         ):
             check.run()
-        assert check.passed
-        assert "full user-quota CRUD" in check.message
+        assert "full user-quota CRUD" in skipped.value.msg
+        assert CAP_USER_QUOTA_LIST in skipped.value.msg
         available.assert_not_called()
 
     def test_full_user_quota_provider_reaches_k8s_availability_check(self):
+        """With no acquisition path every probe skips, so the check skips instead of passing."""
         provider = _user_quota_provider()
         check = StorageUserQuotaEnforcementCheck(
             config={"manifest_path": "manifest.yaml", "storage_class": "shared-fs"}
@@ -139,11 +141,35 @@ class TestCandidateSelection:
                 "isvtest.validations.storage_user_quota_enforcement.load_provider_registry",
                 return_value=[provider],
             ),
-            patch("isvtest.validations.storage_user_quota_enforcement.is_k8s_available", return_value=False),
+            patch(
+                "isvtest.validations.storage_user_quota_enforcement.is_k8s_available", return_value=False
+            ) as available,
+            pytest.raises(pytest.skip.Exception, match=r"No user-quota probe ran: .*no reachable Kubernetes"),
         ):
             check.run()
-        assert check.passed
-        assert any("no reachable Kubernetes" in result["message"] for result in check._subtest_results)
+        assert check._subtest_results and all(result["skipped"] for result in check._subtest_results)
+        available.assert_called_once_with()
+
+    def test_k8s_without_a_storage_class_skips_instead_of_claiming_verification(self):
+        """A reachable cluster with no shared-fs StorageClass acquires nothing, so nothing is verified."""
+        provider = _user_quota_provider()
+        check = StorageUserQuotaEnforcementCheck(config={"manifest_path": "manifest.yaml", "storage_class": ""})
+        with (
+            patch(
+                "isvtest.validations.storage_user_quota_enforcement.load_provider_registry",
+                return_value=[provider],
+            ),
+            patch("isvtest.validations.storage_user_quota_enforcement.is_k8s_available", return_value=True),
+            patch("isvtest.validations.storage_user_quota_enforcement.get_kubectl_command", return_value=["kubectl"]),
+            patch("isvtest.validations.storage_user_quota_enforcement.get_kubectl_base_shell", return_value="kubectl"),
+            patch(
+                "isvtest.validations.storage_user_quota_enforcement.get_k8s_csi_shared_fs_storage_class",
+                return_value="",
+            ),
+            pytest.raises(pytest.skip.Exception, match=r"No user-quota probe ran: .*no storage_class or pvc_name"),
+        ):
+            check.run()
+        assert check._subtest_results and all(result["skipped"] for result in check._subtest_results)
 
 
 class TestPodReuseConfig:
