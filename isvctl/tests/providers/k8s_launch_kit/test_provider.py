@@ -118,7 +118,7 @@ def _recorded_documents(output: dict[str, Any]) -> list[dict[str, Any]]:
 def _mocked_network_operator_config(tmp_path: Path) -> RunConfig:
     """Load production wiring, then inject test-owned executables and paths."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
-    context = merged["context"]["k8s_launch_kit"]
+    settings = merged["tests"]["settings"]["k8s_launch_kit"]
     user_config = tmp_path / "cluster-config.yaml"
     user_config.write_text(
         """networkOperator:
@@ -132,11 +132,11 @@ clusterConfig: []
     )
     deployment_files = tmp_path / "deployment"
     deployment_files.mkdir()
-    context["executable"] = str(_MOCK_L8K)
-    context["user_config"] = str(user_config)
-    context["deployment_files"] = str(deployment_files)
-    context["working_dir"] = str(tmp_path / "work")
-    context["artifact_dir"] = str(tmp_path / "evidence")
+    settings["executable"] = str(_MOCK_L8K)
+    settings["user_config"] = str(user_config)
+    settings["deployment_files"] = str(deployment_files)
+    settings["working_dir"] = str(tmp_path / "work")
+    settings["artifact_dir"] = str(tmp_path / "evidence")
     return RunConfig.model_validate(merged)
 
 
@@ -144,9 +144,9 @@ def test_network_operator_provider_defaults_to_real_cli_tools() -> None:
     """The shipped provider validates once and always collects diagnostics."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
     config = RunConfig.model_validate(merged)
-    context = merged["context"]["k8s_launch_kit"]
+    settings = merged["tests"]["settings"]["k8s_launch_kit"]
 
-    assert context == {
+    assert settings == {
         "executable": "l8k",
         "user_config": "",
         "deployment_files": "",
@@ -161,8 +161,8 @@ def test_network_operator_provider_defaults_to_real_cli_tools() -> None:
     assert [step.name for step in command.steps] == ["launch_kit_validate", "launch_kit_sosreport"]
     validate_step, sosreport_step = command.steps
     assert validate_step.timeout is None
-    assert "--user-config={{ context.k8s_launch_kit.user_config }}" in validate_step.args
-    assert "--deployment-files={{ context.k8s_launch_kit.deployment_files }}" in validate_step.args
+    assert "--user-config={{ k8s_launch_kit.user_config }}" in validate_step.args
+    assert "--deployment-files={{ k8s_launch_kit.deployment_files }}" in validate_step.args
     assert sosreport_step.timeout == 1800
     assert sosreport_step.phase == "test"
     assert sosreport_step.finalizer_for == "launch_kit_validate"
@@ -384,9 +384,10 @@ def test_failed_connectivity_is_a_junit_failure(tmp_path: Path, monkeypatch: Any
 def test_missing_prerequisites_are_a_step_error(tmp_path: Path) -> None:
     """An unset prerequisite produces an actionable validation error."""
     merged = merge_yaml_files([_NETWORK_OPERATOR_CONFIG])
-    merged["context"]["k8s_launch_kit"]["executable"] = str(_MOCK_L8K)
-    merged["context"]["k8s_launch_kit"]["working_dir"] = str(tmp_path / "work")
-    merged["context"]["k8s_launch_kit"]["artifact_dir"] = str(tmp_path / "evidence")
+    settings = merged["tests"]["settings"]["k8s_launch_kit"]
+    settings["executable"] = str(_MOCK_L8K)
+    settings["working_dir"] = str(tmp_path / "work")
+    settings["artifact_dir"] = str(tmp_path / "evidence")
     config = RunConfig.model_validate(merged)
 
     result = Orchestrator(config, working_dir=_NETWORK_OPERATOR_CONFIG.parent).run(
