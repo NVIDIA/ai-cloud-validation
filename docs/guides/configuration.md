@@ -158,14 +158,12 @@ Each platform defines phases and steps:
 commands:
   network:
     phases: ["setup", "test", "teardown"]    # Execution order
-    continue_after_failure: []                 # Optional independent test phases
     steps: [...]                              # Steps grouped by phase
 ```
 
 | Field | Required | Description |
 | ----- | -------- | ----------- |
 | `phases` | No | Ordered list of phases (default: `["setup", "teardown"]`) |
-| `continue_after_failure` | No | Phase names whose failure records a failed run but does not prevent later phases from running |
 | `steps` | Yes | List of step configurations |
 | `skip` | No | Skip this entire platform |
 
@@ -176,41 +174,7 @@ is a custom test phase: it runs in the declared order, appears under its own
 name in the orchestration summary, and is selected by `--phase test`. A
 validation bound to a step runs after that step's custom phase.
 
-By default, a failed phase prevents later non-teardown phases from running. Use
-`continue_after_failure` only when the named phases are independent test cases
-and collecting every result in one invocation is more useful than stopping at
-the first failure:
-
-```yaml
-commands:
-  network_operator:
-    phases: [setup, roce-sriov, infiniband-sriov, roce-host-device]
-    continue_after_failure: [roce-sriov, infiniband-sriov, roce-host-device]
-    steps:
-      - name: prepare
-        phase: setup
-        command: ./prepare.sh
-      - name: test_roce_sriov
-        phase: roce-sriov
-        command: ./run-use-case.sh
-        args: [roce-sriov]
-      - name: test_infiniband_sriov
-        phase: infiniband-sriov
-        command: ./run-use-case.sh
-        args: [infiniband-sriov]
-      - name: test_roce_host_device
-        phase: roce-host-device
-        command: ./run-use-case.sh
-        args: [roce-host-device]
-```
-
-This setting changes continuation, not the verdict: if `roce-sriov` fails,
-later listed use cases still run, but the final orchestration result remains
-failed. Every continuation name must also appear once in `phases`;
-configuration validation rejects unknown or duplicate names and forbids
-`setup` and `teardown`. Do not list prerequisites shared by later phases or
-phases that leave state on which later phases depend. Teardown retains its
-existing `teardown_on_failure` behavior.
+A failed phase prevents later non-teardown phases from running.
 
 ### Step Configuration
 
@@ -264,7 +228,6 @@ target's test phase instead of waiting until every test case has finished:
 commands:
   network:
     phases: [setup, use-case-one, use-case-two, teardown]
-    continue_after_failure: [use-case-one]
     steps:
       - name: deploy_fixture
         phase: use-case-one
@@ -298,9 +261,8 @@ left by an interrupted earlier run. When target test phases and teardown are
 part of the same invocation, already-linked cleanup is not run again in the
 final teardown position.
 
-An ordinary use-case failure may still honor `continue_after_failure` after its
-finalizers succeed. A failed finalizer always blocks later non-teardown phases,
-because the fixture can no longer be assumed clean. Finalizer command output
+A failed finalizer blocks later non-teardown phases, because the fixture can no
+longer be assumed clean. Finalizer command output
 and failure details are recorded in the teardown phase result. Keep finalizers
 lifecycle-only rather than binding validations to their output, because target
 phase validations intentionally run before cleanup. A same-phase finalizer is
