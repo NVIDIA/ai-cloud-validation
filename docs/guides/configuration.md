@@ -203,7 +203,7 @@ Each step defines a command to execute:
 | `env` | No | Environment variables |
 | `skip` | No | Skip this step |
 | `continue_on_failure` | No | Continue even if this step fails |
-| `finalizer_for` | No | Run as linked teardown after the named step's phase when that command was attempted |
+| `finalizer_for` | No | Run after this phase's validations when the named same-phase step was attempted |
 | `output_schema` | No | Schema name for output validation |
 | `requires` | No | Capability contexts this step runs in (see [Capabilities](#capabilities-and-requires)) |
 
@@ -216,58 +216,43 @@ uses `SIGKILL` if needed. This prevents a wrapper's child CLI from continuing
 to modify infrastructure after the wrapper step has been reported as timed
 out. On non-POSIX systems, isvctl terminates the direct child process.
 
-#### Linked teardown finalizers
+#### Linked finalizers
 
-Use `finalizer_for` when cleanup must run after the validations for one custom
-test phase, including when the mutating step or a validation failed. Declare
-cleanup in `phase: teardown`; the orchestrator executes it directly after its
-target's test phase instead of waiting until every test case has finished:
+Use `finalizer_for` when a step must run after a phase's validations,
+including when the target step or a validation failed. Declare the finalizer
+in the same phase as its target:
 
 ```yaml
 commands:
-  network:
-    phases: [setup, use-case-one, use-case-two, teardown]
+  network_operator:
+    phases: [test]
     steps:
-      - name: deploy_fixture
-        phase: use-case-one
-        command: ./deploy.sh
+      - name: run_validation
+        phase: test
+        command: ./validate.sh
 
-      - name: clean_fixture
-        phase: teardown
-        command: ./clean.sh
-        finalizer_for: deploy_fixture
+      - name: collect_diagnostics
+        phase: test
+        command: ./collect.sh
+        finalizer_for: run_validation
 ```
 
-The finalizer target must resolve to one unique step, precede the configured
-`teardown` phase, and cannot itself be a finalizer. The finalizer must use the
-same capability gate (`requires`) as its target. Configuration validation
-rejects violations of these rules.
+The finalizer target must resolve to one unique step in the same phase and
+cannot itself be a finalizer. The finalizer must use the same capability gate
+(`requires`) as its target. Configuration validation rejects violations of
+these rules.
 
-The orchestrator withholds linked teardown from normal phase execution, runs
-the target phase validations, and then executes the eligible cleanup in
-best-effort mode. The result is reported separately as
-`<target-phase>-teardown`. This interleaving applies even to `--phase test`, so
-multiple independent cases cannot leave deployments overlapping until the end
-of the suite. A target activates cleanup only when its command process actually
-started, whether it passed or failed. If an earlier prerequisite stopped the
-phase, a template could not be rendered, or the executable could not be
-started, cleanup is reported as skipped; this prevents deletion of pre-existing
-state the current run never mutated.
+The orchestrator withholds the finalizer from normal step execution, runs the
+phase validations, and then executes the finalizer in best-effort mode. The
+result is reported separately as `<phase>-teardown`. A target activates its
+finalizer only when its command process actually started, whether it passed or
+failed. If an earlier step stopped the phase, a template could not be rendered,
+or the executable could not be started, the finalizer is reported as skipped.
 
-An explicit `--phase teardown` run executes linked teardown steps without an
-in-memory target attempt. This is the standalone recovery path for resources
-left by an interrupted earlier run. When target test phases and teardown are
-part of the same invocation, already-linked cleanup is not run again in the
-final teardown position.
-
-A failed finalizer blocks later non-teardown phases, because the fixture can no
-longer be assumed clean. Finalizer command output
-and failure details are recorded in the teardown phase result. Keep finalizers
-lifecycle-only rather than binding validations to their output, because target
-phase validations intentionally run before cleanup. A same-phase finalizer is
-still supported for compatibility, but a destructive provider cleanup should
-normally be declared in `phase: teardown` so its lifecycle role and reporting
-are explicit.
+A failed finalizer blocks later non-teardown phases. Finalizer command output
+and failure details are recorded in the `<phase>-teardown` result. Keep
+finalizers lifecycle-only rather than binding validations to their output,
+because phase validations intentionally run before them.
 
 Finalizers are an orchestration guarantee, not a recovery service. An abrupt
 isvctl process termination, host failure, or `SIGKILL` can prevent them from
