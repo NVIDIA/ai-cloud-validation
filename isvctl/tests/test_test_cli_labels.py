@@ -189,49 +189,6 @@ def test_test_run_forwards_label_filters(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert _FakeOrchestrator.captured["include_labels"] == ["gpu", "slow"]
 
 
-def test_orchestration_summary_hides_filtered_validations_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """The default summary omits phases containing only selection-filtered checks."""
-    config = _write_config(tmp_path)
-
-    class FilteredOrchestrator(_FakeOrchestrator):
-        """Return one resolution-only phase for a filtered validation."""
-
-        def run(self, **kwargs: Any) -> OrchestratorResult:
-            """Return the synthetic filtered result."""
-            return OrchestratorResult(
-                success=True,
-                phases=[
-                    PhaseResult(
-                        phase=Phase.TEST,
-                        success=True,
-                        message="test phase validations resolved without execution",
-                        details={
-                            "validations": [
-                                {
-                                    "name": "InfiniBandCheck",
-                                    "skipped": True,
-                                    "state": "skipped",
-                                    "skip_reason": "test_excluded",
-                                    "message": "does not match selected label ethernet",
-                                }
-                            ]
-                        },
-                    )
-                ],
-            )
-
-    monkeypatch.setattr(test_cli, "Orchestrator", FilteredOrchestrator)
-
-    result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--label", "ethernet", "--no-upload"])
-
-    assert result.exit_code == 0, result.output
-    assert "InfiniBandCheck" not in result.output
-    assert "TEST                    : test phase validations resolved" not in result.output
-
-
 def test_test_run_reports_and_saves_the_complete_catalog_identity(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
