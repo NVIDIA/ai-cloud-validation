@@ -22,15 +22,15 @@ never reference them.
 l8k validate --user-config <file> --deployment-files <directory> --output json
 ```
 
-After validation is attempted, a linked finalizer always executes:
+The validate step sets `continue_on_failure: true`, so the next step always runs:
 
 ```text
 l8k sosreport --output-dir <artifact-dir>/sosreport
 ```
 
-Sosreport runs after both successful and failed validation commands and after
-the connectivity assertion. It is diagnostic evidence, not another catalog
-test. Its failure is reported as a separate teardown result.
+Sosreport runs after both successful and failed validation commands; the catalog
+tests still report the validation result. It is diagnostic evidence, not another
+catalog test. Its failure fails the test phase.
 
 The cluster, Network Operator deployment, complete Launch Kit config, rendered
 deployment directory, and installed `l8k` binary are prerequisites. There are
@@ -92,7 +92,7 @@ Semantic assertions belong in
 ## Rules for changes
 
 - Do not add prepare, verify, preflight, discover, generate, deploy, clean, or
-  other finalizer steps to `config/network-operator.yaml`.
+  other lifecycle steps to `config/network-operator.yaml`.
 - Workflow settings stay raw argument arrays. Do not model or duplicate Launch
   Kit flags, schema, or defaults, and never parse the user config (infer fabric
   from native JUnit suite names).

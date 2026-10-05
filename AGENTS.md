@@ -175,7 +175,7 @@ forwarded env vars → optional isvreporter upload.
 - **`k8s-launch-kit/`** - wraps the external Kubernetes Launch Kit CLI (`l8k`)
   instead of cloud SDK calls. `config/network-operator.yaml` runs `l8k validate`
   against a pre-provisioned Network Operator deployment and imports its native
-  JUnit; `l8k sosreport` runs as a finalizer. Read
+  JUnit; `l8k sosreport` always runs after it. Read
   `providers/k8s-launch-kit/README.md` before changing it.
 
 ## Environment Variables

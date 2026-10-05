@@ -200,7 +200,6 @@ class StepResult:
         schema_errors: Schema validation error messages
         validation_results: Results from bound validations
         error: Error message if step failed
-        attempted: Whether the command process was actually started
     """
 
     name: str
@@ -214,7 +213,6 @@ class StepResult:
     schema_errors: list[str] = field(default_factory=list)
     validation_results: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
-    attempted: bool = True
 
 
 @dataclass
@@ -291,7 +289,6 @@ class StepExecutor:
                         stdout="",
                         stderr="",
                         error="Step skipped",
-                        attempted=False,
                     )
                 )
                 continue
@@ -339,7 +336,6 @@ class StepExecutor:
                 stdout="",
                 stderr="",
                 error=f"Skipped: missing step reference steps.{e.missing_path}",
-                attempted=False,
             )
 
         # Normalize command - replace python/python3 with current interpreter
@@ -443,20 +439,14 @@ class StepExecutor:
                 stderr=e.stderr if isinstance(e.stderr, str) else "",
                 error=f"Command timed out after {step.timeout} seconds",
             )
-        except OSError as e:
-            error = (
-                f"Command not found: {step.command}"
-                if isinstance(e, FileNotFoundError)
-                else f"Command could not start: {e}"
-            )
+        except FileNotFoundError:
             return StepResult(
                 name=step.name,
                 success=False,
                 exit_code=-1,
                 stdout="",
                 stderr="",
-                error=error,
-                attempted=False,
+                error=f"Command not found: {step.command}",
             )
         except Exception as e:
             return StepResult(

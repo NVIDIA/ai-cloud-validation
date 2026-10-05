@@ -97,14 +97,6 @@ class StepConfig(BaseModel):
         ),
     )
     continue_on_failure: bool = Field(default=False, description="Continue to next step even if this step fails")
-    finalizer_for: str | None = Field(
-        default=None,
-        min_length=1,
-        description=(
-            "Step whose attempted execution activates this finalizer. The finalizer must be in the target's "
-            "phase; it runs immediately after that phase's validations."
-        ),
-    )
     phase: str = Field(
         default="setup",
         description="Phase this step belongs to: 'setup', 'test', or 'teardown'",
@@ -168,30 +160,6 @@ class PlatformCommands(BaseModel):
         default_factory=list,
         description="Sequential command steps grouped by phase",
     )
-
-    @model_validator(mode="after")
-    def validate_phases_and_finalizers(self) -> "PlatformCommands":
-        """Reject duplicate phases and invalid linked-finalizer declarations."""
-        if len(self.phases) != len(set(self.phases)):
-            raise ValueError("phases must not contain duplicate names")
-
-        for finalizer in (step for step in self.steps if step.finalizer_for is not None):
-            targets = [step for step in self.steps if step.name == finalizer.finalizer_for]
-            if len(targets) != 1:
-                raise ValueError(
-                    f"step '{finalizer.name}' finalizer_for must name exactly one configured step: "
-                    f"{finalizer.finalizer_for!r}"
-                )
-            target = targets[0]
-            if target.phase.lower() != finalizer.phase.lower():
-                raise ValueError(
-                    f"step '{finalizer.name}' finalizer_for target '{target.name}' must be in the same phase"
-                )
-            if target.finalizer_for is not None:
-                raise ValueError(f"step '{finalizer.name}' cannot finalize finalizer step '{target.name}'")
-            if finalizer.requires != target.requires:
-                raise ValueError(f"step '{finalizer.name}' must use the same gates as target '{target.name}': requires")
-        return self
 
 
 class KubernetesNodeOutput(BaseModel):

@@ -139,13 +139,6 @@ watchdog. On POSIX, a timeout terminates the command's complete process group
 provider CLI from continuing after its wrapper step has timed out. See
 [Step Configuration](../guides/configuration.md#step-configuration).
 
-A step may use `finalizer_for: <step-name>` to run directly after its phase's
-validations whenever the named same-phase step started, including after target
-or validation failure. It is reported as a separate `teardown` result, and its
-failure blocks later non-teardown phases. See
-[Linked finalizers](../guides/configuration.md#linked-finalizers)
-for activation rules and process-failure limitations.
-
 ### Unified Config Structure
 
 ```yaml

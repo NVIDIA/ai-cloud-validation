@@ -113,10 +113,17 @@
           "type": "array"
         },
         "timeout": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": 300,
-          "description": "Timeout in seconds",
-          "title": "Timeout",
-          "type": "integer"
+          "description": "Timeout in seconds; null disables the orchestration watchdog",
+          "title": "Timeout"
         },
         "env": {
           "additionalProperties": {

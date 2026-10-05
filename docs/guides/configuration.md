@@ -189,7 +189,6 @@ Each step defines a command to execute:
     AWS_PROFILE: "production"
   skip: false
   continue_on_failure: false
-  finalizer_for: null
   output_schema: vpc
 ```
 
@@ -203,7 +202,6 @@ Each step defines a command to execute:
 | `env` | No | Environment variables |
 | `skip` | No | Skip this step |
 | `continue_on_failure` | No | Continue even if this step fails |
-| `finalizer_for` | No | Run after this phase's validations when the named same-phase step was attempted |
 | `output_schema` | No | Schema name for output validation |
 | `requires` | No | Capability contexts this step runs in (see [Capabilities](#capabilities-and-requires)) |
 
@@ -215,49 +213,6 @@ watchdog expires, it sends `SIGTERM` to the entire group, waits briefly, then
 uses `SIGKILL` if needed. This prevents a wrapper's child CLI from continuing
 to modify infrastructure after the wrapper step has been reported as timed
 out. On non-POSIX systems, isvctl terminates the direct child process.
-
-#### Linked finalizers
-
-Use `finalizer_for` when a step must run after a phase's validations,
-including when the target step or a validation failed. Declare the finalizer
-in the same phase as its target:
-
-```yaml
-commands:
-  network_operator:
-    phases: [test]
-    steps:
-      - name: run_validation
-        phase: test
-        command: ./validate.sh
-
-      - name: collect_diagnostics
-        phase: test
-        command: ./collect.sh
-        finalizer_for: run_validation
-```
-
-The finalizer target must resolve to one unique step in the same phase and
-cannot itself be a finalizer. The finalizer must use the same capability gate
-(`requires`) as its target. Configuration validation rejects violations of
-these rules.
-
-The orchestrator withholds the finalizer from normal step execution, runs the
-phase validations, and then executes the finalizer in best-effort mode. The
-result is reported as a separate `teardown` phase result. A target activates its
-finalizer only when its command process actually started, whether it passed or
-failed. If an earlier step stopped the phase, a template could not be rendered,
-or the executable could not be started, the finalizer is reported as skipped.
-
-A failed finalizer blocks later non-teardown phases. Finalizer command output
-and failure details are recorded in that `teardown` result. Keep
-finalizers lifecycle-only rather than binding validations to their output,
-because phase validations intentionally run before them.
-
-Finalizers are an orchestration guarantee, not a recovery service. An abrupt
-isvctl process termination, host failure, or `SIGKILL` can prevent them from
-running. Provider cleanup commands should therefore be idempotent and usable as
-standalone recovery commands.
 
 #### Gating a step with `requires`
 
