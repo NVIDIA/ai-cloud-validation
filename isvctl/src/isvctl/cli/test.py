@@ -164,6 +164,23 @@ def _reported_capability(config: RunConfig, capability_context: str | None) -> s
     return capability_context
 
 
+def _validation_result_detail(validation: dict[str, Any], reason: str | None = None) -> str:
+    """Return concise success text while preserving skip and failure diagnostics."""
+    message = str(validation.get("message", ""))
+    summary = validation.get("subtest_summary")
+    is_success = validation.get("passed", False) and not validation.get("skipped")
+    if validation.get("state") != "error" and is_success and isinstance(summary, dict):
+        passed = int(summary.get("passed", 0) or 0)
+        failed = int(summary.get("failed", 0) or 0)
+        skipped = int(summary.get("skipped", 0) or 0)
+        total = int(summary.get("total", passed + failed + skipped) or 0)
+        if total > 0:
+            if passed == total:
+                return f"{total} subtests passed"
+            return f"{total} subtests: {passed} passed, {failed} failed, {skipped} skipped"
+    return f"{reason}: {message}" if reason and message else str(reason or message)
+
+
 def _human_readable_dry_run(
     config: RunConfig,
     capability: str | None,
@@ -717,7 +734,6 @@ def run(
                     # Handle case where name might be a dict (extract class name)
                     if isinstance(vr_name, dict):
                         vr_name = next(iter(vr_name.keys()), "unknown")
-                    vr_message = vr.get("message", "")
                     vr_category = vr.get("category", "")
                     category_prefix = f"[{vr_category}] " if vr_category else ""
                     if vr.get("state") == "error":
@@ -732,7 +748,7 @@ def run(
                     else:
                         vr_status = typer.style("FAILED", fg=typer.colors.RED)
                         reason = None
-                    detail = f"{reason}: {vr_message}" if reason and vr_message else (reason or vr_message)
+                    detail = _validation_result_detail(vr, reason)
                     typer.echo(f"  {category_prefix}{vr_name}: {vr_status} - {detail}")
 
     typer.echo("-" * 60)

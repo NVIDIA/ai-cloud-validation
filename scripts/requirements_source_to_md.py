@@ -17,7 +17,8 @@
 """Render a source-requirements YAML to a publishable Markdown listing.
 
 YAML is the source of record (queryable, key-clean); Markdown is the published,
-Google-Docs-friendly view. Handles both the `offtake` and `reference` sources.
+Google-Docs-friendly view. Handles the registered offtake, reference, storage,
+and project-PRD sources.
 
 Usage:
     python3 scripts/requirements_source_to_md.py docs/requirements/offtake-requirements.yaml
@@ -38,6 +39,7 @@ DEFAULT_SOURCES = [
     REQ_DIR / "offtake-requirements.yaml",
     REQ_DIR / "software-reference-requirements.yaml",
     REQ_DIR / "storage-acceptance-requirements.yaml",
+    REQ_DIR / "network-operator-readiness-requirements.yaml",
 ]
 
 GENERATED_BANNER = "<!-- GENERATED FILE - DO NOT EDIT BY HAND. Source: {src}. Run `make plan`. -->"
@@ -149,7 +151,40 @@ def render_storage(doc: dict[str, Any], src_name: str) -> str:
     return "\n".join(out) + "\n"
 
 
-RENDERERS = {"offtake": render_offtake, "reference": render_reference, "storage": render_storage}
+def render_project_prd(doc: dict[str, Any], src_name: str) -> str:
+    """Render a project PRD listing, grouped by section."""
+    out = [
+        GENERATED_BANNER.format(src=src_name),
+        "",
+        f"# {doc.get('title', 'Project Requirements')}",
+        "",
+        f"> Structured source of record: `{src_name}` (version {doc.get('version', 'n/a')}).",
+        f"> Owner: {doc.get('owner', 'not specified')}.",
+        "> Edit the YAML, not this file.",
+        "",
+    ]
+    section = None
+    for requirement in doc.get("requirements", []):
+        if requirement.get("section") != section:
+            section = requirement.get("section")
+            heading(out, f"## {section}")
+            out += [
+                "| Req ID | Requirement Area | Description | Status |",
+                "| :----- | :--------------- | :---------- | :----- |",
+            ]
+        out.append(
+            f"| {cell(requirement.get('req_id'))} | {cell(requirement.get('area'))} "
+            f"| {cell(requirement.get('description'))} | {cell(requirement.get('status', 'active'))} |"
+        )
+    return "\n".join(out) + "\n"
+
+
+RENDERERS = {
+    "offtake": render_offtake,
+    "project-prd": render_project_prd,
+    "reference": render_reference,
+    "storage": render_storage,
+}
 
 
 def render(path: Path) -> None:
@@ -158,9 +193,14 @@ def render(path: Path) -> None:
     if not isinstance(doc, dict):
         raise ValueError(f"{path} must contain a single mapping document")
     source = doc.get("source")
-    renderer = RENDERERS.get(source)
+    if not isinstance(source, str):
+        raise ValueError(f"{path} must declare a string source")
+    document_format = doc.get("format", source)
+    if not isinstance(document_format, str):
+        raise ValueError(f"{path} format must be a string")
+    renderer = RENDERERS.get(document_format)
     if renderer is None:
-        raise ValueError(f"{path} has unsupported source {source!r} (expected one of {sorted(RENDERERS)})")
+        raise ValueError(f"{path} has unsupported format {document_format!r} (expected one of {sorted(RENDERERS)})")
     out_path = path.with_suffix(".md")
     out_path.write_text(renderer(doc, path.name), encoding="utf-8")
     print(f"Wrote {out_path}")

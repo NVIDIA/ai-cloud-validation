@@ -60,6 +60,7 @@ from typing import Any
 from isvctl.config.output_schemas import get_schema_for_step, validate_output
 from isvctl.config.schema import StepConfig
 from isvctl.orchestrator.context import Context, _create_jinja_env
+from isvctl.orchestrator.process import run_command_process
 from isvctl.redaction import mask_sensitive_args, redact_text
 
 logger = logging.getLogger(__name__)
@@ -388,12 +389,10 @@ class StepExecutor:
         logger.debug(f"Working directory: {cwd}")
 
         try:
-            result = subprocess.run(
+            result = run_command_process(
                 cmd_parts,
                 cwd=cwd,
                 env=env,
-                capture_output=True,
-                text=True,
                 timeout=step.timeout,
             )
 

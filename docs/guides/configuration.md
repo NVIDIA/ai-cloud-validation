@@ -56,7 +56,9 @@ Pre-built configs are provided in `isvctl/configs/`:
 | `providers/aws/config/vm.yaml` | AWS EC2 GPU instance tests |
 | `providers/aws/config/iam.yaml` | AWS IAM user lifecycle |
 | `providers/aws/config/eks.yaml` | AWS EKS with GPU nodes |
+| `providers/k8s-launch-kit/config/network-operator.yaml` | Launch Kit connectivity validation with post-run sosreport collection |
 | `suites/k8s.yaml` | Standard Kubernetes cluster |
+| `suites/k8s-launch-kit/*.yaml` | Launch Kit-specific Network Operator catalog wiring |
 | `suites/slurm.yaml` | Slurm HPC cluster |
 
 ## Basic Usage
@@ -160,11 +162,18 @@ commands:
 
 | Field | Required | Description |
 | ----- | -------- | ----------- |
-| `phases` | No | Ordered list of phases (default: `["setup", "test", "teardown"]`) |
+| `phases` | No | Ordered list of phases (default: `["setup", "teardown"]`) |
 | `steps` | Yes | List of step configurations |
 | `skip` | No | Skip this entire platform |
 
 **Important:** If a step's `phase` is not in the `phases` list, an error is raised.
+
+Phase names are not limited to `setup`, `test`, and `teardown`. Any other name
+is a custom test phase: it runs in the declared order, appears under its own
+name in the orchestration summary, and runs only with `--phase all`. A
+validation bound to a step runs after that step's custom phase.
+
+A failed phase prevents later non-teardown phases from running.
 
 ### Step Configuration
 
@@ -189,12 +198,21 @@ Each step defines a command to execute:
 | `phase` | No | Phase this step belongs to (default: `setup`) |
 | `command` | Yes | Script/command to execute |
 | `args` | No | Arguments (supports Jinja2 templates) |
-| `timeout` | No | Timeout in seconds (default: 300) |
+| `timeout` | No | Orchestration watchdog in seconds (default: 300); `null` disables it |
 | `env` | No | Environment variables |
 | `skip` | No | Skip this step |
 | `continue_on_failure` | No | Continue even if this step fails |
 | `output_schema` | No | Schema name for output validation |
 | `requires` | No | Capability contexts this step runs in (see [Capabilities](#capabilities-and-requires)) |
+
+The timeout is an orchestration watchdog, not a provider-specific setting. Set
+it to `null` only when the invoked tool owns a bounded deadline; isvctl will
+then wait for the command to exit. On POSIX systems, isvctl starts each step in
+a separate process group. When the
+watchdog expires, it sends `SIGTERM` to the entire group, waits briefly, then
+uses `SIGKILL` if needed. This prevents a wrapper's child CLI from continuing
+to modify infrastructure after the wrapper step has been reported as timed
+out. On non-POSIX systems, isvctl terminates the direct child process.
 
 #### Gating a step with `requires`
 
@@ -216,6 +234,11 @@ need, give it an explicit `requires:`** — and give both halves of the fixture 
 same one, so setup and teardown always move together. A step that survives the
 gate must not reference a gated-off step's output; use `default(...)` if it
 legitimately might be absent.
+
+Selection-filtered validations remain in the structured result and JUnit
+report. With the default `tests.settings.show_skipped_tests: false`, terminal
+output omits summary phases containing only those filtered validations. Set it
+to `true` when the skipped selection decisions should be visible interactively.
 
 ### Validation Configuration
 
@@ -350,6 +373,13 @@ Two consequences worth internalising:
 Capability names and plain-suite names share one namespace, so a plain suite may
 not be named after a capability. `catalog_document` and
 `scripts/validate_suite_wiring.py` both reject the collision.
+
+Suite discovery is recursive under `isvctl/configs/suites/`. A domain with
+multiple related suites may therefore use a subdirectory such as
+`suites/k8s-launch-kit/`; catalog generation, `--suite` resolution, doctor,
+wiring validation, and test-plan coverage all discover the nested YAMLs. Suite
+identity is still the YAML filename stem, so stems must remain unique across
+the complete suite tree.
 
 ## Import and Override
 
@@ -583,6 +613,37 @@ checks:
       - FieldExistsCheck:
           fields: ["network_id"]
 ```
+
+`CompositeCheck` is the existing framework runner behind `compose:`; authors do
+not register or invoke that class directly. The YAML key creates one catalog
+test and runs every listed validation member. Each member is reported as a
+subtest. If a member reports its own probes through `report_subtest()`, those
+probes are retained with qualified names such as
+`ConnectivityCheck/rping/worker-a->worker-b/rail-0->rail-1`.
+This avoids collisions between members and keeps the full probe tree in pytest
+and JUnit output.
+
+A member may call `pytest.skip` when it is not applicable to the current
+environment. `CompositeCheck` records that member as a skipped subtest and
+continues with the remaining members. The skip neither passes nor fails the
+member, and the parent composite passes when every non-skipped member passes.
+This is different from skipping the step output or the composite itself, both
+of which skip the entire parent validation.
+
+The orchestration summary automatically abbreviates a successful validation
+that reported subtests:
+
+```text
+MyUseCase: PASSED - 12 subtests passed
+```
+
+If optional probes were skipped, the summary includes passed, failed, and
+skipped counts. Failed and errored validations keep their original diagnostic
+message instead of being abbreviated. There is no YAML presentation flag;
+this behavior applies to composites and ordinary validation classes alike.
+After subtest testcase nodes are injected into JUnit, the suite's tests,
+failures, errors, and skipped counters are recalculated from those serialized
+nodes so reports do not double-count pytest's pre-counted subtest events.
 
 `SchemaValidation` remains directly wireable, but is catalog-excluded because
 the step executor runs schema checks automatically.

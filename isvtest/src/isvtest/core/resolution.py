@@ -23,7 +23,7 @@ import re
 from collections.abc import Iterable, Mapping
 from collections.abc import Set as AbstractSet
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
 from typing import Any
@@ -115,6 +115,20 @@ class ValidationEntry:
     requires: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class SubtestSummary:
+    """Aggregate counts for the subtests reported by one validation."""
+
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+
+    @property
+    def total(self) -> int:
+        """Return the total number of reported subtests."""
+        return self.passed + self.failed + self.skipped
+
+
 @dataclass
 class ResolvedEntry:
     """Lifecycle record for a single validation entry."""
@@ -126,6 +140,7 @@ class ResolvedEntry:
     error_reason: ErrorReason | None = None
     message: str = ""
     duration_seconds: float = 0.0
+    subtest_summary: SubtestSummary = field(default_factory=SubtestSummary)
 
     @property
     def is_ready(self) -> bool:

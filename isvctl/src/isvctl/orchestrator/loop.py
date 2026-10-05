@@ -279,6 +279,12 @@ def _resolved_entry_to_result_dict(entry: ResolvedEntry) -> dict[str, Any]:
         "state": entry.state.value if entry.state else None,
         "skip_reason": entry.skip_reason.value if entry.skip_reason else None,
         "error_reason": entry.error_reason.value if entry.error_reason else None,
+        "subtest_summary": {
+            "total": entry.subtest_summary.total,
+            "passed": entry.subtest_summary.passed,
+            "failed": entry.subtest_summary.failed,
+            "skipped": entry.subtest_summary.skipped,
+        },
     }
 
 

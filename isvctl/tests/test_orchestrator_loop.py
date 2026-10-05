@@ -371,6 +371,35 @@ EOF
         assert len(teardown_phases) == 1
         assert teardown_phases[0].success
 
+    def test_custom_phase_failure_blocks_later_phases_by_default(self) -> None:
+        """A failed custom phase stops later non-teardown phases."""
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["case-one", "case-two"],
+                    steps=[
+                        StepConfig(name="case_one", command="false", phase="case-one"),
+                        StepConfig(
+                            name="case_two",
+                            command="echo",
+                            args=['{"success": true, "platform": "kubernetes"}'],
+                            phase="case-two",
+                            output_schema="generic",
+                        ),
+                    ],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.ALL])
+
+        assert result.success is False
+        assert [phase.message for phase in result.phases] == [
+            "case_one: failed",
+            "SKIPPED: previous phase failed",
+        ]
+
     def test_platform_detection_missing(self) -> None:
         """Test error when platform cannot be detected.
 
@@ -417,6 +446,28 @@ EOF
         # runtime skip proves it executed rather than being filtered out.
         assert result.validations[0].state is State.SKIPPED
         assert result.validations[0].skip_reason is SkipReason.RUNTIME_SKIP
+
+    def test_config_without_commands_reports_failed_live_validation(self) -> None:
+        """A failed commandless validation returns a failed result instead of reading command policy."""
+        config = RunConfig(
+            tests=ValidationConfig(
+                validations={
+                    "live_checks": {
+                        "checks": {
+                            "ExistingSystemFieldCheck": {
+                                "compose": [{"FieldExistsCheck": {"field": "missing"}}],
+                            }
+                        },
+                    }
+                },
+            ),
+        )
+
+        result = Orchestrator(config).run(phases=[Phase.TEST], capability="kubernetes")
+
+        assert result.success is False
+        assert result.validations[0].state is State.FAILED
+        assert "Missing fields: missing" in result.validations[0].message
 
     def test_config_without_commands_or_validations_is_not_a_pass(self) -> None:
         """Validations are all a commandless run has, so wiring none asserts nothing."""
@@ -568,6 +619,7 @@ EOF
                 "state": "skipped",
                 "skip_reason": "step_no_output",
                 "error_reason": None,
+                "subtest_summary": {"total": 0, "passed": 0, "failed": 0, "skipped": 0},
             }
         ]
 

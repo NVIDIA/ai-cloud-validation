@@ -67,6 +67,25 @@ Utility checks that work with any step output.
 `SchemaValidation` remains directly wireable, but is catalog-excluded because
 the step executor runs schema checks automatically.
 
+### Composite checks and nested results
+
+`CompositeCheck` is existing internal framework machinery used when a suite
+declares `compose:`. It is excluded from discovery and the catalog; the named
+YAML entry is the test identity. Every member runs, even after an earlier member
+fails, and is reported as a parent subtest. Subtests reported by a member are
+also forwarded with `MemberName/probe-name` names, so their detailed messages
+and timing remain available in pytest and JUnit. If a member calls
+`pytest.skip`, `CompositeCheck` records that member as skipped and continues
+with the remaining members. A skipped member neither passes nor fails the
+composite; the composite passes when every non-skipped member passes.
+
+The isvctl orchestration summary uses the structured subtest counts to render a
+concise line for successful parents. Failure and error messages are never
+replaced by that summary. JUnit suite counters are reconciled with the emitted
+parent and subtest testcase nodes after injection. See the
+[configuration guide](../guides/configuration.md#available-validations) for
+YAML and output examples.
+
 | Validation | Platforms | Description |
 | ---------- | --------- | ----------- |
 | `StepSuccessCheck` | all | Compose-only: check step completed successfully |

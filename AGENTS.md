@@ -87,7 +87,8 @@ Entry point: `isvctl/src/isvctl/main.py` (Typer).
 
 - `cli/` - subcommands (`test`, `deploy`, `clean`, `docs`, `report`)
 - `orchestrator/` - `loop.py` (phase loop), `step_executor.py` (step + validation
-  execution, supports `best_effort` mode), `commands.py` (timeouts), `context.py`
+  execution, supports `best_effort` mode), `commands.py` (legacy command model),
+  `process.py` (shared subprocess and process-group timeout handling), `context.py`
   (Jinja2 with missing-reference warnings)
 - `config/` - `schema.py` (Pydantic), `output_schemas.py` (per-step JSON schemas),
   `merger.py` (multi-file merge)
@@ -149,7 +150,9 @@ forwarded env vars → optional isvreporter upload.
 
 - Workspace root `pyproject.toml` defines members; each package has its own
   `pyproject.toml`; all source under `src/`.
-- `isvctl/configs/suites/` - provider-agnostic test contracts.
+- `isvctl/configs/suites/` - provider-agnostic test contracts. Discovery is
+  recursive, so related domain suites may be grouped in a subdirectory; YAML
+  filename stems must remain globally unique.
 - `isvctl/configs/providers/<name>/` - one folder per provider (`aws/`, `my-isv/`, ...):
   - `config/` - YAML wiring (imports a suite, supplies commands)
   - `scripts/` - executable scripts (Python/Bash) that do the work, organized by
@@ -169,6 +172,11 @@ forwarded env vars → optional isvreporter upload.
 - **`aws/`** - fully implemented reference using boto3/Terraform.
   `aws/scripts/common/` provides `ec2`, `errors` (with `delete_with_retry`),
   `ssh_utils.wait_for_ssh`, `serial_console`, `vpc`.
+- **`k8s-launch-kit/`** - wraps the external Kubernetes Launch Kit CLI (`l8k`)
+  instead of cloud SDK calls. `config/network-operator.yaml` runs `l8k validate`
+  against a pre-provisioned Network Operator deployment and imports its native
+  JUnit; `l8k sosreport` always runs after it. Read
+  `providers/k8s-launch-kit/README.md` before changing it.
 
 ## Environment Variables
 

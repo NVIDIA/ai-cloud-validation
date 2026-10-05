@@ -75,7 +75,11 @@ Suites:
 [`slurm`](slurm.yaml),
 [`control-plane`](control-plane.yaml),
 [`image-registry`](image-registry.yaml),
-[`security`](security.yaml).
+[`security`](security.yaml),
+[`network-operator`](k8s-launch-kit/network-operator.yaml).
+The Network Operator Launch Kit integration is unreleased; see the
+[Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md)
+before running its cluster-mutating workflows.
 For the domain / script-count / AWS-reference overview see the
 [my-isv scaffold README](../providers/my-isv/scripts/README.md#domains).
 
@@ -108,6 +112,11 @@ runs against the group's step output as a subtest, so a failure still names the
 part that broke, and every member runs even after an earlier one fails. A member
 that needs parameters takes them inline (`- CheckName: {...}`); one that does
 not stays a single line.
+
+If a member reports its own subtests, the composite forwards them as
+`MemberName/probe-name`. Successful parents are summarized automatically by
+subtest count in `isvctl` output; failures retain their complete diagnostic
+message. This is shared renderer behavior, not a suite option.
 
 Because a composite has no validation class to borrow from, it declares its own
 `description` (the catalog uses it) and its name must not shadow a class name. A
@@ -208,6 +217,37 @@ its plan item is not platform-scoped.
 | `general_switch_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `switch_syslogs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `switch_kernel_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
+
+### Network Operator (`k8s-launch-kit/network-operator.yaml`)
+
+The Network Operator suite contains nine catalog entries fed by one
+`l8k validate` run: `K8sNetworkOperatorDeployment`, plus
+`K8sEastWestNetwork{ICMPPing,RDMAPing,IBWriteBandwidth,DMABufBandwidth}` for
+each of `-ethernet` and `-infiniband`. Each entry reports the native Launch Kit
+JUnit suite of the same name (`network/validation` for the deployment entry),
+with its cases as subtests. Launch Kit only runs the configured fabric, so the
+other fabric's four entries skip. Its production provider invokes
+`l8k validate` with a caller-supplied complete `user_config` and existing
+`deployment_files` directory, then always invokes `l8k sosreport` (the validate
+step continues on failure). The Kubernetes cluster, Network Operator deployment, Launch
+Kit installation (including its sosreport helper), configuration, and
+generated manifests are prerequisites.
+
+```bash
+uv run isvctl test run \
+  -f isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml \
+  --capability kubernetes \
+  --set 'tests.settings.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
+  --set 'tests.settings.k8s_launch_kit.deployment_files=/absolute/path/deployment' \
+  --no-upload -- -v
+```
+
+| Step | Phase | Script | Key JSON Fields |
+|------|-------|--------|-----------------|
+| `launch_kit_validate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k validate` | `operation`, `success`, `error`, `artifacts.validation_junit` |
+| `launch_kit_sosreport` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k sosreport` | `success`, `error`, `artifacts.sosreport` |
+
+See the [Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md).
 
 ### VM (`vm.yaml`)
 

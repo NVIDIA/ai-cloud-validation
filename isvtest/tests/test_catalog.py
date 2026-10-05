@@ -55,6 +55,8 @@ class TestCatalogDocument:
         """Plain suite YAML files are listed separately from platform suites."""
         suites = build_suite_vocabulary()
         assert "iam" in suites
+        assert "network_operator" in suites
+        assert "network_operator_use_cases" not in suites
         assert "storage" in suites
         assert "kubernetes" not in suites
         assert "vm" not in suites
@@ -112,6 +114,17 @@ class TestBuildCatalog:
             assert isinstance(entry["requires"], list)
             if entry["capability"]:
                 assert entry["requires"] == []
+        network_operator = sorted(entry["name"] for entry in catalog if entry["suite"] == "network_operator")
+        assert network_operator == sorted(
+            [
+                "K8sNetworkOperatorDeployment",
+                *(
+                    f"K8sEastWestNetwork{family}-{fabric}"
+                    for family in ("ICMPPing", "RDMAPing", "IBWriteBandwidth", "DMABufBandwidth")
+                    for fabric in ("ethernet", "infiniband")
+                ),
+            ]
+        )
 
     def test_extract_checks_supports_direct_dict_category_form(self, tmp_path) -> None:
         """Direct dict category wiring is included in catalog config scans."""

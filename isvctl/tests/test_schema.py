@@ -102,6 +102,12 @@ class TestStepConfig:
         assert step.continue_on_failure is True
         assert step.output_schema == "vpc"
 
+    def test_null_timeout_disables_watchdog(self) -> None:
+        """A provider may delegate timeout ownership to the invoked tool."""
+        step = StepConfig(name="validate", command="l8k", timeout=None)
+
+        assert step.timeout is None
+
     def test_step_rejects_unknown_or_duplicate_requires(self) -> None:
         """Step requirements use the declarable capability vocabulary."""
         with pytest.raises(ValidationError, match="requires must be a list containing only"):
