@@ -42,8 +42,6 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-import pytest
-
 from isvtest.core.validation import BaseValidation, get_validation_class
 
 COMPOSE_KEY = "compose"
@@ -88,7 +86,10 @@ class CompositeCheck(BaseValidation):
     _exclude_from_discovery: ClassVar[bool] = True
 
     def run(self) -> None:
-        """Run every member, retaining skips and failing on invalid or failed members."""
+        """Run every configured member; fail on invalid or failed members, else skip if any member skipped."""
+        # Lazy import keeps the core composite module usable outside pytest runs.
+        import pytest
+
         raw = self.config.get(COMPOSE_KEY)
         members = composed_members(raw)
         if not members:
@@ -107,6 +108,7 @@ class CompositeCheck(BaseValidation):
         shared = {key: value for key, value in self.config.items() if key not in _WIRING_KEYS}
         outputs: list[str] = []
         failures: list[str] = []
+        skips: list[str] = []
 
         for member_name, member_params in members:
             member_class = get_validation_class(member_name)
@@ -117,23 +119,15 @@ class CompositeCheck(BaseValidation):
 
             member = member_class(runner=self.runner, config={**shared, **member_params})
             member.name = member_name
+            member._subtests = self._subtests
             try:
                 result = member.execute()
             except pytest.skip.Exception as exc:
-                reason = str(exc)
-                self.report_subtest(member_name, False, reason, skipped=True)
-                outputs.append(f"{member_name}: skipped - {reason}")
+                skips.append(f"{member_name}: {exc}")
+                self.report_subtest(member_name, False, str(exc), skipped=True)
                 continue
             message = result["output"] if result["passed"] else result["error"]
             self.report_subtest(member_name, result["passed"], message, duration=result["duration"])
-            for nested in result.get("subtests", []):
-                self.report_subtest(
-                    f"{member_name}/{nested['name']}",
-                    bool(nested.get("passed")),
-                    str(nested.get("message", "")),
-                    skipped=bool(nested.get("skipped")),
-                    duration=nested.get("duration"),
-                )
             if result["passed"]:
                 outputs.append(f"{member_name}: {message}" if message else member_name)
             else:
@@ -141,5 +135,7 @@ class CompositeCheck(BaseValidation):
 
         if failures:
             self.set_failed("; ".join(failures))
+        elif skips:
+            pytest.skip("; ".join(skips))
         else:
             self.set_passed("; ".join(outputs))

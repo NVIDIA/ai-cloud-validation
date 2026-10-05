@@ -21,7 +21,6 @@ Validations for EC2 instances, virtual machines, and compute resources.
 from typing import ClassVar
 
 from isvtest.core.validation import BaseValidation, check_required_tests
-from isvtest.validations.generic import check_operations_passed
 
 SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED = 30
 
@@ -616,7 +615,6 @@ class BmTopologyPlacementCheck(BaseValidation):
 
     Checks that the platform supports placement groups (or equivalent
     topology-aware scheduling) and that all placement operations passed.
-    Delegates operations checking to ``CrudOperationsCheck``.
 
     Config:
         step_output: The topology_placement step output
@@ -626,7 +624,7 @@ class BmTopologyPlacementCheck(BaseValidation):
         availability_zone: Instance availability zone
         placement_group: Name of the test placement group
         placement_strategy: Placement strategy (e.g., cluster)
-        operations: Dict of operation results
+        operations: dict with create_group, verify_instance, describe_group, delete_group
     """
 
     description: ClassVar[str] = "Check topology-based placement support"
@@ -648,10 +646,8 @@ class BmTopologyPlacementCheck(BaseValidation):
             self.set_failed(f"Topology placement not supported for {instance_id}: {error}")
             return
 
-        ops = step_output.get("operations", {})
-        _, failed = check_operations_passed(ops)
-        if failed:
-            self.set_failed(f"Placement operations failed: {', '.join(failed)}")
+        required_ops = ["create_group", "verify_instance", "describe_group", "delete_group"]
+        if not check_required_tests(self, required_ops, "Placement operations failed", key="operations"):
             return
 
         details = [f"AZ={az}", f"strategy={strategy}"]

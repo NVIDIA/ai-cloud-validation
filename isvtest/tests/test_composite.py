@@ -16,14 +16,13 @@
 """Tests for composite checks."""
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
-import isvtest.core.composite as composite_module
 from isvtest.core.composite import CompositeCheck, composed_members, is_composite
 from isvtest.core.discovery import discover_all_tests
 from isvtest.core.resolution import parse_validations
-from isvtest.core.validation import BaseValidation
 from isvtest.validations.generic import (
     CrudOperationsCheck,
     FieldExistsCheck,
@@ -146,52 +145,6 @@ class TestCompositeCheck:
             ("FieldExistsCheck", True),
         ]
 
-    def test_forwards_member_subtests_with_member_qualified_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A composite preserves member probes for terminal and JUnit diagnostics."""
-
-        class NestedCheck(BaseValidation):
-            def run(self) -> None:
-                self.report_subtest("probe-a", True, "probe passed")
-                self.report_subtest("probe-b", False, "not applicable", skipped=True)
-                self.set_passed("nested check passed")
-
-        monkeypatch.setattr(composite_module, "get_validation_class", lambda name: NestedCheck)
-        composite = CompositeCheck(config=_config(["NestedCheck"]))
-
-        result = composite.execute()
-
-        assert result["passed"] is True
-        assert [(sub["name"], sub["skipped"]) for sub in result["subtests"]] == [
-            ("NestedCheck", False),
-            ("NestedCheck/probe-a", False),
-            ("NestedCheck/probe-b", True),
-        ]
-
-    def test_skipped_member_does_not_skip_or_fail_the_composite(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An inapplicable member is skipped while later members still run."""
-
-        class SkippedCheck(BaseValidation):
-            def run(self) -> None:
-                pytest.skip("only one rail discovered")
-
-        class PassingCheck(BaseValidation):
-            def run(self) -> None:
-                self.set_passed("later member passed")
-
-        classes = {"SkippedCheck": SkippedCheck, "PassingCheck": PassingCheck}
-        monkeypatch.setattr(composite_module, "get_validation_class", classes.get)
-        composite = CompositeCheck(config=_config(["SkippedCheck", "PassingCheck"]))
-
-        result = composite.execute()
-
-        assert result["passed"] is True
-        assert [(sub["name"], sub["passed"], sub["skipped"]) for sub in result["subtests"]] == [
-            ("SkippedCheck", False, True),
-            ("PassingCheck", True, False),
-        ]
-        assert "SkippedCheck: skipped - only one rail discovered" in result["output"]
-        assert "PassingCheck: later member passed" in result["output"]
-
     def test_fails_naming_the_failing_member(self) -> None:
         """A failing member fails the composite and is named in the error."""
         result = CompositeCheck(
@@ -298,6 +251,67 @@ class TestCompositeCheck:
             composite.execute()
 
         assert composite._subtest_results == []
+
+    def test_member_subtests_go_through_the_parent_fixture(self) -> None:
+        """A member's own subtests are emitted once, through the composite's fixture."""
+        composite = CompositeCheck(
+            config=_config(
+                [{"CrudOperationsCheck": {"operations": ["put", "get"]}}],
+                step_output={"success": True, "operations": {"put": {"passed": True}, "get": {"passed": True}}},
+            )
+        )
+        composite._subtests = MagicMock()
+        composite.execute()
+
+        emitted = [c.kwargs["msg"] for c in composite._subtests.test.call_args_list]
+        assert emitted == ["put", "get", "CrudOperationsCheck"]
+
+    def test_member_skip_does_not_hide_an_earlier_failure(self) -> None:
+        """A skipping member records a skipped subtest; other members' failures still fail the composite."""
+        composite = CompositeCheck(
+            config=_config(
+                ["StepSuccessCheck", {"CrudOperationsCheck": {"operations": ["put"]}}],
+                step_output={"success": False, "error": "boom", "operations": {"put": {"skipped": True}}},
+            )
+        )
+        result = composite.execute()
+
+        assert result["passed"] is False
+        assert "StepSuccessCheck: Step failed: boom" in result["error"]
+        assert [(sub["name"], sub["skipped"]) for sub in composite._subtest_results] == [
+            ("StepSuccessCheck", False),
+            ("CrudOperationsCheck", True),
+        ]
+
+    def test_member_skip_does_not_stop_later_members(self) -> None:
+        """Members after a skipping one still run, and a later failure still fails the composite."""
+        composite = CompositeCheck(
+            config=_config(
+                [{"CrudOperationsCheck": {"operations": ["put"]}}, {"FieldExistsCheck": {"fields": ["missing"]}}],
+                step_output={"success": True, "operations": {"put": {"skipped": True}}},
+            )
+        )
+        result = composite.execute()
+
+        assert result["passed"] is False
+        assert "FieldExistsCheck: Missing fields: missing" in result["error"]
+        assert [sub["name"] for sub in composite._subtest_results] == ["CrudOperationsCheck", "FieldExistsCheck"]
+
+    def test_skips_when_a_member_skips_and_none_fail(self) -> None:
+        """With no failures, a skipping member skips the composite with its reason."""
+        composite = CompositeCheck(
+            config=_config(
+                ["StepSuccessCheck", {"CrudOperationsCheck": {"operations": ["put"]}}],
+                step_output={"success": True, "operations": {"put": {"skipped": True, "skip_reason": "n/a"}}},
+            )
+        )
+        with pytest.raises(pytest.skip.Exception, match="CrudOperationsCheck: Required test\\(s\\) skipped: put: n/a"):
+            composite.execute()
+
+        assert [(sub["name"], sub["skipped"]) for sub in composite._subtest_results] == [
+            ("StepSuccessCheck", False),
+            ("CrudOperationsCheck", True),
+        ]
 
     def test_generic_checks_are_marked_compose_only(self) -> None:
         """The generic checks describe a mechanism, so they need a composite.
