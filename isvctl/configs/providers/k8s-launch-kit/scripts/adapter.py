@@ -250,9 +250,9 @@ def _bind_validate_inputs(
 ) -> list[str]:
     """Bind required, pre-existing Launch Kit validation inputs."""
     if not user_config_value:
-        raise ValueError("context.k8s_launch_kit.user_config is required for Network Operator validation")
+        raise ValueError("tests.settings.k8s_launch_kit.user_config is required for Network Operator validation")
     if not deployment_files_value:
-        raise ValueError("context.k8s_launch_kit.deployment_files is required for Network Operator validation")
+        raise ValueError("tests.settings.k8s_launch_kit.deployment_files is required for Network Operator validation")
 
     conflicting_flags = [
         flag

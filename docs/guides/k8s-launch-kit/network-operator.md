@@ -106,15 +106,15 @@ From the repository root:
 uv run isvctl test run \
   -f isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml \
   --capability kubernetes \
-  --set 'context.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
-  --set 'context.k8s_launch_kit.deployment_files=/absolute/path/deployment' \
+  --set 'tests.settings.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
+  --set 'tests.settings.k8s_launch_kit.deployment_files=/absolute/path/deployment' \
   --no-upload -- -v
 ```
 
 To use a kubeconfig that is not selected by the normal client environment, add:
 
 ```text
---set 'context.k8s_launch_kit.environment={"KUBECONFIG":"/absolute/path/kubeconfig.yaml"}'
+--set 'tests.settings.k8s_launch_kit.environment={"KUBECONFIG":"/absolute/path/kubeconfig.yaml"}'
 ```
 
 Omit `--no-upload` when the run should use the configured AI Cloud Labs upload

@@ -12,14 +12,15 @@ import:
 
 version: "1.0"
 
-context:
-  k8s_launch_kit:
-    executable: l8k
-    user_config: ""
-    deployment_files: ""
-    working_dir: ../../../../../_output/k8s-launch-kit/network-operator/work
-    artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/evidence
-    environment: {}
+tests:
+  settings:
+    k8s_launch_kit:
+      executable: l8k
+      user_config: ""
+      deployment_files: ""
+      working_dir: ../../../../../_output/k8s-launch-kit/network-operator/work
+      artifact_dir: ../../../../../_output/k8s-launch-kit/network-operator/evidence
+      environment: {}
 
 commands:
   network_operator:
@@ -31,19 +32,19 @@ commands:
         args:
           - run
           - --executable
-          - "{{ context.k8s_launch_kit.executable }}"
+          - "{{ k8s_launch_kit.executable }}"
           - --command
           - validate
           - --arguments-json
           - "[]"
-          - "--user-config={{ context.k8s_launch_kit.user_config }}"
-          - "--deployment-files={{ context.k8s_launch_kit.deployment_files }}"
+          - "--user-config={{ k8s_launch_kit.user_config }}"
+          - "--deployment-files={{ k8s_launch_kit.deployment_files }}"
           - --environment-json
-          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - "{{ k8s_launch_kit.environment | tojson }}"
           - --working-dir
-          - "{{ context.k8s_launch_kit.working_dir }}"
+          - "{{ k8s_launch_kit.working_dir }}"
           - --artifact-dir
-          - "{{ context.k8s_launch_kit.artifact_dir }}"
+          - "{{ k8s_launch_kit.artifact_dir }}"
         # Launch Kit calculates the connectivity-matrix budget or honors the
         # timeout configured by the user, so it owns this command's deadline.
         timeout: null
@@ -58,17 +59,17 @@ commands:
         args:
           - run
           - --executable
-          - "{{ context.k8s_launch_kit.executable }}"
+          - "{{ k8s_launch_kit.executable }}"
           - --command
           - sosreport
           - --arguments-json
           - "[]"
           - --environment-json
-          - "{{ context.k8s_launch_kit.environment | tojson }}"
+          - "{{ k8s_launch_kit.environment | tojson }}"
           - --working-dir
-          - "{{ context.k8s_launch_kit.working_dir }}"
+          - "{{ k8s_launch_kit.working_dir }}"
           - --artifact-dir
-          - "{{ context.k8s_launch_kit.artifact_dir }}"
+          - "{{ k8s_launch_kit.artifact_dir }}"
         timeout: 1800
         output_schema: k8s_launch_kit
         requires: [kubernetes]

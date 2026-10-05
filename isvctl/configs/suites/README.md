@@ -237,8 +237,8 @@ generated manifests are prerequisites.
 uv run isvctl test run \
   -f isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml \
   --capability kubernetes \
-  --set 'context.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
-  --set 'context.k8s_launch_kit.deployment_files=/absolute/path/deployment' \
+  --set 'tests.settings.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
+  --set 'tests.settings.k8s_launch_kit.deployment_files=/absolute/path/deployment' \
   --no-upload -- -v
 ```
 
