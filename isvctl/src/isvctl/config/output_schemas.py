@@ -1342,29 +1342,11 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             **COMMON_PROPERTIES,
             "operation": {
                 "type": "string",
-                "enum": [
-                    "prepare",
-                    "verify",
-                    "kubernetes-preflight",
-                    "discover",
-                    "generate",
-                    "deploy",
-                    "validate",
-                    "clean",
-                    "sosreport",
-                ],
-                "description": "The actual Launch Kit or provider prerequisite operation",
-            },
-            "executable": {"type": "string"},
-            "checks": {
-                "oneOf": [
-                    {"type": "object"},
-                    {"type": "array", "items": {"type": "object"}},
-                ]
+                "enum": ["validate", "sosreport"],
+                "description": "The Launch Kit command the adapter ran",
             },
             "artifacts": {"type": "object"},
             "error": {"type": "string"},
-            "remediation": {"type": "string"},
         },
         "additionalProperties": True,
         "description": "Transport envelope around an unmodified Kubernetes Launch Kit CLI operation",
