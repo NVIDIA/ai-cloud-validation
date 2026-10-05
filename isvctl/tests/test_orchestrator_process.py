@@ -136,9 +136,19 @@ time.sleep(60)
 
 
 def _process_exists(pid: int) -> bool:
-    """Return whether a process currently exists."""
+    """Return whether a process is still running.
+
+    A killed orphan stays a zombie when PID 1 does not reap children, as in
+    CI containers whose PID 1 is ``tail -f /dev/null``; that counts as gone.
+    """
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    if not Path("/proc").is_dir():
+        return True
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except FileNotFoundError:
+        return False
+    return state != "Z"
