@@ -684,16 +684,7 @@ def run(
     typer.echo("ORCHESTRATION RESULTS")
     typer.echo("=" * 60)
 
-    show_skipped_tests = bool(config.tests and config.tests.settings.get("show_skipped_tests", False))
     for phase_result in result.phases:
-        phase_details = phase_result.details or {}
-        displayed_validations = phase_details.get("validations", [])
-        if not show_skipped_tests:
-            displayed_validations = [
-                validation for validation in displayed_validations if not validation.get("skipped")
-            ]
-            if phase_details.get("validations") and not displayed_validations and not phase_details.get("steps"):
-                continue
         if phase_result.message.startswith("SKIPPED:"):
             status = typer.style("[SKIP]", fg=typer.colors.YELLOW)
         elif phase_result.success:
@@ -704,8 +695,8 @@ def run(
         typer.echo(f"{status} {phase_name}: {phase_result.message}")
 
         # Display step details (schema validation, errors)
-        if "steps" in phase_details:
-            for step in phase_details["steps"]:
+        if phase_result.details and "steps" in phase_result.details:
+            for step in phase_result.details["steps"]:
                 step_name = step.get("name", "unknown")
                 step_success = step.get("success", False)
                 schema_valid = step.get("schema_valid", True)
@@ -735,28 +726,30 @@ def run(
                         typer.echo(f"    Output: {json.dumps(output, indent=2)[:500]}")
 
         # Display centralized validation results
-        if displayed_validations:
-            for vr in displayed_validations:
-                vr_name = vr.get("name", "unknown")
-                # Handle case where name might be a dict (extract class name)
-                if isinstance(vr_name, dict):
-                    vr_name = next(iter(vr_name.keys()), "unknown")
-                vr_category = vr.get("category", "")
-                category_prefix = f"[{vr_category}] " if vr_category else ""
-                if vr.get("state") == "error":
-                    vr_status = typer.style("ERROR", fg=typer.colors.RED)
-                    reason = vr.get("error_reason")
-                elif vr.get("skipped"):
-                    vr_status = typer.style("SKIPPED", fg=typer.colors.YELLOW)
-                    reason = vr.get("skip_reason")
-                elif vr.get("passed", False):
-                    vr_status = typer.style("PASSED", fg=typer.colors.GREEN)
-                    reason = None
-                else:
-                    vr_status = typer.style("FAILED", fg=typer.colors.RED)
-                    reason = None
-                detail = _validation_result_detail(vr, reason)
-                typer.echo(f"  {category_prefix}{vr_name}: {vr_status} - {detail}")
+        if phase_result.details and "validations" in phase_result.details:
+            validations = phase_result.details["validations"]
+            if validations:
+                for vr in validations:
+                    vr_name = vr.get("name", "unknown")
+                    # Handle case where name might be a dict (extract class name)
+                    if isinstance(vr_name, dict):
+                        vr_name = next(iter(vr_name.keys()), "unknown")
+                    vr_category = vr.get("category", "")
+                    category_prefix = f"[{vr_category}] " if vr_category else ""
+                    if vr.get("state") == "error":
+                        vr_status = typer.style("ERROR", fg=typer.colors.RED)
+                        reason = vr.get("error_reason")
+                    elif vr.get("skipped"):
+                        vr_status = typer.style("SKIPPED", fg=typer.colors.YELLOW)
+                        reason = vr.get("skip_reason")
+                    elif vr.get("passed", False):
+                        vr_status = typer.style("PASSED", fg=typer.colors.GREEN)
+                        reason = None
+                    else:
+                        vr_status = typer.style("FAILED", fg=typer.colors.RED)
+                        reason = None
+                    detail = _validation_result_detail(vr, reason)
+                    typer.echo(f"  {category_prefix}{vr_name}: {vr_status} - {detail}")
 
     typer.echo("-" * 60)
     if result.success:
