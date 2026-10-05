@@ -223,7 +223,7 @@ def test_network_operator_provider_runs_validate_then_sosreport(tmp_path: Path) 
 
     assert result.success is True
     assert list(result.inventory) == ["launch_kit_validate", "launch_kit_sosreport"]
-    assert [phase.name for phase in result.phases] == ["test", "test-teardown"]
+    assert [phase.name for phase in result.phases] == ["test", "teardown"]
     validations = {validation.entry.name: validation for validation in result.validations}
     assert list(validations) == _CATALOG_TESTS
     for name, validation in validations.items():
@@ -260,7 +260,7 @@ def test_sosreport_failure_does_not_replace_connectivity_result(tmp_path: Path, 
     assert result.validations[0].state is State.PASSED
     assert [(phase.name, phase.success) for phase in result.phases] == [
         ("test", True),
-        ("test-teardown", False),
+        ("teardown", False),
     ]
     assert result.inventory["launch_kit_sosreport"]["success"] is False
     assert "sosreport collection failed" in result.inventory["launch_kit_sosreport"]["error"]

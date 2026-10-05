@@ -244,13 +244,13 @@ these rules.
 
 The orchestrator withholds the finalizer from normal step execution, runs the
 phase validations, and then executes the finalizer in best-effort mode. The
-result is reported separately as `<phase>-teardown`. A target activates its
+result is reported as a separate `teardown` phase result. A target activates its
 finalizer only when its command process actually started, whether it passed or
 failed. If an earlier step stopped the phase, a template could not be rendered,
 or the executable could not be started, the finalizer is reported as skipped.
 
 A failed finalizer blocks later non-teardown phases. Finalizer command output
-and failure details are recorded in the `<phase>-teardown` result. Keep
+and failure details are recorded in that `teardown` result. Keep
 finalizers lifecycle-only rather than binding validations to their output,
 because phase validations intentionally run before them.
 
