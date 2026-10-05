@@ -124,8 +124,8 @@ class TestPlatformCommands:
         with pytest.raises(ValidationError, match="phases must not contain duplicate"):
             PlatformCommands(phases=["setup", "test", "test"])
 
-    def test_finalizer_requires_one_target_in_its_phase_or_teardown(self) -> None:
-        """A finalizer target must resolve unambiguously in a supported lifecycle position."""
+    def test_finalizer_requires_one_target_in_its_phase(self) -> None:
+        """A finalizer target must resolve unambiguously within the finalizer's phase."""
         with pytest.raises(ValidationError, match="must name exactly one configured step"):
             PlatformCommands(
                 phases=["test"],
@@ -134,41 +134,32 @@ class TestPlatformCommands:
                 ],
             )
 
-        with pytest.raises(ValidationError, match="same phase or the finalizer must use phase 'teardown'"):
+        with pytest.raises(ValidationError, match="must be in the same phase"):
             PlatformCommands(
-                phases=["setup", "test", "cleanup"],
+                phases=["test", "teardown"],
                 steps=[
                     StepConfig(name="deploy", command="deploy", phase="test"),
-                    StepConfig(name="cleanup", command="clean", phase="cleanup", finalizer_for="deploy"),
+                    StepConfig(name="cleanup", command="clean", phase="teardown", finalizer_for="deploy"),
                 ],
             )
 
         config = PlatformCommands(
-            phases=["test", "teardown"],
+            phases=["test"],
             steps=[
                 StepConfig(name="deploy", command="deploy", phase="test"),
-                StepConfig(name="cleanup", command="clean", phase="teardown", finalizer_for="deploy"),
+                StepConfig(name="cleanup", command="clean", phase="test", finalizer_for="deploy"),
             ],
         )
         assert config.steps[1].finalizer_for == "deploy"
 
-    def test_teardown_finalizer_must_follow_target_and_match_its_gates(self) -> None:
-        """Linked teardown cannot precede its mutation or be filtered independently."""
-        with pytest.raises(ValidationError, match="teardown must be ordered after target"):
-            PlatformCommands(
-                phases=["teardown", "test"],
-                steps=[
-                    StepConfig(name="deploy", command="deploy", phase="test"),
-                    StepConfig(name="cleanup", command="clean", phase="teardown", finalizer_for="deploy"),
-                ],
-            )
-
+    def test_finalizer_must_match_its_target_gates(self) -> None:
+        """A finalizer cannot be filtered independently of its target."""
         with pytest.raises(ValidationError, match="must use the same gates as target"):
             PlatformCommands(
-                phases=["test", "teardown"],
+                phases=["test"],
                 steps=[
                     StepConfig(name="deploy", command="deploy", phase="test", requires=["kubernetes"]),
-                    StepConfig(name="cleanup", command="clean", phase="teardown", finalizer_for="deploy"),
+                    StepConfig(name="cleanup", command="clean", phase="test", finalizer_for="deploy"),
                 ],
             )
 

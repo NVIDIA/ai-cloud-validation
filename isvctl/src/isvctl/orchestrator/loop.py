@@ -552,14 +552,6 @@ class Orchestrator:
             step_phase = (step.phase or "setup").lower()
             self.context.set_step_phase(step.name, step_phase)
 
-        configured_steps_by_name = {step.name: step for step in steps}
-        active_steps = [step for phase_steps in steps_by_phase.values() for step in phase_steps]
-        finalizers_by_target_phase: dict[str, list[StepConfig]] = {}
-        for finalizer in (step for step in active_steps if step.finalizer_for is not None):
-            target = configured_steps_by_name[finalizer.finalizer_for]
-            target_phase = (target.phase or "setup").lower()
-            finalizers_by_target_phase.setdefault(target_phase, []).append(finalizer)
-
         resolved_validations_by_index: dict[int, ResolvedEntry] = {}
 
         exclude_labels: list[str] = []
@@ -581,12 +573,7 @@ class Orchestrator:
         requested_phase_names = {p.value for p in requested_phases}
         selected_config_phases = _requested_config_phases(config_phases, requested_phases)
         selected_config_phase_names = set(selected_config_phases)
-        selected_finalizer_target_phases = selected_config_phase_names.intersection(finalizers_by_target_phase)
-        run_finalizers_as_teardown_recovery = (
-            "teardown" in selected_config_phase_names and not selected_finalizer_target_phases
-        )
         attempted_step_names: set[str] = set()
-        executed_finalizer_names: set[str] = set()
 
         # Per-phase JUnit XML files merge at the end so later phases don't
         # overwrite earlier ones.
@@ -602,14 +589,7 @@ class Orchestrator:
                     continue
                 configured_phase_steps = steps_by_phase.get(phase_name, [])
                 phase_steps = [step for step in configured_phase_steps if step.finalizer_for is None]
-                declared_phase_finalizers = [step for step in configured_phase_steps if step.finalizer_for is not None]
-                if phase_name == "teardown" and run_finalizers_as_teardown_recovery:
-                    phase_steps.extend(declared_phase_finalizers)
-                phase_finalizers = [
-                    step
-                    for step in finalizers_by_target_phase.get(phase_name, [])
-                    if step.name not in executed_finalizer_names
-                ]
+                phase_finalizers = [step for step in configured_phase_steps if step.finalizer_for is not None]
                 phase_enum = _phase_enum_for_name(phase_name)
 
                 is_teardown = phase_name == "teardown"
@@ -739,7 +719,6 @@ class Orchestrator:
                     self.context,
                     best_effort=True,
                 )
-                executed_finalizer_names.update(finalizer.name for finalizer in eligible_finalizers)
                 if eligible_finalizers:
                     phase_results.append(
                         self._create_phase_result(

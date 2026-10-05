@@ -101,8 +101,8 @@ class StepConfig(BaseModel):
         default=None,
         min_length=1,
         description=(
-            "Step whose attempted execution activates this finalizer. A finalizer may be in the target phase "
-            "or in the teardown phase; it runs immediately after the target phase validations."
+            "Step whose attempted execution activates this finalizer. The finalizer must be in the target's "
+            "phase; it runs immediately after that phase's validations."
         ),
     )
     phase: str = Field(
@@ -183,23 +183,10 @@ class PlatformCommands(BaseModel):
                     f"{finalizer.finalizer_for!r}"
                 )
             target = targets[0]
-            target_phase = target.phase.lower()
-            finalizer_phase = finalizer.phase.lower()
-            if target_phase != finalizer_phase and finalizer_phase != "teardown":
+            if target.phase.lower() != finalizer.phase.lower():
                 raise ValueError(
-                    f"step '{finalizer.name}' finalizer_for target '{target.name}' must be in the same phase "
-                    "or the finalizer must use phase 'teardown'"
+                    f"step '{finalizer.name}' finalizer_for target '{target.name}' must be in the same phase"
                 )
-            if finalizer_phase == "teardown" and target_phase != finalizer_phase:
-                normalized_phases = [phase.lower() for phase in self.phases]
-                if "teardown" not in normalized_phases:
-                    raise ValueError(f"step '{finalizer.name}' uses phase 'teardown', which is not listed in phases")
-                if target_phase not in normalized_phases:
-                    raise ValueError(
-                        f"step '{finalizer.name}' finalizer_for target '{target.name}' has an unknown phase"
-                    )
-                if normalized_phases.index(target_phase) >= normalized_phases.index("teardown"):
-                    raise ValueError(f"step '{finalizer.name}' teardown must be ordered after target '{target.name}'")
             if target.finalizer_for is not None:
                 raise ValueError(f"step '{finalizer.name}' cannot finalize finalizer step '{target.name}'")
             if finalizer.requires != target.requires:
