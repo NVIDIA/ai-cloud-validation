@@ -17,14 +17,6 @@ def _steps(config_name: str) -> list[dict[str, Any]]:
     return config["commands"]["network_operator"]["steps"]
 
 
-def test_generic_validate_delegates_timeout_to_launch_kit() -> None:
-    """The generic validate workflow must not preempt l8k's matrix budget."""
-    validate_steps = [step for step in _steps("provider.yaml") if step["name"] == "launch_kit_validate"]
-
-    assert len(validate_steps) == 1
-    assert validate_steps[0]["timeout"] is None
-
-
 def test_network_operator_validate_delegates_timeout_to_launch_kit() -> None:
     """The one Network Operator validation leaves its deadline to l8k."""
     validate_steps = [step for step in _steps("network-operator.yaml") if step["name"] == "launch_kit_validate"]

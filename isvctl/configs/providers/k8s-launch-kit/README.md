@@ -7,7 +7,6 @@
 
 | Path | Purpose |
 |---|---|
-| `config/provider.yaml` | Generic provider mirroring the full Launch Kit workflow |
 | `config/network-operator.yaml` | Connectivity validation plus always-run diagnostics for an ISV-provisioned Network Operator deployment |
 | `scripts/adapter.py` | Thin process and JSON evidence transport |
 
@@ -15,23 +14,9 @@ Executable mocks and pinned scenarios are test-only and live under
 `isvctl/tests/providers/k8s_launch_kit/fixtures/`. Product configuration must
 never reference them.
 
-## Generic provider
-
-`config/provider.yaml` exposes install/verify, Kubernetes preflight, discover,
-generate, deploy, validate, and clean for consumers that own the complete
-Launch Kit lifecycle. Its workflow configuration is raw argument arrays. It
-does not reproduce Launch Kit's domain schema or defaults.
-
-Discovery optionally stages a complete `user_config`, writes the resolved
-`cluster-config.yaml`, and deletes the staged copy after the command. Validate
-uses `timeout: null` because Launch Kit calculates a bounded connectivity budget
-or honors its user-supplied timeout. The other generic steps retain finite
-outer watchdogs.
-
 ## Network Operator provider
 
-`config/network-operator.yaml` intentionally does not import the generic
-provider. It defines one test step that feeds every catalog test:
+`config/network-operator.yaml` defines one test step that feeds every catalog test:
 
 ```text
 l8k validate --user-config <file> --deployment-files <directory> --output json

@@ -33,7 +33,6 @@ _PROVIDER = _LAUNCH_KIT_PROVIDER / "scripts" / "adapter.py"
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _MOCK_L8K = _FIXTURES / "mock_l8k.py"
 _MOCK_KUBECTL = _FIXTURES / "mock_kubectl.py"
-_GENERIC_CONFIG = _LAUNCH_KIT_PROVIDER / "config" / "provider.yaml"
 _NETWORK_OPERATOR_CONFIG = _LAUNCH_KIT_PROVIDER / "config" / "network-operator.yaml"
 _FAMILIES = ("ICMPPing", "RDMAPing", "IBWriteBandwidth", "DMABufBandwidth")
 _CATALOG_TESTS = [
@@ -143,76 +142,6 @@ clusterConfig: []
     context["working_dir"] = str(tmp_path / "work")
     context["artifact_dir"] = str(tmp_path / "evidence")
     return RunConfig.model_validate(merged)
-
-
-def test_generic_provider_has_no_launch_kit_domain_defaults() -> None:
-    """AI Cloud Validation exposes raw argv while Launch Kit owns domain defaults."""
-    merged = merge_yaml_files([_GENERIC_CONFIG])
-    config = RunConfig.model_validate(merged)
-    context = merged["context"]["k8s_launch_kit"]
-
-    assert set(context) == {
-        "executable",
-        "installation",
-        "user_config",
-        "kubectl_command",
-        "working_dir",
-        "artifact_dir",
-        "environment",
-        "discover",
-        "generate",
-        "deploy",
-        "validate",
-        "clean",
-    }
-    assert context["user_config"] == ""
-    assert context["installation"] == {
-        "mode": "verify",
-        "version": "",
-        "installer_ref": "",
-        "installer_sha256": "",
-        "prefix": "",
-    }
-    assert all(
-        context[command]["arguments"] == [] for command in ("discover", "generate", "deploy", "validate", "clean")
-    )
-    assert [step.name for step in config.commands["network_operator"].steps] == [
-        "launch_kit_prepare",
-        "launch_kit_verify",
-        "launch_kit_kubernetes_preflight",
-        "launch_kit_discover",
-        "launch_kit_generate",
-        "launch_kit_deploy",
-        "launch_kit_validate",
-        "launch_kit_clean",
-    ]
-    assert config.commands["network_operator"].phases == ["setup", "test", "teardown"]
-    discover_step = next(
-        step for step in config.commands["network_operator"].steps if step.name == "launch_kit_discover"
-    )
-    prepare_step = next(step for step in config.commands["network_operator"].steps if step.name == "launch_kit_prepare")
-    assert "--installer-ref={{ context.k8s_launch_kit.installation.installer_ref }}" in prepare_step.args
-    assert "--installer-sha256={{ context.k8s_launch_kit.installation.installer_sha256 }}" in prepare_step.args
-    assert "--user-config={{ context.k8s_launch_kit.user_config }}" in discover_step.args
-    assert config.commands["network_operator"].steps[-1].phase == "teardown"
-    assert config.commands["network_operator"].steps[-1].finalizer_for == "launch_kit_deploy"
-    forbidden = {
-        "namespace",
-        "node_selector",
-        "expected_network_operator_version",
-        "driver_mode",
-        "rail_names",
-        "sriov_resource_names",
-        "ip_pool_names",
-        "gpu_count",
-        "validation_mode",
-        "validation_checks",
-        "rdma_rping_iterations",
-        "rdma_ib_write_size",
-        "rdma_min_bandwidth_gbps",
-        "timeout_seconds",
-    }
-    assert forbidden.isdisjoint(context)
 
 
 def test_network_operator_provider_defaults_to_real_cli_tools() -> None:

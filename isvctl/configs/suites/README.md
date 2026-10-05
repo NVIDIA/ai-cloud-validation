@@ -247,9 +247,7 @@ uv run isvctl test run \
 | `launch_kit_validate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k validate` | `operation`, `success`, `error`, `artifacts.validation_junit` |
 | `launch_kit_sosreport` | test finalizer | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k sosreport` | `success`, `error`, `artifacts.sosreport` |
 
-The generic `providers/k8s-launch-kit/config/provider.yaml` remains available
-to consumers that need the full Launch Kit lifecycle. See the
-[Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md).
+See the [Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md).
 
 ### VM (`vm.yaml`)
 
