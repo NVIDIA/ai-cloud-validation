@@ -80,7 +80,6 @@ class PhaseResult:
     success: bool
     message: str
     details: dict[str, Any] | None = None
-    name: str | None = None
 
 
 @dataclass
@@ -480,7 +479,6 @@ class Orchestrator:
                             phase=_phase_enum_for_name(phase_name),
                             success=True,
                             message=f"SKIPPED: platform '{platform}' is skipped by configuration",
-                            name=phase_name,
                         )
                         for phase_name in skipped_phases
                     ],
@@ -618,7 +616,6 @@ class Orchestrator:
                             phase=phase_enum,
                             success=True,
                             message=f"SKIPPED: {skip_reason}",
-                            name=phase_name,
                         )
                     )
                     continue
@@ -725,7 +722,6 @@ class Orchestrator:
                             Phase.TEARDOWN,
                             finalizer_results,
                             [],
-                            "teardown",
                         )
                     )
                 elif phase_finalizers:
@@ -736,7 +732,6 @@ class Orchestrator:
                             success=True,
                             message=f"SKIPPED: target step(s) were not attempted: {target_names}",
                             details={"steps": [], "validations": []},
-                            name="teardown",
                         )
                     )
 
@@ -856,7 +851,6 @@ class Orchestrator:
                 ],
                 "validations": validation_results,
             },
-            name=display_name,
         )
 
     def _resolve_validation_entries(
@@ -940,7 +934,6 @@ class Orchestrator:
                         "steps": [],
                         "validations": [_resolved_entry_to_result_dict(entry) for entry in resolved_entries],
                     },
-                    name=phase_name,
                 )
             )
 
