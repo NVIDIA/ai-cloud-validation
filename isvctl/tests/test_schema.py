@@ -124,31 +124,6 @@ class TestPlatformCommands:
         with pytest.raises(ValidationError, match="phases must not contain duplicate"):
             PlatformCommands(phases=["setup", "test", "test"])
 
-    def test_continue_after_failure_rejects_unknown_phase(self) -> None:
-        """A typo must not silently restore stop-on-failure behavior."""
-        with pytest.raises(ValidationError, match="phases not listed in phases"):
-            PlatformCommands(
-                phases=["setup", "use-case"],
-                continue_after_failure=["use-csae"],
-            )
-
-    @pytest.mark.parametrize("phase", ["setup", "teardown"])
-    def test_continue_after_failure_rejects_lifecycle_phases(self, phase: str) -> None:
-        """Setup and teardown are never independent test-case phases."""
-        with pytest.raises(ValidationError, match="cannot contain lifecycle phases"):
-            PlatformCommands(
-                phases=["setup", "use-case", "teardown"],
-                continue_after_failure=[phase],
-            )
-
-    def test_continue_after_failure_rejects_duplicates(self) -> None:
-        """Duplicate continuation entries are configuration errors, not useful policy."""
-        with pytest.raises(ValidationError, match="must not contain duplicate"):
-            PlatformCommands(
-                phases=["setup", "use-case"],
-                continue_after_failure=["use-case", "use-case"],
-            )
-
     def test_finalizer_requires_one_target_in_its_phase_or_teardown(self) -> None:
         """A finalizer target must resolve unambiguously in a supported lifecycle position."""
         with pytest.raises(ValidationError, match="must name exactly one configured step"):

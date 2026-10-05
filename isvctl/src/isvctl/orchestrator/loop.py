@@ -499,9 +499,6 @@ class Orchestrator:
                     ],
                 )
 
-        continuation_phases = (
-            set(self.config.commands[platform].continue_after_failure) if self.config.commands else set()
-        )
         all_validations = {}
         if self.config.tests and self.config.tests.validations:
             all_validations = self.config.tests.validations
@@ -578,7 +575,6 @@ class Orchestrator:
 
         phase_results: list[PhaseResult] = []
         overall_success = True
-        block_following_phases = False
         setup_steps_ran = False
 
         requested_phase_names = {p.value for p in requested_phases}
@@ -618,7 +614,7 @@ class Orchestrator:
                 is_teardown = phase_name == "teardown"
                 skip_reason: str | None = None
 
-                if block_following_phases and not is_teardown:
+                if not overall_success and not is_teardown:
                     skip_reason = "previous phase failed"
 
                 # Teardown gating depends on whether setup was part of this run:
@@ -765,13 +761,8 @@ class Orchestrator:
                     )
 
                 phase_success = step_results.success and all(v.get("passed", False) for v in phase_validations)
-                if not phase_success:
+                if not phase_success or not finalizer_results.success:
                     overall_success = False
-                    if phase_name not in continuation_phases:
-                        block_following_phases = True
-                if not finalizer_results.success:
-                    overall_success = False
-                    block_following_phases = True
 
             remaining_entries = [
                 (index, entry)

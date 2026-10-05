@@ -164,31 +164,16 @@ class PlatformCommands(BaseModel):
         default_factory=lambda: ["setup", "teardown"],
         description="Ordered list of phases to execute. Steps are grouped by phase and run in this order.",
     )
-    continue_after_failure: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Phases whose failure must not prevent later phases from running. "
-            "Use this for independent test cases, never for prerequisite/setup phases."
-        ),
-    )
     steps: list[StepConfig] = Field(
         default_factory=list,
         description="Sequential command steps grouped by phase",
     )
 
     @model_validator(mode="after")
-    def validate_continuation_phases(self) -> "PlatformCommands":
-        """Reject invalid continuation and linked-finalizer declarations."""
+    def validate_phases_and_finalizers(self) -> "PlatformCommands":
+        """Reject duplicate phases and invalid linked-finalizer declarations."""
         if len(self.phases) != len(set(self.phases)):
             raise ValueError("phases must not contain duplicate names")
-        unknown = [phase for phase in self.continue_after_failure if phase not in self.phases]
-        if unknown:
-            raise ValueError(f"continue_after_failure contains phases not listed in phases: {unknown}")
-        unsafe = [phase for phase in self.continue_after_failure if phase in {"setup", "teardown"}]
-        if unsafe:
-            raise ValueError(f"continue_after_failure cannot contain lifecycle phases: {unsafe}")
-        if len(self.continue_after_failure) != len(set(self.continue_after_failure)):
-            raise ValueError("continue_after_failure must not contain duplicate phase names")
 
         for finalizer in (step for step in self.steps if step.finalizer_for is not None):
             targets = [step for step in self.steps if step.name == finalizer.finalizer_for]

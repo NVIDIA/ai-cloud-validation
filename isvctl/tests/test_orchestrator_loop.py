@@ -371,36 +371,6 @@ EOF
         assert len(teardown_phases) == 1
         assert teardown_phases[0].success
 
-    def test_independent_custom_phase_runs_after_an_allowed_failure(self) -> None:
-        """An opted-in failed use case does not hide results from later independent cases."""
-        config = RunConfig(
-            commands={
-                "kubernetes": PlatformCommands(
-                    phases=["case-one", "case-two"],
-                    continue_after_failure=["case-one"],
-                    steps=[
-                        StepConfig(name="case_one", command="false", phase="case-one"),
-                        StepConfig(
-                            name="case_two",
-                            command="echo",
-                            args=['{"success": true, "platform": "kubernetes"}'],
-                            phase="case-two",
-                            output_schema="generic",
-                        ),
-                    ],
-                )
-            },
-            tests=ValidationConfig(capability="kubernetes"),
-        )
-
-        result = Orchestrator(config).run(phases=[Phase.TEST])
-
-        assert result.success is False
-        assert [(phase.name, phase.success) for phase in result.phases] == [
-            ("case-one", False),
-            ("case-two", True),
-        ]
-
     def test_phase_finalizer_runs_after_its_target_fails(self, tmp_path: Path) -> None:
         """An attempted mutating step activates cleanup even when the step fails."""
         marker = tmp_path / "cleaned"
@@ -413,7 +383,6 @@ EOF
             commands={
                 "kubernetes": PlatformCommands(
                     phases=["case-one", "case-two"],
-                    continue_after_failure=["case-one"],
                     steps=[
                         StepConfig(name="deploy", command="false", phase="case-one"),
                         StepConfig(
@@ -438,7 +407,7 @@ EOF
         assert result.phases[1].phase is Phase.TEARDOWN
         assert result.phases[1].name == "case-one-teardown"
         assert result.phases[2].name == "case-two"
-        assert result.phases[2].success is True
+        assert result.phases[2].message == "SKIPPED: previous phase failed"
 
     def test_phase_finalizer_skips_when_target_was_not_attempted(self, tmp_path: Path) -> None:
         """A prerequisite failure cannot activate destructive cleanup before deployment."""
@@ -448,7 +417,6 @@ EOF
             commands={
                 "kubernetes": PlatformCommands(
                     phases=["case-one", "case-two"],
-                    continue_after_failure=["case-one"],
                     steps=[
                         StepConfig(name="preflight", command="false", phase="case-one"),
                         StepConfig(name="deploy", command="true", phase="case-one"),
@@ -472,7 +440,7 @@ EOF
         assert [step["name"] for step in result.phases[0].details["steps"]] == ["preflight"]
         assert result.phases[1].name == "case-one-teardown"
         assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
-        assert result.phases[2].success is True
+        assert result.phases[2].message == "SKIPPED: previous phase failed"
 
     def test_phase_finalizer_skips_when_target_process_never_started(self, tmp_path: Path) -> None:
         """A command-resolution failure cannot imply that a cluster mutation occurred."""
@@ -482,7 +450,6 @@ EOF
             commands={
                 "kubernetes": PlatformCommands(
                     phases=["case-one", "case-two"],
-                    continue_after_failure=["case-one"],
                     steps=[
                         StepConfig(
                             name="deploy",
@@ -508,7 +475,7 @@ EOF
         assert not marker.exists()
         assert result.phases[0].details["steps"][0]["attempted"] is False
         assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
-        assert result.phases[2].success is True
+        assert result.phases[2].message == "SKIPPED: previous phase failed"
 
     def test_phase_finalizer_skips_when_target_is_not_executable(self, tmp_path: Path) -> None:
         """A permission failure also proves that no cluster mutation occurred."""
@@ -521,7 +488,6 @@ EOF
             commands={
                 "kubernetes": PlatformCommands(
                     phases=["case-one", "case-two"],
-                    continue_after_failure=["case-one"],
                     steps=[
                         StepConfig(name="deploy", command=str(target), phase="case-one"),
                         StepConfig(
@@ -543,15 +509,14 @@ EOF
         assert not marker.exists()
         assert result.phases[0].details["steps"][0]["attempted"] is False
         assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
-        assert result.phases[2].success is True
+        assert result.phases[2].message == "SKIPPED: previous phase failed"
 
     def test_failed_phase_finalizer_blocks_later_independent_phases(self) -> None:
-        """A failed cleanup leaves unsafe state and overrides continuation policy."""
+        """A failed cleanup leaves unsafe state, so later phases do not run."""
         config = RunConfig(
             commands={
                 "kubernetes": PlatformCommands(
                     phases=["case-one", "case-two"],
-                    continue_after_failure=["case-one"],
                     steps=[
                         StepConfig(name="deploy", command="true", phase="case-one"),
                         StepConfig(
