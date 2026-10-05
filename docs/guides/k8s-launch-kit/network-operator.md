@@ -64,11 +64,6 @@ The relevant files are:
 | Mock-backed provider tests | `isvctl/tests/providers/k8s_launch_kit/` |
 | Result-check unit tests | `isvtest/tests/k8s_launch_kit/` |
 
-The generic provider in
-`isvctl/configs/providers/k8s-launch-kit/config/provider.yaml` still mirrors the
-complete Launch Kit lifecycle for other consumers. The Network Operator
-entrypoint does not import it, so none of those lifecycle steps are inherited.
-
 The `l8k` installation must also make the upstream
 `kubectl-netop_sosreport` helper available to `l8k sosreport`. Validate this
 once with a direct `l8k sosreport --output-dir <temporary-directory>` call. If
