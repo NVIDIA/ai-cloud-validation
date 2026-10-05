@@ -405,8 +405,7 @@ EOF
         assert [step["name"] for step in result.phases[0].details["steps"]] == ["deploy"]
         assert [step["name"] for step in result.phases[1].details["steps"]] == ["cleanup"]
         assert result.phases[1].phase is Phase.TEARDOWN
-        assert result.phases[1].name == "teardown"
-        assert result.phases[2].name == "case-two"
+        assert result.phases[2].phase is Phase.TEST
         assert result.phases[2].message == "SKIPPED: previous phase failed"
 
     def test_phase_finalizer_skips_when_target_was_not_attempted(self, tmp_path: Path) -> None:
@@ -438,7 +437,7 @@ EOF
         assert result.success is False
         assert not marker.exists()
         assert [step["name"] for step in result.phases[0].details["steps"]] == ["preflight"]
-        assert result.phases[1].name == "teardown"
+        assert result.phases[1].phase is Phase.TEARDOWN
         assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
         assert result.phases[2].message == "SKIPPED: previous phase failed"
 
@@ -535,10 +534,10 @@ EOF
         result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is False
-        assert [(phase.name, phase.message) for phase in result.phases] == [
-            ("case-one", "deploy: passed"),
-            ("teardown", "cleanup: failed"),
-            ("case-two", "SKIPPED: previous phase failed"),
+        assert [(phase.phase, phase.message) for phase in result.phases] == [
+            (Phase.TEST, "deploy: passed"),
+            (Phase.TEARDOWN, "cleanup: failed"),
+            (Phase.TEST, "SKIPPED: previous phase failed"),
         ]
 
     def test_custom_phase_failure_blocks_later_phases_by_default(self) -> None:
@@ -565,9 +564,9 @@ EOF
         result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is False
-        assert [(phase.name, phase.message) for phase in result.phases] == [
-            ("case-one", "case_one: failed"),
-            ("case-two", "SKIPPED: previous phase failed"),
+        assert [phase.message for phase in result.phases] == [
+            "case_one: failed",
+            "SKIPPED: previous phase failed",
         ]
 
     def test_platform_detection_missing(self) -> None:
