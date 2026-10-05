@@ -171,7 +171,7 @@ commands:
 
 Phase names are not limited to `setup`, `test`, and `teardown`. Any other name
 is a custom test phase: it runs in the declared order, appears under its own
-name in the orchestration summary, and is selected by `--phase test`. A
+name in the orchestration summary, and runs only with `--phase all`. A
 validation bound to a step runs after that step's custom phase.
 
 A failed phase prevents later non-teardown phases from running.
