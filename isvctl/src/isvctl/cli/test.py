@@ -700,7 +700,7 @@ def run(
             status = typer.style("[PASS]", fg=typer.colors.GREEN)
         else:
             status = typer.style("[FAIL]", fg=typer.colors.RED)
-        phase_name = (phase_result.name or phase_result.phase.value).upper().ljust(24)
+        phase_name = phase_result.phase.value.upper().ljust(8)
         typer.echo(f"{status} {phase_name}: {phase_result.message}")
 
         # Display step details (schema validation, errors)

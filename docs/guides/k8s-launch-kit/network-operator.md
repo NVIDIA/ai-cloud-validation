@@ -143,7 +143,7 @@ job may still impose an overall job timeout.
 The `launch_kit_sosreport` finalizer has a 30-minute orchestration watchdog.
 Unlike connectivity validation, the current Launch Kit sosreport command does
 not calculate its own total deadline. A timeout or sosreport command error is
-reported as a separate `test-teardown` orchestration failure; it does not
+reported as a separate `teardown` orchestration failure; it does not
 replace the connectivity test result.
 
 ## Results and errors

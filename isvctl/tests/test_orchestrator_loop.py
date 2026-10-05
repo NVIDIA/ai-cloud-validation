@@ -405,7 +405,7 @@ EOF
         assert [step["name"] for step in result.phases[0].details["steps"]] == ["deploy"]
         assert [step["name"] for step in result.phases[1].details["steps"]] == ["cleanup"]
         assert result.phases[1].phase is Phase.TEARDOWN
-        assert result.phases[1].name == "case-one-teardown"
+        assert result.phases[1].name == "teardown"
         assert result.phases[2].name == "case-two"
         assert result.phases[2].message == "SKIPPED: previous phase failed"
 
@@ -438,7 +438,7 @@ EOF
         assert result.success is False
         assert not marker.exists()
         assert [step["name"] for step in result.phases[0].details["steps"]] == ["preflight"]
-        assert result.phases[1].name == "case-one-teardown"
+        assert result.phases[1].name == "teardown"
         assert result.phases[1].message.startswith("SKIPPED: target step(s) were not attempted")
         assert result.phases[2].message == "SKIPPED: previous phase failed"
 
@@ -537,7 +537,7 @@ EOF
         assert result.success is False
         assert [(phase.name, phase.message) for phase in result.phases] == [
             ("case-one", "deploy: passed"),
-            ("case-one-teardown", "cleanup: failed"),
+            ("teardown", "cleanup: failed"),
             ("case-two", "SKIPPED: previous phase failed"),
         ]
 

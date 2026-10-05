@@ -725,7 +725,7 @@ class Orchestrator:
                             Phase.TEARDOWN,
                             finalizer_results,
                             [],
-                            f"{phase_name}-teardown",
+                            "teardown",
                         )
                     )
                 elif phase_finalizers:
@@ -736,7 +736,7 @@ class Orchestrator:
                             success=True,
                             message=f"SKIPPED: target step(s) were not attempted: {target_names}",
                             details={"steps": [], "validations": []},
-                            name=f"{phase_name}-teardown",
+                            name="teardown",
                         )
                     )
 
