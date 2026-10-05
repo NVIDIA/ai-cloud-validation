@@ -308,7 +308,8 @@ def _requested_config_phases(config_phases: list[str], requested_phases: list[Ph
     if Phase.ALL in requested_phases:
         return config_phases
 
-    return [phase for phase in config_phases if _phase_enum_for_name(phase) in requested_phases]
+    requested_phase_names = {phase.value for phase in requested_phases}
+    return [phase for phase in config_phases if phase in requested_phase_names]
 
 
 def _has_explicit_pytest_selection(extra_pytest_args: list[str] | None) -> bool:

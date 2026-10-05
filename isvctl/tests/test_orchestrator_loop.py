@@ -398,7 +398,7 @@ EOF
             tests=ValidationConfig(capability="kubernetes"),
         )
 
-        result = Orchestrator(config).run(phases=[Phase.TEST])
+        result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is False
         assert marker.is_file()
@@ -433,7 +433,7 @@ EOF
             tests=ValidationConfig(capability="kubernetes"),
         )
 
-        result = Orchestrator(config).run(phases=[Phase.TEST])
+        result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is False
         assert not marker.exists()
@@ -469,7 +469,7 @@ EOF
             tests=ValidationConfig(capability="kubernetes"),
         )
 
-        result = Orchestrator(config).run(phases=[Phase.TEST])
+        result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is False
         assert not marker.exists()
@@ -503,7 +503,7 @@ EOF
             tests=ValidationConfig(capability="kubernetes"),
         )
 
-        result = Orchestrator(config).run(phases=[Phase.TEST])
+        result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is False
         assert not marker.exists()
@@ -532,7 +532,7 @@ EOF
             tests=ValidationConfig(capability="kubernetes"),
         )
 
-        result = Orchestrator(config).run(phases=[Phase.TEST])
+        result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is False
         assert [(phase.name, phase.message) for phase in result.phases] == [
@@ -564,7 +564,7 @@ EOF
             tests=ValidationConfig(capability="kubernetes"),
         )
 
-        result = Orchestrator(config).run(phases=[Phase.TEST])
+        result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is True
         assert marker.is_file()
@@ -572,6 +572,7 @@ EOF
             ("case-one", Phase.TEST),
             ("case-one-teardown", Phase.TEARDOWN),
             ("case-two", Phase.TEST),
+            ("teardown", Phase.TEARDOWN),
         ]
 
     def test_teardown_only_runs_linked_finalizer_as_recovery(self, tmp_path: Path) -> None:
@@ -605,7 +606,7 @@ EOF
         ]
 
     def test_custom_phase_failure_blocks_later_phases_by_default(self) -> None:
-        """Without an opt-in, the existing stop-on-failure behavior is unchanged."""
+        """A failed custom phase stops later non-teardown phases."""
         config = RunConfig(
             commands={
                 "kubernetes": PlatformCommands(
@@ -625,7 +626,7 @@ EOF
             tests=ValidationConfig(capability="kubernetes"),
         )
 
-        result = Orchestrator(config).run(phases=[Phase.TEST])
+        result = Orchestrator(config).run(phases=[Phase.ALL])
 
         assert result.success is False
         assert [(phase.name, phase.message) for phase in result.phases] == [
