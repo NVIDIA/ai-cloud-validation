@@ -569,9 +569,6 @@ class Orchestrator:
         setup_steps_ran = False
 
         requested_phase_names = {p.value for p in requested_phases}
-        selected_config_phases = _requested_config_phases(config_phases, requested_phases)
-        selected_config_phase_names = set(selected_config_phases)
-        attempted_step_names: set[str] = set()
 
         # Per-phase JUnit XML files merge at the end so later phases don't
         # overwrite earlier ones.
@@ -583,11 +580,9 @@ class Orchestrator:
                 junit_tmpdir = tempfile.mkdtemp(prefix="junit-phases-")
 
             for phase_name in config_phases:
-                if phase_name not in selected_config_phase_names:
+                if phase_name not in requested_phase_names and Phase.ALL not in requested_phases:
                     continue
-                configured_phase_steps = steps_by_phase.get(phase_name, [])
-                phase_steps = [step for step in configured_phase_steps if step.finalizer_for is None]
-                phase_finalizers = [step for step in configured_phase_steps if step.finalizer_for is not None]
+                phase_steps = steps_by_phase.get(phase_name, [])
                 phase_enum = _phase_enum_for_name(phase_name)
 
                 is_teardown = phase_name == "teardown"
@@ -624,7 +619,6 @@ class Orchestrator:
                     step_results = self.step_executor.execute_steps(phase_steps, self.context, best_effort=is_teardown)
                 else:
                     step_results = StepResults()
-                attempted_step_names.update(result.name for result in step_results.steps if result.attempted)
 
                 # ``step_results.steps`` includes placeholder records for skip:true
                 # steps; require at least one step that wasn't skipped before letting
@@ -647,7 +641,7 @@ class Orchestrator:
                 phase_entries = [validation_entries[index] for index in phase_entry_indexes]
                 resolved_phase_entries = self._resolve_validation_entries(
                     phase_entries,
-                    selected_config_phase_names,
+                    requested_phase_names if Phase.ALL not in requested_phases else set(config_phases),
                     set(self._include_labels),
                     resolution_exclude_labels,
                     set(exclude_tests),
@@ -698,45 +692,13 @@ class Orchestrator:
 
                 phase_validations = [_resolved_entry_to_result_dict(entry) for entry in terminal_phase_entries]
 
-                if step_results.steps or phase_validations:
+                if phase_steps or phase_validations:
                     phase_results.append(
                         self._create_phase_result(phase_enum, step_results, phase_validations, phase_name)
                     )
 
-                eligible_finalizers = [step for step in phase_finalizers if step.finalizer_for in attempted_step_names]
-                for finalizer in phase_finalizers:
-                    if finalizer not in eligible_finalizers:
-                        logger.info(
-                            "Skipping finalizer '%s': target step '%s' was not attempted",
-                            finalizer.name,
-                            finalizer.finalizer_for,
-                        )
-                finalizer_results = self.step_executor.execute_steps(
-                    eligible_finalizers,
-                    self.context,
-                    best_effort=True,
-                )
-                if eligible_finalizers:
-                    phase_results.append(
-                        self._create_phase_result(
-                            Phase.TEARDOWN,
-                            finalizer_results,
-                            [],
-                        )
-                    )
-                elif phase_finalizers:
-                    target_names = ", ".join(finalizer.finalizer_for or "unknown" for finalizer in phase_finalizers)
-                    phase_results.append(
-                        PhaseResult(
-                            phase=Phase.TEARDOWN,
-                            success=True,
-                            message=f"SKIPPED: target step(s) were not attempted: {target_names}",
-                            details={"steps": [], "validations": []},
-                        )
-                    )
-
                 phase_success = step_results.success and all(v.get("passed", False) for v in phase_validations)
-                if not phase_success or not finalizer_results.success:
+                if not phase_success:
                     overall_success = False
 
             remaining_entries = [
@@ -747,7 +709,7 @@ class Orchestrator:
             if remaining_entries:
                 terminal_remaining = self._resolve_remaining_validation_entries(
                     remaining_entries,
-                    selected_config_phase_names,
+                    requested_phase_names if Phase.ALL not in requested_phases else set(config_phases),
                     set(self._include_labels),
                     resolution_exclude_labels,
                     set(exclude_tests),
@@ -840,7 +802,6 @@ class Orchestrator:
                     {
                         "name": s.name,
                         "success": s.success,
-                        "attempted": s.attempted,
                         "error": s.error,
                         "output": redact_dict(s.output),
                         "schema_name": s.schema_name,

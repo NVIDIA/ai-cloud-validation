@@ -161,11 +161,11 @@ def test_network_operator_provider_defaults_to_real_cli_tools() -> None:
     assert [step.name for step in command.steps] == ["launch_kit_validate", "launch_kit_sosreport"]
     validate_step, sosreport_step = command.steps
     assert validate_step.timeout is None
+    assert validate_step.continue_on_failure is True
     assert "--user-config={{ k8s_launch_kit.user_config }}" in validate_step.args
     assert "--deployment-files={{ k8s_launch_kit.deployment_files }}" in validate_step.args
     assert sosreport_step.timeout == 1800
     assert sosreport_step.phase == "test"
-    assert sosreport_step.finalizer_for == "launch_kit_validate"
     assert sosreport_step.requires == validate_step.requires
 
 
@@ -223,7 +223,7 @@ def test_network_operator_provider_runs_validate_then_sosreport(tmp_path: Path) 
 
     assert result.success is True
     assert list(result.inventory) == ["launch_kit_validate", "launch_kit_sosreport"]
-    assert [phase.phase for phase in result.phases] == [Phase.TEST, Phase.TEARDOWN]
+    assert [phase.phase for phase in result.phases] == [Phase.TEST]
     validations = {validation.entry.name: validation for validation in result.validations}
     assert list(validations) == _CATALOG_TESTS
     for name, validation in validations.items():
@@ -247,7 +247,7 @@ def test_network_operator_provider_runs_validate_then_sosreport(tmp_path: Path) 
 
 
 def test_sosreport_failure_does_not_replace_connectivity_result(tmp_path: Path, monkeypatch: Any) -> None:
-    """Diagnostic failure is separate while the connectivity assertion stays passed."""
+    """A diagnostic failure fails the run while the connectivity assertion stays passed."""
     monkeypatch.setenv("L8K_MOCK_FAIL", "sosreport")
     config = _mocked_network_operator_config(tmp_path)
 
@@ -258,10 +258,7 @@ def test_sosreport_failure_does_not_replace_connectivity_result(tmp_path: Path, 
 
     assert result.success is False
     assert result.validations[0].state is State.PASSED
-    assert [(phase.phase, phase.success) for phase in result.phases] == [
-        (Phase.TEST, True),
-        (Phase.TEARDOWN, False),
-    ]
+    assert [(phase.phase, phase.success) for phase in result.phases] == [(Phase.TEST, False)]
     assert result.inventory["launch_kit_sosreport"]["success"] is False
     assert "sosreport collection failed" in result.inventory["launch_kit_sosreport"]["error"]
 

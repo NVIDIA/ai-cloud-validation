@@ -11,8 +11,8 @@ The Network Operator suite performs one validation operation:
 l8k validate --user-config <complete-config> --deployment-files <rendered-directory>
 ```
 
-It reports the connectivity matrix produced by Launch Kit. After that command
-is attempted, an always-run linked finalizer invokes:
+It reports the connectivity matrix produced by Launch Kit. The validate step
+continues on failure, so the next step always collects diagnostics:
 
 ```text
 l8k sosreport --output-dir <artifact-directory>/sosreport
@@ -39,17 +39,17 @@ model in AI Cloud Validation.
 
 ```text
 Network Operator provider YAML
-  -> validation step
+  -> validation step (continue_on_failure)
      -> adapter.py
         -> l8k validate --user-config ... --deployment-files ... --output json
         -> retained argv, stdout, stderr, exit code, duration, and HTML report
-  -> Network Operator suite YAML
-     -> nine catalog tests, one per native Launch Kit JUnit suite
-        -> one subtest for every case in that suite
-  -> linked finalizer, after the catalog assertions
+  -> sosreport step
      -> adapter.py
         -> l8k sosreport --output-dir .../evidence/sosreport
         -> retained diagnostic directory, stdout, stderr, exit code, and duration
+  -> Network Operator suite YAML
+     -> nine catalog tests, one per native Launch Kit JUnit suite
+        -> one subtest for every case in that suite
   -> console and JUnit results
 ```
 
@@ -140,11 +140,10 @@ by the user. This prevents an independent isvctl watchdog from terminating a
 valid large matrix before Launch Kit's bounded checks finish. An enclosing CI
 job may still impose an overall job timeout.
 
-The `launch_kit_sosreport` finalizer has a 30-minute orchestration watchdog.
+The `launch_kit_sosreport` step has a 30-minute orchestration watchdog.
 Unlike connectivity validation, the current Launch Kit sosreport command does
-not calculate its own total deadline. A timeout or sosreport command error is
-reported as a separate `teardown` orchestration failure; it does not
-replace the connectivity test result.
+not calculate its own total deadline. A timeout or sosreport command error
+fails the test phase; it does not replace the connectivity test result.
 
 ## Results and errors
 
@@ -176,9 +175,9 @@ example `K8sEastWestNetworkICMPPing-ethernet`), with native cases as
 report download, and `isvreporter` upload therefore report against the static
 catalog.
 
-The sosreport finalizer runs after these assertions. If sosreport itself fails,
-the connectivity result remains intact and the overall orchestration reports
-the diagnostic-collection failure separately.
+The sosreport step runs before these assertions, which read only the validate
+step's output. If sosreport itself fails, the connectivity result remains
+intact and the test phase reports the diagnostic-collection failure.
 
 ## Evidence
 

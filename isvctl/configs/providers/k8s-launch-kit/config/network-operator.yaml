@@ -50,9 +50,10 @@ commands:
         timeout: null
         output_schema: k8s_launch_kit
         requires: [kubernetes]
+        # The catalog tests report a failed validate; keep going so sosreport
+        # still collects diagnostics. sosreport is not a catalog test.
+        continue_on_failure: true
 
-      # A linked same-phase finalizer runs after the catalog assertions even
-      # when validate exits nonzero. It is not a separate catalog test.
       - name: launch_kit_sosreport
         phase: test
         command: python3 ../scripts/adapter.py
@@ -73,4 +74,3 @@ commands:
         timeout: 1800
         output_schema: k8s_launch_kit
         requires: [kubernetes]
-        finalizer_for: launch_kit_validate

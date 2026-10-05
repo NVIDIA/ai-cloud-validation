@@ -228,8 +228,8 @@ JUnit suite of the same name (`network/validation` for the deployment entry),
 with its cases as subtests. Launch Kit only runs the configured fabric, so the
 other fabric's four entries skip. Its production provider invokes
 `l8k validate` with a caller-supplied complete `user_config` and existing
-`deployment_files` directory, then invokes `l8k sosreport` as an always-run
-linked finalizer. The Kubernetes cluster, Network Operator deployment, Launch
+`deployment_files` directory, then always invokes `l8k sosreport` (the validate
+step continues on failure). The Kubernetes cluster, Network Operator deployment, Launch
 Kit installation (including its sosreport helper), configuration, and
 generated manifests are prerequisites.
 
@@ -245,7 +245,7 @@ uv run isvctl test run \
 | Step | Phase | Script | Key JSON Fields |
 |------|-------|--------|-----------------|
 | `launch_kit_validate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k validate` | `operation`, `success`, `error`, `artifacts.validation_junit` |
-| `launch_kit_sosreport` | test finalizer | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k sosreport` | `success`, `error`, `artifacts.sosreport` |
+| `launch_kit_sosreport` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k sosreport` | `success`, `error`, `artifacts.sosreport` |
 
 See the [Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md).
 

@@ -116,66 +116,6 @@ class TestStepConfig:
             StepConfig(name="setup", command="echo", requires=["vm", "vm"])
 
 
-class TestPlatformCommands:
-    """Tests for ordered command phases."""
-
-    def test_phases_reject_duplicates(self) -> None:
-        """A duplicate phase would otherwise execute its steps more than once."""
-        with pytest.raises(ValidationError, match="phases must not contain duplicate"):
-            PlatformCommands(phases=["setup", "test", "test"])
-
-    def test_finalizer_requires_one_target_in_its_phase(self) -> None:
-        """A finalizer target must resolve unambiguously within the finalizer's phase."""
-        with pytest.raises(ValidationError, match="must name exactly one configured step"):
-            PlatformCommands(
-                phases=["test"],
-                steps=[
-                    StepConfig(name="cleanup", command="clean", phase="test", finalizer_for="deploy"),
-                ],
-            )
-
-        with pytest.raises(ValidationError, match="must be in the same phase"):
-            PlatformCommands(
-                phases=["test", "teardown"],
-                steps=[
-                    StepConfig(name="deploy", command="deploy", phase="test"),
-                    StepConfig(name="cleanup", command="clean", phase="teardown", finalizer_for="deploy"),
-                ],
-            )
-
-        config = PlatformCommands(
-            phases=["test"],
-            steps=[
-                StepConfig(name="deploy", command="deploy", phase="test"),
-                StepConfig(name="cleanup", command="clean", phase="test", finalizer_for="deploy"),
-            ],
-        )
-        assert config.steps[1].finalizer_for == "deploy"
-
-    def test_finalizer_must_match_its_target_gates(self) -> None:
-        """A finalizer cannot be filtered independently of its target."""
-        with pytest.raises(ValidationError, match="must use the same gates as target"):
-            PlatformCommands(
-                phases=["test"],
-                steps=[
-                    StepConfig(name="deploy", command="deploy", phase="test", requires=["kubernetes"]),
-                    StepConfig(name="cleanup", command="clean", phase="test", finalizer_for="deploy"),
-                ],
-            )
-
-    def test_finalizer_cannot_target_another_finalizer(self) -> None:
-        """Finalizer chains have ambiguous activation and cleanup ordering."""
-        with pytest.raises(ValidationError, match="cannot finalize finalizer step"):
-            PlatformCommands(
-                phases=["test"],
-                steps=[
-                    StepConfig(name="deploy", command="deploy", phase="test"),
-                    StepConfig(name="cleanup", command="clean", phase="test", finalizer_for="deploy"),
-                    StepConfig(name="verify_cleanup", command="verify", phase="test", finalizer_for="cleanup"),
-                ],
-            )
-
-
 class TestCommandOutput:
     """Tests for CommandOutput model (setup command JSON output)."""
 
