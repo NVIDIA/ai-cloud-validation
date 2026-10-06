@@ -297,13 +297,11 @@ def build_catalog() -> list[dict[str, Any]]:
             source = CompositeCheck.__module__
             class_labels: set[str] = set()
         else:
-            # Catalog-excluded classes may still be wired; they are simply not published.
-            if name in excluded_names:
-                continue
-            base = resolve_class_key(name, class_meta)
+            base = resolve_class_key(name, [*class_meta, *excluded_names])
             if base is None:
                 logger.warning("Omitting suite wiring %s because no validation class resolves it", name)
                 continue
+            # Catalog-excluded classes may still be wired; they are simply not published.
             if base in excluded_names:
                 continue
             meta = class_meta[base]

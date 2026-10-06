@@ -22,7 +22,7 @@ from typing import ClassVar
 import pytest
 
 from isvtest.core.validation import BaseValidation
-from isvtest.validations.k8s_launch_kit.runner import DEFAULT_ARTIFACT_DIR, run_launch_kit
+from isvtest.validations.k8s_launch_kit.runner import run_launch_kit
 
 _FABRICS = ("ethernet", "infiniband")
 
@@ -41,12 +41,7 @@ class _LaunchKitCheck(BaseValidation):
                 "Launch Kit inputs not configured: set tests.settings.k8s_launch_kit.user_config "
                 "and tests.settings.k8s_launch_kit.deployment_files"
             )
-        return run_launch_kit(
-            user_config=user_config,
-            deployment_files=deployment_files,
-            executable=str(self.config.get("executable") or "l8k"),
-            artifact_dir=str(self.config.get("artifact_dir") or DEFAULT_ARTIFACT_DIR),
-        )
+        return run_launch_kit(user_config=user_config, deployment_files=deployment_files)
 
 
 class _LaunchKitSuiteCheck(_LaunchKitCheck):
@@ -142,7 +137,7 @@ class _ConnectivityFamilyCheck(_LaunchKitSuiteCheck):
         return f"{type(self).__name__}-{fabric}"
 
     def _missing_suite(self, name: str, root: ET.Element, output: dict) -> None:
-        fabric = name.rsplit("-", 1)[1]
+        fabric = self.config["fabric"]
         other = next(f for f in _FABRICS if f != fabric)
         if any(suite.get("name") == f"{type(self).__name__}-{other}" for suite in root.iter("testsuite")):
             pytest.skip(f"Cluster fabric is not configured for this fabric type: {fabric}")

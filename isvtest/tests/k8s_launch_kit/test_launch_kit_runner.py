@@ -198,3 +198,16 @@ def test_missing_executable_skips_both_commands(tmp_path: Path) -> None:
     assert "Launch Kit executable not found" in result["skip_reason"]
     assert "error" not in result
     assert result["sosreport"]["skip_reason"] == result["skip_reason"]
+
+
+def test_timeout_keeps_partial_output(tmp_path: Path) -> None:
+    """A hung command still leaves what it printed as evidence."""
+    script = tmp_path / "hang"
+    script.write_text("#!/bin/sh\necho collecting\necho step 1 >&2\nexec sleep 30\n")
+    script.chmod(0o755)
+
+    result = runner._run_process([str(script), "sosreport"], cwd=tmp_path, timeout=1)
+
+    assert result["exit_code"] == -1
+    assert "collecting" in result["stdout"]
+    assert result["stderr"].splitlines() == ["step 1", "timed out after 1 seconds"]

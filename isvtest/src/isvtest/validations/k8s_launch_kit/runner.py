@@ -204,8 +204,10 @@ def _run_process(argv: list[str], *, cwd: Path, timeout: float | None = None) ->
     started = time.monotonic()
     try:
         completed = subprocess.run(argv, cwd=cwd, check=False, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        result = {"exit_code": -1, "stdout": "", "stderr": f"timed out after {timeout} seconds"}
+    except subprocess.TimeoutExpired as exc:
+        # Keep what the command wrote before the deadline; it shows where it hung.
+        stderr = f"{_text(exc.stderr).rstrip()}\ntimed out after {timeout} seconds".lstrip()
+        result = {"exit_code": -1, "stdout": _text(exc.stdout), "stderr": stderr}
     except OSError as exc:
         result = {"exit_code": -1, "stdout": "", "stderr": str(exc)}
     else:
@@ -219,6 +221,13 @@ def _run_process(argv: list[str], *, cwd: Path, timeout: float | None = None) ->
         result["duration_seconds"],
     )
     return result
+
+
+def _text(output: str | bytes | None) -> str:
+    """Return captured process output as text."""
+    if isinstance(output, bytes):
+        return output.decode(errors="replace")
+    return output or ""
 
 
 def _record_process(directory: Path, argv: list[str], result: dict[str, Any]) -> dict[str, str]:

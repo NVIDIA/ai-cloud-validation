@@ -264,6 +264,9 @@ def test_validation(
         )
         raise
 
+    outcomes = {"passed": 0, "failed": 0, "skipped": 0}
+    for subtest in result.get("subtests", []):
+        outcomes["skipped" if subtest.get("skipped") else "passed" if subtest.get("passed") else "failed"] += 1
     _validation_results.append(
         {
             "name": validation_name,
@@ -273,18 +276,7 @@ def test_validation(
             "category": category,
             "duration": result.get("duration", 0.0),
             "error_reason": result.get("error_reason"),
-            "subtest_summary": {
-                "total": len(result.get("subtests", [])),
-                "passed": sum(
-                    1 for subtest in result.get("subtests", []) if subtest.get("passed") and not subtest.get("skipped")
-                ),
-                "failed": sum(
-                    1
-                    for subtest in result.get("subtests", [])
-                    if not subtest.get("passed") and not subtest.get("skipped")
-                ),
-                "skipped": sum(1 for subtest in result.get("subtests", []) if subtest.get("skipped")),
-            },
+            "subtest_summary": {"total": sum(outcomes.values()), **outcomes},
         }
     )
 

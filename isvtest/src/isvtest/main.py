@@ -223,11 +223,13 @@ def _result_to_resolved_entry(entry: ResolvedEntry, result: dict[str, Any]) -> R
     """Convert a captured pytest validation result to a terminal resolved entry."""
     message = str(result.get("message", ""))
     duration = float(result.get("duration", 0.0) or 0.0)
-    raw_subtests = result.get("subtest_summary", {})
+    raw_subtests = result.get("subtest_summary")
+    if not isinstance(raw_subtests, dict):
+        raw_subtests = {}
     subtest_summary = SubtestSummary(
-        passed=int(raw_subtests.get("passed", 0)) if isinstance(raw_subtests, dict) else 0,
-        failed=int(raw_subtests.get("failed", 0)) if isinstance(raw_subtests, dict) else 0,
-        skipped=int(raw_subtests.get("skipped", 0)) if isinstance(raw_subtests, dict) else 0,
+        passed=int(raw_subtests.get("passed", 0)),
+        failed=int(raw_subtests.get("failed", 0)),
+        skipped=int(raw_subtests.get("skipped", 0)),
     )
     if result.get("skipped"):
         return ResolvedEntry(
