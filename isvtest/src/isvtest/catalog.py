@@ -20,7 +20,7 @@ discover_all_tests() and serializing each BaseValidation subclass's metadata.
 The catalog is version-keyed by the installed isvtest package version.
 
 Suite placement and capability requirements come only from canonical
-``isvctl/configs/suites/**/*.yaml`` wiring.
+``isvctl/configs/suites/*.yaml`` wiring.
 """
 
 import hashlib
@@ -210,7 +210,7 @@ def _iter_suite_docs() -> Iterator[tuple[Path, dict[str, Any]]]:
     if not configs_dir:
         logger.warning("Could not locate isvctl/configs/ directory")
         return
-    for config_path in sorted((configs_dir / "suites").rglob("*.yaml")):
+    for config_path in sorted((configs_dir / "suites").glob("*.yaml")):
         yield config_path, yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
 
@@ -297,11 +297,14 @@ def build_catalog() -> list[dict[str, Any]]:
             source = CompositeCheck.__module__
             class_labels: set[str] = set()
         else:
+            # Catalog-excluded classes may still be wired; they are simply not published.
+            if name in excluded_names:
+                continue
             base = resolve_class_key(name, class_meta)
             if base is None:
                 logger.warning("Omitting suite wiring %s because no validation class resolves it", name)
                 continue
-            if name in excluded_names or base in excluded_names:
+            if base in excluded_names:
                 continue
             meta = class_meta[base]
             variant_suffix = name[len(base) :] if base != name else ""

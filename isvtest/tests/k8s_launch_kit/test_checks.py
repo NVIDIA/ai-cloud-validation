@@ -8,13 +8,30 @@ from pathlib import Path
 import pytest
 
 from isvtest.core.validation import BaseValidation
-from isvtest.validations.k8s_launch_kit.checks import K8sEastWestNetworkRDMAPing, K8sNetworkOperatorDeployment
+from isvtest.validations.k8s_launch_kit import checks
+from isvtest.validations.k8s_launch_kit.checks import (
+    K8sEastWestNetworkRDMAPing,
+    K8sNetworkOperatorDeployment,
+    LaunchKitSosreport,
+)
 
 pytestmark = pytest.mark.unit
 
 _PASSING_RDMA = """<testsuite name="K8sEastWestNetworkRDMAPing-ethernet">
   <testcase name="K8sEastWestNetworkRDMAPing-ethernet::a→b" classname="network.connectivity"/>
 </testsuite>"""
+
+
+_INPUTS = {"user_config": "cluster-config.yaml", "deployment_files": "deployment"}
+_SOSREPORT = {"success": True, "artifacts": {"sosreport": "/evidence/sosreport"}}
+
+
+@pytest.fixture(autouse=True)
+def _launch_kit(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Stand in for the shared Launch Kit run; each test sets what it returned."""
+    output: dict = {}
+    monkeypatch.setattr(checks, "run_launch_kit", lambda **_: output)
+    return output
 
 
 def _execute(
@@ -24,20 +41,19 @@ def _execute(
     *,
     fabric: str = "ethernet",
     success: bool = True,
+    sosreport: dict = _SOSREPORT,
 ) -> dict:
     report = tmp_path / "junit.xml"
     report.write_text(f"<testsuites>{suites}</testsuites>")
-    return check(
-        config={
-            "fabric": fabric,
-            "step_output": {
-                "operation": "validate",
-                "success": success,
-                "error": "process failed",
-                "artifacts": {"validation_junit": str(report)},
-            },
+    checks.run_launch_kit().update(
+        {
+            "success": success,
+            "error": "process failed",
+            "artifacts": {"validation_junit": str(report)},
+            "sosreport": sosreport,
         }
-    ).execute()
+    )
+    return check(config={"fabric": fabric, **_INPUTS}).execute()
 
 
 def test_family_reports_only_its_native_suite(tmp_path: Path) -> None:
@@ -104,16 +120,8 @@ def test_missing_or_malformed_xml_fails(tmp_path: Path, check: type[BaseValidati
     report = tmp_path / "junit.xml"
     if contents is not None:
         report.write_text(contents)
-    result = check(
-        config={
-            "fabric": "ethernet",
-            "step_output": {
-                "operation": "validate",
-                "success": True,
-                "artifacts": {"validation_junit": str(report)},
-            },
-        }
-    ).execute()
+    checks.run_launch_kit().update({"success": True, "artifacts": {"validation_junit": str(report)}})
+    result = check(config={"fabric": "ethernet", **_INPUTS}).execute()
     assert not result["passed"]
 
 
@@ -169,3 +177,30 @@ def test_deployment_does_not_repeat_an_explained_failure(tmp_path: Path) -> None
         success=False,
     )
     assert result["passed"]
+
+
+@pytest.mark.parametrize("check", [K8sEastWestNetworkRDMAPing, K8sNetworkOperatorDeployment, LaunchKitSosreport])
+def test_unconfigured_inputs_skip_without_running_launch_kit(
+    monkeypatch: pytest.MonkeyPatch, check: type[BaseValidation]
+) -> None:
+    def must_not_run(**_: str) -> dict:
+        raise AssertionError("Launch Kit must not run without inputs")
+
+    monkeypatch.setattr(checks, "run_launch_kit", must_not_run)
+    config = {"fabric": "ethernet", "user_config": "", "deployment_files": ""}
+    with pytest.raises(pytest.skip.Exception, match="Launch Kit inputs not configured"):
+        check(config=config).execute()
+
+
+def test_sosreport_reports_collected_diagnostics(tmp_path: Path) -> None:
+    result = _execute(tmp_path, _PASSING_RDMA, LaunchKitSosreport)
+    assert result["passed"]
+    assert "/evidence/sosreport" in result["output"]
+
+
+def test_failed_sosreport_fails_only_the_sosreport_check(tmp_path: Path) -> None:
+    failed = {"success": False, "artifacts": {}, "error": "l8k sosreport exited with code 1"}
+    assert _execute(tmp_path, _PASSING_RDMA, sosreport=failed)["passed"]
+    result = _execute(tmp_path, _PASSING_RDMA, LaunchKitSosreport, sosreport=failed)
+    assert not result["passed"]
+    assert result["error"] == "sosreport collection failed: l8k sosreport exited with code 1"

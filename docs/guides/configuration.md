@@ -56,9 +56,7 @@ Pre-built configs are provided in `isvctl/configs/`:
 | `providers/aws/config/vm.yaml` | AWS EC2 GPU instance tests |
 | `providers/aws/config/iam.yaml` | AWS IAM user lifecycle |
 | `providers/aws/config/eks.yaml` | AWS EKS with GPU nodes |
-| `providers/k8s-launch-kit/config/network-operator.yaml` | Launch Kit connectivity validation with post-run sosreport collection |
 | `suites/k8s.yaml` | Standard Kubernetes cluster |
-| `suites/k8s-launch-kit/*.yaml` | Launch Kit-specific Network Operator catalog wiring |
 | `suites/slurm.yaml` | Slurm HPC cluster |
 
 ## Basic Usage
@@ -373,13 +371,6 @@ Two consequences worth internalising:
 Capability names and plain-suite names share one namespace, so a plain suite may
 not be named after a capability. `catalog_document` and
 `scripts/validate_suite_wiring.py` both reject the collision.
-
-Suite discovery is recursive under `isvctl/configs/suites/`. A domain with
-multiple related suites may therefore use a subdirectory such as
-`suites/k8s-launch-kit/`; catalog generation, `--suite` resolution, doctor,
-wiring validation, and test-plan coverage all discover the nested YAMLs. Suite
-identity is still the YAML filename stem, so stems must remain unique across
-the complete suite tree.
 
 ## Import and Override
 

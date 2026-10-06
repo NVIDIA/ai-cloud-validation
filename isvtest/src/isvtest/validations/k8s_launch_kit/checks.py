@@ -6,7 +6,10 @@
 ``l8k validate --junit-path`` writes a ``network/validation`` suite of
 deployment-state cases and one ``<Family>-<fabric>`` suite per connectivity
 family, for the configured fabric only. Each catalog test reports one native
-suite, with its cases as subtests.
+suite, with its cases as subtests. All of them share one Launch Kit run against
+the current cluster (see :mod:`.runner`); with no inputs configured they skip.
+``LaunchKitSosreport`` reports that run's diagnostic collection outside the
+catalog.
 """
 
 from __future__ import annotations
@@ -19,11 +22,34 @@ from typing import ClassVar
 import pytest
 
 from isvtest.core.validation import BaseValidation
+from isvtest.validations.k8s_launch_kit.runner import DEFAULT_ARTIFACT_DIR, run_launch_kit
 
 _FABRICS = ("ethernet", "infiniband")
 
 
-class _LaunchKitSuiteCheck(BaseValidation):
+class _LaunchKitCheck(BaseValidation):
+    """A check that reads the shared Launch Kit run."""
+
+    _exclude_from_discovery: ClassVar[bool] = True
+
+    def _launch_kit_output(self) -> dict:
+        """Return the shared Launch Kit result, skipping when no inputs are configured."""
+        user_config = str(self.config.get("user_config") or "")
+        deployment_files = str(self.config.get("deployment_files") or "")
+        if not user_config and not deployment_files:
+            pytest.skip(
+                "Launch Kit inputs not configured: set tests.settings.k8s_launch_kit.user_config "
+                "and tests.settings.k8s_launch_kit.deployment_files"
+            )
+        return run_launch_kit(
+            user_config=user_config,
+            deployment_files=deployment_files,
+            executable=str(self.config.get("executable") or "l8k"),
+            artifact_dir=str(self.config.get("artifact_dir") or DEFAULT_ARTIFACT_DIR),
+        )
+
+
+class _LaunchKitSuiteCheck(_LaunchKitCheck):
     """Report one native Launch Kit JUnit suite as this test's subtests."""
 
     _exclude_from_discovery: ClassVar[bool] = True
@@ -39,10 +65,7 @@ class _LaunchKitSuiteCheck(BaseValidation):
         return None
 
     def run(self) -> None:
-        output = self.config.get("step_output")
-        if not isinstance(output, dict) or output.get("operation") != "validate":
-            self.set_failed("Missing Launch Kit validate step_output")
-            return
+        output = self._launch_kit_output()
         artifacts = output.get("artifacts") or {}
         report = artifacts.get("validation_junit") if isinstance(artifacts, dict) else None
         try:
@@ -170,3 +193,19 @@ class K8sNetworkOperatorDeployment(_LaunchKitSuiteCheck):
         if any(case.find("failure") is not None or case.find("error") is not None for case in root.iter("testcase")):
             return None
         return str(output.get("error") or "Launch Kit validate failed")
+
+
+class LaunchKitSosreport(_LaunchKitCheck):
+    """``l8k sosreport`` collected after the shared validate run."""
+
+    description: ClassVar[str] = "Collect Network Operator diagnostics with l8k sosreport"
+    # Diagnostic evidence, not a catalog test. Its failure fails the run without
+    # changing any Network Operator result.
+    catalog_exclude: ClassVar[bool] = True
+
+    def run(self) -> None:
+        sosreport = self._launch_kit_output().get("sosreport") or {}
+        if sosreport.get("success"):
+            self.set_passed(f"sosreport collected in {(sosreport.get('artifacts') or {}).get('sosreport', '')}")
+        else:
+            self.set_failed(f"sosreport collection failed: {sosreport.get('error') or 'no result'}")

@@ -55,8 +55,7 @@ class TestCatalogDocument:
         """Plain suite YAML files are listed separately from platform suites."""
         suites = build_suite_vocabulary()
         assert "iam" in suites
-        assert "network_operator" in suites
-        assert "network_operator_use_cases" not in suites
+        assert "network_operator" not in suites
         assert "storage" in suites
         assert "kubernetes" not in suites
         assert "vm" not in suites
@@ -114,8 +113,9 @@ class TestBuildCatalog:
             assert isinstance(entry["requires"], list)
             if entry["capability"]:
                 assert entry["requires"] == []
-        network_operator = sorted(entry["name"] for entry in catalog if entry["suite"] == "network_operator")
-        assert network_operator == sorted(
+        network_operator = [entry for entry in catalog if "network_operator" in entry["labels"]]
+        assert {(entry["suite"], entry["capability"]) for entry in network_operator} == {("kubernetes", "kubernetes")}
+        assert sorted(entry["name"] for entry in network_operator) == sorted(
             [
                 "K8sNetworkOperatorDeployment",
                 *(

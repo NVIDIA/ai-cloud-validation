@@ -2,10 +2,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Executable Launch Kit test double for provider unit tests.
+"""Executable Launch Kit test double for the Network Operator check tests.
 
 Values in this file are fixed mock output, not AI Cloud Validation defaults.
-The provider passes only real l8k arguments and receives the same distinct
+The runner passes only real l8k arguments and receives the same distinct
 stdout forms used by validate and sosreport.
 """
 
@@ -56,7 +56,7 @@ def _load_fixture() -> dict[str, Any]:
 
 
 def _parse_flags(command: str, argv: list[str]) -> dict[str, str]:
-    """Parse the real flag subset exercised by the provider tests."""
+    """Parse the real flag subset exercised by the runner tests."""
     supported = _VALUE_FLAGS[command]
     values: dict[str, str] = {}
     index = 0

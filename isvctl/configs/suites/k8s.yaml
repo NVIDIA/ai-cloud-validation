@@ -57,6 +57,12 @@ tests:
 
   settings:
     show_skipped_tests: false
+    # Inputs for the network_operator checks: an existing, complete Launch Kit
+    # user config and the deployment directory rendered from it. Empty skips
+    # those checks; `l8k` must be on PATH.
+    k8s_launch_kit:
+      user_config: ""
+      deployment_files: ""
 
   validations:
     # Provider-agnostic node-pool CRUD outcome checks. Keep this category
@@ -441,6 +447,78 @@ tests:
           api_health_path: "/readyz"
           probe_timeout_s: 10
           api_endpoint: "{{ steps.setup.kubernetes.api_endpoint | default('', true) }}"
+
+    # Network Operator through Kubernetes Launch Kit (K8S42). Like conformance,
+    # no `step:`: the checks run `l8k validate` against the current cluster
+    # themselves, once for all of them, then `l8k sosreport` for diagnostics.
+    # Each catalog check reports one native Launch Kit JUnit suite: the
+    # deployment-state suite, or one connectivity family on one fabric. Launch
+    # Kit only runs the configured fabric, so the other fabric's four checks
+    # skip. All of them skip until tests.settings.k8s_launch_kit points at a
+    # complete Launch Kit config and its rendered deployment files.
+    network_operator:
+      checks:
+        K8sNetworkOperatorDeployment:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+        K8sEastWestNetworkICMPPing-ethernet:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: ethernet
+        K8sEastWestNetworkICMPPing-infiniband:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: infiniband
+        K8sEastWestNetworkRDMAPing-ethernet:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: ethernet
+        K8sEastWestNetworkRDMAPing-infiniband:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: infiniband
+        K8sEastWestNetworkIBWriteBandwidth-ethernet:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: ethernet
+        K8sEastWestNetworkIBWriteBandwidth-infiniband:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: infiniband
+        K8sEastWestNetworkDMABufBandwidth-ethernet:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: ethernet
+        K8sEastWestNetworkDMABufBandwidth-infiniband:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: infiniband
+        # Diagnostics collected right after that run, whatever its outcome. Not
+        # a catalog test: a failed collection fails the run without changing
+        # any result above.
+        LaunchKitSosreport:
+          test_id: "N/A"
+          labels: ["kubernetes", "network_operator", "slow"]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
 
     # Break-fix actions that are Kubernetes-shaped (BFX01). Bare-metal
     # BFX checks live in bare_metal.yaml.

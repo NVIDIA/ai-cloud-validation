@@ -40,7 +40,7 @@ def platform_vocabulary(configs_root: Path) -> frozenset[str]:
     several entry points ask for the vocabulary two or three times per run.
     """
     platforms: set[str] = set()
-    for path in (configs_root / "suites").rglob("*.yaml"):
+    for path in (configs_root / "suites").glob("*.yaml"):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError):
@@ -55,7 +55,7 @@ def platform_vocabulary(configs_root: Path) -> frozenset[str]:
 def suite_vocabulary(configs_root: Path) -> frozenset[str]:
     """Return plain suite names declared by canonical suite YAML."""
     declarable = platform_vocabulary(configs_root)
-    names = {_normalize_name(path.stem) for path in (configs_root / "suites").rglob("*.yaml")}
+    names = {_normalize_name(path.stem) for path in (configs_root / "suites").glob("*.yaml")}
     return frozenset(names - declarable)
 
 
@@ -162,8 +162,7 @@ def resolve_suite(provider: str | None, suite: str, *, configs_root: Path) -> Re
     # Best-effort per file: one malformed config must not fail `--suite` for the
     # whole provider. Matches `resolve_suite_name`, which already skips them.
     classified = []
-    pattern = "*.yaml" if provider is not None else "**/*.yaml"
-    for path in sorted(config_dir.glob(pattern)):
+    for path in sorted(config_dir.glob("*.yaml")):
         try:
             classified.append((path, *_suite_name(path, declarable)))
         except SuiteResolutionError:

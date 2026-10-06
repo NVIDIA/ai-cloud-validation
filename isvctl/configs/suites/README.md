@@ -75,11 +75,7 @@ Suites:
 [`slurm`](slurm.yaml),
 [`control-plane`](control-plane.yaml),
 [`image-registry`](image-registry.yaml),
-[`security`](security.yaml),
-[`network-operator`](k8s-launch-kit/network-operator.yaml).
-The Network Operator Launch Kit integration is unreleased; see the
-[Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md)
-before running its cluster-mutating workflows.
+[`security`](security.yaml).
 For the domain / script-count / AWS-reference overview see the
 [my-isv scaffold README](../providers/my-isv/scripts/README.md#domains).
 
@@ -218,37 +214,6 @@ its plan item is not platform-scoped.
 | `switch_syslogs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 | `switch_kernel_logs` | test | `providers/my-isv/scripts/observability/log_availability_test.py` | `tests.*.probes.switches_checked`, `log_source`, `entry_count`, `latest_timestamp` |
 
-### Network Operator (`k8s-launch-kit/network-operator.yaml`)
-
-The Network Operator suite contains nine catalog entries fed by one
-`l8k validate` run: `K8sNetworkOperatorDeployment`, plus
-`K8sEastWestNetwork{ICMPPing,RDMAPing,IBWriteBandwidth,DMABufBandwidth}` for
-each of `-ethernet` and `-infiniband`. Each entry reports the native Launch Kit
-JUnit suite of the same name (`network/validation` for the deployment entry),
-with its cases as subtests. Launch Kit only runs the configured fabric, so the
-other fabric's four entries skip. Its production provider invokes
-`l8k validate` with a caller-supplied complete `user_config` and existing
-`deployment_files` directory, then always invokes `l8k sosreport` (the validate
-step continues on failure). The Kubernetes cluster, Network Operator deployment, Launch
-Kit installation (including its sosreport helper), configuration, and
-generated manifests are prerequisites.
-
-```bash
-uv run isvctl test run \
-  -f isvctl/configs/providers/k8s-launch-kit/config/network-operator.yaml \
-  --capability kubernetes \
-  --set 'tests.settings.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
-  --set 'tests.settings.k8s_launch_kit.deployment_files=/absolute/path/deployment' \
-  --no-upload -- -v
-```
-
-| Step | Phase | Script | Key JSON Fields |
-|------|-------|--------|-----------------|
-| `launch_kit_validate` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k validate` | `operation`, `success`, `error`, `artifacts.validation_junit` |
-| `launch_kit_sosreport` | test | `providers/k8s-launch-kit/scripts/adapter.py run` -> `l8k sosreport` | `success`, `error`, `artifacts.sosreport` |
-
-See the [Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md).
-
 ### VM (`vm.yaml`)
 
 | Step | Phase | Script | Key JSON Fields |
@@ -345,6 +310,36 @@ volume. The three test-phase steps all reuse that fixture.
 Validations use `kubectl` directly (or a custom CLI via the `KUBECTL` env var): node counts, GPU operator, pod health, NCCL/NIM workloads. Break-fix cordon and GPU reset are optional provider steps.
 The shared cordon reference skips without changing cluster state unless
 `tests.settings.breakfix_node` names a dedicated test node.
+
+#### Network Operator (`network_operator` group)
+
+The `network_operator` group contains nine catalog entries fed by one
+`l8k validate` run: `K8sNetworkOperatorDeployment`, plus
+`K8sEastWestNetwork{ICMPPing,RDMAPing,IBWriteBandwidth,DMABufBandwidth}` for
+each of `-ethernet` and `-infiniband`. Each entry reports the native Launch Kit
+JUnit suite of the same name (`network/validation` for the deployment entry),
+with its cases as subtests. Launch Kit only runs the configured fabric, so the
+other fabric's four entries skip.
+
+Like conformance, the group has no `step:`: the first check runs `l8k validate`
+against the current cluster with `tests.settings.k8s_launch_kit.user_config`
+and `deployment_files`, the others reuse that run, and `l8k sosreport` always
+follows. A tenth, catalog-excluded check, `LaunchKitSosreport`, reports that
+collection: its failure fails the run without changing any of the nine results. With the two
+settings empty, the default, the whole group skips. The Network Operator
+deployment, a complete Launch Kit config, its rendered deployment files, and
+`l8k` on `PATH` (with its sosreport helper) are prerequisites. Evidence lands in
+`_output/k8s-launch-kit/`.
+
+```bash
+uv run isvctl test run -f isvctl/configs/suites/k8s.yaml \
+  --phase test --label network_operator \
+  --set 'tests.settings.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
+  --set 'tests.settings.k8s_launch_kit.deployment_files=/absolute/path/deployment' \
+  --no-upload -- -v
+```
+
+See the [Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md).
 
 ### Slurm (`slurm.yaml`)
 

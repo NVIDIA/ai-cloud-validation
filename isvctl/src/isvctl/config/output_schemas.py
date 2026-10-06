@@ -1335,22 +1335,6 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "additionalProperties": True,
         "description": "Generic schema for unrecognized step names",
     },
-    "k8s_launch_kit": {
-        "type": "object",
-        "required": ["success", "platform", "operation"],
-        "properties": {
-            **COMMON_PROPERTIES,
-            "operation": {
-                "type": "string",
-                "enum": ["validate", "sosreport"],
-                "description": "The Launch Kit command the adapter ran",
-            },
-            "artifacts": {"type": "object"},
-            "error": {"type": "string"},
-        },
-        "additionalProperties": True,
-        "description": "Transport envelope around an unmodified Kubernetes Launch Kit CLI operation",
-    },
     # =========================================================================
     # Multi-cluster schemas
     # =========================================================================
