@@ -125,3 +125,14 @@ def test_failed_sosreport_fails_the_run_without_changing_results(
     assert states.pop("LaunchKitSosreport") is State.FAILED
     for name, state in states.items():
         assert state is (State.SKIPPED if name.endswith("-infiniband") else State.PASSED), name
+
+
+def test_missing_launch_kit_skips_every_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configured inputs but no l8k: nothing could run, so nothing fails."""
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+
+    result = _run(tmp_path)
+
+    assert result.success is True
+    assert set(_network_operator(result).values()) == {State.SKIPPED}
+    assert not (tmp_path / "_output" / "k8s-launch-kit" / "commands").exists()

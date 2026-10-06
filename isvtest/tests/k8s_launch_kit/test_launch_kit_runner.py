@@ -95,12 +95,17 @@ def test_expands_input_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 @pytest.mark.parametrize(
     ("user_config", "deployment_files", "expected"),
-    [("", "deployment", "user_config is required"), ("cluster-config.yaml", "", "deployment_files is required")],
+    [
+        ("", "deployment", "user_config is required"),
+        ("cluster-config.yaml", "", "deployment_files is required"),
+        ("missing.yaml", "deployment", "user config not found"),
+        ("cluster-config.yaml", "missing", "deployment directory not found"),
+    ],
 )
-def test_partial_inputs_fail_before_validate(
+def test_missing_inputs_skip_both_commands(
     tmp_path: Path, user_config: str, deployment_files: str, expected: str
 ) -> None:
-    """Partial prerequisite input fails without running validate; diagnostics still run."""
+    """Launch Kit cannot start without both inputs, so neither command runs."""
     _inputs(tmp_path)
     inputs = {
         "user_config": str(tmp_path / user_config) if user_config else "",
@@ -109,10 +114,10 @@ def test_partial_inputs_fail_before_validate(
 
     result = _run(tmp_path, **inputs)
 
-    assert result["success"] is False
-    assert expected in result["error"]
-    assert not (tmp_path / "evidence" / "commands" / "validate").exists()
-    assert result["sosreport"]["success"] is True
+    assert expected in result["skip_reason"]
+    assert "error" not in result
+    assert result["sosreport"]["skip_reason"] == result["skip_reason"]
+    assert not (tmp_path / "evidence" / "commands").exists()
 
 
 def test_failed_validate_keeps_documents_and_exit_diagnostic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,9 +192,9 @@ def test_validate_cannot_reuse_stale_junit(tmp_path: Path) -> None:
     assert not stale.exists()
 
 
-def test_missing_executable_fails_both_commands(tmp_path: Path) -> None:
+def test_missing_executable_skips_both_commands(tmp_path: Path) -> None:
     result = _run(tmp_path, tmp_path / "missing-l8k")
 
-    assert result["success"] is False
-    assert "Launch Kit executable not found" in result["error"]
-    assert result["sosreport"]["success"] is False
+    assert "Launch Kit executable not found" in result["skip_reason"]
+    assert "error" not in result
+    assert result["sosreport"]["skip_reason"] == result["skip_reason"]

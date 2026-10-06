@@ -323,10 +323,11 @@ other fabric's four entries skip.
 
 Like conformance, the group has no `step:`: the first check runs `l8k validate`
 against the current cluster with `tests.settings.k8s_launch_kit.user_config`
-and `deployment_files`, the others reuse that run, and `l8k sosreport` always
-follows. A tenth, catalog-excluded check, `LaunchKitSosreport`, reports that
+and `deployment_files`, the others reuse that run, and `l8k sosreport`
+follows any validate that started. A tenth, catalog-excluded check, `LaunchKitSosreport`, reports that
 collection: its failure fails the run without changing any of the nine results. With the two
-settings empty, the default, the whole group skips. The Network Operator
+settings empty, the default, the whole group skips; it also skips when an
+input or `l8k` is missing, since Launch Kit cannot start. The Network Operator
 deployment, a complete Launch Kit config, its rendered deployment files, and
 `l8k` on `PATH` (with its sosreport helper) are prerequisites. Evidence lands in
 `_output/k8s-launch-kit/`.

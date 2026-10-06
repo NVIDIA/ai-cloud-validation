@@ -59,7 +59,7 @@ tests:
     show_skipped_tests: false
     # Inputs for the network_operator checks: an existing, complete Launch Kit
     # user config and the deployment directory rendered from it. Empty skips
-    # those checks; `l8k` must be on PATH.
+    # those checks, as do missing inputs or no `l8k` on PATH.
     k8s_launch_kit:
       user_config: ""
       deployment_files: ""

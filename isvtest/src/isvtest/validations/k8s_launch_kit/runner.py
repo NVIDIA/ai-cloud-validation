@@ -45,13 +45,19 @@ def run_launch_kit(
 
     The result carries ``success``, ``artifacts`` (``validation_junit`` when
     Launch Kit wrote one), an ``error`` when anything went wrong, and the
-    ``sosreport`` result in the same shape.
+    ``sosreport`` result in the same shape. A command that could not start,
+    because an input or the executable is missing, carries ``skip_reason``
+    instead of ``error``.
     """
     artifacts = Path(artifact_dir).expanduser().resolve()
     key = (executable, user_config, deployment_files, str(artifacts))
     if key not in _RUNS:
         result = _guarded(lambda: _validate(executable, user_config, deployment_files, artifacts))
-        result["sosreport"] = _guarded(lambda: _sosreport(executable, artifacts))
+        if "skip_reason" in result:
+            # Nothing was attempted, so there is nothing to diagnose.
+            result["sosreport"] = {"success": False, "artifacts": {}, "skip_reason": result["skip_reason"]}
+        else:
+            result["sosreport"] = _guarded(lambda: _sosreport(executable, artifacts))
         _RUNS[key] = result
     return _RUNS[key]
 
@@ -61,10 +67,16 @@ def clear_runs() -> None:
     _RUNS.clear()
 
 
+class LaunchKitUnavailable(Exception):
+    """A prerequisite is missing, so Launch Kit cannot start."""
+
+
 def _guarded(operation: Any) -> dict[str, Any]:
-    """Turn an input or environment error into a failed result."""
+    """Turn a missing prerequisite into a skip and any other error into a failure."""
     try:
         return operation()
+    except LaunchKitUnavailable as exc:
+        return {"success": False, "artifacts": {}, "skip_reason": str(exc)}
     except (OSError, ValueError) as exc:
         return {"success": False, "artifacts": {}, "error": str(exc)}
 
@@ -149,15 +161,19 @@ def _sosreport(executable: str, artifact_dir: Path) -> dict[str, Any]:
 def _validate_inputs(user_config_value: str, deployment_files_value: str) -> list[str]:
     """Return the ``--user-config``/``--deployment-files`` arguments for existing inputs."""
     if not user_config_value:
-        raise ValueError("tests.settings.k8s_launch_kit.user_config is required for Network Operator validation")
+        raise LaunchKitUnavailable(
+            "tests.settings.k8s_launch_kit.user_config is required for Network Operator validation"
+        )
     if not deployment_files_value:
-        raise ValueError("tests.settings.k8s_launch_kit.deployment_files is required for Network Operator validation")
+        raise LaunchKitUnavailable(
+            "tests.settings.k8s_launch_kit.deployment_files is required for Network Operator validation"
+        )
     user_config = Path(user_config_value).expanduser().resolve()
     if not user_config.is_file():
-        raise FileNotFoundError(f"Launch Kit user config not found: {user_config}")
+        raise LaunchKitUnavailable(f"Launch Kit user config not found: {user_config}")
     deployment_files = Path(deployment_files_value).expanduser().resolve()
     if not deployment_files.is_dir():
-        raise FileNotFoundError(f"Launch Kit deployment directory not found: {deployment_files}")
+        raise LaunchKitUnavailable(f"Launch Kit deployment directory not found: {deployment_files}")
     return ["--user-config", str(user_config), "--deployment-files", str(deployment_files)]
 
 
@@ -167,11 +183,11 @@ def _resolve_executable(value: str) -> Path:
     if candidate.is_absolute() or candidate.parent != Path("."):
         resolved = candidate.resolve()
         if not resolved.is_file():
-            raise FileNotFoundError(f"Launch Kit executable not found: {resolved}")
+            raise LaunchKitUnavailable(f"Launch Kit executable not found: {resolved}")
         return resolved
     found = shutil.which(value)
     if found is None:
-        raise FileNotFoundError(f"Launch Kit executable not found on PATH: {value}")
+        raise LaunchKitUnavailable(f"Launch Kit executable not found on PATH: {value}")
     return Path(found).resolve()
 
 

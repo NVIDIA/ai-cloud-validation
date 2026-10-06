@@ -66,6 +66,8 @@ class _LaunchKitSuiteCheck(_LaunchKitCheck):
 
     def run(self) -> None:
         output = self._launch_kit_output()
+        if output.get("skip_reason"):
+            pytest.skip(output["skip_reason"])
         artifacts = output.get("artifacts") or {}
         report = artifacts.get("validation_junit") if isinstance(artifacts, dict) else None
         try:
@@ -81,7 +83,9 @@ class _LaunchKitSuiteCheck(_LaunchKitCheck):
             if any(not math.isfinite(duration) or duration < 0 for duration in durations):
                 raise ValueError("Invalid Launch Kit JUnit testcase duration")
         except (OSError, ET.ParseError, ValueError) as exc:
-            self.set_failed(f"{exc}: {output.get('error', '')}")
+            # The run's own error is the cause; the unusable report is its symptom.
+            error = output.get("error")
+            self.set_failed(f"{error} ({exc})" if error else str(exc))
             return
         if suite is None:
             self._missing_suite(name, root, output)
@@ -205,6 +209,8 @@ class LaunchKitSosreport(_LaunchKitCheck):
 
     def run(self) -> None:
         sosreport = self._launch_kit_output().get("sosreport") or {}
+        if sosreport.get("skip_reason"):
+            pytest.skip(sosreport["skip_reason"])
         if sosreport.get("success"):
             collected = (sosreport.get("artifacts") or {}).get("sosreport")
             self.set_passed(f"sosreport collected: {collected}" if collected else "sosreport collected")

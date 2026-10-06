@@ -82,7 +82,12 @@ The Kubernetes suite exposes two settings under `tests.settings.k8s_launch_kit`:
 
 Both default to empty, which skips every `network_operator` check without
 running Launch Kit, so a Kubernetes run that does not target Network Operator is
-unaffected. Setting only one of them fails the checks.
+unaffected.
+
+A check that cannot start skips with the reason instead of failing: only one
+input set, a `user_config` that is not a file, a `deployment_files` that is not
+a directory, or no `l8k` executable. Once `l8k validate` has started, any
+problem it reports is a failure.
 
 Paths accept `~`, but absolute paths are preferable in automation. The runner
 resolves both paths, verifies that `user_config` is a file and
@@ -171,7 +176,8 @@ report download, and `isvreporter` upload therefore report against the static
 catalog.
 
 Sosreport runs right after validate, before any result is read, whatever
-validate's outcome. `LaunchKitSosreport` reports it: a failed collection fails
+validate's outcome. When validate could not start, sosreport is not attempted
+and `LaunchKitSosreport` skips with the same reason. `LaunchKitSosreport` reports it: a failed collection fails
 that check and therefore the test phase, while every connectivity and
 deployment result stays intact.
 

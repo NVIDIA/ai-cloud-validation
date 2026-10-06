@@ -204,3 +204,26 @@ def test_failed_sosreport_fails_only_the_sosreport_check(tmp_path: Path) -> None
     result = _execute(tmp_path, _PASSING_RDMA, LaunchKitSosreport, sosreport=failed)
     assert not result["passed"]
     assert result["error"] == "sosreport collection failed: l8k sosreport exited with code 1"
+
+
+@pytest.mark.parametrize("check", [K8sEastWestNetworkRDMAPing, K8sNetworkOperatorDeployment])
+def test_run_error_leads_when_no_report(check: type[BaseValidation]) -> None:
+    """A Launch Kit run that produced no report says why, not just that the report is missing."""
+    checks.run_launch_kit().update({"success": False, "artifacts": {}, "error": "l8k validate exited with code 2"})
+
+    result = check(config={"fabric": "ethernet", **_INPUTS}).execute()
+
+    assert result["passed"] is False
+    assert result["error"] == "l8k validate exited with code 2 (Missing Launch Kit JUnit artifact)"
+
+
+@pytest.mark.parametrize("check", [K8sEastWestNetworkRDMAPing, K8sNetworkOperatorDeployment, LaunchKitSosreport])
+def test_launch_kit_that_cannot_start_skips(check: type[BaseValidation]) -> None:
+    """A missing prerequisite means the test never ran: skip, do not fail."""
+    reason = "Launch Kit executable not found on PATH: l8k"
+    checks.run_launch_kit().update(
+        {"success": False, "artifacts": {}, "skip_reason": reason, "sosreport": {"skip_reason": reason}}
+    )
+
+    with pytest.raises(pytest.skip.Exception, match="Launch Kit executable not found on PATH: l8k"):
+        check(config={"fabric": "ethernet", **_INPUTS}).execute()
