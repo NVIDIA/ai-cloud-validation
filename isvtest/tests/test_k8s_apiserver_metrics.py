@@ -25,16 +25,80 @@ from isvtest.validations.k8s_metrics import K8sApiServerMetricsCheck
 
 COUNTER = 'apiserver_request_total{code="200",resource="pods",scope="resource",verb="GET"} 12'
 BUCKET = 'apiserver_request_duration_seconds_bucket{resource="pods",scope="resource",verb="GET",le="1"} 12'
-HEADERS = "# HELP apiserver_request_total Requests\n# TYPE apiserver_request_total counter\n"
+HEADERS = (
+    "# HELP apiserver_request_total Requests\n# TYPE apiserver_request_total counter\n"
+    "# TYPE apiserver_request_duration_seconds histogram\n"
+)
 
 
-def check_samples(*samples: str, code: int = 0) -> dict:
+def check_samples(*samples: str, code: int = 0, expected_metrics: list[str] | None = None) -> dict:
     """Run the real validator against a captured metrics response without a cluster."""
     runner = MagicMock()
     runner.run.return_value = CommandResult(
         exit_code=code, stdout=HEADERS + "\n".join(samples) + "\n", stderr="probe error", duration=0
     )
-    return K8sApiServerMetricsCheck(runner=runner).execute()
+    config = {} if expected_metrics is None else {"expected_metrics": expected_metrics}
+    return K8sApiServerMetricsCheck(runner=runner, config=config).execute()
+
+
+@pytest.mark.parametrize("timestamp", [str(-(1 << 63) - 1), str(1 << 63), "9" * 100])
+def test_timestamp_outside_int64_fails(timestamp: str) -> None:
+    """An integer token is not a valid timestamp unless it fits signed int64."""
+    assert check_samples(COUNTER + " " + timestamp, BUCKET)["passed"] is False
+
+
+@pytest.mark.parametrize("timestamp", [str(-(1 << 63)), str((1 << 63) - 1), "+123", "0"])
+def test_valid_signed_timestamp_passes(timestamp: str) -> None:
+    """Signed timestamps, including both int64 bounds, remain valid."""
+    assert check_samples(COUNTER + " " + timestamp, BUCKET)["passed"] is True
+
+
+@pytest.mark.parametrize("metric_type", ["counter", "gauge", "untyped", None])
+def test_unrelated_suffix_does_not_satisfy_custom_metric(metric_type: str | None) -> None:
+    """Suffix expansion requires a histogram or summary declaration for the base name."""
+    headers = "# TYPE my_slo_count counter"
+    if metric_type is not None:
+        headers += f"\n# TYPE my_slo {metric_type}"
+    result = check_samples(headers, "my_slo_count 1", expected_metrics=["my_slo"])
+    assert result["passed"] is False
+    assert "Missing expected metrics: my_slo" in result["error"]
+
+
+@pytest.mark.parametrize(
+    ("metric_type", "suffix"),
+    [
+        ("histogram", "_bucket"),
+        ("histogram", "_count"),
+        ("histogram", "_sum"),
+        ("summary", "_count"),
+        ("summary", "_sum"),
+        ("summary", ""),
+        ("counter", ""),
+        ("gauge", ""),
+    ],
+)
+def test_declared_metric_family_matches(metric_type: str, suffix: str) -> None:
+    """Declared families match their standard samples while exact metric names still work."""
+    result = check_samples(f"# TYPE my_slo {metric_type}", f"my_slo{suffix} 1", expected_metrics=["my_slo"])
+    assert result["passed"] is True
+
+
+def test_summary_does_not_match_bucket_suffix() -> None:
+    """Only histograms can use bucket samples to satisfy an expected family."""
+    result = check_samples("# TYPE my_slo summary", "my_slo_bucket 1", expected_metrics=["my_slo"])
+    assert result["passed"] is False
+
+
+@pytest.mark.parametrize("boundary", ["", "invalid", "NaN", "-Inf", "Inf", "1e999", " 1", "1 ", "1_000"])
+def test_invalid_latency_bucket_boundary_fails(boundary: str) -> None:
+    """A present le label must contain a finite number or the positive-infinity sentinel."""
+    assert check_samples(COUNTER, BUCKET.replace('le="1"', f'le="{boundary}"'))["passed"] is False
+
+
+@pytest.mark.parametrize("boundary", ["0", "0.5", ".5", "1.", "1e-3", "-1", "+Inf"])
+def test_valid_latency_bucket_boundary_passes(boundary: str) -> None:
+    """Finite numeric bounds and +Inf remain usable for latency distribution queries."""
+    assert check_samples(COUNTER, BUCKET.replace('le="1"', f'le="{boundary}"'))["passed"] is True
 
 
 @pytest.mark.parametrize("label", ["code", "resource", "scope", "verb"])

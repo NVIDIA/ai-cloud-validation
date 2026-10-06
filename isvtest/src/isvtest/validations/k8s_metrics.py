@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import re
 import shlex
 from typing import ClassVar
@@ -38,9 +39,10 @@ SLO_LABELS = {
 }
 _SAMPLE = re.compile(
     r'([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{((?:[^"{}]|"(?:\\.|[^"\\])*")*)\})?'
-    r"[ \t]+([^ \t]+)(?:[ \t]+(-?[0-9]+))?[ \t]*"
+    r"[ \t]+([^ \t]+)(?:[ \t]+([+-]?[0-9]+))?[ \t]*"
 )
-_LABEL = re.compile(r'\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"(?:[^"\\]|\\[\\n"])*"\s*(?:,|$)')
+_LABEL = re.compile(r'\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"((?:[^"\\]|\\[\\n"])*)"\s*(?:,|$)')
+_BOUNDARY = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 
 
 def _sample_labels(line: str) -> tuple[str, set[str]]:
@@ -48,24 +50,34 @@ def _sample_labels(line: str) -> tuple[str, set[str]]:
     match = _SAMPLE.fullmatch(line)
     if match is None:
         raise ValueError("invalid sample syntax")
-    name, raw_labels, value, _timestamp = match.groups()
+    name, raw_labels, value, timestamp = match.groups()
     float(value)  # Reject name-only or nonnumeric lines as evidence of a metric.
+    if timestamp is not None and not -(1 << 63) <= int(timestamp) < (1 << 63):
+        raise ValueError("timestamp outside int64 range")
     labels: set[str] = set()
     rest = raw_labels or ""
     while rest.strip():
         label = _LABEL.match(rest)
         if label is None or label[1] in labels:
             raise ValueError("invalid or duplicate label")
+        if name == "apiserver_request_duration_seconds_bucket" and label[1] == "le":
+            boundary = label[2]
+            if boundary != "+Inf" and not (_BOUNDARY.fullmatch(boundary) and math.isfinite(float(boundary))):
+                raise ValueError("invalid latency bucket boundary")
         labels.add(label[1])
         rest = rest[label.end() :]
     return name, labels
 
 
-def _metric_samples(metric: str, names: set[str]) -> set[str]:
-    """Match exact names or standard histogram/summary samples, never arbitrary prefixes."""
+def _metric_samples(metric: str, names: set[str], metric_types: dict[str, str]) -> set[str]:
+    """Match exact names or samples belonging to a declared histogram/summary family."""
     candidates = {metric}
     if metric != "apiserver_request_total":
-        candidates.update(metric + suffix for suffix in ("_bucket", "_count", "_sum"))
+        metric_type = metric_types.get(metric)
+        if metric_type in {"histogram", "summary"}:
+            candidates.update(metric + suffix for suffix in ("_count", "_sum"))
+        if metric_type == "histogram":
+            candidates.add(metric + "_bucket")
     return candidates & names
 
 
@@ -79,10 +91,10 @@ class K8sApiServerMetricsCheck(BaseValidation):
     - At least one metric sample is present.
     - All metric names configured via ``expected_metrics`` (or the defaults
       ``apiserver_request_total`` / ``apiserver_request_duration_seconds``)
-      are exposed. Exact names and standard histogram/summary suffixes match.
+      are exposed. Exact names and declared histogram/summary family samples match.
     - Every observed request counter or latency sample selected by the check
       carries its required SLO labels. Empty label values are allowed, as on
-      non-resource requests. Latency histograms require bucket samples with ``le``;
+      non-resource requests. Latency buckets require a finite numeric or ``+Inf`` ``le``;
       count/sum samples alone do not establish latency-distribution coverage.
 
     Requires the caller to have RBAC ``get`` on the non-resource URL
@@ -125,6 +137,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
         has_help = False
         has_type = False
         labels_by_metric: dict[str, set[str]] = {}
+        metric_types: dict[str, str] = {}
 
         for line_number, line in enumerate(output.splitlines(), 1):
             line = line.strip()
@@ -132,6 +145,9 @@ class K8sApiServerMetricsCheck(BaseValidation):
                 has_help = True
             elif line.startswith("# TYPE "):
                 has_type = True
+                parts = line.split()
+                if len(parts) == 4:
+                    metric_types[parts[2]] = parts[3]
             elif line and not line.startswith("#"):
                 try:
                     name, labels = _sample_labels(line)
@@ -156,7 +172,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
         missing = [
             m
             for m in expected_metrics
-            if not _metric_samples(m, metric_names)
+            if not _metric_samples(m, metric_names, metric_types)
             or (m == "apiserver_request_duration_seconds" and m + "_bucket" not in metric_names)
         ]
 
@@ -166,7 +182,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
 
         incomplete = []
         for metric in expected_metrics:
-            for name in sorted(_metric_samples(metric, metric_names)):
+            for name in sorted(_metric_samples(metric, metric_names, metric_types)):
                 absent = SLO_LABELS.get(name, set()) - labels_by_metric[name]
                 if absent:
                     incomplete.append(f"{name}: {', '.join(sorted(absent))}")
