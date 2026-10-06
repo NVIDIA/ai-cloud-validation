@@ -101,9 +101,12 @@ def _drain_after_kill(process: subprocess.Popen[str]) -> tuple[str, str]:
         return process.communicate(timeout=_TERMINATION_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
         # A descendant outside the process group still holds the pipes open.
-        for pipe in (process.stdout, process.stderr):
-            if pipe is not None:
-                pipe.close()
+        # On Windows, communicate()'s reader threads hold the pipe locks, so
+        # close() would block; leave the pipes to those daemon threads.
+        if os.name == "posix":
+            for pipe in (process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
         process.wait()
         return "", ""
 
