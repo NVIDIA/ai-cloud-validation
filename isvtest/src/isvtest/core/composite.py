@@ -120,6 +120,7 @@ class CompositeCheck(BaseValidation):
             member = member_class(runner=self.runner, config={**shared, **member_params})
             member.name = member_name
             member._subtests = self._subtests
+            member.session_state = self.session_state
             try:
                 result = member.execute()
             except pytest.skip.Exception as exc:

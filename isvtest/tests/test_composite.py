@@ -145,6 +145,23 @@ class TestCompositeCheck:
             ("FieldExistsCheck", True),
         ]
 
+    def test_members_share_the_session_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Members see the parent's session state, as every validation of a session does."""
+        seen: list[dict[str, Any]] = []
+        original_run = StepSuccessCheck.run
+
+        def run(self: StepSuccessCheck) -> None:
+            """Record the state this member was given, then run normally."""
+            seen.append(self.session_state)
+            original_run(self)
+
+        monkeypatch.setattr(StepSuccessCheck, "run", run)
+        composite = CompositeCheck(config=_config(["StepSuccessCheck"]))
+        composite.execute()
+
+        assert len(seen) == 1
+        assert seen[0] is composite.session_state
+
     def test_fails_naming_the_failing_member(self) -> None:
         """A failing member fails the composite and is named in the error."""
         result = CompositeCheck(

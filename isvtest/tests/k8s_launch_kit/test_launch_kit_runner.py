@@ -17,11 +17,6 @@ pytestmark = pytest.mark.unit
 _MOCK_L8K = Path(__file__).resolve().parent / "fixtures" / "mock_l8k.py"
 
 
-@pytest.fixture(autouse=True)
-def _fresh_runs() -> None:
-    runner.clear_runs()
-
-
 def _inputs(tmp_path: Path) -> tuple[Path, Path]:
     user_config = tmp_path / "cluster-config.yaml"
     user_config.write_text("profile:\n  fabric: ethernet\n  deployment: sriov\n", encoding="utf-8")
@@ -30,11 +25,14 @@ def _inputs(tmp_path: Path) -> tuple[Path, Path]:
     return user_config, deployment_files
 
 
-def _run(tmp_path: Path, executable: Path = _MOCK_L8K, **inputs: str) -> dict[str, Any]:
+def _run(
+    tmp_path: Path, executable: Path = _MOCK_L8K, session_state: dict[str, Any] | None = None, **inputs: str
+) -> dict[str, Any]:
     if not inputs:
         user_config, deployment_files = _inputs(tmp_path)
         inputs = {"user_config": str(user_config), "deployment_files": str(deployment_files)}
-    return runner.run_launch_kit(executable=str(executable), artifact_dir=tmp_path / "evidence", **inputs)
+    state = {} if session_state is None else session_state
+    return runner.run_launch_kit(state, executable=str(executable), artifact_dir=tmp_path / "evidence", **inputs)
 
 
 def _argv(result: dict[str, Any]) -> list[str]:
@@ -62,15 +60,19 @@ def test_validate_then_sosreport_retain_evidence(tmp_path: Path) -> None:
     assert (tmp_path / "evidence" / "sosreport.tar.gz").is_file()
 
 
-def test_runs_once_per_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every check of one session shares the same Launch Kit run."""
+def test_runs_once_per_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every check of one session shares the same Launch Kit run; a new session runs it again."""
     calls: list[str] = []
     validate = runner._validate
     monkeypatch.setattr(runner, "_validate", lambda *args: calls.append("validate") or validate(*args))
+    session: dict[str, Any] = {}
 
-    first = _run(tmp_path)
-    assert _run(tmp_path) is first
+    first = _run(tmp_path, session_state=session)
+    assert _run(tmp_path, session_state=session) is first
     assert calls == ["validate"]
+
+    assert _run(tmp_path) is not first
+    assert calls == ["validate", "validate"]
 
 
 def test_executable_resolves_from_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

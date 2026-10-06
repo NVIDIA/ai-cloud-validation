@@ -31,17 +31,19 @@ _SOSREPORT_TIMEOUT_SECONDS = 1800
 
 _logger = logging.getLogger(__name__)
 
-_RUNS: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-
 
 def run_launch_kit(
+    session_state: dict[str, Any],
     *,
     user_config: str,
     deployment_files: str,
     executable: str = "l8k",
     artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
 ) -> dict[str, Any]:
-    """Return the validate result for these inputs, running Launch Kit at most once.
+    """Return the validate result for these inputs, running Launch Kit once per session.
+
+    The run is cached in ``session_state``, which every check of one validation
+    session shares, so a later session always checks the cluster again.
 
     The result carries ``success``, ``artifacts`` (``validation_junit`` when
     Launch Kit wrote one), an ``error`` when anything went wrong, and the
@@ -50,21 +52,17 @@ def run_launch_kit(
     instead of ``error``.
     """
     artifacts = Path(artifact_dir).expanduser().resolve()
+    runs = session_state.setdefault(__name__, {})
     key = (executable, user_config, deployment_files, str(artifacts))
-    if key not in _RUNS:
+    if key not in runs:
         result = _guarded(lambda: _validate(executable, user_config, deployment_files, artifacts))
         if "skip_reason" in result:
             # Nothing was attempted, so there is nothing to diagnose.
             result["sosreport"] = {"success": False, "artifacts": {}, "skip_reason": result["skip_reason"]}
         else:
             result["sosreport"] = _guarded(lambda: _sosreport(executable, artifacts))
-        _RUNS[key] = result
-    return _RUNS[key]
-
-
-def clear_runs() -> None:
-    """Forget cached runs so the next check runs Launch Kit again."""
-    _RUNS.clear()
+        runs[key] = result
+    return runs[key]
 
 
 class LaunchKitUnavailable(Exception):

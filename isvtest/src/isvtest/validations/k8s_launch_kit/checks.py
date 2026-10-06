@@ -41,7 +41,7 @@ class _LaunchKitCheck(BaseValidation):
                 "Launch Kit inputs not configured: set tests.settings.k8s_launch_kit.user_config "
                 "and tests.settings.k8s_launch_kit.deployment_files"
             )
-        return run_launch_kit(user_config=user_config, deployment_files=deployment_files)
+        return run_launch_kit(self.session_state, user_config=user_config, deployment_files=deployment_files)
 
 
 class _LaunchKitSuiteCheck(_LaunchKitCheck):

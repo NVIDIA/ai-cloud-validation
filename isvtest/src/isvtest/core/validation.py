@@ -101,6 +101,8 @@ class BaseValidation(ABC):
         self._results: list[CommandResult] = []
         self._subtests: SubTests | None = None  # Injected by test framework
         self._subtest_results: list[dict[str, Any]] = []  # Track subtest outcomes
+        # Shared by every validation of one pytest session; injected by test framework
+        self.session_state: dict[str, Any] = {}
         self.log = setup_logger(self.name)
 
     @abstractmethod

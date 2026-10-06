@@ -30,7 +30,7 @@ _SOSREPORT = {"success": True, "artifacts": {"sosreport": "/evidence/sosreport.t
 def _launch_kit(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Stand in for the shared Launch Kit run; each test sets what it returned."""
     output: dict = {}
-    monkeypatch.setattr(checks, "run_launch_kit", lambda **_: output)
+    monkeypatch.setattr(checks, "run_launch_kit", lambda *_, **__: output)
     return output
 
 
@@ -183,7 +183,7 @@ def test_deployment_does_not_repeat_an_explained_failure(tmp_path: Path) -> None
 def test_unconfigured_inputs_skip_without_running_launch_kit(
     monkeypatch: pytest.MonkeyPatch, check: type[BaseValidation]
 ) -> None:
-    def must_not_run(**_: str) -> dict:
+    def must_not_run(*_: object, **__: object) -> dict:
         raise AssertionError("Launch Kit must not run without inputs")
 
     monkeypatch.setattr(checks, "run_launch_kit", must_not_run)

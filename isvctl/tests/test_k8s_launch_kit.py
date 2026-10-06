@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 from isvtest.core.resolution import State
-from isvtest.validations.k8s_launch_kit.runner import clear_runs
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
@@ -30,7 +29,6 @@ _CATALOG_TESTS = [
 @pytest.fixture(autouse=True)
 def _mock_launch_kit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Put the mock on PATH as ``l8k`` and keep evidence under ``tmp_path``."""
-    clear_runs()
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "l8k").symlink_to(_MOCK_L8K)

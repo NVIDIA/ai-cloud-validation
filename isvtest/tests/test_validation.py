@@ -2375,7 +2375,7 @@ class TestValidationResultCapture:
         subtests = MagicMock()
 
         with pytest.raises(pytest.skip.Exception):
-            run_validation_entry_point(NimHealthCheck, config, "NimHealthCheck", subtests)
+            run_validation_entry_point(NimHealthCheck, config, "NimHealthCheck", subtests, {})
 
         assert len(_validation_results) == 1
         r = _validation_results[0]
@@ -2390,7 +2390,7 @@ class TestValidationResultCapture:
         config = {"_category": "test_cat"}
         subtests = MagicMock()
 
-        run_validation_entry_point(ConcreteValidation, config, "ConcreteValidation", subtests)
+        run_validation_entry_point(ConcreteValidation, config, "ConcreteValidation", subtests, {})
 
         assert len(_validation_results) == 1
         r = _validation_results[0]
@@ -2402,7 +2402,7 @@ class TestValidationResultCapture:
         """Probe counts cross the pytest bridge without replacing the parent message."""
         subtests = MagicMock()
 
-        run_validation_entry_point(SubtestValidation, {"_category": "test_cat"}, "SubtestValidation", subtests)
+        run_validation_entry_point(SubtestValidation, {"_category": "test_cat"}, "SubtestValidation", subtests, {})
 
         result = _validation_results[0]
         assert result["message"] == "All required probes passed"
@@ -2414,7 +2414,7 @@ class TestValidationResultCapture:
         subtests = MagicMock()
 
         with pytest.raises(AssertionError):
-            run_validation_entry_point(FailingValidation, config, "FailingValidation", subtests)
+            run_validation_entry_point(FailingValidation, config, "FailingValidation", subtests, {})
 
         assert len(_validation_results) == 1
         r = _validation_results[0]
