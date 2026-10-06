@@ -206,6 +206,7 @@ class LaunchKitSosreport(_LaunchKitCheck):
     def run(self) -> None:
         sosreport = self._launch_kit_output().get("sosreport") or {}
         if sosreport.get("success"):
-            self.set_passed(f"sosreport collected in {(sosreport.get('artifacts') or {}).get('sosreport', '')}")
+            collected = (sosreport.get("artifacts") or {}).get("sosreport")
+            self.set_passed(f"sosreport collected: {collected}" if collected else "sosreport collected")
         else:
             self.set_failed(f"sosreport collection failed: {sosreport.get('error') or 'no result'}")

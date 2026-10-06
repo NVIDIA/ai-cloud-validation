@@ -192,8 +192,7 @@ _output/k8s-launch-kit/
     command.json
     stdout.txt
     stderr.log
-  sosreport/
-    ... files produced by the Network Operator sosreport helper ...
+  sosreport.tar.gz
 ```
 
 `command.json` records the resolved argv, exit code, and duration. `stdout.txt`
@@ -214,10 +213,13 @@ and imported too. The main merged JUnit file is uploaded through the existing
 reporting service; the separate native XML and HTML files remain local
 evidence artifacts.
 
-The sosreport command currently streams human-readable output even when the
-global `--output` flag is available. The runner preserves that stream in
-`commands/sosreport/stdout.txt` and does not attempt to reinterpret the
-diagnostic contents.
+The Network Operator sosreport helper collects into `sosreport/`, archives it
+as `sosreport.tar.gz` beside it, and removes the directory. A stale archive is
+removed before each collection. If the helper fails before archiving, the
+partial `sosreport/` directory is kept instead. The sosreport command streams
+human-readable output even when the global `--output` flag is available. The
+runner preserves that stream in `commands/sosreport/stdout.txt` and does not
+attempt to reinterpret the diagnostic contents.
 
 ## Rules for changes
 

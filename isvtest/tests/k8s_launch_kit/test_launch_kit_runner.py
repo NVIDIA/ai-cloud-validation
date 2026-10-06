@@ -58,7 +58,8 @@ def test_validate_then_sosreport_retain_evidence(tmp_path: Path) -> None:
     sosreport = result["sosreport"]
     assert sosreport["success"] is True
     assert _argv(sosreport)[1:] == ["sosreport", "--output-dir", str(tmp_path / "evidence" / "sosreport")]
-    assert (tmp_path / "evidence" / "sosreport" / "network-operator-sosreport.tar.gz").is_file()
+    assert sosreport["artifacts"]["sosreport"] == str(tmp_path / "evidence" / "sosreport.tar.gz")
+    assert (tmp_path / "evidence" / "sosreport.tar.gz").is_file()
 
 
 def test_runs_once_per_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -135,6 +136,20 @@ def test_failed_sosreport_leaves_validate_intact(tmp_path: Path, monkeypatch: py
     assert result["success"] is True
     assert result["sosreport"]["success"] is False
     assert "sosreport collection failed" in result["sosreport"]["error"]
+    # Without an archive, the partial collection directory is the evidence.
+    assert result["sosreport"]["artifacts"]["sosreport"] == str(tmp_path / "evidence" / "sosreport")
+
+
+def test_sosreport_cannot_reuse_stale_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stale = tmp_path / "evidence" / "sosreport.tar.gz"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("stale archive\n")
+    monkeypatch.setenv("L8K_MOCK_FAIL", "sosreport")
+
+    result = _run(tmp_path)
+
+    assert not stale.exists()
+    assert result["sosreport"]["artifacts"]["sosreport"] != str(stale)
 
 
 def test_missing_advertised_report_is_an_evidence_error(tmp_path: Path) -> None:

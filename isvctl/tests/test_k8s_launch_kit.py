@@ -99,7 +99,7 @@ def test_failed_family_is_a_junit_failure(tmp_path: Path, monkeypatch: pytest.Mo
     assert states["K8sEastWestNetworkICMPPing-ethernet"] is State.PASSED
     # The failed family explains the l8k exit code, so the deployment test stays green.
     assert states["K8sNetworkOperatorDeployment"] is State.PASSED
-    assert (tmp_path / "_output" / "k8s-launch-kit" / "sosreport" / "network-operator-sosreport.tar.gz").is_file()
+    assert (tmp_path / "_output" / "k8s-launch-kit" / "sosreport.tar.gz").is_file()
     cases = {case.get("name"): case for case in ET.parse(junit).getroot().iter("testcase")}
     assert cases["K8sEastWestNetworkIBWriteBandwidth-ethernet"].find("failure") is not None
 

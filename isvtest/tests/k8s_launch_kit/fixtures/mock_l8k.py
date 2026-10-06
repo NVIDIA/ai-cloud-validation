@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -412,14 +413,17 @@ def _run_sosreport(flags: dict[str, str]) -> int:
     """Mock the current text-streaming ``l8k sosreport`` command."""
     output_dir = Path(flags.get("--output-dir", "./sosreport")).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    archive = output_dir / "network-operator-sosreport.tar.gz"
-    archive.write_text("mock Network Operator diagnostic archive\n", encoding="utf-8")
+    (output_dir / "collection-errors.log").write_text("", encoding="utf-8")
     print("Collecting sosreport from cluster...")
     print(f"  Output:     {output_dir}")
     fail, _ = _failure("sosreport")
     if fail:
         print("Error: sosreport collection failed", file=sys.stderr)
         return 3
+    # Like the Network Operator helper: archive next to the directory, then remove it.
+    archive = output_dir.with_name(f"{output_dir.name}.tar.gz")
+    archive.write_text("mock Network Operator diagnostic archive\n", encoding="utf-8")
+    shutil.rmtree(output_dir)
     print(f"\nSosreport collected: {output_dir}")
     return 0
 

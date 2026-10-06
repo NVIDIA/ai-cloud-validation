@@ -23,7 +23,7 @@ _PASSING_RDMA = """<testsuite name="K8sEastWestNetworkRDMAPing-ethernet">
 
 
 _INPUTS = {"user_config": "cluster-config.yaml", "deployment_files": "deployment"}
-_SOSREPORT = {"success": True, "artifacts": {"sosreport": "/evidence/sosreport"}}
+_SOSREPORT = {"success": True, "artifacts": {"sosreport": "/evidence/sosreport.tar.gz"}}
 
 
 @pytest.fixture(autouse=True)
@@ -195,7 +195,7 @@ def test_unconfigured_inputs_skip_without_running_launch_kit(
 def test_sosreport_reports_collected_diagnostics(tmp_path: Path) -> None:
     result = _execute(tmp_path, _PASSING_RDMA, LaunchKitSosreport)
     assert result["passed"]
-    assert "/evidence/sosreport" in result["output"]
+    assert result["output"] == "sosreport collected: /evidence/sosreport.tar.gz"
 
 
 def test_failed_sosreport_fails_only_the_sosreport_check(tmp_path: Path) -> None:

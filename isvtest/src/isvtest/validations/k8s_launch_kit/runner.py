@@ -16,6 +16,7 @@ reports what Launch Kit emitted.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
 import time
@@ -27,6 +28,8 @@ from typing import Any
 DEFAULT_ARTIFACT_DIR = Path("_output") / "k8s-launch-kit"
 _VALIDATION_REPORT_NAME = "k8s-launch-kit-validation-report.html"
 _SOSREPORT_TIMEOUT_SECONDS = 1800
+
+_logger = logging.getLogger(__name__)
 
 _RUNS: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
@@ -126,11 +129,17 @@ def _sosreport(executable: str, artifact_dir: Path) -> dict[str, Any]:
     """Run ``l8k sosreport`` into the artifact directory and retain its text output."""
     binary = _resolve_executable(executable)
     output_dir = artifact_dir / "sosreport"
+    # The Network Operator helper tars the output directory next to itself and
+    # removes the directory; it is only left behind uncompressed or on failure.
+    archive = output_dir.with_name(f"{output_dir.name}.tar.gz")
+    archive.unlink(missing_ok=True)
     argv = [str(binary), "sosreport", "--output-dir", str(output_dir)]
     process = _run_process(argv, cwd=_working_dir(artifact_dir), timeout=_SOSREPORT_TIMEOUT_SECONDS)
     artifacts = _record_process(artifact_dir / "commands" / "sosreport", argv, process)
-    if output_dir.exists():
-        artifacts["sosreport"] = str(output_dir)
+    for collected in (archive, output_dir):
+        if collected.exists():
+            artifacts["sosreport"] = str(collected)
+            break
     result: dict[str, Any] = {"success": process["exit_code"] == 0, "artifacts": artifacts}
     if process["exit_code"] != 0:
         result["error"] = _exit_error("sosreport", process)
@@ -175,24 +184,25 @@ def _working_dir(artifact_dir: Path) -> Path:
 
 def _run_process(argv: list[str], *, cwd: Path, timeout: float | None = None) -> dict[str, Any]:
     """Execute a child process and retain both output streams."""
+    _logger.info("Running: %s", " ".join(argv))
     started = time.monotonic()
     try:
         completed = subprocess.run(argv, cwd=cwd, check=False, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return {
-            "exit_code": -1,
-            "stdout": "",
-            "stderr": f"timed out after {timeout} seconds",
-            "duration_seconds": time.monotonic() - started,
-        }
+        result = {"exit_code": -1, "stdout": "", "stderr": f"timed out after {timeout} seconds"}
     except OSError as exc:
-        return {"exit_code": -1, "stdout": "", "stderr": str(exc), "duration_seconds": time.monotonic() - started}
-    return {
-        "exit_code": completed.returncode,
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
-        "duration_seconds": time.monotonic() - started,
-    }
+        result = {"exit_code": -1, "stdout": "", "stderr": str(exc)}
+    else:
+        result = {"exit_code": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr}
+    result["duration_seconds"] = time.monotonic() - started
+    _logger.info(
+        "%s %s exited with code %s after %.0fs",
+        Path(argv[0]).name,
+        argv[1],
+        result["exit_code"],
+        result["duration_seconds"],
+    )
+    return result
 
 
 def _record_process(directory: Path, argv: list[str], result: dict[str, Any]) -> dict[str, str]:
