@@ -13,8 +13,8 @@ validation operation:
 l8k validate --user-config <complete-config> --deployment-files <rendered-directory>
 ```
 
-It reports the connectivity matrix produced by Launch Kit, then always collects
-diagnostics, whatever validate's outcome:
+It reports the connectivity matrix produced by Launch Kit, then collects
+diagnostics after every validate that started, whatever its outcome:
 
 ```text
 l8k sosreport --output-dir <artifact-directory>/sosreport
@@ -151,8 +151,7 @@ Use a Launch Kit binary supporting `validate --junit-path`
 (NVIDIA/k8s-launch-kit#288). Launch Kit writes a `network/validation` suite of
 deployment-state cases and one `K8sEastWestNetwork<Family>-<fabric>` suite per
 connectivity family for the configured fabric. The `network_operator` group wires
-one catalog test per native suite, using the same `report_subtest` mechanism as
-Kubernetes conformance tests:
+one catalog test per native suite:
 
 | Catalog test | Result |
 |---|---|
@@ -176,10 +175,10 @@ report download, and `isvreporter` upload therefore report against the static
 catalog.
 
 Sosreport runs right after validate, before any result is read, whatever
-validate's outcome. When validate could not start, sosreport is not attempted
-and `LaunchKitSosreport` skips with the same reason. `LaunchKitSosreport` reports it: a failed collection fails
+validate's outcome. `LaunchKitSosreport` reports it: a failed collection fails
 that check and therefore the test phase, while every connectivity and
-deployment result stays intact.
+deployment result stays intact. When validate could not start, sosreport is not
+attempted and `LaunchKitSosreport` skips with the same reason.
 
 ## Evidence
 
@@ -233,8 +232,9 @@ attempt to reinterpret the diagnostic contents.
   operations; they are prerequisites owned by Launch Kit and the ISV.
 - Do not model or duplicate Launch Kit flags, schema, or defaults, and never
   parse the user config (infer fabric from native JUnit suite names).
-- Missing or malformed JUnit, no executed connectivity cases, or a failed
-  command must fail, never pass vacuously.
+- A missing prerequisite (an input or `l8k`) skips. Once `l8k validate` has
+  started, missing or malformed JUnit, no executed connectivity cases, or a
+  failed command must fail, never pass vacuously.
 - Do not invent results or reinterpret Launch Kit's verdict.
 - `l8k clean` is the only supported deletion path; never reproduce Launch Kit
   cleanup with kubectl.
