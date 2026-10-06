@@ -43,9 +43,10 @@ def check_required_tests(
 
     Each required entry is reported as a subtest. Sets failed on the validation
     if the dict is missing or any required entry did not pass. If none failed
-    but a required entry is marked ``skipped``, skips the validation instead of
-    passing it. On success, returns True without setting passed - the caller is
-    expected to call ``set_passed`` with a context-appropriate message.
+    but a required entry is marked ``skipped`` or ``provider_hidden``, skips the
+    validation instead of passing it. On success, returns True without setting
+    passed - the caller is expected to call ``set_passed`` with a
+    context-appropriate message.
     """
     step_output = validation.config.get("step_output", {})
     tests = step_output.get(key, {})
@@ -55,6 +56,7 @@ def check_required_tests(
 
     failed = []
     skipped = []
+    hidden: dict[str, str] = {}
     for test_name in required_keys:
         test_result = tests.get(test_name, {})
         if test_result.get("skipped") is True:
@@ -65,51 +67,24 @@ def check_required_tests(
             error = test_result.get("error", "test not found")
             failed.append(f"{test_name}: {error}")
             validation.report_subtest(test_name, False, error)
+        elif test_result.get("provider_hidden") is True:
+            # A plane the tenant cannot observe is not evidence that the property holds,
+            # so it must not count toward a pass - even when sibling entries were verified.
+            hidden[test_name] = test_result.get("message") or "plane is provider-owned"
+            validation.report_subtest(test_name, True, hidden[test_name], skipped=True)
         else:
-            # A provider-hidden entry was not verified, so it must not report as a passed subtest.
-            hidden = test_result.get("provider_hidden") is True
-            validation.report_subtest(test_name, True, test_result.get("message", ""), skipped=hidden)
+            validation.report_subtest(test_name, True, test_result.get("message", ""))
 
     if failed:
         validation.set_failed(f"{fail_label}: {'; '.join(failed)}")
         return False
-    if skipped:
+    if skipped or hidden:
         import pytest
 
-        pytest.skip(f"Required test(s) skipped: {'; '.join(skipped)}")
+        if skipped:
+            pytest.skip(f"Required test(s) skipped: {'; '.join(skipped)}")
+        pytest.skip(f"Required test(s) provider-hidden: {next(iter(hidden.values()))} (hidden: {', '.join(hidden)})")
     return True
-
-
-def skip_if_provider_hidden(validation: BaseValidation, required_keys: list[str], label: str) -> None:
-    """Skip the validation when any required subtest is marked ``provider_hidden``.
-
-    A plane the tenant cannot observe is not evidence that the property holds,
-    so it must not count toward a pass - even when sibling subtests were
-    verified, the property as a whole was not. The skip keeps the provider's
-    explanation visible in reports instead.
-    """
-    tests = validation.config.get("step_output", {}).get("tests", {})
-    if not isinstance(tests, dict):
-        return
-
-    hidden = {
-        name: result
-        for name in required_keys
-        if isinstance((result := tests.get(name)), dict) and result.get("provider_hidden") is True
-    }
-    if not hidden:
-        return
-
-    messages = [
-        message.strip()
-        for result in hidden.values()
-        if isinstance((message := result.get("message")), str) and message.strip()
-    ]
-    detail = messages[0] if messages else "plane is provider-owned"
-    # Lazy import keeps the core validation module usable outside pytest runs.
-    import pytest
-
-    pytest.skip(f"{label} provider-hidden: {detail} (hidden: {', '.join(hidden)})")
 
 
 class BaseValidation(ABC):

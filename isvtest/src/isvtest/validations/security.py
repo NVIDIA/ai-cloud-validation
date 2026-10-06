@@ -24,7 +24,7 @@ from typing import ClassVar
 
 import pytest
 
-from isvtest.core.validation import BaseValidation, check_required_tests, skip_if_provider_hidden
+from isvtest.core.validation import BaseValidation, check_required_tests
 
 
 class BmcManagementNetworkCheck(BaseValidation):
@@ -182,7 +182,6 @@ class BmcProtocolSecurityCheck(BaseValidation):
         ]
         if not check_required_tests(self, required, "BMC protocol security tests failed"):
             return
-        skip_if_provider_hidden(self, required, "BMC protocol security")
         bmc_count = self.config.get("step_output", {}).get("bmc_endpoints_tested", "N/A")
         self.set_passed(f"BMC protocol security posture verified ({bmc_count} endpoints tested)")
 
@@ -274,7 +273,6 @@ class MutualTlsCheck(BaseValidation):
         if type(endpoints_tested) is not int or endpoints_tested < 1:
             self.set_failed("mTLS output missing positive int 'endpoints_tested'")
             return
-        skip_if_provider_hidden(self, required, "mTLS enforcement")
 
         self.set_passed(f"mTLS enforced ({endpoints_tested} endpoints tested)")
 
@@ -313,7 +311,6 @@ class BmcBastionAccessCheck(BaseValidation):
         ]
         if not check_required_tests(self, required, "BMC bastion access tests failed"):
             return
-        skip_if_provider_hidden(self, required, "BMC bastion access")
         endpoints = self.config.get("step_output", {}).get("management_networks_checked", "N/A")
         self.set_passed(f"BMC reachable only via hardened bastion ({endpoints} networks checked)")
 

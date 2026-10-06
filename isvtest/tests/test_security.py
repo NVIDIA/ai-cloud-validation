@@ -219,7 +219,7 @@ def test_bmc_protocol_security_check_skips_when_provider_hidden() -> None:
     }
     validation = BmcProtocolSecurityCheck(config=_bmc_protocol_config(tests, bmc_endpoints_tested=0))
 
-    with pytest.raises(pytest.skip.Exception, match="BMC protocol security provider-hidden: no customer BMC surface"):
+    with pytest.raises(pytest.skip.Exception, match="provider-hidden: no customer BMC surface"):
         validation.execute()
 
 
@@ -290,7 +290,7 @@ class TestBmcBastionAccessCheck:
             )
         }
 
-        with pytest.raises(pytest.skip.Exception, match="BMC bastion access provider-hidden"):
+        with pytest.raises(pytest.skip.Exception, match="provider-hidden: BMC plane is provider-owned"):
             BmcBastionAccessCheck(config=_bastion_access_config(tests)).execute()
 
     def test_missing_required_key_fails(self) -> None:

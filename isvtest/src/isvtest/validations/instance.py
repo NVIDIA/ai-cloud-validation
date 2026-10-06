@@ -20,7 +20,7 @@ Validations for EC2 instances, virtual machines, and compute resources.
 
 from typing import ClassVar
 
-from isvtest.core.validation import BaseValidation, check_required_tests, skip_if_provider_hidden
+from isvtest.core.validation import BaseValidation, check_required_tests
 
 SERIAL_CONSOLE_RETENTION_DAYS_REQUIRED = 30
 
@@ -133,7 +133,6 @@ class VmComponentKeyAccessCheck(BaseValidation):
         required = self.config.get("required_tests", ["sol_access", "network_device_access"])
         if not check_required_tests(self, required, "Component key access tests failed"):
             return
-        skip_if_provider_hidden(self, required, "Component key access")
 
         self.set_passed(f"Specified key '{key_name}' accessed required components")
 

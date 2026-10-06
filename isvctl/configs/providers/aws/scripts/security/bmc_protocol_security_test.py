@@ -59,36 +59,15 @@ def _aws_no_customer_bmc_result(region: str) -> dict[str, Any]:
         "bmc_protocol_surface": "none",
         "evidence": evidence,
         "tests": {
-            "ipmi_disabled": {
-                "passed": True,
-                "provider_hidden": True,
-                "message": f"{evidence}; IPMI UDP 623 is not exposed to tenant networks",
-            },
-            "redfish_tls_enabled": {
-                "passed": True,
-                "provider_hidden": True,
-                "message": f"{evidence}; no customer Redfish endpoint requires TLS validation",
-            },
-            "redfish_plain_http_disabled": {
-                "passed": True,
-                "provider_hidden": True,
-                "message": f"{evidence}; plain HTTP Redfish is not exposed",
-            },
-            "redfish_authentication_required": {
-                "passed": True,
-                "provider_hidden": True,
-                "message": f"{evidence}; unauthenticated Redfish access is not available",
-            },
-            "redfish_authorization_enforced": {
-                "passed": True,
-                "provider_hidden": True,
-                "message": f"{evidence}; customer Redfish role actions are not available",
-            },
-            "redfish_accounting_enabled": {
-                "passed": True,
-                "provider_hidden": True,
-                "message": f"{evidence}; customer Redfish accounting is not applicable",
-            },
+            name: {"passed": True, "provider_hidden": True, "message": f"{evidence}; {detail}"}
+            for name, detail in (
+                ("ipmi_disabled", "IPMI UDP 623 is not exposed to tenant networks"),
+                ("redfish_tls_enabled", "no customer Redfish endpoint requires TLS validation"),
+                ("redfish_plain_http_disabled", "plain HTTP Redfish is not exposed"),
+                ("redfish_authentication_required", "unauthenticated Redfish access is not available"),
+                ("redfish_authorization_enforced", "customer Redfish role actions are not available"),
+                ("redfish_accounting_enabled", "customer Redfish accounting is not applicable"),
+            )
         },
     }
 

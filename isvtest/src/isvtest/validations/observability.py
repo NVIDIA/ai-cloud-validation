@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from isvtest.core.validation import BaseValidation, check_required_tests, skip_if_provider_hidden
+from isvtest.core.validation import BaseValidation, check_required_tests
 
 
 def _merged_probes(validation: BaseValidation) -> dict[str, object]:
@@ -184,7 +184,6 @@ class BmcSelLogsCheck(BaseValidation):
         required = ["sel_log_endpoint_reachable", "sel_log_source_present", "sel_entries_queryable"]
         if not check_required_tests(self, required, "BMC SEL log tests failed"):
             return
-        skip_if_provider_hidden(self, required, "BMC SEL logs")
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["log_source"], "BMC SEL log"):
             return
@@ -238,7 +237,6 @@ class _StorageTelemetryCheck(BaseValidation):
         """Validate storage telemetry results and evidence."""
         if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
             return
-        skip_if_provider_hidden(self, self._required_tests, self._plane_label)
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
             return
@@ -304,7 +302,6 @@ class _NvlinkTelemetryCheck(BaseValidation):
         """Validate NVLink telemetry results and evidence."""
         if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
             return
-        skip_if_provider_hidden(self, self._required_tests, self._plane_label)
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
             return
@@ -379,7 +376,6 @@ class BmcGpuTelemetryCheck(BaseValidation):
         ]
         if not check_required_tests(self, required, "BMC GPU telemetry tests failed"):
             return
-        skip_if_provider_hidden(self, required, "BMC GPU telemetry")
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_endpoint"], "BMC GPU telemetry"):
             return
@@ -466,7 +462,6 @@ class _NetworkTelemetryCheck(BaseValidation):
         """Validate network telemetry results and evidence."""
         if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
             return
-        skip_if_provider_hidden(self, self._required_tests, self._plane_label)
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
             return
@@ -576,7 +571,6 @@ class _FabricLogCheck(BaseValidation):
         """Validate fabric log results and evidence."""
         if not check_required_tests(self, self._required_tests, f"{self._log_label} tests failed"):
             return
-        skip_if_provider_hidden(self, self._required_tests, self._log_label)
         probes = _merged_probes(self)
         string_fields = ["log_source", "latest_timestamp"] if self._require_latest_timestamp else ["log_source"]
         if not _require_non_empty_strings(self, probes, string_fields, self._log_label):
