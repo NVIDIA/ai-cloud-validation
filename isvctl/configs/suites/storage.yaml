@@ -312,11 +312,32 @@ tests:
     # run, and from the K8S_CSI_* env vars on a validation-only run.
     k8s_storage:
       checks:
+        K8sCsiHelmInstallCheck:
+          test_id: "K8S23-02"
+          labels: ["kubernetes", "min_req", "storage"]
+          requires: [kubernetes]
+          installation: "{{ steps.install_csi | default({}) | tojson }}"
+        K8sCsiKustomizeInstallCheck:
+          test_id: "K8S23-03"
+          labels: ["kubernetes", "min_req", "storage"]
+          requires: [kubernetes]
+          installation: "{{ steps.install_csi | default({}) | tojson }}"
+        K8sCsiSnapshotRestoreCheck:
+          test_id: "K8S23-08"
+          labels: ["kubernetes", "min_req", "storage"]
+          requires: [kubernetes]
+          required: true
+          storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
+          snapshot_class: "{{ env.K8S_CSI_SNAPSHOT_CLASS | default('', true) }}"
+          pvc_size: "1Gi"
+          wait_timeout_s: 180
         K8sCsiStorageTypesCheck:
           test_id: "K8S23-04"
           labels: ["kubernetes", "min_req", "storage"]
           requires: [kubernetes]
-          # StorageClass names by type; omit (or leave empty) to skip that type.
+          # K8S23 requires block, shared filesystem, and NFS capabilities.
+          # Missing class configuration fails before any probe resources are created.
+          require_all_types: true
           # Env overrides: K8S_CSI_BLOCK_SC, K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
           block_storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
@@ -409,7 +430,8 @@ tests:
           bind_timeout_s: 120
           namespace_prefix: "isvtest-csi-concurrent"
         K8sCsiPvcExpandCheck:
-          test_id: "N/A"
+          test_id: "K8S23-09"
+          required: true
           labels: ["kubernetes", "min_req", "storage"]
           requires: [kubernetes]
           storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"

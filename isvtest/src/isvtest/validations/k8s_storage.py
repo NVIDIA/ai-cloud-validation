@@ -287,11 +287,14 @@ class K8sCsiStorageTypesCheck(BaseValidation):
       with ``volumeBindingMode: WaitForFirstConsumer`` (the default for
       most cloud block CSIs).
 
-    Types with no configured StorageClass are reported as skipped, so the
-    check is safe to enable on every provider; pass if every configured type
-    passes both subtests.
+    With ``require_all_types=True``, missing block, shared-fs, or NFS configuration
+    fails before provisioning any resources. The canonical storage suite uses this
+    policy to enforce K8S23. Standalone callers default to optional types: missing
+    types skip, and every configured type must pass both subtests.
 
     Config keys (with defaults):
+        require_all_types: Require all three storage types (default: ``False``).
+            Must be a boolean; the canonical storage suite sets ``True``.
         block_storage_class: StorageClass for block (RWO) storage
             (default: from :func:`get_k8s_csi_block_storage_class`).
         shared_fs_storage_class: StorageClass for shared filesystem (RWX)
@@ -317,11 +320,27 @@ class K8sCsiStorageTypesCheck(BaseValidation):
         namespace_prefix = self.config.get("namespace_prefix", "isvtest-csi-types")
         pvc_size = str(self.config.get("pvc_size", "1Gi"))
 
+        require_all = self.config.get("require_all_types", False)
+        if not isinstance(require_all, bool):
+            self.set_failed("require_all_types must be a boolean")
+            return
+
         configured: dict[str, str] = {}
         for type_name, _ in _STORAGE_TYPES:
             sc_name = self.config.get(f"{type_name.replace('-', '_')}_storage_class") or _env_fallback(type_name)
             if sc_name:
                 configured[type_name] = sc_name
+
+        missing = [name for name, _ in _STORAGE_TYPES if name not in configured]
+        if require_all and missing:
+            for name in missing:
+                message = f"Required {name} StorageClass not configured"
+                self.report_subtest(f"sc-exists[{name}]", passed=False, message=message)
+                self.report_subtest(
+                    f"pvc-binds[{name}]", passed=False, message=f"{message}; PVC probe skipped", skipped=True
+                )
+            self.set_failed("Missing required StorageClass configuration: " + ", ".join(missing))
+            return
 
         if not configured:
             pytest.skip("No StorageClass configured for block/shared-fs/nfs")
@@ -2288,12 +2307,13 @@ class K8sCsiPvcExpandCheck(BaseValidation):
     requested ``expanded_size`` (not an exact match, as a CSI driver may
     provision more than requested due to rounding up to the next valid storage increment).
 
-    The test is skipped when the StorageClass does not set allowVolumeExpansion=true
-    or when ``storage_class`` is unset.
+    Missing configuration or expansion support fails when ``required`` is true.
+    The mounted filesystem must grow, and a canary must survive the resize.
 
     Config keys (with defaults):
         storage_class: StorageClass to probe; defaults to
             :func:`get_k8s_csi_block_storage_class` (env: ``K8S_CSI_BLOCK_SC``).
+        required: Fail instead of skipping missing expansion support (default: false).
         initial_size: Starting PVC capacity (default: ``1Gi``).
         expanded_size: Target capacity after resize (default: ``2Gi``).
         bind_timeout_s: Wait for initial PVC Bind + pod Ready (default: ``120``).
@@ -2312,11 +2332,26 @@ class K8sCsiPvcExpandCheck(BaseValidation):
     def run(self) -> None:
         """Provision a PVC, resize it, and assert PV + df reflect the new capacity."""
         storage_class = str(self.config.get("storage_class") or get_k8s_csi_block_storage_class() or "")
+        required = self.config.get("required", False)
+        if not isinstance(required, bool):
+            self.set_failed("required must be a boolean")
+            return
         if not storage_class:
+            if required:
+                self.set_failed("No storage_class configured for required CSI expansion")
+                return
             pytest.skip("No storage_class configured")
 
         initial_size = str(self.config.get("initial_size", "1Gi"))
         expanded_size = str(self.config.get("expanded_size", "2Gi"))
+        try:
+            initial_bytes = parse_quantity(initial_size)
+            expanded_bytes = parse_quantity(expanded_size)
+            if not 0 < initial_bytes < expanded_bytes:
+                raise ValueError("expanded_size must exceed a positive initial_size")
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            self.set_failed(f"Invalid resize quantities: {exc}")
+            return
         bind_timeout = int(self.config.get("bind_timeout_s", 120))
         expand_timeout = int(self.config.get("expand_timeout_s", 180))
         ns_prefix = self.config.get("namespace_prefix", "isvtest-csi-expand")
@@ -2337,9 +2372,13 @@ class K8sCsiPvcExpandCheck(BaseValidation):
             self.set_failed(f"Failed to parse StorageClass {storage_class!r} JSON: {exc}")
             return
 
-        allows_expansion = bool(sc_payload.get("allowVolumeExpansion"))
+        allows_expansion = sc_payload.get("allowVolumeExpansion") is True
         if not allows_expansion:
             skip_msg = f"StorageClass {storage_class!r} does not set allowVolumeExpansion=true"
+            if required:
+                self.report_subtest("sc-allows-expansion", passed=False, message=skip_msg)
+                self.set_failed(skip_msg)
+                return
             for name in ("sc-allows-expansion", "pvc-patch-accepted", "pv-capacity-updated", "df-shows-new-size"):
                 self.report_subtest(name, passed=True, message=skip_msg, skipped=True)
             pytest.skip(skip_msg)
@@ -2349,6 +2388,9 @@ class K8sCsiPvcExpandCheck(BaseValidation):
             passed=True,
             message=f"StorageClass {storage_class!r} has allowVolumeExpansion=true",
         )
+        if sc_payload.get("reclaimPolicy", "Delete") != "Delete":
+            self.set_failed("Expansion probe requires a StorageClass with reclaimPolicy=Delete")
+            return
 
         self._namespace = f"{ns_prefix}-{uuid.uuid4().hex[:8]}"
         ns_quoted = shlex.quote(self._namespace)
@@ -2394,6 +2436,28 @@ class K8sCsiPvcExpandCheck(BaseValidation):
                 self.set_failed(
                     f"PVC {pvc_name!r} did not reach Bound before resize within {bind_timeout}s: {wait_err[:200]}"
                 )
+                return
+
+            before = self.run_command(
+                f"{self._kubectl_base} exec -n {ns_quoted} {shlex.quote(pod_name)} -- df -k /data"
+            )
+            before_kb = _parse_df_size_kb(before.stdout) if before.exit_code == 0 else None
+            if before_kb is None or before_kb <= 0:
+                self.set_failed("Could not measure the mounted filesystem before resize")
+                return
+            if before_kb * 1024 >= expanded_bytes:
+                self.set_failed(
+                    "Filesystem already exceeds the resize target; choose expanded_size greater than "
+                    "the observed filesystem size to demonstrate actual growth"
+                )
+                return
+            canary = uuid.uuid4().hex
+            seeded = self.run_command(
+                f"{self._kubectl_base} exec -n {ns_quoted} {shlex.quote(pod_name)} -- "
+                f"sh -c {shlex.quote(f'echo {canary} > /data/resize-canary && sync')}"
+            )
+            if seeded.exit_code != 0:
+                self.set_failed("Could not write the resize canary")
                 return
 
             any_failed = False
@@ -2461,21 +2525,25 @@ class K8sCsiPvcExpandCheck(BaseValidation):
                 if not pv_ok:
                     any_failed = True
 
-                df_ok = self._poll_df_size(pod_name, expanded_size, expand_timeout)
+                df_ok = self._poll_df_size(pod_name, expanded_size, expand_timeout, before_kb * 1024)
                 self.report_subtest(
                     "df-shows-new-size",
                     passed=df_ok,
                     message=(
-                        f"df /data inside pod {pod_name!r} reflects ≥90% of {expanded_size!r}"
+                        f"Mounted filesystem grew and reflects ≥90% of {expanded_size!r}"
                         if df_ok
-                        else (
-                            f"df /data inside pod {pod_name!r} did not reflect ≥90% of {expanded_size!r} "
-                            f"within {expand_timeout}s"
-                        )
+                        else (f"Mounted filesystem did not grow to ≥90% of {expanded_size!r} within {expand_timeout}s")
                     ),
                 )
                 if not df_ok:
                     any_failed = True
+
+            restored = self.run_command(
+                f"{self._kubectl_base} exec -n {ns_quoted} {shlex.quote(pod_name)} -- cat /data/resize-canary"
+            )
+            data_ok = restored.exit_code == 0 and restored.stdout.strip() == canary
+            self.report_subtest("resize-data-preserved", passed=data_ok, message="Canary must survive expansion")
+            any_failed = any_failed or not data_ok
 
             if any_failed:
                 self.set_failed("One or more PVC-expand subtests failed; see subtest details")
@@ -2487,10 +2555,10 @@ class K8sCsiPvcExpandCheck(BaseValidation):
         finally:
             if ns_created:
                 cleanup = self.run_command(
-                    f"{self._kubectl_base} delete namespace {ns_quoted} --wait=false --ignore-not-found=true"
+                    f"{self._kubectl_base} delete namespace {ns_quoted} --wait=true --timeout=120s --ignore-not-found=true"
                 )
                 if cleanup.exit_code != 0:
-                    self.log.warning("Namespace cleanup failed for %s: %s", self._namespace, cleanup.stderr)
+                    self.set_failed(f"Expansion namespace cleanup failed: {cleanup.stderr.strip()[:200]}")
 
     def _poll_pvc_capacity_updated(self, pvc_name: str, expected_size: str, timeout_s: int) -> str | None:
         """Poll until ``PVC.status.capacity.storage`` is at least ``expected_size``.
@@ -2523,8 +2591,8 @@ class K8sCsiPvcExpandCheck(BaseValidation):
         capacity = str(((payload.get("spec") or {}).get("capacity") or {}).get("storage") or "")
         return bool(capacity) and _capacity_meets_request(capacity, expected_size)
 
-    def _poll_df_size(self, pod_name: str, expected_size: str, timeout_s: int) -> bool:
-        """Poll ``df -k /data`` inside ``pod_name`` until it reports ≥ 90 % of ``expected_size``.
+    def _poll_df_size(self, pod_name: str, expected_size: str, timeout_s: int, before_bytes: int) -> bool:
+        """Require growth from the measured baseline and ≥90% of the requested capacity.
 
         Retries every 5 s up to ``timeout_s``. Some CSI drivers (especially
         NFS/shared-FS) update the Kubernetes API objects before the
@@ -2554,7 +2622,7 @@ class K8sCsiPvcExpandCheck(BaseValidation):
                 time.sleep(5.0)
                 continue
             actual_bytes = kb_blocks * 1024
-            if actual_bytes >= int(expected_bytes * 0.90):
+            if actual_bytes > before_bytes and actual_bytes >= int(expected_bytes * 0.90):
                 return True
             self.log.info(
                 "df /data in pod %s: %d KiB (%d bytes); waiting for ≥90%% of %s (%d bytes)\n%s",

@@ -691,6 +691,95 @@ the step executor runs schema checks automatically.
 | `TenantListedCheck` | Check tenant appears in list |
 | `TenantInfoCheck` | Check tenant info retrieved |
 
+### Required CSI storage types
+
+The canonical storage suite sets `K8sCsiStorageTypesCheck.require_all_types: true`
+to enforce K8S23's block, shared filesystem, and NFS requirements. If any of
+`block_storage_class`, `shared_fs_storage_class`, or `nfs_storage_class` is absent,
+the check fails before provisioning probe resources. Names can come from the
+cluster setup fixture or the existing `K8S_CSI_BLOCK_SC`, `K8S_CSI_SHARED_FS_SC`,
+and `K8S_CSI_NFS_SC` environment variables.
+
+A driver that supplies both shared filesystem and NFS capabilities can use the
+same StorageClass for those two entries. Each configured type still gets a PVC
+and consumer-pod probe. Driver installation, snapshot support, and resizing are
+separate capabilities; passing the storage-types check does not establish them.
+
+Standalone callers default to `require_all_types: false`, which skips unconfigured
+types and checks configured ones. An entirely unconfigured optional check skips.
+Using this optional policy does not establish full K8S23 storage-type coverage.
+
+### CSI installation, snapshots, and expansion
+
+K8S23 installation checks require evidence of a real Helm or Kustomize install,
+registered CSI drivers, and ready controller/node workloads. A tool version or
+an already-present StorageClass is insufficient. Missing installation evidence
+fails. After one supported method succeeds, the unused alternative is reported
+as skipped because the requirement permits either method.
+
+Use the opt-in `isvctl/configs/providers/csi.yaml` lifecycle on a test cluster with
+a reviewed, pinned local chart or Kustomize directory. It installs during setup,
+runs the storage checks, and removes the installation during teardown. Existing
+cluster credentials must be available to both `kubectl` and `helm`; point both
+commands at the same context. No installation runs merely by selecting the
+canonical storage suite.
+
+Example installation JSON (`/absolute/path/csi-install.json`):
+
+```json
+{
+  "method": "helm",
+  "namespace": "isvtest-csi-driver",
+  "release": "isvtest-csi",
+  "source": "/absolute/path/reviewed-csi-chart",
+  "values": "/absolute/path/csi-values.yaml",
+  "drivers": ["example.csi.driver"],
+  "workloads": ["deployment/csi-controller", "daemonset/csi-node"],
+  "timeout_s": 300
+}
+```
+
+For Kustomize, set `method` to `kustomize`, set `source` to the local
+kustomization directory, and omit `values` and `release`. The installation must
+use a fresh namespace and resource names. Existing objects are never adopted;
+default StorageClasses and Helm hooks are rejected. The state file records
+resource identities and UIDs for cleanup. Keep it until teardown succeeds.
+Do not change the kubeconfig context during the run.
+
+```bash
+export CSI_INSTALL_CONFIG=/absolute/path/csi-install.json
+export CSI_INSTALL_STATE=/absolute/path/csi-install-state.json
+export K8S_CSI_BLOCK_SC=example-block
+export K8S_CSI_SHARED_FS_SC=example-shared
+export K8S_CSI_NFS_SC=example-nfs
+export K8S_CSI_SNAPSHOT_CLASS=example-snapshots
+uv run isvctl test run -f isvctl/configs/providers/csi.yaml --capability kubernetes
+```
+
+Supply all three StorageClasses through the reviewed installation or existing
+infrastructure. A shared filesystem can supply both shared-FS and NFS capabilities
+when it actually supports both. The snapshot API/controller must be installed,
+and the selected VolumeSnapshotClass must match the StorageClass's CSI driver.
+Snapshot validation writes a canary, snapshots it, changes the source, and restores
+into a distinct volume. It verifies the original restored data and the independently
+modified source; snapshot readiness alone cannot pass.
+
+Expansion is required in the canonical suite. It verifies PVC/PV capacity,
+actual mounted-filesystem growth, and canary preservation. Choose `initial_size`
+and `expanded_size` for the driver's allocation granularity; the latter must
+exceed the observed initial filesystem size. A host-path or NFS export whose
+filesystem was already larger than the target cannot demonstrate expansion.
+Standalone optional expansion checks can retain `required: false`.
+
+Both data probes require Delete reclaim policies and create disposable volumes.
+Teardown refuses to uninstall a CSI driver while its PVs remain, to delete a
+replaced resource, or to remove a CRD with objects outside the owned namespace. If teardown fails, resolve
+the reported dependency and retry with the same environment:
+
+```bash
+uv run isvctl test run -f isvctl/configs/providers/csi.yaml --phase teardown
+```
+
 ### Kubernetes Conformance Modes
 
 `K8sCncfConformanceCheck` (in `validations/k8s_conformance.py`) runs the upstream CNCF e2e suite in-cluster. The `mode` parameter selects which subset of tests runs:

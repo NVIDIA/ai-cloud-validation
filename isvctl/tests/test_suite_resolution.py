@@ -146,12 +146,10 @@ def test_storage_suite_supplies_the_csi_fixture_those_probes_read() -> None:
 
 
 def test_storage_suite_templates_read_the_suite_cluster_fixture() -> None:
-    """Unbound storage templates read only the cluster fixture the suite itself declares.
+    """Storage names use the suite fixture; installation requires explicit provider evidence.
 
-    When the storage templates named a step the config does not provide, every
-    StorageClass parameter silently fell back to empty. A step a group is bound
-    to cannot be missing (the group skips as step_not_configured first), so
-    only the remaining references must name the suite's fixture.
+    The install step is deliberately opt-in. Its absence must fail the unbound
+    installation checks rather than skip as step_not_configured.
     """
     storage = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "suites" / "storage.yaml")]))
     fixture = next(step.name for step in storage.get_steps("storage") if step.phase == "setup")
@@ -160,7 +158,7 @@ def test_storage_suite_templates_read_the_suite_cluster_fixture() -> None:
     referenced = set(re.findall(r"steps\.(\w+)", json.dumps(validations)))
     bound = {entry.step for entry in parse_validations(validations) if entry.step}
 
-    assert referenced - bound == {fixture}
+    assert referenced - bound == {fixture, "install_csi"}
 
 
 @pytest.mark.parametrize(
@@ -221,3 +219,30 @@ def test_ad_hoc_config_falls_back_to_its_own_stem(tmp_path: Path) -> None:
 
     assert resolve_suite_name([ad_hoc], tmp_path) == "one_off"
     assert resolve_suite_name([], tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "relative", ["suites/storage.yaml", "providers/aws/config/storage.yaml", "providers/my-isv/config/storage.yaml"]
+)
+def test_storage_suite_requires_all_k8s_storage_capabilities(relative: str) -> None:
+    """Provider imports retain the K8S23 requirement for all three storage types."""
+    config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / relative)]))
+    assert config.tests is not None
+    check = config.tests.validations["k8s_storage"]["checks"]["K8sCsiStorageTypesCheck"]
+    assert check["require_all_types"] is True
+    assert config.tests.validations["k8s_storage"]["checks"]["K8sCsiSnapshotRestoreCheck"]["required"] is True
+
+
+def test_csi_lifecycle_provider_wires_install_and_teardown() -> None:
+    """The opt-in CSI provider retains required checks and runs both lifecycle phases."""
+    config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "providers" / "csi.yaml")]))
+    assert [(step.name, step.phase) for step in config.get_steps("storage")] == [
+        ("install_csi", "setup"),
+        ("setup_cluster", "setup"),
+        ("remove_csi", "teardown"),
+    ]
+    checks = config.tests.validations["k8s_storage"]["checks"]
+    assert checks["K8sCsiPvcExpandCheck"]["required"] is True
+    assert checks["K8sCsiStorageTypesCheck"]["require_all_types"] is True
+    assert checks["K8sCsiSnapshotRestoreCheck"]["test_id"] == "K8S23-08"
+    assert checks["K8sCsiSnapshotRestoreCheck"]["required"] is True
