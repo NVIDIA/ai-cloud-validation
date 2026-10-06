@@ -22,6 +22,7 @@ import pytest
 
 from isvtest.config.loader import ConfigLoader
 from isvtest.core.logger import setup_logger
+from isvtest.validations.k8s_launch_kit.runner import clear_runs
 
 # Register our custom subtests plugin - this provides the subtests fixture and hooks
 pytest_plugins = ["isvtest.testing.subtests"]
@@ -63,6 +64,11 @@ def pytest_configure(config: pytest.Config) -> None:
     """Register custom markers to avoid PytestUnknownMarkWarning."""
     for marker in CUSTOM_MARKERS:
         config.addinivalue_line("markers", marker)
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Never reuse a Launch Kit run cached by an earlier validation session."""
+    clear_runs()
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

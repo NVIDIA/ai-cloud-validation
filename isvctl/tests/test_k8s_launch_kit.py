@@ -43,7 +43,7 @@ def _run(tmp_path: Path, *, configured: bool = True, junitxml: Path | None = Non
     if configured:
         user_config = tmp_path / "cluster-config.yaml"
         user_config.write_text("profile:\n  fabric: ethernet\n  deployment: sriov\n", encoding="utf-8")
-        (tmp_path / "deployment").mkdir()
+        (tmp_path / "deployment").mkdir(exist_ok=True)
         merged["tests"]["settings"]["k8s_launch_kit"] = {
             "user_config": str(user_config),
             "deployment_files": str(tmp_path / "deployment"),
@@ -136,3 +136,14 @@ def test_missing_launch_kit_skips_every_test(tmp_path: Path, monkeypatch: pytest
     assert result.success is True
     assert set(_network_operator(result).values()) == {State.SKIPPED}
     assert not (tmp_path / "_output" / "k8s-launch-kit" / "commands").exists()
+
+
+def test_each_run_checks_the_cluster_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second orchestration in the same process runs Launch Kit again."""
+    assert _run(tmp_path).success is True
+
+    monkeypatch.setenv("L8K_MOCK_FAIL", "validate:ib_write_bw")
+    result = _run(tmp_path)
+
+    assert result.success is False
+    assert _network_operator(result)["K8sEastWestNetworkIBWriteBandwidth-ethernet"] is State.FAILED

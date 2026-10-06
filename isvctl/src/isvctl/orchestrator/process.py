@@ -74,7 +74,7 @@ def run_command_process(
             stdout, stderr = process.communicate(timeout=_TERMINATION_GRACE_SECONDS)
         except subprocess.TimeoutExpired:
             _kill_process_tree(process)
-            stdout, stderr = process.communicate()
+            stdout, stderr = _drain_after_kill(process)
         else:
             # The direct child may exit while a descendant that closed the
             # inherited pipes remains alive. Ensure the process group is gone.
@@ -93,6 +93,19 @@ def run_command_process(
         raise
 
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _drain_after_kill(process: subprocess.Popen[str]) -> tuple[str, str]:
+    """Collect output after a kill without waiting forever on inherited pipes."""
+    try:
+        return process.communicate(timeout=_TERMINATION_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        # A descendant outside the process group still holds the pipes open.
+        for pipe in (process.stdout, process.stderr):
+            if pipe is not None:
+                pipe.close()
+        process.wait()
+        return "", ""
 
 
 def _interrupt_process_tree(process: subprocess.Popen[str]) -> None:

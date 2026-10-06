@@ -110,6 +110,7 @@ time.sleep(60)
     child_pid: int | None = None
 
     def _interrupt(signum: int, frame: object) -> None:
+        """Turn the alarm into the Ctrl-C the orchestrator would receive."""
         raise KeyboardInterrupt
 
     previous_handler = signal.signal(signal.SIGALRM, _interrupt)
@@ -152,3 +153,19 @@ def _process_exists(pid: int) -> bool:
     except FileNotFoundError:
         return False
     return state != "Z"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group behavior is POSIX-specific")
+def test_timeout_does_not_wait_on_pipes_held_outside_the_group(tmp_path: Path) -> None:
+    """A descendant in its own session keeps the pipes open; the timeout must still return."""
+    wrapper = """
+import subprocess, sys, time
+subprocess.Popen([sys.executable, "-c", "import time; time.sleep(15)"], start_new_session=True)
+time.sleep(60)
+"""
+    started = time.monotonic()
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_command_process([sys.executable, "-c", wrapper], cwd=tmp_path, env=None, timeout=1)
+
+    assert time.monotonic() - started < 10
