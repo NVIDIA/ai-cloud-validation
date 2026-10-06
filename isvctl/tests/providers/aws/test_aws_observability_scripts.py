@@ -652,7 +652,7 @@ def test_hidden_aspects_report_skipped_subtests(aspect: str, expected_tests: set
     """AWS provider-owned aspects report every subtest skipped, not passed."""
     script = _load_script("log_availability_test.py")
 
-    result = script.check_provider_hidden_aspect(aspect, region="us-west-2")
+    result = script.skip_provider_owned_aspect(aspect, region="us-west-2")
 
     assert result["success"] is True
     assert result["platform"] == "observability"
@@ -1111,7 +1111,7 @@ def test_telem_hidden_aspects_report_skipped_subtests(aspect: str, expected_test
         result = script._check_hidden_storage_capacity(region="us-west-2")
     else:
         script = _load_script("nvlink_telemetry_test.py")
-        result = script.check_provider_hidden_aspect(aspect, region="us-west-2")
+        result = script.skip_provider_owned_aspect(aspect, region="us-west-2")
 
     assert result["success"] is True
     assert result["platform"] == "observability"

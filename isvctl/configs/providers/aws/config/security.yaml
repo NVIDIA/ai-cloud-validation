@@ -117,7 +117,7 @@ commands:
         command: "python3 ../../shared/mutual_tls_test.py"
         args:
           - >-
-            --east-west-provider-hidden-message=east_west_mtls_enforced:
+            --east-west-skip-reason=east_west_mtls_enforced:
             AWS EC2/EKS tenants do not receive a customer-provable east-west
             mTLS surface in region {{region}}; intra-VPC service encryption is
             customer-owned (mesh/sidecar). Set EAST_WEST_ENDPOINTS to probe

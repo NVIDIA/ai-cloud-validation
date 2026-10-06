@@ -81,7 +81,7 @@ def test_run_fails_when_endpoints_without_certs() -> None:
         client_cert=None,
         client_key=None,
         timeout=1.0,
-        east_west_provider_hidden_message="hidden",
+        east_west_skip_reason="hidden",
     )
     assert result["success"] is False
     assert result["error_type"] == "bad_input"
@@ -126,7 +126,7 @@ def test_run_with_skipped_east_west_and_probed_north_south(tmp_path: Path) -> No
             client_cert=cert,
             client_key=key,
             timeout=1.0,
-            east_west_provider_hidden_message="AWS east-west is provider-hidden",
+            east_west_skip_reason="AWS east-west is provider-hidden",
         )
 
     assert result["success"] is True

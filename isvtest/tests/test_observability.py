@@ -55,7 +55,7 @@ def _tests(names: list[str], probes: dict[str, Any] | None = None) -> dict[str, 
     return {name: dict(test_result) for name in names}
 
 
-def _provider_hidden_tests(
+def _provider_owned_tests(
     names: list[str],
     message: str = "AWS BMC plane is provider-owned",
 ) -> dict[str, dict[str, Any]]:
@@ -158,25 +158,25 @@ def _bmc_gpu_telemetry_output(**overrides: Any) -> dict[str, Any]:
     return output
 
 
-def _bmc_sel_provider_hidden_output() -> dict[str, Any]:
+def _bmc_sel_provider_owned_output() -> dict[str, Any]:
     """Build provider-hidden BMC SEL log step output."""
     return {
         "success": True,
         "platform": "observability",
         "test_name": "bmc_sel_logs",
-        "tests": _provider_hidden_tests(
+        "tests": _provider_owned_tests(
             ["sel_log_endpoint_reachable", "sel_log_source_present", "sel_entries_queryable"]
         ),
     }
 
 
-def _bmc_gpu_telemetry_provider_hidden_output() -> dict[str, Any]:
+def _bmc_gpu_telemetry_provider_owned_output() -> dict[str, Any]:
     """Build provider-hidden BMC GPU telemetry step output."""
     return {
         "success": True,
         "platform": "observability",
         "test_name": "bmc_gpu_telemetry",
-        "tests": _provider_hidden_tests(
+        "tests": _provider_owned_tests(
             [
                 "telemetry_endpoint_reachable",
                 "gpu_metrics_present",
@@ -279,13 +279,13 @@ def _switch_kernel_logs_output(**overrides: Any) -> dict[str, Any]:
     return output
 
 
-def _ufm_event_logs_provider_hidden_output() -> dict[str, Any]:
+def _ufm_event_logs_provider_owned_output() -> dict[str, Any]:
     """Build provider-hidden UFM event log step output."""
     return {
         "success": True,
         "platform": "observability",
         "test_name": "ufm_event_logs",
-        "tests": _provider_hidden_tests(
+        "tests": _provider_owned_tests(
             [
                 "event_log_endpoint_reachable",
                 "event_log_source_present",
@@ -458,13 +458,13 @@ def _switch_nvlink_telemetry_output(**overrides: Any) -> dict[str, Any]:
     }
 
 
-def _storage_capacity_provider_hidden_output() -> dict[str, Any]:
+def _storage_capacity_provider_owned_output() -> dict[str, Any]:
     """Build provider-hidden storage capacity telemetry step output."""
     return {
         "success": True,
         "platform": "observability",
         "test_name": "storage_capacity_telemetry",
-        "tests": _provider_hidden_tests(
+        "tests": _provider_owned_tests(
             ["telemetry_endpoint_reachable", "capacity_metrics_present", "samples_recent"],
             message="AWS storage plane is provider-owned",
         ),
@@ -536,17 +536,17 @@ def test_observability_checks_pass_with_required_evidence(
 @pytest.mark.parametrize(
     ("validation_cls", "step_output", "expected"),
     [
-        (BmcSelLogsCheck, _bmc_sel_provider_hidden_output(), "AWS BMC plane is provider-owned"),
-        (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_provider_hidden_output(), "AWS BMC plane is provider-owned"),
-        (StorageCapacityTelemetryCheck, _storage_capacity_provider_hidden_output(), "provider-owned"),
-        (UfmEventLogsCheck, _ufm_event_logs_provider_hidden_output(), "provider-owned"),
+        (BmcSelLogsCheck, _bmc_sel_provider_owned_output(), "AWS BMC plane is provider-owned"),
+        (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_provider_owned_output(), "AWS BMC plane is provider-owned"),
+        (StorageCapacityTelemetryCheck, _storage_capacity_provider_owned_output(), "provider-owned"),
+        (UfmEventLogsCheck, _ufm_event_logs_provider_owned_output(), "provider-owned"),
         (
             GeneralSwitchLogsCheck,
             {
                 "success": True,
                 "platform": "observability",
                 "test_name": "general_switch_logs",
-                "tests": _provider_hidden_tests(
+                "tests": _provider_owned_tests(
                     ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"],
                     message="Fabric plane is provider-owned",
                 ),

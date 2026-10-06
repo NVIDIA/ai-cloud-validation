@@ -137,7 +137,7 @@ def _skipped_result(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _provider_hidden_rotation_skip_result(result: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
+def _provider_owned_rotation_skip_result(result: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
     """Mark EKS control-plane certificate rotation evidence as provider-hidden."""
     result["success"] = True
     result["skipped"] = True
@@ -207,7 +207,7 @@ def _run_cert_rotation_test(eks: Any, region: str) -> dict[str, Any]:
         return _inspection_error_result(result, records, inspection_errors)
 
     if all(record.get("rotation_evidence_hidden") is True for record in records):
-        return _provider_hidden_rotation_skip_result(result, records)
+        return _provider_owned_rotation_skip_result(result, records)
 
     return _inspection_error_result(
         result,

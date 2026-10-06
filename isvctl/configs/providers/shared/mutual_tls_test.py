@@ -267,7 +267,7 @@ def run_mutual_tls_probe(
     client_cert: Path | None,
     client_key: Path | None,
     timeout: float,
-    east_west_provider_hidden_message: str | None = None,
+    east_west_skip_reason: str | None = None,
 ) -> dict[str, Any]:
     """Build the SEC13-01 JSON contract for the given endpoint/cert inputs."""
     # Pure provider-hidden with nothing probed is not evidence — skip instead.
@@ -304,8 +304,7 @@ def run_mutual_tls_probe(
             "east_west_mtls_enforced",
             "east_west",
             east_west_endpoints,
-            east_west_provider_hidden_message
-            or "east_west_mtls_enforced: no east-west endpoints configured for this run",
+            east_west_skip_reason or "east_west_mtls_enforced: no east-west endpoints configured for this run",
         ),
     ]
     tests: dict[str, Any] = {}
@@ -318,8 +317,8 @@ def run_mutual_tls_probe(
                 authenticated_context=authenticated_context,
                 timeout=timeout,
             )
-        elif name == "east_west_mtls_enforced" and east_west_provider_hidden_message:
-            tests[name] = _skipped_plane(east_west_provider_hidden_message)
+        elif name == "east_west_mtls_enforced" and east_west_skip_reason:
+            tests[name] = _skipped_plane(east_west_skip_reason)
         else:
             # Missing required plane without an explicit provider exception is a fail,
             # not a fabricated pass.
@@ -365,9 +364,9 @@ def main() -> int:
     )
     parser.add_argument("--timeout", default="5.0", help="Per-probe socket timeout in seconds")
     parser.add_argument(
-        "--east-west-provider-hidden-message",
+        "--east-west-skip-reason",
         default="",
-        help="When set and no east-west endpoints are given, mark that plane provider-hidden",
+        help="When set and no east-west endpoints are given, report that plane skipped with this reason",
     )
     args = parser.parse_args()
 
@@ -394,7 +393,7 @@ def main() -> int:
         client_cert=client_cert,
         client_key=client_key,
         timeout=timeout,
-        east_west_provider_hidden_message=args.east_west_provider_hidden_message or None,
+        east_west_skip_reason=args.east_west_skip_reason or None,
     )
     print(json.dumps(result, indent=2))
     return 0 if result.get("success") is True else 1

@@ -55,7 +55,7 @@ def _skipped(test_name: str, *, region: str) -> dict[str, Any]:
     }
 
 
-def check_provider_hidden_aspect(aspect: str, *, region: str) -> dict[str, Any]:
+def skip_provider_owned_aspect(aspect: str, *, region: str) -> dict[str, Any]:
     """Report every subtest of tenant-inaccessible NVLink telemetry as skipped."""
     result = _base_result(aspect)
     result["success"] = True
@@ -71,7 +71,7 @@ def main() -> int:
     parser.add_argument("--aspect", required=True, choices=sorted(ASPECT_TESTS))
     args = parser.parse_args()
 
-    result = check_provider_hidden_aspect(args.aspect, region=args.region)
+    result = skip_provider_owned_aspect(args.aspect, region=args.region)
     print(json.dumps(result, indent=2, default=str))
     return 0 if result["success"] else 1
 

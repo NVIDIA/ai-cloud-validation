@@ -345,7 +345,7 @@ def check_host_syslogs(host: str, ssh_user: str, key_file: str, *, max_age_minut
     return result
 
 
-def check_provider_hidden_aspect(aspect: str, *, region: str) -> dict[str, Any]:
+def skip_provider_owned_aspect(aspect: str, *, region: str) -> dict[str, Any]:
     """Report every subtest of a customer-inaccessible aspect as skipped."""
     if aspect.startswith("bmc_"):
         message = f"{AWS_NO_CUSTOMER_BMC_MESSAGE} in region {region}; BMC plane is provider-owned."
@@ -400,7 +400,7 @@ def main() -> int:
             max_age_minutes=args.max_age_minutes,
         )
     elif args.aspect in HIDDEN_ASPECTS:
-        result = check_provider_hidden_aspect(args.aspect, region=args.region)
+        result = skip_provider_owned_aspect(args.aspect, region=args.region)
     else:
         raise ValueError(f"unsupported aspect: {args.aspect}")
 
