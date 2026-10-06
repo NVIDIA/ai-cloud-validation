@@ -41,12 +41,12 @@ model in AI Cloud Validation.
 ## Architecture
 
 ```text
-suites/k8s.yaml, network_operator group (no step, like conformance)
+suites/k8s.yaml, network_operator group (no step)
   -> first check: run_launch_kit()
      -> l8k validate --junit-path ... --user-config ... --deployment-files ... --output json
         -> retained argv, stdout, stderr, exit code, duration, JUnit, and HTML report
      -> l8k sosreport --output-dir _output/k8s-launch-kit/sosreport
-        -> retained diagnostic directory, stdout, stderr, exit code, and duration
+        -> retained sosreport.tar.gz, stdout, stderr, exit code, and duration
   -> the other checks reuse that run
   -> nine catalog tests, one per native Launch Kit JUnit suite
      -> one subtest for every case in that suite

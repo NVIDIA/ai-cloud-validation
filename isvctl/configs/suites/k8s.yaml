@@ -57,9 +57,8 @@ tests:
 
   settings:
     show_skipped_tests: false
-    # Inputs for the network_operator checks: an existing, complete Launch Kit
-    # user config and the deployment directory rendered from it. Empty skips
-    # those checks, as do missing inputs or no `l8k` on PATH.
+    # Launch Kit user config and its rendered deployment directory for the
+    # network_operator checks; empty skips them.
     k8s_launch_kit:
       user_config: ""
       deployment_files: ""
@@ -448,14 +447,8 @@ tests:
           probe_timeout_s: 10
           api_endpoint: "{{ steps.setup.kubernetes.api_endpoint | default('', true) }}"
 
-    # Network Operator through Kubernetes Launch Kit (K8S42). Like conformance,
-    # no `step:`: the checks run `l8k validate` against the current cluster
-    # themselves, once for all of them, then `l8k sosreport` for diagnostics.
-    # Each catalog check reports one native Launch Kit JUnit suite: the
-    # deployment-state suite, or one connectivity family on one fabric. Launch
-    # Kit only runs the configured fabric, so the other fabric's four checks
-    # skip. All of them skip until tests.settings.k8s_launch_kit points at a
-    # complete Launch Kit config and its rendered deployment files.
+    # Network Operator via Kubernetes Launch Kit (K8S42). No step: l8k checks
+    # the current cluster itself, in one long run that every check shares.
     network_operator:
       checks:
         K8sNetworkOperatorDeployment:
@@ -463,6 +456,7 @@ tests:
           labels: ["kubernetes", "network_operator", "slow"]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+        # Launch Kit runs only the configured fabric; the other fabric's checks skip.
         K8sEastWestNetworkICMPPing-ethernet:
           test_id: "N/A"
           labels: ["kubernetes", "network_operator", "slow"]
@@ -511,9 +505,7 @@ tests:
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: infiniband
-        # Diagnostics collected right after that run, whatever its outcome. Not
-        # a catalog test: a failed collection fails the run without changing
-        # any result above.
+        # Not in the catalog: a failed sosreport fails the run, not a result above.
         LaunchKitSosreport:
           test_id: "N/A"
           labels: ["kubernetes", "network_operator", "slow"]

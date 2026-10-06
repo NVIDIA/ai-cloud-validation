@@ -321,7 +321,7 @@ JUnit suite of the same name (`network/validation` for the deployment entry),
 with its cases as subtests. Launch Kit only runs the configured fabric, so the
 other fabric's four entries skip.
 
-Like conformance, the group has no `step:`: the first check runs `l8k validate`
+The group has no `step:`: the first check runs `l8k validate`
 against the current cluster with `tests.settings.k8s_launch_kit.user_config`
 and `deployment_files`, the others reuse that run, and `l8k sosreport`
 follows any validate that started. A tenth, catalog-excluded check, `LaunchKitSosreport`, reports that
