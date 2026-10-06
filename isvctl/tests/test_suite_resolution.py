@@ -230,6 +230,7 @@ def test_storage_suite_requires_all_k8s_storage_capabilities(relative: str) -> N
     assert config.tests is not None
     check = config.tests.validations["k8s_storage"]["checks"]["K8sCsiStorageTypesCheck"]
     assert check["require_all_types"] is True
+    assert config.tests.validations["k8s_storage"]["checks"]["K8sCsiSnapshotRestoreCheck"]["required"] is True
 
 
 def test_csi_lifecycle_provider_wires_install_and_teardown() -> None:
@@ -244,3 +245,4 @@ def test_csi_lifecycle_provider_wires_install_and_teardown() -> None:
     assert checks["K8sCsiPvcExpandCheck"]["required"] is True
     assert checks["K8sCsiStorageTypesCheck"]["require_all_types"] is True
     assert checks["K8sCsiSnapshotRestoreCheck"]["test_id"] == "K8S23-08"
+    assert checks["K8sCsiSnapshotRestoreCheck"]["required"] is True

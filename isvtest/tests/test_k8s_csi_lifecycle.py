@@ -245,12 +245,39 @@ def test_snapshot_restores_point_in_time_data(fault: str) -> None:
 
 
 @pytest.mark.parametrize("config", [{}, {"storage_class": "sc"}, {"snapshot_class": "snap-sc"}])
-def test_snapshot_missing_configuration(config: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
-    """Missing class configuration skips before the snapshot probe can start."""
+@pytest.mark.parametrize("required", [None, False, True])
+def test_snapshot_missing_configuration(
+    config: dict[str, Any], required: bool | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing classes fail required checks and skip optional checks before probing."""
     monkeypatch.delenv("K8S_CSI_BLOCK_SC", raising=False)
     monkeypatch.delenv("K8S_CSI_SNAPSHOT_CLASS", raising=False)
+    if required is not None:
+        config = {**config, "required": required}
     check = lifecycle.K8sCsiSnapshotRestoreCheck(config=config)
     with patch.object(check, "run_command") as command:
-        with pytest.raises(pytest.skip.Exception, match="requires storage_class and snapshot_class"):
+        if required:
             check.run()
+            assert not check.passed
+            assert "requires storage_class and snapshot_class" in check.message
+        else:
+            with pytest.raises(pytest.skip.Exception, match="requires storage_class and snapshot_class"):
+                check.run()
+    command.assert_not_called()
+
+
+@pytest.mark.parametrize("required", ["true", "false", 0, 1, None, [], {}])
+@pytest.mark.parametrize("configured", [False, True])
+def test_snapshot_rejects_nonboolean_required(required: Any, configured: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reject invalid required values before skipping or executing the probe."""
+    monkeypatch.delenv("K8S_CSI_BLOCK_SC", raising=False)
+    monkeypatch.delenv("K8S_CSI_SNAPSHOT_CLASS", raising=False)
+    config = {"required": required}
+    if configured:
+        config.update(storage_class="sc", snapshot_class="snap-sc")
+    check = lifecycle.K8sCsiSnapshotRestoreCheck(config=config)
+    with patch.object(check, "run_command") as command:
+        check.run()
+    assert not check.passed
+    assert check.message == "required must be a boolean"
     command.assert_not_called()

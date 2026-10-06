@@ -34,7 +34,8 @@ class K8sCsiSnapshotRestoreCheck(BaseValidation):
 
     Requires storage_class (K8S_CSI_BLOCK_SC) and snapshot_class
     (K8S_CSI_SNAPSHOT_CLASS). Both classes must use Delete policies. The snapshot
-    API and controller must already be installed. Missing class configuration skips the test.
+    API and controller must already be installed. Missing class configuration skips the test
+    unless required is true (default: false), in which case it fails.
     pvc_size defaults to 1Gi, access_mode to ReadWriteOnce, and wait_timeout_s to 180.
     Only the probe's new namespace and its dynamically provisioned objects are removed.
     """
@@ -93,7 +94,14 @@ class K8sCsiSnapshotRestoreCheck(BaseValidation):
         """Snapshot seeded data, change the source, restore and compare both volumes."""
         sc = str(self.config.get("storage_class") or os.environ.get("K8S_CSI_BLOCK_SC", ""))
         snap_class = str(self.config.get("snapshot_class") or os.environ.get("K8S_CSI_SNAPSHOT_CLASS", ""))
+        required = self.config.get("required", False)
+        if not isinstance(required, bool):
+            self.set_failed("required must be a boolean")
+            return
         if not sc or not snap_class:
+            if required:
+                self.set_failed("CSI snapshot validation requires storage_class and snapshot_class")
+                return
             pytest.skip("CSI snapshot validation requires storage_class and snapshot_class")
         wait_s = self._parse_positive_int("wait_timeout_s", default=180)
         if wait_s is None:
