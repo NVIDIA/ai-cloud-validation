@@ -32,8 +32,8 @@ Required JSON output fields:
     }
   }
 
-When a component class is not customer-visible, mark that subtest
-``provider_hidden: true`` with ``passed: true``; the validation then skips
+When a component class is not customer-visible, report that subtest as
+``{"skipped": true, "skip_reason": "<why>"}``; the validation then skips
 rather than passes, since the component was not verified.
 
 Usage:
@@ -106,10 +106,10 @@ def main() -> int:
     # ║    )                                                             ║
     # ║    result["tests"]["sol_access"] = {"passed": sol.ok}            ║
     # ║    net = platform.probe_network_device_key(args.key_file)        ║
-    # ║    result["tests"]["network_device_access"] = {                   ║
-    # ║        "passed": True,                                           ║
-    # ║        "provider_hidden": not net.available,                     ║
-    # ║    }                                                             ║
+    # ║    result["tests"]["network_device_access"] = (                   ║
+    # ║        {"passed": net.ok} if net.available                       ║
+    # ║        else {"skipped": True, "skip_reason": "not exposed"}      ║
+    # ║    )                                                             ║
     # ║    result["success"] = True                                      ║
     # ╚══════════════════════════════════════════════════════════════════╝
 

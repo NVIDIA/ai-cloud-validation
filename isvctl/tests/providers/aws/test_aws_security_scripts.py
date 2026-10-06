@@ -467,8 +467,7 @@ def test_bmc_protocol_security_reports_no_customer_bmc_surface() -> None:
         "redfish_authorization_enforced",
         "redfish_accounting_enabled",
     }
-    assert all(test["passed"] is True for test in result["tests"].values())
-    assert all(test["provider_hidden"] is True for test in result["tests"].values())
+    assert all(test["skipped"] is True for test in result["tests"].values())
     assert "do not receive customer-accessible IPMI or Redfish" in result["evidence"]
 
 
@@ -520,7 +519,7 @@ def test_bmc_protocol_security_main_outputs_json(
     assert payload["success"] is True
     assert payload["region"] == "eu-west-1"
     assert payload["test_name"] == "bmc_protocol_security"
-    assert payload["tests"]["ipmi_disabled"]["passed"] is True
+    assert payload["tests"]["ipmi_disabled"]["skipped"] is True
 
 
 def test_bmc_protocol_security_main_reports_sts_probe_failure(
@@ -606,11 +605,11 @@ class FakeMainRouteBastionEc2:
         return self.route_table_paginator
 
 
-def test_bmc_bastion_access_provider_hidden_when_no_management_resources(
+def test_bmc_bastion_access_skipped_when_no_management_resources(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """SEC12-03 passes with provider_hidden markers when no BMC resources are tagged."""
+    """SEC12-03 reports every subtest skipped when no BMC resources are tagged."""
     module = _load_security_script("bmc_bastion_access_test.py")
     ec2 = FakeBastionEc2()
 
@@ -634,8 +633,7 @@ def test_bmc_bastion_access_provider_hidden_when_no_management_resources(
         "no_direct_public_route",
         "bastion_hardened",
     ):
-        assert payload["tests"][subtest]["passed"] is True
-        assert payload["tests"][subtest]["provider_hidden"] is True
+        assert payload["tests"][subtest]["skipped"] is True
 
 
 def test_bmc_bastion_access_fails_when_bmc_tagged_but_no_bastion(

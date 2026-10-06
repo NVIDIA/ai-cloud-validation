@@ -163,9 +163,6 @@ class BmcProtocolSecurityCheck(BaseValidation):
         tests: dict with ipmi_disabled, redfish_tls_enabled,
                redfish_plain_http_disabled, redfish_authentication_required,
                redfish_authorization_enforced, redfish_accounting_enabled
-        When the platform exposes no customer BMC surface, all required
-        subtests may report provider_hidden=true; the check then skips
-        rather than passes.
     """
 
     description: ClassVar[str] = "Check BMC protocol security posture"
@@ -237,9 +234,9 @@ class MutualTlsCheck(BaseValidation):
     """Validate mTLS (or equivalent) for north-south and east-west traffic (SEC13-01).
 
     Verifies that configured endpoints reject anonymous TLS clients and accept
-    authenticated client certificates on both traffic planes. Providers may mark
-    a plane ``provider_hidden`` when it is not customer-probeable (for example
-    AWS east-west mesh); the check then skips rather than passes.
+    authenticated client certificates on both traffic planes. Providers report
+    a plane ``skipped`` when it is not customer-probeable (for example AWS
+    east-west mesh), and the check then skips.
 
     Config:
         step_output: The mutual_tls_test step output to check
@@ -286,10 +283,10 @@ class BmcBastionAccessCheck(BaseValidation):
     no direct route to the public internet.
 
     Hyperscalers that hide the BMC plane from customers (e.g. AWS) cannot
-    fully exercise this check; the AWS reference marks each subtest
-    ``provider_hidden`` when no customer-visible BMC network is present, and
-    the check then skips rather than passes. Self-managed NCPs running their
-    own BMC fabric should report concrete pass/fail per subtest.
+    fully exercise this check; the AWS reference reports each subtest
+    ``skipped`` when no customer-visible BMC network is present, and the check
+    then skips. Self-managed NCPs running their own BMC fabric should report
+    concrete pass/fail per subtest.
 
     Config:
         step_output: The step output to check

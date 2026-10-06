@@ -43,10 +43,9 @@ def check_required_tests(
 
     Each required entry is reported as a subtest. Sets failed on the validation
     if the dict is missing or any required entry did not pass. If none failed
-    but a required entry is marked ``skipped`` or ``provider_hidden``, skips the
-    validation instead of passing it. On success, returns True without setting
-    passed - the caller is expected to call ``set_passed`` with a
-    context-appropriate message.
+    but a required entry is marked ``skipped``, skips the validation instead of
+    passing it. On success, returns True without setting passed - the caller is
+    expected to call ``set_passed`` with a context-appropriate message.
     """
     step_output = validation.config.get("step_output", {})
     tests = step_output.get(key, {})
@@ -56,7 +55,6 @@ def check_required_tests(
 
     failed = []
     skipped = []
-    hidden: dict[str, str] = {}
     for test_name in required_keys:
         test_result = tests.get(test_name, {})
         if test_result.get("skipped") is True:
@@ -67,23 +65,16 @@ def check_required_tests(
             error = test_result.get("error", "test not found")
             failed.append(f"{test_name}: {error}")
             validation.report_subtest(test_name, False, error)
-        elif test_result.get("provider_hidden") is True:
-            # A plane the tenant cannot observe is not evidence that the property holds,
-            # so it must not count toward a pass - even when sibling entries were verified.
-            hidden[test_name] = test_result.get("message") or "plane is provider-owned"
-            validation.report_subtest(test_name, True, hidden[test_name], skipped=True)
         else:
             validation.report_subtest(test_name, True, test_result.get("message", ""))
 
     if failed:
         validation.set_failed(f"{fail_label}: {'; '.join(failed)}")
         return False
-    if skipped or hidden:
+    if skipped:
         import pytest
 
-        if skipped:
-            pytest.skip(f"Required test(s) skipped: {'; '.join(skipped)}")
-        pytest.skip(f"Required test(s) provider-hidden: {next(iter(hidden.values()))} (hidden: {', '.join(hidden)})")
+        pytest.skip(f"Required test(s) skipped: {'; '.join(skipped)}")
     return True
 
 

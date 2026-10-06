@@ -220,14 +220,9 @@ def _aggregate_plane(
     return {"passed": passed, "message": message, "probes": probes}
 
 
-def _provider_hidden_plane(plane: str, message: str) -> dict[str, Any]:
-    """Return a passing provider-hidden result for a non-probeable plane."""
-    return {
-        "passed": True,
-        "provider_hidden": True,
-        "message": message,
-        "probes": [{"plane": plane, "provider_hidden": True}],
-    }
+def _skipped_plane(reason: str) -> dict[str, Any]:
+    """Return a skipped result for a plane the tenant cannot probe."""
+    return {"skipped": True, "skip_reason": reason}
 
 
 def _bad_input_result(error: str) -> dict[str, Any]:
@@ -324,13 +319,13 @@ def run_mutual_tls_probe(
                 timeout=timeout,
             )
         elif name == "east_west_mtls_enforced" and east_west_provider_hidden_message:
-            tests[name] = _provider_hidden_plane(plane, east_west_provider_hidden_message)
+            tests[name] = _skipped_plane(east_west_provider_hidden_message)
         else:
             # Missing required plane without an explicit provider exception is a fail,
             # not a fabricated pass.
             tests[name] = {"passed": False, "message": hidden_message, "probes": []}
 
-    success = all(tests[name].get("passed") is True for name in REQUIRED_TESTS)
+    success = all(tests[name].get("passed") is True or tests[name].get("skipped") is True for name in REQUIRED_TESTS)
     return {
         "success": success,
         "platform": "security",

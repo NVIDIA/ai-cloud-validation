@@ -231,24 +231,20 @@ class TestComponentKeyAccessCheck:
         assert result["passed"] is True
         assert "isv-test-key" in result["output"]
 
-    def test_skips_with_provider_hidden_network_devices(self) -> None:
-        """Hidden network-device access leaves AUTH03-01 unverified, so the check skips."""
+    def test_skips_when_network_devices_not_tenant_visible(self) -> None:
+        """Skipped network-device access leaves AUTH03-01 unverified, so the check skips."""
         validation = VmComponentKeyAccessCheck(
             config={
                 "step_output": self._output(
                     tests={
                         "sol_access": {"passed": True},
-                        "network_device_access": {
-                            "passed": True,
-                            "provider_hidden": True,
-                            "message": "no tenant network-device SSH",
-                        },
+                        "network_device_access": {"skipped": True, "skip_reason": "no tenant network-device SSH"},
                     }
                 )
             }
         )
 
-        with pytest.raises(pytest.skip.Exception, match=r"hidden: network_device_access"):
+        with pytest.raises(pytest.skip.Exception, match="network_device_access: no tenant network-device SSH"):
             validation.execute()
 
     def test_fails_when_key_name_missing(self) -> None:

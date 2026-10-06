@@ -169,8 +169,6 @@ class BmcSelLogsCheck(BaseValidation):
     Step output:
         tests: dict with sel_log_endpoint_reachable, sel_log_source_present,
                sel_entries_queryable
-        For provider-hidden BMC planes, all required subtests may report
-        provider_hidden=true; the check then skips rather than passes.
         tests.<check>.probes.bmc_endpoints_checked: Positive integer count of BMC
             endpoints inspected
         tests.<check>.probes.log_source: Non-empty SEL log source identifier
@@ -353,8 +351,6 @@ class BmcGpuTelemetryCheck(BaseValidation):
     Step output:
         tests: dict with telemetry_endpoint_reachable, gpu_metrics_present,
                host_os_gap_identified, telemetry_samples_recent
-        For provider-hidden BMC planes, all required subtests may report
-        provider_hidden=true; the check then skips rather than passes.
         tests.<check>.probes.bmc_endpoints_checked: Positive integer count of BMC
             endpoints inspected
         tests.<check>.probes.telemetry_endpoint: Non-empty telemetry API/source identifier
@@ -616,8 +612,6 @@ class UfmEventLogsCheck(_FabricLogCheck):
     Step output:
         tests: dict with event_log_endpoint_reachable, event_log_source_present,
                event_entries_queryable
-        For provider-hidden fabric planes, all required subtests may report
-        provider_hidden=true; the check then skips rather than passes.
         tests.<check>.probes.log_endpoints_checked: Positive integer count of
             log endpoints inspected
         tests.<check>.probes.log_source: Non-empty UFM event log source identifier
@@ -660,8 +654,6 @@ class GeneralSwitchLogsCheck(_SwitchLogCheck):
     Step output:
         tests: dict with log_endpoint_reachable, switch_log_source_present,
                entries_queryable
-        For provider-hidden switch planes, all required subtests may report
-        provider_hidden=true; the check then skips rather than passes.
         tests.<check>.probes.switches_checked: Positive integer count of switches
             inspected
         tests.<check>.probes.log_source: Non-empty switch log source identifier
@@ -688,8 +680,6 @@ class SwitchSyslogCheck(_SwitchLogCheck):
     Step output:
         tests: dict with syslog_endpoint_reachable, switch_syslog_source_present,
                entries_recent
-        For provider-hidden switch planes, all required subtests may report
-        provider_hidden=true; the check then skips rather than passes.
         tests.<check>.probes.switches_checked: Positive integer count of switches
             inspected
         tests.<check>.probes.log_source: Non-empty switch syslog source identifier
@@ -718,8 +708,6 @@ class SwitchKernelLogsCheck(_SwitchLogCheck):
     Step output:
         tests: dict with log_endpoint_reachable, kernel_log_source_present,
                entries_queryable
-        For provider-hidden switch planes, all required subtests may report
-        provider_hidden=true; the check then skips rather than passes.
         tests.<check>.probes.switches_checked: Positive integer count of switches
             inspected
         tests.<check>.probes.log_source: Non-empty switch kernel log source identifier

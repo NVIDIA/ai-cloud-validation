@@ -1071,7 +1071,7 @@ def test_sdn_hardware_fault_logging_happy_path() -> None:
     assert result["recent_event_count"] == 1
 
 
-def test_sdn_hardware_fault_logging_marks_health_subscription_provider_hidden() -> None:
+def test_sdn_hardware_fault_logging_marks_health_subscription_skipped() -> None:
     """AWS Health subscription gating should not fail the hardware-fault check."""
     module = _load_network_script("sdn_logging_test.py")
     ec2 = FakeSdnLoggingEc2(flow_logs=[_active_flow_log()])
@@ -1082,12 +1082,12 @@ def test_sdn_hardware_fault_logging_marks_health_subscription_provider_hidden() 
     result = module.check_hardware_fault_logging(ec2, health, "vpc-test", "us-west-2")
 
     assert result["success"] is True
-    assert result["tests"]["fault_event_source_queryable"]["provider_hidden"] is True
-    assert result["tests"]["event_schema_valid"]["provider_hidden"] is True
+    assert result["tests"]["fault_event_source_queryable"]["skipped"] is True
+    assert result["tests"]["event_schema_valid"]["skipped"] is True
     assert result["recent_event_count"] == 0
 
 
-def test_sdn_hardware_fault_logging_marks_absent_flow_logs_provider_hidden() -> None:
+def test_sdn_hardware_fault_logging_marks_absent_flow_logs_skipped() -> None:
     """Hardware-fault logging does not fail the AWS suite when Flow Logs are not configured."""
     module = _load_network_script("sdn_logging_test.py")
     ec2 = FakeSdnLoggingEc2(flow_logs=[])
@@ -1097,7 +1097,7 @@ def test_sdn_hardware_fault_logging_marks_absent_flow_logs_provider_hidden() -> 
 
     assert result["success"] is True
     assert result["log_destination"] == "aws-vpc-flow-logs:not-configured"
-    assert result["tests"]["log_destination_configured"]["provider_hidden"] is True
+    assert result["tests"]["log_destination_configured"]["skipped"] is True
 
 
 def test_sdn_hardware_fault_logging_fails_destination_when_flow_log_query_fails() -> None:
@@ -1114,7 +1114,7 @@ def test_sdn_hardware_fault_logging_fails_destination_when_flow_log_query_fails(
     assert log_destination["passed"] is False
     assert "Unable to inspect VPC Flow Logs" in log_destination["error"]
     assert log_destination["flow_log_query"]["passed"] is False
-    assert "provider_hidden" not in log_destination
+    assert "skipped" not in log_destination
 
 
 def test_sdn_hardware_fault_logging_fails_event_schema_when_health_query_fails() -> None:
@@ -1129,7 +1129,7 @@ def test_sdn_hardware_fault_logging_fails_event_schema_when_health_query_fails()
     assert result["success"] is False
     assert result["tests"]["fault_event_source_queryable"]["passed"] is False
     assert event_schema_valid["passed"] is False
-    assert "provider_hidden" not in event_schema_valid
+    assert "skipped" not in event_schema_valid
     assert event_schema_valid["health_query"]["passed"] is False
 
 
@@ -1170,7 +1170,7 @@ def test_sdn_latency_perf_logging_happy_path_with_cloudwatch_datapoint() -> None
     assert result["telemetry_namespace"] == "AWS/EC2"
     assert result["probe_resource_id"] == "i-probe"
     assert [{"Name": "InstanceId", "Value": "i-probe"}] in cloudwatch.list_metric_dimensions
-    assert result["tests"]["performance_metric_present"]["provider_hidden"] is True
+    assert result["tests"]["performance_metric_present"]["skipped"] is True
     assert result["tests"]["samples_recent"]["passed"] is True
 
 
@@ -1307,8 +1307,8 @@ def test_sdn_latency_perf_logging_ignores_account_metrics_when_target_vpc_has_no
     assert result["success"] is True
     assert result["telemetry_namespace"] == "provider-hidden"
     assert result["probe_resource_id"] == "vpc-test"
-    assert result["tests"]["packet_metric_present"]["provider_hidden"] is True
-    assert result["tests"]["samples_recent"]["provider_hidden"] is True
+    assert result["tests"]["packet_metric_present"]["skipped"] is True
+    assert result["tests"]["samples_recent"]["skipped"] is True
 
 
 def test_sdn_latency_perf_logging_fails_packet_metric_when_flow_log_query_fails() -> None:
@@ -1333,7 +1333,7 @@ def test_sdn_latency_perf_logging_fails_packet_metric_when_flow_log_query_fails(
     assert "Unable to verify VPC Flow Logs" in packet_metric["error"]
     assert "UnauthorizedOperation" in packet_metric["flow_log_error"]
     assert packet_metric["flow_log_query"]["passed"] is False
-    assert "provider_hidden" not in packet_metric
+    assert "skipped" not in packet_metric
 
 
 def test_sdn_latency_perf_logging_rejects_unrelated_cloudwatch_metrics_for_target_resources() -> None:
@@ -1420,7 +1420,7 @@ def test_sdn_latency_perf_logging_uses_recent_flow_log_samples() -> None:
     assert result["tests"]["samples_recent"]["sample_count"] == 1
 
 
-def test_sdn_latency_perf_logging_marks_s3_flow_log_samples_provider_hidden() -> None:
+def test_sdn_latency_perf_logging_marks_s3_flow_log_samples_skipped() -> None:
     """S3-backed Flow Logs are valid telemetry but cannot be sampled through CloudWatch Logs."""
     module = _load_network_script("sdn_logging_test.py")
     ec2 = FakeSdnLoggingEc2(flow_logs=[_active_s3_flow_log()])
@@ -1441,8 +1441,8 @@ def test_sdn_latency_perf_logging_marks_s3_flow_log_samples_provider_hidden() ->
     assert result["telemetry_namespace"] == "AWS/VPCFlowLogs"
     assert result["probe_resource_id"] == "vpc-test"
     assert result["tests"]["packet_metric_present"]["passed"] is True
-    assert samples_recent["provider_hidden"] is True
-    assert "s3" in samples_recent["message"]
+    assert samples_recent["skipped"] is True
+    assert "s3" in samples_recent["skip_reason"]
     assert samples_recent["flow_log_destinations"] == ["arn:aws:s3:::isv-flow-logs"]
     assert logs.calls == []
 

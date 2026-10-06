@@ -211,18 +211,6 @@ def test_bmc_protocol_security_check_reports_failed_and_missing_tests() -> None:
     assert "redfish_accounting_enabled: test not found" in result["error"]
 
 
-def test_bmc_protocol_security_check_skips_when_provider_hidden() -> None:
-    """BmcProtocolSecurityCheck skips instead of passing when no customer BMC surface exists."""
-    tests = {
-        name: {"passed": True, "provider_hidden": True, "message": "no customer BMC surface"}
-        for name in REQUIRED_BMC_PROTOCOL_TESTS
-    }
-    validation = BmcProtocolSecurityCheck(config=_bmc_protocol_config(tests, bmc_endpoints_tested=0))
-
-    with pytest.raises(pytest.skip.Exception, match="provider-hidden: no customer BMC surface"):
-        validation.execute()
-
-
 def test_bmc_protocol_security_check_preserves_empty_tests_map() -> None:
     """BmcProtocolSecurityCheck fails when an explicit empty tests map is provided."""
     validation = BmcProtocolSecurityCheck(config=_bmc_protocol_config({}))
@@ -277,21 +265,6 @@ class TestBmcBastionAccessCheck:
         assert result["passed"] is False
         assert "bastion_hardened" in result["error"]
         assert "0.0.0.0/0" in result["error"]
-
-    def test_provider_hidden_skips(self) -> None:
-        """Skip instead of passing when every subtest reports a provider-hidden BMC plane."""
-        tests = {
-            name: {"passed": True, "provider_hidden": True, "message": "BMC plane is provider-owned"}
-            for name in (
-                "bastion_identifiable",
-                "management_ingress_via_bastion_only",
-                "no_direct_public_route",
-                "bastion_hardened",
-            )
-        }
-
-        with pytest.raises(pytest.skip.Exception, match="provider-hidden: BMC plane is provider-owned"):
-            BmcBastionAccessCheck(config=_bastion_access_config(tests)).execute()
 
     def test_missing_required_key_fails(self) -> None:
         """Fail when one of the four required contract keys is absent."""
@@ -1200,18 +1173,14 @@ class TestMutualTlsCheck:
         assert result["passed"] is False
         assert "north_south_mtls_enforced" in result["error"]
 
-    def test_provider_hidden_east_west_skips(self) -> None:
-        """A hidden east-west plane leaves SEC13-01 unverified, so the check skips even with north-south proven."""
+    def test_skipped_east_west_skips_check(self) -> None:
+        """A skipped east-west plane leaves SEC13-01 unverified, so the check skips even with north-south proven."""
         tests = {
             "north_south_mtls_enforced": {"passed": True},
-            "east_west_mtls_enforced": {
-                "passed": True,
-                "provider_hidden": True,
-                "message": "no tenant east-west mTLS surface",
-            },
+            "east_west_mtls_enforced": {"skipped": True, "skip_reason": "no tenant east-west mTLS surface"},
         }
 
-        with pytest.raises(pytest.skip.Exception, match=r"hidden: east_west_mtls_enforced"):
+        with pytest.raises(pytest.skip.Exception, match="east_west_mtls_enforced: no tenant east-west mTLS surface"):
             MutualTlsCheck(config=_mutual_tls_config(tests, endpoints_tested=1)).execute()
 
     def test_zero_endpoints_tested_fails(self) -> None:

@@ -86,18 +86,19 @@ AWS_NO_CUSTOMER_FABRIC_MESSAGE = (
     "AWS EC2/EKS tenants do not receive customer-accessible UFM event logs or switch fabric logs"
 )
 
-# Aspects AWS does not expose to tenants, and the count-probe field each
-# aspect's validation expects in the provider-hidden evidence.
-HIDDEN_ASPECT_PROBE_FIELDS: dict[str, str] = {
-    "bmc_sel_logs": "bmc_endpoints_checked",
-    "bmc_gpu_telemetry": "bmc_endpoints_checked",
-    "ufm_event_logs": "log_endpoints_checked",
-    "fabric_manager_logs": "log_endpoints_checked",
-    "subnet_manager_logs": "log_endpoints_checked",
-    "general_switch_logs": "switches_checked",
-    "switch_syslogs": "switches_checked",
-    "switch_kernel_logs": "switches_checked",
-}
+# Aspects AWS does not expose to tenants; their subtests are reported skipped.
+HIDDEN_ASPECTS: frozenset[str] = frozenset(
+    {
+        "bmc_sel_logs",
+        "bmc_gpu_telemetry",
+        "ufm_event_logs",
+        "fabric_manager_logs",
+        "subnet_manager_logs",
+        "general_switch_logs",
+        "switch_syslogs",
+        "switch_kernel_logs",
+    }
+)
 
 
 def _passed(message: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -116,14 +117,9 @@ def _failed(error: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     return result
 
 
-def _provider_hidden(test_name: str, *, probe_field: str, message: str) -> dict[str, Any]:
-    """Build a passing provider-hidden subtest result."""
-    return {
-        "passed": True,
-        "provider_hidden": True,
-        "probes": {probe_field: 0},
-        "message": f"{test_name}: {message}",
-    }
+def _skipped(test_name: str, reason: str) -> dict[str, Any]:
+    """Build a skipped subtest result for a plane the tenant cannot observe."""
+    return {"skipped": True, "skip_reason": f"{test_name}: {reason}"}
 
 
 def _base_result(aspect: str) -> dict[str, Any]:
@@ -350,17 +346,14 @@ def check_host_syslogs(host: str, ssh_user: str, key_file: str, *, max_age_minut
 
 
 def check_provider_hidden_aspect(aspect: str, *, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for a customer-inaccessible aspect."""
+    """Report every subtest of a customer-inaccessible aspect as skipped."""
     if aspect.startswith("bmc_"):
         message = f"{AWS_NO_CUSTOMER_BMC_MESSAGE} in region {region}; BMC plane is provider-owned."
     else:
         message = f"{AWS_NO_CUSTOMER_FABRIC_MESSAGE} in region {region}; fabric plane is provider-owned."
     result = _base_result(aspect)
     result["success"] = True
-    result["tests"] = {
-        name: _provider_hidden(name, probe_field=HIDDEN_ASPECT_PROBE_FIELDS[aspect], message=message)
-        for name in ASPECT_TESTS[aspect]
-    }
+    result["tests"] = {name: _skipped(name, message) for name in ASPECT_TESTS[aspect]}
     return result
 
 
@@ -406,7 +399,7 @@ def main() -> int:
             args.key_file,
             max_age_minutes=args.max_age_minutes,
         )
-    elif args.aspect in HIDDEN_ASPECT_PROBE_FIELDS:
+    elif args.aspect in HIDDEN_ASPECTS:
         result = check_provider_hidden_aspect(args.aspect, region=args.region)
     else:
         raise ValueError(f"unsupported aspect: {args.aspect}")

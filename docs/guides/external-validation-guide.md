@@ -104,6 +104,28 @@ if __name__ == "__main__":
 
 Bash, Go, Terraform wrappers, or any language works - as long as valid JSON goes to stdout. See the [Configuration Guide](configuration.md#script-output-and-schema-validation) for more script examples.
 
+### Reporting sub-checks (`tests`)
+
+Many validations read a `tests` map with one entry per sub-check. Each entry is
+exactly one of:
+
+```json
+{
+  "tests": {
+    "endpoint_reachable": {"passed": true, "message": "..."},
+    "entries_queryable": {"passed": false, "error": "..."},
+    "sel_log_source_present": {"skipped": true, "skip_reason": "BMC plane is provider-owned"}
+  }
+}
+```
+
+Use `skipped` when the sub-check could not be verified - for example a plane
+your platform operates and does not expose to tenants. Never report an
+unverified sub-check as `passed: true`. A validation fails if any required
+entry failed; otherwise it skips (not passes) if any required entry was
+skipped, and reports `skip_reason` in the results. Skipped entries do not make
+the step itself unsuccessful.
+
 ---
 
 ## Configuration File

@@ -89,13 +89,11 @@ def _failed(error: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     return result
 
 
-def _provider_hidden(test_name: str, *, region: str) -> dict[str, Any]:
-    """Build a passing provider-hidden subtest result."""
+def _skipped(test_name: str, *, region: str) -> dict[str, Any]:
+    """Build a skipped subtest result for provider-owned storage capacity telemetry."""
     return {
-        "passed": True,
-        "provider_hidden": True,
-        "probes": {"volumes_checked": 0, "telemetry_source": "", "metric_names": []},
-        "message": (
+        "skipped": True,
+        "skip_reason": (
             f"{test_name}: {AWS_NO_CUSTOMER_CAPACITY_MESSAGE} in region {region}; storage plane is provider-owned."
         ),
     }
@@ -279,11 +277,11 @@ def _check_storage_performance_telemetry(
 
 
 def _check_hidden_storage_capacity(*, region: str) -> dict[str, Any]:
-    """Emit provider-hidden evidence for tenant-inaccessible storage capacity telemetry."""
+    """Report every subtest of tenant-inaccessible storage capacity telemetry as skipped."""
     aspect = "storage_capacity_telemetry"
     result = _base_result(aspect)
     result["success"] = True
-    result["tests"] = {name: _provider_hidden(name, region=region) for name in ASPECT_TESTS[aspect]}
+    result["tests"] = {name: _skipped(name, region=region) for name in ASPECT_TESTS[aspect]}
     return result
 
 

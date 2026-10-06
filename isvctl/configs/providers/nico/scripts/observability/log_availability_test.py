@@ -146,14 +146,9 @@ def _failed(error: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     return result
 
 
-def _provider_hidden(test_name: str, *, probe_field: str, message: str) -> dict[str, Any]:
-    """Build a passing provider-hidden subtest result."""
-    return {
-        "passed": True,
-        "provider_hidden": True,
-        "probes": {probe_field: 0},
-        "message": f"{test_name}: {message}",
-    }
+def _skipped(test_name: str, reason: str) -> dict[str, Any]:
+    """Build a skipped subtest result for a plane the tenant cannot observe."""
+    return {"skipped": True, "skip_reason": f"{test_name}: {reason}"}
 
 
 def _fail_all(result: dict[str, Any], aspect: str, error: str, probes: dict[str, Any]) -> dict[str, Any]:
@@ -255,17 +250,10 @@ def check_ufm_log_text(*, aspect: str, log_type: str, log_source: str, length: i
 
 
 def _check_switch_logs(aspect: str) -> dict[str, Any]:
-    """Emit provider-hidden evidence for customer-inaccessible switch logs."""
+    """Report every subtest of customer-inaccessible switch logs as skipped."""
     result = _base_result(aspect)
     result["success"] = True
-    result["tests"] = {
-        name: _provider_hidden(
-            name,
-            probe_field="switches_checked",
-            message=NICO_SWITCH_LOGS_HIDDEN_MESSAGE,
-        )
-        for name in ASPECT_TESTS[aspect]
-    }
+    result["tests"] = {name: _skipped(name, NICO_SWITCH_LOGS_HIDDEN_MESSAGE) for name in ASPECT_TESTS[aspect]}
     return result
 
 

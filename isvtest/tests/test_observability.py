@@ -57,19 +57,10 @@ def _tests(names: list[str], probes: dict[str, Any] | None = None) -> dict[str, 
 
 def _provider_hidden_tests(
     names: list[str],
-    probe_field: str = "bmc_endpoints_checked",
     message: str = "AWS BMC plane is provider-owned",
 ) -> dict[str, dict[str, Any]]:
-    """Build a passing tests map for provider-hidden evidence."""
-    return {
-        name: {
-            "passed": True,
-            "provider_hidden": True,
-            "probes": {probe_field: 0},
-            "message": message,
-        }
-        for name in names
-    }
+    """Build a tests map whose subtests are skipped because the plane is provider-owned."""
+    return {name: {"skipped": True, "skip_reason": message} for name in names}
 
 
 def _vpc_flow_logs_output(**overrides: Any) -> dict[str, Any]:
@@ -300,7 +291,6 @@ def _ufm_event_logs_provider_hidden_output() -> dict[str, Any]:
                 "event_log_source_present",
                 "event_entries_queryable",
             ],
-            probe_field="log_endpoints_checked",
             message="UFM plane is provider-owned",
         ),
     }
@@ -476,7 +466,6 @@ def _storage_capacity_provider_hidden_output() -> dict[str, Any]:
         "test_name": "storage_capacity_telemetry",
         "tests": _provider_hidden_tests(
             ["telemetry_endpoint_reachable", "capacity_metrics_present", "samples_recent"],
-            probe_field="volumes_checked",
             message="AWS storage plane is provider-owned",
         ),
     }
@@ -547,10 +536,10 @@ def test_observability_checks_pass_with_required_evidence(
 @pytest.mark.parametrize(
     ("validation_cls", "step_output", "expected"),
     [
-        (BmcSelLogsCheck, _bmc_sel_provider_hidden_output(), "provider-hidden"),
-        (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_provider_hidden_output(), "provider-hidden"),
-        (StorageCapacityTelemetryCheck, _storage_capacity_provider_hidden_output(), "provider-hidden"),
-        (UfmEventLogsCheck, _ufm_event_logs_provider_hidden_output(), "provider-hidden"),
+        (BmcSelLogsCheck, _bmc_sel_provider_hidden_output(), "AWS BMC plane is provider-owned"),
+        (BmcGpuTelemetryCheck, _bmc_gpu_telemetry_provider_hidden_output(), "AWS BMC plane is provider-owned"),
+        (StorageCapacityTelemetryCheck, _storage_capacity_provider_hidden_output(), "provider-owned"),
+        (UfmEventLogsCheck, _ufm_event_logs_provider_hidden_output(), "provider-owned"),
         (
             GeneralSwitchLogsCheck,
             {
@@ -559,49 +548,21 @@ def test_observability_checks_pass_with_required_evidence(
                 "test_name": "general_switch_logs",
                 "tests": _provider_hidden_tests(
                     ["log_endpoint_reachable", "switch_log_source_present", "entries_queryable"],
-                    probe_field="switches_checked",
                     message="Fabric plane is provider-owned",
                 ),
             },
-            "provider-hidden",
+            "Fabric plane is provider-owned",
         ),
     ],
 )
-def test_observability_checks_skip_with_provider_hidden_evidence(
+def test_observability_checks_skip_when_plane_is_provider_owned(
     validation_cls: type[BaseValidation],
     step_output: dict[str, Any],
     expected: str,
 ) -> None:
-    """Provider-hidden evidence proves nothing, so the check skips instead of passing."""
+    """Skipped subtests for a provider-owned plane skip the check instead of passing it."""
     with pytest.raises(pytest.skip.Exception, match=expected):
         validation_cls(config=_config(step_output)).execute()
-
-
-def test_partially_provider_hidden_evidence_skips() -> None:
-    """One hidden subtest leaves the property unverified, so concrete siblings cannot carry a pass."""
-    tests = _provider_hidden_tests(["sel_log_source_present"])
-    tests.update(
-        _tests(
-            ["sel_log_endpoint_reachable", "sel_entries_queryable"],
-            {"bmc_endpoints_checked": 1, "log_source": "redfish-sel", "entry_count": 3},
-        )
-    )
-    step_output = {"success": True, "platform": "observability", "test_name": "bmc_sel_logs", "tests": tests}
-
-    with pytest.raises(pytest.skip.Exception, match=r"hidden: sel_log_source_present\)"):
-        BmcSelLogsCheck(config=_config(step_output)).execute()
-
-
-def test_failed_subtest_wins_over_provider_hidden() -> None:
-    """A real failure is reported even when sibling subtests are provider-hidden."""
-    tests = _provider_hidden_tests(["sel_log_endpoint_reachable", "sel_log_source_present"])
-    tests["sel_entries_queryable"] = {"passed": False, "error": "SEL query timed out"}
-    step_output = {"success": False, "platform": "observability", "test_name": "bmc_sel_logs", "tests": tests}
-
-    result = BmcSelLogsCheck(config=_config(step_output)).execute()
-
-    assert result["passed"] is False
-    assert "SEL query timed out" in result["error"]
 
 
 def test_vpc_flow_logs_requires_all_traffic_type() -> None:

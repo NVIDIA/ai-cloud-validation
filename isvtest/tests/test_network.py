@@ -260,21 +260,21 @@ def test_sdn_logging_checks_fail_on_missing_evidence(
 
 
 @pytest.mark.parametrize(
-    ("validation_cls", "tests", "evidence", "hidden_test", "_missing_evidence"),
+    ("validation_cls", "tests", "evidence", "skipped_test", "_missing_evidence"),
     SDN_CASES,
 )
-def test_sdn_logging_checks_skip_on_provider_hidden_subtest(
+def test_sdn_logging_checks_skip_on_skipped_subtest(
     validation_cls: type[SdnHardwareFaultLoggingCheck | SdnLatencyPerfLoggingCheck | SdnFilterAuditTrailCheck],
     tests: dict[str, dict[str, Any]],
     evidence: dict[str, Any],
-    hidden_test: str,
+    skipped_test: str,
     _missing_evidence: str,
 ) -> None:
-    """One provider-hidden subtest leaves the SDN logging property unverified, so the check skips."""
-    hidden_tests = {**tests, hidden_test: {"passed": True, "provider_hidden": True, "message": "not tenant-visible"}}
+    """One skipped subtest leaves the SDN logging property unverified, so the check skips."""
+    skipped_tests = {**tests, skipped_test: {"skipped": True, "skip_reason": "not tenant-visible"}}
 
-    with pytest.raises(pytest.skip.Exception, match=rf"hidden: {hidden_test}\)"):
-        validation_cls(config=_sdn_config(hidden_tests, evidence)).execute()
+    with pytest.raises(pytest.skip.Exception, match=rf"{skipped_test}: not tenant-visible"):
+        validation_cls(config=_sdn_config(skipped_tests, evidence)).execute()
 
 
 # ---------------------------------------------------------------------------

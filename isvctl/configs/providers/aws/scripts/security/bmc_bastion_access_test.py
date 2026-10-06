@@ -31,8 +31,8 @@ reference exercises the customer-visible side of the contract:
      on SSH (port 22).
 
 When no BMC management network is found in the account (the typical AWS
-case, since BMC is provider-hidden), each subtest carries a
-``provider_hidden`` marker and the validation skips. Self-managed
+case, since BMC is provider-owned), each subtest is reported ``skipped``
+and the validation skips. Self-managed
 NCPs running their own BMC fabric should tag their resources with
 ``bmc/ipmi/redfish/oob/out-of-band`` to enable strict enforcement.
 
@@ -128,12 +128,11 @@ def _rule_has_public_source(rule: dict[str, Any]) -> bool:
     return False
 
 
-def _provider_hidden(test_name: str) -> dict[str, Any]:
-    """Return a passing subtest result for hyperscalers that hide BMC from tenants."""
+def _skipped(test_name: str) -> dict[str, Any]:
+    """Return a skipped subtest result for hyperscalers that hide BMC from tenants."""
     return {
-        "passed": True,
-        "provider_hidden": True,
-        "message": (
+        "skipped": True,
+        "skip_reason": (
             f"{test_name}: no customer-visible BMC management network in this account; "
             "BMC plane is provider-owned. Self-managed NCPs should tag resources with "
             "bmc/ipmi/redfish/oob/out-of-band to enable strict enforcement."
@@ -346,16 +345,15 @@ def main() -> int:
 
     no_management_resources = not management_sgs and not management_subnets
     if no_management_resources:
-        # Hyperscaler reality: BMC is provider-hidden. The marker makes the
-        # validation skip instead of pass. The contract still fails for
-        # self-managed NCPs that tag their BMC fabric.
+        # Hyperscaler reality: BMC is provider-owned, so nothing can be verified.
+        # The contract still fails for self-managed NCPs that tag their BMC fabric.
         for subtest in (
             "bastion_identifiable",
             "management_ingress_via_bastion_only",
             "no_direct_public_route",
             "bastion_hardened",
         ):
-            result["tests"][subtest] = _provider_hidden(subtest)
+            result["tests"][subtest] = _skipped(subtest)
     else:
         result["tests"]["bastion_identifiable"] = _check_bastion_identifiable(bastion_sgs)
         result["tests"]["management_ingress_via_bastion_only"] = _check_management_ingress_via_bastion_only(
@@ -364,7 +362,7 @@ def main() -> int:
         result["tests"]["no_direct_public_route"] = _check_no_direct_public_route(ec2, management_subnets)
         result["tests"]["bastion_hardened"] = _check_bastion_hardened(bastion_sgs)
 
-    result["success"] = all(test.get("passed") for test in result["tests"].values())
+    result["success"] = all(test.get("passed") or test.get("skipped") for test in result["tests"].values())
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1

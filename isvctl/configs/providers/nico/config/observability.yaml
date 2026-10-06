@@ -18,7 +18,7 @@
 # Imports validations from the provider-agnostic observability canonical config.
 # UFM event logs are probed via the UFM REST API when UFM_ADDRESS and credentials
 # are configured. Switch syslog/kernel logs are provider-operated and emit
-# provider-hidden evidence.
+# skipped subtests.
 
 import:
   - ../../../suites/observability.yaml

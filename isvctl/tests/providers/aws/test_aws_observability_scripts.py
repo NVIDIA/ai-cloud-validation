@@ -648,8 +648,8 @@ def test_host_syslogs_aspect_fails_when_ssh_is_unavailable(monkeypatch: Any) -> 
         ),
     ],
 )
-def test_hidden_aspects_emit_provider_hidden_contract(aspect: str, expected_tests: set[str], probe_field: str) -> None:
-    """AWS provider-hidden aspects report evidence instead of being excluded."""
+def test_hidden_aspects_report_skipped_subtests(aspect: str, expected_tests: set[str], probe_field: str) -> None:
+    """AWS provider-owned aspects report every subtest skipped, not passed."""
     script = _load_script("log_availability_test.py")
 
     result = script.check_provider_hidden_aspect(aspect, region="us-west-2")
@@ -658,13 +658,11 @@ def test_hidden_aspects_emit_provider_hidden_contract(aspect: str, expected_test
     assert result["platform"] == "observability"
     assert result["test_name"] == aspect
     assert probe_field not in result
-    assert "provider_hidden" not in result
     assert set(result["tests"]) == expected_tests
     for subtest in result["tests"].values():
-        assert subtest["passed"] is True
-        assert subtest["provider_hidden"] is True
-        assert subtest["probes"][probe_field] == 0
-        assert "provider-owned" in subtest["message"]
+        assert set(subtest) == {"skipped", "skip_reason"}
+        assert subtest["skipped"] is True
+        assert "provider-owned" in subtest["skip_reason"]
 
 
 class FakeCloudWatchClient:
@@ -1106,10 +1104,8 @@ def test_storage_performance_telemetry_discovers_metrics_after_empty_list() -> N
         ),
     ],
 )
-def test_telem_hidden_aspects_emit_provider_hidden_contract(
-    aspect: str, expected_tests: set[str], probe_field: str
-) -> None:
-    """AWS provider-hidden TELEM aspects report evidence instead of being excluded."""
+def test_telem_hidden_aspects_report_skipped_subtests(aspect: str, expected_tests: set[str], probe_field: str) -> None:
+    """AWS provider-owned TELEM aspects report every subtest skipped, not passed."""
     if aspect == "storage_capacity_telemetry":
         script = _load_script("storage_telemetry_test.py")
         result = script._check_hidden_storage_capacity(region="us-west-2")
@@ -1120,9 +1116,9 @@ def test_telem_hidden_aspects_emit_provider_hidden_contract(
     assert result["success"] is True
     assert result["platform"] == "observability"
     assert result["test_name"] == aspect
+    assert probe_field not in result
     assert set(result["tests"]) == expected_tests
     for subtest in result["tests"].values():
-        assert subtest["passed"] is True
-        assert subtest["provider_hidden"] is True
-        assert subtest["probes"][probe_field] == 0
-        assert "provider-owned" in subtest["message"]
+        assert set(subtest) == {"skipped", "skip_reason"}
+        assert subtest["skipped"] is True
+        assert "provider-owned" in subtest["skip_reason"]

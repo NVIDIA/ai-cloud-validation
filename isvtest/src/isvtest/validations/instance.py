@@ -104,9 +104,9 @@ class VmComponentKeyAccessCheck(BaseValidation):
 
     Proves AUTH03-01 after AUTH02 launches an instance with a requested key.
     Scripts emit provider-neutral ``tests.sol_access`` and
-    ``tests.network_device_access`` probes. Network-device access may be marked
-    ``provider_hidden`` when the platform does not expose tenant-visible device
-    SSH (for example AWS); the check then skips rather than passes.
+    ``tests.network_device_access`` probes. Network-device access is reported
+    ``skipped`` when the platform does not expose tenant-visible device SSH
+    (for example AWS), and the check then skips.
 
     Config:
         step_output: The component_key_access step output to check
