@@ -146,9 +146,9 @@ def _failed(error: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     return result
 
 
-def _skipped(test_name: str, reason: str) -> dict[str, Any]:
+def _skipped(reason: str) -> dict[str, Any]:
     """Build a skipped subtest result for a plane the tenant cannot observe."""
-    return {"skipped": True, "skip_reason": f"{test_name}: {reason}"}
+    return {"skipped": True, "skip_reason": reason}
 
 
 def _fail_all(result: dict[str, Any], aspect: str, error: str, probes: dict[str, Any]) -> dict[str, Any]:
@@ -253,7 +253,7 @@ def _check_switch_logs(aspect: str) -> dict[str, Any]:
     """Report every subtest of customer-inaccessible switch logs as skipped."""
     result = _base_result(aspect)
     result["success"] = True
-    result["tests"] = {name: _skipped(name, NICO_SWITCH_LOGS_HIDDEN_MESSAGE) for name in ASPECT_TESTS[aspect]}
+    result["tests"] = {name: _skipped(NICO_SWITCH_LOGS_HIDDEN_MESSAGE) for name in ASPECT_TESTS[aspect]}
     return result
 
 

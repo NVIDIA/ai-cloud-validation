@@ -45,13 +45,11 @@ def _base_result(aspect: str) -> dict[str, Any]:
     }
 
 
-def _skipped(test_name: str, *, region: str) -> dict[str, Any]:
+def _skipped(*, region: str) -> dict[str, Any]:
     """Build a skipped subtest result for the provider-owned NVLink plane."""
     return {
         "skipped": True,
-        "skip_reason": (
-            f"{test_name}: {AWS_NO_CUSTOMER_NVLINK_MESSAGE} in region {region}; NVLink plane is provider-owned."
-        ),
+        "skip_reason": (f"{AWS_NO_CUSTOMER_NVLINK_MESSAGE} in region {region}; NVLink plane is provider-owned."),
     }
 
 
@@ -59,7 +57,7 @@ def skip_provider_owned_aspect(aspect: str, *, region: str) -> dict[str, Any]:
     """Report every subtest of tenant-inaccessible NVLink telemetry as skipped."""
     result = _base_result(aspect)
     result["success"] = True
-    result["tests"] = {name: _skipped(name, region=region) for name in ASPECT_TESTS[aspect]}
+    result["tests"] = {name: _skipped(region=region) for name in ASPECT_TESTS[aspect]}
     return result
 
 

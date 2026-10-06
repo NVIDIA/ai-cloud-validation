@@ -128,12 +128,12 @@ def _rule_has_public_source(rule: dict[str, Any]) -> bool:
     return False
 
 
-def _skipped(test_name: str) -> dict[str, Any]:
+def _skipped() -> dict[str, Any]:
     """Return a skipped subtest result for hyperscalers that hide BMC from tenants."""
     return {
         "skipped": True,
         "skip_reason": (
-            f"{test_name}: no customer-visible BMC management network in this account; "
+            "no customer-visible BMC management network in this account; "
             "BMC plane is provider-owned. Self-managed NCPs should tag resources with "
             "bmc/ipmi/redfish/oob/out-of-band to enable strict enforcement."
         ),
@@ -353,7 +353,7 @@ def main() -> int:
             "no_direct_public_route",
             "bastion_hardened",
         ):
-            result["tests"][subtest] = _skipped(subtest)
+            result["tests"][subtest] = _skipped()
     else:
         result["tests"]["bastion_identifiable"] = _check_bastion_identifiable(bastion_sgs)
         result["tests"]["management_ingress_via_bastion_only"] = _check_management_ingress_via_bastion_only(

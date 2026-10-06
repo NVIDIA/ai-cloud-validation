@@ -117,9 +117,9 @@ def _failed(error: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     return result
 
 
-def _skipped(test_name: str, reason: str) -> dict[str, Any]:
+def _skipped(reason: str) -> dict[str, Any]:
     """Build a skipped subtest result for a plane the tenant cannot observe."""
-    return {"skipped": True, "skip_reason": f"{test_name}: {reason}"}
+    return {"skipped": True, "skip_reason": reason}
 
 
 def _base_result(aspect: str) -> dict[str, Any]:
@@ -353,7 +353,7 @@ def skip_provider_owned_aspect(aspect: str, *, region: str) -> dict[str, Any]:
         message = f"{AWS_NO_CUSTOMER_FABRIC_MESSAGE} in region {region}; fabric plane is provider-owned."
     result = _base_result(aspect)
     result["success"] = True
-    result["tests"] = {name: _skipped(name, message) for name in ASPECT_TESTS[aspect]}
+    result["tests"] = {name: _skipped(message) for name in ASPECT_TESTS[aspect]}
     return result
 
 
