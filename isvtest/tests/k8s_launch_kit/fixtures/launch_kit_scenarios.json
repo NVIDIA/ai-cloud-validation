@@ -6,19 +6,13 @@
     "source_files": [
       "pkg/config/config.go",
       "pkg/ui/json_output.go",
-      "pkg/cmd/clean.go",
-      "pkg/cmd/deploy.go",
-      "pkg/cmd/discover.go",
-      "pkg/cmd/generate.go",
       "pkg/cmd/validate.go",
-      "pkg/networkoperatorplugin/clean.go",
       "pkg/networkoperatorplugin/validate.go",
       "pkg/networkoperatorplugin/connectivity/connectivity.go",
       "pkg/networkoperatorplugin/connectivity/daemonset.go",
       "pkg/networkoperatorplugin/connectivity/matrix.go",
       "pkg/networkoperatorplugin/connectivity/result.go",
       "pkg/networkoperatorplugin/connectivity/rdma.go",
-      "pkg/networkoperatorplugin/discovery/discover.go",
       "profiles/host-device-rdma/40-example-daemonset.yaml",
       "profiles/ipoib-rdma-shared/40-example-daemonset.yaml",
       "profiles/macvlan-rdma-shared/40-example-daemonset.yaml",
@@ -37,12 +31,9 @@
       "gpudirect_dmabuf"
     ],
     "notes": [
-      "discover and generate emit one ui.JSONResult object",
-      "successful standalone deploy emits no stdout object",
       "validate emits manifest, connectivity, and reportPath JSON documents",
       "connectivity DaemonSets declare test-container for RDMA and netshoot for ICMP",
-      "enabled GPUDirect validation follows ib_write_bw and emits a distinct gpudirect_dmabuf result family",
-      "clean emits one ui.JSONResult object with a cleanup summary"
+      "enabled GPUDirect validation follows ib_write_bw and emits a distinct gpudirect_dmabuf result family"
     ]
   },
   "scenarios": {

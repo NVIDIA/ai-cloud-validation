@@ -173,7 +173,7 @@ def _validation_result_detail(validation: dict[str, Any], reason: str | None = N
         passed = int(summary.get("passed", 0) or 0)
         failed = int(summary.get("failed", 0) or 0)
         skipped = int(summary.get("skipped", 0) or 0)
-        total = int(summary.get("total", passed + failed + skipped) or 0)
+        total = passed + failed + skipped
         if total > 0:
             if passed == total:
                 return f"{total} subtests passed"
