@@ -66,7 +66,9 @@ def check_required_tests(
             failed.append(f"{test_name}: {error}")
             validation.report_subtest(test_name, False, error)
         else:
-            validation.report_subtest(test_name, True, test_result.get("message", ""))
+            # A provider-hidden entry was not verified, so it must not report as a passed subtest.
+            hidden = test_result.get("provider_hidden") is True
+            validation.report_subtest(test_name, True, test_result.get("message", ""), skipped=hidden)
 
     if failed:
         validation.set_failed(f"{fail_label}: {'; '.join(failed)}")

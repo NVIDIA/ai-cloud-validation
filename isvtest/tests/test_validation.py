@@ -287,6 +287,19 @@ class TestCheckRequiredTests:
             ("c", False, True, "n/a"),
         ]
 
+    def test_reports_provider_hidden_entry_as_skipped_subtest(self) -> None:
+        validation = self._validation(
+            {
+                "a": {"passed": True, "message": "ok"},
+                "b": {"passed": True, "provider_hidden": True, "message": "plane is provider-owned"},
+            }
+        )
+        assert check_required_tests(validation, ["a", "b"], "label") is True
+        assert [(r["name"], r["passed"], r["skipped"], r["message"]) for r in validation._subtest_results] == [
+            ("a", True, False, "ok"),
+            ("b", False, True, "plane is provider-owned"),
+        ]
+
     def test_custom_key(self) -> None:
         validation = ConcreteValidation(config={"step_output": {"operations": {"get": {"skipped": True}}}})
         with pytest.raises(pytest.skip.Exception, match="get: skipped"):
