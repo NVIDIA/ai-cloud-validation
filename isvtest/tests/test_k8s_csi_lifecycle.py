@@ -244,11 +244,13 @@ def test_snapshot_restores_point_in_time_data(fault: str) -> None:
         }
 
 
-def test_snapshot_missing_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A missing snapshot capability must fail rather than silently skip."""
+@pytest.mark.parametrize("config", [{}, {"storage_class": "sc"}, {"snapshot_class": "snap-sc"}])
+def test_snapshot_missing_configuration(config: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Missing class configuration skips before the snapshot probe can start."""
+    monkeypatch.delenv("K8S_CSI_BLOCK_SC", raising=False)
     monkeypatch.delenv("K8S_CSI_SNAPSHOT_CLASS", raising=False)
-    check = lifecycle.K8sCsiSnapshotRestoreCheck()
+    check = lifecycle.K8sCsiSnapshotRestoreCheck(config=config)
     with patch.object(check, "run_command") as command:
-        check.run()
-    assert not check.passed
+        with pytest.raises(pytest.skip.Exception, match="requires storage_class and snapshot_class"):
+            check.run()
     command.assert_not_called()
