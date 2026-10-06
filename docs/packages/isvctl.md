@@ -133,12 +133,6 @@ isvctl test validate -f isvctl/configs/suites/k8s.yaml
 
 See [Configuration Guide](../guides/configuration.md) for full details.
 
-All lifecycle and step commands run with captured stdout/stderr and an outer
-watchdog. On POSIX, a timeout terminates the command's complete process group
-(`SIGTERM`, then `SIGKILL` after a short grace period), which prevents a child
-provider CLI from continuing after its wrapper step has timed out. See
-[Step Configuration](../guides/configuration.md#step-configuration).
-
 ### Unified Config Structure
 
 ```yaml

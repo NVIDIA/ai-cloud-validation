@@ -6,37 +6,36 @@
 ## Scope
 
 Network Operator validation is the `network_operator` group of the Kubernetes
-suite (`isvctl/configs/suites/k8s.yaml`), not a suite of its own. It performs one
-validation operation:
+suite (`isvctl/configs/suites/k8s.yaml`), not a suite of its own. It requires
+[Kubernetes Launch Kit](https://github.com/NVIDIA/k8s-launch-kit), the `l8k`
+CLI, and runs one validation:
 
 ```text
 l8k validate --user-config <complete-config> --deployment-files <rendered-directory>
 ```
 
-It reports the connectivity matrix produced by Launch Kit, then collects
-diagnostics after every validate that started, whatever its outcome:
+After every validate that started, whatever its outcome, it collects
+diagnostics with `l8k sosreport`. The `LaunchKitSosreport` check reports that
+collection; it is not a catalog test.
 
-```text
-l8k sosreport --output-dir <artifact-directory>/sosreport
-```
+The Launch Kit config decides the topology, the fabric, and which connectivity
+families run. AI Cloud Validation does not duplicate that model: each catalog
+test reports what Launch Kit ran.
 
-The diagnostic command runs whether validation passes, returns an error, or
-produces a failing connectivity matrix. It is evidence collection, not a
-catalog test: the `LaunchKitSosreport` check reports it, and the catalog
-excludes that check. The validation does not install
-or verify the `l8k` binary, discover topology, generate manifests, deploy
-Network Operator, run a separate Kubernetes preflight, or clean cluster state.
+## Prerequisites
 
-Those activities are prerequisites. Before starting the validation, the ISV must
-provide a reachable Kubernetes cluster, bring Network Operator and the desired
-networking profile into the expected state, create a complete Launch Kit
-configuration, and retain the corresponding rendered deployment files.
+The validation does not install `l8k`, discover topology, generate manifests,
+deploy Network Operator, or clean cluster state. Before running it, provide:
 
-There are no separate AI Cloud Validation tests for RoCE, InfiniBand, SR-IOV,
-RDMA Shared, host-device, ICMP, rping, bandwidth, or GPUDirect. The supplied
-Launch Kit configuration determines the topology and enabled validation
-families. This avoids duplicating Launch Kit's configuration and applicability
-model in AI Cloud Validation.
+- a reachable cluster with Network Operator and the networking profile in the
+  expected state;
+- a complete Launch Kit config and the deployment files rendered from it;
+- a Launch Kit release supporting `validate --junit-path`
+  ([NVIDIA/k8s-launch-kit#288](https://github.com/NVIDIA/k8s-launch-kit/pull/288)),
+  with `l8k` on `PATH`;
+- the `kubectl-netop_sosreport` helper under the same installation prefix, at
+  `share/l8k/scripts/kubectl-netop_sosreport`. Check it once with
+  `l8k sosreport --output-dir <temporary-directory>`.
 
 ## Architecture
 
@@ -64,13 +63,6 @@ The relevant files are:
 | Runner and check unit tests, mock `l8k` | `isvtest/tests/k8s_launch_kit/` |
 | End-to-end run of the Kubernetes suite | `isvctl/tests/test_k8s_launch_kit.py` |
 
-The `l8k` installation must also make the upstream
-`kubectl-netop_sosreport` helper available to `l8k sosreport`. Validate this
-once with a direct `l8k sosreport --output-dir <temporary-directory>` call. If
-Launch Kit reports that the script is missing, install the helper below the
-same installation prefix at `share/l8k/scripts/kubectl-netop_sosreport` before
-running the validation.
-
 ## Inputs
 
 The Kubernetes suite exposes two settings under `tests.settings.k8s_launch_kit`:
@@ -89,19 +81,11 @@ input set, a `user_config` that is not a file, a `deployment_files` that is not
 a directory, or no `l8k` executable. Once `l8k validate` has started, any
 problem it reports is a failure.
 
-Paths accept `~`, but absolute paths are preferable in automation. The runner
-resolves both paths, verifies that `user_config` is a file and
-`deployment_files` is a directory, and passes the resolved paths to Launch Kit.
-It does not copy, merge, parse, or modify either input.
+Paths may use `~`. The runner passes them to Launch Kit resolved and does not
+copy, parse, or modify either input.
 
-`l8k` must be on `PATH`. It runs with the isvctl process environment, so the
-cluster is selected the same way as for every other Kubernetes check (for
-example `KUBECONFIG`).
-
-Launch Kit owns every setting inside the complete config, including the
-selected profile, validation mode, enabled checks, GPUDirect behavior,
-bandwidth thresholds, per-operation timeouts, routing, IP pools, and resource
-names. AI Cloud Validation stores no copies of those defaults.
+`l8k` runs with the isvctl process environment, so the cluster is selected the
+same way as for every other Kubernetes check (for example `KUBECONFIG`).
 
 ## Running the validation
 
@@ -129,10 +113,8 @@ labels. For example, disabling Launch Kit GPUDirect validation makes Launch Kit
 emit a skipped `K8sEastWestNetworkDMABufBandwidth-<fabric>` case, and that
 catalog test skips with Launch Kit's reason.
 
-Likewise, the validation does not infer a fabric or deployment mode from labels.
-Run it once for the exact cluster state described by the supplied files. To
-validate another topology, provision that topology and run again with its
-config and deployment directory.
+To validate another topology, provision it and run again with its config and
+deployment directory.
 
 ## Timeouts
 
@@ -147,8 +129,7 @@ command does not calculate its own total deadline.
 
 ## Results and errors
 
-Use a Launch Kit binary supporting `validate --junit-path`
-(NVIDIA/k8s-launch-kit#288). Launch Kit writes a `network/validation` suite of
+Launch Kit writes a `network/validation` suite of
 deployment-state cases and one `K8sEastWestNetwork<Family>-<fabric>` suite per
 connectivity family for the configured fabric. The `network_operator` group wires
 one catalog test per native suite:
@@ -174,10 +155,8 @@ example `K8sEastWestNetworkICMPPing-ethernet`), with native cases as
 report download, and `isvreporter` upload therefore report against the static
 catalog.
 
-Sosreport runs right after validate, before any result is read, whatever
-validate's outcome. `LaunchKitSosreport` reports it: a failed collection fails
-that check and therefore the test phase, while every connectivity and
-deployment result stays intact. When validate could not start, sosreport is not
+A failed sosreport fails `LaunchKitSosreport`, and so the test phase, without
+changing any catalog result. When validate could not start, sosreport is not
 attempted and `LaunchKitSosreport` skips with the same reason.
 
 ## Evidence
@@ -200,36 +179,23 @@ _output/k8s-launch-kit/
   sosreport.tar.gz
 ```
 
-`command.json` records the resolved argv, exit code, and duration. `stdout.txt`
-contains Launch Kit's complete JSON stream, including static validation,
-connectivity, and report-path documents; `stderr.log` retains CLI progress and
-diagnostics. The runner uses the emitted `reportPath` as the authoritative
-source and copies the HTML file to `k8s-launch-kit-validation-report.html`. The
-original report remains at the path written by Launch Kit, normally below the
-supplied deployment directory. A report emitted for a failed connectivity
-matrix is copied in the same way. If Launch Kit advertises a report that cannot
-be read, the run reports an evidence-retention error instead of silently
-reusing an older report.
+`command.json` records the argv, exit code, and duration of each command;
+`stdout.txt` and `stderr.log` hold its output. The HTML report Launch Kit
+advertises (`reportPath`) is copied to `k8s-launch-kit-validation-report.html`;
+an advertised report that cannot be read is an error.
 
-The native JUnit report is read unmodified. A stale report is removed before
-each validation; a missing or malformed report is an evidence error even when
-the process exits successfully. Reports emitted by failing runs are retained
-and imported too. The main merged JUnit file is uploaded through the existing
-reporting service; the separate native XML and HTML files remain local
-evidence artifacts.
+Stale JUnit, HTML, and sosreport files are removed before each run, so results
+always come from this run. Only the merged `isvctl` JUnit is uploaded; the files
+above stay local.
 
-The Network Operator sosreport helper collects into `sosreport/`, archives it
-as `sosreport.tar.gz` beside it, and removes the directory. A stale archive is
-removed before each collection. If the helper fails before archiving, the
-partial `sosreport/` directory is kept instead. The sosreport command streams
-human-readable output even when the global `--output` flag is available. The
-runner preserves that stream in `commands/sosreport/stdout.txt` and does not
-attempt to reinterpret the diagnostic contents.
+The sosreport helper archives its output as `sosreport.tar.gz`. If it fails
+before archiving, the partial `sosreport/` directory is kept instead.
 
 ## Rules for changes
 
 - Do not add discover, generate, deploy, clean, preflight, or other lifecycle
-  operations; they are prerequisites owned by Launch Kit and the ISV.
+  operations; they are prerequisites owned by Launch Kit and the ISV. Tests that
+  change Network Operator state need a separate restore design first.
 - Do not model or duplicate Launch Kit flags, schema, or defaults, and never
   parse the user config (infer fabric from native JUnit suite names).
 - A missing prerequisite (an input or `l8k`) skips. Once `l8k validate` has
@@ -242,11 +208,3 @@ attempt to reinterpret the diagnostic contents.
   `docs/requirements/network-operator-readiness-requirements.yaml`; its
   traceability edges live in `docs/requirements/test-requirements-matrix.yaml`.
   Regenerate committed views with `make plan`.
-
-## PRD boundary
-
-This integration covers reportable Launch Kit connectivity validation. It
-deliberately treats topology discovery, manifest generation, installation,
-deployment health preparation, profile selection, and restoration as external
-prerequisites. Tests that intentionally mutate Network Operator state require a
-separate transaction and restoration design before they can be added.

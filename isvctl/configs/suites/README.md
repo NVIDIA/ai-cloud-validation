@@ -109,11 +109,6 @@ part that broke, and every member runs even after an earlier one fails. A member
 that needs parameters takes them inline (`- CheckName: {...}`); one that does
 not stays a single line.
 
-If a member reports its own subtests, the composite forwards them as
-`MemberName/probe-name`. Successful parents are summarized automatically by
-subtest count in `isvctl` output; failures retain their complete diagnostic
-message. This is shared renderer behavior, not a suite option.
-
 Because a composite has no validation class to borrow from, it declares its own
 `description` (the catalog uses it) and its name must not shadow a class name. A
 check that wires one purpose-built class — `SerialConsoleCheck`,
@@ -313,31 +308,19 @@ The shared cordon reference skips without changing cluster state unless
 
 #### Network Operator (`network_operator` group)
 
-The `network_operator` group contains nine catalog entries fed by one
-`l8k validate` run: `K8sNetworkOperatorDeployment`, plus
+Runs [Kubernetes Launch Kit](https://github.com/NVIDIA/k8s-launch-kit) (`l8k`)
+against the current cluster and reports each native Launch Kit JUnit suite as a
+catalog test: `K8sNetworkOperatorDeployment`, plus
 `K8sEastWestNetwork{ICMPPing,RDMAPing,IBWriteBandwidth,DMABufBandwidth}` for
-each of `-ethernet` and `-infiniband`. Each entry reports the native Launch Kit
-JUnit suite of the same name (`network/validation` for the deployment entry),
-with its cases as subtests. Launch Kit only runs the configured fabric, so the
-other fabric's four entries skip.
-
-The group has no `step:`: the first check runs `l8k validate`
-against the current cluster with `tests.settings.k8s_launch_kit.user_config`
-and `deployment_files`, the others reuse that run, and `l8k sosreport`
-follows any validate that started. A tenth, catalog-excluded check, `LaunchKitSosreport`, reports that
-collection: its failure fails the run without changing any of the nine results. With the two
-settings empty, the default, the whole group skips; it also skips when an
-input or `l8k` is missing, since Launch Kit cannot start. The Network Operator
-deployment, a complete Launch Kit config, its rendered deployment files, and
-`l8k` on `PATH` (with its sosreport helper) are prerequisites. Evidence lands in
-`_output/k8s-launch-kit/`.
+each of `-ethernet` and `-infiniband`. The group skips until
+`tests.settings.k8s_launch_kit` points at a Launch Kit config and its rendered
+deployment files, or when `l8k` is missing.
 
 ```bash
 uv run isvctl test run -f isvctl/configs/suites/k8s.yaml \
   --phase test --label network_operator \
   --set 'tests.settings.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
-  --set 'tests.settings.k8s_launch_kit.deployment_files=/absolute/path/deployment' \
-  --no-upload -- -v
+  --set 'tests.settings.k8s_launch_kit.deployment_files=/absolute/path/deployment'
 ```
 
 See the [Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md).

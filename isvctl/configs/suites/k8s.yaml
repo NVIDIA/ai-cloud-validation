@@ -447,8 +447,10 @@ tests:
           probe_timeout_s: 10
           api_endpoint: "{{ steps.setup.kubernetes.api_endpoint | default('', true) }}"
 
-    # Network Operator via Kubernetes Launch Kit (K8S42). No step: l8k checks
-    # the current cluster itself, in one long run that every check shares.
+    # Network Operator via Kubernetes Launch Kit (K8S42), which requires its
+    # `l8k` CLI on PATH: https://github.com/NVIDIA/k8s-launch-kit
+    # No step: l8k checks the current cluster itself, in one long run that every
+    # check shares.
     network_operator:
       checks:
         K8sNetworkOperatorDeployment:
