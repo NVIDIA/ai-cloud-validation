@@ -121,7 +121,12 @@ class K8sApiServerMetricsCheck(BaseValidation):
         except FileNotFoundError:
             pytest.skip("kubectl-compatible CLI is unavailable; cannot query API server metrics")
         if result.exit_code == 127:
-            pytest.skip("kubectl-compatible CLI was not found; cannot query API server metrics")
+            # Check in the runner's environment; an installed wrapper may itself return 127.
+            executable = self.run_command(
+                f"if command -v {shlex.quote(kubectl_parts[0])} >/dev/null 2>&1; then exit 0; else exit 1; fi"
+            )
+            if executable.exit_code == 1:
+                pytest.skip("kubectl-compatible CLI was not found; cannot query API server metrics")
 
         if result.exit_code != 0:
             self.set_failed(

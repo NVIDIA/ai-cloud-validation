@@ -16,6 +16,7 @@
 """API-server metric samples must carry the dimensions used for SLO queries."""
 
 import re
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -202,8 +203,27 @@ def test_missing_kubectl_skips() -> None:
             K8sApiServerMetricsCheck().run()
 
 
-def test_command_not_found_skips_but_api_error_fails() -> None:
-    """Remote missing executables skip; attempted API requests that fail remain failures."""
-    with pytest.raises(pytest.skip.Exception):
-        check_samples(code=127)
+@pytest.mark.parametrize("installed", [False, True])
+def test_exit_127_skips_only_when_selected_executable_is_missing(tmp_path: Path, installed: bool) -> None:
+    """Distinguish shell command-not-found from an installed wrapper's query failure."""
+    executable = tmp_path / "kubectl wrapper"
+    if installed:
+        executable.write_text("#!/bin/sh\necho 'metrics query failed' >&2\nexit 127\n")
+        executable.chmod(0o755)
+    with patch("isvtest.validations.k8s_metrics.get_kubectl_command", return_value=[str(executable), "kubectl"]):
+        check = K8sApiServerMetricsCheck()
+        if installed:
+            try:
+                result = check.execute()
+            except pytest.skip.Exception:
+                pytest.fail("An installed executable returning 127 must fail, not skip")
+            assert result["passed"] is False
+            assert "metrics query failed" in result["error"]
+        else:
+            with pytest.raises(pytest.skip.Exception, match="not found"):
+                check.execute()
+
+
+def test_api_error_fails() -> None:
+    """Attempted API requests that fail must remain failures."""
     assert check_samples(code=1)["passed"] is False
