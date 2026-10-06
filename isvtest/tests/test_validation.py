@@ -2859,12 +2859,12 @@ class TestCloudInitCheckMetadataHeaders:
 SAMPLE_APISERVER_METRICS = """\
 # HELP apiserver_request_total Counter of apiserver requests broken out for each verb, dry run value, group, version, resource, scope, component, and HTTP response code.
 # TYPE apiserver_request_total counter
-apiserver_request_total{code="200",component="apiserver",group="",resource="pods",verb="GET"} 1234
-apiserver_request_total{code="201",component="apiserver",group="",resource="pods",verb="POST"} 56
+apiserver_request_total{code="200",component="apiserver",group="",resource="pods",scope="resource",verb="GET"} 1234
+apiserver_request_total{code="201",component="apiserver",group="",resource="pods",scope="resource",verb="POST"} 56
 # HELP apiserver_request_duration_seconds Response latency distribution in seconds for each verb, dry run value, group, version, resource, subresource, scope, and component.
 # TYPE apiserver_request_duration_seconds histogram
-apiserver_request_duration_seconds_bucket{component="apiserver",verb="GET",le="0.1"} 500
-apiserver_request_duration_seconds_count{component="apiserver",verb="GET"} 1000
+apiserver_request_duration_seconds_bucket{component="apiserver",resource="pods",scope="resource",verb="GET",le="0.1"} 500
+apiserver_request_duration_seconds_count{component="apiserver",resource="pods",scope="resource",verb="GET"} 1000
 # HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
 # TYPE process_cpu_seconds_total counter
 process_cpu_seconds_total 42.5
