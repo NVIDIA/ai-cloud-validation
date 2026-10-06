@@ -309,12 +309,32 @@ The shared cordon reference skips without changing cluster state unless
 #### Network Operator (`network_operator` group)
 
 Runs [Kubernetes Launch Kit](https://github.com/NVIDIA/k8s-launch-kit) (`l8k`)
-against the current cluster and reports each native Launch Kit JUnit suite as a
-catalog test: `K8sNetworkOperatorDeployment`, plus
+against the current cluster. One `l8k validate` run feeds every check, and each
+check reports one native Launch Kit JUnit suite, with its cases as subtests:
+`K8sNetworkOperatorDeployment` for the deployment state, and
 `K8sEastWestNetwork{ICMPPing,RDMAPing,IBWriteBandwidth,DMABufBandwidth}` for
-each of `-ethernet` and `-infiniband`. The group skips until
-`tests.settings.k8s_launch_kit` points at a Launch Kit config and its rendered
-deployment files, or when `l8k` is missing.
+each of `-ethernet` and `-infiniband`. The Launch Kit config decides the fabric
+and which families run; the other checks skip with the reason.
+
+The ISV provides, before running:
+
+- a cluster with Network Operator deployed in the expected state, selected as
+  for any other Kubernetes check (for example `KUBECONFIG`);
+- a complete Launch Kit config and the deployment files rendered from it, set
+  as `tests.settings.k8s_launch_kit.user_config` and `deployment_files`;
+- `l8k` on `PATH`, from a release supporting `validate --junit-path`
+  ([NVIDIA/k8s-launch-kit#288](https://github.com/NVIDIA/k8s-launch-kit/pull/288)),
+  with its `kubectl-netop_sosreport` helper installed.
+
+The group skips while either setting is empty, the default, or when an input
+or `l8k` is missing. Once `l8k validate` has started, anything it reports as
+failing fails the matching check; if it fails with no native case explaining
+why, `K8sNetworkOperatorDeployment` fails with its error.
+
+`l8k sosreport` then collects diagnostics. The `LaunchKitSosreport` check
+reports that collection; it is not in the catalog, and a failed collection
+fails the run without changing any result. Reports and diagnostics are kept
+under `_output/k8s-launch-kit/` and are not uploaded; only the run's JUnit is.
 
 ```bash
 uv run isvctl test run -f isvctl/configs/suites/k8s.yaml \
@@ -322,8 +342,6 @@ uv run isvctl test run -f isvctl/configs/suites/k8s.yaml \
   --set 'tests.settings.k8s_launch_kit.user_config=/absolute/path/cluster-config.yaml' \
   --set 'tests.settings.k8s_launch_kit.deployment_files=/absolute/path/deployment'
 ```
-
-See the [Launch Kit integration guide](../../../docs/guides/k8s-launch-kit/network-operator.md).
 
 ### Slurm (`slurm.yaml`)
 
