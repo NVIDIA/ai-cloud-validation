@@ -2252,7 +2252,7 @@ a|
 |
 | kubernetes, network, network_operator, slow
 | operator
-| Ethernet and InfiniBand are fabric variants of this test. One l8k validate invocation consumes a complete user config and rendered deployment directory; topology, deployment readiness, and the selected fabric are prerequisites
+| Ethernet and InfiniBand variants share this test ID
 | P0
 a|
 | LimitedEnv
@@ -2267,7 +2267,7 @@ a|
 |
 | kubernetes, network, network_operator, slow
 | operator
-| Ethernet and InfiniBand are fabric variants of this test. One l8k validate invocation consumes a complete user config and rendered deployment directory; topology, deployment readiness, and the selected fabric are prerequisites
+| Ethernet and InfiniBand variants share this test ID
 | P0
 a|
 | LimitedEnv
@@ -2282,7 +2282,7 @@ a|
 |
 | kubernetes, network, network_operator, slow
 | operator
-| Ethernet and InfiniBand are fabric variants of this test. One l8k validate invocation consumes a complete user config and rendered deployment directory; topology, deployment readiness, and the selected fabric are prerequisites
+| Ethernet and InfiniBand variants share this test ID
 | P0
 a|
 | LimitedEnv
@@ -2297,7 +2297,7 @@ a|
 |
 | kubernetes, network, network_operator, slow
 | operator
-| Ethernet and InfiniBand are fabric variants of this test. One l8k validate invocation consumes a complete user config and rendered deployment directory; topology, deployment readiness, and the selected fabric are prerequisites
+| Ethernet and InfiniBand variants share this test ID
 | P0
 a|
 | LimitedEnv

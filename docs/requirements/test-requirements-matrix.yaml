@@ -2605,26 +2605,22 @@ mappings:
     notes: ''
   - test_id: SDN29-01
     requirements:
-      - req_id: ENT-REQ-009
-        source: network-operator-prd
-        coverage: partial
-    annotations: 'NetworkOperatorDeployment reports the Launch Kit network/validation suite for the provisioned Network Operator release, components, Helm values, manifests, and topology presets.'
-    notes: ''
-  - test_id: SDN29-02
-    requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
       - req_id: ENT-REQ-001
         source: network-operator-prd
         coverage: full
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
       - req_id: ENT-REQ-004
         source: network-operator-prd
         coverage: partial
-      - req_id: ENT-REQ-005
-        source: network-operator-prd
-        coverage: partial
-      - req_id: ENT-REQ-006
-        source: network-operator-prd
-        coverage: partial
       - req_id: ENT-REQ-007
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-009
         source: network-operator-prd
         coverage: partial
       - req_id: ENT-REQ-011
@@ -2636,10 +2632,26 @@ mappings:
       - req_id: ENT-REQ-013
         source: network-operator-prd
         coverage: partial
-    annotations: 'EastWestNetworkICMPPing reports ICMP between secondary-network pods. Ethernet and InfiniBand share this test. ENT-REQ-001, 004, 007, 011, 012, and 013 are the shared Launch Kit integration edges for the group. RDMA connectivity, bandwidth, GPUDirect, and deployment health are separate tests. AI Cloud Labs binary attachment upload remains a gap.'
+    annotations: 'Requirements that apply to the whole group (ENT-REQ-001, 004, 007, 011, 012, 013) are mapped once, here. AI Cloud Labs binary attachment upload remains a gap.'
+    notes: ''
+  - test_id: SDN29-02
+    requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: ''
     notes: ''
   - test_id: SDN29-03
     requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
       - req_id: ENT-REQ-002
         source: network-operator-prd
         coverage: partial
@@ -2649,10 +2661,13 @@ mappings:
       - req_id: ENT-REQ-006
         source: network-operator-prd
         coverage: partial
-    annotations: 'EastWestNetworkRDMAPing reports pod-to-pod RDMA-CM (rping) connectivity. Ethernet and InfiniBand share this test.'
+    annotations: ''
     notes: ''
   - test_id: SDN29-04
     requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
       - req_id: ENT-REQ-002
         source: network-operator-prd
         coverage: partial
@@ -2662,12 +2677,15 @@ mappings:
       - req_id: ENT-REQ-006
         source: network-operator-prd
         coverage: partial
-    annotations: 'EastWestNetworkIBWriteBandwidth reports pod-to-pod RDMA bandwidth (ib_write_bw) against the reference minimum. Ethernet and InfiniBand share this test.'
+    annotations: ''
     notes: ''
   - test_id: SDN29-05
     requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
       - req_id: ENT-REQ-008
         source: network-operator-prd
         coverage: partial
-    annotations: 'EastWestNetworkDMABufBandwidth reports GPUDirect RDMA (DMA-BUF) bandwidth between GPU pods. Ethernet and InfiniBand share this test. The requirement asks for peer-to-peer connectivity; this test reports bandwidth.'
+    annotations: 'The requirement asks for peer-to-peer connectivity; this test reports bandwidth.'
     notes: ''
