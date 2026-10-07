@@ -107,7 +107,7 @@ commands:
           - "{{region}}"
         timeout: 120
 
-      # AWS-specific: Specified key access to SOL (AUTH03); network devices provider-hidden
+      # AWS-specific: Specified key access to SOL (AUTH03); network devices provider-hidden, so AUTH03-01 skips
       - name: component_key_access
         phase: test
         command: "python3 ../scripts/vm/component_key_access.py"

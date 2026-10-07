@@ -85,15 +85,11 @@ def _failed(error: str, probes: dict[str, Any] | None = None) -> dict[str, Any]:
     return result
 
 
-def _provider_hidden(test_name: str, *, region: str) -> dict[str, Any]:
-    """Build a passing provider-hidden subtest result."""
+def _skipped(*, region: str) -> dict[str, Any]:
+    """Build a skipped subtest result for a provider-owned network plane."""
     return {
-        "passed": True,
-        "provider_hidden": True,
-        "probes": {"sample_count": 0, "telemetry_source": "", "metric_names": []},
-        "message": (
-            f"{test_name}: {AWS_NO_CUSTOMER_FABRIC_MESSAGE} in region {region}; fabric plane is provider-owned."
-        ),
+        "skipped": True,
+        "skip_reason": (f"{AWS_NO_CUSTOMER_FABRIC_MESSAGE} in region {region}; fabric plane is provider-owned."),
     }
 
 
@@ -252,10 +248,10 @@ def _check_plane_telemetry(
 
 
 def _check_hidden_plane_telemetry(*, aspect: str, region: str) -> dict[str, Any]:
-    """Emit provider-hidden evidence for tenant-inaccessible network planes."""
+    """Report every subtest of a tenant-inaccessible network plane as skipped."""
     result = _base_result(aspect)
     result["success"] = True
-    result["tests"] = {name: _provider_hidden(name, region=region) for name in ASPECT_TESTS[aspect]}
+    result["tests"] = {name: _skipped(region=region) for name in ASPECT_TESTS[aspect]}
     return result
 
 

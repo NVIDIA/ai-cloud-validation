@@ -19,7 +19,7 @@
 AUTH03-01: after AUTH02 launches an instance with a requested key, push that
 key's public material via EC2 Instance Connect serial-console authorization.
 Tenant-visible network-device SSH is not offered on AWS, so that probe is
-marked provider-hidden.
+reported skipped.
 
 Usage:
     python component_key_access.py --instance-id i-xxx --key-file /tmp/key.pem \\
@@ -95,12 +95,10 @@ def _probe_sol_access(ec2: Any, eic: Any, instance_id: str, ssh_public_key: str)
 
 
 def _probe_network_device_access() -> dict[str, Any]:
-    """AWS has no tenant-visible network-device key path; mark provider-hidden."""
+    """AWS has no tenant-visible network-device key path; report it skipped."""
     return {
-        "passed": True,
-        "provider_hidden": True,
-        "message": "AWS does not expose tenant-visible network-device SSH for key-based access",
-        "probes": ["network_device_ssh"],
+        "skipped": True,
+        "skip_reason": "AWS does not expose tenant-visible network-device SSH for key-based access",
     }
 
 
@@ -144,7 +142,7 @@ def main() -> int:
 
     result["tests"]["sol_access"] = sol
     result["tests"]["network_device_access"] = _probe_network_device_access()
-    result["success"] = all(test["passed"] for test in result["tests"].values())
+    result["success"] = all(test.get("passed") or test.get("skipped") for test in result["tests"].values())
     if not result["success"] and sol.get("error"):
         result["error"] = sol["error"]
 

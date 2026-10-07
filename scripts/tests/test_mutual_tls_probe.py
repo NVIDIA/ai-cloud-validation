@@ -81,14 +81,14 @@ def test_run_fails_when_endpoints_without_certs() -> None:
         client_cert=None,
         client_key=None,
         timeout=1.0,
-        east_west_provider_hidden_message="hidden",
+        east_west_skip_reason="hidden",
     )
     assert result["success"] is False
     assert result["error_type"] == "bad_input"
 
 
-def test_run_with_provider_hidden_east_west_and_probed_north_south(tmp_path: Path) -> None:
-    """North-south probe + east-west provider-hidden satisfies the contract."""
+def test_run_with_skipped_east_west_and_probed_north_south(tmp_path: Path) -> None:
+    """North-south probe plus a skipped east-west plane is a successful step whose plane is reported skipped."""
     ca = tmp_path / "ca.pem"
     cert = tmp_path / "client.pem"
     key = tmp_path / "client.key"
@@ -126,13 +126,16 @@ def test_run_with_provider_hidden_east_west_and_probed_north_south(tmp_path: Pat
             client_cert=cert,
             client_key=key,
             timeout=1.0,
-            east_west_provider_hidden_message="AWS east-west is provider-hidden",
+            east_west_skip_reason="AWS east-west is provider-hidden",
         )
 
     assert result["success"] is True
     assert result["endpoints_tested"] == 1
     assert result["tests"]["north_south_mtls_enforced"]["passed"] is True
-    assert result["tests"]["east_west_mtls_enforced"]["provider_hidden"] is True
+    assert result["tests"]["east_west_mtls_enforced"] == {
+        "skipped": True,
+        "skip_reason": "AWS east-west is provider-hidden",
+    }
 
 
 def test_handshake_marks_ssl_error_as_rejected() -> None:

@@ -104,9 +104,9 @@ class VmComponentKeyAccessCheck(BaseValidation):
 
     Proves AUTH03-01 after AUTH02 launches an instance with a requested key.
     Scripts emit provider-neutral ``tests.sol_access`` and
-    ``tests.network_device_access`` probes. Network-device access may be marked
-    ``provider_hidden`` when the platform does not expose tenant-visible device
-    SSH (for example AWS).
+    ``tests.network_device_access`` probes. Network-device access is reported
+    ``skipped`` when the platform does not expose tenant-visible device SSH
+    (for example AWS), and the check then skips.
 
     Config:
         step_output: The component_key_access step output to check
@@ -117,7 +117,7 @@ class VmComponentKeyAccessCheck(BaseValidation):
         key_name: Key used for component access (links to AUTH02)
         tests.sol_access.passed: True when SOL/serial console accepts the key
         tests.network_device_access.passed: True when network-device key access
-            succeeds, or is affirmatively provider-hidden
+            succeeds
     """
 
     description: ClassVar[str] = "Check specified key accesses SOL and network devices"
@@ -134,10 +134,7 @@ class VmComponentKeyAccessCheck(BaseValidation):
         if not check_required_tests(self, required, "Component key access tests failed"):
             return
 
-        tests = step_output.get("tests", {})
-        hidden = [name for name in required if tests[name].get("provider_hidden") is True]
-        hidden_note = f", provider_hidden={','.join(hidden)}" if hidden else ""
-        self.set_passed(f"Specified key '{key_name}' accessed required components{hidden_note}")
+        self.set_passed(f"Specified key '{key_name}' accessed required components")
 
 
 class InstanceRebootCheck(BaseValidation):

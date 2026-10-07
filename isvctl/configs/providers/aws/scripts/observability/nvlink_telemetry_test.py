@@ -30,11 +30,6 @@ ASPECT_TESTS: dict[str, list[str]] = {
     ],
 }
 
-HIDDEN_ASPECT_PROBE_FIELDS: dict[str, str] = {
-    "gpu_nvlink_telemetry": "links_checked",
-    "switch_nvlink_telemetry": "ports_checked",
-}
-
 AWS_NO_CUSTOMER_NVLINK_MESSAGE = (
     "AWS EC2/EKS tenants do not receive customer-accessible NVLink telemetry from GPU or switch planes"
 )
@@ -50,26 +45,19 @@ def _base_result(aspect: str) -> dict[str, Any]:
     }
 
 
-def _provider_hidden(test_name: str, *, probe_field: str, region: str) -> dict[str, Any]:
-    """Build a passing provider-hidden subtest result."""
+def _skipped(*, region: str) -> dict[str, Any]:
+    """Build a skipped subtest result for the provider-owned NVLink plane."""
     return {
-        "passed": True,
-        "provider_hidden": True,
-        "probes": {probe_field: 0, "telemetry_source": "", "metric_names": []},
-        "message": (
-            f"{test_name}: {AWS_NO_CUSTOMER_NVLINK_MESSAGE} in region {region}; NVLink plane is provider-owned."
-        ),
+        "skipped": True,
+        "skip_reason": (f"{AWS_NO_CUSTOMER_NVLINK_MESSAGE} in region {region}; NVLink plane is provider-owned."),
     }
 
 
-def check_provider_hidden_aspect(aspect: str, *, region: str) -> dict[str, Any]:
-    """Emit AWS provider-hidden evidence for tenant-inaccessible NVLink telemetry."""
+def skip_provider_owned_aspect(aspect: str, *, region: str) -> dict[str, Any]:
+    """Report every subtest of tenant-inaccessible NVLink telemetry as skipped."""
     result = _base_result(aspect)
     result["success"] = True
-    probe_field = HIDDEN_ASPECT_PROBE_FIELDS[aspect]
-    result["tests"] = {
-        name: _provider_hidden(name, probe_field=probe_field, region=region) for name in ASPECT_TESTS[aspect]
-    }
+    result["tests"] = {name: _skipped(region=region) for name in ASPECT_TESTS[aspect]}
     return result
 
 
@@ -81,7 +69,7 @@ def main() -> int:
     parser.add_argument("--aspect", required=True, choices=sorted(ASPECT_TESTS))
     args = parser.parse_args()
 
-    result = check_provider_hidden_aspect(args.aspect, region=args.region)
+    result = skip_provider_owned_aspect(args.aspect, region=args.region)
     print(json.dumps(result, indent=2, default=str))
     return 0 if result["success"] else 1
 

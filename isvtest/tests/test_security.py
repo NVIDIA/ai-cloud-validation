@@ -1173,20 +1173,15 @@ class TestMutualTlsCheck:
         assert result["passed"] is False
         assert "north_south_mtls_enforced" in result["error"]
 
-    def test_provider_hidden_east_west_noted_in_pass_message(self) -> None:
-        """Pass notes provider-hidden planes when present."""
+    def test_skipped_east_west_skips_check(self) -> None:
+        """A skipped east-west plane leaves SEC13-01 unverified, so the check skips even with north-south proven."""
         tests = {
             "north_south_mtls_enforced": {"passed": True},
-            "east_west_mtls_enforced": {
-                "passed": True,
-                "provider_hidden": True,
-                "message": "no tenant east-west mTLS surface",
-            },
+            "east_west_mtls_enforced": {"skipped": True, "skip_reason": "no tenant east-west mTLS surface"},
         }
-        result = MutualTlsCheck(config=_mutual_tls_config(tests, endpoints_tested=1)).execute()
 
-        assert result["passed"] is True
-        assert "provider_hidden=east_west_mtls_enforced" in result["output"]
+        with pytest.raises(pytest.skip.Exception, match="east_west_mtls_enforced: no tenant east-west mTLS surface"):
+            MutualTlsCheck(config=_mutual_tls_config(tests, endpoints_tested=1)).execute()
 
     def test_zero_endpoints_tested_fails(self) -> None:
         """Fail when endpoints_tested is non-positive."""

@@ -90,14 +90,14 @@ def test_probe_sol_access_fails_on_client_error(monkeypatch: pytest.MonkeyPatch)
     assert "missing" in result["error"]
 
 
-def test_network_device_access_is_provider_hidden() -> None:
-    """AWS marks network-device SSH as provider-hidden rather than failing."""
+def test_network_device_access_is_skipped() -> None:
+    """AWS reports network-device SSH as skipped rather than failing or passing."""
     module = load_vm_script("component_key_access.py")
 
     result = module._probe_network_device_access()
 
-    assert result["passed"] is True
-    assert result["provider_hidden"] is True
+    assert set(result) == {"skipped", "skip_reason"}
+    assert result["skipped"] is True
 
 
 def test_my_isv_demo_component_key_access_emits_contract() -> None:

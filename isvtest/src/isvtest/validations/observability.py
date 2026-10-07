@@ -39,25 +39,6 @@ def _is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _provider_hidden_message(validation: BaseValidation, required: list[str], label: str) -> str:
-    """Return a provider-hidden pass message when every required subtest carries that marker."""
-    tests = validation.config.get("step_output", {}).get("tests", {})
-    if not isinstance(tests, dict):
-        return ""
-
-    required_results = [tests.get(name) for name in required]
-    if not all(isinstance(result, dict) and result.get("provider_hidden") is True for result in required_results):
-        return ""
-
-    messages = [
-        message.strip()
-        for result in required_results
-        if isinstance(result, dict) and isinstance((message := result.get("message")), str) and message.strip()
-    ]
-    detail = messages[0] if messages else "plane is provider-owned"
-    return f"{label} provider-hidden: {detail}"
-
-
 def _require_non_empty_strings(
     validation: BaseValidation, probes: dict[str, object], fields: list[str], label: str
 ) -> bool:
@@ -188,8 +169,6 @@ class BmcSelLogsCheck(BaseValidation):
     Step output:
         tests: dict with sel_log_endpoint_reachable, sel_log_source_present,
                sel_entries_queryable
-        For provider-hidden BMC planes, all required subtests may pass with
-        provider_hidden=true instead of concrete endpoint probes.
         tests.<check>.probes.bmc_endpoints_checked: Positive integer count of BMC
             endpoints inspected
         tests.<check>.probes.log_source: Non-empty SEL log source identifier
@@ -202,9 +181,6 @@ class BmcSelLogsCheck(BaseValidation):
         """Validate BMC SEL log results and evidence."""
         required = ["sel_log_endpoint_reachable", "sel_log_source_present", "sel_entries_queryable"]
         if not check_required_tests(self, required, "BMC SEL log tests failed"):
-            return
-        if message := _provider_hidden_message(self, required, "BMC SEL logs"):
-            self.set_passed(message)
             return
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["log_source"], "BMC SEL log"):
@@ -258,9 +234,6 @@ class _StorageTelemetryCheck(BaseValidation):
     def run(self) -> None:
         """Validate storage telemetry results and evidence."""
         if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
-            return
-        if message := _provider_hidden_message(self, self._required_tests, self._plane_label):
-            self.set_passed(message)
             return
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
@@ -327,9 +300,6 @@ class _NvlinkTelemetryCheck(BaseValidation):
         """Validate NVLink telemetry results and evidence."""
         if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
             return
-        if message := _provider_hidden_message(self, self._required_tests, self._plane_label):
-            self.set_passed(message)
-            return
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
             return
@@ -381,8 +351,6 @@ class BmcGpuTelemetryCheck(BaseValidation):
     Step output:
         tests: dict with telemetry_endpoint_reachable, gpu_metrics_present,
                host_os_gap_identified, telemetry_samples_recent
-        For provider-hidden BMC planes, all required subtests may pass with
-        provider_hidden=true instead of concrete endpoint probes.
         tests.<check>.probes.bmc_endpoints_checked: Positive integer count of BMC
             endpoints inspected
         tests.<check>.probes.telemetry_endpoint: Non-empty telemetry API/source identifier
@@ -403,9 +371,6 @@ class BmcGpuTelemetryCheck(BaseValidation):
             "telemetry_samples_recent",
         ]
         if not check_required_tests(self, required, "BMC GPU telemetry tests failed"):
-            return
-        if message := _provider_hidden_message(self, required, "BMC GPU telemetry"):
-            self.set_passed(message)
             return
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_endpoint"], "BMC GPU telemetry"):
@@ -492,9 +457,6 @@ class _NetworkTelemetryCheck(BaseValidation):
     def run(self) -> None:
         """Validate network telemetry results and evidence."""
         if not check_required_tests(self, self._required_tests, f"{self._plane_label} tests failed"):
-            return
-        if message := _provider_hidden_message(self, self._required_tests, self._plane_label):
-            self.set_passed(message)
             return
         probes = _merged_probes(self)
         if not _require_non_empty_strings(self, probes, ["telemetry_source"], self._plane_label):
@@ -605,9 +567,6 @@ class _FabricLogCheck(BaseValidation):
         """Validate fabric log results and evidence."""
         if not check_required_tests(self, self._required_tests, f"{self._log_label} tests failed"):
             return
-        if message := _provider_hidden_message(self, self._required_tests, self._log_label):
-            self.set_passed(message)
-            return
         probes = _merged_probes(self)
         string_fields = ["log_source", "latest_timestamp"] if self._require_latest_timestamp else ["log_source"]
         if not _require_non_empty_strings(self, probes, string_fields, self._log_label):
@@ -653,8 +612,6 @@ class UfmEventLogsCheck(_FabricLogCheck):
     Step output:
         tests: dict with event_log_endpoint_reachable, event_log_source_present,
                event_entries_queryable
-        For provider-hidden fabric planes, all required subtests may pass with
-        provider_hidden=true instead of concrete endpoint probes.
         tests.<check>.probes.log_endpoints_checked: Positive integer count of
             log endpoints inspected
         tests.<check>.probes.log_source: Non-empty UFM event log source identifier
@@ -697,8 +654,6 @@ class GeneralSwitchLogsCheck(_SwitchLogCheck):
     Step output:
         tests: dict with log_endpoint_reachable, switch_log_source_present,
                entries_queryable
-        For provider-hidden switch planes, all required subtests may pass with
-        provider_hidden=true instead of concrete endpoint probes.
         tests.<check>.probes.switches_checked: Positive integer count of switches
             inspected
         tests.<check>.probes.log_source: Non-empty switch log source identifier
@@ -725,8 +680,6 @@ class SwitchSyslogCheck(_SwitchLogCheck):
     Step output:
         tests: dict with syslog_endpoint_reachable, switch_syslog_source_present,
                entries_recent
-        For provider-hidden switch planes, all required subtests may pass with
-        provider_hidden=true instead of concrete endpoint probes.
         tests.<check>.probes.switches_checked: Positive integer count of switches
             inspected
         tests.<check>.probes.log_source: Non-empty switch syslog source identifier
@@ -755,8 +708,6 @@ class SwitchKernelLogsCheck(_SwitchLogCheck):
     Step output:
         tests: dict with log_endpoint_reachable, kernel_log_source_present,
                entries_queryable
-        For provider-hidden switch planes, all required subtests may pass with
-        provider_hidden=true instead of concrete endpoint probes.
         tests.<check>.probes.switches_checked: Positive integer count of switches
             inspected
         tests.<check>.probes.log_source: Non-empty switch kernel log source identifier

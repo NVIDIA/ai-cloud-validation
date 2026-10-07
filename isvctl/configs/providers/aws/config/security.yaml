@@ -49,11 +49,11 @@
 #
 # Note: SEC12-* (BMC) tests cannot be fully validated on AWS because the
 # Nitro/hypervisor BMC plane is provider-hidden. The references inspect the
-# customer-visible boundary (tenant CIDRs, route tables, NACLs, SG rules) and
-# pass with a "provider_hidden" marker when no customer-tagged BMC resources
-# are present. Self-managed NCPs running their own BMC fabric should tag
-# resources with bmc/ipmi/redfish/oob/out-of-band to enable strict
-# enforcement.
+# customer-visible boundary (tenant CIDRs, route tables, NACLs, SG rules).
+# SEC12-03 and CNP10-01 report their subtests skipped, so those checks skip,
+# when no customer BMC surface exists. Self-managed NCPs running their own
+# BMC fabric should tag resources with bmc/ipmi/redfish/oob/out-of-band to
+# enable strict enforcement.
 
 import:
   - ../../../suites/security.yaml
@@ -111,13 +111,13 @@ commands:
       # Without endpoints the shared script emits a structured skip. East-west
       # is provider-hidden on AWS unless EAST_WEST_ENDPOINTS is set (intra-VPC
       # service mTLS is customer-owned mesh/sidecar), expressed via the
-      # provider-hidden message below.
+      # skip reason below; SEC13-01 then skips rather than passes.
       - name: mutual_tls_test
         phase: test
         command: "python3 ../../shared/mutual_tls_test.py"
         args:
           - >-
-            --east-west-provider-hidden-message=east_west_mtls_enforced:
+            --east-west-skip-reason=east_west_mtls_enforced:
             AWS EC2/EKS tenants do not receive a customer-provable east-west
             mTLS surface in region {{region}}; intra-VPC service encryption is
             customer-owned (mesh/sidecar). Set EAST_WEST_ENDPOINTS to probe

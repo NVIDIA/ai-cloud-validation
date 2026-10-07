@@ -19,9 +19,9 @@
 AWS exposes SDN-adjacent evidence through VPC Flow Logs, CloudWatch, AWS
 Health, and CloudTrail rather than tenant-visible SDN-controller logs. The
 hardware fault aspect treats AWS Health ``SubscriptionRequiredException`` as
-``provider_hidden`` because AWS Health organizational event visibility requires
+``skipped`` because AWS Health organizational event visibility requires
 Business/Enterprise support. Latency/drop controller-native metrics that AWS
-does not expose are also reported as ``provider_hidden`` while packet/byte
+does not expose are also reported ``skipped`` while packet/byte
 telemetry is validated through Flow Logs or CloudWatch network counters.
 
 Usage:
@@ -101,13 +101,9 @@ def _failed(error: str, **extra: Any) -> dict[str, Any]:
     return result
 
 
-def _provider_hidden(test_name: str, message: str, **extra: Any) -> dict[str, Any]:
-    """Return a passing result for telemetry hidden by AWS provider boundaries."""
-    result: dict[str, Any] = {
-        "passed": True,
-        "provider_hidden": True,
-        "message": f"{test_name}: {message}",
-    }
+def _skipped(reason: str, **extra: Any) -> dict[str, Any]:
+    """Return a skipped result for telemetry hidden by AWS provider boundaries."""
+    result: dict[str, Any] = {"skipped": True, "skip_reason": reason}
     result.update(extra)
     return result
 
@@ -173,9 +169,8 @@ def _active_flow_logs(flow_logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _flow_logs_not_configured(vpc_id: str) -> dict[str, Any]:
-    """Return a provider-hidden result for absent opt-in VPC Flow Logs."""
-    return _provider_hidden(
-        "log_destination_configured",
+    """Return a skipped result for absent opt-in VPC Flow Logs."""
+    return _skipped(
         f"AWS VPC Flow Logs are opt-in and no active Flow Log is configured for {vpc_id}",
     )
 
@@ -196,7 +191,7 @@ def _query_health_events(health: Any) -> tuple[dict[str, Any], list[dict[str, An
                 "AWS Health issue visibility requires Business/Enterprise support; "
                 "customer-visible provider fault events are hidden in this account"
             )
-            return _provider_hidden("fault_event_source_queryable", message), []
+            return _skipped(message), []
         return _failed(str(e)), []
 
     events = response.get("events", [])
@@ -239,9 +234,8 @@ def check_hardware_fault_logging(ec2: Any, health: Any, vpc_id: str, region: str
     health_query, health_events = _query_health_events(health)
     result["tests"]["fault_event_source_queryable"] = health_query
     result["recent_event_count"] = len(health_events)
-    if health_query.get("provider_hidden"):
-        result["tests"]["event_schema_valid"] = _provider_hidden(
-            "event_schema_valid",
+    if health_query.get("skipped"):
+        result["tests"]["event_schema_valid"] = _skipped(
             "AWS Health event schema cannot be inspected without provider event visibility",
         )
     elif not health_query.get("passed"):
@@ -252,7 +246,7 @@ def check_hardware_fault_logging(ec2: Any, health: Any, vpc_id: str, region: str
     else:
         result["tests"]["event_schema_valid"] = _health_events_have_schema(health_events)
 
-    result["success"] = all(test.get("passed") for test in result["tests"].values())
+    result["success"] = all(test.get("passed") or test.get("skipped") for test in result["tests"].values())
     if not result["success"]:
         result["error"] = "SDN hardware fault logging checks failed"
     return result
@@ -441,8 +435,7 @@ def check_latency_perf_logging(
             target_resources_query=target_resources_result,
         )
     elif not instance_ids and not network_interface_ids and target_resources_result.get("passed"):
-        result["tests"]["packet_metric_present"] = _provider_hidden(
-            "packet_metric_present",
+        result["tests"]["packet_metric_present"] = _skipped(
             "No target VPC EC2 instances or network interfaces have packet metrics yet, "
             "and VPC Flow Logs are not configured",
         )
@@ -453,8 +446,7 @@ def check_latency_perf_logging(
             target_resources_query=target_resources_result,
         )
 
-    result["tests"]["performance_metric_present"] = _provider_hidden(
-        "performance_metric_present",
+    result["tests"]["performance_metric_present"] = _skipped(
         "AWS does not expose tenant-visible SDN-controller latency/drop counters; "
         "using customer-visible packet telemetry instead",
     )
@@ -486,19 +478,17 @@ def check_latency_perf_logging(
             f"Recent VPC Flow Log samples found in {log_group}",
             sample_count=flow_log_samples,
         )
-    elif result["tests"]["packet_metric_present"].get("provider_hidden"):
+    elif result["tests"]["packet_metric_present"].get("skipped"):
         result["telemetry_namespace"] = "provider-hidden"
         result["probe_resource_id"] = vpc_id
-        result["tests"]["samples_recent"] = _provider_hidden(
-            "samples_recent",
+        result["tests"]["samples_recent"] = _skipped(
             "No target VPC packet telemetry source is currently configured to produce samples",
         )
     elif non_cloudwatch_flow_logs:
         destination_types = sorted({_flow_log_destination_type(flow_log) for flow_log in non_cloudwatch_flow_logs})
         result["telemetry_namespace"] = "AWS/VPCFlowLogs"
         result["probe_resource_id"] = vpc_id
-        result["tests"]["samples_recent"] = _provider_hidden(
-            "samples_recent",
+        result["tests"]["samples_recent"] = _skipped(
             "VPC Flow Logs target non-CloudWatch destination(s) "
             f"{', '.join(destination_types)}; CloudWatch Logs samples cannot be validated",
             flow_log_destinations=[_flow_log_destination(flow_log) for flow_log in non_cloudwatch_flow_logs],
@@ -519,7 +509,7 @@ def check_latency_perf_logging(
         )
 
     result["sample_window_seconds"] = sample_window_seconds
-    result["success"] = all(test.get("passed") for test in result["tests"].values())
+    result["success"] = all(test.get("passed") or test.get("skipped") for test in result["tests"].values())
     if not result["success"]:
         result["error"] = "SDN latency/performance logging checks failed"
     return result
@@ -793,7 +783,7 @@ def check_audit_trail_logging(
                 )
             result["tests"]["audit_event_has_required_fields"] = _failed("No audit events available")
 
-    result["success"] = all(test.get("passed") for test in result["tests"].values())
+    result["success"] = all(test.get("passed") or test.get("skipped") for test in result["tests"].values())
     if not result["success"]:
         result["error"] = "SDN filtering audit trail checks failed"
     return result

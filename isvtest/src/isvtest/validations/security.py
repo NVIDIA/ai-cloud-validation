@@ -234,9 +234,9 @@ class MutualTlsCheck(BaseValidation):
     """Validate mTLS (or equivalent) for north-south and east-west traffic (SEC13-01).
 
     Verifies that configured endpoints reject anonymous TLS clients and accept
-    authenticated client certificates on both traffic planes. Providers may mark
-    a plane ``provider_hidden`` when it is not customer-probeable (for example
-    AWS east-west mesh).
+    authenticated client certificates on both traffic planes. Providers report
+    a plane ``skipped`` when it is not customer-probeable (for example AWS
+    east-west mesh), and the check then skips.
 
     Config:
         step_output: The mutual_tls_test step output to check
@@ -271,14 +271,7 @@ class MutualTlsCheck(BaseValidation):
             self.set_failed("mTLS output missing positive int 'endpoints_tested'")
             return
 
-        tests = step_output.get("tests", {})
-        hidden = [
-            name
-            for name in required
-            if isinstance(tests.get(name), dict) and tests[name].get("provider_hidden") is True
-        ]
-        hidden_note = f", provider_hidden={','.join(hidden)}" if hidden else ""
-        self.set_passed(f"mTLS enforced ({endpoints_tested} endpoints tested{hidden_note})")
+        self.set_passed(f"mTLS enforced ({endpoints_tested} endpoints tested)")
 
 
 class BmcBastionAccessCheck(BaseValidation):
@@ -290,10 +283,10 @@ class BmcBastionAccessCheck(BaseValidation):
     no direct route to the public internet.
 
     Hyperscalers that hide the BMC plane from customers (e.g. AWS) cannot
-    fully exercise this check; the AWS reference reports each subtest as
-    passed with a ``provider_hidden`` note when no customer-visible BMC
-    network is present. Self-managed NCPs running their own BMC fabric
-    should report concrete pass/fail per subtest.
+    fully exercise this check; the AWS reference reports each subtest
+    ``skipped`` when no customer-visible BMC network is present, and the check
+    then skips. Self-managed NCPs running their own BMC fabric should report
+    concrete pass/fail per subtest.
 
     Config:
         step_output: The step output to check

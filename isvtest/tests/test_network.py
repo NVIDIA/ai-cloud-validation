@@ -259,6 +259,24 @@ def test_sdn_logging_checks_fail_on_missing_evidence(
     assert missing_evidence in result["error"]
 
 
+@pytest.mark.parametrize(
+    ("validation_cls", "tests", "evidence", "skipped_test", "_missing_evidence"),
+    SDN_CASES,
+)
+def test_sdn_logging_checks_skip_on_skipped_subtest(
+    validation_cls: type[SdnHardwareFaultLoggingCheck | SdnLatencyPerfLoggingCheck | SdnFilterAuditTrailCheck],
+    tests: dict[str, dict[str, Any]],
+    evidence: dict[str, Any],
+    skipped_test: str,
+    _missing_evidence: str,
+) -> None:
+    """One skipped subtest leaves the SDN logging property unverified, so the check skips."""
+    skipped_tests = {**tests, skipped_test: {"skipped": True, "skip_reason": "not tenant-visible"}}
+
+    with pytest.raises(pytest.skip.Exception, match=rf"{skipped_test}: not tenant-visible"):
+        validation_cls(config=_sdn_config(skipped_tests, evidence)).execute()
+
+
 # ---------------------------------------------------------------------------
 # TestDhcpIpManagementCheck
 # ---------------------------------------------------------------------------

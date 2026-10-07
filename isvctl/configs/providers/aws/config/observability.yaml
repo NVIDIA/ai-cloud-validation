@@ -18,7 +18,7 @@
 # Imports validations from the provider-agnostic observability canonical config.
 # AWS wires VPC Flow Logs and guest host syslog checks. Customer-visible BMC SEL
 # and Redfish GPU telemetry are not exposed by AWS EC2/EKS, so the BMC steps emit
-# provider-hidden evidence following the AWS security BMC pattern.
+# skipped subtests following the AWS security BMC pattern.
 #
 # Required IAM permissions:
 #   - Permissions required by providers/aws/config/network.yaml create/teardown
