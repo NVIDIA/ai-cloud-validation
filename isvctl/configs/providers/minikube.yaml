@@ -51,7 +51,7 @@ tests:
   description: "Minikube local validation"
 
   settings:
-    show_skipped_tests: true
+    show_deselected_tests: true
 
   validations:
     # Host-level GPU checks (not in k8s.yaml)

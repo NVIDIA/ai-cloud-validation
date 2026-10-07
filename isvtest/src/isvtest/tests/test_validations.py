@@ -119,7 +119,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         cluster_inventory: dict[str, Any] = {}
         filtering_enabled = False
         resolution_preapplied = False
-        show_skipped = False
+        show_deselected = False
 
         try:
             config_file_arg = metafunc.config.getoption("--config", default=None)
@@ -140,8 +140,8 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                 all_categories = list((cluster_config.get("validations") or {}).keys())
                 standard_categories = [c for c in all_categories if c not in ADAPTER_HANDLED_CATEGORIES]
                 enabled_validations_config = loader.get_all_validations(cluster_config, categories=standard_categories)
-                # Check if we should show skipped tests
-                show_skipped = cluster_config.get("settings", {}).get("show_skipped_tests", False)
+                # Check if we should show deselected tests
+                show_deselected = cluster_config.get("settings", {}).get("show_deselected_tests", False)
         except (ImportError, FileNotFoundError, ValueError, AttributeError, OSError):
             pass
 
@@ -186,8 +186,8 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                         hint = "Check spelling or run without --config to see all available tests."
                     sys.stderr.write(f"\n\033[33mWarning:\033[0m Validation not found: '{validation_name}'. {hint}\n")
 
-            # 2. Add skipped tests for classes NOT in config (if show_skipped)
-            if show_skipped and not resolution_preapplied:
+            # 2. Add skipped tests for classes NOT in config (if show_deselected)
+            if show_deselected and not resolution_preapplied:
                 for cls_name, cls in test_classes_map.items():
                     # If class was not configured by exact or variant match, treat it as skipped.
                     if cls_name not in configured_classes and not getattr(cls, "compose_only", False):
