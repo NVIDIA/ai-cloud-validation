@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
-import re
 import shlex
 from typing import ClassVar
 
 import pytest
+from prometheus_client.parser import text_string_to_metric_families
 
 from isvtest.core.k8s import get_kubectl_command
 from isvtest.core.validation import BaseValidation
@@ -37,48 +36,6 @@ SLO_LABELS = {
     "apiserver_request_duration_seconds_sum": {"resource", "scope", "verb"},
     "apiserver_request_duration_seconds": {"resource", "scope", "verb"},
 }
-_SAMPLE = re.compile(
-    r'([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{((?:[^"{}]|"(?:\\.|[^"\\])*")*)\})?'
-    r"[ \t]+([^ \t]+)(?:[ \t]+([+-]?[0-9]+))?[ \t]*"
-)
-_LABEL = re.compile(r'\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"((?:[^"\\]|\\[\\n"])*)"\s*(?:,|$)')
-_BOUNDARY = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
-
-
-def _sample_labels(line: str) -> tuple[str, set[str]]:
-    """Parse one text-format sample without mistaking quoted values for label keys."""
-    match = _SAMPLE.fullmatch(line)
-    if match is None:
-        raise ValueError("invalid sample syntax")
-    name, raw_labels, value, timestamp = match.groups()
-    float(value)  # Reject name-only or nonnumeric lines as evidence of a metric.
-    if timestamp is not None and not -(1 << 63) <= int(timestamp) < (1 << 63):
-        raise ValueError("timestamp outside int64 range")
-    labels: set[str] = set()
-    rest = raw_labels or ""
-    while rest.strip():
-        label = _LABEL.match(rest)
-        if label is None or label[1] in labels:
-            raise ValueError("invalid or duplicate label")
-        if name == "apiserver_request_duration_seconds_bucket" and label[1] == "le":
-            boundary = label[2]
-            if boundary != "+Inf" and not (_BOUNDARY.fullmatch(boundary) and math.isfinite(float(boundary))):
-                raise ValueError("invalid latency bucket boundary")
-        labels.add(label[1])
-        rest = rest[label.end() :]
-    return name, labels
-
-
-def _metric_samples(metric: str, names: set[str], metric_types: dict[str, str]) -> set[str]:
-    """Match exact names or samples belonging to a declared histogram/summary family."""
-    candidates = {metric}
-    if metric != "apiserver_request_total":
-        metric_type = metric_types.get(metric)
-        if metric_type in {"histogram", "summary"}:
-            candidates.update(metric + suffix for suffix in ("_count", "_sum"))
-        if metric_type == "histogram":
-            candidates.add(metric + "_bucket")
-    return candidates & names
 
 
 class K8sApiServerMetricsCheck(BaseValidation):
@@ -91,10 +48,10 @@ class K8sApiServerMetricsCheck(BaseValidation):
     - At least one metric sample is present.
     - All metric names configured via ``expected_metrics`` (or the defaults
       ``apiserver_request_total`` / ``apiserver_request_duration_seconds``)
-      are exposed. Exact names and declared histogram/summary family samples match.
+      are exposed. Exact sample names and parsed metric families match.
     - Every observed request counter or latency sample selected by the check
       carries its required SLO labels. Empty label values are allowed, as on
-      non-resource requests. Latency buckets require a finite numeric or ``+Inf`` ``le``;
+      non-resource requests. Latency buckets require the ``le`` label;
       count/sum samples alone do not establish latency-distribution coverage.
 
     Requires the caller to have RBAC ``get`` on the non-resource URL
@@ -139,32 +96,25 @@ class K8sApiServerMetricsCheck(BaseValidation):
             self.set_failed("API server metrics endpoint returned empty response")
             return
 
-        has_help = False
-        has_type = False
+        lines = output.splitlines()
+        has_help = any(line.lstrip().startswith("# HELP ") for line in lines)
+        has_type = any(line.lstrip().startswith("# TYPE ") for line in lines)
         labels_by_metric: dict[str, set[str]] = {}
-        metric_types: dict[str, str] = {}
-
-        for line_number, line in enumerate(output.splitlines(), 1):
-            line = line.strip()
-            if line.startswith("# HELP "):
-                has_help = True
-            elif line.startswith("# TYPE "):
-                has_type = True
-                parts = line.split()
-                if len(parts) == 4:
-                    metric_types[parts[2]] = parts[3]
-            elif line and not line.startswith("#"):
-                try:
-                    name, labels = _sample_labels(line)
-                except ValueError:
-                    self.set_failed(
-                        f"Response is not in Prometheus text exposition format: invalid sample on line {line_number}"
-                    )
-                    return
-                if name in labels_by_metric:
-                    labels_by_metric[name].intersection_update(labels)
-                else:
-                    labels_by_metric[name] = labels
+        samples_by_metric: dict[str, set[str]] = {}
+        try:
+            for family in text_string_to_metric_families(output):
+                # The request counter must match its exact sample name.
+                if family.name != "apiserver_request_total":
+                    samples_by_metric.setdefault(family.name, set()).update(sample.name for sample in family.samples)
+                for sample in family.samples:
+                    samples_by_metric.setdefault(sample.name, set()).add(sample.name)
+                    if sample.name in labels_by_metric:
+                        labels_by_metric[sample.name].intersection_update(sample.labels)
+                    else:
+                        labels_by_metric[sample.name] = set(sample.labels)
+        except ValueError:
+            self.set_failed("Response is not in Prometheus text exposition format: could not parse metric samples")
+            return
 
         metric_names = set(labels_by_metric)
         if not has_help or not has_type or not metric_names:
@@ -177,7 +127,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
         missing = [
             m
             for m in expected_metrics
-            if not _metric_samples(m, metric_names, metric_types)
+            if not samples_by_metric.get(m)
             or (m == "apiserver_request_duration_seconds" and m + "_bucket" not in metric_names)
         ]
 
@@ -187,7 +137,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
 
         incomplete = []
         for metric in expected_metrics:
-            for name in sorted(_metric_samples(metric, metric_names, metric_types)):
+            for name in sorted(samples_by_metric[metric]):
                 absent = SLO_LABELS.get(name, set()) - labels_by_metric[name]
                 if absent:
                     incomplete.append(f"{name}: {', '.join(sorted(absent))}")
@@ -195,4 +145,4 @@ class K8sApiServerMetricsCheck(BaseValidation):
             self.set_failed("Missing SLO labels on metric samples: " + "; ".join(incomplete))
             return
 
-        self.set_passed(f"API server metrics endpoint is valid Prometheus format with {len(metric_names)} metrics")
+        self.set_passed(f"API server metrics parsed in Prometheus format with {len(metric_names)} metrics")

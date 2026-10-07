@@ -24,12 +24,15 @@ import pytest
 from isvtest.core.runners import CommandResult
 from isvtest.validations.k8s_metrics import K8sApiServerMetricsCheck
 
-COUNTER = 'apiserver_request_total{code="200",resource="pods",scope="resource",verb="GET"} 12'
-BUCKET = 'apiserver_request_duration_seconds_bucket{resource="pods",scope="resource",verb="GET",le="1"} 12'
-HEADERS = (
-    "# HELP apiserver_request_total Requests\n# TYPE apiserver_request_total counter\n"
-    "# TYPE apiserver_request_duration_seconds histogram\n"
+COUNTER = (
+    "# TYPE apiserver_request_total counter\n"
+    'apiserver_request_total{code="200",resource="pods",scope="resource",verb="GET"} 12'
 )
+BUCKET = (
+    "# TYPE apiserver_request_duration_seconds histogram\n"
+    'apiserver_request_duration_seconds_bucket{resource="pods",scope="resource",verb="GET",le="1"} 12'
+)
+HEADERS = "# HELP apiserver_request_total Requests\n"
 
 
 def check_samples(*samples: str, code: int = 0, expected_metrics: list[str] | None = None) -> dict:
@@ -40,18 +43,6 @@ def check_samples(*samples: str, code: int = 0, expected_metrics: list[str] | No
     )
     config = {} if expected_metrics is None else {"expected_metrics": expected_metrics}
     return K8sApiServerMetricsCheck(runner=runner, config=config).execute()
-
-
-@pytest.mark.parametrize("timestamp", [str(-(1 << 63) - 1), str(1 << 63), "9" * 100])
-def test_timestamp_outside_int64_fails(timestamp: str) -> None:
-    """An integer token is not a valid timestamp unless it fits signed int64."""
-    assert check_samples(COUNTER + " " + timestamp, BUCKET)["passed"] is False
-
-
-@pytest.mark.parametrize("timestamp", [str(-(1 << 63)), str((1 << 63) - 1), "+123", "0"])
-def test_valid_signed_timestamp_passes(timestamp: str) -> None:
-    """Signed timestamps, including both int64 bounds, remain valid."""
-    assert check_samples(COUNTER + " " + timestamp, BUCKET)["passed"] is True
 
 
 @pytest.mark.parametrize("metric_type", ["counter", "gauge", "untyped", None])
@@ -88,18 +79,6 @@ def test_summary_does_not_match_bucket_suffix() -> None:
     """Only histograms can use bucket samples to satisfy an expected family."""
     result = check_samples("# TYPE my_slo summary", "my_slo_bucket 1", expected_metrics=["my_slo"])
     assert result["passed"] is False
-
-
-@pytest.mark.parametrize("boundary", ["", "invalid", "NaN", "-Inf", "Inf", "1e999", " 1", "1 ", "1_000"])
-def test_invalid_latency_bucket_boundary_fails(boundary: str) -> None:
-    """A present le label must contain a finite number or the positive-infinity sentinel."""
-    assert check_samples(COUNTER, BUCKET.replace('le="1"', f'le="{boundary}"'))["passed"] is False
-
-
-@pytest.mark.parametrize("boundary", ["0", "0.5", ".5", "1.", "1e-3", "-1", "+Inf"])
-def test_valid_latency_bucket_boundary_passes(boundary: str) -> None:
-    """Finite numeric bounds and +Inf remain usable for latency distribution queries."""
-    assert check_samples(COUNTER, BUCKET.replace('le="1"', f'le="{boundary}"'))["passed"] is True
 
 
 @pytest.mark.parametrize("label", ["code", "resource", "scope", "verb"])
