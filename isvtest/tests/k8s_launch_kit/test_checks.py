@@ -10,6 +10,7 @@ import pytest
 from isvtest.core.validation import BaseValidation
 from isvtest.validations.k8s_launch_kit import checks
 from isvtest.validations.k8s_launch_kit.checks import (
+    EastWestNetworkICMPPing,
     EastWestNetworkRDMAPing,
     LaunchKitSosreport,
     NetworkOperatorDeployment,
@@ -17,9 +18,20 @@ from isvtest.validations.k8s_launch_kit.checks import (
 
 pytestmark = pytest.mark.unit
 
-_PASSING_RDMA = """<testsuite name="EastWestNetworkRDMAPing-ethernet">
-  <testcase name="EastWestNetworkRDMAPing-ethernet::a→b" classname="network.connectivity"/>
-</testsuite>"""
+
+def _suite(check: type[BaseValidation], fabric: str = "ethernet") -> str:
+    """Return the Launch Kit suite name this check reads."""
+    return check(config={"fabric": fabric})._suite_name()
+
+
+def _suite_xml(check: type[BaseValidation], cases: str, fabric: str = "ethernet") -> str:
+    return f'<testsuite name="{_suite(check, fabric)}">{cases}</testsuite>'
+
+
+_PASSING_RDMA = _suite_xml(
+    EastWestNetworkRDMAPing,
+    f'<testcase name="{_suite(EastWestNetworkRDMAPing)}::a→b" classname="network.connectivity"/>',
+)
 
 
 _INPUTS = {"user_config": "cluster-config.yaml", "deployment_files": "deployment"}
@@ -59,15 +71,16 @@ def _execute(
 def test_family_reports_only_its_native_suite(tmp_path: Path) -> None:
     result = _execute(
         tmp_path,
-        """
-    <testsuite name="EastWestNetworkRDMAPing-ethernet">
-      <testcase name="EastWestNetworkRDMAPing-ethernet::a→b" classname="network.connectivity" time="0.125">
-        <system-out>srcGPU=2 bandwidthGbps=187.6</system-out>
-      </testcase>
-    </testsuite>
-    <testsuite name="EastWestNetworkICMPPing-ethernet">
-      <testcase name="EastWestNetworkICMPPing-ethernet::a→b"><failure message="unreachable"/></testcase>
-    </testsuite>""",
+        _suite_xml(
+            EastWestNetworkRDMAPing,
+            f'<testcase name="{_suite(EastWestNetworkRDMAPing)}::a→b" classname="network.connectivity" time="0.125">'
+            "<system-out>srcGPU=2 bandwidthGbps=187.6</system-out>"
+            "</testcase>",
+        )
+        + _suite_xml(
+            EastWestNetworkICMPPing,
+            f'<testcase name="{_suite(EastWestNetworkICMPPing)}::a→b"><failure message="unreachable"/></testcase>',
+        ),
     )
     assert result["passed"]
     [subtest] = result["subtests"]
@@ -80,11 +93,13 @@ def test_family_reports_only_its_native_suite(tmp_path: Path) -> None:
 def test_family_failures_keep_evidence(tmp_path: Path, tag: str) -> None:
     result = _execute(
         tmp_path,
-        f"""<testsuite name="EastWestNetworkRDMAPing-ethernet">
-      <testcase name="probe" classname="network.connectivity">
-        <{tag} message="bandwidth below threshold">42.5 &lt; 100</{tag}>
-        <system-err>connection refused</system-err>
-      </testcase></testsuite>""",
+        _suite_xml(
+            EastWestNetworkRDMAPing,
+            f'<testcase name="probe" classname="network.connectivity">'
+            f'<{tag} message="bandwidth below threshold">42.5 &lt; 100</{tag}>'
+            "<system-err>connection refused</system-err>"
+            "</testcase>",
+        ),
     )
     assert not result["passed"]
     assert "42.5 < 100" in result["error"]
@@ -98,10 +113,12 @@ def test_other_fabric_skips(tmp_path: Path) -> None:
 
 
 def test_disabled_family_skips_with_native_reason(tmp_path: Path) -> None:
-    disabled = """<testsuite name="EastWestNetworkRDMAPing-ethernet">
-      <testcase name="EastWestNetworkRDMAPing-ethernet" classname="network.connectivity">
-        <skipped message="Check disabled by validation configuration"/>
-      </testcase></testsuite>"""
+    disabled = _suite_xml(
+        EastWestNetworkRDMAPing,
+        f'<testcase name="{_suite(EastWestNetworkRDMAPing)}" classname="network.connectivity">'
+        '<skipped message="Check disabled by validation configuration"/>'
+        "</testcase>",
+    )
     with pytest.raises(pytest.skip.Exception, match="Check disabled by validation configuration"):
         _execute(tmp_path, disabled)
 
@@ -127,8 +144,7 @@ def test_missing_or_malformed_xml_fails(tmp_path: Path, check: type[BaseValidati
 
 @pytest.mark.parametrize("duration", ["NaN", "-1", "Infinity", "invalid"])
 def test_invalid_duration_fails(tmp_path: Path, duration: str) -> None:
-    suite = f"""<testsuite name="EastWestNetworkRDMAPing-ethernet">
-      <testcase name="probe" time="{duration}"/></testsuite>"""
+    suite = _suite_xml(EastWestNetworkRDMAPing, f'<testcase name="probe" time="{duration}"/>')
     assert not _execute(tmp_path, suite)["passed"]
 
 
@@ -168,8 +184,9 @@ def test_deployment_owns_unexplained_process_failure(tmp_path: Path, suites: str
 
 
 def test_deployment_does_not_repeat_an_explained_failure(tmp_path: Path) -> None:
-    failing_rdma = """<testsuite name="EastWestNetworkRDMAPing-ethernet">
-      <testcase name="probe"><failure message="unreachable"/></testcase></testsuite>"""
+    failing_rdma = _suite_xml(
+        EastWestNetworkRDMAPing, '<testcase name="probe"><failure message="unreachable"/></testcase>'
+    )
     result = _execute(
         tmp_path,
         '<testsuite name="network/validation"><testcase name="HelmValues"/></testsuite>' + failing_rdma,

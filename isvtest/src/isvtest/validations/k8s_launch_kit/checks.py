@@ -4,7 +4,7 @@
 """Map Kubernetes Launch Kit's native JUnit suites onto static catalog tests.
 
 ``l8k validate --junit-path`` writes a ``network/validation`` suite of
-deployment-state cases and one ``<Family>-<fabric>`` suite per connectivity
+deployment-state cases and one ``K8s<Family>-<fabric>`` suite per connectivity
 family, for the configured fabric only. Each catalog test reports one native
 suite, with its cases as subtests. All of them share one Launch Kit run against
 the current cluster (see :mod:`.runner`); with no inputs configured they skip.
@@ -130,16 +130,20 @@ class _ConnectivityFamilyCheck(_LaunchKitSuiteCheck):
 
     _exclude_from_discovery: ClassVar[bool] = True
 
+    def _native_suite(self, fabric: str) -> str:
+        # Launch Kit names these suites with a K8s prefix. The catalog name does not.
+        return f"K8s{type(self).__name__}-{fabric}"
+
     def _suite_name(self) -> str:
         fabric = self.config.get("fabric")
         if fabric not in _FABRICS:
             raise ValueError(f"fabric must be one of {', '.join(_FABRICS)}, got {fabric!r}")
-        return f"{type(self).__name__}-{fabric}"
+        return self._native_suite(fabric)
 
     def _missing_suite(self, name: str, root: ET.Element, output: dict) -> None:
         fabric = self.config["fabric"]
         other = next(f for f in _FABRICS if f != fabric)
-        if any(suite.get("name") == f"{type(self).__name__}-{other}" for suite in root.iter("testsuite")):
+        if any(suite.get("name") == self._native_suite(other) for suite in root.iter("testsuite")):
             pytest.skip(f"Cluster fabric is not configured for this fabric type: {fabric}")
         pytest.skip(f"Launch Kit reported no {name} results")
 

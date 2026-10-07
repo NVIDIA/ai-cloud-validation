@@ -15,7 +15,7 @@ they need and how to run them, see the
   then `l8k sosreport --output-dir ...`, once per input set and pytest session.
   A missing input or `l8k` returns a `skip_reason` and runs nothing.
 - [`checks.py`](checks.py): each catalog check reads one native suite from that
-  JUnit (`network/validation` or `<Family>-<fabric>`) and reports its cases as
+  JUnit (`network/validation` or `K8s<Family>-<fabric>`) and reports its cases as
   subtests. `LaunchKitSosreport` reports sosreport and is catalog-excluded.
 - `l8k validate` has no deadline, because Launch Kit bounds its own matrix.
   `l8k sosreport` gets 30 minutes, because it does not.
