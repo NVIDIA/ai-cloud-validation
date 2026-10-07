@@ -406,7 +406,7 @@ class TestInstanceListCheck:
             pytest.param({"target_instance": "i-target", "found_target": True}, id="found-target-misreported"),
         ],
     )
-    def test_configured_target_missing_from_list(self, step_fields: dict) -> None:
+    def test_configured_target_missing_from_list(self, step_fields: dict[str, str | bool]) -> None:
         """Test failure when the launched instance is absent, whatever the script self-reports."""
         v = InstanceListCheck(
             config={
