@@ -3517,6 +3517,8 @@ domains:
             tests:
               - summary: verify that the k8s cluster supports the DRA API (resources.k8s.io) to get GPUs on the same nvlink
                 labels:
+                  - gpu
+                  - kubernetes
                   - min_req
                 notes: k8s06/22
                 req_id: K8S24
@@ -3524,6 +3526,8 @@ domains:
                 actor: tenant
                 status: approved
                 priority: P0
+                github_issues:
+                  - "#662"
                 milestone: ""
           - description: Run k8s conformance tests
             tests:
