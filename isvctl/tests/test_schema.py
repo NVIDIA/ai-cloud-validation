@@ -410,16 +410,21 @@ class TestOutputSchemaValidation:
             {
                 "name": "isvtest-eks-dev",
                 "role": "primary",
+                "cluster_uid": "primary-kube-system-uid",
+                "ready_node_count": 1,
                 "tenancy_id": "123456789012",
                 "network_id": "vpc-123",
                 "status": "ACTIVE",
+                "api_ready": True,
             },
             {
                 "name": "isvtest-eks-dev-shared-vpc",
                 "role": "secondary",
+                "cluster_uid": "secondary-kube-system-uid",
                 "tenancy_id": "123456789012",
                 "network_id": "vpc-123",
                 "status": "ACTIVE",
+                "api_ready": True,
                 "ready_node_count": 1,
             },
         ],
@@ -499,6 +504,15 @@ class TestOutputSchemaValidation:
         """K8S26-01 shared-VPC cluster output must pass the multi_cluster schema."""
         is_valid, errors = validate_output(self.MULTI_CLUSTER_OUTPUT, "multi_cluster")
         assert is_valid, f"Multi-cluster output failed 'multi_cluster' schema: {errors}"
+
+    @pytest.mark.parametrize("cluster_index", [0, 1])
+    @pytest.mark.parametrize("field", ["cluster_uid", "api_ready", "ready_node_count"])
+    def test_multi_cluster_schema_requires_live_evidence(self, cluster_index: int, field: str) -> None:
+        """Every reported cluster must carry the live probe results."""
+        output = copy.deepcopy(self.MULTI_CLUSTER_OUTPUT)
+        output["clusters"][cluster_index].pop(field)
+        is_valid, _errors = validate_output(output, "multi_cluster")
+        assert not is_valid
 
     def test_multi_cluster_output_passes_without_cluster_roles(self) -> None:
         """K8S26-01 proves cluster coexistence without requiring role labels."""

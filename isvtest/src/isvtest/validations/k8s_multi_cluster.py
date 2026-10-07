@@ -21,6 +21,8 @@ from decimal import Decimal
 from numbers import Integral, Rational
 from typing import Any, ClassVar
 
+import pytest
+
 from isvtest.core.validation import BaseValidation
 
 
@@ -30,7 +32,8 @@ class K8sMultiClusterSameVpcCheck(BaseValidation):
     The validation is intentionally provider-neutral and reads only
     ``step_output``. Provider scripts must emit the tenancy/account ID, shared
     VPC/network ID, and a ``clusters`` array with each cluster's name,
-    tenancy, network, status, and optional role/Ready-node metadata.
+    tenancy, network, status, live API readiness, Ready-node count, and
+    kube-system namespace UID. Role labels remain optional.
     """
 
     description: ClassVar[str] = "Verify multiple Kubernetes clusters share the same tenancy and VPC."
@@ -38,6 +41,8 @@ class K8sMultiClusterSameVpcCheck(BaseValidation):
     def run(self) -> None:
         """Validate the multi-cluster proof emitted by the bound setup step."""
         step_output = self.config.get("step_output")
+        if step_output is None:
+            pytest.skip("Multi-cluster validation requires a configured provider setup step")
         if not isinstance(step_output, dict):
             self.set_failed("Missing step_output for multi-cluster validation")
             return
@@ -65,6 +70,7 @@ class K8sMultiClusterSameVpcCheck(BaseValidation):
 
         parsed_clusters: list[dict[str, Any]] = []
         seen_names: set[str] = set()
+        seen_uids: set[str] = set()
         tenancy_ids: set[str] = set()
         network_ids: set[str] = set()
         inactive: list[str] = []
@@ -82,6 +88,18 @@ class K8sMultiClusterSameVpcCheck(BaseValidation):
                 self.set_failed(f"Duplicate cluster name: {name}")
                 return
             seen_names.add(name)
+
+            cluster_uid = _required_string(cluster.get("cluster_uid"), f"{name}.cluster_uid")
+            if cluster_uid is None:
+                self.set_failed(f"Cluster {name} missing cluster_uid from the live API")
+                return
+            if cluster_uid in seen_uids:
+                self.set_failed("Duplicate cluster_uid: the reported clusters must be distinct")
+                return
+            seen_uids.add(cluster_uid)
+            if cluster.get("api_ready") is not True:
+                self.set_failed(f"Cluster {name} requires api_ready=true from a successful readiness probe")
+                return
 
             cluster_tenancy = _required_string(cluster.get("tenancy_id"), f"{name}.tenancy_id")
             if cluster_tenancy is None:
@@ -113,8 +131,6 @@ class K8sMultiClusterSameVpcCheck(BaseValidation):
 
         ready_counts: list[int] = []
         for cluster in parsed_clusters:
-            if "ready_node_count" not in cluster:
-                continue
             name = str(cluster.get("name"))
             ready_node_count = _non_negative_int(cluster.get("ready_node_count"), f"{name}.ready_node_count")
             if ready_node_count is None:
@@ -125,9 +141,9 @@ class K8sMultiClusterSameVpcCheck(BaseValidation):
                 return
             ready_counts.append(ready_node_count)
 
-        ready_message = f"; Ready nodes reported: {sum(ready_counts)}" if ready_counts else ""
         self.set_passed(
-            f"{len(parsed_clusters)} cluster(s) ACTIVE in tenancy {tenancy_id} and VPC {network_id}{ready_message}"
+            f"{len(parsed_clusters)} cluster(s) ACTIVE with distinct identities and ready APIs in tenancy {tenancy_id} "
+            f"and VPC {network_id}; Ready nodes reported: {sum(ready_counts)}"
         )
 
 

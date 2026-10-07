@@ -37,16 +37,21 @@ def _valid_output() -> dict[str, Any]:
             {
                 "name": "isvtest-eks-dev",
                 "role": "primary",
+                "cluster_uid": "primary-kube-system-uid",
+                "ready_node_count": 1,
                 "tenancy_id": "123456789012",
                 "network_id": "vpc-123",
                 "status": "ACTIVE",
+                "api_ready": True,
             },
             {
                 "name": "isvtest-eks-dev-shared-vpc",
                 "role": "secondary",
+                "cluster_uid": "secondary-kube-system-uid",
                 "tenancy_id": "123456789012",
                 "network_id": "vpc-123",
                 "status": "ACTIVE",
+                "api_ready": True,
                 "ready_node_count": 1,
             },
         ],
@@ -178,3 +183,49 @@ def test_passes_when_no_secondary_cluster_is_reported() -> None:
     check = _run_check(output)
 
     assert check.passed, check.message
+
+
+@pytest.mark.parametrize("cluster_index", [0, 1])
+@pytest.mark.parametrize("field", ["cluster_uid", "api_ready", "ready_node_count"])
+def test_each_cluster_requires_live_evidence(cluster_index: int, field: str) -> None:
+    """Lifecycle metadata alone cannot prove either cluster was contacted."""
+    output = _valid_output()
+    output["clusters"][cluster_index].pop(field)
+    check = _run_check(output)
+    assert not check.passed
+    assert field in check.message
+
+
+@pytest.mark.parametrize("cluster_index", [0, 1])
+@pytest.mark.parametrize("api_ready", [False, "true", 1])
+def test_each_cluster_requires_successful_api_probe(cluster_index: int, api_ready: Any) -> None:
+    """Only an explicit successful readiness probe counts as API health evidence."""
+    output = _valid_output()
+    output["clusters"][cluster_index]["api_ready"] = api_ready
+    check = _run_check(output)
+    assert not check.passed
+    assert "api_ready" in check.message
+
+
+def test_two_names_cannot_represent_the_same_cluster() -> None:
+    """The observed kube-system namespace UIDs must identify distinct clusters."""
+    output = _valid_output()
+    output["clusters"][1]["cluster_uid"] = output["clusters"][0]["cluster_uid"]
+    check = _run_check(output)
+    assert not check.passed
+    assert "Duplicate cluster_uid" in check.message
+
+
+def test_primary_cluster_also_needs_ready_nodes() -> None:
+    """A healthy secondary cannot mask an unusable primary cluster."""
+    output = _valid_output()
+    output["clusters"][0]["ready_node_count"] = 0
+    check = _run_check(output)
+    assert not check.passed
+    assert "Ready node" in check.message
+
+
+def test_unconfigured_standalone_check_skips() -> None:
+    """Without provider setup evidence the validation cannot start."""
+    with pytest.raises(pytest.skip.Exception, match="provider"):
+        K8sMultiClusterSameVpcCheck().run()

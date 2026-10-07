@@ -26,7 +26,7 @@
 #   SHARED_VPC_CLUSTER_STATE_FILE      - Local Terraform state filename within
 #                                        terraform-shared-vpc-cluster/ (default
 #                                        "terraform.tfstate")
-#   SECONDARY_CLUSTER_READY_TIMEOUT    - Seconds to wait for a Ready node
+#   SECONDARY_CLUSTER_READY_TIMEOUT    - Seconds to wait for each cluster API and Ready node
 #                                        (default 900)
 #   SECONDARY_CLUSTER_POLL_INTERVAL    - Poll interval in seconds (default 10)
 #   TF_VAR_*                           - Terraform variables for the secondary
@@ -75,47 +75,52 @@ if ! aws sts get-caller-identity &> /dev/null 2>&1; then
     exit 1
 fi
 
-ready_nodes_for_cluster() {
-    local cluster_name="$1"
-    local region="$2"
-    local kubeconfig_path="$3"
+cluster_health_evidence() {
+    local kubeconfig_path="$1"
+    local api_status cluster_uid ready_nodes
 
-    KUBECONFIG="${kubeconfig_path}" aws eks update-kubeconfig \
-        --name "${cluster_name}" \
-        --region "${region}" \
-        --alias "${cluster_name}" > /dev/null
-
-    KUBECONFIG="${kubeconfig_path}" kubectl get nodes -o json \
-        | jq '[.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length'
+    api_status=$(KUBECONFIG="${kubeconfig_path}" kubectl --request-timeout=10s get --raw /readyz) || return 1
+    [[ "${api_status}" == "ok" ]] || return 1
+    cluster_uid=$(KUBECONFIG="${kubeconfig_path}" kubectl --request-timeout=10s \
+        get namespace kube-system -o jsonpath='{.metadata.uid}') || return 1
+    [[ -n "${cluster_uid}" && "${cluster_uid}" != "null" ]] || return 1
+    ready_nodes=$(KUBECONFIG="${kubeconfig_path}" kubectl --request-timeout=10s get nodes -o json \
+        | jq -e '[.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))]
+                 | length | select(. > 0)') || return 1
+    jq -n --arg cluster_uid "${cluster_uid}" --argjson ready_nodes "${ready_nodes}" \
+        '{cluster_uid: $cluster_uid, api_ready: true, ready_node_count: $ready_nodes}'
 }
 
-wait_for_secondary_ready_nodes() {
+wait_for_cluster_health() (
     local cluster_name="$1"
     local region="$2"
     local timeout="${SECONDARY_CLUSTER_READY_TIMEOUT:-900}"
     local poll_interval="${SECONDARY_CLUSTER_POLL_INTERVAL:-10}"
-    local kubeconfig_path
-    local ready_nodes
-    local elapsed=0
+    local kubeconfig_path evidence deadline
 
-    kubeconfig_path="$(mktemp)"
-
-    while [ "${elapsed}" -le "${timeout}" ]; do
-        ready_nodes="$(ready_nodes_for_cluster "${cluster_name}" "${region}" "${kubeconfig_path}" 2>/dev/null || echo "0")"
-        if [ "${ready_nodes}" -ge 1 ]; then
-            echo "${ready_nodes}"
-            rm -f "${kubeconfig_path}"
+    if [[ ! "${timeout}" =~ ^[0-9]+$ || ! "${poll_interval}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: readiness timeout must be non-negative and poll interval must be positive integers" >&2
+        return 1
+    fi
+    kubeconfig_path="$(mktemp)" || return 1
+    trap 'rm -f "${kubeconfig_path}"' EXIT
+    # Never merge cluster credentials into the caller's kubeconfig/current context.
+    aws eks update-kubeconfig --kubeconfig "${kubeconfig_path}" \
+        --name "${cluster_name}" --region "${region}" --alias "${cluster_name}" > /dev/null || return 1
+    deadline=$((SECONDS + 10#${timeout}))
+    while true; do
+        if evidence=$(cluster_health_evidence "${kubeconfig_path}"); then
+            printf '%s\n' "${evidence}"
             return 0
         fi
-        echo "Waiting for secondary cluster node readiness (${ready_nodes} Ready node(s))..." >&2
+        if (( SECONDS >= deadline )); then
+            echo "Error: cluster '${cluster_name}' did not report a ready API and Ready node within ${timeout}s" >&2
+            return 1
+        fi
+        echo "Waiting for cluster '${cluster_name}' API and node readiness..." >&2
         sleep "${poll_interval}"
-        elapsed=$((elapsed + poll_interval))
     done
-
-    echo "Error: secondary cluster '${cluster_name}' did not report a Ready node within ${timeout}s" >&2
-    rm -f "${kubeconfig_path}"
-    return 1
-}
+)
 
 PRIMARY_CLUSTER_NAME=$(terraform -chdir="${CLUSTER_TF_DIR}" output -raw cluster_name)
 AWS_REGION=$(terraform -chdir="${CLUSTER_TF_DIR}" output -raw region)
@@ -154,7 +159,8 @@ PRIMARY_VPC_ID=$(echo "${PRIMARY_INFO}" | jq -r '.cluster.resourcesVpcConfig.vpc
 SECONDARY_STATUS=$(echo "${SECONDARY_INFO}" | jq -r '.cluster.status // empty')
 SECONDARY_VPC_ID=$(echo "${SECONDARY_INFO}" | jq -r '.cluster.resourcesVpcConfig.vpcId // empty')
 
-SECONDARY_READY_NODES=$(wait_for_secondary_ready_nodes "${SECONDARY_CLUSTER_NAME}" "${AWS_REGION}")
+PRIMARY_HEALTH=$(wait_for_cluster_health "${PRIMARY_CLUSTER_NAME}" "${AWS_REGION}")
+SECONDARY_HEALTH=$(wait_for_cluster_health "${SECONDARY_CLUSTER_NAME}" "${AWS_REGION}")
 
 jq -n \
     --arg tenancy_id "${ACCOUNT_ID}" \
@@ -165,7 +171,8 @@ jq -n \
     --arg secondary_name "${SECONDARY_CLUSTER_NAME}" \
     --arg secondary_status "${SECONDARY_STATUS}" \
     --arg secondary_vpc_id "${SECONDARY_VPC_ID}" \
-    --argjson secondary_ready_nodes "${SECONDARY_READY_NODES}" \
+    --argjson primary_health "${PRIMARY_HEALTH}" \
+    --argjson secondary_health "${SECONDARY_HEALTH}" \
     '{
       success: true,
       platform: "kubernetes",
@@ -179,14 +186,13 @@ jq -n \
           tenancy_id: $tenancy_id,
           network_id: $primary_vpc_id,
           status: $primary_status
-        },
+        } + $primary_health,
         {
           name: $secondary_name,
           role: "secondary",
           tenancy_id: $tenancy_id,
           network_id: $secondary_vpc_id,
-          status: $secondary_status,
-          ready_node_count: $secondary_ready_nodes
-        }
+          status: $secondary_status
+        } + $secondary_health
       ]
     }'

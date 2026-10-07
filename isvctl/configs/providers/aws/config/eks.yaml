@@ -59,13 +59,13 @@ commands:
       # K8S26-01: prove a second EKS cluster can coexist in the same AWS
       # account and VPC as the primary cluster. The script reads the primary
       # Terraform state, applies a secondary EKS module with isolated local
-      # state, waits for a Ready node in the secondary cluster, and emits the
-      # multi_cluster JSON contract consumed by K8sMultiClusterSameVpcCheck.
+      # state, probes API readiness, identity and Ready nodes on both clusters,
+      # and emits the multi_cluster contract consumed by K8sMultiClusterSameVpcCheck.
       - name: create_test_shared_vpc_cluster
         phase: setup
         command: "../scripts/eks/create_shared_vpc_cluster.sh"
         output_schema: multi_cluster
-        timeout: 1800
+        timeout: 3600 # provisioning plus bounded readiness checks on both clusters
         env:
           TF_AUTO_APPROVE: "true"
           SHARED_VPC_CLUSTER_STATE_FILE: "terraform.tfstate"
