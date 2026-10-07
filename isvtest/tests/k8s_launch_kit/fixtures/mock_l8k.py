@@ -21,13 +21,6 @@ from typing import Any
 
 import yaml
 
-from isvtest.validations.k8s_launch_kit.checks import (
-    EastWestNetworkDMABufBandwidth,
-    EastWestNetworkIBWriteBandwidth,
-    EastWestNetworkICMPPing,
-    EastWestNetworkRDMAPing,
-)
-
 _FIXTURE = Path(__file__).with_name("launch_kit_scenarios.json")
 _VALUE_FLAGS: dict[str, set[str]] = {
     "validate": {
@@ -380,13 +373,13 @@ def _run_validate(flags: dict[str, str]) -> int:
             case = ET.SubElement(static_suite, "testcase", name=case_name, classname="network.validation")
             ET.SubElement(case, "system-out").text = json.dumps(evidence)
         families = {
-            "icmp": EastWestNetworkICMPPing,
-            "rping": EastWestNetworkRDMAPing,
-            "ib_write_bw": EastWestNetworkIBWriteBandwidth,
-            "gpudirect_dmabuf": EastWestNetworkDMABufBandwidth,
+            "icmp": "ICMPPing",
+            "rping": "RDMAPing",
+            "ib_write_bw": "IBWriteBandwidth",
+            "gpudirect_dmabuf": "DMABufBandwidth",
         }
-        for family, check in families.items():
-            name = check(config={"fabric": scenario["fabric"]})._suite_name()
+        for family, suffix in families.items():
+            name = f"K8sEastWestNetwork{suffix}-{scenario['fabric']}"
             rows = [row for row in connectivity["PingResults"] if row["Family"] == family]
             suite = ET.SubElement(
                 root,
