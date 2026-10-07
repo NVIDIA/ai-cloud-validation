@@ -2865,6 +2865,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[K8S16-01]]K8S16-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify a workload assumes its ServiceAccount-bound platform IAM identity and enforces allowed and denied resource scopes
+| K8S16
+| offtake
+| partial
+| Proves one ServiceAccount identity binding and allowed/denied resource scopes; does not exhaust all identity mechanisms or permission types.
+
 | [[K8S17-02]]K8S17-02
 | Workload Orchestration
 | Managed Kubernetes Control Plane

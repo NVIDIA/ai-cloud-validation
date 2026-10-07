@@ -155,6 +155,7 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "update_node_pool": "node_pool",
     "destroy_test_node_pool": "teardown",
     "destroy_node_pool": "teardown",
+    "service_account_iam_test": "service_account_iam",
     # Multi-cluster operations
     "create_test_shared_vpc_cluster": "multi_cluster",
     "destroy_test_shared_vpc_cluster": "teardown",
@@ -1334,6 +1335,50 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": COMMON_PROPERTIES,
         "additionalProperties": True,
         "description": "Generic schema for unrecognized step names",
+    },
+    # =========================================================================
+    # ServiceAccount IAM schema
+    # =========================================================================
+    "service_account_iam": {
+        "type": "object",
+        "required": ["success", "platform", "test_name"],
+        "properties": {
+            "success": {"type": "boolean"},
+            "platform": {"type": "string"},
+            "test_name": {"type": "string"},
+            "skipped": {"type": "boolean"},
+            "skip_reason": {"type": "string", "minLength": 1},
+            "error": {"type": "string"},
+            "cleanup_errors": {"type": "array", "items": {"type": "string"}},
+            "service_account": {"type": "string", "minLength": 1},
+            "workload_service_account": {"type": "string", "minLength": 1},
+            "expected_identity": {"type": "string", "minLength": 1},
+            "observed_identity": {"type": "string", "minLength": 1},
+            "federated_token_used": {"type": "boolean"},
+            "allowed_access": {"type": "boolean"},
+            "out_of_scope_denied": {"type": "boolean"},
+        },
+        "allOf": [
+            {
+                "if": {"properties": {"success": {"const": True}}, "required": ["success"]},
+                "then": {
+                    "required": [
+                        "service_account",
+                        "workload_service_account",
+                        "expected_identity",
+                        "observed_identity",
+                        "federated_token_used",
+                        "allowed_access",
+                        "out_of_scope_denied",
+                    ]
+                },
+            },
+            {
+                "if": {"properties": {"skipped": {"const": True}}, "required": ["skipped"]},
+                "then": {"properties": {"success": {"const": False}}, "required": ["skip_reason"]},
+            },
+        ],
+        "additionalProperties": True,
     },
     # =========================================================================
     # Multi-cluster schemas

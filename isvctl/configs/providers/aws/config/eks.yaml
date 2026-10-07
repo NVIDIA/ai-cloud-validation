@@ -160,6 +160,18 @@ commands:
         output_schema: k8s_control_plane_patching
         timeout: 120
 
+      # K8S16-01: the script provisions scoped IRSA fixtures, exercises them
+      # from a pod, and cleans them up even when a probe fails.
+      - name: service_account_iam_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/eks/service_account_iam.py"
+        args:
+          - "--cluster-name={{ steps.setup.cluster_name | default(env.EKS_CLUSTER_NAME, true) }}"
+          - "--region={{region}}"
+        output_schema: service_account_iam
+        timeout: 1200
+
       # Scale the CPU pool to a new target count. Re-applies the
       # terraform-node-pool module with a bumped desired_size; create_node_pool.sh
       # is reused because `terraform apply` is idempotent. The emitted

@@ -2079,6 +2079,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: K8S16-01
+    requirements:
+      - req_id: K8S16
+        source: offtake
+        coverage: partial
+    annotations: ''
+    notes: 'Proves one ServiceAccount identity binding and allowed/denied resource scopes; does not exhaust all identity mechanisms or permission types.'
   - test_id: K8S17-02
     requirements:
       - req_id: K8S17

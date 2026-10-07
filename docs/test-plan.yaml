@@ -3973,6 +3973,22 @@ domains:
                 test_id: K8S07-01
                 actor: both
                 status: published
+          - description: Kubernetes ServiceAccount IAM Integration
+            tests:
+              - summary: Verify a workload assumes its ServiceAccount-bound platform IAM identity and enforces allowed and denied resource scopes
+                labels:
+                  - kubernetes
+                  - min_req
+                  - slow
+                priority: P0
+                milestone: M5
+                notes: "Runs cloud operations from a pod and verifies the observed identity. The AWS reference uses IRSA and scoped S3 object reads."
+                github_issues:
+                  - "#663"
+                req_id: K8S16
+                test_id: K8S16-01
+                actor: tenant
+                status: published
           - description: Public OIDC Endpoint
             tests:
               - summary: Verify the cluster exposes a cluster-specific OIDC Issuer endpoint for workload identity federation

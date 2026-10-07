@@ -482,3 +482,44 @@ aws eks delete-cluster --name isv-test-cluster
 - [Terraform Module README](../terraform/README.md) - Detailed Terraform configuration
 - [Configuration Guide](../../../../../../../docs/guides/configuration.md) - Config file options
 - [Remote Deployment](../../../../../../../docs/guides/remote-deployment.md) - Deploy to remote clusters
+
+## Kubernetes ServiceAccount IAM validation (K8S16-01)
+
+The EKS test phase runs `service_account_iam.py` against the configured cluster.
+It creates a temporary IAM role whose web-identity trust policy is restricted to
+one namespace, ServiceAccount, and the `sts.amazonaws.com` audience. An annotated
+ServiceAccount launches a pod using the official AWS CLI image. The controller's
+AWS credentials are never mounted or injected into that pod, and EC2 metadata
+credential fallback is disabled.
+
+The pod must receive the platform-injected web-identity token and assume the
+expected role (verified by its immutable IAM role ID). It must read the exact
+contents of an allowed S3 object and receive `AccessDenied` when reading another
+existing object outside its policy. A network error, missing object, different
+identity, or unexpected successful read fails the test. This checks one IRSA
+binding and resource scope; it does not certify every IAM mechanism or operation.
+
+For an existing EKS cluster with an IAM OIDC provider:
+
+```bash
+uv run python isvctl/configs/providers/aws/scripts/eks/service_account_iam.py \
+  --cluster-name YOUR_CLUSTER --region us-west-2
+```
+
+Use `--image` to select a mirrored AWS CLI image when required. `KUBECTL` can
+select a kubectl-compatible command prefix. The controller needs AWS CLI,
+kubectl, the repository's existing boto3 dependency, `eks:DescribeCluster`, IAM
+OIDC-provider read and role/inline-policy create/delete permissions, and S3
+bucket/object create/delete and public-access-block permissions. Kubernetes
+permissions must allow creation/deletion of the temporary namespace and its
+ServiceAccount and pod, plus pod reads and exec.
+
+A missing cluster setting, executable, credentials, or IAM OIDC provider is a
+prerequisite skip. Failures after execution starts fail the validation. Each run
+uses a temporary kubeconfig and uniquely named fixtures; cleanup attempts all
+created resources, and cleanup errors fail the result. Hard process termination
+or loss of controller access can prevent cleanup; use the reported `isv-ksa-*`
+resource names to remove leftovers before repeating the test.
+
+See [AWS's IRSA setup documentation](https://docs.aws.amazon.com/eks/latest/userguide/associate-service-account-role.html)
+for the ServiceAccount annotation and scoped trust policy.

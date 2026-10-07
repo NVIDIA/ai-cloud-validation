@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Exercise EKS IRSA from a pod, including allowed and out-of-scope S3 reads.
+
+Requires an existing EKS cluster with its IAM OIDC provider configured. Creates
+only uniquely named test resources and removes them before emitting evidence.
+The controller's credentials are never passed to the pod. The pod must receive
+its role/token from the EKS ServiceAccount webhook; EC2 metadata fallback is off.
+"""
+
+import argparse
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import tempfile
+import time
+import uuid
+from collections.abc import Callable
+from contextlib import ExitStack
+from typing import Any
+
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
+
+DEFAULT_IMAGE = "public.ecr.aws/aws-cli/aws-cli:2.34.0"
+
+
+def command(
+    args: list[str], env: dict[str, str], *, payload: dict | None = None, timeout: int = 45, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    """Run a bounded subprocess without a shell and never print credentials."""
+    result = subprocess.run(
+        args, env=env, input=json.dumps(payload) if payload else None, capture_output=True, text=True, timeout=timeout
+    )
+    if check and result.returncode:
+        raise RuntimeError(f"{args[0]} failed: {result.stderr.strip()}")
+    return result
+
+
+def cleanup(errors: list[str], label: str, callback: Callable[..., Any], **kwargs: Any) -> None:
+    """Attempt every cleanup operation, recording failures without masking others."""
+    try:
+        callback(**kwargs)
+    except (BotoCoreError, ClientError, OSError, subprocess.SubprocessError, RuntimeError) as error:
+        errors.append(f"{label}: {error}")
+
+
+def run_probe(cluster_name: str, region: str, image: str, pod_timeout: int) -> dict[str, Any]:
+    """Create a scoped role and use its ServiceAccount binding from a real pod."""
+    result: dict[str, Any] = {"success": False, "platform": "kubernetes", "test_name": "service_account_iam"}
+    kubectl = shlex.split(os.environ.get("KUBECTL") or "kubectl")
+    if not cluster_name or not kubectl or not shutil.which(kubectl[0]) or not shutil.which("aws"):
+        return dict(result, skipped=True, skip_reason="EKS cluster name, kubectl, and AWS CLI are required")
+    errors: list[str] = []
+    try:
+        config = Config(connect_timeout=10, read_timeout=30, retries={"max_attempts": 2})
+        session = boto3.Session(region_name=region)
+        eks, iam, s3 = (session.client(name, config=config) for name in ("eks", "iam", "s3"))
+        cluster = eks.describe_cluster(name=cluster_name)["cluster"]
+        partition, account = cluster["arn"].split(":")[1], cluster["arn"].split(":")[4]
+        issuer = cluster.get("identity", {}).get("oidc", {}).get("issuer", "")
+        if not issuer.startswith("https://"):
+            return dict(result, skipped=True, skip_reason="EKS cluster has no OIDC issuer for IRSA")
+        provider = issuer.removeprefix("https://")
+        provider_arn = f"arn:{partition}:iam::{account}:oidc-provider/{provider}"
+        try:
+            iam.get_open_id_connect_provider(OpenIDConnectProviderArn=provider_arn)
+        except ClientError as error:
+            if error.response["Error"]["Code"] == "NoSuchEntity":
+                return dict(result, skipped=True, skip_reason="The cluster IAM OIDC provider is not configured")
+            raise
+
+        name = "isv-ksa-" + uuid.uuid4().hex[:12]
+        bucket = f"{name}-{account}"
+        nonce = uuid.uuid4().hex
+        with tempfile.TemporaryDirectory(prefix="isv-ksa-iam-") as directory, ExitStack() as stack:
+            env = dict(os.environ, KUBECONFIG=os.path.join(directory, "config"))
+            command(
+                [
+                    "aws",
+                    "eks",
+                    "update-kubeconfig",
+                    "--name",
+                    cluster_name,
+                    "--region",
+                    region,
+                    "--kubeconfig",
+                    env["KUBECONFIG"],
+                ],
+                env,
+            )
+
+            def kube(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+                """Use the target cluster without changing the caller's kubeconfig."""
+                # The subprocess timeout also bounds waits and namespace cleanup,
+                # without a shorter HTTP timeout interrupting a healthy watch.
+                return command([*kubectl, *args], env, **kwargs)
+
+            if kube(["get", "--raw", "/readyz"]).stdout.strip() != "ok":
+                raise RuntimeError("The selected cluster API is not ready")
+            trust = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"Federated": provider_arn},
+                        "Action": "sts:AssumeRoleWithWebIdentity",
+                        "Condition": {
+                            "StringEquals": {
+                                f"{provider}:aud": "sts.amazonaws.com",
+                                f"{provider}:sub": f"system:serviceaccount:{name}:workload",
+                            }
+                        },
+                    }
+                ],
+            }
+            role = iam.create_role(
+                RoleName=name,
+                AssumeRolePolicyDocument=json.dumps(trust),
+                Tags=[{"Key": "CreatedBy", "Value": "isvtest"}],
+            )["Role"]
+            stack.callback(cleanup, errors, f"delete role {name}", iam.delete_role, RoleName=name)
+            result.update(service_account=f"{name}/workload", expected_identity=role["RoleId"])
+            policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": "s3:GetObject",
+                        "Resource": f"arn:{partition}:s3:::{bucket}/allowed",
+                    }
+                ],
+            }
+            iam.put_role_policy(RoleName=name, PolicyName="read-allowed-object", PolicyDocument=json.dumps(policy))
+            stack.callback(
+                cleanup,
+                errors,
+                "delete role policy",
+                iam.delete_role_policy,
+                RoleName=name,
+                PolicyName="read-allowed-object",
+            )
+
+            bucket_args: dict[str, Any] = {"Bucket": bucket}
+            if region != "us-east-1":
+                bucket_args["CreateBucketConfiguration"] = {"LocationConstraint": region}
+            s3.create_bucket(**bucket_args)
+            stack.callback(cleanup, errors, f"delete bucket {bucket}", s3.delete_bucket, Bucket=bucket)
+            s3.put_public_access_block(
+                Bucket=bucket,
+                PublicAccessBlockConfiguration={
+                    "BlockPublicAcls": True,
+                    "IgnorePublicAcls": True,
+                    "BlockPublicPolicy": True,
+                    "RestrictPublicBuckets": True,
+                },
+            )
+            for key in ("allowed", "denied"):
+                s3.put_object(Bucket=bucket, Key=key, Body=nonce.encode())
+                stack.callback(cleanup, errors, f"delete object {key}", s3.delete_object, Bucket=bucket, Key=key)
+
+            kube(["create", "namespace", name])
+            stack.callback(
+                cleanup,
+                errors,
+                f"delete namespace {name}",
+                kube,
+                args=["delete", "namespace", name, "--ignore-not-found", "--timeout=120s"],
+                timeout=135,
+            )
+            kube(
+                ["create", "-f", "-"],
+                payload={
+                    "apiVersion": "v1",
+                    "kind": "ServiceAccount",
+                    "metadata": {
+                        "name": "workload",
+                        "namespace": name,
+                        "annotations": {
+                            "eks.amazonaws.com/role-arn": role["Arn"],
+                            "eks.amazonaws.com/sts-regional-endpoints": "true",
+                        },
+                    },
+                },
+            )
+            kube(
+                ["create", "-f", "-"],
+                payload={
+                    "apiVersion": "v1",
+                    "kind": "Pod",
+                    "metadata": {"name": "probe", "namespace": name},
+                    "spec": {
+                        "serviceAccountName": "workload",
+                        "restartPolicy": "Never",
+                        "activeDeadlineSeconds": pod_timeout + 240,
+                        "containers": [
+                            {
+                                "name": "probe",
+                                "image": image,
+                                "command": ["/bin/sh", "-c", "sleep 1200"],
+                                "resources": {
+                                    "requests": {"cpu": "100m", "memory": "128Mi"},
+                                    "limits": {"cpu": "1", "memory": "512Mi"},
+                                },
+                                "env": [
+                                    {"name": "AWS_EC2_METADATA_DISABLED", "value": "true"},
+                                    {"name": "AWS_DEFAULT_REGION", "value": region},
+                                    {"name": "AWS_MAX_ATTEMPTS", "value": "2"},
+                                ],
+                            }
+                        ],
+                    },
+                },
+            )
+            kube(
+                ["wait", "-n", name, "pod/probe", "--for=condition=Ready", f"--timeout={pod_timeout}s"],
+                timeout=pod_timeout + 15,
+            )
+            pod = json.loads(kube(["get", "pod", "probe", "-n", name, "-o", "json"]).stdout)
+            result["workload_service_account"] = pod["metadata"]["namespace"] + "/" + pod["spec"]["serviceAccountName"]
+            if result["workload_service_account"] != result["service_account"]:
+                raise RuntimeError("Pod is not using the requested ServiceAccount")
+            execute = ["exec", "-n", name, "probe", "-c", "probe", "--"]
+            # Inspect the webhook's binding without printing the token or accepting node credentials.
+            kube(
+                [
+                    *execute,
+                    "/bin/sh",
+                    "-c",
+                    'test "$AWS_ROLE_ARN" = "$1" && test -n "$AWS_WEB_IDENTITY_TOKEN_FILE" '
+                    '&& test -r "$AWS_WEB_IDENTITY_TOKEN_FILE" && test -z "$AWS_ACCESS_KEY_ID"',
+                    "probe",
+                    role["Arn"],
+                ]
+            )
+            result["federated_token_used"] = True
+
+            def aws_in_pod(args: list[str], retry_denied: bool = False) -> subprocess.CompletedProcess[str]:
+                """Retry only explicit IAM propagation denials; leave other failures visible."""
+                for attempt in range(6):
+                    response = kube(
+                        [*execute, "aws", "--cli-connect-timeout", "10", "--cli-read-timeout", "20", *args], check=False
+                    )
+                    if (
+                        response.returncode == 0
+                        or not retry_denied
+                        or "(AccessDenied)" not in response.stderr
+                        or attempt == 5
+                    ):
+                        return response
+                    time.sleep(5)
+                raise AssertionError("unreachable")
+
+            identity = aws_in_pod(["sts", "get-caller-identity", "--output", "json"], retry_denied=True)
+            if identity.returncode:
+                raise RuntimeError(f"Pod could not assume its role: {identity.stderr.strip()}")
+            user_id = json.loads(identity.stdout).get("UserId")
+            result["observed_identity"] = user_id.split(":", 1)[0] if isinstance(user_id, str) else ""
+            if result["observed_identity"] != result["expected_identity"]:
+                raise RuntimeError("Pod assumed an unexpected IAM identity")
+
+            allowed = aws_in_pod(
+                ["s3api", "get-object", "--bucket", bucket, "--key", "allowed", "/tmp/allowed"], retry_denied=True
+            )
+            if allowed.returncode:
+                raise RuntimeError(f"Allowed object read failed: {allowed.stderr.strip()}")
+            result["allowed_access"] = kube([*execute, "cat", "/tmp/allowed"]).stdout == nonce
+            denied = aws_in_pod(["s3api", "get-object", "--bucket", bucket, "--key", "denied", "/tmp/denied"])
+            result["out_of_scope_denied"] = denied.returncode != 0 and (
+                "An error occurred (AccessDenied) when calling the GetObject operation" in denied.stderr
+            )
+            if not result["allowed_access"] or not result["out_of_scope_denied"]:
+                raise RuntimeError(
+                    "Pod did not demonstrate both allowed access and an out-of-scope authorization denial"
+                )
+            result["success"] = True
+    except NoCredentialsError as error:
+        if "expected_identity" in result:
+            result["error"] = str(error)
+        else:
+            result.update(skipped=True, skip_reason="AWS credentials are not configured")
+    except (
+        BotoCoreError,
+        ClientError,
+        OSError,
+        subprocess.SubprocessError,
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as error:
+        result["error"] = str(error)
+    if errors:
+        result.update(success=False, cleanup_errors=errors)
+    return result
+
+
+def main() -> int:
+    """Emit provider-neutral evidence for K8S16-01."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cluster-name", default=os.environ.get("EKS_CLUSTER_NAME", ""))
+    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
+    parser.add_argument("--image", default=DEFAULT_IMAGE)
+    parser.add_argument("--pod-timeout", type=int, default=180)
+    args = parser.parse_args()
+    if not 1 <= args.pod_timeout <= 600:
+        parser.error("--pod-timeout must be between 1 and 600 seconds")
+    output = run_probe(args.cluster_name, args.region, args.image, args.pod_timeout)
+    print(json.dumps(output, indent=2))
+    return 0 if output["success"] or (output.get("skipped") and not output.get("cleanup_errors")) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
