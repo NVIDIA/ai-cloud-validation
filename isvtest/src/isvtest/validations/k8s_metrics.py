@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 import shlex
 from typing import ClassVar
 
 import pytest
-from prometheus_client.parser import text_string_to_metric_families
 
 from isvtest.core.k8s import get_kubectl_command
 from isvtest.core.validation import BaseValidation
@@ -36,6 +36,26 @@ SLO_LABELS = {
     "apiserver_request_duration_seconds_sum": {"resource", "scope", "verb"},
     "apiserver_request_duration_seconds": {"resource", "scope", "verb"},
 }
+
+# Consume the whole quoted value so text inside it cannot become another label key.
+_LABEL = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"(?:\\.|[^"\\])*"')
+
+
+def _sample_labels(line: str) -> tuple[str, set[str]]:
+    """Extract sample names and label keys with basic checks for malformed evidence."""
+    name, separator, rest = line.partition("{")
+    labels: set[str] = set()
+    if separator:
+        label_text, closing, value_text = rest.rpartition("}")
+        keys = _LABEL.findall(label_text)
+        labels = set(keys)
+        if not closing or len(keys) != len(labels) or _LABEL.sub("", label_text).strip(" ,\t"):
+            raise ValueError("invalid or duplicate label")
+    else:
+        name, value_text = line.split(maxsplit=1)
+    value, *_ = value_text.split()
+    float(value)
+    return name.strip(), labels
 
 
 class K8sApiServerMetricsCheck(BaseValidation):
@@ -101,17 +121,30 @@ class K8sApiServerMetricsCheck(BaseValidation):
         has_type = any(line.lstrip().startswith("# TYPE ") for line in lines)
         labels_by_metric: dict[str, set[str]] = {}
         samples_by_metric: dict[str, set[str]] = {}
+        family = ""
+        family_samples: set[str] = set()
         try:
-            for family in text_string_to_metric_families(output):
-                # The request counter must match its exact sample name.
-                if family.type in {"histogram", "summary"} and family.name != "apiserver_request_total":
-                    samples_by_metric.setdefault(family.name, set()).update(sample.name for sample in family.samples)
-                for sample in family.samples:
-                    samples_by_metric.setdefault(sample.name, set()).add(sample.name)
-                    if sample.name in labels_by_metric:
-                        labels_by_metric[sample.name].intersection_update(sample.labels)
+            for line in lines:
+                line = line.strip()
+                if line.startswith("# HELP "):
+                    _, _, declared, *_ = line.split(maxsplit=3)
+                    if declared != family:
+                        family_samples = set()
+                elif line.startswith("# TYPE "):
+                    _, _, family, kind = line.split(maxsplit=3)
+                    suffixes = {"histogram": ("_bucket", "_count", "_sum"), "summary": ("", "_count", "_sum")}
+                    family_samples = {family + suffix for suffix in suffixes.get(kind, ())}
+                    if family == "apiserver_request_total":
+                        family_samples = set()
+                elif line and not line.startswith("#"):
+                    name, labels = _sample_labels(line)
+                    samples_by_metric.setdefault(name, set()).add(name)
+                    if name in family_samples:
+                        samples_by_metric.setdefault(family, set()).add(name)
+                    if name in labels_by_metric:
+                        labels_by_metric[name].intersection_update(labels)
                     else:
-                        labels_by_metric[sample.name] = set(sample.labels)
+                        labels_by_metric[name] = labels
         except ValueError:
             self.set_failed("Response is not in Prometheus text exposition format: could not parse metric samples")
             return

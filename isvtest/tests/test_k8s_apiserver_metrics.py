@@ -82,7 +82,7 @@ def test_summary_does_not_match_bucket_suffix() -> None:
 
 @pytest.mark.parametrize("expected", ["my_counter", "my_counter_total"])
 def test_counter_matches_sample_name_only(expected: str) -> None:
-    """The parser's normalized counter family name is not an exposed sample name."""
+    """A counter's base name cannot replace its exposed sample name ending in _total."""
     result = check_samples("# TYPE my_counter_total counter", "my_counter_total 1", expected_metrics=[expected])
     assert result["passed"] is (expected == "my_counter_total")
 
