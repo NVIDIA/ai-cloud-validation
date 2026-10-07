@@ -114,12 +114,13 @@ class TestBuildCatalog:
             if entry["capability"]:
                 assert entry["requires"] == []
         network_operator = [entry for entry in catalog if "network_operator" in entry["labels"]]
-        assert {(entry["suite"], entry["capability"]) for entry in network_operator} == {("kubernetes", "kubernetes")}
+        assert {(entry["suite"], entry["capability"]) for entry in network_operator} == {("network", None)}
+        assert {tuple(entry["requires"]) for entry in network_operator} == {("kubernetes",)}
         assert sorted(entry["name"] for entry in network_operator) == sorted(
             [
-                "K8sNetworkOperatorDeployment",
+                "NetworkOperatorDeployment",
                 *(
-                    f"K8sEastWestNetwork{family}-{fabric}"
+                    f"EastWestNetwork{family}-{fabric}"
                     for family in ("ICMPPing", "RDMAPing", "IBWriteBandwidth", "DMABufBandwidth")
                     for fabric in ("ethernet", "infiniband")
                 ),

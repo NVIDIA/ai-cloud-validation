@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Kubernetes suite's network_operator group, run end to end against a mock ``l8k``."""
+"""The network suite's network_operator group, run end to end against a mock ``l8k``."""
 
 from __future__ import annotations
 
@@ -17,12 +17,12 @@ from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.loop import Orchestrator, OrchestratorResult, Phase
 
 _REPO = Path(__file__).resolve().parents[2]
-_K8S_SUITE = _REPO / "isvctl" / "configs" / "suites" / "k8s.yaml"
+_NETWORK_SUITE = _REPO / "isvctl" / "configs" / "suites" / "network.yaml"
 _MOCK_L8K = _REPO / "isvtest" / "tests" / "k8s_launch_kit" / "fixtures" / "mock_l8k.py"
 _FAMILIES = ("ICMPPing", "RDMAPing", "IBWriteBandwidth", "DMABufBandwidth")
 _CATALOG_TESTS = [
-    "K8sNetworkOperatorDeployment",
-    *(f"K8sEastWestNetwork{family}-{fabric}" for family in _FAMILIES for fabric in ("ethernet", "infiniband")),
+    "NetworkOperatorDeployment",
+    *(f"EastWestNetwork{family}-{fabric}" for family in _FAMILIES for fabric in ("ethernet", "infiniband")),
 ]
 
 
@@ -37,7 +37,7 @@ def _mock_launch_kit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _run(tmp_path: Path, *, configured: bool = True, junitxml: Path | None = None) -> OrchestratorResult:
-    merged = merge_yaml_files([_K8S_SUITE])
+    merged = merge_yaml_files([_NETWORK_SUITE])
     if configured:
         user_config = tmp_path / "cluster-config.yaml"
         user_config.write_text("profile:\n  fabric: ethernet\n  deployment: sriov\n", encoding="utf-8")
@@ -46,7 +46,7 @@ def _run(tmp_path: Path, *, configured: bool = True, junitxml: Path | None = Non
             "user_config": str(user_config),
             "deployment_files": str(tmp_path / "deployment"),
         }
-    return Orchestrator(RunConfig.model_validate(merged), working_dir=_K8S_SUITE.parent).run(
+    return Orchestrator(RunConfig.model_validate(merged), working_dir=_NETWORK_SUITE.parent).run(
         phases=[Phase.TEST],
         capability="kubernetes",
         include_labels=["network_operator"],
@@ -75,7 +75,7 @@ def test_one_launch_kit_run_feeds_every_catalog_test(tmp_path: Path) -> None:
 
     cases = {case.get("name"): case for case in ET.parse(junit).getroot().iter("testcase")}
     assert set(_CATALOG_TESTS) <= set(cases)
-    assert "K8sEastWestNetworkICMPPing-ethernet::probe-0" in cases
+    assert "EastWestNetworkICMPPing-ethernet::probe-0" in cases
     for name in _CATALOG_TESTS:
         skipped = cases[name].find("skipped")
         if name.endswith("-infiniband"):
@@ -93,17 +93,17 @@ def test_failed_family_is_a_junit_failure(tmp_path: Path, monkeypatch: pytest.Mo
 
     assert result.success is False
     states = _network_operator(result)
-    assert states["K8sEastWestNetworkIBWriteBandwidth-ethernet"] is State.FAILED
-    assert states["K8sEastWestNetworkICMPPing-ethernet"] is State.PASSED
+    assert states["EastWestNetworkIBWriteBandwidth-ethernet"] is State.FAILED
+    assert states["EastWestNetworkICMPPing-ethernet"] is State.PASSED
     # The failed family explains the l8k exit code, so the deployment test stays green.
-    assert states["K8sNetworkOperatorDeployment"] is State.PASSED
+    assert states["NetworkOperatorDeployment"] is State.PASSED
     assert (tmp_path / "_output" / "k8s-launch-kit" / "sosreport.tar.gz").is_file()
     cases = {case.get("name"): case for case in ET.parse(junit).getroot().iter("testcase")}
-    assert cases["K8sEastWestNetworkIBWriteBandwidth-ethernet"].find("failure") is not None
+    assert cases["EastWestNetworkIBWriteBandwidth-ethernet"].find("failure") is not None
 
 
 def test_unconfigured_inputs_skip_every_test(tmp_path: Path) -> None:
-    """Running the Kubernetes suite without Launch Kit inputs never calls l8k."""
+    """Running the network suite without Launch Kit inputs never calls l8k."""
     result = _run(tmp_path, configured=False)
 
     assert set(_network_operator(result).values()) == {State.SKIPPED}
@@ -144,4 +144,4 @@ def test_each_run_checks_the_cluster_again(tmp_path: Path, monkeypatch: pytest.M
     result = _run(tmp_path)
 
     assert result.success is False
-    assert _network_operator(result)["K8sEastWestNetworkIBWriteBandwidth-ethernet"] is State.FAILED
+    assert _network_operator(result)["EastWestNetworkIBWriteBandwidth-ethernet"] is State.FAILED

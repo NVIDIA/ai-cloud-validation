@@ -57,11 +57,6 @@ tests:
 
   settings:
     show_skipped_tests: false
-    # Launch Kit user config and its rendered deployment directory for the
-    # network_operator checks; empty skips them.
-    k8s_launch_kit:
-      user_config: ""
-      deployment_files: ""
 
   validations:
     # Provider-agnostic node-pool CRUD outcome checks. Keep this category
@@ -446,73 +441,6 @@ tests:
           api_health_path: "/readyz"
           probe_timeout_s: 10
           api_endpoint: "{{ steps.setup.kubernetes.api_endpoint | default('', true) }}"
-
-    # Network Operator via Kubernetes Launch Kit (K8S42), which requires its
-    # `l8k` CLI on PATH: https://github.com/NVIDIA/k8s-launch-kit
-    # No step: l8k checks the current cluster itself, in one long run that every
-    # check shares.
-    network_operator:
-      checks:
-        K8sNetworkOperatorDeployment:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-        # Launch Kit runs only the configured fabric; the other fabric's checks skip.
-        K8sEastWestNetworkICMPPing-ethernet:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-          fabric: ethernet
-        K8sEastWestNetworkICMPPing-infiniband:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-          fabric: infiniband
-        K8sEastWestNetworkRDMAPing-ethernet:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-          fabric: ethernet
-        K8sEastWestNetworkRDMAPing-infiniband:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-          fabric: infiniband
-        K8sEastWestNetworkIBWriteBandwidth-ethernet:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-          fabric: ethernet
-        K8sEastWestNetworkIBWriteBandwidth-infiniband:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-          fabric: infiniband
-        K8sEastWestNetworkDMABufBandwidth-ethernet:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-          fabric: ethernet
-        K8sEastWestNetworkDMABufBandwidth-infiniband:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
-          fabric: infiniband
-        # Not in the catalog: a failed sosreport fails the run, not a result above.
-        LaunchKitSosreport:
-          test_id: "N/A"
-          labels: ["kubernetes", "network_operator", "slow"]
-          user_config: "{{ k8s_launch_kit.user_config }}"
-          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
 
     # Break-fix actions that are Kubernetes-shaped (BFX01). Bare-metal
     # BFX checks live in bare_metal.yaml.

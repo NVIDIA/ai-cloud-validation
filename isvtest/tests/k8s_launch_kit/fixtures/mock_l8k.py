@@ -379,7 +379,7 @@ def _run_validate(flags: dict[str, str]) -> int:
             "gpudirect_dmabuf": "DMABufBandwidth",
         }
         for family, suffix in families.items():
-            name = f"K8sEastWestNetwork{suffix}-{scenario['fabric']}"
+            name = f"EastWestNetwork{suffix}-{scenario['fabric']}"
             rows = [row for row in connectivity["PingResults"] if row["Family"] == family]
             suite = ET.SubElement(
                 root,

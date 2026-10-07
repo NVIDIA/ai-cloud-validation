@@ -144,25 +144,25 @@ class _ConnectivityFamilyCheck(_LaunchKitSuiteCheck):
         pytest.skip(f"Launch Kit reported no {name} results")
 
 
-class K8sEastWestNetworkICMPPing(_ConnectivityFamilyCheck):
+class EastWestNetworkICMPPing(_ConnectivityFamilyCheck):
     """Layer 3 (ICMP) connectivity between secondary-network pods."""
 
     description: ClassVar[str] = "Verify ICMP connectivity between secondary-network pods on every rail"
 
 
-class K8sEastWestNetworkRDMAPing(_ConnectivityFamilyCheck):
+class EastWestNetworkRDMAPing(_ConnectivityFamilyCheck):
     """Pod-to-pod RDMA-CM (rping) connectivity."""
 
     description: ClassVar[str] = "Verify pod-to-pod RDMA-CM (rping) connectivity on every rail"
 
 
-class K8sEastWestNetworkIBWriteBandwidth(_ConnectivityFamilyCheck):
+class EastWestNetworkIBWriteBandwidth(_ConnectivityFamilyCheck):
     """Pod-to-pod RDMA bandwidth (ib_write_bw) against the reference minimum."""
 
     description: ClassVar[str] = "Verify pod-to-pod RDMA bandwidth (ib_write_bw) meets the reference minimum"
 
 
-class K8sEastWestNetworkDMABufBandwidth(_ConnectivityFamilyCheck):
+class EastWestNetworkDMABufBandwidth(_ConnectivityFamilyCheck):
     """GPUDirect RDMA (DMA-BUF) bandwidth between GPU-enabled pods."""
 
     description: ClassVar[str] = (
@@ -170,7 +170,7 @@ class K8sEastWestNetworkDMABufBandwidth(_ConnectivityFamilyCheck):
     )
 
 
-class K8sNetworkOperatorDeployment(_LaunchKitSuiteCheck):
+class NetworkOperatorDeployment(_LaunchKitSuiteCheck):
     """Network Operator release, components, Helm values, manifests, and topology presets."""
 
     description: ClassVar[str] = "Verify the Network Operator deployment matches the Launch Kit reference configuration"

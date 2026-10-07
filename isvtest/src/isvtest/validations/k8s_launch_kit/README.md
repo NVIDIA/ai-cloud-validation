@@ -36,7 +36,7 @@ Stale JUnit, HTML report, and sosreport archive are removed before each run.
 Tests run against a mock `l8k`: [`isvtest/tests/k8s_launch_kit/`](../../../../tests/k8s_launch_kit/)
 for the runner and checks, and
 [`isvctl/tests/test_k8s_launch_kit.py`](../../../../../isvctl/tests/test_k8s_launch_kit.py)
-for the Kubernetes suite end to end.
+for the network suite end to end.
 
 ## Rules for changes
 

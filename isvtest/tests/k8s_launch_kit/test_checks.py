@@ -10,15 +10,15 @@ import pytest
 from isvtest.core.validation import BaseValidation
 from isvtest.validations.k8s_launch_kit import checks
 from isvtest.validations.k8s_launch_kit.checks import (
-    K8sEastWestNetworkRDMAPing,
-    K8sNetworkOperatorDeployment,
+    EastWestNetworkRDMAPing,
     LaunchKitSosreport,
+    NetworkOperatorDeployment,
 )
 
 pytestmark = pytest.mark.unit
 
-_PASSING_RDMA = """<testsuite name="K8sEastWestNetworkRDMAPing-ethernet">
-  <testcase name="K8sEastWestNetworkRDMAPing-ethernet::a→b" classname="network.connectivity"/>
+_PASSING_RDMA = """<testsuite name="EastWestNetworkRDMAPing-ethernet">
+  <testcase name="EastWestNetworkRDMAPing-ethernet::a→b" classname="network.connectivity"/>
 </testsuite>"""
 
 
@@ -37,7 +37,7 @@ def _launch_kit(monkeypatch: pytest.MonkeyPatch) -> dict:
 def _execute(
     tmp_path: Path,
     suites: str,
-    check: type[BaseValidation] = K8sEastWestNetworkRDMAPing,
+    check: type[BaseValidation] = EastWestNetworkRDMAPing,
     *,
     fabric: str = "ethernet",
     success: bool = True,
@@ -60,13 +60,13 @@ def test_family_reports_only_its_native_suite(tmp_path: Path) -> None:
     result = _execute(
         tmp_path,
         """
-    <testsuite name="K8sEastWestNetworkRDMAPing-ethernet">
-      <testcase name="K8sEastWestNetworkRDMAPing-ethernet::a→b" classname="network.connectivity" time="0.125">
+    <testsuite name="EastWestNetworkRDMAPing-ethernet">
+      <testcase name="EastWestNetworkRDMAPing-ethernet::a→b" classname="network.connectivity" time="0.125">
         <system-out>srcGPU=2 bandwidthGbps=187.6</system-out>
       </testcase>
     </testsuite>
-    <testsuite name="K8sEastWestNetworkICMPPing-ethernet">
-      <testcase name="K8sEastWestNetworkICMPPing-ethernet::a→b"><failure message="unreachable"/></testcase>
+    <testsuite name="EastWestNetworkICMPPing-ethernet">
+      <testcase name="EastWestNetworkICMPPing-ethernet::a→b"><failure message="unreachable"/></testcase>
     </testsuite>""",
     )
     assert result["passed"]
@@ -80,7 +80,7 @@ def test_family_reports_only_its_native_suite(tmp_path: Path) -> None:
 def test_family_failures_keep_evidence(tmp_path: Path, tag: str) -> None:
     result = _execute(
         tmp_path,
-        f"""<testsuite name="K8sEastWestNetworkRDMAPing-ethernet">
+        f"""<testsuite name="EastWestNetworkRDMAPing-ethernet">
       <testcase name="probe" classname="network.connectivity">
         <{tag} message="bandwidth below threshold">42.5 &lt; 100</{tag}>
         <system-err>connection refused</system-err>
@@ -98,8 +98,8 @@ def test_other_fabric_skips(tmp_path: Path) -> None:
 
 
 def test_disabled_family_skips_with_native_reason(tmp_path: Path) -> None:
-    disabled = """<testsuite name="K8sEastWestNetworkRDMAPing-ethernet">
-      <testcase name="K8sEastWestNetworkRDMAPing-ethernet" classname="network.connectivity">
+    disabled = """<testsuite name="EastWestNetworkRDMAPing-ethernet">
+      <testcase name="EastWestNetworkRDMAPing-ethernet" classname="network.connectivity">
         <skipped message="Check disabled by validation configuration"/>
       </testcase></testsuite>"""
     with pytest.raises(pytest.skip.Exception, match="Check disabled by validation configuration"):
@@ -114,7 +114,7 @@ def test_invalid_fabric_fails(tmp_path: Path) -> None:
     assert not _execute(tmp_path, _PASSING_RDMA, fabric="roce")["passed"]
 
 
-@pytest.mark.parametrize("check", [K8sEastWestNetworkRDMAPing, K8sNetworkOperatorDeployment])
+@pytest.mark.parametrize("check", [EastWestNetworkRDMAPing, NetworkOperatorDeployment])
 @pytest.mark.parametrize("contents", [None, "<broken", "<testcase/>"])
 def test_missing_or_malformed_xml_fails(tmp_path: Path, check: type[BaseValidation], contents: str | None) -> None:
     report = tmp_path / "junit.xml"
@@ -127,7 +127,7 @@ def test_missing_or_malformed_xml_fails(tmp_path: Path, check: type[BaseValidati
 
 @pytest.mark.parametrize("duration", ["NaN", "-1", "Infinity", "invalid"])
 def test_invalid_duration_fails(tmp_path: Path, duration: str) -> None:
-    suite = f"""<testsuite name="K8sEastWestNetworkRDMAPing-ethernet">
+    suite = f"""<testsuite name="EastWestNetworkRDMAPing-ethernet">
       <testcase name="probe" time="{duration}"/></testsuite>"""
     assert not _execute(tmp_path, suite)["passed"]
 
@@ -139,7 +139,7 @@ def test_deployment_reports_validation_suite(tmp_path: Path) -> None:
       <testcase name="NetworkOperatorVersion" classname="network.validation"/>
       <testcase name="IPPool/ns/rail-0" classname="network.validation"/>
     </testsuite>""",
-        K8sNetworkOperatorDeployment,
+        NetworkOperatorDeployment,
     )
     assert result["passed"]
     assert [subtest["name"] for subtest in result["subtests"]] == ["NetworkOperatorVersion", "IPPool/ns/rail-0"]
@@ -151,7 +151,7 @@ def test_deployment_execution_error_fails(tmp_path: Path) -> None:
         """<testsuite name="network/validation">
       <testcase name="ValidationExecution" classname="network.validation"><error message="setup failed"/></testcase>
     </testsuite>""",
-        K8sNetworkOperatorDeployment,
+        NetworkOperatorDeployment,
         success=False,
     )
     assert not result["passed"]
@@ -162,24 +162,24 @@ def test_deployment_execution_error_fails(tmp_path: Path) -> None:
     "suites", ["", '<testsuite name="network/validation"><testcase name="HelmValues"/></testsuite>']
 )
 def test_deployment_owns_unexplained_process_failure(tmp_path: Path, suites: str) -> None:
-    result = _execute(tmp_path, suites + _PASSING_RDMA, K8sNetworkOperatorDeployment, success=False)
+    result = _execute(tmp_path, suites + _PASSING_RDMA, NetworkOperatorDeployment, success=False)
     assert not result["passed"]
     assert result["error"] == "process failed"
 
 
 def test_deployment_does_not_repeat_an_explained_failure(tmp_path: Path) -> None:
-    failing_rdma = """<testsuite name="K8sEastWestNetworkRDMAPing-ethernet">
+    failing_rdma = """<testsuite name="EastWestNetworkRDMAPing-ethernet">
       <testcase name="probe"><failure message="unreachable"/></testcase></testsuite>"""
     result = _execute(
         tmp_path,
         '<testsuite name="network/validation"><testcase name="HelmValues"/></testsuite>' + failing_rdma,
-        K8sNetworkOperatorDeployment,
+        NetworkOperatorDeployment,
         success=False,
     )
     assert result["passed"]
 
 
-@pytest.mark.parametrize("check", [K8sEastWestNetworkRDMAPing, K8sNetworkOperatorDeployment, LaunchKitSosreport])
+@pytest.mark.parametrize("check", [EastWestNetworkRDMAPing, NetworkOperatorDeployment, LaunchKitSosreport])
 def test_unconfigured_inputs_skip_without_running_launch_kit(
     monkeypatch: pytest.MonkeyPatch, check: type[BaseValidation]
 ) -> None:
@@ -206,7 +206,7 @@ def test_failed_sosreport_fails_only_the_sosreport_check(tmp_path: Path) -> None
     assert result["error"] == "sosreport collection failed: l8k sosreport exited with code 1"
 
 
-@pytest.mark.parametrize("check", [K8sEastWestNetworkRDMAPing, K8sNetworkOperatorDeployment])
+@pytest.mark.parametrize("check", [EastWestNetworkRDMAPing, NetworkOperatorDeployment])
 def test_run_error_leads_when_no_report(check: type[BaseValidation]) -> None:
     """A Launch Kit run that produced no report says why, not just that the report is missing."""
     checks.run_launch_kit().update({"success": False, "artifacts": {}, "error": "l8k validate exited with code 2"})
@@ -217,7 +217,7 @@ def test_run_error_leads_when_no_report(check: type[BaseValidation]) -> None:
     assert result["error"] == "l8k validate exited with code 2 (Missing Launch Kit JUnit artifact)"
 
 
-@pytest.mark.parametrize("check", [K8sEastWestNetworkRDMAPing, K8sNetworkOperatorDeployment, LaunchKitSosreport])
+@pytest.mark.parametrize("check", [EastWestNetworkRDMAPing, NetworkOperatorDeployment, LaunchKitSosreport])
 def test_launch_kit_that_cannot_start_skips(check: type[BaseValidation]) -> None:
     """A missing prerequisite means the test never ran: skip, do not fail."""
     reason = "Launch Kit executable not found on PATH: l8k"

@@ -41,6 +41,11 @@ tests:
   settings:
     # Provider-specific - override in your provider config
     region: ""
+    # Launch Kit user config and its rendered deployment directory for the
+    # network_operator checks; empty skips them.
+    k8s_launch_kit:
+      user_config: ""
+      deployment_files: ""
 
   # ─── Validations ─────────────────────────────────────────────────
   # These are PROVIDER-AGNOSTIC. They only check JSON field names/values.
@@ -397,6 +402,84 @@ tests:
           test_id: "SDN19-02"
           labels: ["kubernetes", "min_req", "network", "slow"]
           requires: [kubernetes]
+
+    # Network Operator via Kubernetes Launch Kit (K8S42), which requires its
+    # `l8k` CLI on PATH: https://github.com/NVIDIA/k8s-launch-kit
+    # No step: l8k checks the current cluster itself, in one long run that every
+    # check shares. Requires kubernetes, so a vm or bare-metal run of this suite
+    # neither runs these checks nor provisions a cluster for them.
+    network_operator:
+      checks:
+        NetworkOperatorDeployment:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+        # Launch Kit runs only the configured fabric; the other fabric's checks skip.
+        EastWestNetworkICMPPing-ethernet:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: ethernet
+        EastWestNetworkICMPPing-infiniband:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: infiniband
+        EastWestNetworkRDMAPing-ethernet:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: ethernet
+        EastWestNetworkRDMAPing-infiniband:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: infiniband
+        EastWestNetworkIBWriteBandwidth-ethernet:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: ethernet
+        EastWestNetworkIBWriteBandwidth-infiniband:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: infiniband
+        EastWestNetworkDMABufBandwidth-ethernet:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: ethernet
+        EastWestNetworkDMABufBandwidth-infiniband:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
+          fabric: infiniband
+        # Not in the catalog: a failed sosreport fails the run, not a result above.
+        LaunchKitSosreport:
+          test_id: "N/A"
+          labels: ["kubernetes", "network", "network_operator", "slow"]
+          requires: [kubernetes]
+          user_config: "{{ k8s_launch_kit.user_config }}"
+          deployment_files: "{{ k8s_launch_kit.deployment_files }}"
 
     teardown_checks:
       step: teardown
