@@ -815,7 +815,7 @@ The check does not provision probe pods on every node or test network connectivi
 
 ## Excluding Tests
 
-Use the `tests.exclude` section to deselect tests before they run. Excluded tests are removed from collection entirely (they do not appear as skipped or failed).
+Use the `tests.exclude` section to deselect tests before they run. Excluded tests never run; they are reported as skipped with reason `test_excluded` (see [Deselected Tests in the Run Summary](#deselected-tests-in-the-run-summary)).
 
 ```yaml
 tests:
@@ -880,6 +880,24 @@ isvctl test run -f config.yaml -- -m "workload"
 ```
 
 **Label exclusions are bypassed**, allowing you to explicitly run tests that would normally be excluded. Platform, test name, and file exclusions still apply. Pytest `-m` remains available for advanced internal marker selection.
+
+### Deselected Tests in the Run Summary
+
+Tests deselected by `tests.exclude`, `--label`, `--exclude-label`, or `-- -k`/`-m` are recorded as `SKIPPED - test_excluded` in the JUnit XML and the uploaded report. The ORCHESTRATION RESULTS summary hides them by default and prints a count instead:
+
+```text
+  (39 validations not selected; set show_deselected_tests: true to list them)
+```
+
+To list them individually, enable the setting:
+
+```yaml
+tests:
+  settings:
+    show_deselected_tests: true
+```
+
+Runtime skips (for example, a step that produced no output) are always shown.
 
 ## Test Labels
 
