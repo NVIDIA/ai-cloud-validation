@@ -658,12 +658,16 @@ class InstanceListCheck(BaseValidation):
     """Validate instance list from a VPC.
 
     Checks that the instances list exists, is non-empty (or meets min_count),
-    validates required fields on each instance, and optionally verifies that
-    a target instance appears in the list.
+    validates required fields on each instance, and verifies that the target
+    instance appears in the returned ``instances``. Membership is checked
+    against the list itself; a self-reported ``found_target`` is not trusted.
 
     Config:
         step_output: The step output to check
         min_count: Minimum number of instances expected (default: 1)
+        target_instance: Instance ID that must be listed, typically the launch
+            step's ID (via Jinja2 template). Falls back to the step output's
+            ``target_instance`` when empty.
 
     Step output:
         instances: List of instance dicts
@@ -696,17 +700,15 @@ class InstanceListCheck(BaseValidation):
                     self.set_failed(f"Instance at index {i} missing required field '{field}'")
                     return
 
-        # Check target instance if specified
-        found_target = step_output.get("found_target")
-        target = step_output.get("target_instance")
-
-        if found_target is not None and target:
-            if not found_target:
+        target = self.config.get("target_instance") or step_output.get("target_instance")
+        if target:
+            listed = any(inst["instance_id"] == target for inst in instances)
+            if not listed or step_output.get("found_target") is False:
                 self.set_failed(f"Target instance '{target}' not found in list")
                 return
 
         count = step_output.get("count", len(instances))
         msg = f"Listed {count} instance(s)"
-        if target and found_target:
+        if target:
             msg += f", target '{target}' found"
         self.set_passed(msg)
