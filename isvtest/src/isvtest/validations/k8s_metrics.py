@@ -48,7 +48,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
     - At least one metric sample is present.
     - All metric names configured via ``expected_metrics`` (or the defaults
       ``apiserver_request_total`` / ``apiserver_request_duration_seconds``)
-      are exposed. Exact sample names and parsed metric families match.
+      are exposed. Exact sample names and declared histogram/summary families match.
     - Every observed request counter or latency sample selected by the check
       carries its required SLO labels. Empty label values are allowed, as on
       non-resource requests. Latency buckets require the ``le`` label;
@@ -104,7 +104,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
         try:
             for family in text_string_to_metric_families(output):
                 # The request counter must match its exact sample name.
-                if family.name != "apiserver_request_total":
+                if family.type in {"histogram", "summary"} and family.name != "apiserver_request_total":
                     samples_by_metric.setdefault(family.name, set()).update(sample.name for sample in family.samples)
                 for sample in family.samples:
                     samples_by_metric.setdefault(sample.name, set()).add(sample.name)
@@ -128,7 +128,7 @@ class K8sApiServerMetricsCheck(BaseValidation):
             m
             for m in expected_metrics
             if not samples_by_metric.get(m)
-            or (m == "apiserver_request_duration_seconds" and m + "_bucket" not in metric_names)
+            or (m == "apiserver_request_duration_seconds" and m + "_bucket" not in samples_by_metric.get(m, set()))
         ]
 
         if missing:

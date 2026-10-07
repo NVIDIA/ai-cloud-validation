@@ -65,7 +65,6 @@ def test_unrelated_suffix_does_not_satisfy_custom_metric(metric_type: str | None
         ("summary", "_count"),
         ("summary", "_sum"),
         ("summary", ""),
-        ("counter", ""),
         ("gauge", ""),
     ],
 )
@@ -79,6 +78,32 @@ def test_summary_does_not_match_bucket_suffix() -> None:
     """Only histograms can use bucket samples to satisfy an expected family."""
     result = check_samples("# TYPE my_slo summary", "my_slo_bucket 1", expected_metrics=["my_slo"])
     assert result["passed"] is False
+
+
+@pytest.mark.parametrize("expected", ["my_counter", "my_counter_total"])
+def test_counter_matches_sample_name_only(expected: str) -> None:
+    """The parser's normalized counter family name is not an exposed sample name."""
+    result = check_samples("# TYPE my_counter_total counter", "my_counter_total 1", expected_metrics=[expected])
+    assert result["passed"] is (expected == "my_counter_total")
+
+
+@pytest.mark.parametrize("family_type", ["summary", "histogram"])
+@pytest.mark.parametrize("bucket_type", ["gauge", None])
+def test_latency_bucket_must_belong_to_histogram(family_type: str, bucket_type: str | None) -> None:
+    """An independent bucket-named sample cannot supply histogram evidence."""
+    bucket = BUCKET.splitlines()[-1]
+    count = bucket.replace("_bucket", "_count").replace(',le="1"', "")
+    # Start a separate family before emitting the bucket sample.
+    declaration = (
+        "# HELP unrelated Separate metric"
+        if bucket_type is None
+        else f"# TYPE apiserver_request_duration_seconds_bucket {bucket_type}"
+    )
+    result = check_samples(
+        COUNTER, f"# TYPE apiserver_request_duration_seconds {family_type}", count, declaration, bucket
+    )
+    assert result["passed"] is False
+    assert "Missing expected metrics: apiserver_request_duration_seconds" in result["error"]
 
 
 @pytest.mark.parametrize("label", ["code", "resource", "scope", "verb"])
