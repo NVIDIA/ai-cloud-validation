@@ -160,7 +160,7 @@ commands:
 
 | Field | Required | Description |
 | ----- | -------- | ----------- |
-| `phases` | No | Ordered list of phases (default: `["setup", "test", "teardown"]`) |
+| `phases` | No | Ordered list of phases (default: `["setup", "teardown"]`) |
 | `steps` | Yes | List of step configurations |
 | `skip` | No | Skip this entire platform |
 
@@ -189,12 +189,16 @@ Each step defines a command to execute:
 | `phase` | No | Phase this step belongs to (default: `setup`) |
 | `command` | Yes | Script/command to execute |
 | `args` | No | Arguments (supports Jinja2 templates) |
-| `timeout` | No | Timeout in seconds (default: 300) |
+| `timeout` | No | Orchestration watchdog in seconds (default: 300); `null` disables it |
 | `env` | No | Environment variables |
 | `skip` | No | Skip this step |
 | `continue_on_failure` | No | Continue even if this step fails |
 | `output_schema` | No | Schema name for output validation |
 | `requires` | No | Capability contexts this step runs in (see [Capabilities](#capabilities-and-requires)) |
+
+Set `timeout: null` only when the command enforces its own deadline. On POSIX,
+a timed-out step's whole process group is stopped (`SIGTERM`, then `SIGKILL`),
+so child processes do not outlive it.
 
 #### Gating a step with `requires`
 

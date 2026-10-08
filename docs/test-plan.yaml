@@ -2084,6 +2084,83 @@ domains:
                 test_id: SDN09-03
                 actor: tenant
                 status: published
+          - description: Network Operator validation through Kubernetes Launch Kit
+            tests:
+              - summary: Verify the Network Operator deployment matches the Launch Kit reference configuration
+                labels:
+                  - kubernetes
+                  - network
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: SDN29
+                test_id: SDN29-01
+                actor: operator
+                status: pending
+                notes: ""
+              - summary: Verify ICMP connectivity between secondary-network pods on every rail
+                labels:
+                  - kubernetes
+                  - network
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: SDN29
+                test_id: SDN29-02
+                actor: operator
+                status: pending
+                notes: "Ethernet and InfiniBand variants share this test ID"
+              - summary: Verify pod-to-pod RDMA-CM (rping) connectivity on every rail
+                labels:
+                  - kubernetes
+                  - network
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: SDN29
+                test_id: SDN29-03
+                actor: operator
+                status: pending
+                notes: "Ethernet and InfiniBand variants share this test ID"
+              - summary: Verify pod-to-pod RDMA bandwidth (ib_write_bw) meets the reference minimum
+                labels:
+                  - kubernetes
+                  - network
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: SDN29
+                test_id: SDN29-04
+                actor: operator
+                status: pending
+                notes: "Ethernet and InfiniBand variants share this test ID"
+              - summary: Verify GPUDirect RDMA (DMA-BUF) bandwidth between GPU pods meets the reference minimum
+                labels:
+                  - kubernetes
+                  - network
+                  - network_operator
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                req_id: SDN29
+                test_id: SDN29-05
+                actor: operator
+                status: pending
+                notes: "Ethernet and InfiniBand variants share this test ID"
       - name: Metadata Service
         capabilities:
           - description: shared service source of truth for resource metadata such as nodes, GPUs, topology, and ownership. Enables scheduling, automation, and lifecycle management.

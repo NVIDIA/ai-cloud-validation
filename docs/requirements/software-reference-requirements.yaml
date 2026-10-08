@@ -499,6 +499,13 @@ requirements:
     reference_mapping: 'NSRG: SDN Layer'
     covers_test: SDN28-01
     status: ''
+  - req_id: SDN29
+    domain: Infrastructure and Data Services
+    component: SDN Controller
+    description: Network Operator validation through Kubernetes Launch Kit
+    reference_mapping: ''
+    covers_test: SDN29-01
+    status: ''
   - req_id: META01
     domain: Infrastructure and Data Services
     component: Metadata Service

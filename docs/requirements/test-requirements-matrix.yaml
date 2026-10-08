@@ -8,7 +8,7 @@
 #
 # Per mapping:
 #   test_id       - matches docs/test-plan.yaml
-#   requirements  - list of { req_id, source: offtake|reference, coverage: full|partial }
+#   requirements  - list of { req_id, source: <registered source>, coverage: full|partial }
 #   annotations   - free-form (e.g. how this relationship was decided)
 #   notes         - free-form scratch
 #
@@ -2609,4 +2609,90 @@ mappings:
         source: offtake
         coverage: full
     annotations: ''
+    notes: ''
+  - test_id: SDN29-01
+    requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-001
+        source: network-operator-prd
+        coverage: full
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-004
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-007
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-009
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-011
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-012
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-013
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'Requirements that apply to the whole group (ENT-REQ-001, 004, 007, 011, 012, 013) are mapped once, here. AI Cloud Labs binary attachment upload remains a gap.'
+    notes: ''
+  - test_id: SDN29-02
+    requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: SDN29-03
+    requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: SDN29-04
+    requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-002
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-005
+        source: network-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-006
+        source: network-operator-prd
+        coverage: partial
+    annotations: ''
+    notes: ''
+  - test_id: SDN29-05
+    requirements:
+      - req_id: SDN29
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-008
+        source: network-operator-prd
+        coverage: partial
+    annotations: 'The requirement asks for peer-to-peer connectivity; this test reports bandwidth.'
     notes: ''

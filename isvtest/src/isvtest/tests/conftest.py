@@ -65,6 +65,12 @@ def pytest_configure(config: pytest.Config) -> None:
         config.addinivalue_line("markers", marker)
 
 
+@pytest.fixture(scope="session")
+def validation_session_state() -> dict[str, Any]:
+    """State validations share within one session, such as one run of an external tool."""
+    return {}
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Add custom command-line options."""
     parser.addoption(

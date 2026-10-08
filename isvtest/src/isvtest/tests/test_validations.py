@@ -225,6 +225,7 @@ def test_validation(
     validation_config: dict[str, Any],
     validation_name: str,
     subtests: "SubTests",
+    validation_session_state: dict[str, Any],
 ) -> None:
     """Run an ISV validation test.
 
@@ -233,6 +234,7 @@ def test_validation(
         validation_config: Configuration dictionary for the validation (includes inventory).
         validation_name: Display name for the validation (may include variant suffix).
         subtests: Subtests fixture for reporting nested test results.
+        validation_session_state: State shared by every validation of this session.
     """
     # All validations use LocalRunner - they run commands on the local host
     # (even Kubernetes validations just run kubectl commands from outside the cluster)
@@ -245,6 +247,7 @@ def test_validation(
 
     # Inject subtests fixture for nested test reporting
     validation._subtests = subtests
+    validation.session_state = validation_session_state
 
     # Run the validation, capturing skips so they appear in the orchestration summary
     category = validation_config.get("_category", "")
@@ -264,6 +267,9 @@ def test_validation(
         )
         raise
 
+    outcomes = {"passed": 0, "failed": 0, "skipped": 0}
+    for subtest in result.get("subtests", []):
+        outcomes["skipped" if subtest.get("skipped") else "passed" if subtest.get("passed") else "failed"] += 1
     _validation_results.append(
         {
             "name": validation_name,
@@ -273,6 +279,7 @@ def test_validation(
             "category": category,
             "duration": result.get("duration", 0.0),
             "error_reason": result.get("error_reason"),
+            "subtest_summary": {"total": sum(outcomes.values()), **outcomes},
         }
     )
 

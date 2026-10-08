@@ -137,6 +137,7 @@ This document lists requirements derived from the *NCP Software Reference Guide*
 | SDN26 | SDN Controller | IMEX: From workload pods in a ComputeDomain run nvbandwidth-test-job | NSRG: Kubernetes Architecture for ML/AI (IMEX) / Performance Requirements | `SDN26-01` |  |
 | SDN27 | SDN Controller | IMEX: After workload completes, assert ComputeDomain and associated IMEX resources are cleaned up. | NSRG: Kubernetes Architecture for ML/AI (IMEX) | `SDN27-01` |  |
 | SDN28 | SDN Controller | Redundant Gateways | NSRG: SDN Layer | `SDN28-01` |  |
+| SDN29 | SDN Controller | Network Operator validation through Kubernetes Launch Kit |  | `SDN29-01` |  |
 
 ### Metadata Service
 

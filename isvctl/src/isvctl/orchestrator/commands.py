@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from isvtest.core.process import run_command_process
 from pydantic import ValidationError
 
 from isvctl.config.schema import CommandConfig, CommandOutput
@@ -132,12 +133,10 @@ class CommandExecutor:
         logger.debug(f"Working directory: {cwd}")
 
         try:
-            result = subprocess.run(
+            result = run_command_process(
                 cmd_parts,
                 cwd=cwd,
                 env=env,
-                capture_output=True,
-                text=True,
                 timeout=config.timeout,
             )
 

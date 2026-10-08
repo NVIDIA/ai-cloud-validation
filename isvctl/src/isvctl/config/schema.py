@@ -83,7 +83,10 @@ class StepConfig(BaseModel):
         default_factory=list,
         description="Command arguments (supports Jinja2 templating with {{ steps.prev_step.field }})",
     )
-    timeout: int = Field(default=300, description="Timeout in seconds")
+    timeout: int | None = Field(
+        default=300,
+        description="Timeout in seconds; null disables the orchestration watchdog",
+    )
     env: dict[str, str] = Field(default_factory=dict, description="Additional environment variables")
     working_dir: str | None = Field(default=None, description="Working directory for command execution")
     skip: bool = Field(default=False, description="Skip this step")
