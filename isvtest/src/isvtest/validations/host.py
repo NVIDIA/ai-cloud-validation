@@ -1937,12 +1937,6 @@ class ContainerRuntimeCheck(BaseValidation):
 
     description: ClassVar[str] = "Tests GPU-capable container runtime support"
     timeout: ClassVar[int] = 300
-    containerd_config_dirs: ClassVar[tuple[str, ...]] = (
-        "/etc/containerd/",
-        "/var/snap/microk8s/current/args/",
-        "/var/lib/rancher/k3s/agent/etc/containerd/",
-        "/var/lib/rancher/rke2/agent/etc/containerd/",
-    )
 
     def _check_cmd(self, ssh: object, cmd: str) -> str:
         """Run cmd via SSH and return stdout."""
@@ -1959,16 +1953,20 @@ class ContainerRuntimeCheck(BaseValidation):
         """Return True when nvidia-container-runtime is installed and configured as an OCI hook.
 
         Checks both binary presence and containerd integration: verifies the
-        runtime binary exists and is referenced in a containerd configuration
-        file (stock containerd, MicroK8s, k3s, or RKE2 location).
+        runtime binary exists and that the configuration containerd loads
+        (``containerd config dump``) defines a runtime handler backed by it.
         """
         # Step 1: binary must exist.
         out = self._check_cmd(ssh, "nvidia-container-runtime --version 2>/dev/null || echo '__not_found__'")
         if "__not_found__" in out or not out.strip():
             return False
-        # Step 2: verify containerd is configured to use it as an OCI runtime.
-        dirs = " ".join(self.containerd_config_dirs)
-        config_out = self._check_cmd(ssh, f"grep -rl 'nvidia' {dirs} 2>/dev/null | head -1")
+        # Step 2: the dump resolves imports and omits disabled plugins, so stray files can't match.
+        # config.toml is often root-only; containerd 2.x quotes values with ', 1.x with ".
+        config_out = self._check_cmd(
+            ssh,
+            "{ sudo -n containerd config dump || containerd config dump; } 2>/dev/null "
+            "| grep -E 'BinaryName = .[^ ]*nvidia-container-runtime' | head -1",
+        )
         return config_out.strip() != ""
 
     def _run_gpu_container(self, ssh: object, run_cmd: str) -> bool:

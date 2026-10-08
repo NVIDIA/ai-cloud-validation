@@ -98,7 +98,7 @@ class TestDockerLevel:
                 "nerdctl --version": "__not_found__",
                 "containerd --version": "containerd 1.7.0",
                 "nvidia-container-runtime --version": "NVIDIA Container Runtime 1.19.0",
-                "grep -rl": "/etc/containerd/config.toml",
+                "containerd config dump": "BinaryName = '/usr/bin/nvidia-container-runtime'",
                 "__default__": "__not_found__",
             },
         )
@@ -164,7 +164,7 @@ class TestNerdctlLevel:
                 "nerdctl run": "__gpu_run_failed__",
                 "containerd --version": "containerd 1.7.0",
                 "nvidia-container-runtime --version": "NVIDIA Container Runtime 1.19.0",
-                "grep -rl": "/etc/containerd/config.toml",
+                "containerd config dump": "BinaryName = '/usr/bin/nvidia-container-runtime'",
                 "__default__": "__not_found__",
             },
         )
@@ -215,7 +215,7 @@ class TestContainerdLevel:
                 "nerdctl --version": "__not_found__",
                 "containerd --version": "containerd 1.7.0",
                 "nvidia-container-runtime --version": "NVIDIA Container Runtime 1.19.0",
-                "grep -rl": "/etc/containerd/config.toml",
+                "containerd config dump": "BinaryName = '/usr/bin/nvidia-container-runtime'",
                 "__default__": "__not_found__",
             },
         )
@@ -258,7 +258,7 @@ class TestContainerdLevel:
                 "nerdctl --version": "__not_found__",
                 "containerd --version": "containerd 1.7.0",
                 "nvidia-container-runtime --version": "NVIDIA Container Runtime 1.19.0",
-                "grep -rl": "/etc/containerd/config.toml",
+                "containerd config dump": "BinaryName = '/usr/bin/nvidia-container-runtime'",
                 "__default__": "__not_found__",
             },
             ngc_key="test-ngc-token",
@@ -267,46 +267,71 @@ class TestContainerdLevel:
 
 
 class TestContainerdConfigProbe:
-    """Execute the real containerd config probe in sh against a fake filesystem."""
+    """Execute the real probe in sh against stub ``containerd`` and ``sudo`` binaries."""
+
+    CONTAINERD2_GPU_OPERATOR = (
+        "imports = ['/etc/containerd/conf.d/*.toml']\n"
+        "[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.nvidia.options]\n"
+        "  BinaryName = '/usr/local/nvidia/toolkit/nvidia-container-runtime'\n"
+        "[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]\n"
+        "  BinaryName = '/usr/local/bin/runc'\n"
+    )
+    CONTAINERD1_NVIDIA_CTK = (
+        '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]\n'
+        '  BinaryName = "/usr/bin/nvidia-container-runtime"\n'
+    )
+    RUNC_ONLY = '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]\n  BinaryName = ""\n'
+    CRI_DISABLED = 'disabled_plugins = ["cri"]\nimports = ["/etc/containerd/config.toml"]\n'
 
     @pytest.mark.parametrize(
-        ("config_file", "expected"),
+        ("dump", "expected"),
         [
-            ("/etc/containerd/config.toml", True),
-            ("/etc/containerd/conf.d/99-nvidia.toml", True),
-            ("/var/snap/microk8s/current/args/containerd-template.toml", True),
-            ("/var/lib/rancher/k3s/agent/etc/containerd/config.toml", True),
-            ("/var/lib/rancher/rke2/agent/etc/containerd/config.toml", True),
-            (None, False),
+            (CONTAINERD2_GPU_OPERATOR, True),
+            (CONTAINERD1_NVIDIA_CTK, True),
+            (RUNC_ONLY, False),
+            (CRI_DISABLED, False),
         ],
-        ids=["stock", "stock-drop-in", "microk8s", "k3s", "rke2", "none"],
+        ids=["containerd2-gpu-operator", "containerd1-nvidia-ctk", "runc-only", "cri-disabled"],
     )
-    def test_detects_nvidia_in_known_config_dirs(self, tmp_path: Path, config_file: str | None, expected: bool) -> None:
-        if config_file:
-            self._write(tmp_path, config_file, 'default_runtime_name = "nvidia"\n')
-        self._write(tmp_path, "/etc/containerd/certs.d/hosts.toml", 'server = "https://registry-1.docker.io"\n')
-        assert self._probe(tmp_path) is expected
+    def test_detects_nvidia_runtime_handler(self, tmp_path: Path, dump: str, expected: bool) -> None:
+        assert self._probe(tmp_path, dump, sudo_ok=True, readable_without_root=False) is expected
+
+    @pytest.mark.parametrize(
+        ("readable_without_root", "expected"), [(True, True), (False, False)], ids=["readable", "root-only"]
+    )
+    def test_without_sudo(self, tmp_path: Path, readable_without_root: bool, expected: bool) -> None:
+        assert (
+            self._probe(
+                tmp_path, self.CONTAINERD1_NVIDIA_CTK, sudo_ok=False, readable_without_root=readable_without_root
+            )
+            is expected
+        )
 
     @staticmethod
-    def _write(root: Path, path: str, content: str) -> None:
-        target = root / path.lstrip("/")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content)
-
-    @staticmethod
-    def _probe(root: Path) -> bool:
-        dirs = " ".join(ContainerRuntimeCheck.containerd_config_dirs)
-        fake_dirs = " ".join(f"{root}{d}" for d in ContainerRuntimeCheck.containerd_config_dirs)
+    def _probe(root: Path, dump: str, sudo_ok: bool, readable_without_root: bool) -> bool:
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        dump_file = root / "dump.toml"
+        dump_file.write_text(dump)
+        stubs = {
+            "sudo": '#!/bin/sh\n[ "$1" = -n ] && shift\nAS_ROOT=1 exec "$@"\n' if sudo_ok else "#!/bin/sh\nexit 1\n",
+            "containerd": (
+                f'#!/bin/sh\nif [ "$AS_ROOT" = 1 ] || [ {int(readable_without_root)} = 1 ]; then cat {dump_file}; '
+                "else echo 'permission denied' >&2; exit 1; fi\n"
+            ),
+        }
+        for name, script in stubs.items():
+            (bin_dir / name).write_text(script)
+            (bin_dir / name).chmod(0o755)
 
         def _run_locally(ssh: object, cmd: str) -> tuple[int, str, str]:
             if "nvidia-container-runtime --version" in cmd:
                 return 0, "NVIDIA Container Runtime 1.19.0", ""
-            assert dirs in cmd
             proc = subprocess.run(
-                ["sh", "-c", cmd.replace(dirs, fake_dirs)],
+                ["sh", "-c", cmd],
                 capture_output=True,
                 text=True,
-                env={"PATH": "/usr/bin:/bin"},
+                env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
                 check=False,
             )
             return proc.returncode, proc.stdout, proc.stderr
@@ -330,7 +355,7 @@ class TestRuncLevel:
                 "containerd --version": "__not_found__",
                 "runc --version": "runc version 1.1.0",
                 "nvidia-container-runtime --version": "NVIDIA Container Runtime 1.19.0",
-                "grep -rl": "/etc/containerd/config.toml",
+                "containerd config dump": "BinaryName = '/usr/bin/nvidia-container-runtime'",
                 "__default__": "__not_found__",
             },
         )
@@ -361,7 +386,7 @@ class TestRuncLevel:
                 "runc --version": "__not_found__",
                 "crun --version": "crun version 1.0",
                 "nvidia-container-runtime --version": "NVIDIA Container Runtime 1.19.0",
-                "grep -rl": "/etc/containerd/config.toml",
+                "containerd config dump": "BinaryName = '/usr/bin/nvidia-container-runtime'",
                 "__default__": "__not_found__",
             },
         )
