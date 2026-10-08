@@ -1529,6 +1529,8 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                         "passed": {"type": "boolean"},
                         "message": {"type": "string"},
                         "error": {"type": "string"},
+                        "skipped": {"type": "boolean"},
+                        "skip_reason": {"type": "string"},
                     },
                 },
                 "description": "Workload probes: identity, allowed_access, out_of_scope_denied",

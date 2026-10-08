@@ -35,6 +35,10 @@ ROOT = Path(__file__).resolve().parents[3]
 NAMESPACE = "isv-ksa-" + "1" * 12
 ROLE_ARN = f"arn:aws:iam::123456789012:role/{NAMESPACE}"
 DENIAL = "An error occurred (AccessDenied) when calling the GetObject operation: Access Denied"
+STS_UNREACHABLE = (
+    'aws: [ERROR]: Could not connect to the endpoint URL: "https://sts.us-west-2.amazonaws.com/"\n'
+    "command terminated with exit code 255"
+)
 
 
 @pytest.fixture
@@ -58,7 +62,9 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     )
     monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
     monkeypatch.delenv("KUBECTL", raising=False)
-    state = SimpleNamespace(module=module, eks=eks, iam=iam, s3=s3, calls=[], manifests=[], fault="", retries=0)
+    state = SimpleNamespace(
+        module=module, eks=eks, iam=iam, s3=s3, calls=[], manifests=[], fault="", retries=0, dns=(0, "")
+    )
 
     def run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         """Model only external command outcomes, not the workflow's decisions."""
@@ -82,6 +88,8 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             if "/bin/sh" in args:
                 if state.fault == "token":
                     code, stderr = 1, "web identity token not injected"
+            elif "getent" in args:
+                code, stdout = state.dns
             elif "get-caller-identity" in args:
                 stdout = json.dumps(
                     {"UserId": "node-role:session" if state.fault == "identity" else "expected-role-id:session"}
@@ -89,7 +97,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
                 if state.fault == "identity-json":
                     stdout = "invalid JSON"
                 if state.fault == "sts":
-                    code, stderr = 1, "Could not connect to STS endpoint"
+                    code, stderr = 255, STS_UNREACHABLE
                 if state.fault == "propagation" and state.retries == 0:
                     state.retries += 1
                     code, stderr = 1, "An error occurred (AccessDenied) when calling AssumeRoleWithWebIdentity"
@@ -198,11 +206,35 @@ def test_failed_execution_is_not_a_skip_and_always_cleans_up(probe: SimpleNamesp
     probe.fault = fault
     output = execute(probe)
     assert output["success"] is False and not output.get("skipped") and output["error"]
-    assert not all(test["passed"] for test in output["tests"].values())
+    failed = [test for test in output["tests"].values() if "error" in test]
+    assert len(failed) == 1 and not failed[0]["passed"]  # Only the probe that was running carries the error.
     probe.iam.delete_role.assert_called_once()
     probe.s3.delete_bucket.assert_called_once()
     assert any("delete" in args for args, _ in probe.calls)
     assert all(not Path(kwargs["env"]["KUBECONFIG"]).exists() for _, kwargs in probe.calls)
+
+
+@pytest.mark.parametrize(
+    ("dns", "hint"),
+    [
+        ((0, "10.0.1.5        sts.us-west-2.amazonaws.com\n"), "pod resolved sts.us-west-2.amazonaws.com to 10.0.1.5"),
+        ((2, ""), "pod could not resolve sts.us-west-2.amazonaws.com"),
+        ((127, ""), "pod DNS lookup of sts.us-west-2.amazonaws.com unavailable"),
+    ],
+)
+def test_unreachable_endpoint_reports_pod_dns_and_skips_later_probes(
+    probe: SimpleNamespace, dns: tuple[int, str], hint: str
+) -> None:
+    """A connection failure says what the pod resolved; probes after it are not reached, not failed."""
+    probe.fault, probe.dns = "sts", dns
+    output = execute(probe)
+    identity, allowed, denied = (output["tests"][name] for name in probe.module.PROBES)
+    assert hint in identity["error"] and "command terminated" not in identity["error"]
+    assert allowed["skipped"] is True and denied["skipped"] is True
+    assert "error_type" not in output  # Not an AWS SDK error on the controller.
+    check = K8sServiceAccountIamCheck(config={"step_output": output})
+    check.run()
+    assert not check.passed and "allowed_access" not in check.message
 
 
 def test_failed_namespace_creation_does_not_delete_existing_namespace(probe: SimpleNamespace) -> None:
@@ -263,6 +295,7 @@ def test_credentials_disappear_after_start_is_failure(probe: SimpleNamespace) ->
     probe.iam.put_role_policy.side_effect = NoCredentialsError()
     output = execute(probe)
     assert not output["success"] and not output.get("skipped")
+    assert output["error_type"] == "credentials_missing"
     probe.iam.delete_role.assert_called_once()
 
 

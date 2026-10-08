@@ -25,6 +25,7 @@ its role/token from the EKS ServiceAccount webhook; EC2 metadata fallback is off
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -42,11 +43,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-from common.errors import classify_aws_error, delete_with_retry, stamp_test_errors
+from common.errors import classify_aws_error, delete_with_retry
 
 DEFAULT_IMAGE = "public.ecr.aws/aws-cli/aws-cli:2.34.0"
 POD_READY_TIMEOUT = 180
 PROBES = ("identity", "allowed_access", "out_of_scope_denied")
+ENDPOINT_ERROR = re.compile(r'Could not connect to the endpoint URL: "https?://([^/:"]+)')
 
 
 def command(
@@ -65,6 +67,15 @@ def cleanup(errors: list[str], label: str, delete: Callable[..., Any], **kwargs:
     """Delete one AWS fixture with retries, recording a failure without masking others."""
     if not delete_with_retry(delete, resource_desc=label, **kwargs):
         errors.append(f"Could not {label}")
+
+
+def record_failure(tests: dict[str, dict[str, Any]], error: str) -> None:
+    """Attach the error to the probe that was running; later probes were never reached."""
+    pending = [test for test in tests.values() if not test["passed"]]
+    if pending:
+        pending[0]["error"] = error
+    for test in pending[1:]:
+        test.update(skipped=True, skip_reason="Not reached: an earlier probe failed")
 
 
 def run_probe(cluster_name: str, region: str, image: str) -> dict[str, Any]:
@@ -273,9 +284,32 @@ def run_probe(cluster_name: str, region: str, image: str) -> dict[str, Any]:
                     time.sleep(5)
                 return kube(args, check=False)
 
+            def explain(stderr: str) -> str:
+                """Summarize an in-pod AWS CLI failure, adding the pod's DNS view of an unreachable endpoint."""
+                detail = "; ".join(
+                    line.strip()
+                    for line in stderr.splitlines()
+                    if line.strip() and not line.startswith("command terminated with exit code")
+                )
+                match = ENDPOINT_ERROR.search(stderr)
+                if not match:
+                    return detail
+                host = match.group(1)
+                # getent exits 2 when the name does not resolve.
+                try:
+                    lookup = kube([*execute, "getent", "hosts", host], check=False)
+                except (OSError, subprocess.SubprocessError):
+                    return f"{detail} (pod DNS lookup of {host} unavailable)"
+                if lookup.returncode == 0:
+                    addresses = sorted({line.split()[0] for line in lookup.stdout.splitlines() if line.strip()})
+                    return f"{detail} (pod resolved {host} to {', '.join(addresses)})"
+                if lookup.returncode == 2:
+                    return f"{detail} (pod could not resolve {host})"
+                return f"{detail} (pod DNS lookup of {host} unavailable)"
+
             identity = aws_in_pod(["sts", "get-caller-identity", "--output", "json"], retry_denied=True)
             if identity.returncode:
-                raise RuntimeError(f"Pod could not assume its role: {identity.stderr.strip()}")
+                raise RuntimeError(f"Pod could not assume its role: {explain(identity.stderr)}")
             user_id = json.loads(identity.stdout).get("UserId")
             # Compare the immutable role ID: a node or other role cannot match it.
             if not isinstance(user_id, str) or user_id.split(":", 1)[0] != role["RoleId"]:
@@ -289,15 +323,17 @@ def run_probe(cluster_name: str, region: str, image: str) -> dict[str, Any]:
                 ["s3api", "get-object", "--bucket", bucket, "--key", "allowed", "/tmp/allowed"], retry_denied=True
             )
             if allowed.returncode:
-                raise RuntimeError(f"Allowed object read failed: {allowed.stderr.strip()}")
+                raise RuntimeError(f"Allowed object read failed: {explain(allowed.stderr)}")
             if kube([*execute, "cat", "/tmp/allowed"]).stdout != nonce:
                 raise RuntimeError("Allowed object read returned unexpected content")
             tests["allowed_access"] = {"passed": True, "message": "Pod read the object its policy allows"}
             denied = aws_in_pod(["s3api", "get-object", "--bucket", bucket, "--key", "denied", "/tmp/denied"])
-            if denied.returncode == 0 or (
-                "An error occurred (AccessDenied) when calling the GetObject operation" not in denied.stderr
-            ):
-                raise RuntimeError("Out-of-scope object read was not denied by authorization")
+            if denied.returncode == 0:
+                raise RuntimeError("Out-of-scope object read succeeded")
+            if "An error occurred (AccessDenied) when calling the GetObject operation" not in denied.stderr:
+                raise RuntimeError(
+                    f"Out-of-scope object read failed without an authorization denial: {explain(denied.stderr)}"
+                )
             tests["out_of_scope_denied"] = {"passed": True, "message": "Pod was denied an object outside its policy"}
             result["success"] = True
     except (
@@ -310,8 +346,11 @@ def run_probe(cluster_name: str, region: str, image: str) -> dict[str, Any]:
         KeyError,
         TypeError,
     ) as error:
-        result["error_type"], result["error"] = classify_aws_error(error)
-        stamp_test_errors(result, result["error"])
+        if isinstance(error, BotoCoreError | ClientError):
+            result["error_type"], result["error"] = classify_aws_error(error)
+        else:
+            result["error"] = str(error)
+        record_failure(tests, result["error"])
     if errors:
         result.update(success=False, cleanup_errors=errors)
     return result

@@ -310,7 +310,7 @@ tests:
       checks:
         K8sServiceAccountIamCheck:
           test_id: "K8S16-01"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req"]
           step: service_account_iam_test
           phase: test
         K8sOidcIssuerCheck:

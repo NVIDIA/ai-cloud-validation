@@ -434,6 +434,24 @@ module "eks" {
   tags = local.tags
 }
 
+# Node groups created outside this module (the test node pools) launch without
+# a launch template, so their nodes carry only the EKS-managed cluster security
+# group, not the module's node security group. Allow all traffic between the
+# two so pods on those nodes can reach CoreDNS and other pods, and vice versa.
+resource "aws_vpc_security_group_ingress_rule" "node_from_cluster_primary" {
+  security_group_id            = module.eks.node_security_group_id
+  referenced_security_group_id = module.eks.cluster_primary_security_group_id
+  ip_protocol                  = "-1"
+  description                  = "Nodes outside the module node groups to module nodes, all ports/protocols"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "cluster_primary_from_node" {
+  security_group_id            = module.eks.cluster_primary_security_group_id
+  referenced_security_group_id = module.eks.node_security_group_id
+  ip_protocol                  = "-1"
+  description                  = "Module node groups to nodes outside them, all ports/protocols"
+}
+
 # -----------------------------------------------------------------------------
 # IRSA for EBS CSI Driver
 # -----------------------------------------------------------------------------

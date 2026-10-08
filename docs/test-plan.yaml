@@ -3979,7 +3979,6 @@ domains:
                 labels:
                   - kubernetes
                   - min_req
-                  - slow
                 priority: P0
                 milestone: M5
                 notes: "Runs cloud operations from a pod and verifies the observed identity. The AWS reference uses IRSA and scoped S3 object reads."

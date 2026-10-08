@@ -74,3 +74,13 @@ def test_cleanup_failure_overrides_success() -> None:
     output = evidence()
     output["cleanup_errors"] = ["delete role failed"]
     assert not run_check(output).passed
+
+
+def test_unreached_probes_do_not_mask_the_failure() -> None:
+    """Probes skipped after an earlier failure leave the result failed, naming only the failed probe."""
+    output = evidence()
+    output["tests"]["identity"] = {"passed": False, "error": "STS unreachable"}
+    for probe in ("allowed_access", "out_of_scope_denied"):
+        output["tests"][probe] = {"passed": False, "skipped": True, "skip_reason": "Not reached"}
+    check = run_check(output)
+    assert not check.passed and "STS unreachable" in check.message and "allowed_access" not in check.message
