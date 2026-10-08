@@ -92,6 +92,15 @@ commands:
         output_schema: k8s_control_plane_patching
         timeout: 120
 
+      # Workload ServiceAccount IAM (K8S16-01): runs a pod under a scoped
+      # identity and reports what it could and could not reach.
+      - name: service_account_iam_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/k8s/service_account_iam.py"
+        output_schema: service_account_iam
+        timeout: 1200
+
       # Break-fix actions (BFX01). Demo stubs until real cluster APIs are wired.
       - name: reset_gpus
         phase: test

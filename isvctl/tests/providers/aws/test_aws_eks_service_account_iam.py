@@ -15,7 +15,6 @@
 
 """Exercise the AWS workload-IAM workflow with fake AWS and Kubernetes boundaries."""
 
-import importlib.util
 import json
 import subprocess
 from pathlib import Path
@@ -30,8 +29,9 @@ from isvtest.validations.k8s_service_account_iam import K8sServiceAccountIamChec
 
 from isvctl.config.output_schemas import validate_output
 
+from ...conftest import load_aws_script
+
 ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = ROOT / "configs/providers/aws/scripts/eks/service_account_iam.py"
 NAMESPACE = "isv-ksa-" + "1" * 12
 ROLE_ARN = f"arn:aws:iam::123456789012:role/{NAMESPACE}"
 DENIAL = "An error occurred (AccessDenied) when calling the GetObject operation: Access Denied"
@@ -40,10 +40,7 @@ DENIAL = "An error occurred (AccessDenied) when calling the GetObject operation:
 @pytest.fixture
 def probe(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Supply real workflow code with controlled cloud APIs and kubectl results."""
-    spec = importlib.util.spec_from_file_location("service_account_iam_probe", SCRIPT)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_aws_script("eks", "service_account_iam.py")
     eks, iam, s3 = MagicMock(), MagicMock(), MagicMock()
     eks.describe_cluster.return_value = {
         "cluster": {
@@ -81,13 +78,6 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         elif "wait" in args:
             if state.fault == "timeout":
                 raise subprocess.TimeoutExpired(args, 30)
-        elif "get" in args and "pod" in args:
-            stdout = json.dumps(
-                {
-                    "metadata": {"namespace": NAMESPACE},
-                    "spec": {"serviceAccountName": "wrong" if state.fault == "service-account" else "workload"},
-                }
-            )
         elif "exec" in args:
             if "/bin/sh" in args:
                 if state.fault == "token":
@@ -133,7 +123,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 def execute(probe: SimpleNamespace, region: str = "us-west-2") -> dict[str, Any]:
     """Execute and schema-check the real provider workflow's output."""
-    output = probe.module.run_probe("test", region, probe.module.DEFAULT_IMAGE, 180)
+    output = probe.module.run_probe("test", region, probe.module.DEFAULT_IMAGE)
     valid, errors = validate_output(output, "service_account_iam")
     assert valid, errors
     return output
@@ -192,7 +182,6 @@ def test_binding_and_permission_policy_are_scoped(probe: SimpleNamespace) -> Non
         "token",
         "identity",
         "identity-json",
-        "service-account",
         "sts",
         "allowed",
         "content",
@@ -209,6 +198,7 @@ def test_failed_execution_is_not_a_skip_and_always_cleans_up(probe: SimpleNamesp
     probe.fault = fault
     output = execute(probe)
     assert output["success"] is False and not output.get("skipped") and output["error"]
+    assert not all(test["passed"] for test in output["tests"].values())
     probe.iam.delete_role.assert_called_once()
     probe.s3.delete_bucket.assert_called_once()
     assert any("delete" in args for args, _ in probe.calls)

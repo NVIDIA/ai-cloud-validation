@@ -1337,50 +1337,6 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         "description": "Generic schema for unrecognized step names",
     },
     # =========================================================================
-    # ServiceAccount IAM schema
-    # =========================================================================
-    "service_account_iam": {
-        "type": "object",
-        "required": ["success", "platform", "test_name"],
-        "properties": {
-            "success": {"type": "boolean"},
-            "platform": {"type": "string"},
-            "test_name": {"type": "string"},
-            "skipped": {"type": "boolean"},
-            "skip_reason": {"type": "string", "minLength": 1},
-            "error": {"type": "string"},
-            "cleanup_errors": {"type": "array", "items": {"type": "string"}},
-            "service_account": {"type": "string", "minLength": 1},
-            "workload_service_account": {"type": "string", "minLength": 1},
-            "expected_identity": {"type": "string", "minLength": 1},
-            "observed_identity": {"type": "string", "minLength": 1},
-            "federated_token_used": {"type": "boolean"},
-            "allowed_access": {"type": "boolean"},
-            "out_of_scope_denied": {"type": "boolean"},
-        },
-        "allOf": [
-            {
-                "if": {"properties": {"success": {"const": True}}, "required": ["success"]},
-                "then": {
-                    "required": [
-                        "service_account",
-                        "workload_service_account",
-                        "expected_identity",
-                        "observed_identity",
-                        "federated_token_used",
-                        "allowed_access",
-                        "out_of_scope_denied",
-                    ]
-                },
-            },
-            {
-                "if": {"properties": {"skipped": {"const": True}}, "required": ["skipped"]},
-                "then": {"properties": {"success": {"const": False}}, "required": ["skip_reason"]},
-            },
-        ],
-        "additionalProperties": True,
-    },
-    # =========================================================================
     # Multi-cluster schemas
     # =========================================================================
     "multi_cluster": {
@@ -1555,6 +1511,32 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "current_version": {
                 "type": "string",
                 "description": "Kubernetes patch version the control plane runs, as the provider reports it",
+            },
+        },
+        "additionalProperties": True,
+    },
+    "service_account_iam": {
+        "type": "object",
+        "required": ["success", "platform", "tests"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "tests": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "required": ["passed"],
+                    "properties": {
+                        "passed": {"type": "boolean"},
+                        "message": {"type": "string"},
+                        "error": {"type": "string"},
+                    },
+                },
+                "description": "Workload probes: identity, allowed_access, out_of_scope_denied",
+            },
+            "cleanup_errors": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Test fixtures the probe could not remove",
             },
         },
         "additionalProperties": True,

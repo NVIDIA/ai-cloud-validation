@@ -19,11 +19,18 @@ from typing import ClassVar
 
 import pytest
 
-from isvtest.core.validation import BaseValidation
+from isvtest.core.validation import BaseValidation, check_required_tests
 
 
 class K8sServiceAccountIamCheck(BaseValidation):
-    """Require observed identity, permitted access, and an authorization denial from a pod."""
+    """Require observed identity, permitted access, and an authorization denial from a pod.
+
+    Step output:
+        tests.identity.passed: The pod assumed its ServiceAccount's IAM identity
+        tests.allowed_access.passed: The pod read a resource its policy allows
+        tests.out_of_scope_denied.passed: The pod was denied a resource outside its policy
+        cleanup_errors: Test fixtures the probe could not remove (fails the check)
+    """
 
     description: ClassVar[str] = "Verify Kubernetes ServiceAccounts assume scoped platform IAM identities."
 
@@ -32,31 +39,11 @@ class K8sServiceAccountIamCheck(BaseValidation):
         output = self.config.get("step_output")
         if output is None:
             pytest.skip("ServiceAccount IAM validation requires a configured provider probe")
-        if not isinstance(output, dict):
-            self.set_failed("Invalid ServiceAccount IAM step output")
+        if not check_required_tests(
+            self, ["identity", "allowed_access", "out_of_scope_denied"], "ServiceAccount IAM probes failed"
+        ):
             return
         if output.get("cleanup_errors"):
-            self.set_failed(f"ServiceAccount IAM cleanup failed: {output['cleanup_errors']}")
+            self.set_failed(f"ServiceAccount IAM cleanup failed: {'; '.join(output['cleanup_errors'])}")
             return
-        if output.get("skipped") is True:
-            reason = output.get("skip_reason")
-            if output.get("success") is False and isinstance(reason, str) and reason.strip():
-                pytest.skip(reason)
-            self.set_failed("Invalid ServiceAccount IAM skip report")
-            return
-        if output.get("success") is not True:
-            self.set_failed(str(output.get("error") or "ServiceAccount IAM probe did not succeed"))
-            return
-        for expected, observed in (
-            ("service_account", "workload_service_account"),
-            ("expected_identity", "observed_identity"),
-        ):
-            value = output.get(expected)
-            if not isinstance(value, str) or not value.strip() or output.get(observed) != value:
-                self.set_failed(f"Missing or mismatched {observed}")
-                return
-        for field in ("federated_token_used", "allowed_access", "out_of_scope_denied"):
-            if output.get(field) is not True:
-                self.set_failed(f"ServiceAccount IAM requires {field}=true from the workload")
-                return
         self.set_passed("Workload assumed the expected ServiceAccount IAM identity; allowed and denied scopes verified")
