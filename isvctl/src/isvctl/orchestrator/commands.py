@@ -26,11 +26,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from isvtest.core.process import run_command_process
 from pydantic import ValidationError
 
 from isvctl.config.schema import CommandConfig, CommandOutput
 from isvctl.orchestrator.context import _create_jinja_env
-from isvctl.orchestrator.process import run_command_process
 from isvctl.redaction import mask_sensitive_args
 
 logger = logging.getLogger(__name__)

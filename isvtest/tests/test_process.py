@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for orchestration subprocess lifecycle handling."""
+"""Tests for shared subprocess lifecycle handling."""
 
 import os
 import signal
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from isvctl.orchestrator.process import run_command_process
+from isvtest.core.process import run_command_process
 
 
 def test_run_command_process_captures_output(tmp_path: Path) -> None:
@@ -169,3 +169,23 @@ time.sleep(60)
         run_command_process([sys.executable, "-c", wrapper], cwd=tmp_path, env=None, timeout=1)
 
     assert time.monotonic() - started < 10
+
+
+@pytest.mark.skipif(not Path("/proc").is_dir(), reason="emulating macOS needs /proc to spot zombies")
+def test_timeout_signals_group_after_wrapper_exits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wrapper that already exited must not turn the timeout into a signalling error.
+
+    macOS refuses to signal a group whose only member is an unreaped zombie
+    with EPERM; emulate that so the escalation path is covered on Linux too.
+    """
+    real_killpg = os.killpg
+
+    def macos_killpg(pgid: int, sig: int) -> None:
+        # Still listed in /proc but not running: the leader is a zombie.
+        if Path(f"/proc/{pgid}").is_dir() and not _process_exists(pgid):
+            raise PermissionError(1, "Operation not permitted")
+        real_killpg(pgid, sig)
+
+    monkeypatch.setattr(os, "killpg", macos_killpg)
+
+    test_timeout_does_not_wait_on_pipes_held_outside_the_group(tmp_path)

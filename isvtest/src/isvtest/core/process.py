@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Subprocess execution shared by orchestration command models."""
+"""Subprocess execution shared by orchestration commands and validations."""
 
 import os
 import signal
@@ -111,11 +111,19 @@ def _drain_after_kill(process: subprocess.Popen[str]) -> tuple[str, str]:
         return "", ""
 
 
+def _killpg(process: subprocess.Popen[str], sig: signal.Signals) -> None:
+    """Signal the process group led by ``process``."""
+    # macOS rejects signalling a group whose only member is an exited, unreaped
+    # leader with EPERM, so reap the leader first; survivors keep the group ID.
+    process.poll()
+    os.killpg(process.pid, sig)
+
+
 def _interrupt_process_tree(process: subprocess.Popen[str]) -> None:
     """Forward an interactive interrupt to a process group or direct process."""
     try:
         if os.name == "posix":
-            os.killpg(process.pid, signal.SIGINT)
+            _killpg(process, signal.SIGINT)
         else:
             process.send_signal(signal.SIGINT)
     except ProcessLookupError:
@@ -126,7 +134,7 @@ def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
     """Request graceful termination of a process group or direct process."""
     try:
         if os.name == "posix":
-            os.killpg(process.pid, signal.SIGTERM)
+            _killpg(process, signal.SIGTERM)
         else:
             process.terminate()
     except ProcessLookupError:
@@ -137,7 +145,7 @@ def _kill_process_tree(process: subprocess.Popen[str]) -> None:
     """Force termination of a process group or direct process."""
     try:
         if os.name == "posix":
-            os.killpg(process.pid, signal.SIGKILL)
+            _killpg(process, signal.SIGKILL)
         else:
             process.kill()
     except ProcessLookupError:

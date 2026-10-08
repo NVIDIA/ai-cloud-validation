@@ -88,8 +88,7 @@ Entry point: `isvctl/src/isvctl/main.py` (Typer).
 - `cli/` - subcommands (`test`, `deploy`, `clean`, `docs`, `report`)
 - `orchestrator/` - `loop.py` (phase loop), `step_executor.py` (step + validation
   execution, supports `best_effort` mode), `commands.py` (legacy command model),
-  `process.py` (shared subprocess and process-group timeout handling), `context.py`
-  (Jinja2 with missing-reference warnings)
+  `context.py` (Jinja2 with missing-reference warnings)
 - `config/` - `schema.py` (Pydantic), `output_schemas.py` (per-step JSON schemas),
   `merger.py` (multi-file merge)
 - `remote/` - `ssh.py` (with jumphost), `archive.py`, `transfer.py` (SCP via jumphost proxy)
@@ -106,6 +105,8 @@ configs to pytest format, runs native pytest, and returns rich in-memory results
 - `core/validation.py` - `BaseValidation` abstract class
 - `core/discovery.py` - finds `BaseValidation` subclasses and ReFrame tests
 - `core/runners.py` - `LocalRunner`, `SlurmRunner`, ...
+- `core/process.py` - subprocess runner shared with isvctl; stops the whole
+  process group on timeout or Ctrl-C
 - `core/{k8s,slurm,nvidia,ngc,workload}.py` - domain helpers
 
 Validation classes live in `isvtest/src/isvtest/validations/` grouped by domain

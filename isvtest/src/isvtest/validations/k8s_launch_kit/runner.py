@@ -25,6 +25,8 @@ from json import JSONDecoder
 from pathlib import Path
 from typing import Any
 
+from isvtest.core.process import run_command_process
+
 DEFAULT_ARTIFACT_DIR = Path("_output") / "k8s-launch-kit"
 _VALIDATION_REPORT_NAME = "k8s-launch-kit-validation-report.html"
 _SOSREPORT_TIMEOUT_SECONDS = 1800
@@ -201,7 +203,7 @@ def _run_process(argv: list[str], *, cwd: Path, timeout: float | None = None) ->
     _logger.info("Running: %s", " ".join(argv))
     started = time.monotonic()
     try:
-        completed = subprocess.run(argv, cwd=cwd, check=False, capture_output=True, text=True, timeout=timeout)
+        completed = run_command_process(argv, cwd=cwd, env=None, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         # Keep what the command wrote before the deadline; it shows where it hung.
         stderr = f"{_text(exc.stderr).rstrip()}\ntimed out after {timeout} seconds".lstrip()

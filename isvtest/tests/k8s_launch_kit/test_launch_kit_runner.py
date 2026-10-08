@@ -4,6 +4,8 @@
 """The shared Launch Kit run behind the Network Operator checks, against a mock ``l8k``."""
 
 import json
+import os
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -213,3 +215,20 @@ def test_timeout_keeps_partial_output(tmp_path: Path) -> None:
     assert result["exit_code"] == -1
     assert "collecting" in result["stdout"]
     assert result["stderr"].splitlines() == ["step 1", "timed out after 1 seconds"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group behavior is POSIX-specific")
+def test_timeout_stops_descendants(tmp_path: Path) -> None:
+    """A timed-out command must not leave the processes it started running."""
+    stopped = tmp_path / "stopped"
+    script = tmp_path / "wrapper"
+    script.write_text(f"#!/bin/sh\nsh -c 'trap \"touch {stopped}; exit\" TERM; sleep 30 & wait' &\nwait\n")
+    script.chmod(0o755)
+
+    result = runner._run_process([str(script), "sosreport"], cwd=tmp_path, timeout=1)
+
+    assert result["exit_code"] == -1
+    deadline = time.monotonic() + 5
+    while not stopped.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert stopped.exists()
