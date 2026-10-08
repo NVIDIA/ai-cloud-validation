@@ -1961,10 +1961,11 @@ class ContainerRuntimeCheck(BaseValidation):
         if "__not_found__" in out or not out.strip():
             return False
         # Step 2: verify containerd is configured to use it as an OCI runtime.
+        # Test the captured output, not pipeline status: `head -1` exits 0 on empty input.
         config_out = self._check_cmd(
             ssh,
-            "grep -rl 'nvidia' /etc/containerd/ 2>/dev/null | head -1 || "
-            "ctr plugins ls 2>/dev/null | grep -i nvidia | head -1 || "
+            "{ grep -rl 'nvidia' /etc/containerd/ 2>/dev/null; "
+            "ctr plugins ls 2>/dev/null | grep -i nvidia; } | head -1 | grep . || "
             "echo '__not_configured__'",
         )
         return "__not_configured__" not in config_out and config_out.strip() != ""

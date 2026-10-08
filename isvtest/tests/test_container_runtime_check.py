@@ -13,8 +13,12 @@ Covers all five runtime detection levels:
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from isvtest.validations.host import ContainerRuntimeCheck
 
@@ -260,6 +264,57 @@ class TestContainerdLevel:
             ngc_key="test-ngc-token",
         )
         assert check.passed
+
+
+class TestContainerdConfigProbe:
+    """Execute the real containerd config probe in bash against a fake filesystem."""
+
+    @pytest.mark.parametrize(
+        ("config_has_nvidia", "plugin_has_nvidia", "config_dir_exists", "expected"),
+        [
+            (True, False, True, True),
+            (False, True, True, True),
+            (False, False, True, False),
+            (False, True, False, True),
+            (False, False, False, False),
+        ],
+        ids=["config-only", "plugin-only", "neither", "no-dir-plugin", "no-dir-neither"],
+    )
+    def test_probe(
+        self,
+        tmp_path: Path,
+        config_has_nvidia: bool,
+        plugin_has_nvidia: bool,
+        config_dir_exists: bool,
+        expected: bool,
+    ) -> None:
+        config_dir = tmp_path / "containerd"
+        if config_dir_exists:
+            config_dir.mkdir()
+            runtime = "nvidia" if config_has_nvidia else "runc"
+            (config_dir / "config.toml").write_text(f'default_runtime_name = "{runtime}"\n')
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        plugin = "io.containerd.runtime.v1 nvidia" if plugin_has_nvidia else "io.containerd.runtime.v2 runc"
+        ctr = bin_dir / "ctr"
+        ctr.write_text(f"#!/bin/sh\necho '{plugin}'\n")
+        ctr.chmod(0o755)
+
+        def _run_locally(ssh: object, cmd: str) -> tuple[int, str, str]:
+            if "nvidia-container-runtime --version" in cmd:
+                return 0, "NVIDIA Container Runtime 1.19.0", ""
+            cmd = cmd.replace("/etc/containerd/", f"{config_dir}/")
+            proc = subprocess.run(
+                ["bash", "-c", cmd],
+                capture_output=True,
+                text=True,
+                env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
+                check=False,
+            )
+            return proc.returncode, proc.stdout, proc.stderr
+
+        with patch("isvtest.validations.host.run_ssh_command", side_effect=_run_locally):
+            assert _make_check()._gpu_operator_installed(MagicMock()) is expected
 
 
 # ---------------------------------------------------------------------------
