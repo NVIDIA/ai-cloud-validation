@@ -56,6 +56,7 @@ from typing import Any
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
 import boto3
+from botocore.exceptions import ClientError
 from common.ec2 import (
     create_ssm_instance_profile,
     delete_ssm_instance_profile,
@@ -64,7 +65,7 @@ from common.ec2 import (
     wait_ssm_ready,
 )
 from common.errors import TRANSIENT_AWS_CODES, delete_with_retry, handle_aws_errors
-from common.vpc import create_test_vpc, delete_vpc
+from common.vpc import create_test_vpc
 
 POSITIVE_CONTROL = {"protocol": "tcp", "port": 22}
 PROHIBITED_FLOWS = [{"protocol": "icmp"}, {"protocol": "tcp", "port": 443}, {"protocol": "tcp", "port": 8080}]
@@ -95,39 +96,75 @@ def probe(ssm: Any, source_id: str, target_ip: str, flow: dict[str, Any]) -> str
     return result if ok and result in ("connected", "refused", "timeout") else "error"
 
 
-def cleanup(ec2: Any, iam: Any, resources: dict[str, Any]) -> None:
-    """Best-effort teardown of everything the probe created, in dependency order."""
+def _iam_remaining(iam: Any, role_name: str, profile_name: str) -> list[str]:
+    """Return the SSM role/instance profile that still exist after teardown."""
+    remaining = []
+    for desc, lookup in (
+        (f"IAM instance profile {profile_name}", lambda: iam.get_instance_profile(InstanceProfileName=profile_name)),
+        (f"IAM role {role_name}", lambda: iam.get_role(RoleName=role_name)),
+    ):
+        try:
+            lookup()
+            remaining.append(desc)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "NoSuchEntity":
+                remaining.append(f"{desc} (could not confirm deletion: {e})")
+    return remaining
+
+
+def cleanup(ec2: Any, iam: Any, resources: dict[str, Any]) -> list[str]:
+    """Tear down everything the probe created, in dependency order; return resources left behind.
+
+    Every step is attempted even when an earlier one fails, so one stuck
+    resource does not leave the rest of the tree behind with it.
+    """
+    remaining: list[str] = []
     instance_ids = resources["instance_ids"]
     if instance_ids:
-        delete_with_retry(ec2.terminate_instances, InstanceIds=instance_ids, resource_desc="probe instances")
+        terminated = delete_with_retry(
+            ec2.terminate_instances, InstanceIds=instance_ids, resource_desc="probe instances"
+        )
         try:
             ec2.get_waiter("instance_terminated").wait(InstanceIds=instance_ids)
         except Exception as e:
+            terminated = False
             print(f"Warning: waiting for instance termination failed: {e}", file=sys.stderr)
+        if not terminated:
+            remaining.extend(f"instance {i}" for i in instance_ids)
 
     # ENIs of just-terminated instances can hold a security group for a few seconds.
     for sg_id in resources["sg_ids"]:
-        delete_with_retry(
+        if not delete_with_retry(
             ec2.delete_security_group,
             GroupId=sg_id,
             resource_desc=f"security group {sg_id}",
             attempts=6,
             backoff_seconds=5.0,
             transient_codes=TRANSIENT_AWS_CODES | {"DependencyViolation"},
-        )
+        ):
+            remaining.append(f"security group {sg_id}")
     for subnet_id in resources["subnet_ids"]:
-        delete_with_retry(ec2.delete_subnet, SubnetId=subnet_id, resource_desc=f"subnet {subnet_id}")
-    if resources["rtb_id"]:
-        delete_with_retry(ec2.delete_route_table, RouteTableId=resources["rtb_id"], resource_desc="route table")
+        if not delete_with_retry(ec2.delete_subnet, SubnetId=subnet_id, resource_desc=f"subnet {subnet_id}"):
+            remaining.append(f"subnet {subnet_id}")
+    rtb_id = resources["rtb_id"]
+    if rtb_id and not delete_with_retry(ec2.delete_route_table, RouteTableId=rtb_id, resource_desc="route table"):
+        remaining.append(f"route table {rtb_id}")
     vpc_id = resources["vpc_id"]
-    if resources["igw_id"]:
-        igw_id = resources["igw_id"]
-        delete_with_retry(ec2.detach_internet_gateway, InternetGatewayId=igw_id, VpcId=vpc_id, resource_desc="IGW")
-        delete_with_retry(ec2.delete_internet_gateway, InternetGatewayId=igw_id, resource_desc="IGW")
-    if vpc_id:
-        delete_vpc(ec2, vpc_id)
+    igw_id = resources["igw_id"]
+    if igw_id:
+        detached = delete_with_retry(
+            ec2.detach_internet_gateway, InternetGatewayId=igw_id, VpcId=vpc_id, resource_desc="IGW"
+        )
+        if not (
+            detached and delete_with_retry(ec2.delete_internet_gateway, InternetGatewayId=igw_id, resource_desc="IGW")
+        ):
+            remaining.append(f"internet gateway {igw_id}")
+    if vpc_id and not delete_with_retry(ec2.delete_vpc, VpcId=vpc_id, resource_desc=f"VPC {vpc_id}"):
+        remaining.append(f"VPC {vpc_id}")
     if resources["role_name"]:
         delete_ssm_instance_profile(iam, resources["role_name"], resources["profile_name"])
+        remaining.extend(_iam_remaining(iam, resources["role_name"], resources["profile_name"]))
+    return remaining
 
 
 def build_boundary(
@@ -279,7 +316,12 @@ def main() -> int:
     except Exception as e:
         result["error"] = str(e)
     finally:
-        cleanup(ec2, iam, resources)
+        remaining = cleanup(ec2, iam, resources)
+        if remaining:
+            result["cleanup_errors"] = [f"not deleted: {r}" for r in remaining]
+            cleanup_error = f"Cleanup failed, resources remain: {', '.join(remaining)}"
+            result["error"] = f"{result['error']}; {cleanup_error}" if result.get("error") else cleanup_error
+            result["success"] = False
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
