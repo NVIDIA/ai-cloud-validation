@@ -707,6 +707,10 @@ def run(
                     output = step.get("output")
                     if output and verbose:
                         typer.echo(f"    Output: {json.dumps(output, indent=2)[:500]}")
+                # Successful steps are silent except when they skipped work the user may need to act on
+                elif (output := step.get("output") or {}).get("skipped"):
+                    reason = output.get("skip_reason") or output.get("message") or "no reason given"
+                    typer.echo(f"  [{step_name}] " + typer.style(f"SKIPPED: {reason}", fg=typer.colors.YELLOW))
 
         # Display centralized validation results
         if phase_result.details and "validations" in phase_result.details:

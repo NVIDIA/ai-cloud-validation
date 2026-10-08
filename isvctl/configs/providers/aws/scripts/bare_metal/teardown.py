@@ -76,6 +76,7 @@ def main() -> int:
 
     if args.skip_destroy:
         result["success"] = True
+        result["skipped"] = True
         result["message"] = (
             f"Teardown skipped. Instance {args.instance_id} is still running. "
             f"To teardown later, unset AWS_BM_SKIP_TEARDOWN and rerun."

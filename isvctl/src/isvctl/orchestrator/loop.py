@@ -766,7 +766,8 @@ class Orchestrator:
         # Build step messages
         step_messages = []
         for step in step_results.steps:
-            if step.error == "Step skipped":
+            # A step can also succeed while reporting it did nothing (e.g. teardown kept resources).
+            if step.error == "Step skipped" or (step.success and (step.output or {}).get("skipped")):
                 status = "skipped"
             elif step.success:
                 status = "passed"

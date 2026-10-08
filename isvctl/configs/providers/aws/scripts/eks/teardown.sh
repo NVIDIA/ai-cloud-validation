@@ -50,7 +50,7 @@ if [ "$AWS_SKIP_TEARDOWN" = "true" ]; then
   "success": true,
   "platform": "kubernetes",
   "skipped": true,
-  "message": "Teardown skipped (AWS_SKIP_TEARDOWN=true)",
+  "message": "Teardown skipped (AWS_SKIP_TEARDOWN=true); destroy later with: uv run isvctl test run -f isvctl/configs/providers/aws/config/eks.yaml --phase teardown",
   "aws": {
     "region": "${AWS_REGION}"
   }
