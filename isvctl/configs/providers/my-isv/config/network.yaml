@@ -120,6 +120,13 @@ commands:
         timeout: 60
         output_schema: traffic_flow
 
+      - name: segment_boundary
+        phase: test
+        command: "python ../scripts/network/segment_boundary_test.py"
+        args: ["--region", "{{region}}", "--cidr", "10.86.0.0/16"]
+        timeout: 60
+        output_schema: segment_boundary
+
       - name: vpc_ip_config
         phase: test
         command: "python ../scripts/network/vpc_ip_config_test.py"

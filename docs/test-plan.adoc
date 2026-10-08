@@ -4969,8 +4969,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | approved
 |
 
-.23+| Security & Identity
-.10+| Network Security
+.24+| Security & Identity
+.11+| Network Security
 .4+| BMC Security
 .4+|
 | [[SEC12-01]]SEC12-01
@@ -5114,8 +5114,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
 | published
 |
 
-| Tenancy Isolation
-|
+.2+| Tenancy Isolation
+.2+|
 | [[SEC11-01]]SEC11-01
 | SEC11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
@@ -5129,6 +5129,21 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
 |
 | Verify hard physical or logical isolation between tenants for network, data, compute, and storage resources
 | published
+|
+
+| [[SEC30-01]]SEC30-01
+| SEC30
+| https://github.com/NVIDIA/ai-cloud-validation/issues/718[#718]
+| min_req, network, security
+| tenant
+|
+| P0
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/718[#718]
+|
+|
+|
+| Verify traffic across the tenant-to-provider boundary is default-deny, with an explicitly allowed positive-control flow succeeding
+| pending
 |
 
 .4+| Authentication

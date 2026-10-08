@@ -220,6 +220,11 @@ tests:
           labels: ["network", "ssh"]
           requires: [vm, bare_metal]
           step: dhcp_ip_test
+        SegmentBoundaryDefaultDenyCheck:
+          test_id: "SEC30-01"
+          labels: ["min_req", "network", "security"]
+          requires: [vm, bare_metal]
+          step: segment_boundary
 
     sg_scoping:
       checks:
