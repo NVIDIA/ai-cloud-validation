@@ -244,6 +244,26 @@ Approximate monthly costs (us-west-2, as of 2024):
 
 **Note:** GPU instances are expensive. Use `gpu_node_min_size = 0` and scale up only when testing.
 
+## Multi-cluster validation (K8S26-01)
+
+The EKS suite provisions a secondary cluster in the primary cluster's VPC through
+`../create_shared_vpc_cluster.sh`. It then contacts **both** clusters using separate
+temporary kubeconfigs and collects `/readyz`, the `kube-system` namespace UID, and
+the Ready-node count. The caller's kubeconfig and current context are preserved.
+The credentials need permission to read `/readyz`, namespaces, and nodes.
+
+The provider's `multi_cluster` output must include `api_ready`, `cluster_uid`, and
+`ready_node_count` for every cluster, in addition to tenancy/network identity and
+lifecycle status. Validation requires ready APIs, at least one Ready node per
+cluster, and distinct namespace UIDs; two names pointing to the same cluster fail.
+A standalone check without a bound provider step skips.
+
+`SECONDARY_CLUSTER_READY_TIMEOUT` (default 900 seconds) and
+`SECONDARY_CLUSTER_POLL_INTERVAL` (default 10 seconds) apply to each cluster's
+readiness wait. Individual Kubernetes requests use a 10-second timeout. The EKS
+suite allows 60 minutes for provisioning and both readiness checks. Its existing
+teardown destroys the secondary cluster before the primary cluster and VPC.
+
 ## Related Documentation
 
 - [AWS EKS Validation Guide](../docs/aws-eks.md)

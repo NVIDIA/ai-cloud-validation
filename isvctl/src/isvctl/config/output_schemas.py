@@ -1358,7 +1358,15 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "minItems": 2,
                 "items": {
                     "type": "object",
-                    "required": ["name", "tenancy_id", "network_id", "status"],
+                    "required": [
+                        "name",
+                        "tenancy_id",
+                        "network_id",
+                        "status",
+                        "cluster_uid",
+                        "api_ready",
+                        "ready_node_count",
+                    ],
                     "properties": {
                         "name": {"type": "string", "minLength": 1, "description": "Cluster name"},
                         "role": {
@@ -1376,10 +1384,16 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
                             "description": "Network/VPC identifier reported by this cluster",
                         },
                         "status": {"type": "string", "minLength": 1, "description": "Cluster lifecycle status"},
+                        "cluster_uid": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "kube-system namespace UID read from the live cluster API",
+                        },
+                        "api_ready": {"type": "boolean", "description": "Whether the live /readyz probe succeeded"},
                         "ready_node_count": {
                             "type": "integer",
                             "minimum": 0,
-                            "description": "Ready node count for this cluster when available",
+                            "description": "Ready node count read from this cluster API",
                         },
                     },
                     "additionalProperties": True,
