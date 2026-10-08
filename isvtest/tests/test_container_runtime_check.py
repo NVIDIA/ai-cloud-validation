@@ -244,7 +244,7 @@ class TestContainerdLevel:
                 "nerdctl --version": "__not_found__",
                 "containerd --version": "containerd 1.7.0",
                 "nvidia-container-runtime --version": "NVIDIA Container Runtime 1.19.0",
-                "__default__": "__not_configured__",
+                "__default__": "",
             },
         )
         assert not check.passed
@@ -267,54 +267,52 @@ class TestContainerdLevel:
 
 
 class TestContainerdConfigProbe:
-    """Execute the real containerd config probe in bash against a fake filesystem."""
+    """Execute the real containerd config probe in sh against a fake filesystem."""
 
     @pytest.mark.parametrize(
-        ("config_has_nvidia", "plugin_has_nvidia", "config_dir_exists", "expected"),
+        ("config_file", "expected"),
         [
-            (True, False, True, True),
-            (False, True, True, True),
-            (False, False, True, False),
-            (False, True, False, True),
-            (False, False, False, False),
+            ("/etc/containerd/config.toml", True),
+            ("/etc/containerd/conf.d/99-nvidia.toml", True),
+            ("/var/snap/microk8s/current/args/containerd-template.toml", True),
+            ("/var/lib/rancher/k3s/agent/etc/containerd/config.toml", True),
+            ("/var/lib/rancher/rke2/agent/etc/containerd/config.toml", True),
+            (None, False),
         ],
-        ids=["config-only", "plugin-only", "neither", "no-dir-plugin", "no-dir-neither"],
+        ids=["stock", "stock-drop-in", "microk8s", "k3s", "rke2", "none"],
     )
-    def test_probe(
-        self,
-        tmp_path: Path,
-        config_has_nvidia: bool,
-        plugin_has_nvidia: bool,
-        config_dir_exists: bool,
-        expected: bool,
-    ) -> None:
-        config_dir = tmp_path / "containerd"
-        if config_dir_exists:
-            config_dir.mkdir()
-            runtime = "nvidia" if config_has_nvidia else "runc"
-            (config_dir / "config.toml").write_text(f'default_runtime_name = "{runtime}"\n')
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        plugin = "io.containerd.runtime.v1 nvidia" if plugin_has_nvidia else "io.containerd.runtime.v2 runc"
-        ctr = bin_dir / "ctr"
-        ctr.write_text(f"#!/bin/sh\necho '{plugin}'\n")
-        ctr.chmod(0o755)
+    def test_detects_nvidia_in_known_config_dirs(self, tmp_path: Path, config_file: str | None, expected: bool) -> None:
+        if config_file:
+            self._write(tmp_path, config_file, 'default_runtime_name = "nvidia"\n')
+        self._write(tmp_path, "/etc/containerd/certs.d/hosts.toml", 'server = "https://registry-1.docker.io"\n')
+        assert self._probe(tmp_path) is expected
+
+    @staticmethod
+    def _write(root: Path, path: str, content: str) -> None:
+        target = root / path.lstrip("/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+
+    @staticmethod
+    def _probe(root: Path) -> bool:
+        dirs = " ".join(ContainerRuntimeCheck.containerd_config_dirs)
+        fake_dirs = " ".join(f"{root}{d}" for d in ContainerRuntimeCheck.containerd_config_dirs)
 
         def _run_locally(ssh: object, cmd: str) -> tuple[int, str, str]:
             if "nvidia-container-runtime --version" in cmd:
                 return 0, "NVIDIA Container Runtime 1.19.0", ""
-            cmd = cmd.replace("/etc/containerd/", f"{config_dir}/")
+            assert dirs in cmd
             proc = subprocess.run(
-                ["bash", "-c", cmd],
+                ["sh", "-c", cmd.replace(dirs, fake_dirs)],
                 capture_output=True,
                 text=True,
-                env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
+                env={"PATH": "/usr/bin:/bin"},
                 check=False,
             )
             return proc.returncode, proc.stdout, proc.stderr
 
         with patch("isvtest.validations.host.run_ssh_command", side_effect=_run_locally):
-            assert _make_check()._gpu_operator_installed(MagicMock()) is expected
+            return _make_check()._gpu_operator_installed(MagicMock())
 
 
 # ---------------------------------------------------------------------------

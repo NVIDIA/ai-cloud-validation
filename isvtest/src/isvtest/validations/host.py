@@ -1937,6 +1937,12 @@ class ContainerRuntimeCheck(BaseValidation):
 
     description: ClassVar[str] = "Tests GPU-capable container runtime support"
     timeout: ClassVar[int] = 300
+    containerd_config_dirs: ClassVar[tuple[str, ...]] = (
+        "/etc/containerd/",
+        "/var/snap/microk8s/current/args/",
+        "/var/lib/rancher/k3s/agent/etc/containerd/",
+        "/var/lib/rancher/rke2/agent/etc/containerd/",
+    )
 
     def _check_cmd(self, ssh: object, cmd: str) -> str:
         """Run cmd via SSH and return stdout."""
@@ -1953,22 +1959,17 @@ class ContainerRuntimeCheck(BaseValidation):
         """Return True when nvidia-container-runtime is installed and configured as an OCI hook.
 
         Checks both binary presence and containerd integration: verifies the
-        runtime binary exists and is referenced in the containerd configuration
-        or registered as a containerd plugin.
+        runtime binary exists and is referenced in a containerd configuration
+        file (stock containerd, MicroK8s, k3s, or RKE2 location).
         """
         # Step 1: binary must exist.
         out = self._check_cmd(ssh, "nvidia-container-runtime --version 2>/dev/null || echo '__not_found__'")
         if "__not_found__" in out or not out.strip():
             return False
         # Step 2: verify containerd is configured to use it as an OCI runtime.
-        # Test the captured output, not pipeline status: `head -1` exits 0 on empty input.
-        config_out = self._check_cmd(
-            ssh,
-            "grep -rl 'nvidia' /etc/containerd/ 2>/dev/null | head -1 | grep . || "
-            "ctr plugins ls 2>/dev/null | grep -i nvidia | head -1 | grep . || "
-            "echo '__not_configured__'",
-        )
-        return "__not_configured__" not in config_out and config_out.strip() != ""
+        dirs = " ".join(self.containerd_config_dirs)
+        config_out = self._check_cmd(ssh, f"grep -rl 'nvidia' {dirs} 2>/dev/null | head -1")
+        return config_out.strip() != ""
 
     def _run_gpu_container(self, ssh: object, run_cmd: str) -> bool:
         """Return True when a GPU container runs nvidia-smi successfully."""
