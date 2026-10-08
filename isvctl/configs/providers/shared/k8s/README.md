@@ -13,7 +13,7 @@ settings and ranges with those used for your test cluster, and set an absolute p
 
 ```bash
 export K8S_NETWORKING_CONFIG=/absolute/path/networking.json
-uv run isvctl test run -f isvctl/configs/providers/k8s-networking.yaml --phase test -- \
+uv run isvctl test run -f isvctl/configs/providers/shared/k8s/networking.yaml --phase test -- \
   -k 'K8sLoadBalancerCheck or K8sDnsForwardingCheck or K8sCidrRangesCheck'
 ```
 

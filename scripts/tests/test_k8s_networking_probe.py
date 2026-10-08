@@ -18,6 +18,7 @@
 import http.client
 import importlib.util
 import json
+import shlex
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -26,6 +27,7 @@ from typing import Any
 
 import pytest
 import yaml
+from isvctl.config.merger import merge_yaml_files
 from isvctl.config.output_schemas import validate_output
 from isvtest.validations.k8s_networking import K8sCidrRangesCheck, K8sDnsForwardingCheck, K8sLoadBalancerCheck
 
@@ -411,12 +413,14 @@ def test_suite_and_provider_wire_all_three_checks() -> None:
     """Each canonical ID binds the matching executable mode and typed output contract."""
     root = Path(__file__).resolve().parents[2]
     suite = yaml.safe_load((root / "isvctl/configs/suites/k8s.yaml").read_text())
-    provider = yaml.safe_load((root / "isvctl/configs/providers/k8s-networking.yaml").read_text())
+    provider_path = root / "isvctl/configs/providers/shared/k8s/networking.yaml"
+    provider = merge_yaml_files([str(provider_path)])
     checks = suite["tests"]["validations"]["k8s_networking"]["checks"]
     steps = {s["name"]: s for s in provider["commands"]["kubernetes"]["steps"]}
     for mode, cls in CHECKS.items():
         config = checks[cls.__name__]
         step = steps[config["step"]]
+        assert (provider_path.parent / shlex.split(step["command"])[1]).is_file()
         assert step["args"] == ["--check=" + mode]
         assert step["output_schema"] == "k8s_networking"
         assert step["continue_on_failure"] is True

@@ -14,8 +14,8 @@
 # limitations under the License.
 
 # Opt-in probes on the current kubeconfig; run with --phase test.
-# See shared/k8s/networking-example.json and shared/k8s/README.md.
-import: ../suites/k8s.yaml
+# See networking-example.json and README.md in this directory.
+import: ../../../suites/k8s.yaml
 version: "1.0"
 commands:
   kubernetes:
@@ -23,21 +23,21 @@ commands:
       - name: k8s_load_balancer_test
         phase: test
         continue_on_failure: true
-        command: "python3 shared/k8s/networking_probe.py"
+        command: "python3 networking_probe.py"
         args: ["--check=load_balancer"]
         output_schema: k8s_networking
         timeout: 4800
       - name: k8s_dns_forwarding_test
         phase: test
         continue_on_failure: true
-        command: "python3 shared/k8s/networking_probe.py"
+        command: "python3 networking_probe.py"
         args: ["--check=dns_forwarding"]
         output_schema: k8s_networking
         timeout: 3000
       - name: k8s_cidr_ranges_test
         phase: test
         continue_on_failure: true
-        command: "python3 shared/k8s/networking_probe.py"
+        command: "python3 networking_probe.py"
         args: ["--check=cidr_ranges"]
         output_schema: k8s_networking
         timeout: 1800

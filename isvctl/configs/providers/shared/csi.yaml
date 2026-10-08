@@ -19,26 +19,26 @@
 # Driver charts and Kustomize directories must use unique resource names and
 # must not install a default StorageClass. Never point this at an existing driver.
 version: "1.0"
-import: ../suites/storage.yaml
+import: ../../suites/storage.yaml
 commands:
   storage:
     phases: [setup, test, teardown]
     steps:
       - name: install_csi
         phase: setup
-        command: "python3 shared/csi_driver.py install"
+        command: "python3 csi_driver.py install"
         requires: [kubernetes]
         output_schema: generic
         timeout: 900
       - name: setup_cluster
         phase: setup
-        command: "my-isv/scripts/k8s/setup.sh"
+        command: "../my-isv/scripts/k8s/setup.sh"
         requires: [kubernetes]
         output_schema: generic
         timeout: 120
       - name: remove_csi
         phase: teardown
-        command: "python3 shared/csi_driver.py remove"
+        command: "python3 csi_driver.py remove"
         requires: [kubernetes]
         output_schema: generic
         timeout: 900

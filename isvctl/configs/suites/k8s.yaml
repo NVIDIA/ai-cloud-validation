@@ -141,7 +141,7 @@ tests:
           wait_timeout: 900
           poll_interval: 10
 
-    # Opt-in runtime probes supplied by providers/k8s-networking.yaml.
+    # Opt-in runtime probes supplied by providers/shared/k8s/networking.yaml.
     k8s_networking:
       checks:
         K8sLoadBalancerCheck:
