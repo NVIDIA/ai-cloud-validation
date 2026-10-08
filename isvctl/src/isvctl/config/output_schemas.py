@@ -146,6 +146,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "imex_departure_test": "imex_departure",
     "imex_reboot": "imex_reboot",
     "imex_reboot_test": "imex_reboot",
+    "segment_boundary": "segment_boundary",
+    "segment_boundary_test": "segment_boundary",
     "sg_crud_test": "sg_crud",
     "sg_crud": "sg_crud",
     # Node pool operations
@@ -170,6 +172,22 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
 COMMON_PROPERTIES = {
     "success": {"type": "boolean", "description": "Whether the operation succeeded"},
     "platform": {"type": "string", "description": "Platform type (e.g., kubernetes, vm, iam, security)"},
+}
+
+# One probed flow across a segment boundary (segment_boundary schema)
+BOUNDARY_FLOW_SCHEMA = {
+    "type": "object",
+    "required": ["protocol", "result"],
+    "properties": {
+        "protocol": {"type": "string", "description": "e.g. tcp, udp, icmp"},
+        "port": {"type": "integer", "description": "Destination port (tcp/udp only)"},
+        "result": {
+            "type": "string",
+            "enum": ["connected", "refused", "timeout", "error"],
+            "description": "Observed outcome; only 'timeout' counts as dropped by policy",
+        },
+    },
+    "additionalProperties": True,
 }
 
 # Built-in schemas (generic, provider-agnostic)
@@ -1303,6 +1321,26 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "skipped": {"type": "boolean", "description": "True when no node was configured for the run"},
             "skip_reason": {"type": "string", "description": "Why the IMEX reboot check was skipped"},
         },
+        "additionalProperties": True,
+    },
+    "segment_boundary": {
+        "type": "object",
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'segment_boundary'"},
+            "positive_control": {
+                **BOUNDARY_FLOW_SCHEMA,
+                "description": "The one explicitly allowed tenant-to-provider flow; must connect",
+            },
+            "prohibited_flows": {
+                "type": "array",
+                "items": BOUNDARY_FLOW_SCHEMA,
+                "description": "Flows the default policy must drop; each must time out",
+            },
+        },
+        "if": {"properties": {"success": {"const": True}}},
+        "then": {"required": ["positive_control", "prohibited_flows"]},
         "additionalProperties": True,
     },
     "sg_crud": {

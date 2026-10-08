@@ -4653,6 +4653,20 @@ domains:
                 github_issues:
                   - "#305"
                 status: published
+              - summary: Verify traffic across the tenant-to-provider boundary is default-deny, with an explicitly allowed positive-control flow succeeding
+                req_id: SEC30
+                test_id: SEC30-01
+                actor: tenant
+                labels:
+                  - min_req
+                  - network
+                  - security
+                priority: P0
+                milestone: ""
+                notes: ""
+                github_issues:
+                  - "#718"
+                status: pending
       - name: Authentication
         capabilities:
           - description: User Authentication
