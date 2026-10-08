@@ -3756,4 +3756,31 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | partial
 |
 
+| [[K8S29-01]]K8S29-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify public and private LoadBalancer connectivity and exact static IP assignment
+| K8S29
+| offtake
+| full
+| Exercises public/private connectivity and requested static ingress addresses.
+
+| [[K8S30-01]]K8S30-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify a temporary CoreDNS zone forwards to the designated resolver and cluster DNS still works
+| K8S30
+| offtake
+| full
+| Executes a conditional lookup through cluster DNS and verifies the designated upstream observed it.
+
+| [[K8S31-01]]K8S31-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify configured service, node and pod ranges against live control-plane ranges and fresh allocations
+| K8S31
+| offtake
+| partial
+| Corroborates supplied provisioning ranges and fresh allocations; does not prove cluster reconfiguration or provider network range APIs.
+
 |===

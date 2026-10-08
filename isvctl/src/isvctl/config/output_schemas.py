@@ -44,6 +44,9 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "provision_cluster": "cluster",
     "create_cluster": "cluster",
     "setup_cluster": "cluster",
+    "k8s_load_balancer_test": "k8s_networking",
+    "k8s_dns_forwarding_test": "k8s_networking",
+    "k8s_cidr_ranges_test": "k8s_networking",
     # Network operations -> "network" schema
     "create_network": "network",
     "provision_network": "network",
@@ -194,6 +197,105 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "kubeconfig_path": {"type": "string", "description": "Path to kubeconfig file"},
         },
         "additionalProperties": True,
+    },
+    "k8s_networking": {
+        "type": "object",
+        "required": ["success", "platform", "test_name"],
+        "properties": {
+            "success": {"type": "boolean"},
+            "platform": {"const": "kubernetes"},
+            "test_name": {"enum": ["load_balancer", "dns_forwarding", "cidr_ranges"]},
+            "skipped": {"type": "boolean"},
+            "skip_reason": {"type": "string", "minLength": 1},
+            "error": {"type": "string"},
+            "cleanup_errors": {"type": "array", "items": {"type": "string"}},
+            "expected_response": {"type": "string", "minLength": 1},
+            "query": {"type": "string", "minLength": 1},
+            "forwarded_query_seen": {"type": "boolean"},
+            "rule_restored": {"type": "boolean"},
+            "requested_static_ips": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "expected_addresses": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "answers": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "control_expected": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "control_answers": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "service_cidrs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "node_pod_cidrs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "node_ips": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "pod_ips": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "service_ips": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "services": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                    "type": "object",
+                    "required": ["kind", "service_type", "probe_location", "probes"],
+                    "properties": {
+                        "kind": {"enum": ["external", "internal", "static"]},
+                        "service_type": {"const": "LoadBalancer"},
+                        "probe_location": {"enum": ["pod", "controller"]},
+                        "probes": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "object",
+                                "required": ["address", "body"],
+                                "properties": {"address": {"type": "string"}, "body": {"type": "string"}},
+                            },
+                        },
+                    },
+                },
+            },
+            "requested_ranges": {
+                "type": "object",
+                "required": ["service", "node", "pod"],
+                "properties": {
+                    "service": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                    "node": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                    "pod": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                },
+            },
+        },
+        "allOf": [
+            {
+                "if": {"properties": {"success": {"const": True}}, "required": ["success"]},
+                "then": {
+                    "oneOf": [
+                        {
+                            "properties": {"test_name": {"const": "load_balancer"}},
+                            "required": ["expected_response", "requested_static_ips", "services"],
+                        },
+                        {
+                            "properties": {"test_name": {"const": "dns_forwarding"}},
+                            "required": [
+                                "query",
+                                "expected_addresses",
+                                "answers",
+                                "forwarded_query_seen",
+                                "control_expected",
+                                "control_answers",
+                                "rule_restored",
+                            ],
+                        },
+                        {
+                            "properties": {"test_name": {"const": "cidr_ranges"}},
+                            "required": [
+                                "requested_ranges",
+                                "service_cidrs",
+                                "node_pod_cidrs",
+                                "node_ips",
+                                "pod_ips",
+                                "service_ips",
+                            ],
+                        },
+                    ]
+                },
+            },
+            {
+                "if": {"properties": {"skipped": {"const": True}}, "required": ["skipped"]},
+                "then": {"properties": {"success": {"const": False}}, "required": ["skip_reason"]},
+            },
+        ],
     },
     "network": {
         "type": "object",

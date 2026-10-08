@@ -141,6 +141,25 @@ tests:
           wait_timeout: 900
           poll_interval: 10
 
+    # Opt-in runtime probes supplied by providers/k8s-networking.yaml.
+    k8s_networking:
+      checks:
+        K8sLoadBalancerCheck:
+          test_id: "K8S29-01"
+          labels: ["kubernetes", "min_req", "slow"]
+          step: k8s_load_balancer_test
+          phase: test
+        K8sDnsForwardingCheck:
+          test_id: "K8S30-01"
+          labels: ["kubernetes", "min_req", "slow"]
+          step: k8s_dns_forwarding_test
+          phase: test
+        K8sCidrRangesCheck:
+          test_id: "K8S31-01"
+          labels: ["kubernetes", "min_req", "slow"]
+          step: k8s_cidr_ranges_test
+          phase: test
+
     # Multi-cluster tenancy/VPC proof (K8S26-01). Only runs for providers that
     # implement create_test_shared_vpc_cluster and bind this check to that step.
     k8s_multi_cluster:
