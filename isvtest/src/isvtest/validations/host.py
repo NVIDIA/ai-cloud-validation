@@ -1914,25 +1914,24 @@ class ContainerRuntimeCheck(BaseValidation):
     """GPU-capable container runtime check.
 
     Verifies that the host has a container runtime capable of running GPU
-    workloads. Accepts any GPU-capable runtime, not just Docker, by probing
-    in order from highest-level to lowest-level:
+    workloads. Two runtimes are detected automatically, in order:
 
-      Level 1 — Docker:      docker present + GPU container runs nvidia-smi.
-      Level 2 — nerdctl:     containerd-backed CLI present + GPU container runs.
-      Level 3 — containerd:  containerd present + nvidia-container-runtime
-                             installed as the OCI hook. The GPU operator's
-                             presence is the proof of capability.
-      Level 4 — runc:        runc present + nvidia-container-runtime installed.
-      Level 5 — crun:        crun (alternative OCI runtime) + nvidia-container-runtime.
+      Docker:      docker present + GPU container runs nvidia-smi.
+      containerd:  containerd present + the configuration it loads defines a
+                   runtime handler backed by nvidia-container-runtime (the
+                   standard GPU operator deployment on k8s nodes). Overlapping
+                   coverage from K8sNvidiaSmiCheck and K8sGpuPodAccessCheck
+                   confirms GPU workloads run.
 
-    On systems running containerd without Docker (e.g. standard k8s nodes),
-    level 3 passes when nvidia-container-runtime is installed, which is the
-    standard GPU operator deployment. Overlapping coverage from
-    K8sNvidiaSmiCheck and K8sGpuPodAccessCheck confirms GPU workloads run.
+    Any other runtime: set ``commands.gpu_container`` to a command that runs
+    nvidia-smi in a GPU container. Detection is then skipped and the check
+    passes when the command's output contains the nvidia-smi header.
 
     Config:
         host, key_file, user: SSH connection details
-        ngc_api_key: NGC API key for registry access (optional)
+        ngc_api_key: NGC API key for registry access (optional, Docker only)
+        commands.gpu_container: custom GPU container command (optional), e.g.
+            ``sudo nerdctl run --rm --gpus all nvcr.io/nvidia/cuda:13.0.3-base-ubuntu24.04 nvidia-smi``
     """
 
     description: ClassVar[str] = "Tests GPU-capable container runtime support"
@@ -1949,25 +1948,26 @@ class ContainerRuntimeCheck(BaseValidation):
         found = "__not_found__" not in out and out.strip()
         return bool(found), out.strip()
 
-    def _gpu_operator_installed(self, ssh: object) -> bool:
-        """Return True when nvidia-container-runtime is installed and configured as an OCI hook.
+    def _containerd_nvidia_runtime(self, ssh: object) -> tuple[bool, str]:
+        """Return (usable, runtime path or failure reason) for containerd's NVIDIA runtime handler.
 
-        Checks both binary presence and containerd integration: verifies the
-        runtime binary exists and that the configuration containerd loads
-        (``containerd config dump``) defines a runtime handler backed by it.
+        ``containerd config dump`` resolves imports and omits disabled plugins, so stray or
+        unrelated files can't match. The handler's ``BinaryName`` must also resolve to an
+        executable on the host (GPU Operator installs it outside ``PATH``).
         """
-        # Step 1: binary must exist.
-        out = self._check_cmd(ssh, "nvidia-container-runtime --version 2>/dev/null || echo '__not_found__'")
-        if "__not_found__" in out or not out.strip():
-            return False
-        # Step 2: the dump resolves imports and omits disabled plugins, so stray files can't match.
         # config.toml is often root-only; containerd 2.x quotes values with ', 1.x with ".
-        config_out = self._check_cmd(
+        out = self._check_cmd(
             ssh,
-            "{ sudo -n containerd config dump || containerd config dump; } 2>/dev/null "
-            "| grep -E 'BinaryName = .[^ ]*nvidia-container-runtime' | head -1",
+            "d=$({ sudo -n containerd config dump || containerd config dump; } 2>/dev/null) "
+            "|| { echo __unreadable__; exit 0; }; "
+            r"""p=$(printf '%s\n' "$d" | sed -n "s/.*BinaryName = .\([^\"']*nvidia-container-runtime[^\"']*\).*/\1/p" """
+            '| head -1); command -v "$p"',
         )
-        return config_out.strip() != ""
+        if "__unreadable__" in out:
+            return False, "could not read its config (needs passwordless sudo or a readable config.toml)"
+        if "nvidia-container-runtime" in out:
+            return True, out.strip()
+        return False, "loaded config has no usable nvidia-container-runtime handler"
 
     def _run_gpu_container(self, ssh: object, run_cmd: str) -> bool:
         """Return True when a GPU container runs nvidia-smi successfully."""
@@ -1999,48 +1999,48 @@ class ContainerRuntimeCheck(BaseValidation):
             login_cmd_tmpl: str | None = None
             gpu_image = get_cuda_image()
 
-            # ── Level 1: Docker ──────────────────────────────────────────────
-            docker_ok, docker_ver = self._is_present(ssh, "docker")
-            if docker_ok and rt_name is None:
-                gpu_ok = self._run_gpu_container(ssh, f"docker run --rm --gpus all {gpu_image} nvidia-smi")
-                if gpu_ok:
-                    self.report_subtest("container_runtime", True, f"docker {docker_ver}")
-                    self.report_subtest("gpu_container", True, "GPU container ran via docker")
-                    rt_name = "docker"
-                    login_cmd_tmpl = "printf '%s' '{key}' | docker login nvcr.io -u '$oauthtoken' --password-stdin 2>&1"
-                else:
-                    self.log.info("docker GPU container failed; falling back to next level")
+            # ── Custom runtime: commands.gpu_container ───────────────────────
+            custom_cmd = (self.config.get("commands") or {}).get("gpu_container")
+            if custom_cmd:
+                if not self._run_gpu_container(ssh, custom_cmd):
+                    self.report_subtest("gpu_container", False, "commands.gpu_container did not run nvidia-smi")
+                    self.set_failed("commands.gpu_container did not run nvidia-smi in a GPU container")
+                    ssh.close()
+                    return
+                self.report_subtest("gpu_container", True, "GPU container ran via commands.gpu_container")
+                rt_name = "commands.gpu_container"
 
-            # ── Level 2: nerdctl (containerd-backed CLI) ─────────────────────
+            # ── Docker ───────────────────────────────────────────────────────
+            docker_failed = False
             if rt_name is None:
-                nerdctl_ok, nerdctl_ver = self._is_present(ssh, "nerdctl")
-                if nerdctl_ok:
-                    gpu_ok = self._run_gpu_container(ssh, f"nerdctl run --rm --gpus all {gpu_image} nvidia-smi")
+                docker_ok, docker_ver = self._is_present(ssh, "docker")
+                if docker_ok:
+                    gpu_ok = self._run_gpu_container(ssh, f"docker run --rm --gpus all {gpu_image} nvidia-smi")
                     if gpu_ok:
-                        self.report_subtest("container_runtime", True, f"nerdctl {nerdctl_ver}")
-                        self.report_subtest("gpu_container", True, "GPU container ran via nerdctl")
-                        rt_name = "nerdctl"
+                        self.report_subtest("container_runtime", True, f"docker {docker_ver}")
+                        self.report_subtest("gpu_container", True, "GPU container ran via docker")
+                        rt_name = "docker"
                         login_cmd_tmpl = (
-                            "printf '%s' '{key}' | nerdctl login nvcr.io -u '$oauthtoken' --password-stdin 2>&1"
+                            "printf '%s' '{key}' | docker login nvcr.io -u '$oauthtoken' --password-stdin 2>&1"
                         )
                     else:
-                        self.log.info("nerdctl GPU container failed; falling back to containerd level")
+                        docker_failed = True
+                        self.log.info("docker GPU container failed; falling back to containerd")
+            docker_note = "docker GPU container failed; " if docker_failed else ""
 
-            # ── Level 3: containerd + nvidia-container-runtime ───────────────
+            # ── containerd + nvidia-container-runtime ────────────────────────
             containerd_ok, ct_ver = False, ""
             if rt_name is None:
                 containerd_ok, ct_ver = self._is_present(ssh, "containerd")
             if rt_name is None and containerd_ok:
-                gpu_op = self._gpu_operator_installed(ssh)
+                gpu_op, detail = self._containerd_nvidia_runtime(ssh)
                 self.report_subtest(
                     "container_runtime",
                     gpu_op,
-                    f"containerd {ct_ver} with nvidia-container-runtime"
-                    if gpu_op
-                    else f"containerd {ct_ver} found but nvidia-container-runtime not installed",
+                    f"containerd {ct_ver} with {detail}" if gpu_op else f"containerd {ct_ver}: {detail}",
                 )
                 if not gpu_op:
-                    self.set_failed("containerd present but nvidia-container-runtime not installed")
+                    self.set_failed(f"{docker_note}containerd {detail}")
                     ssh.close()
                     return
                 # GPU operator presence is the proof of capability at this level.
@@ -2054,36 +2054,10 @@ class ContainerRuntimeCheck(BaseValidation):
                 rt_name = "containerd"
                 login_cmd_tmpl = None  # no direct login via ctr; NGC skipped at this level
 
-            # ── Levels 4/5: runc or crun + nvidia-container-runtime ──────────
-            for oci_name in ("runc", "crun") if rt_name is None else ():
-                if rt_name is not None:
-                    break
-                oci_ok, oci_ver = self._is_present(ssh, oci_name)
-                if not oci_ok:
-                    continue
-                gpu_op = self._gpu_operator_installed(ssh)
-                self.report_subtest(
-                    "container_runtime",
-                    gpu_op,
-                    f"{oci_name} {oci_ver} with nvidia-container-runtime"
-                    if gpu_op
-                    else f"{oci_name} {oci_ver} found but nvidia-container-runtime not installed",
-                )
-                if not gpu_op:
-                    self.set_failed(f"{oci_name} present but nvidia-container-runtime not installed")
-                    ssh.close()
-                    return
-                self.report_subtest(
-                    "gpu_container",
-                    True,
-                    f"GPU capability proven by {oci_name} + nvidia-container-runtime",
-                )
-                rt_name = oci_name
-                login_cmd_tmpl = None
-
             if rt_name is None:
                 self.set_failed(
-                    "No GPU-capable container runtime found (tried: docker, nerdctl, containerd, runc, crun)"
+                    f"{docker_note}No GPU-capable container runtime found (tried: docker, containerd); "
+                    "set commands.gpu_container for other runtimes"
                 )
                 ssh.close()
                 return
