@@ -81,7 +81,10 @@ def _tag_spec(resource_type: str, name: str) -> list[dict[str, Any]]:
 def probe(ssm: Any, source_id: str, target_ip: str, flow: dict[str, Any]) -> str:
     """Probe ``flow`` from the source to the target; return connected/refused/timeout/error."""
     if flow["protocol"] == "icmp":
-        command = f"if ping -c 3 -W 2 {target_ip} >/dev/null 2>&1; then echo connected; else echo timeout; fi"
+        command = (
+            f"ping -c 3 -W 2 {target_ip} >/dev/null 2>&1; rc=$?; "
+            "if [ $rc -eq 0 ]; then echo connected; elif [ $rc -eq 1 ]; then echo timeout; else echo error; fi"
+        )
     else:
         command = (
             f"timeout {PROBE_TIMEOUT_SECONDS} bash -c '</dev/tcp/{target_ip}/{flow['port']}' 2>/dev/null; rc=$?; "
