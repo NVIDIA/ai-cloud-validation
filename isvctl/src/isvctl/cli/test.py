@@ -28,7 +28,7 @@ from typing import Annotated, Any, TextIO
 import typer
 import yaml
 from isvtest.catalog import build_catalog, catalog_document, get_catalog_version
-from isvtest.core.resolution import parse_validations, requirements_satisfied
+from isvtest.core.resolution import SkipReason, parse_validations, requirements_satisfied
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import (
@@ -684,6 +684,8 @@ def run(
     typer.echo("ORCHESTRATION RESULTS")
     typer.echo("=" * 60)
 
+    show_deselected = bool(config.tests.settings.get("show_deselected_tests", False)) if config.tests else False
+
     for phase_result in result.phases:
         if phase_result.message.startswith("SKIPPED:"):
             status = typer.style("[SKIP]", fg=typer.colors.YELLOW)
@@ -733,7 +735,11 @@ def run(
         if phase_result.details and "validations" in phase_result.details:
             validations = phase_result.details["validations"]
             if validations:
+                deselected_count = 0
                 for vr in validations:
+                    if not show_deselected and vr.get("skip_reason") == SkipReason.EXCLUDED:
+                        deselected_count += 1
+                        continue
                     vr_name = vr.get("name", "unknown")
                     # Handle case where name might be a dict (extract class name)
                     if isinstance(vr_name, dict):
@@ -754,6 +760,11 @@ def run(
                         reason = None
                     detail = _validation_result_detail(vr, reason)
                     typer.echo(f"  {category_prefix}{vr_name}: {vr_status} - {detail}")
+                if deselected_count:
+                    noun = "validation" if deselected_count == 1 else "validations"
+                    typer.echo(
+                        f"  ({deselected_count} {noun} not selected; set show_deselected_tests: true to list them)"
+                    )
 
     typer.echo("-" * 60)
     if result.success:

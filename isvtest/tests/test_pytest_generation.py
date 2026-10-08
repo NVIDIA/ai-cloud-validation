@@ -113,13 +113,13 @@ class LiteralVariantLoader(FakeLoader):
         return {"ReleasedValidation-experimental": {"expected": True}}
 
 
-class ShowSkippedLiteralVariantLoader(LiteralVariantLoader):
-    """ConfigLoader replacement that enables skipped-test reporting."""
+class ShowDeselectedLiteralVariantLoader(LiteralVariantLoader):
+    """ConfigLoader replacement that enables deselected-test reporting."""
 
     def load_cluster_config(self, config_file: str, inventory_path: str | None = None) -> dict[str, Any]:
-        """Return a cluster config with show_skipped_tests enabled."""
+        """Return a cluster config with show_deselected_tests enabled."""
         config = super().load_cluster_config(config_file=config_file, inventory_path=inventory_path)
-        config["settings"] = {"show_skipped_tests": True}
+        config["settings"] = {"show_deselected_tests": True}
         return config
 
 
@@ -130,7 +130,7 @@ class ResolvedEntriesLoader(FakeLoader):
         """Return a config whose validation entries were resolved upstream."""
         config = super().load_cluster_config(config_file=config_file, inventory_path=inventory_path)
         config[RESOLVED_ENTRIES_FLAG] = True
-        config["settings"] = {"show_skipped_tests": True}
+        config["settings"] = {"show_deselected_tests": True}
         return config
 
 
@@ -152,7 +152,7 @@ def test_configured_literal_variant_is_generated() -> None:
     metafunc = FakeMetafunc()
 
     with (
-        patch.object(validation_tests, "ConfigLoader", ShowSkippedLiteralVariantLoader),
+        patch.object(validation_tests, "ConfigLoader", ShowDeselectedLiteralVariantLoader),
         patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation]),
     ):
         validation_tests.pytest_generate_tests(metafunc)
@@ -160,12 +160,12 @@ def test_configured_literal_variant_is_generated() -> None:
     assert metafunc.ids == ["ReleasedValidation-experimental"]
 
 
-def test_show_skipped_omits_compose_only_classes() -> None:
+def test_show_deselected_omits_compose_only_classes() -> None:
     """Compose-only machinery is not emitted as an unconfigured top-level test."""
     metafunc = FakeMetafunc()
 
     with (
-        patch.object(validation_tests, "ConfigLoader", ShowSkippedLiteralVariantLoader),
+        patch.object(validation_tests, "ConfigLoader", ShowDeselectedLiteralVariantLoader),
         patch.object(validation_tests, "discover_all_tests", return_value=[ReleasedValidation, ComposeOnlyValidation]),
     ):
         validation_tests.pytest_generate_tests(metafunc)
@@ -173,7 +173,7 @@ def test_show_skipped_omits_compose_only_classes() -> None:
     assert metafunc.ids == ["ReleasedValidation-experimental"]
 
 
-def test_resolved_entries_bypass_show_skipped_expansion() -> None:
+def test_resolved_entries_bypass_show_deselected_expansion() -> None:
     """Resolved temp configs execute exactly the entries already selected upstream."""
     metafunc = FakeMetafunc()
 
