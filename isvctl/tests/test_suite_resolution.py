@@ -5,6 +5,7 @@
 
 import json
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -235,7 +236,12 @@ def test_storage_suite_requires_all_k8s_storage_capabilities(relative: str) -> N
 
 def test_csi_lifecycle_provider_wires_install_and_teardown() -> None:
     """The opt-in CSI provider retains required checks and runs both lifecycle phases."""
-    config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "providers" / "csi.yaml")]))
+    path = CONFIGS_ROOT / "providers" / "shared" / "csi.yaml"
+    config = RunConfig.model_validate(merge_yaml_files([str(path)]))
+    for step in config.get_steps("storage"):
+        args = shlex.split(step.command)
+        script = args[1] if args[0] == "python3" else args[0]
+        assert (path.parent / script).is_file()
     assert [(step.name, step.phase) for step in config.get_steps("storage")] == [
         ("install_csi", "setup"),
         ("setup_cluster", "setup"),

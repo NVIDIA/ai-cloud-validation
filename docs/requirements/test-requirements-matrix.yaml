@@ -2696,3 +2696,24 @@ mappings:
         coverage: partial
     annotations: 'The requirement asks for peer-to-peer connectivity; this test reports bandwidth.'
     notes: ''
+  - test_id: K8S29-01
+    requirements:
+      - req_id: K8S29
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: 'Exercises public/private connectivity and requested static ingress addresses.'
+  - test_id: K8S30-01
+    requirements:
+      - req_id: K8S30
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: 'Executes a conditional lookup through cluster DNS and verifies the designated upstream observed it.'
+  - test_id: K8S31-01
+    requirements:
+      - req_id: K8S31
+        source: offtake
+        coverage: partial
+    annotations: ''
+    notes: 'Corroborates supplied provisioning ranges and fresh allocations; does not prove cluster reconfiguration or provider network range APIs.'
