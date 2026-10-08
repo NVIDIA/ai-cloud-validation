@@ -17,6 +17,7 @@
 """Run disposable networking probes against an explicitly configured Kubernetes cluster."""
 
 import argparse
+import http.client
 import ipaddress
 import json
 import os
@@ -166,7 +167,7 @@ class Probe:
         while True:
             try:
                 return callback()
-            except (RuntimeError, OSError, urllib.error.URLError) as error:
+            except (RuntimeError, OSError, urllib.error.URLError, http.client.HTTPException) as error:
                 if time.monotonic() >= deadline:
                     raise RuntimeError(f"Timed out waiting for networking probe: {error}") from error
                 time.sleep(3)
@@ -379,7 +380,15 @@ def run(name: str, settings: Any) -> dict[str, Any]:
         result["success"] = True
     except PrerequisiteMissing as error:
         result.update(skipped=True, skip_reason=str(error))
-    except (RuntimeError, OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
+    except (
+        RuntimeError,
+        OSError,
+        subprocess.SubprocessError,
+        ValueError,
+        KeyError,
+        TypeError,
+        http.client.HTTPException,
+    ) as error:
         result["error"] = str(error)
     finally:
         if probe:

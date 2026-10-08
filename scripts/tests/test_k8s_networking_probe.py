@@ -15,6 +15,7 @@
 
 """Exercise networking workflows and cleanup at their kubectl/HTTP boundaries."""
 
+import http.client
 import importlib.util
 import json
 import subprocess
@@ -64,6 +65,7 @@ class Cluster:
         self.commands: list[list[str]] = []
         self.fault = ""
         self.response = ""
+        self.http_errors: list[http.client.HTTPException] = []
         self.namespace_created = False
         self.deleted = False
         self.patches = 0
@@ -192,12 +194,16 @@ def cluster(monkeypatch: pytest.MonkeyPatch) -> Cluster:
 
         def read(self, size: int) -> bytes:
             """Return the correct or deliberately incorrect backend body."""
+            if cluster.http_errors:
+                raise cluster.http_errors.pop(0)
             return ("wrong backend" if cluster.fault == "wrong-response" else cluster.response).encode()
 
     def open_url(url: str, **kwargs: Any) -> Response:
         """Model a public request failure independently of Kubernetes status."""
         if cluster.fault == "external-network":
             raise OSError("Connection timed out")
+        if cluster.http_errors and isinstance(cluster.http_errors[0], http.client.BadStatusLine):
+            raise cluster.http_errors.pop(0)
         return Response()
 
     monkeypatch.setattr(MODULE.urllib.request, "build_opener", lambda *args: SimpleNamespace(open=open_url))
@@ -245,6 +251,61 @@ def test_assigned_ingress_without_connectivity_fails(cluster: Cluster, fault: st
     cluster.fault = fault
     output = run("load_balancer")
     assert not output["success"] and cluster.deleted
+
+
+@pytest.mark.parametrize(
+    "error", [http.client.BadStatusLine("invalid status"), http.client.IncompleteRead(b"partial", 20)]
+)
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_http_protocol_failure_preserves_cleanup(
+    cluster: Cluster, error: http.client.HTTPException, cleanup_fails: bool
+) -> None:
+    """Opening or reading malformed HTTP responses yields failure JSON and cleanup evidence."""
+    cluster.http_errors = [error]
+    cluster.fault = "cleanup" if cleanup_fails else ""
+    output = run("load_balancer")
+    assert output["success"] is False and not output.get("skipped")
+    assert "Timed out waiting for networking probe" in output["error"]
+    assert str(error) in output["error"]
+    assert bool(output.get("cleanup_errors")) == cleanup_fails
+    assert cluster.deleted == (not cleanup_fails)
+
+
+@pytest.mark.parametrize(
+    "error", [http.client.BadStatusLine("invalid status"), http.client.IncompleteRead(b"partial", 20)]
+)
+def test_transient_http_protocol_failure_retries(
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch, error: http.client.HTTPException
+) -> None:
+    """An endpoint can recover from a malformed response within the convergence deadline."""
+    ticks = iter(range(1000))
+    monkeypatch.setattr(MODULE.time, "monotonic", lambda: next(ticks))
+    cluster.http_errors = [error]
+    output = run("load_balancer")
+    check = K8sLoadBalancerCheck(config={"step_output": output})
+    check.run()
+    assert output["success"] and check.passed and cluster.deleted
+    assert not cluster.http_errors
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_unretried_http_protocol_failure_preserves_json(
+    cluster: Cluster, monkeypatch: pytest.MonkeyPatch, cleanup_fails: bool
+) -> None:
+    """The outer guard preserves failure and cleanup evidence for an unwrapped HTTP error."""
+
+    def fail(probe: MODULE.Probe) -> None:
+        """Raise outside the retry helper after registering cleanup."""
+        probe.begin()
+        raise http.client.BadStatusLine("invalid status")
+
+    monkeypatch.setattr(MODULE.Probe, "load_balancer", fail)
+    cluster.fault = "cleanup" if cleanup_fails else ""
+    output = run("load_balancer")
+    assert output["success"] is False and not output.get("skipped")
+    assert output["error"] == "invalid status"
+    assert bool(output.get("cleanup_errors")) == cleanup_fails
+    assert cluster.deleted == (not cleanup_fails)
 
 
 def test_wrong_backend_reaches_validator_and_fails(cluster: Cluster) -> None:
