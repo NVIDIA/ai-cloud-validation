@@ -155,6 +155,7 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "update_node_pool": "node_pool",
     "destroy_test_node_pool": "teardown",
     "destroy_node_pool": "teardown",
+    "service_account_iam_test": "service_account_iam",
     # Multi-cluster operations
     "create_test_shared_vpc_cluster": "multi_cluster",
     "destroy_test_shared_vpc_cluster": "teardown",
@@ -1524,6 +1525,34 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "current_version": {
                 "type": "string",
                 "description": "Kubernetes patch version the control plane runs, as the provider reports it",
+            },
+        },
+        "additionalProperties": True,
+    },
+    "service_account_iam": {
+        "type": "object",
+        "required": ["success", "platform", "tests"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "tests": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "required": ["passed"],
+                    "properties": {
+                        "passed": {"type": "boolean"},
+                        "message": {"type": "string"},
+                        "error": {"type": "string"},
+                        "skipped": {"type": "boolean"},
+                        "skip_reason": {"type": "string"},
+                    },
+                },
+                "description": "Workload probes: identity, allowed_access, out_of_scope_denied",
+            },
+            "cleanup_errors": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Test fixtures the probe could not remove",
             },
         },
         "additionalProperties": True,

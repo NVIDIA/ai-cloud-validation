@@ -15,6 +15,7 @@
 
 """Tests for orchestrator loop."""
 
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -468,6 +469,23 @@ EOF
         assert len(teardown_phases) == 1, "teardown phase must run even when setup validations fail"
         teardown_step_names = [s["name"] for s in teardown_phases[0].details["steps"]]
         assert "cleanup" in teardown_step_names, "teardown step must have executed"
+
+    def test_step_reporting_skipped_output_is_summarized_as_skipped(self) -> None:
+        """A step that succeeds but reports it did nothing (e.g. teardown kept resources) is not 'passed'."""
+        output = json.dumps({"success": True, "platform": "kubernetes", "skipped": True, "message": "kept"})
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["teardown"],
+                    steps=[StepConfig(name="teardown", command="echo", args=[output], phase="teardown")],
+                )
+            },
+            tests=ValidationConfig(capability="kubernetes"),
+        )
+        result = Orchestrator(config).run(phases=[Phase.TEARDOWN])
+
+        assert result.phases[0].success
+        assert result.phases[0].message == "teardown: skipped"
 
     def test_teardown_skipped_when_setup_steps_did_not_run(self) -> None:
         """Teardown must be skipped when no setup steps executed."""

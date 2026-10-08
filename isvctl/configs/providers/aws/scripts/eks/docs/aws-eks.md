@@ -482,3 +482,20 @@ aws eks delete-cluster --name isv-test-cluster
 - [Terraform Module README](../terraform/README.md) - Detailed Terraform configuration
 - [Configuration Guide](../../../../../../../docs/guides/configuration.md) - Config file options
 - [Remote Deployment](../../../../../../../docs/guides/remote-deployment.md) - Deploy to remote clusters
+
+## Kubernetes ServiceAccount IAM validation (K8S16-01)
+
+The test phase runs `service_account_iam.py`. It creates a temporary IAM role
+that only one ServiceAccount can assume ([IRSA](https://docs.aws.amazon.com/eks/latest/userguide/associate-service-account-role.html)),
+then checks from a pod that the role is assumed, an allowed S3 object is
+readable, and another object is denied. The pod gets no controller credentials
+and EC2 metadata fallback is disabled.
+
+```bash
+uv run python isvctl/configs/providers/aws/scripts/eks/service_account_iam.py \
+  --cluster-name YOUR_CLUSTER --region us-west-2
+```
+
+The cluster needs an IAM OIDC provider. Use `--image` to point at a mirrored
+AWS CLI image. If a run is killed before cleanup, remove leftover `isv-ksa-*`
+roles, buckets, and namespaces.

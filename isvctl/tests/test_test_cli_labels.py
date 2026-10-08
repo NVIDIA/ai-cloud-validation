@@ -707,3 +707,30 @@ def test_color_choice_applies_to_the_results_summary(
     assert result.exit_code == 0, result.output
     assert bool(ANSI_ESCAPE.search(result.output)) is styled
     assert _FakeOrchestrator.captured["extra_pytest_args"] == [f"--color={color}"]
+
+
+def test_summary_shows_why_a_successful_step_skipped(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A step that kept resources says so, with its message, instead of passing silently."""
+
+    class _TeardownSkipped(_FakeOrchestrator):
+        def run(self, **kwargs: Any) -> OrchestratorResult:
+            """Return a teardown that skipped destroying resources."""
+            step = {"name": "teardown", "success": True, "output": {"skipped": True, "message": "Kept i-123"}}
+            return OrchestratorResult(
+                success=True,
+                phases=[
+                    PhaseResult(
+                        phase=Phase.TEARDOWN,
+                        success=True,
+                        message="teardown: skipped",
+                        details={"steps": [step]},
+                    )
+                ],
+            )
+
+    monkeypatch.setattr(test_cli, "Orchestrator", _TeardownSkipped)
+
+    result = runner.invoke(test_cli.app, ["run", "-f", str(_write_config(tmp_path)), "--no-upload"])
+
+    assert result.exit_code == 0, result.output
+    assert "[teardown] SKIPPED: Kept i-123" in ANSI_ESCAPE.sub("", result.output)
