@@ -10,6 +10,7 @@ dependencies = [
     "isvtest",
     "isvreporter",
     "jinja2>=3.1.6,<4.0.0",
+    "jsonschema>=4.0.0,<5.0.0",
     "pydantic>=2.10.0,<3.0.0",
     "pyyaml>=6.0.2,<7.0.0",
     "typer>=0.21.1,<1.0.0",
