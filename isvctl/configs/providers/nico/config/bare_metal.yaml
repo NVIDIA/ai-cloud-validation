@@ -646,6 +646,15 @@ tests:
     instance_type: ""
     teardown_flag: ""
 
+  # NICo has no launch_instance step; the listed target is NICO_INSTANCE_ID
+  # (empty means site inventory only).
+  validations:
+    list_instances:
+      step: list_instances
+      checks:
+        BmHostListedCheck:
+          target_instance: "{{instance_id}}"
+
   # Adding describe_instance enables all suite checks anchored to that step.
   # Keep SSH, host GPU, interconnect, and workload checks out until their
   # scripts are wired. Exclude by validation name so NICo's wired fabric and

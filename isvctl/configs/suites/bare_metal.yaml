@@ -67,6 +67,7 @@ tests:
           test_id: "N/A"
           labels: ["bare_metal"]
           min_count: 1
+          target_instance: "{{steps.launch_instance.instance_id}}"
           description: "Check the bare metal host appears when hosts are listed"
           compose:
             - InstanceListCheck

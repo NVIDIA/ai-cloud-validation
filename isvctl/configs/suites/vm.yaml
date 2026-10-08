@@ -90,6 +90,7 @@ tests:
           test_id: "CNP01-11"
           labels: ["min_req", "vm"]
           min_count: 1
+          target_instance: "{{steps.launch_instance.instance_id}}"
           description: "Check the VM appears when instances are listed"
           compose:
             - InstanceListCheck

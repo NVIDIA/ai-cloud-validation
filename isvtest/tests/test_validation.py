@@ -396,6 +396,53 @@ class TestInstanceListCheck:
         assert "i-target" in result["error"]
         assert "not found" in result["error"]
 
+    def test_configured_target_found(self) -> None:
+        """Test passing when the launch step's instance ID is in the list."""
+        v = InstanceListCheck(
+            config={
+                "step_output": {"instances": [self._make_instance(instance_id="i-target")]},
+                "target_instance": "i-target",
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is True
+        assert "target 'i-target' found" in result["output"]
+
+    @pytest.mark.parametrize(
+        "step_fields",
+        [
+            pytest.param({}, id="no-target-fields"),
+            pytest.param({"target_instance": "i-target"}, id="found-target-omitted"),
+            pytest.param({"target_instance": "i-target", "found_target": True}, id="found-target-misreported"),
+        ],
+    )
+    def test_configured_target_missing_from_list(self, step_fields: dict[str, str | bool]) -> None:
+        """Test failure when the launched instance is absent, whatever the script self-reports."""
+        v = InstanceListCheck(
+            config={
+                "step_output": {"instances": [self._make_instance(instance_id="i-other")], **step_fields},
+                "target_instance": "i-target",
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "Target instance 'i-target' not found" in result["error"]
+
+    def test_step_target_misreported_without_config(self) -> None:
+        """Test the step's own target is verified against the list when no config target is set."""
+        v = InstanceListCheck(
+            config={
+                "step_output": {
+                    "instances": [self._make_instance(instance_id="i-other")],
+                    "target_instance": "i-target",
+                    "found_target": True,
+                },
+            }
+        )
+        result = v.execute()
+        assert result["passed"] is False
+        assert "Target instance 'i-target' not found" in result["error"]
+
     def test_missing_required_fields(self) -> None:
         """Test failure when an instance is missing required fields."""
         v = InstanceListCheck(
