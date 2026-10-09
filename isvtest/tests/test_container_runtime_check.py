@@ -10,6 +10,7 @@ Covers the custom ``commands.gpu_container`` override and the two auto-detected 
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,7 @@ def _make_check(config: dict[str, Any] | None = None) -> ContainerRuntimeCheck:
 
 def _patched_run(
     check: ContainerRuntimeCheck,
-    command_map: dict[str, str],
+    command_map: dict[str, str | tuple[int, str, str]],
     ngc_key: str = "",
 ) -> ContainerRuntimeCheck:
     """Run the check with command-aware mocked SSH responses.
@@ -48,8 +49,12 @@ def _patched_run(
         default = command_map.get("__default__", "")
         for pattern, response in command_map.items():
             if pattern != "__default__" and pattern in cmd:
-                return 0, response, ""
-        return 0, default, ""
+                return response if isinstance(response, tuple) else (0, response, "")
+        if "/proc/123/cmdline" in cmd:
+            return 0, "containerd\0", ""
+        if "readlink /proc/123/exe" in cmd:
+            return 0, "/usr/bin/containerd", ""
+        return default if isinstance(default, tuple) else (0, default, "")
 
     with (
         patch(
@@ -67,6 +72,11 @@ def _patched_run(
 
     return check
 
+
+NVIDIA_DUMP = (
+    '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]\n'
+    'BinaryName = "/usr/bin/nvidia-container-runtime"\n'
+)
 
 NERDCTL_CMD = "sudo nerdctl run --rm --gpus all nvcr.io/nvidia/cuda:13.0.3-base-ubuntu24.04 nvidia-smi"
 
@@ -133,8 +143,9 @@ class TestDockerLevel:
             {
                 "docker --version": "Docker version 24.0.0",
                 "docker run": "__gpu_run_failed__",
-                "containerd --version": "containerd 1.7.0",
-                "containerd config dump": "/usr/bin/nvidia-container-runtime",
+                "pgrep -x containerd": "123",
+                "config dump": NVIDIA_DUMP,
+                "command -v": "/usr/bin/nvidia-container-runtime",
                 "__default__": "__not_found__",
             },
         )
@@ -185,8 +196,9 @@ class TestContainerdLevel:
             _make_check(),
             {
                 "docker --version": "__not_found__",
-                "containerd --version": "containerd 1.7.0",
-                "containerd config dump": "/usr/bin/nvidia-container-runtime",
+                "pgrep -x containerd": "123",
+                "config dump": NVIDIA_DUMP,
+                "command -v": "/usr/bin/nvidia-container-runtime",
                 "__default__": "__not_found__",
             },
         )
@@ -199,7 +211,8 @@ class TestContainerdLevel:
             _make_check(),
             {
                 "docker --version": "__not_found__",
-                "containerd --version": "containerd 1.7.0",
+                "pgrep -x containerd": "123",
+                "config dump": "version = 3\n",
                 "__default__": "",
             },
         )
@@ -213,8 +226,8 @@ class TestContainerdLevel:
             _make_check(),
             {
                 "docker --version": "__not_found__",
-                "containerd --version": "containerd 1.7.0",
-                "containerd config dump": "__unreadable__",
+                "pgrep -x containerd": "123",
+                "config dump": (1, "", "permission denied"),
                 "__default__": "",
             },
         )
@@ -228,7 +241,8 @@ class TestContainerdLevel:
             {
                 "docker --version": "Docker version 24.0.0",
                 "docker run": "__gpu_run_failed__",
-                "containerd --version": "containerd 1.7.0",
+                "pgrep -x containerd": "123",
+                "config dump": "version = 3\n",
                 "__default__": "",
             },
         )
@@ -241,8 +255,9 @@ class TestContainerdLevel:
             _make_check(),
             {
                 "docker --version": "__not_found__",
-                "containerd --version": "containerd 1.7.0",
-                "containerd config dump": "/usr/bin/nvidia-container-runtime",
+                "pgrep -x containerd": "123",
+                "config dump": NVIDIA_DUMP,
+                "command -v": "/usr/bin/nvidia-container-runtime",
                 "__default__": "__not_found__",
             },
             ngc_key="test-ngc-token",
@@ -277,7 +292,7 @@ class TestContainerdConfigProbe:
         "  BinaryName = '{root}/opt/missing/nvidia-container-runtime'\n"
     )
     RUNC_ONLY = '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]\n  BinaryName = ""\n'
-    CRI_DISABLED = 'disabled_plugins = ["cri"]\nimports = ["/etc/containerd/config.toml"]\n'
+    CRI_DISABLED = 'disabled_plugins = ["cri"]\n' + CONTAINERD1_NVIDIA_CTK
 
     @pytest.mark.parametrize(
         ("dump", "expected"),
@@ -288,6 +303,18 @@ class TestContainerdConfigProbe:
             (BINARY_MISSING, False),
             (RUNC_ONLY, False),
             (CRI_DISABLED, False),
+            ('disabled_plugins = ["io.containerd.grpc.v1.cri"]\n' + CONTAINERD1_NVIDIA_CTK, False),
+            ('disabled_plugins = ["io.containerd.cri.v1.runtime"]\n' + CONTAINERD2_GPU_OPERATOR, False),
+            ('disabled_plugins = ["io.containerd.grpc.v1.cri"]\n' + CONTAINERD2_GPU_OPERATOR, False),
+            (CONTAINERD1_NVIDIA_CTK.replace("io.containerd.grpc.v1.cri", "unrelated.plugin"), False),
+            (
+                BINARY_MISSING
+                + CONTAINERD2_GPU_OPERATOR.replace("runtimes.nvidia.options", "runtimes.nvidia_valid.options"),
+                True,
+            ),
+            (CONTAINERD1_NVIDIA_CTK.replace('runtime"', 'runtime.cdi"'), True),
+            (CONTAINERD1_NVIDIA_CTK.replace('runtime"', 'runtime.legacy"'), True),
+            (CONTAINERD1_NVIDIA_CTK.replace('runtime"', 'runtime.bak"'), False),
         ],
         ids=[
             "containerd2-gpu-operator",
@@ -296,11 +323,20 @@ class TestContainerdConfigProbe:
             "binary-missing",
             "runc-only",
             "cri-disabled",
+            "cri-disabled-qualified-name",
+            "containerd2-runtime-disabled",
+            "containerd2-cri-service-disabled",
+            "unrelated-plugin",
+            "missing-first-valid-second",
+            "cdi-runtime",
+            "legacy-runtime",
+            "unrecognized-runtime-name",
         ],
     )
     def test_detects_nvidia_runtime_handler(self, tmp_path: Path, dump: str, expected: bool) -> None:
         """Only a loaded runtime handler backed by nvidia-container-runtime counts."""
-        assert self._probe(tmp_path, dump, sudo_ok=True, readable_without_root=False)[0] is expected
+        ok, detail = self._probe(tmp_path, dump, sudo_ok=True, readable_without_root=False)
+        assert ok is expected, detail
 
     @pytest.mark.parametrize(
         ("readable_without_root", "expected"), [(True, True), (False, False)], ids=["readable", "root-only"]
@@ -314,32 +350,90 @@ class TestContainerdConfigProbe:
         if not ok:
             assert "needs passwordless sudo" in detail
 
+    @pytest.mark.parametrize("flag", ["--config", "-c", "--config=", "-c="])
+    def test_daemon_config_path(self, tmp_path: Path, flag: str) -> None:
+        """Use the daemon's selected file, preserving spaces and shell metacharacters."""
+        config_path = "agent config/$(touch injected).toml"
+        args = [flag + config_path] if flag.endswith("=") else [flag, config_path]
+        ok, _ = self._probe(
+            tmp_path,
+            self.CONTAINERD2_GPU_OPERATOR,
+            sudo_ok=True,
+            readable_without_root=False,
+            daemon_args=args,
+            config_path=config_path,
+        )
+        assert ok
+        assert not (tmp_path / "injected").exists()
+
+    @pytest.mark.parametrize("pids", ["", "123\n456"])
+    def test_requires_one_running_daemon(self, tmp_path: Path, pids: str) -> None:
+        """Do not inspect an unused default config or choose an arbitrary daemon."""
+        ok, detail = self._probe(tmp_path, self.CONTAINERD1_NVIDIA_CTK, True, True, pids=pids)
+        assert not ok
+        assert "no running daemon" in detail if not pids else "multiple daemons" in detail
+
+    def test_malformed_dump(self, tmp_path: Path) -> None:
+        """Report malformed TOML instead of accepting a matching text fragment."""
+        ok, detail = self._probe(tmp_path, "[broken TOML", True, True)
+        assert not ok
+        assert "parse" in detail
+
     @staticmethod
-    def _probe(root: Path, dump: str, sudo_ok: bool, readable_without_root: bool) -> tuple[bool, str]:
-        """Run ``_containerd_nvidia_runtime`` with stubs that print ``dump`` when permitted."""
+    def _probe(
+        root: Path,
+        dump: str,
+        sudo_ok: bool,
+        readable_without_root: bool,
+        daemon_args: list[str] | None = None,
+        config_path: str | None = None,
+        pids: str = "123",
+    ) -> tuple[bool, str]:
+        """Run the real shell commands with a fake proc tree and a daemon outside PATH."""
         bin_dir = root / "bin"
         dump_file = root / "dump.toml"
         dump_file.write_text(dump.replace("{root}", str(root)))
+        proc = root / "proc/123"
+        daemon = root / "daemon/containerd"
+        proc.mkdir(parents=True)
+        proc.joinpath("cmdline").write_bytes(("\0".join([str(daemon), *(daemon_args or [])]) + "\0").encode())
+        proc.joinpath("exe").symlink_to(daemon)
+        proc.joinpath("cwd").symlink_to(root, target_is_directory=True)
+        expected_args = ["--config", config_path, "config", "dump"] if config_path else ["config", "dump"]
+        check_args = "\n".join(
+            f'[ "${index}" = {shlex.quote(arg)} ] || exit 2' for index, arg in enumerate(expected_args, 1)
+        )
+        if config_path and not Path(config_path).is_absolute():
+            check_args += f'\n[ "$(pwd -P)" = {shlex.quote(str(root.resolve()))} ] || exit 2'
         stubs = {
+            bin_dir / "pgrep": f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(pids)}\n",
             bin_dir / "sudo": (
                 '#!/bin/sh\n[ "$1" = -n ] && shift\nAS_ROOT=1 exec "$@"\n' if sudo_ok else "#!/bin/sh\nexit 1\n"
             ),
-            bin_dir / "containerd": (
-                f'#!/bin/sh\nif [ "$AS_ROOT" = 1 ] || [ {int(readable_without_root)} = 1 ]; then cat {dump_file}; '
+            daemon: (
+                f'#!/bin/sh\n{check_args}\n[ "$#" = {len(expected_args)} ] || exit 2\n'
+                f'if [ "$AS_ROOT" = 1 ] || [ {int(readable_without_root)} = 1 ]; then cat {shlex.quote(str(dump_file))}; '
                 "else echo 'permission denied' >&2; exit 1; fi\n"
             ),
             bin_dir / "nvidia-container-runtime": "#!/bin/sh\n",
             root / "usr/bin/nvidia-container-runtime": "#!/bin/sh\n",
+            root / "usr/bin/nvidia-container-runtime.cdi": "#!/bin/sh\n",
+            root / "usr/bin/nvidia-container-runtime.legacy": "#!/bin/sh\n",
+            root / "usr/bin/nvidia-container-runtime.bak": "#!/bin/sh\n",
             root / "usr/local/nvidia/toolkit/nvidia-container-runtime": "#!/bin/sh\n",
         }
+        if not sudo_ok:
+            # Linux can expose cmdline while denying the root-owned exe symlink.
+            stubs[bin_dir / "readlink"] = "#!/bin/sh\nexit 1\n"
         for path, script in stubs.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(script)
             path.chmod(0o755)
 
         def _run_locally(ssh: object, cmd: str) -> tuple[int, str, str]:
+            """Execute the probe while redirecting Linux proc paths to the fixture tree."""
             proc = subprocess.run(
-                ["sh", "-c", cmd],
+                ["sh", "-c", cmd.replace("/proc/", f"{root}/proc/")],
                 capture_output=True,
                 text=True,
                 env={"PATH": f"{bin_dir}:/usr/bin:/bin"},

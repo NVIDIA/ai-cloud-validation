@@ -32,7 +32,8 @@ import base64
 import os
 import re
 import shlex
-from pathlib import Path
+import tomllib
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, ClassVar
 
 import pytest
@@ -1917,11 +1918,10 @@ class ContainerRuntimeCheck(BaseValidation):
     workloads. Two runtimes are detected automatically, in order:
 
       Docker:      docker present + GPU container runs nvidia-smi.
-      containerd:  containerd present + the configuration it loads defines a
-                   runtime handler backed by nvidia-container-runtime (the
-                   standard GPU operator deployment on k8s nodes). Overlapping
-                   coverage from K8sNvidiaSmiCheck and K8sGpuPodAccessCheck
-                   confirms GPU workloads run.
+      containerd:  one running daemon whose configuration defines an enabled
+                   CRI runtime handler backed by an NVIDIA runtime executable.
+                   This checks configuration, not GPU execution; use the custom
+                   command below or the k8s GPU checks to exercise a workload.
 
     Any other runtime: set ``commands.gpu_container`` to a command that runs
     nvidia-smi in a GPU container. Detection is then skipped and the check
@@ -1948,25 +1948,83 @@ class ContainerRuntimeCheck(BaseValidation):
         found = "__not_found__" not in out and out.strip()
         return bool(found), out.strip()
 
-    def _containerd_nvidia_runtime(self, ssh: object) -> tuple[bool, str]:
-        """Return (usable, runtime path or failure reason) for containerd's NVIDIA runtime handler.
+    def _containerd_config_dump(self, ssh: object) -> tuple[str, str]:
+        """Return (dump, error) using the running Linux daemon's executable and config argument."""
+        pids = self._check_cmd(ssh, "pgrep -x containerd 2>/dev/null").split()
+        if not pids or any(not pid.isdecimal() for pid in pids):
+            return "", "no running daemon found"
+        if len(pids) != 1:
+            return "", "multiple daemons found; select one with commands.gpu_container"
 
-        ``containerd config dump`` resolves imports and omits disabled plugins, so stray or
-        unrelated files can't match. The handler's ``BinaryName`` must also resolve to an
-        executable on the host (GPU Operator installs it outside ``PATH``).
-        """
-        # config.toml is often root-only; containerd 2.x quotes values with ', 1.x with ".
-        out = self._check_cmd(
-            ssh,
-            "d=$({ sudo -n containerd config dump || containerd config dump; } 2>/dev/null) "
-            "|| { echo __unreadable__; exit 0; }; "
-            r"""p=$(printf '%s\n' "$d" | sed -n "s/.*BinaryName = .\([^\"']*nvidia-container-runtime[^\"']*\).*/\1/p" """
-            '| head -1); command -v "$p"',
+        proc = f"/proc/{pids[0]}"
+        code, cmdline, _ = run_ssh_command(ssh, f"{{ sudo -n cat {proc}/cmdline || cat {proc}/cmdline; }} 2>/dev/null")
+        if code or not cmdline:
+            return "", "could not read its process arguments (may need passwordless sudo)"
+
+        # Preserve NUL-separated arguments: a config path can contain spaces or shell syntax.
+        argv = cmdline.rstrip("\0").split("\0")
+        args = iter(argv[1:])
+        config_path = None
+        for arg in args:
+            if arg in ("--config", "-c"):
+                config_path = next(args, "")
+            elif arg.startswith(("--config=", "-c=")):
+                config_path = arg.split("=", 1)[1]
+        if config_path == "":
+            return "", "empty configuration path in daemon arguments"
+
+        # Prefer the actual executable, including distro binaries outside PATH. Linux may
+        # deny access to a root-owned process's exe link without sudo; retain its argv[0]
+        # invocation in that case so readable configurations still work unprivileged.
+        binary = (
+            self._check_cmd(ssh, f"{{ sudo -n readlink {proc}/exe || readlink {proc}/exe; }} 2>/dev/null").strip()
+            or argv[0]
         )
-        if "__unreadable__" in out:
-            return False, "could not read its config (needs passwordless sudo or a readable config.toml)"
-        if "nvidia-container-runtime" in out:
-            return True, out.strip()
+        command = [binary]
+        if config_path is not None:
+            command.extend(["--config", config_path])
+        command.extend(["config", "dump"])
+        # Relative paths need the daemon's cwd. Absolute config paths (and the default)
+        # do not, avoiding another root-only proc link in the unprivileged fallback.
+        dump_cmd = shlex.join(command)
+        if (config_path is not None and not PurePosixPath(config_path).is_absolute()) or (
+            "/" in binary and not PurePosixPath(binary).is_absolute()
+        ):
+            dump_cmd = f"cd {proc}/cwd && {dump_cmd}"
+        dump_cmd = shlex.quote(dump_cmd)
+        code, dump, _ = run_ssh_command(ssh, f"{{ sudo -n sh -c {dump_cmd} || sh -c {dump_cmd}; }} 2>/dev/null")
+        if code or not dump.strip():
+            return "", "could not read its config (needs passwordless sudo or a readable config.toml)"
+        return dump, ""
+
+    def _containerd_nvidia_runtime(self, ssh: object) -> tuple[bool, str]:
+        """Find an executable NVIDIA runtime in an enabled CRI handler of the daemon's config."""
+        dump, error = self._containerd_config_dump(ssh)
+        if error:
+            return False, error
+        try:
+            config = tomllib.loads(dump)
+        except tomllib.TOMLDecodeError:
+            return False, "could not parse its config dump as TOML"
+
+        # Containerd 2.x can retain disabled plugin tables in its dump.
+        disabled = set(config.get("disabled_plugins", []))
+        if disabled.intersection({"cri", "io.containerd.grpc.v1.cri"}):
+            return False, "CRI plugin is disabled"
+        plugins = config.get("plugins", {})
+        runtime_names = {"nvidia-container-runtime", "nvidia-container-runtime.cdi", "nvidia-container-runtime.legacy"}
+        for plugin in ("cri", "io.containerd.grpc.v1.cri", "io.containerd.cri.v1.runtime"):
+            if plugin in disabled:
+                continue
+            handlers = plugins.get(plugin, {}).get("containerd", {}).get("runtimes", {})
+            for handler in handlers.values():
+                binary = handler.get("options", {}).get("BinaryName", "")
+                if not isinstance(binary, str) or PurePosixPath(binary).name not in runtime_names:
+                    continue
+                probe = shlex.quote(f"command -v {shlex.quote(binary)}")
+                code, path, _ = run_ssh_command(ssh, f"{{ sudo -n sh -c {probe} || sh -c {probe}; }} 2>/dev/null")
+                if code == 0 and path.strip():
+                    return True, path.strip()
         return False, "loaded config has no usable nvidia-container-runtime handler"
 
     def _run_gpu_container(self, ssh: object, run_cmd: str) -> bool:
@@ -2029,38 +2087,28 @@ class ContainerRuntimeCheck(BaseValidation):
             docker_note = "docker GPU container failed; " if docker_failed else ""
 
             # ── containerd + nvidia-container-runtime ────────────────────────
-            containerd_ok, ct_ver = False, ""
             if rt_name is None:
-                containerd_ok, ct_ver = self._is_present(ssh, "containerd")
-            if rt_name is None and containerd_ok:
-                gpu_op, detail = self._containerd_nvidia_runtime(ssh)
+                runtime_ok, detail = self._containerd_nvidia_runtime(ssh)
                 self.report_subtest(
                     "container_runtime",
-                    gpu_op,
-                    f"containerd {ct_ver} with {detail}" if gpu_op else f"containerd {ct_ver}: {detail}",
+                    runtime_ok,
+                    f"containerd with {detail}" if runtime_ok else f"containerd: {detail}",
                 )
-                if not gpu_op:
-                    self.set_failed(f"{docker_note}containerd {detail}")
+                if not runtime_ok:
+                    self.set_failed(
+                        f"{docker_note}No GPU-capable container runtime found: containerd {detail}; "
+                        "set commands.gpu_container for an explicit GPU workload probe"
+                    )
                     ssh.close()
                     return
-                # GPU operator presence is the proof of capability at this level.
-                # containerd + nvidia-container-runtime is sufficient proof of GPU capability.
+                # Configuration evidence only; no GPU workload is launched by this path.
                 self.report_subtest(
                     "gpu_container",
                     True,
-                    "GPU capability proven by containerd + nvidia-container-runtime "
-                    "(overlapping: K8sNvidiaSmiCheck / K8sGpuPodAccessCheck)",
+                    "containerd NVIDIA runtime configured (GPU workload not executed)",
                 )
                 rt_name = "containerd"
                 login_cmd_tmpl = None  # no direct login via ctr; NGC skipped at this level
-
-            if rt_name is None:
-                self.set_failed(
-                    f"{docker_note}No GPU-capable container runtime found (tried: docker, containerd); "
-                    "set commands.gpu_container for other runtimes"
-                )
-                ssh.close()
-                return
 
             # ── NGC registry login ────────────────────────────────────────────
             if ngc_api_key and login_cmd_tmpl:
