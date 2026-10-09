@@ -2029,8 +2029,8 @@ class ContainerRuntimeCheck(BaseValidation):
 
     def _run_gpu_container(self, ssh: object, run_cmd: str) -> bool:
         """Return True when a GPU container runs nvidia-smi successfully."""
-        out = self._check_cmd(ssh, run_cmd + " 2>&1 || echo '__gpu_run_failed__'")
-        return "__gpu_run_failed__" not in out and "NVIDIA-SMI" in out
+        code, stdout, stderr = run_ssh_command(ssh, run_cmd)
+        return code == 0 and "NVIDIA-SMI" in stdout + stderr
 
     def run(self) -> None:
         """Detect the available GPU-capable container runtime and validate GPU support."""

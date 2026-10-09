@@ -17,7 +17,9 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
+from isvtest.core.ssh import LocalExecutor
 from isvtest.validations.host import ContainerRuntimeCheck
 
 
@@ -35,7 +37,7 @@ def _patched_run(
 
     Args:
         check: The ContainerRuntimeCheck instance to run.
-        command_map: Maps command substrings to their mocked stdout responses.
+        command_map: Maps command substrings to stdout or (exit_code, stdout, stderr).
             The first key whose substring appears in the SSH command wins.
             Use ``"__default__"`` as a catch-all for unmatched commands.
         ngc_key: Optional NGC API key to inject into the check config.
@@ -91,7 +93,7 @@ class TestCustomCommand:
         """A working custom command passes without probing Docker or containerd."""
         check = _patched_run(
             _make_check({"commands": {"gpu_container": NERDCTL_CMD}}),
-            {"nerdctl run": "NVIDIA-SMI 595 ...", "docker run": "__gpu_run_failed__"},
+            {"nerdctl run": "NVIDIA-SMI 595 ...", "docker run": (1, "", "NVIDIA-SMI has failed")},
         )
         assert check.passed
         assert "commands.gpu_container" in check.message
@@ -101,7 +103,7 @@ class TestCustomCommand:
         check = _patched_run(
             _make_check({"commands": {"gpu_container": NERDCTL_CMD}}),
             {
-                "nerdctl run": "__gpu_run_failed__",
+                "nerdctl run": (1, "", "NVIDIA-SMI has failed"),
                 "docker --version": "Docker version 24.0.0",
                 "docker run": "NVIDIA-SMI 595 ...",
             },
@@ -117,6 +119,23 @@ class TestCustomCommand:
             ngc_key="test-ngc-token",
         )
         assert check.passed
+
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ("sh -c 'echo NVIDIA-SMI has failed; exit 1'", False),
+            ("sh -c 'echo NVIDIA-SMI has failed >&2; exit 1'", False),
+            ("echo NVIDIA-SMI 595", True),
+            ("echo NVIDIA-SMI 595 >&2", True),
+        ],
+        ids=["failure-stdout", "failure-stderr", "success-stdout", "success-stderr"],
+    )
+    def test_literal_block_preserves_exit_status(self, command: str, expected: bool) -> None:
+        """Execute a YAML literal block with its trailing newline using the real shell."""
+        config = yaml.safe_load(f"commands:\n  gpu_container: |\n    {command}\n")
+        run_cmd = config["commands"]["gpu_container"]
+        assert run_cmd.endswith("\n")
+        assert _make_check(config)._run_gpu_container(LocalExecutor(), run_cmd) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +161,7 @@ class TestDockerLevel:
             _make_check(),
             {
                 "docker --version": "Docker version 24.0.0",
-                "docker run": "__gpu_run_failed__",
+                "docker run": (1, "", "NVIDIA-SMI has failed"),
                 "pgrep -x containerd": "123",
                 "config dump": NVIDIA_DUMP,
                 "command -v": "/usr/bin/nvidia-container-runtime",
@@ -240,7 +259,7 @@ class TestContainerdLevel:
             _make_check(),
             {
                 "docker --version": "Docker version 24.0.0",
-                "docker run": "__gpu_run_failed__",
+                "docker run": (1, "", "NVIDIA-SMI has failed"),
                 "pgrep -x containerd": "123",
                 "config dump": "version = 3\n",
                 "__default__": "",
