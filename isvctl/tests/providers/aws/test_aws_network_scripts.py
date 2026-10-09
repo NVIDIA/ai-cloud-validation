@@ -4273,3 +4273,257 @@ def test_imex_reboot_not_enabled_message_states_the_cause_once(monkeypatch: pyte
 
     assert rc == 1
     assert emitted["error"].count("enabled at boot") == 1, emitted["error"]
+
+
+class FakeFiveTupleEc2:
+    """EC2 fake for five_tuple_filtering_test main: records rule grants and deletes, fails terminate on demand."""
+
+    def __init__(self, terminate_error: ClientError | None = None) -> None:
+        self.terminate_error = terminate_error
+        self.calls: list[str] = []
+        self.grants: dict[str, list[dict[str, Any]]] = {}
+
+    def authorize_security_group_egress(self, GroupId: str, IpPermissions: list[dict[str, Any]]) -> None:
+        self.grants[f"egress:{GroupId}"] = IpPermissions
+
+    def authorize_security_group_ingress(self, GroupId: str, IpPermissions: list[dict[str, Any]]) -> None:
+        self.grants[f"ingress:{GroupId}"] = IpPermissions
+
+    def terminate_instances(self, **_kwargs: Any) -> None:
+        self.calls.append("terminate_instances")
+        if self.terminate_error:
+            raise self.terminate_error
+
+    def get_waiter(self, _name: str) -> Any:
+        class _Waiter:
+            def wait(self, **_kwargs: Any) -> None:
+                return None
+
+        return _Waiter()
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith(("delete_", "detach_")):
+            return lambda **_kwargs: self.calls.append(name)
+        raise AttributeError(name)
+
+
+class FakeFiveTupleIam:
+    """IAM fake: deletes succeed and lookups report the role/profile gone."""
+
+    def __getattr__(self, name: str) -> Any:
+        if name in ("get_role", "get_instance_profile"):
+
+            def _lookup(**_kwargs: Any) -> dict[str, Any]:
+                raise _client_error(name, code="NoSuchEntity")
+
+            return _lookup
+        return lambda **_kwargs: None
+
+
+FIVE_TUPLE_IPS = {"i-src": ("10.85.1.10", "10.85.1.11"), "i-tgt": ("10.85.1.20", "10.85.1.21")}
+
+
+def _run_five_tuple_main(
+    monkeypatch: pytest.MonkeyPatch, ec2: FakeFiveTupleEc2, *argv: str
+) -> tuple[int, dict[str, Any], ModuleType]:
+    """Run five_tuple_filtering_test.main with AWS faked and a filter that admits only the granted flow."""
+    module = _load_network_script("five_tuple_filtering_test.py")
+    clients = {"ec2": ec2, "iam": FakeFiveTupleIam(), "ssm": object()}
+
+    def _build(_ec2: Any, _iam: Any, _cidr: str, _suffix: str, resources: dict[str, Any]) -> dict[str, str]:
+        resources.update(
+            {
+                "vpc_id": "vpc-1",
+                "igw_id": "igw-1",
+                "rtb_id": "rtb-1",
+                "subnet_ids": ["subnet-1"],
+                "sg_ids": ["sg-src", "sg-tgt"],
+                "instance_ids": ["i-src", "i-tgt"],
+                "role_name": "isv-ssm-role-x",
+                "profile_name": "isv-ssm-profile-x",
+            }
+        )
+        return {
+            "source_id": "i-src",
+            "target_id": "i-tgt",
+            "source_sg": "sg-src",
+            "target_sg": "sg-tgt",
+            "subnet_cidr": "10.85.1.0/24",
+        }
+
+    def _permits(permissions: list[dict[str, Any]], protocol: str, address: str, port: int) -> bool:
+        """Return True when a /32 or the subnet CIDR in ``permissions`` covers the flow."""
+        for p in permissions:
+            cidr = p["IpRanges"][0]["CidrIp"]
+            in_range = cidr == f"{address}/32" or cidr == "10.85.1.0/24"
+            if p["IpProtocol"] == protocol and p["FromPort"] <= port <= p["ToPort"] and in_range:
+                return True
+        return False
+
+    def _probe(_ssm: Any, _source_id: str, protocol: str, source_ip: str, destination_ip: str, port: int) -> str:
+        """Emulate stateful security groups: both the source egress and the target ingress must admit the flow."""
+        egress = _permits(ec2.grants["egress:sg-src"], protocol, destination_ip, port)
+        ingress = _permits(ec2.grants["ingress:sg-tgt"], protocol, source_ip, port)
+        if not (egress and ingress):
+            return "timeout"
+        return "connected" if port == 8443 else "refused"
+
+    monkeypatch.setattr(module.boto3, "client", lambda service, **_kwargs: clients[service])
+    monkeypatch.setattr(module, "build_topology", _build)
+    monkeypatch.setattr(module, "_private_ips", lambda _ec2, instance_id: FIVE_TUPLE_IPS[instance_id])
+    monkeypatch.setattr(module, "wait_ssm_ready_all", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "ensure_secondary_ip", lambda *_args: None)
+    monkeypatch.setattr(module, "probe", _probe)
+    monkeypatch.setattr(sys, "argv", ["five_tuple_filtering_test.py", "--region", "us-west-2", *argv])
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    return rc, json.loads(buf.getvalue()), module
+
+
+def _five_tuple_check(payload: dict[str, Any]) -> dict[str, Any]:
+    """Run the SEC15-01 validation against an emitted payload."""
+    from isvtest.validations.network import FiveTupleFilteringCheck
+
+    return FiveTupleFilteringCheck(config={"step_output": payload}).execute()
+
+
+def test_five_tuple_main_emits_a_contract_the_check_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With only the baseline granted, every variant is dropped and the payload satisfies schema and check."""
+    from isvctl.config.output_schemas import validate_output
+
+    rc, emitted, _module = _run_five_tuple_main(monkeypatch, FakeFiveTupleEc2())
+
+    assert rc == 0
+    is_valid, errors = validate_output(emitted, "five_tuple_filtering")
+    assert is_valid, errors
+    assert emitted["baseline"] == {
+        "protocol": "tcp",
+        "source_ip": "10.85.1.10",
+        "destination_ip": "10.85.1.20",
+        "destination_port": 8443,
+        "result": "connected",
+    }
+    assert {v["dimension"]: v["value"] for v in emitted["variants"]} == {
+        "protocol": "udp",
+        "source_ip": "10.85.1.11",
+        "destination_ip": "10.85.1.21",
+        "destination_port": 8444,
+    }
+    assert _five_tuple_check(emitted)["passed"] is True
+
+
+@pytest.mark.parametrize("dimension", ["protocol", "source_ip", "destination_ip", "destination_port"])
+def test_five_tuple_loosen_lets_exactly_that_variant_through(monkeypatch: pytest.MonkeyPatch, dimension: str) -> None:
+    """Widening one dimension of the baseline rule admits that variant alone, and the check fails on it."""
+    rc, emitted, _module = _run_five_tuple_main(monkeypatch, FakeFiveTupleEc2(), "--loosen", dimension)
+
+    assert rc == 0
+    admitted = [v["dimension"] for v in emitted["variants"] if v["result"] != "timeout"]
+    assert admitted == [dimension]
+    check = _five_tuple_check(emitted)
+    assert check["passed"] is False
+    assert f"{dimension}=" in check["error"]
+
+
+def test_five_tuple_main_fails_step_when_resources_remain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Probes that all succeed still fail the step when cleanup leaves resources behind."""
+    ec2 = FakeFiveTupleEc2(terminate_error=_client_error("TerminateInstances", code="UnauthorizedOperation"))
+
+    rc, emitted, _module = _run_five_tuple_main(monkeypatch, ec2)
+
+    assert rc == 1
+    assert emitted["success"] is False
+    assert emitted["cleanup_errors"] == ["not deleted: instance i-src", "not deleted: instance i-tgt"]
+    assert emitted["baseline"]["result"] == "connected"
+    for call in (
+        "delete_security_group",
+        "delete_subnet",
+        "delete_route_table",
+        "delete_internet_gateway",
+        "delete_vpc",
+    ):
+        assert call in ec2.calls
+
+
+@pytest.mark.parametrize(
+    ("ssm_result", "expected"),
+    [
+        ((True, "timeout\n"), "timeout"),
+        ((True, "connected\n"), "connected"),
+        ((True, "unexpected"), "error"),
+        ((False, "InvalidInstanceId"), "error"),
+    ],
+)
+def test_five_tuple_probe_maps_ssm_output(
+    monkeypatch: pytest.MonkeyPatch, ssm_result: tuple[bool, str], expected: str
+) -> None:
+    """Only a recognised verdict from a successful SSM command is trusted; anything else is an error."""
+    module = _load_network_script("five_tuple_filtering_test.py")
+    commands: list[str] = []
+
+    def _run(_ssm: Any, _instance_id: str, command: str) -> tuple[bool, str]:
+        commands.append(command)
+        return ssm_result
+
+    monkeypatch.setattr(module, "run_ssm_command", _run)
+
+    assert module.probe(object(), "i-src", "udp", "10.85.1.11", "10.85.1.20", 8443) == expected
+    assert commands[0].endswith("| python3 - udp 10.85.1.11 10.85.1.20 8443")
+
+
+def _run_five_tuple_probe_program(module: ModuleType, protocol: str, port: int) -> str:
+    """Run the probe program the script ships to the source instance, against localhost."""
+    completed = subprocess.run(
+        [sys.executable, "-", protocol, "127.0.0.1", "127.0.0.1", str(port)],
+        input=module.PROBE,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    return completed.stdout.strip()
+
+
+def test_five_tuple_probe_program_reports_tcp_verdicts() -> None:
+    """The shipped probe reports a listening TCP port as connected and a closed one as refused."""
+    import socket
+
+    module = _load_network_script("five_tuple_filtering_test.py")
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        assert _run_five_tuple_probe_program(module, "tcp", port) == "connected"
+    assert _run_five_tuple_probe_program(module, "tcp", port) == "refused"
+
+
+def test_five_tuple_probe_program_reports_udp_verdicts() -> None:
+    """The shipped probe needs an echoed reply to call UDP connected, and reads port-unreachable as refused."""
+    import socket
+
+    module = _load_network_script("five_tuple_filtering_test.py")
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as echo:
+        echo.bind(("127.0.0.1", 0))
+        port = echo.getsockname()[1]
+
+        def _serve() -> None:
+            """Echo a single datagram back to its sender."""
+            data, peer = echo.recvfrom(64)
+            echo.sendto(data, peer)
+
+        server = threading.Thread(target=_serve, daemon=True)
+        server.start()
+        assert _run_five_tuple_probe_program(module, "udp", port) == "connected"
+        server.join(timeout=5)
+    assert _run_five_tuple_probe_program(module, "udp", port) == "refused"
+
+
+def test_five_tuple_responder_and_probe_compile() -> None:
+    """The programs shipped to the instances must at least be valid Python."""
+    module = _load_network_script("five_tuple_filtering_test.py")
+
+    compile(module.RESPONDER, "responder", "exec")
+    compile(module.PROBE, "probe", "exec")
+    assert module.RESPONDER in module.TARGET_USER_DATA
