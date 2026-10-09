@@ -132,6 +132,18 @@ commands:
         timeout: 120
         output_schema: security_blocking
 
+      # Five-tuple filtering enforcement with security groups (SEC15-01, ~5 min)
+      - name: five_tuple_filtering
+        phase: test
+        command: "python3 ../scripts/network/five_tuple_filtering_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--cidr"
+          - "10.85.0.0/16"
+        timeout: 900
+        output_schema: five_tuple_filtering
+
       # Test 4c: Policy propagation timing (~10s)
       - name: sg_policy_propagation
         phase: test
