@@ -4694,6 +4694,20 @@ domains:
                 test_id: SEC13-02
                 actor: tenant
                 status: published
+              - summary: Verify traffic filtering enforces each five-tuple match dimension - an allowed baseline flow succeeds and flows differing only in protocol, source IP, destination IP, or destination port are blocked
+                labels:
+                  - min_req
+                  - network
+                  - security
+                priority: P1
+                milestone: ""
+                notes: Only a dropped probe (timeout) counts as filtered; a refused probe reached the host. Source port is opt-in via required_dimensions, since common security group and ACL implementations cannot match on it.
+                github_issues:
+                  - "#711"
+                req_id: SEC15
+                test_id: SEC15-01
+                actor: tenant
+                status: pending
           - description: InfiniBand Security
             tests:
               - summary: Verify IB tenant isolation — compute dedicated to NVIDIA is isolated from other customers

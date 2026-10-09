@@ -5046,8 +5046,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | approved
 |
 
-.23+| Security & Identity
-.10+| Network Security
+.24+| Security & Identity
+.11+| Network Security
 .4+| BMC Security
 .4+|
 | [[SEC12-01]]SEC12-01
@@ -5127,8 +5127,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/309[#309]
 | pending
 |
 
-.2+| Edge Security
-.2+|
+.3+| Edge Security
+.3+|
 | [[SEC14-01]]SEC14-01
 | SEC14
 | https://github.com/NVIDIA/ai-cloud-validation/issues/311[#311]
@@ -5157,6 +5157,21 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/310[#310]
 |
 | Verify insecure protocols (HTTP, SSLv3, TLSv1) are disabled
 | published
+|
+
+| [[SEC15-01]]SEC15-01
+| SEC15
+| https://github.com/NVIDIA/ai-cloud-validation/issues/711[#711]
+| min_req, network, security
+| tenant
+| Only a dropped probe (timeout) counts as filtered; a refused probe reached the host. Source port is opt-in via required_dimensions, since common security group and ACL implementations cannot match on it.
+| P1
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/711[#711]
+|
+|
+|
+| Verify traffic filtering enforces each five-tuple match dimension - an allowed baseline flow succeeds and flows differing only in protocol, source IP, destination IP, or destination port are blocked
+| pending
 |
 
 .2+| InfiniBand Security

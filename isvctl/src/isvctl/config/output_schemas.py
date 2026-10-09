@@ -100,6 +100,8 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "vpc_isolation": "vpc_isolation",
     "security_test": "security_blocking",
     "security_blocking": "security_blocking",
+    "five_tuple_filtering": "five_tuple_filtering",
+    "five_tuple_filtering_test": "five_tuple_filtering",
     "traffic_test": "traffic_flow",
     "traffic_validation": "traffic_flow",
     "test_connectivity": "connectivity_result",
@@ -588,6 +590,55 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             },
             "network_id": {"type": "string", "description": "VPC ID"},
         },
+        "additionalProperties": True,
+    },
+    "five_tuple_filtering": {
+        "type": "object",
+        "required": ["success", "platform"],
+        "properties": {
+            **COMMON_PROPERTIES,
+            "test_name": {"type": "string", "description": "Always 'five_tuple_filtering'"},
+            "baseline": {
+                "type": "object",
+                "required": ["result"],
+                "properties": {
+                    "protocol": {"type": "string", "description": "e.g. tcp, udp, icmp"},
+                    "source_ip": {"type": "string"},
+                    "destination_ip": {"type": "string"},
+                    "source_port": {"type": "integer"},
+                    "destination_port": {"type": "integer"},
+                    "result": {"type": "string", "enum": ["connected", "refused", "timeout", "error"]},
+                },
+                "description": "The one explicitly allowed flow; must connect",
+                "additionalProperties": True,
+            },
+            "variants": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["dimension", "value", "result"],
+                    "properties": {
+                        "dimension": {
+                            "type": "string",
+                            "enum": ["protocol", "source_ip", "destination_ip", "source_port", "destination_port"],
+                        },
+                        "value": {
+                            "type": ["string", "integer"],
+                            "description": "The value this variant sets the dimension to, in place of the baseline's",
+                        },
+                        "result": {
+                            "type": "string",
+                            "enum": ["connected", "refused", "timeout", "error"],
+                            "description": "Observed outcome; only 'timeout' counts as filtered",
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "description": "Baseline flows differing in exactly one dimension; each must time out",
+            },
+        },
+        "if": {"properties": {"success": {"const": True}}},
+        "then": {"required": ["baseline", "variants"]},
         "additionalProperties": True,
     },
     "traffic_flow": {

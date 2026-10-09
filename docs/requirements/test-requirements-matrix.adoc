@@ -3243,6 +3243,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[SEC15-01]]SEC15-01
+| Security & Identity
+| Network Security
+| Verify traffic filtering enforces each five-tuple match dimension - an allowed baseline flow succeeds and flows differing only in protocol, source IP, destination IP, or destination port are blocked
+| SEC15
+| offtake
+| partial
+| Source port is opt-in via required_dimensions, since common security group and ACL implementations cannot match on it.
+
 | [[SEC13-02]]SEC13-02
 | Security & Identity
 | Network Security

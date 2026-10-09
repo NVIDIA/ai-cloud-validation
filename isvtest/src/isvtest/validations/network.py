@@ -257,6 +257,97 @@ class SecurityBlockingCheck(BaseValidation):
         self.set_passed(f"All {len(security_tests)} security blocking tests passed")
 
 
+_FIVE_TUPLE_DIMENSIONS = ("protocol", "source_ip", "destination_ip", "source_port", "destination_port")
+_DEFAULT_REQUIRED_FIVE_TUPLE_DIMENSIONS = ("protocol", "source_ip", "destination_ip", "destination_port")
+
+
+class FiveTupleFilteringCheck(BaseValidation):
+    """Validate traffic filtering enforces each five-tuple match dimension (SEC15-01).
+
+    The step allows exactly one baseline flow, which must connect, then probes
+    variants that each differ from the baseline in a single dimension. A dropped
+    variant only shows that its dimension is matched if the baseline it was
+    derived from gets through. A variant passes only on ``timeout`` (dropped):
+    ``refused`` means the packet reached the target and was rejected by the host
+    rather than by the filter.
+
+    Source port is not required by default because common security group and
+    ACL implementations cannot match on it; list it in ``required_dimensions``
+    to require it.
+
+    Config:
+        step_output: The step output to check
+        required_dimensions: Dimensions that must each have a dropped variant
+            (default: protocol, source_ip, destination_ip, destination_port)
+
+    Step output:
+        baseline: {protocol, source_ip, destination_ip, source_port,
+                   destination_port, result}
+        variants: list of {dimension, value, result}; each is the baseline
+                  with ``dimension`` changed to ``value``
+        result values: connected | refused | timeout | error
+    """
+
+    description: ClassVar[str] = "Check traffic filtering enforces each five-tuple match dimension"
+
+    def run(self) -> None:
+        """Check the baseline connects and a variant per required dimension is dropped."""
+        step_output = self.config.get("step_output", {})
+
+        if not step_output.get("success"):
+            self.set_failed(f"Five-tuple filtering step failed: {step_output.get('error', 'Unknown error')}")
+            return
+
+        required = self.config.get("required_dimensions") or list(_DEFAULT_REQUIRED_FIVE_TUPLE_DIMENSIONS)
+        unknown = [str(dimension) for dimension in required if dimension not in _FIVE_TUPLE_DIMENSIONS]
+        if unknown:
+            self.set_failed(f"Unknown five-tuple dimension(s) in required_dimensions: {', '.join(unknown)}")
+            return
+
+        baseline = step_output.get("baseline")
+        if not isinstance(baseline, dict):
+            self.set_failed("`baseline` must be an object describing the allowed flow")
+            return
+        missing = [dimension for dimension in required if baseline.get(dimension) in (None, "")]
+        if missing:
+            self.set_failed(f"Baseline flow is missing {', '.join(missing)}")
+            return
+        if baseline.get("result") != "connected":
+            self.set_failed(
+                f"Baseline flow did not connect (result {baseline.get('result')!r}), "
+                "so dropped variants cannot be attributed to filtering"
+            )
+            return
+
+        variants = step_output.get("variants")
+        if not isinstance(variants, list):
+            self.set_failed("`variants` must be a list of probed flows")
+            return
+
+        failures: list[str] = []
+        for dimension in required:
+            probes = [v for v in variants if isinstance(v, dict) and v.get("dimension") == dimension]
+            if not probes:
+                failures.append(f"no {dimension} variant probed")
+                continue
+            for probe in probes:
+                value = probe.get("value")
+                result = probe.get("result")
+                label = f"{dimension}={value!r}"
+                if value in (None, "") or value == baseline[dimension]:
+                    failures.append(f"{label} does not differ from the baseline")
+                elif result in ("connected", "refused"):
+                    failures.append(f"{label} reached the target ({result})")
+                elif result != "timeout":
+                    failures.append(f"{label} probe did not complete (result {result!r})")
+
+        if failures:
+            self.set_failed(f"Five-tuple filtering not enforced: {'; '.join(failures)}")
+            return
+
+        self.set_passed(f"Baseline flow connected; variants differing in {', '.join(required)} were all dropped")
+
+
 class NetworkConnectivityCheck(BaseValidation):
     """Validate network connectivity for instances.
 

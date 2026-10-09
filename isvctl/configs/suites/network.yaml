@@ -215,6 +215,11 @@ tests:
           labels: ["network"]
           requires: [vm, bare_metal]
           step: traffic_validation
+        FiveTupleFilteringCheck:
+          test_id: "SEC15-01"
+          labels: ["min_req", "network", "security"]
+          requires: [vm, bare_metal]
+          step: five_tuple_filtering
         VpcIpConfigCheck:
           test_id: "IPAM02-01"
           labels: ["network"]
