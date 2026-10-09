@@ -299,6 +299,9 @@ class FiveTupleFilteringCheck(BaseValidation):
             return
 
         required = self.config.get("required_dimensions") or list(_DEFAULT_REQUIRED_FIVE_TUPLE_DIMENSIONS)
+        if not isinstance(required, list):
+            self.set_failed("`required_dimensions` must be a list of dimension names")
+            return
         unknown = [str(dimension) for dimension in required if dimension not in _FIVE_TUPLE_DIMENSIONS]
         if unknown:
             self.set_failed(f"Unknown five-tuple dimension(s) in required_dimensions: {', '.join(unknown)}")

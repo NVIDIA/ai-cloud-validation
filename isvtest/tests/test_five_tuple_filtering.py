@@ -184,6 +184,14 @@ def test_required_source_port_dropped_passes() -> None:
     assert "source_port" in result["output"]
 
 
+@pytest.mark.parametrize("required", ["source_port", 5, {"protocol": True}])
+def test_non_list_required_dimensions_fails(required: Any) -> None:
+    """A scalar or mapping is a config error, not something to iterate."""
+    result = _run(_output(), required_dimensions=required)
+    assert result["passed"] is False
+    assert "`required_dimensions` must be a list" in result["error"]
+
+
 def test_unknown_required_dimension_fails() -> None:
     """A misspelled dimension in config is an error, not a silently skipped requirement."""
     result = _run(_output(), required_dimensions=["dst_port"])
