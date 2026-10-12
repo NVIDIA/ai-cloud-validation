@@ -197,6 +197,78 @@ class VpcIsolationCheck(BaseValidation):
         self.set_passed(f"VPCs {vpc_a} and {vpc_b} are properly isolated")
 
 
+class SegmentBoundaryDefaultDenyCheck(BaseValidation):
+    """Validate default-deny across the tenant-to-provider boundary (SEC30-01).
+
+    A blocked probe only shows default-deny if the same source could reach the
+    same target at all, so an explicitly allowed positive-control flow must
+    connect before any blocked result counts. A prohibited flow passes only on
+    ``timeout`` (dropped): ``refused`` means the packet reached the target and
+    was rejected by the host rather than by network policy.
+
+    Config:
+        step_output: The step output to check
+
+    Step output:
+        positive_control: {protocol, port, result}
+        prohibited_flows: list of {protocol, port (tcp/udp only), result}
+        result values: connected | refused | timeout | error
+    """
+
+    description: ClassVar[str] = "Check default-deny across the tenant-to-provider boundary"
+
+    def run(self) -> None:
+        """Check the positive control connects and every prohibited flow is dropped."""
+        step_output = self.config.get("step_output", {})
+
+        if not step_output.get("success"):
+            self.set_failed(f"Segment boundary step failed: {step_output.get('error', 'Unknown error')}")
+            return
+
+        control = step_output.get("positive_control")
+        if not isinstance(control, dict):
+            self.set_failed("`positive_control` must be an object describing the explicitly allowed flow")
+            return
+        if control.get("result") != "connected":
+            self.set_failed(
+                f"Positive control {_flow_label(control)} did not connect (result {control.get('result')!r}), "
+                "so blocked probes cannot be attributed to default-deny"
+            )
+            return
+
+        flows = step_output.get("prohibited_flows")
+        if not isinstance(flows, list) or not flows:
+            self.set_failed("`prohibited_flows` must be a non-empty list of probes")
+            return
+
+        failures: list[str] = []
+        for flow in flows:
+            if not isinstance(flow, dict):
+                failures.append(f"malformed prohibited flow {flow!r}")
+                continue
+            result = flow.get("result")
+            if result in ("connected", "refused"):
+                failures.append(f"{_flow_label(flow)} reached the target ({result})")
+            elif result != "timeout":
+                failures.append(f"{_flow_label(flow)} probe did not complete (result {result!r})")
+
+        if failures:
+            self.set_failed(f"Default-deny not enforced: {'; '.join(failures)}")
+            return
+
+        self.set_passed(
+            f"Positive control {_flow_label(control)} connected; all {len(flows)} prohibited flow(s) dropped: "
+            f"{', '.join(_flow_label(f) for f in flows)}"
+        )
+
+
+def _flow_label(flow: dict[str, Any]) -> str:
+    """Return a short ``protocol/port`` label for a probed flow."""
+    protocol = str(flow.get("protocol", "?"))
+    port = flow.get("port")
+    return f"{protocol}/{port}" if port is not None else protocol
+
+
 class SgCrudCheck(BaseValidation):
     """Validate Security Group CRUD lifecycle operations.
 

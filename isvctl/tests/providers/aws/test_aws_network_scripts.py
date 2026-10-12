@@ -29,7 +29,7 @@ from contextlib import redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from botocore.exceptions import ClientError
@@ -4527,3 +4527,283 @@ def test_five_tuple_responder_and_probe_compile() -> None:
     compile(module.RESPONDER, "responder", "exec")
     compile(module.PROBE, "probe", "exec")
     assert module.RESPONDER in module.TARGET_USER_DATA
+
+
+class FakeSegmentBoundaryEc2:
+    """EC2 fake for segment_boundary_test cleanup: records deletes, fails on demand."""
+
+    def __init__(self, terminate_error: ClientError | None = None, waiter_error: Exception | None = None) -> None:
+        self.terminate_error = terminate_error
+        self.waiter_error = waiter_error
+        self.calls: list[str] = []
+
+    def terminate_instances(self, **_kwargs: Any) -> None:
+        self.calls.append("terminate_instances")
+        if self.terminate_error:
+            raise self.terminate_error
+
+    def get_waiter(self, name: str) -> Any:
+        fake = self
+
+        class _Waiter:
+            def wait(self, **_kwargs: Any) -> None:
+                if name == "instance_terminated" and fake.waiter_error:
+                    raise fake.waiter_error
+
+        return _Waiter()
+
+    def describe_instances(self, **_kwargs: Any) -> dict[str, Any]:
+        return {"Reservations": [{"Instances": [{"PrivateIpAddress": "10.86.2.10"}]}]}
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith(("delete_", "detach_")):
+            return lambda **_kwargs: self.calls.append(name)
+        raise AttributeError(name)
+
+
+class FakeSegmentBoundaryIam:
+    """IAM fake: deletes succeed; lookups report the role/profile gone unless told otherwise."""
+
+    def __init__(self, role_survives: bool = False) -> None:
+        self.role_survives = role_survives
+
+    def __getattr__(self, name: str) -> Any:
+        if name in ("get_role", "get_instance_profile"):
+
+            def _lookup(**_kwargs: Any) -> dict[str, Any]:
+                if name == "get_role" and self.role_survives:
+                    return {"Role": {}}
+                raise _client_error(name, code="NoSuchEntity")
+
+            return _lookup
+        return lambda **_kwargs: None
+
+
+def _segment_resources() -> dict[str, Any]:
+    """Return a fully populated resource ledger as build_boundary would leave it."""
+    return {
+        "vpc_id": "vpc-1",
+        "igw_id": "igw-1",
+        "rtb_id": "rtb-1",
+        "subnet_ids": ["subnet-t", "subnet-p"],
+        "sg_ids": ["sg-t", "sg-p"],
+        "instance_ids": ["i-src", "i-tgt"],
+        "role_name": "isv-ssm-role-x",
+        "profile_name": "isv-ssm-profile-x",
+    }
+
+
+def test_segment_boundary_cleanup_reports_unterminated_instances_and_continues() -> None:
+    """A refused terminate plus a failed waiter leaves instances listed, and later deletes still run."""
+    module = _load_network_script("segment_boundary_test.py")
+    ec2 = FakeSegmentBoundaryEc2(
+        terminate_error=_client_error("TerminateInstances", code="UnauthorizedOperation"),
+        waiter_error=RuntimeError("Waiter InstanceTerminated failed"),
+    )
+
+    remaining = module.cleanup(ec2, FakeSegmentBoundaryIam(), _segment_resources())
+
+    assert remaining == ["instance i-src", "instance i-tgt"]
+    for call in (
+        "delete_security_group",
+        "delete_subnet",
+        "delete_route_table",
+        "delete_internet_gateway",
+        "delete_vpc",
+    ):
+        assert call in ec2.calls
+
+
+def test_segment_boundary_cleanup_reports_surviving_iam_role() -> None:
+    """The SSM helper swallows IAM errors, so a role still present afterwards is reported."""
+    module = _load_network_script("segment_boundary_test.py")
+
+    remaining = module.cleanup(
+        FakeSegmentBoundaryEc2(), FakeSegmentBoundaryIam(role_survives=True), _segment_resources()
+    )
+
+    assert remaining == ["IAM role isv-ssm-role-x"]
+
+
+def test_segment_boundary_main_fails_step_when_resources_remain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Probes that all succeed still fail the step when cleanup leaves resources behind."""
+    module = _load_network_script("segment_boundary_test.py")
+    ec2 = FakeSegmentBoundaryEc2(
+        terminate_error=_client_error("TerminateInstances", code="UnauthorizedOperation"),
+        waiter_error=RuntimeError("Waiter InstanceTerminated failed"),
+    )
+    clients = {"ec2": ec2, "iam": FakeSegmentBoundaryIam(), "ssm": object()}
+
+    def _build(
+        _ec2: Any, _iam: Any, _cidr: str, _suffix: str, resources: dict[str, Any], _port: Any
+    ) -> tuple[str, str]:
+        resources.update(_segment_resources())
+        return "i-src", "i-tgt"
+
+    monkeypatch.setattr(module.boto3, "client", lambda service, **_kwargs: clients[service])
+    monkeypatch.setattr(module, "build_boundary", _build)
+    monkeypatch.setattr(module, "wait_ssm_ready", lambda *_args: True)
+    monkeypatch.setattr(
+        module, "probe", lambda _ssm, _src, _ip, flow: "connected" if flow.get("port") == 22 else "timeout"
+    )
+    monkeypatch.setattr(sys, "argv", ["segment_boundary_test.py", "--region", "us-west-2"])
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = module.main()
+    emitted: dict[str, Any] = json.loads(buf.getvalue())
+
+    assert rc == 1
+    assert emitted["success"] is False
+    assert emitted["cleanup_errors"] == ["not deleted: instance i-src", "not deleted: instance i-tgt"]
+    assert "i-src" in emitted["error"]
+    assert emitted["positive_control"]["result"] == "connected"
+
+
+class FakeSegmentBoundaryAws:
+    """Stateful EC2+IAM fake that tracks live resources and fails one call on demand."""
+
+    _CREATES: ClassVar[dict[str, tuple[str, str, str]]] = {
+        # call -> (id prefix, response key, id key)
+        "create_vpc": ("vpc", "Vpc", "VpcId"),
+        "create_internet_gateway": ("igw", "InternetGateway", "InternetGatewayId"),
+        "create_subnet": ("subnet", "Subnet", "SubnetId"),
+        "create_route_table": ("rtb", "RouteTable", "RouteTableId"),
+    }
+    _DELETES: ClassVar[dict[str, str]] = {
+        "delete_vpc": "VpcId",
+        "delete_internet_gateway": "InternetGatewayId",
+        "delete_subnet": "SubnetId",
+        "delete_route_table": "RouteTableId",
+        "delete_security_group": "GroupId",
+    }
+
+    def __init__(self, fail_on: tuple[str, int] | None = None) -> None:
+        self.fail_on = fail_on
+        self.live: set[str] = set()
+        self.seen: dict[str, int] = {}
+
+    def _call(self, name: str) -> None:
+        self.seen[name] = self.seen.get(name, 0) + 1
+        if self.fail_on == (name, self.seen[name]):
+            raise _client_error(name)
+
+    def _new(self, prefix: str) -> str:
+        resource_id = f"{prefix}-{len(self.live) + sum(self.seen.values())}"
+        self.live.add(resource_id)
+        return resource_id
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._CREATES:
+            prefix, key, id_key = self._CREATES[name]
+
+            def _create(**_kwargs: Any) -> dict[str, Any]:
+                self._call(name)
+                return {key: {id_key: self._new(prefix)}}
+
+            return _create
+        if name in self._DELETES:
+            return lambda **kwargs: self.live.discard(kwargs[self._DELETES[name]])
+
+        def _other(**_kwargs: Any) -> dict[str, Any]:
+            self._call(name)
+            return {}
+
+        return _other
+
+    def create_security_group(self, **_kwargs: Any) -> dict[str, Any]:
+        self._call("create_security_group")
+        return {"GroupId": self._new("sg")}
+
+    def run_instances(self, **_kwargs: Any) -> dict[str, Any]:
+        self._call("run_instances")
+        return {"Instances": [{"InstanceId": self._new("i")}]}
+
+    def terminate_instances(self, InstanceIds: list[str]) -> None:
+        self.live.difference_update(InstanceIds)
+
+    def describe_availability_zones(self, **_kwargs: Any) -> dict[str, Any]:
+        return {"AvailabilityZones": [{"ZoneName": "us-west-2a"}]}
+
+    def describe_images(self, **_kwargs: Any) -> dict[str, Any]:
+        return {"Images": [{"ImageId": "ami-1", "CreationDate": "2026-01-01"}]}
+
+    def get_waiter(self, _name: str) -> Any:
+        return type("_Waiter", (), {"wait": lambda _self, **_kwargs: None})()
+
+    def create_role(self, RoleName: str, **_kwargs: Any) -> None:
+        self._call("create_role")
+        self.live.add(f"role:{RoleName}")
+
+    def create_instance_profile(self, InstanceProfileName: str) -> None:
+        self._call("create_instance_profile")
+        self.live.add(f"profile:{InstanceProfileName}")
+
+    def delete_role(self, RoleName: str) -> None:
+        self.live.discard(f"role:{RoleName}")
+
+    def delete_instance_profile(self, InstanceProfileName: str) -> None:
+        self.live.discard(f"profile:{InstanceProfileName}")
+
+    def get_role(self, RoleName: str) -> dict[str, Any]:
+        if f"role:{RoleName}" not in self.live:
+            raise _client_error("GetRole", code="NoSuchEntity")
+        return {}
+
+    def get_instance_profile(self, InstanceProfileName: str) -> dict[str, Any]:
+        if f"profile:{InstanceProfileName}" not in self.live:
+            raise _client_error("GetInstanceProfile", code="NoSuchEntity")
+        return {}
+
+
+@pytest.mark.parametrize(
+    "fail_on",
+    [
+        None,
+        ("create_vpc", 1),
+        ("create_tags", 1),
+        ("create_internet_gateway", 1),
+        ("attach_internet_gateway", 1),
+        ("create_subnet", 1),
+        ("create_subnet", 2),
+        ("modify_subnet_attribute", 1),
+        ("create_route_table", 1),
+        ("create_route", 1),
+        ("associate_route_table", 1),
+        ("create_security_group", 1),
+        ("create_security_group", 2),
+        ("authorize_security_group_ingress", 1),
+        ("create_role", 1),
+        ("attach_role_policy", 1),
+        ("create_instance_profile", 1),
+        ("add_role_to_instance_profile", 1),
+        ("run_instances", 1),
+        ("run_instances", 2),
+    ],
+)
+def test_segment_boundary_cleanup_removes_everything_after_partial_build(
+    fail_on: tuple[str, int] | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whichever build call fails, every resource created before it is recorded and torn down."""
+    module = _load_network_script("segment_boundary_test.py")
+    monkeypatch.setattr(module.create_ssm_instance_profile.__globals__["time"], "sleep", lambda _seconds: None)
+    aws = FakeSegmentBoundaryAws(fail_on)
+    resources: dict[str, Any] = {
+        "vpc_id": None,
+        "igw_id": None,
+        "rtb_id": None,
+        "subnet_ids": [],
+        "sg_ids": [],
+        "instance_ids": [],
+        "role_name": None,
+        "profile_name": None,
+    }
+
+    try:
+        module.build_boundary(aws, aws, "10.86.0.0/16", "abcd1234", resources, None)
+    except Exception:
+        assert fail_on is not None
+    remaining = module.cleanup(aws, aws, resources)
+
+    assert aws.live == set(), f"untracked after failing {fail_on}: {sorted(aws.live)}"
+    assert remaining == []
