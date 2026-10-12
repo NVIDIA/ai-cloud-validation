@@ -5046,8 +5046,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | approved
 |
 
-.24+| Security & Identity
-.11+| Network Security
+.25+| Security & Identity
+.12+| Network Security
 .4+| BMC Security
 .4+|
 | [[SEC12-01]]SEC12-01
