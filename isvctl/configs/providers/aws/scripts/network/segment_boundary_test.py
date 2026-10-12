@@ -89,7 +89,8 @@ def probe(ssm: Any, source_id: str, target_ip: str, flow: dict[str, Any]) -> str
     else:
         command = (
             f"timeout {PROBE_TIMEOUT_SECONDS} bash -c '</dev/tcp/{target_ip}/{flow['port']}' 2>/dev/null; rc=$?; "
-            "if [ $rc -eq 0 ]; then echo connected; elif [ $rc -eq 124 ]; then echo timeout; else echo refused; fi"
+            "if [ $rc -eq 0 ]; then echo connected; elif [ $rc -eq 124 ]; then echo timeout; "
+            "elif [ $rc -eq 1 ]; then echo refused; else echo error; fi"
         )
     ok, output = run_ssm_command(ssm, source_id, command)
     result = output.strip()
