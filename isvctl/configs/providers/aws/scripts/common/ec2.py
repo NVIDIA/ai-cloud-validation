@@ -568,19 +568,29 @@ SSM_ROLE_TRUST_POLICY = """{
 _SSM_CORE_POLICY_ARN = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 
 
-def create_ssm_instance_profile(iam: Any, description: str = "Temporary role for SSM access") -> tuple[str, str]:
+def create_ssm_instance_profile(
+    iam: Any,
+    description: str = "Temporary role for SSM access",
+    *,
+    role_name: str | None = None,
+    profile_name: str | None = None,
+) -> tuple[str, str]:
     """Create an IAM role and instance profile granting SSM core access.
 
     Args:
         iam: Boto3 IAM client.
         description: Role description.
+        role_name: Role to create; generated when omitted.
+        profile_name: Instance profile to create; generated when omitted.
+            Pass both when the caller records them for cleanup before calling,
+            since a failure partway through can leave the role behind.
 
     Returns:
         Tuple of (role_name, profile_name).
     """
     suffix = str(uuid.uuid4())[:8]
-    role_name = f"isv-ssm-role-{suffix}"
-    profile_name = f"isv-ssm-profile-{suffix}"
+    role_name = role_name or f"isv-ssm-role-{suffix}"
+    profile_name = profile_name or f"isv-ssm-profile-{suffix}"
 
     iam.create_role(
         RoleName=role_name,

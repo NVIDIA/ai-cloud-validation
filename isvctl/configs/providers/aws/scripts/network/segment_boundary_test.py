@@ -235,8 +235,15 @@ def build_boundary(
         )
     ec2.authorize_security_group_ingress(GroupId=provider_sg, IpPermissions=permissions)
 
-    role_name, profile_name = create_ssm_instance_profile(iam, "Temporary role for segment boundary probing")
-    resources["role_name"], resources["profile_name"] = role_name, profile_name
+    # Recorded before creating: the helper makes several IAM calls, and one
+    # failing after CreateRole still leaves a role for cleanup to remove.
+    resources["role_name"], resources["profile_name"] = f"isv-ssm-role-{suffix}", f"isv-ssm-profile-{suffix}"
+    _, profile_name = create_ssm_instance_profile(
+        iam,
+        "Temporary role for segment boundary probing",
+        role_name=resources["role_name"],
+        profile_name=resources["profile_name"],
+    )
 
     ami = get_amazon_linux_ami(ec2)
     if not ami:

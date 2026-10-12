@@ -29,7 +29,7 @@ from contextlib import redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from botocore.exceptions import ClientError
@@ -4658,3 +4658,152 @@ def test_segment_boundary_main_fails_step_when_resources_remain(monkeypatch: pyt
     assert emitted["cleanup_errors"] == ["not deleted: instance i-src", "not deleted: instance i-tgt"]
     assert "i-src" in emitted["error"]
     assert emitted["positive_control"]["result"] == "connected"
+
+
+class FakeSegmentBoundaryAws:
+    """Stateful EC2+IAM fake that tracks live resources and fails one call on demand."""
+
+    _CREATES: ClassVar[dict[str, tuple[str, str, str]]] = {
+        # call -> (id prefix, response key, id key)
+        "create_vpc": ("vpc", "Vpc", "VpcId"),
+        "create_internet_gateway": ("igw", "InternetGateway", "InternetGatewayId"),
+        "create_subnet": ("subnet", "Subnet", "SubnetId"),
+        "create_route_table": ("rtb", "RouteTable", "RouteTableId"),
+    }
+    _DELETES: ClassVar[dict[str, str]] = {
+        "delete_vpc": "VpcId",
+        "delete_internet_gateway": "InternetGatewayId",
+        "delete_subnet": "SubnetId",
+        "delete_route_table": "RouteTableId",
+        "delete_security_group": "GroupId",
+    }
+
+    def __init__(self, fail_on: tuple[str, int] | None = None) -> None:
+        self.fail_on = fail_on
+        self.live: set[str] = set()
+        self.seen: dict[str, int] = {}
+
+    def _call(self, name: str) -> None:
+        self.seen[name] = self.seen.get(name, 0) + 1
+        if self.fail_on == (name, self.seen[name]):
+            raise _client_error(name)
+
+    def _new(self, prefix: str) -> str:
+        resource_id = f"{prefix}-{len(self.live) + sum(self.seen.values())}"
+        self.live.add(resource_id)
+        return resource_id
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._CREATES:
+            prefix, key, id_key = self._CREATES[name]
+
+            def _create(**_kwargs: Any) -> dict[str, Any]:
+                self._call(name)
+                return {key: {id_key: self._new(prefix)}}
+
+            return _create
+        if name in self._DELETES:
+            return lambda **kwargs: self.live.discard(kwargs[self._DELETES[name]])
+
+        def _other(**_kwargs: Any) -> dict[str, Any]:
+            self._call(name)
+            return {}
+
+        return _other
+
+    def create_security_group(self, **_kwargs: Any) -> dict[str, Any]:
+        self._call("create_security_group")
+        return {"GroupId": self._new("sg")}
+
+    def run_instances(self, **_kwargs: Any) -> dict[str, Any]:
+        self._call("run_instances")
+        return {"Instances": [{"InstanceId": self._new("i")}]}
+
+    def terminate_instances(self, InstanceIds: list[str]) -> None:
+        self.live.difference_update(InstanceIds)
+
+    def describe_availability_zones(self, **_kwargs: Any) -> dict[str, Any]:
+        return {"AvailabilityZones": [{"ZoneName": "us-west-2a"}]}
+
+    def describe_images(self, **_kwargs: Any) -> dict[str, Any]:
+        return {"Images": [{"ImageId": "ami-1", "CreationDate": "2026-01-01"}]}
+
+    def get_waiter(self, _name: str) -> Any:
+        return type("_Waiter", (), {"wait": lambda _self, **_kwargs: None})()
+
+    def create_role(self, RoleName: str, **_kwargs: Any) -> None:
+        self._call("create_role")
+        self.live.add(f"role:{RoleName}")
+
+    def create_instance_profile(self, InstanceProfileName: str) -> None:
+        self._call("create_instance_profile")
+        self.live.add(f"profile:{InstanceProfileName}")
+
+    def delete_role(self, RoleName: str) -> None:
+        self.live.discard(f"role:{RoleName}")
+
+    def delete_instance_profile(self, InstanceProfileName: str) -> None:
+        self.live.discard(f"profile:{InstanceProfileName}")
+
+    def get_role(self, RoleName: str) -> dict[str, Any]:
+        if f"role:{RoleName}" not in self.live:
+            raise _client_error("GetRole", code="NoSuchEntity")
+        return {}
+
+    def get_instance_profile(self, InstanceProfileName: str) -> dict[str, Any]:
+        if f"profile:{InstanceProfileName}" not in self.live:
+            raise _client_error("GetInstanceProfile", code="NoSuchEntity")
+        return {}
+
+
+@pytest.mark.parametrize(
+    "fail_on",
+    [
+        None,
+        ("create_vpc", 1),
+        ("create_tags", 1),
+        ("create_internet_gateway", 1),
+        ("attach_internet_gateway", 1),
+        ("create_subnet", 1),
+        ("create_subnet", 2),
+        ("modify_subnet_attribute", 1),
+        ("create_route_table", 1),
+        ("create_route", 1),
+        ("associate_route_table", 1),
+        ("create_security_group", 1),
+        ("create_security_group", 2),
+        ("authorize_security_group_ingress", 1),
+        ("create_role", 1),
+        ("attach_role_policy", 1),
+        ("create_instance_profile", 1),
+        ("add_role_to_instance_profile", 1),
+        ("run_instances", 1),
+        ("run_instances", 2),
+    ],
+)
+def test_segment_boundary_cleanup_removes_everything_after_partial_build(
+    fail_on: tuple[str, int] | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whichever build call fails, every resource created before it is recorded and torn down."""
+    module = _load_network_script("segment_boundary_test.py")
+    monkeypatch.setattr(module.create_ssm_instance_profile.__globals__["time"], "sleep", lambda _seconds: None)
+    aws = FakeSegmentBoundaryAws(fail_on)
+    resources: dict[str, Any] = {
+        "vpc_id": None,
+        "igw_id": None,
+        "rtb_id": None,
+        "subnet_ids": [],
+        "sg_ids": [],
+        "instance_ids": [],
+        "role_name": None,
+        "profile_name": None,
+    }
+
+    try:
+        module.build_boundary(aws, aws, "10.86.0.0/16", "abcd1234", resources, None)
+    except Exception:
+        assert fail_on is not None
+    remaining = module.cleanup(aws, aws, resources)
+
+    assert aws.live == set(), f"untracked after failing {fail_on}: {sorted(aws.live)}"
+    assert remaining == []
