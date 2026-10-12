@@ -2373,6 +2373,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: SEC15-01
+    requirements:
+      - req_id: SEC15
+        source: offtake
+        coverage: partial
+    annotations: ''
+    notes: Source port is opt-in via required_dimensions, since common security group and ACL implementations cannot match on it.
   - test_id: SEC13-02
     requirements:
       - req_id: SEC13

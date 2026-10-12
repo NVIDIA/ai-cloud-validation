@@ -98,6 +98,13 @@ commands:
         timeout: 60
         output_schema: security_blocking
 
+      - name: five_tuple_filtering
+        phase: test
+        command: "python ../scripts/network/five_tuple_filtering_test.py"
+        args: ["--region", "{{region}}", "--cidr", "10.85.0.0/16"]
+        timeout: 60
+        output_schema: five_tuple_filtering
+
       - name: connectivity_test
         phase: test
         command: "python ../scripts/network/test_connectivity.py"
