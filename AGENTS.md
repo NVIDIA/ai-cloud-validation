@@ -158,8 +158,9 @@ forwarded env vars → optional isvreporter upload.
     domain (`network/`, `vm/`, `iam/`, `k8s/`, ...)
   - `scripts/common/` - provider-local Python helpers, imported via a single
     `sys.path.insert(0, Path(__file__).resolve().parents[1])` per script
-- `isvctl/configs/providers/shared/` - cross-provider scripts (`deploy_nim.py`,
-  `teardown_nim.py`).
+- `isvctl/configs/shared/` - cross-provider scripts invoked from provider
+  configs, organized by domain (`nim/`, `security/`, `storage/`, `breakfix/`,
+  `k8s/`).
 - `isvctl/schemas/` - JSON Schema files.
 
 ### Provider notes

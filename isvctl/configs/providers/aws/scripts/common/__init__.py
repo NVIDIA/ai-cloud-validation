@@ -23,8 +23,8 @@ without any namespace-package juggling. Modules:
 - ``errors``: AWS error classification, ``delete_with_retry``, and the
   ``handle_aws_errors`` decorator used by every script's ``main()``
 - ``ssh_utils``: ``wait_for_ssh`` reachability probe (shared with no
-  other provider today; moved here from ``providers/shared/`` so all
-  AWS imports live under a single ``common`` package)
+  other provider today; kept here so all AWS imports live under a
+  single ``common`` package)
 - ``serial_console``: boto3 serial-console connectivity helper
 - ``vpc``: VPC / subnet / SG creation + retry-backed teardown helpers
 """

@@ -259,8 +259,8 @@ uv run isvctl test run -f isvctl/configs/suites/network.yaml \
 | `start_instance` | test | `providers/my-isv/scripts/vm/start_instance.py` | `instance_id`, `state`, `public_ip`, `ssh_ready` |
 | `reboot_instance` | test | `providers/my-isv/scripts/vm/reboot_instance.py` | `reboot_initiated`, `ssh_ready`, `uptime_seconds` |
 | `describe_instance` | test | `providers/my-isv/scripts/vm/describe_instance.py` | `instance_id`, `state`, `public_ip`, `key_file` |
-| `deploy_nim` | test | `providers/shared/deploy_nim.py` | `container_id`, `health_endpoint` |
-| `teardown_nim` | teardown | `providers/shared/teardown_nim.py` | `message` |
+| `deploy_nim` | test | `shared/nim/deploy_nim.py` | `container_id`, `health_endpoint` |
+| `teardown_nim` | teardown | `shared/nim/teardown_nim.py` | `message` |
 | `teardown` | teardown | `providers/my-isv/scripts/vm/teardown.py` | `resources_deleted`, `message` |
 
 ### Bare Metal (`bare_metal.yaml`)
@@ -279,8 +279,8 @@ uv run isvctl test run -f isvctl/configs/suites/network.yaml \
 | `power_cycle_instance` | test | `providers/my-isv/scripts/bare_metal/power_cycle_instance.py` | `instance_id`, `state`, `public_ip`, `ssh_ready` |
 | `describe_instance` | test | `providers/my-isv/scripts/bare_metal/describe_instance.py` | `state`, `public_ip`, `key_file` |
 | `reinstall_instance` | test | `providers/my-isv/scripts/bare_metal/reinstall_instance.py` | `instance_state` (skipped by default) |
-| `deploy_nim` | test | `providers/shared/deploy_nim.py` | Shared NIM deployment |
-| `teardown_nim` | teardown | `providers/shared/teardown_nim.py` | Shared NIM cleanup |
+| `deploy_nim` | test | `shared/nim/deploy_nim.py` | Shared NIM deployment |
+| `teardown_nim` | teardown | `shared/nim/teardown_nim.py` | Shared NIM cleanup |
 | `teardown` | teardown | `providers/my-isv/scripts/bare_metal/teardown.py` | `resources_deleted`, `message` |
 | `verify_teardown` | teardown | `providers/my-isv/scripts/bare_metal/verify_terminated.py` | `checks.instance_terminated`, `checks.sg_deleted` |
 | `verify_ingestion` | test | `providers/nico/scripts/hardware_ingestion/verify_ingestion.py` | `expected_count`, `ingested_count`, `matched_count`, `missing`, `extra`, `machines[].status`, `machines[].health` |
@@ -308,7 +308,7 @@ uv run isvctl test run -f isvctl/configs/suites/network.yaml \
 | `return_node_maintenance` | test | `providers/nico/scripts/breakfix/return_node_maintenance.py` | `operation.{requested,accepted,instance_deleted,machine_quarantined,instance_id,machine_id}` -- relinquishes the instance and verifies the machine is held for repair rather than returned to the pool; irreversible, so it skips unless an instance is named *and* `NICO_ALLOW_RELEASE_FOR_REPAIR=1` (BFX01-02) |
 | `return_rack_maintenance` | test | `providers/my-isv/scripts/breakfix/return_rack_maintenance.py` | `operation.{requested,accepted,rack_id}` (BFX01-03) |
 | `request_host_replacement` | test | `providers/my-isv/scripts/breakfix/request_host_replacement.py` | `operation.{requested,node_removed_from_pool,machine_id}` (BFX01-05) |
-| `query_node_health_agents` | test | `providers/shared/breakfix/query_node_health_agents.py` | `agents_observable`, `nodes_expected`, `agents[].{node_id,agent_name,running}` -- SSH `systemctl` probe. Any name is accepted, but a `running` record must supply one; the check matches no specific product, and a fleet running another agent names its units with `--units` rather than editing the shared script. List every GPU node, marking uncovered ones `running: false` rather than omitting them; `nodes_expected` is the platform's GPU node count and must come from inventory rather than from the list itself, since the check fails when the records do not cover it; skip when no GPU nodes are configured (BFX04-01) |
+| `query_node_health_agents` | test | `providers/nico/scripts/breakfix/query_node_health_agents.py` | `agents_observable`, `nodes_expected`, `agents[].{node_id,agent_name,running}` -- SSH `systemctl` probe. Any name is accepted, but a `running` record must supply one; the check matches no specific product, and a fleet running another agent names its units with `--units` rather than editing the script. List every GPU node, marking uncovered ones `running: false` rather than omitting them; `nodes_expected` is the platform's GPU node count and must come from inventory rather than from the list itself, since the check fails when the records do not cover it; skip when no GPU nodes are configured (BFX04-01) |
 | `query_planned_notifications` | test | `providers/my-isv/scripts/breakfix/query_planned_notifications.py` | `notification_channel_observable`, `notifications[].{machine_id,type,message,notified_at,window_start}` -- `notified_at` must precede `window_start` (the lead time) (BFX05-01) |
 | `query_failure_notifications` | test | `providers/my-isv/scripts/breakfix/query_failure_notifications.py` | `notification_channel_observable`, `notifications[].{machine_id,type,message,detected_at,notified_at}` -- `detected_at` to `notified_at` is the latency (BFX06-01) |
 
@@ -337,7 +337,7 @@ volume. The three test-phase steps all reuse that fixture.
 | `setup` | setup | `providers/my-isv/scripts/k8s/setup.sh` |
 | `teardown` | teardown | `providers/my-isv/scripts/k8s/teardown.sh` |
 | `reset_gpus` | test | `providers/my-isv/scripts/breakfix/reset_gpus.py` -- `operation.{accepted,node_id,gpu_ids,request_id}`; the reset is asynchronous, so the step reports acceptance plus a handle to poll (BFX01-01) |
-| `cordon_node` | test | `providers/shared/breakfix/cordon_node.py` (BFX01-04) |
+| `cordon_node` | test | `shared/breakfix/cordon_node.py` (BFX01-04) |
 
 Validations use `kubectl` directly (or a custom CLI via the `KUBECTL` env var): node counts, GPU operator, pod health, NCCL/NIM workloads. Break-fix cordon and GPU reset are optional provider steps.
 The shared cordon reference skips without changing cluster state unless
@@ -390,8 +390,8 @@ Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job schedul
 | `bmc_protocol_security` | test | `providers/my-isv/scripts/security/bmc_protocol_security_test.py` | CNP10-01: IPMI disabled; Redfish over TLS with AAA |
 | `bmc_bastion_access` | test | `providers/my-isv/scripts/security/bmc_bastion_access_test.py` | SEC12-03: BMC reachable only through a hardened bastion |
 | `api_endpoint_isolation` | test | `providers/my-isv/scripts/security/api_endpoint_test.py` | API endpoints not publicly accessible |
-| `mutual_tls_test` | test | `providers/shared/mutual_tls_test.py` | SEC13-01: mTLS (or equivalent) for north-south and east-west traffic |
-| `insecure_protocols_test` | test | `providers/shared/insecure_protocols_test.py` | SEC13-02: insecure protocols (HTTP, SSLv3, TLSv1) disabled |
+| `mutual_tls_test` | test | `shared/security/mutual_tls_test.py` | SEC13-01: mTLS (or equivalent) for north-south and east-west traffic |
+| `insecure_protocols_test` | test | `shared/security/insecure_protocols_test.py` | SEC13-02: insecure protocols (HTTP, SSLv3, TLSv1) disabled |
 | `mfa_enforcement` | test | `providers/my-isv/scripts/security/mfa_enforcement_test.py` | Administrative UI, CLI, and API access require MFA |
 | `cert_rotation_test` | test | `providers/my-isv/scripts/security/cert_rotation_test.py` | SEC09-01: TLS certificate rotation cycle or auto-renewal |
 | `kms_encryption_options_test` | test | `providers/my-isv/scripts/security/kms_encryption_options_test.py` | SEC09-02: Provider-managed and customer-managed KMS options |

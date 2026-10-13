@@ -196,7 +196,7 @@ Generate provider-specific lifecycle scripts with `isvctl provider scaffold <you
 
 - `isvctl/configs/providers/my-isv/scripts/` - source template scripts for every scaffolded domain
 - `isvctl/configs/providers/aws/scripts/` - fully-implemented AWS reference (follow its layout and JSON output contracts)
-- `isvctl/configs/providers/shared/` - cross-provider YAML-invoked scripts (`deploy_nim.py`, `teardown_nim.py`)
+- `isvctl/configs/shared/` - cross-provider YAML-invoked scripts, by domain (e.g. `nim/deploy_nim.py`, `nim/teardown_nim.py`)
 
 Stubs can be written in any language. They must:
 

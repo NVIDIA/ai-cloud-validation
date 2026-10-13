@@ -93,7 +93,7 @@ commands:
 
       - name: mutual_tls_test
         phase: test
-        command: "python ../../shared/mutual_tls_test.py"
+        command: "python ../../../shared/security/mutual_tls_test.py"
         args:
           - "--north-south-endpoints={{mutual_tls_north_south_endpoints}}"
           - "--east-west-endpoints={{mutual_tls_east_west_endpoints}}"
@@ -104,7 +104,7 @@ commands:
 
       - name: insecure_protocols_test
         phase: test
-        command: "python ../../shared/insecure_protocols_test.py"
+        command: "python ../../../shared/security/insecure_protocols_test.py"
         args: ["--endpoints={{insecure_protocols_endpoints}}"]
         timeout: 60
 
