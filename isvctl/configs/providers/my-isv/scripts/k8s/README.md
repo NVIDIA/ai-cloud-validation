@@ -19,6 +19,11 @@ uv run isvctl test run -f isvctl/configs/providers/my-isv/config/k8s.yaml --phas
   -k 'K8sLoadBalancerCheck or K8sDnsForwardingCheck or K8sCidrRangesCheck'
 ```
 
+`--phase test` selects lifecycle steps; `-k` filters validations only. The config
+sets `skip: true` on the IAM, GPU reset, and node cordon steps so this command runs
+only the networking probes. To enable those other steps, follow their config
+comments and remove `skip: true`; restore it for networking-only runs.
+
 To collect one probe's JSON directly:
 
 ```bash

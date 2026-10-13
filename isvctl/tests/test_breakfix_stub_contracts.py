@@ -94,7 +94,8 @@ def _collect() -> list[ScaffoldCheck]:
         doc = yaml.safe_load(path.read_text()) or {}
         for entry in (doc.get("commands") or {}).values():
             for step in (entry.get("steps") or []) if isinstance(entry, dict) else []:
-                if not isinstance(step, dict) or step.get("skip"):
+                # Opt-in scaffolds still need contract coverage before users enable them.
+                if not isinstance(step, dict):
                     continue
                 command = step.get("command") or ""
                 name = step.get("name")
