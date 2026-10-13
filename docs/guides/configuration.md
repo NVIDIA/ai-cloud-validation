@@ -727,12 +727,14 @@ an already-present StorageClass is insufficient. Missing installation evidence
 fails. After one supported method succeeds, the unused alternative is reported
 as skipped because the requirement permits either method.
 
-Use the opt-in `isvctl/configs/providers/shared/csi.yaml` lifecycle on a test cluster with
-a reviewed, pinned local chart or Kustomize directory. It installs during setup,
-runs the storage checks, and removes the installation during teardown. Existing
-cluster credentials must be available to both `kubectl` and `helm`; point both
-commands at the same context. No installation runs merely by selecting the
-canonical storage suite.
+Use the opt-in `install_csi` / `remove_csi` steps in
+`isvctl/configs/providers/my-isv/config/storage.yaml` on a test cluster with
+a reviewed, pinned local chart or Kustomize directory. Both ship with
+`skip: true`; set `skip: false` on both in your provider's storage config to
+install during setup, run the storage checks, and remove the installation
+during teardown. Existing cluster credentials must be available to both
+`kubectl` and `helm`; point both commands at the same context. No installation
+runs merely by selecting the canonical storage suite.
 
 Example installation JSON (`/absolute/path/csi-install.json`):
 
@@ -763,7 +765,7 @@ export K8S_CSI_BLOCK_SC=example-block
 export K8S_CSI_SHARED_FS_SC=example-shared
 export K8S_CSI_NFS_SC=example-nfs
 export K8S_CSI_SNAPSHOT_CLASS=example-snapshots
-uv run isvctl test run -f isvctl/configs/providers/shared/csi.yaml --capability kubernetes
+uv run isvctl test run -f isvctl/configs/providers/<your-platform>/config/storage.yaml --capability kubernetes
 ```
 
 Supply all three StorageClasses through the reviewed installation or existing
@@ -787,7 +789,7 @@ replaced resource, or to remove a CRD with objects outside the owned namespace. 
 the reported dependency and retry with the same environment:
 
 ```bash
-uv run isvctl test run -f isvctl/configs/providers/shared/csi.yaml --phase teardown
+uv run isvctl test run -f isvctl/configs/providers/<your-platform>/config/storage.yaml --capability kubernetes --phase teardown
 ```
 
 ### Kubernetes Conformance Modes

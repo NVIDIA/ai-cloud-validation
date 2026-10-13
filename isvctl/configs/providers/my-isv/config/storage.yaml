@@ -43,7 +43,8 @@
 # Kubernetes CSI / filesystem checks (--capability kubernetes) run against the
 # cluster the setup_cluster step acquires. StorageClass names come from its csi block,
 # the K8S_CSI_* env vars, or literal overrides in this file; anything left unset
-# makes that check skip cleanly.
+# makes that check skip cleanly. The install_csi / remove_csi steps (skipped by
+# default) install a disposable CSI driver for the K8S23 installation checks.
 #
 # Usage:
 #   uv run isvctl test run -f isvctl/configs/providers/my-isv/config/storage.yaml
@@ -83,6 +84,20 @@ commands:
         # report inventory no check consumes.
         output_schema: generic
         timeout: 60
+
+      # Skipped: opt-in install of a reviewed, disposable CSI driver into the
+      # current cluster, as evidence for K8S23-02/03. Set CSI_INSTALL_CONFIG and
+      # CSI_INSTALL_STATE to absolute local paths; existing cluster credentials
+      # come from KUBECTL / HELM. The chart or kustomization must use unique
+      # resource names and no default StorageClass. Never point it at an
+      # existing driver. remove_csi is the matching teardown.
+      - name: install_csi
+        phase: setup
+        skip: true
+        command: "python ../../shared/csi_driver.py install"
+        requires: [kubernetes]
+        output_schema: generic
+        timeout: 900
 
       - name: launch_instance
         phase: setup
@@ -272,6 +287,16 @@ commands:
           - "--delete-key-pair"
           - "--delete-security-group"
         timeout: 60
+
+      # Skipped with install_csi; enable both together. Refuses to remove a
+      # driver whose PVs remain.
+      - name: remove_csi
+        phase: teardown
+        skip: true
+        command: "python ../../shared/csi_driver.py remove"
+        requires: [kubernetes]
+        output_schema: generic
+        timeout: 900
 
       # The other half of the setup_cluster fixture. Teardown may be a no-op if
       # you reuse a long-lived cluster, but the step must exist so a standalone
