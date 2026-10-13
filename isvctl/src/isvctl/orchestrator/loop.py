@@ -807,7 +807,10 @@ class Orchestrator:
             message += f"; WARNING: {warning}"
         elif pytest_exit_code not in (None, ExitCode.OK):
             phase_success = False
-            status = ExitCode(pytest_exit_code).name.lower().replace("_", " ")
+            try:
+                status = ExitCode(pytest_exit_code).name.lower().replace("_", " ")
+            except ValueError:
+                status = "unknown status"
             message += f"; pytest failed: {status} (exit code {pytest_exit_code})"
 
         return PhaseResult(

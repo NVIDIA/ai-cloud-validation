@@ -735,7 +735,7 @@ EOF
 class TestPytestSessionStatus:
     """Session errors must fail orchestration even without failed validation results."""
 
-    @pytest.mark.parametrize("exit_code", [1, 2, 3, 4])
+    @pytest.mark.parametrize("exit_code", [1, 2, 3, 4, 42])
     @pytest.mark.parametrize("validation_state", [State.SKIPPED, State.PASSED])
     @pytest.mark.parametrize("failure_phase", ["setup", "test"])
     @pytest.mark.parametrize("teardown_on_failure", [True, False])
