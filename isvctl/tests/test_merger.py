@@ -29,64 +29,6 @@ from isvctl.config.merger import (
 )
 from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.context import Context
-from isvctl.orchestrator.step_executor import StepExecutor
-
-
-@pytest.mark.parametrize("imported", [False, True])
-def test_config_relative_script_runs_from_another_working_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, imported: bool
-) -> None:
-    """Load-time paths survive imports, quoted directory names, and cwd overrides."""
-    directory = tmp_path / "provider's config files"
-    directory.mkdir()
-    script = directory / "probe.py"
-    script.write_text(
-        "import json, os, sys\n"
-        "print(json.dumps({'success': True, 'platform': 'kubernetes', 'cwd': os.getcwd(), 'args': sys.argv[1:]}))\n"
-    )
-    config_path = directory / "config.yaml"
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "commands": {
-                    "storage": {
-                        "steps": [
-                            {
-                                "name": "probe",
-                                "command": 'python3 "{{ config_dir }}/probe.py" install',
-                                "args": ["argument with spaces"],
-                                "output_schema": "generic",
-                            }
-                        ]
-                    }
-                }
-            }
-        )
-    )
-    if imported:
-        wrapper = tmp_path / "wrapper.yaml"
-        wrapper.write_text(yaml.safe_dump({"import": str(config_path)}))
-        config_path = wrapper
-    working_dir = tmp_path / "execution"
-    working_dir.mkdir()
-    monkeypatch.chdir(working_dir)
-    config = RunConfig.model_validate(merge_yaml_files([config_path]))
-    result = StepExecutor(working_dir=working_dir).execute_steps(config.get_steps("storage"), Context(config))
-    assert result.success
-    assert result.steps[0].output == {
-        "success": True,
-        "platform": "kubernetes",
-        "cwd": str(working_dir.resolve()),
-        "args": ["install", "argument with spaces"],
-    }
-
-
-def test_commands_without_config_dir_keep_existing_paths(tmp_path: Path) -> None:
-    """Config-relative resolution is opt-in and preserves ordinary command strings."""
-    content = {"commands": {"storage": {"steps": [{"name": "probe", "command": "python3 ./probe.py install"}]}}}
-    path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump(content))
-    assert merge_yaml_files([path]) == content
 
 
 class TestDeepMerge:

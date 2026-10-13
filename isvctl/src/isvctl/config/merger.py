@@ -29,7 +29,6 @@ before the importing file's own content is applied on top.
 
 import copy
 import logging
-import shlex
 from pathlib import Path
 from typing import Any
 
@@ -159,8 +158,6 @@ def _load_yaml_with_imports(
     if not isinstance(content, dict):
         raise ValueError(f"Configuration file must contain a YAML mapping, not {type(content).__name__}: {path}")
 
-    _resolve_config_dir_commands(content, path.parent.resolve())
-
     import_list = content.pop("import", None)
     if not import_list:
         return content
@@ -182,29 +179,6 @@ def _load_yaml_with_imports(
 
     # The importing file's content wins over the base
     return deep_merge(base, content)
-
-
-def _resolve_config_dir_commands(content: dict[str, Any], directory: Path) -> None:
-    """Anchor opted-in step commands to their declaring YAML before merging imports.
-
-    Replace the literal ``{{ config_dir }}`` token after splitting the command so
-    directory names containing spaces or quotes remain a single argument. Other
-    commands retain their existing working-directory-relative behavior.
-    """
-    commands = content.get("commands")
-    if not isinstance(commands, dict):
-        return
-    for group in commands.values():
-        if not isinstance(group, dict) or not isinstance(group.get("steps"), list):
-            continue
-        for step in group["steps"]:
-            if not isinstance(step, dict):
-                continue
-            command = step.get("command")
-            if isinstance(command, str) and "{{ config_dir }}" in command:
-                step["command"] = shlex.join(
-                    part.replace("{{ config_dir }}", str(directory)) for part in shlex.split(command)
-                )
 
 
 def _resolve_import_path(path: Path, imp: Any) -> Path:

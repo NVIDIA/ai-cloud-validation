@@ -200,12 +200,6 @@ Set `timeout: null` only when the command enforces its own deadline. On POSIX,
 a timed-out step's whole process group is stopped (`SIGTERM`, then `SIGKILL`),
 so child processes do not outlive it.
 
-To anchor a step's script to its YAML file, use
-`command: 'python3 "{{ config_dir }}/script.py"'`. The literal `{{ config_dir }}`
-is resolved when that file is loaded, including through imports, so a different
-`--working-dir` does not change the script location. Quote the path as shown to
-support directory names containing spaces; the command's execution directory is unchanged.
-
 #### Gating a step with `requires`
 
 A step is skipped automatically when **every** validation bound to it is
