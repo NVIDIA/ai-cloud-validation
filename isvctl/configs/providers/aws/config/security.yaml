@@ -114,7 +114,7 @@ commands:
       # skip reason below; SEC13-01 then skips rather than passes.
       - name: mutual_tls_test
         phase: test
-        command: "python3 ../../../scripts/security/mutual_tls_test.py"
+        command: "python3 ../../../shared/security/mutual_tls_test.py"
         args:
           - >-
             --east-west-skip-reason=east_west_mtls_enforced:

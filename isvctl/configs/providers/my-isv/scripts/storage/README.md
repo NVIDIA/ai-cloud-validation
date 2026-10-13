@@ -78,7 +78,7 @@ The schema is `isvctl/schemas/storage-provider-manifest.schema.json`.
 ## Driving the tests
 
 The manifest drives `StorageProviderApiCheck` ONLY. `storage_manifest_to_steps.py`
-(`isvctl/configs/scripts/storage/`) resolves the manifest path in a `storage_manifest` step and emits
+(`isvctl/configs/shared/storage/`) resolves the manifest path in a `storage_manifest` step and emits
 `steps.storage_manifest.storage.manifest_path`, which the check loads in-process.
 
 The CSI / NFS / POSIX filesystem checks are config-driven like every other suite

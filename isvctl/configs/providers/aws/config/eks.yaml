@@ -137,7 +137,7 @@ commands:
       - name: fetch_upstream_k8s_versions
         phase: test
         continue_on_failure: true
-        command: "python3 ../../../scripts/k8s/fetch_upstream_versions.py"
+        command: "python3 ../../../shared/k8s/fetch_upstream_versions.py"
         output_schema: k8s_upstream_versions
         timeout: 60
 
@@ -247,7 +247,7 @@ commands:
       # reference when a dedicated test node is configured.
       - name: cordon_node
         phase: test
-        command: "python3 ../../../scripts/breakfix/cordon_node.py"
+        command: "python3 ../../../shared/breakfix/cordon_node.py"
         args:
           - "--node={{breakfix_node}}"
         timeout: 1200

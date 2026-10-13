@@ -22,7 +22,7 @@ from isvctl.orchestrator.context import Context
 from isvctl.orchestrator.step_executor import StepExecutor
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[1]
-CORDON_SCRIPT = ISVCTL_ROOT / "configs" / "scripts" / "breakfix" / "cordon_node.py"
+CORDON_SCRIPT = ISVCTL_ROOT / "configs" / "shared" / "breakfix" / "cordon_node.py"
 AWS_EKS_CONFIG = ISVCTL_ROOT / "configs" / "providers" / "aws" / "config" / "eks.yaml"
 MY_ISV_K8S_CONFIG = ISVCTL_ROOT / "configs" / "providers" / "my-isv" / "config" / "k8s.yaml"
 K8S_SUITE = ISVCTL_ROOT / "configs" / "suites" / "k8s.yaml"
@@ -111,8 +111,8 @@ def test_k8s_suite_declares_the_provider_neutral_validation() -> None:
 @pytest.mark.parametrize(
     ("provider_config", "command"),
     [
-        (AWS_EKS_CONFIG, "python3 ../../../scripts/breakfix/cordon_node.py"),
-        (MY_ISV_K8S_CONFIG, "python3 ../../../scripts/breakfix/cordon_node.py"),
+        (AWS_EKS_CONFIG, "python3 ../../../shared/breakfix/cordon_node.py"),
+        (MY_ISV_K8S_CONFIG, "python3 ../../../shared/breakfix/cordon_node.py"),
     ],
 )
 def test_kubernetes_providers_wire_the_shared_reference(provider_config: Path, command: str) -> None:

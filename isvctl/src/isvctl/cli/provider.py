@@ -121,7 +121,7 @@ def _rewrite_config_paths(target_dir: Path, template_dir: Path) -> None:
         return
 
     suites_dir = template_dir.parents[1] / "suites"
-    scripts_dir = template_dir.parents[1] / "scripts"
+    shared_dir = template_dir.parents[1] / "shared"
 
     for path in config_dir.glob("*.yaml"):
         content = path.read_text(encoding="utf-8")
@@ -136,9 +136,9 @@ def _rewrite_config_paths(target_dir: Path, template_dir: Path) -> None:
             content,
         )
         updated = re.sub(
-            r"\.\./\.\./\.\./scripts/([A-Za-z0-9_./-]+\.py)",
+            r"\.\./\.\./\.\./shared/([A-Za-z0-9_./-]+\.py)",
             lambda match: _built_in_reference(
-                scripts_dir / match.group(1),
+                shared_dir / match.group(1),
                 start=path.parent,
                 target_dir=target_dir,
                 template_dir=template_dir,

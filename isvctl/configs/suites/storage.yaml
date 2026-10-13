@@ -251,7 +251,7 @@ tests:
           requires: [vm, bare_metal]
           step: multipath
 
-    # Bound to the provider's storage_manifest step (scripts/storage/
+    # Bound to the provider's storage_manifest step (shared/storage/
     # storage_manifest_to_steps.py), which emits storage.manifest_path. Providers
     # that have not onboarded a storage shim do not declare it, so these checks
     # skip as step_not_configured. The step runs in the test phase, so these

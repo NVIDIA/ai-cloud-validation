@@ -86,7 +86,7 @@ def test_python_script_path_falls_back_to_current_working_directory(
 ) -> None:
     """Repo-root-relative Python commands still work with config-relative cwd."""
     repo_root = tmp_path / "repo"
-    script = repo_root / "isvctl" / "configs" / "scripts" / "nim" / "deploy_nim.py"
+    script = repo_root / "isvctl" / "configs" / "shared" / "nim" / "deploy_nim.py"
     script.parent.mkdir(parents=True)
     script.write_text("print('ok')\n", encoding="utf-8")
     provider_config_dir = tmp_path / "provider" / "config"
@@ -95,7 +95,7 @@ def test_python_script_path_falls_back_to_current_working_directory(
     monkeypatch.chdir(repo_root)
 
     resolved = _resolve_python_script_path(
-        ["python", "isvctl/configs/scripts/nim/deploy_nim.py"],
+        ["python", "isvctl/configs/shared/nim/deploy_nim.py"],
         provider_config_dir,
     )
     assert resolved[1] == str(script.resolve())
@@ -107,7 +107,7 @@ def test_python_script_path_falls_back_after_interpreter_flags(
 ) -> None:
     """Repo-root-relative Python commands still work after interpreter flags."""
     repo_root = tmp_path / "repo"
-    script = repo_root / "isvctl" / "configs" / "scripts" / "nim" / "deploy_nim.py"
+    script = repo_root / "isvctl" / "configs" / "shared" / "nim" / "deploy_nim.py"
     script.parent.mkdir(parents=True)
     script.write_text("print('ok')\n", encoding="utf-8")
     provider_config_dir = tmp_path / "provider" / "config"
@@ -116,7 +116,7 @@ def test_python_script_path_falls_back_after_interpreter_flags(
     monkeypatch.chdir(repo_root)
 
     resolved = _resolve_python_script_path(
-        ["python", "-u", "isvctl/configs/scripts/nim/deploy_nim.py"],
+        ["python", "-u", "isvctl/configs/shared/nim/deploy_nim.py"],
         provider_config_dir,
     )
     assert resolved[1] == "-u"

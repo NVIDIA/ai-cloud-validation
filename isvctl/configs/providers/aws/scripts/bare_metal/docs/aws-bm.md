@@ -75,8 +75,8 @@ uv run isvctl test run -f isvctl/configs/providers/aws/config/bare_metal.yaml --
 | 11 | `describe_instance` | test | `providers/aws/scripts/bare_metal/describe_instance.py` | Describe post-power-cycle state + SSH info |
 | 12 | `host_status_log` | test | `providers/aws/scripts/bare_metal/host_status_log.py` | Capture recent host status events |
 | 13 | `reinstall_instance` | test | `providers/aws/scripts/bare_metal/reinstall_instance.py` | Reinstall OS (skip: true by default) |
-| 14 | `deploy_nim` | test | `scripts/nim/deploy_nim.py` | Deploy NIM container via SSH |
-| 15 | `teardown_nim` | teardown | `scripts/nim/teardown_nim.py` | Stop NIM container |
+| 14 | `deploy_nim` | test | `shared/nim/deploy_nim.py` | Deploy NIM container via SSH |
+| 15 | `teardown_nim` | teardown | `shared/nim/teardown_nim.py` | Stop NIM container |
 | 16 | `teardown` | teardown | `providers/aws/scripts/bare_metal/teardown.py` | Terminate instance, delete resources |
 | 17 | `verify_teardown` | teardown | `providers/aws/scripts/bare_metal/verify_terminated.py` | Confirm instance terminated + SG deleted |
 

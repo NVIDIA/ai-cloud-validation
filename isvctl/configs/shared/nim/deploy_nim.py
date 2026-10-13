@@ -52,7 +52,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # scripts/nim/ (for ssh_paramiko)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # shared/nim/ (for ssh_paramiko)
 from ssh_paramiko import run_cmd, ssh_connect
 
 

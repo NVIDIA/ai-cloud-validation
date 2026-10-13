@@ -259,8 +259,8 @@ uv run isvctl test run -f isvctl/configs/suites/network.yaml \
 | `start_instance` | test | `providers/my-isv/scripts/vm/start_instance.py` | `instance_id`, `state`, `public_ip`, `ssh_ready` |
 | `reboot_instance` | test | `providers/my-isv/scripts/vm/reboot_instance.py` | `reboot_initiated`, `ssh_ready`, `uptime_seconds` |
 | `describe_instance` | test | `providers/my-isv/scripts/vm/describe_instance.py` | `instance_id`, `state`, `public_ip`, `key_file` |
-| `deploy_nim` | test | `scripts/nim/deploy_nim.py` | `container_id`, `health_endpoint` |
-| `teardown_nim` | teardown | `scripts/nim/teardown_nim.py` | `message` |
+| `deploy_nim` | test | `shared/nim/deploy_nim.py` | `container_id`, `health_endpoint` |
+| `teardown_nim` | teardown | `shared/nim/teardown_nim.py` | `message` |
 | `teardown` | teardown | `providers/my-isv/scripts/vm/teardown.py` | `resources_deleted`, `message` |
 
 ### Bare Metal (`bare_metal.yaml`)
@@ -279,8 +279,8 @@ uv run isvctl test run -f isvctl/configs/suites/network.yaml \
 | `power_cycle_instance` | test | `providers/my-isv/scripts/bare_metal/power_cycle_instance.py` | `instance_id`, `state`, `public_ip`, `ssh_ready` |
 | `describe_instance` | test | `providers/my-isv/scripts/bare_metal/describe_instance.py` | `state`, `public_ip`, `key_file` |
 | `reinstall_instance` | test | `providers/my-isv/scripts/bare_metal/reinstall_instance.py` | `instance_state` (skipped by default) |
-| `deploy_nim` | test | `scripts/nim/deploy_nim.py` | Shared NIM deployment |
-| `teardown_nim` | teardown | `scripts/nim/teardown_nim.py` | Shared NIM cleanup |
+| `deploy_nim` | test | `shared/nim/deploy_nim.py` | Shared NIM deployment |
+| `teardown_nim` | teardown | `shared/nim/teardown_nim.py` | Shared NIM cleanup |
 | `teardown` | teardown | `providers/my-isv/scripts/bare_metal/teardown.py` | `resources_deleted`, `message` |
 | `verify_teardown` | teardown | `providers/my-isv/scripts/bare_metal/verify_terminated.py` | `checks.instance_terminated`, `checks.sg_deleted` |
 | `verify_ingestion` | test | `providers/nico/scripts/hardware_ingestion/verify_ingestion.py` | `expected_count`, `ingested_count`, `matched_count`, `missing`, `extra`, `machines[].status`, `machines[].health` |
@@ -337,7 +337,7 @@ volume. The three test-phase steps all reuse that fixture.
 | `setup` | setup | `providers/my-isv/scripts/k8s/setup.sh` |
 | `teardown` | teardown | `providers/my-isv/scripts/k8s/teardown.sh` |
 | `reset_gpus` | test | `providers/my-isv/scripts/breakfix/reset_gpus.py` -- `operation.{accepted,node_id,gpu_ids,request_id}`; the reset is asynchronous, so the step reports acceptance plus a handle to poll (BFX01-01) |
-| `cordon_node` | test | `scripts/breakfix/cordon_node.py` (BFX01-04) |
+| `cordon_node` | test | `shared/breakfix/cordon_node.py` (BFX01-04) |
 
 Validations use `kubectl` directly (or a custom CLI via the `KUBECTL` env var): node counts, GPU operator, pod health, NCCL/NIM workloads. Break-fix cordon and GPU reset are optional provider steps.
 The shared cordon reference skips without changing cluster state unless
@@ -390,8 +390,8 @@ Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job schedul
 | `bmc_protocol_security` | test | `providers/my-isv/scripts/security/bmc_protocol_security_test.py` | CNP10-01: IPMI disabled; Redfish over TLS with AAA |
 | `bmc_bastion_access` | test | `providers/my-isv/scripts/security/bmc_bastion_access_test.py` | SEC12-03: BMC reachable only through a hardened bastion |
 | `api_endpoint_isolation` | test | `providers/my-isv/scripts/security/api_endpoint_test.py` | API endpoints not publicly accessible |
-| `mutual_tls_test` | test | `scripts/security/mutual_tls_test.py` | SEC13-01: mTLS (or equivalent) for north-south and east-west traffic |
-| `insecure_protocols_test` | test | `scripts/security/insecure_protocols_test.py` | SEC13-02: insecure protocols (HTTP, SSLv3, TLSv1) disabled |
+| `mutual_tls_test` | test | `shared/security/mutual_tls_test.py` | SEC13-01: mTLS (or equivalent) for north-south and east-west traffic |
+| `insecure_protocols_test` | test | `shared/security/insecure_protocols_test.py` | SEC13-02: insecure protocols (HTTP, SSLv3, TLSv1) disabled |
 | `mfa_enforcement` | test | `providers/my-isv/scripts/security/mfa_enforcement_test.py` | Administrative UI, CLI, and API access require MFA |
 | `cert_rotation_test` | test | `providers/my-isv/scripts/security/cert_rotation_test.py` | SEC09-01: TLS certificate rotation cycle or auto-renewal |
 | `kms_encryption_options_test` | test | `providers/my-isv/scripts/security/kms_encryption_options_test.py` | SEC09-02: Provider-managed and customer-managed KMS options |

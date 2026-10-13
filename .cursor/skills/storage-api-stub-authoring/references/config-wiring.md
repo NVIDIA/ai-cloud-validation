@@ -30,7 +30,7 @@ scripts/storage/api.py                    # MyStorageApi + build_api() (my-isv f
 
 The suite binds the `storage_provider_api` group to a `storage_manifest` step and
 reads `{{ steps.storage_manifest.storage.manifest_path }}`. That step runs
-`isvctl/configs/scripts/storage/storage_manifest_to_steps.py`, which resolves `STORAGE_PROVIDER_MANIFEST`
+`isvctl/configs/shared/storage/storage_manifest_to_steps.py`, which resolves `STORAGE_PROVIDER_MANIFEST`
 (relative to the config dir; the mounted ConfigMap path in prod) to an absolute
 path.
 
@@ -49,7 +49,7 @@ commands:
     steps:
       - name: storage_manifest
         phase: test
-        command: "python ../../../scripts/storage/storage_manifest_to_steps.py"
+        command: "python ../../../shared/storage/storage_manifest_to_steps.py"
         env:
           STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
 ```
