@@ -42,6 +42,7 @@ from isvtest.core.resolution import (
     resolve_entries,
 )
 from isvtest.main import run_validations_via_pytest
+from pytest import ExitCode
 
 from isvctl.config.schema import RunConfig, StepConfig
 from isvctl.orchestrator.commands import CommandExecutor
@@ -657,8 +658,9 @@ class Orchestrator:
                     phase_junit_files.append(terminal_junit)
 
                 test_settings = self.config.tests.settings if self.config.tests else {}
+                pytest_exit_code = None
                 if ready_entries:
-                    _exit_code, executed_entries = run_validations_via_pytest(
+                    pytest_exit_code, executed_entries = run_validations_via_pytest(
                         entries=ready_entries,
                         settings=test_settings,
                         inventory=self.context.get_accumulated_context(),
@@ -693,13 +695,12 @@ class Orchestrator:
                 phase_validations = [_resolved_entry_to_result_dict(entry) for entry in terminal_phase_entries]
 
                 if phase_steps or phase_validations:
-                    phase_results.append(
-                        self._create_phase_result(phase_enum, step_results, phase_validations, phase_name)
+                    phase_result = self._create_phase_result(
+                        phase_enum, step_results, phase_validations, phase_name, pytest_exit_code
                     )
-
-                phase_success = step_results.success and all(v.get("passed", False) for v in phase_validations)
-                if not phase_success:
-                    overall_success = False
+                    phase_results.append(phase_result)
+                    if not phase_result.success:
+                        overall_success = False
 
             remaining_entries = [
                 (index, entry)
@@ -755,6 +756,7 @@ class Orchestrator:
         step_results: StepResults,
         validation_results: list[dict],
         phase_name: str | None = None,
+        pytest_exit_code: int | None = None,
     ) -> PhaseResult:
         """Create a PhaseResult from step execution and validation results.
 
@@ -763,6 +765,7 @@ class Orchestrator:
             step_results: Results from step execution
             validation_results: Results from phase validations
             phase_name: Custom phase name (for non-standard phases)
+            pytest_exit_code: Pytest session status, or None if pytest did not run
 
         Returns:
             PhaseResult for the phase
@@ -794,11 +797,25 @@ class Orchestrator:
         else:
             message = f"{display_name} phase completed"
 
+        # Session failures can leave every validation skipped or even passed.
+        # Keep the session status authoritative alongside the individual results.
+        if pytest_exit_code == ExitCode.NO_TESTS_COLLECTED:
+            warning = (
+                f"No tests collected by pytest in {display_name} phase (exit code 5); check pytest selection arguments"
+            )
+            logger.warning(warning)
+            message += f"; WARNING: {warning}"
+        elif pytest_exit_code not in (None, ExitCode.OK):
+            phase_success = False
+            status = ExitCode(pytest_exit_code).name.lower().replace("_", " ")
+            message += f"; pytest failed: {status} (exit code {pytest_exit_code})"
+
         return PhaseResult(
             phase=phase,
             success=phase_success,
             message=message,
             details={
+                "pytest_exit_code": pytest_exit_code,
                 "steps": [
                     {
                         "name": s.name,
