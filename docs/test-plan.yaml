@@ -4126,6 +4126,42 @@ domains:
                 github_issues:
                   - "#277"
                 status: published
+          - description: LoadBalancer Service Support
+            tests:
+              - summary: Verify public and private LoadBalancer connectivity and exact static IP assignment
+                labels: [kubernetes, min_req, slow]
+                priority: P0
+                milestone: M5
+                notes: "Creates three disposable Services and checks their backend responses through assigned ingress IPs; requires provider annotations and reserved static addresses."
+                github_issues: ["#665"]
+                req_id: K8S29
+                test_id: K8S29-01
+                actor: operator
+                status: published
+          - description: Conditional DNS Forwarding
+            tests:
+              - summary: Verify a temporary CoreDNS zone forwards to the designated resolver and cluster DNS still works
+                labels: [kubernetes, min_req, slow]
+                priority: P0
+                milestone: M5
+                notes: "Adds and restores one unique CoreDNS zone; checks the answer and upstream query log."
+                github_issues: ["#665"]
+                req_id: K8S30
+                test_id: K8S30-01
+                actor: operator
+                status: published
+          - description: Configured Kubernetes CIDR Ranges
+            tests:
+              - summary: Verify configured service, node and pod ranges against live control-plane ranges and fresh allocations
+                labels: [kubernetes, min_req, slow]
+                priority: P0
+                milestone: M5
+                notes: "Validates a preconfigured cluster; does not reprovision alternate ranges. Requires ServiceCIDR API and node podCIDRs; CNIs without those need a provider-specific probe."
+                github_issues: ["#665"]
+                req_id: K8S31
+                test_id: K8S31-01
+                actor: operator
+                status: published
       - name: Power Policy Management
         capabilities:
           - description: Control plane to manage power allocation (re-allocation) based on need and availability

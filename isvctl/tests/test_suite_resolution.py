@@ -5,7 +5,10 @@
 
 import json
 import re
+import shlex
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 from isvtest.core.resolution import DECLARABLE_CAPABILITIES, parse_validations
@@ -19,6 +22,8 @@ from isvctl.config.suite_resolution import (
     resolve_suite,
     resolve_suite_name,
 )
+from isvctl.orchestrator.context import Context
+from isvctl.orchestrator.step_executor import StepExecutor
 
 CONFIGS_ROOT = Path(__file__).resolve().parents[1] / "configs"
 
@@ -235,7 +240,12 @@ def test_storage_suite_requires_all_k8s_storage_capabilities(relative: str) -> N
 
 def test_csi_lifecycle_provider_wires_install_and_teardown() -> None:
     """The opt-in CSI provider retains required checks and runs both lifecycle phases."""
-    config = RunConfig.model_validate(merge_yaml_files([str(CONFIGS_ROOT / "providers" / "csi.yaml")]))
+    path = CONFIGS_ROOT / "providers" / "shared" / "csi.yaml"
+    config = RunConfig.model_validate(merge_yaml_files([str(path)]))
+    for step in config.get_steps("storage"):
+        args = shlex.split(step.command)
+        script = args[1] if args[0] == "python3" else args[0]
+        assert (path.parent / script).is_file()
     assert [(step.name, step.phase) for step in config.get_steps("storage")] == [
         ("install_csi", "setup"),
         ("setup_cluster", "setup"),
@@ -246,3 +256,40 @@ def test_csi_lifecycle_provider_wires_install_and_teardown() -> None:
     assert checks["K8sCsiStorageTypesCheck"]["require_all_types"] is True
     assert checks["K8sCsiSnapshotRestoreCheck"]["test_id"] == "K8S23-08"
     assert checks["K8sCsiSnapshotRestoreCheck"]["required"] is True
+
+
+@pytest.mark.parametrize("step_name", ["install_csi", "setup_cluster", "remove_csi"])
+@pytest.mark.parametrize("override", [False, True])
+def test_csi_commands_resolve_from_config_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step_name: str, override: bool
+) -> None:
+    """CSI commands retain their scripts and arguments with a different execution cwd."""
+    path = CONFIGS_ROOT / "providers" / "shared" / "csi.yaml"
+    monkeypatch.chdir(tmp_path)
+    config = RunConfig.model_validate(merge_yaml_files([path]))
+    step = next(step for step in config.get_steps("storage") if step.name == step_name)
+    cwd = tmp_path if override else path.parent
+    expected_script = (
+        path.parent / "../my-isv/scripts/k8s/setup.sh"
+        if step_name == "setup_cluster"
+        else path.parent / "csi_driver.py"
+    ).resolve()
+    calls: list[list[str]] = []
+
+    def capture_command(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        """Inspect invocation without installing a driver or contacting a cluster."""
+        script_index = 0 if step_name == "setup_cluster" else 1
+        assert Path(command[script_index]).is_absolute()
+        assert Path(command[script_index]).resolve() == expected_script
+        assert expected_script.is_file()
+        assert kwargs["cwd"] == cwd
+        assert command[script_index + 1 :] == (
+            [] if step_name == "setup_cluster" else ["install" if step_name == "install_csi" else "remove"]
+        )
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, '{"success": true, "platform": "kubernetes"}', "")
+
+    monkeypatch.setattr("isvctl.orchestrator.step_executor.run_command_process", capture_command)
+    result = StepExecutor(working_dir=cwd).execute_steps([step], Context(config))
+    assert result.success
+    assert len(calls) == 1

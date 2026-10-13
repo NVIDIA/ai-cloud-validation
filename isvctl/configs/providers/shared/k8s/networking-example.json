@@ -1,0 +1,44 @@
+{
+  "load_balancer": {
+    "timeout": 600,
+    "static_ips": ["REPLACE_WITH_RESERVED_PUBLIC_IP"],
+    "services": {
+      "external": {
+        "loadBalancerClass": "service.k8s.aws/nlb",
+        "annotations": {
+          "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
+          "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "ip"
+        }
+      },
+      "internal": {
+        "loadBalancerClass": "service.k8s.aws/nlb",
+        "annotations": {
+          "service.beta.kubernetes.io/aws-load-balancer-scheme": "internal",
+          "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "ip"
+        }
+      },
+      "static": {
+        "loadBalancerClass": "service.k8s.aws/nlb",
+        "annotations": {
+          "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
+          "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "ip",
+          "service.beta.kubernetes.io/aws-load-balancer-subnets": "REPLACE_WITH_PUBLIC_SUBNET_ID",
+          "service.beta.kubernetes.io/aws-load-balancer-eip-allocations": "REPLACE_WITH_RESERVED_EIP_ALLOCATION_ID"
+        }
+      }
+    }
+  },
+  "dns_forwarding": {
+    "namespace": "kube-system",
+    "configmap": "coredns",
+    "cluster_domain": "cluster.local",
+    "timeout": 180
+  },
+  "cidr_ranges": {
+    "ranges": {
+      "service": ["10.97.0.0/16"],
+      "node": ["192.168.57.0/24"],
+      "pod": ["10.245.0.0/16"]
+    }
+  }
+}
