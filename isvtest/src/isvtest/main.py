@@ -62,7 +62,7 @@ def run_validations_via_pytest(
     Args:
         entries: Ready resolved entries to execute.
         extra_pytest_args: Additional pytest arguments (-k, -m, -v, etc.).
-        settings: Test settings dict (e.g., show_skipped_tests).
+        settings: Test settings dict (e.g., show_deselected_tests).
         inventory: Inventory passed to validations.
         verbose: Enable verbose output.
         junitxml: Path to write JUnit XML report.

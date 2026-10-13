@@ -734,3 +734,55 @@ def test_summary_shows_why_a_successful_step_skipped(monkeypatch: pytest.MonkeyP
 
     assert result.exit_code == 0, result.output
     assert "[teardown] SKIPPED: Kept i-123" in ANSI_ESCAPE.sub("", result.output)
+
+
+class _DeselectedResultsOrchestrator(_FakeOrchestrator):
+    """Return one label-deselected and one runtime-skipped validation."""
+
+    def run(self, **kwargs: Any) -> OrchestratorResult:
+        """Return a test phase whose summary mixes both kinds of skips."""
+        validations = [
+            {
+                "name": "DeselectedCheck",
+                "category": "kubernetes",
+                "skipped": True,
+                "skip_reason": "test_excluded",
+                "message": "validation 'DeselectedCheck' does not match all selected labels: gpu",
+            },
+            {
+                "name": "RuntimeSkippedCheck",
+                "category": "kubernetes",
+                "skipped": True,
+                "skip_reason": "runtime_skip",
+                "message": "fabric not configured",
+            },
+        ]
+        return OrchestratorResult(
+            success=True,
+            phases=[
+                PhaseResult(phase=Phase.TEST, success=True, message="ok", details={"validations": validations}),
+            ],
+        )
+
+
+@pytest.mark.parametrize("show_deselected", [False, True])
+def test_results_summary_honors_show_deselected_tests(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    show_deselected: bool,
+) -> None:
+    """show_deselected_tests hides test_excluded entries but never runtime skips."""
+    config = _write_config(tmp_path)
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + f"  settings:\n    show_deselected_tests: {str(show_deselected).lower()}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(test_cli, "Orchestrator", _DeselectedResultsOrchestrator)
+
+    result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--no-upload", "--color=no"])
+
+    assert result.exit_code == 0, result.output
+    assert "RuntimeSkippedCheck: SKIPPED - runtime_skip: fabric not configured" in result.output
+    assert ("DeselectedCheck: SKIPPED" in result.output) is show_deselected
+    assert ("(1 validation not selected" in result.output) is not show_deselected

@@ -48,7 +48,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     # Load configuration if available
     enabled_reframe_tests = {}
     filtering_enabled = False
-    show_skipped = False
+    show_deselected = False
 
     try:
         config_file_arg = metafunc.config.getoption("--config", default=None)
@@ -68,8 +68,8 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                     for test_name, test_config in item.items():
                         enabled_reframe_tests[test_name] = test_config or {}
 
-            # Check if we should show skipped tests
-            show_skipped = cluster_config.get("settings", {}).get("show_skipped_tests", False)
+            # Check if we should show deselected tests
+            show_deselected = cluster_config.get("settings", {}).get("show_deselected_tests", False)
 
     except (ImportError, FileNotFoundError, ValueError, AttributeError, OSError):
         pass
@@ -83,7 +83,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
         # If filtering is enabled and test not in config
         if filtering_enabled and not test_is_enabled:
-            if not show_skipped:
+            if not show_deselected:
                 # Don't collect this test at all
                 continue
             # Otherwise, collect it but mark as skipped
@@ -100,7 +100,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
         # Create param with skip marker if needed
         param_value = (cls, module_path, test_config)
-        if filtering_enabled and not test_is_enabled and show_skipped:
+        if filtering_enabled and not test_is_enabled and show_deselected:
             # Mark as skipped
             params.append(pytest.param(*param_value, marks=pytest.mark.skip(reason="Not configured in config YAML")))
         else:

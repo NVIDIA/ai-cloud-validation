@@ -47,7 +47,7 @@ tests:
   description: "Slurm cluster validation"
 
   settings:
-    show_skipped_tests: false
+    show_deselected_tests: false
 
   validations:
     slurm:
