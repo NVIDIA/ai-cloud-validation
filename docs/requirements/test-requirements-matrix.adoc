@@ -2730,6 +2730,15 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[K8S08-01]]K8S08-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify provider-managed control plane version policy and supported transitions
+| K8S08
+| offtake
+| full
+|
+
 | [[K8S09-01]]K8S09-01
 | Workload Orchestration
 | Managed Kubernetes Control Plane

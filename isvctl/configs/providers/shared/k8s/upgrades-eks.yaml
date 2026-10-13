@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Opt in only on a disposable CPU EKS cluster. See upgrades.md for required env vars.
+import: ../../../suites/k8s.yaml
+version: "1.0"
+commands:
+  kubernetes:
+    steps:
+      - name: describe_managed_upgrade_policy
+        phase: test
+        command: "python3 ../../aws/scripts/eks/upgrade_test.py"
+        args: ["--check=managed_upgrade_policy"]
+        output_schema: k8s_upgrade
+        timeout: 120
+      - name: control_plane_upgrade_test
+        phase: test
+        command: "python3 ../../aws/scripts/eks/upgrade_test.py"
+        args: ["--check=control_plane_upgrade"]
+        output_schema: k8s_upgrade
+        timeout: 7200
+      - name: node_pool_upgrade_test
+        phase: test
+        command: "python3 ../../aws/scripts/eks/upgrade_test.py"
+        args: ["--check=node_pool_upgrade"]
+        output_schema: k8s_upgrade
+        timeout: 7200

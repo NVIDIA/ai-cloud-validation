@@ -47,6 +47,9 @@ STEP_SCHEMA_MAPPING: dict[str, str | None] = {
     "k8s_load_balancer_test": "k8s_networking",
     "k8s_dns_forwarding_test": "k8s_networking",
     "k8s_cidr_ranges_test": "k8s_networking",
+    "describe_managed_upgrade_policy": "k8s_upgrade",
+    "control_plane_upgrade_test": "k8s_upgrade",
+    "node_pool_upgrade_test": "k8s_upgrade",
     # Network operations -> "network" schema
     "create_network": "network",
     "provision_network": "network",
@@ -198,6 +201,27 @@ BOUNDARY_FLOW_SCHEMA = {
 
 # Built-in schemas (generic, provider-agnostic)
 OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
+    # Detailed temporal and cross-field assertions live in k8s_upgrades.py.
+    # Failure envelopes remain valid so provider diagnostics reach the report.
+    "k8s_upgrade": {
+        "type": "object",
+        "required": ["success", "platform", "test_name"],
+        "properties": {
+            "success": {"type": "boolean"},
+            "platform": {"const": "kubernetes"},
+            "test_name": {"enum": ["managed_upgrade_policy", "control_plane_upgrade", "node_pool_upgrade"]},
+            "error": {"type": "string"},
+            "cleanup_errors": {"type": "array", "items": {"type": "string"}},
+            "operation": {"type": "object"},
+            "policy": {"type": "object"},
+            "application": {"type": "object"},
+            "pdb": {"type": "object"},
+            "nodes_before": {"type": "array", "items": {"type": "object"}},
+            "nodes_after": {"type": "array", "items": {"type": "object"}},
+            "rollouts": {"type": "array", "items": {"type": "object"}},
+        },
+        "additionalProperties": True,
+    },
     "cluster": {
         "type": "object",
         "required": ["success", "platform", "cluster_name", "node_count"],

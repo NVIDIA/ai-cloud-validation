@@ -1,0 +1,289 @@
+{
+  "managed_upgrade_policy": {
+    "success": true,
+    "platform": "kubernetes",
+    "test_name": "managed_upgrade_policy",
+    "policy": {
+      "owner": "provider",
+      "reference": "https://provider.example.invalid/upgrade-policy",
+      "maintenance_types": [
+        "routine",
+        "security"
+      ],
+      "supported_transitions": [
+        {
+          "from": "1.34.1",
+          "to": "1.35.1"
+        }
+      ],
+      "managed_control_plane": true,
+      "supported": true,
+      "status_reference": "example://provider/status",
+      "configuration_reference": "example://provider/cluster"
+    },
+    "observed_version": "1.34.1"
+  },
+  "control_plane_upgrade": {
+    "success": true,
+    "platform": "kubernetes",
+    "test_name": "control_plane_upgrade",
+    "operation": {
+      "id": "upgrade-example",
+      "started_at": 100,
+      "completed_at": 120,
+      "status": "succeeded",
+      "executed_by": "provider"
+    },
+    "target_version": "1.35.1",
+    "observed_version_before": "v1.34.2",
+    "observed_version_after": "v1.35.1",
+    "maintenance_window_required": false,
+    "application": {
+      "endpoint": "https://canary.example.invalid/health",
+      "expected_response": "upgrade-canary-unique-token",
+      "probes": [
+        {
+          "at": 95,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 100,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 105,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 110,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 115,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 120,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 125,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        }
+      ]
+    }
+  },
+  "node_pool_upgrade": {
+    "success": true,
+    "platform": "kubernetes",
+    "test_name": "node_pool_upgrade",
+    "operation": {
+      "id": "upgrade-example",
+      "started_at": 100,
+      "completed_at": 120,
+      "status": "succeeded",
+      "initiated_by": "tenant"
+    },
+    "target_revision": "image-v2",
+    "application": {
+      "endpoint": "https://canary.example.invalid/health",
+      "expected_response": "upgrade-canary-unique-token",
+      "probes": [
+        {
+          "at": 95,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 100,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 105,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 110,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 115,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 120,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        },
+        {
+          "at": 125,
+          "status_code": 200,
+          "response": "upgrade-canary-unique-token",
+          "duration_seconds": 0.1
+        }
+      ]
+    },
+    "nodes_before": [
+      {
+        "uid": "old-1",
+        "revision": "image-v1",
+        "ready": true,
+        "schedulable": true
+      },
+      {
+        "uid": "old-2",
+        "revision": "image-v1",
+        "ready": true,
+        "schedulable": true
+      }
+    ],
+    "nodes_after": [
+      {
+        "uid": "new-1",
+        "revision": "image-v2",
+        "ready": true,
+        "schedulable": true
+      },
+      {
+        "uid": "new-2",
+        "revision": "image-v2",
+        "ready": true,
+        "schedulable": true
+      }
+    ],
+    "rollouts": [
+      {
+        "old_uid": "old-1",
+        "drain_started_at": 100,
+        "drained_at": 110
+      },
+      {
+        "old_uid": "old-2",
+        "drain_started_at": 110,
+        "drained_at": 120
+      }
+    ],
+    "pdb": {
+      "uid": "pdb-canary",
+      "replicas": 3,
+      "min_available": 2,
+      "samples": [
+        {
+          "at": 95,
+          "uid": "pdb-canary",
+          "expected_pods": 3,
+          "desired_healthy": 2,
+          "current_healthy": 3,
+          "generation": 1,
+          "observed_generation": 1
+        },
+        {
+          "at": 100,
+          "uid": "pdb-canary",
+          "expected_pods": 3,
+          "desired_healthy": 3,
+          "current_healthy": 3,
+          "generation": 2,
+          "observed_generation": 2
+        },
+        {
+          "at": 105,
+          "uid": "pdb-canary",
+          "expected_pods": 3,
+          "desired_healthy": 2,
+          "current_healthy": 2,
+          "generation": 3,
+          "observed_generation": 3
+        },
+        {
+          "at": 110,
+          "uid": "pdb-canary",
+          "expected_pods": 3,
+          "desired_healthy": 2,
+          "current_healthy": 2,
+          "generation": 3,
+          "observed_generation": 3
+        },
+        {
+          "at": 115,
+          "uid": "pdb-canary",
+          "expected_pods": 3,
+          "desired_healthy": 2,
+          "current_healthy": 2,
+          "generation": 3,
+          "observed_generation": 3
+        },
+        {
+          "at": 120,
+          "uid": "pdb-canary",
+          "expected_pods": 3,
+          "desired_healthy": 2,
+          "current_healthy": 2,
+          "generation": 3,
+          "observed_generation": 3
+        },
+        {
+          "at": 125,
+          "uid": "pdb-canary",
+          "expected_pods": 3,
+          "desired_healthy": 2,
+          "current_healthy": 3,
+          "generation": 3,
+          "observed_generation": 3
+        }
+      ],
+      "blocked_eviction": {
+        "at": 101,
+        "node_uid": "old-1",
+        "pod_uid": "pod-1",
+        "pdb_uid": "pdb-canary",
+        "status_code": 429,
+        "reason": "DisruptionBudget",
+        "disruptions_allowed": 0
+      },
+      "audit_complete": true,
+      "evictions": [
+        {
+          "at": 102,
+          "node_uid": "old-1",
+          "pod_uid": "pod-1",
+          "pdb_uid": "pdb-canary",
+          "method": "eviction",
+          "status_code": 201
+        },
+        {
+          "at": 112,
+          "node_uid": "old-2",
+          "pod_uid": "pod-2",
+          "pdb_uid": "pdb-canary",
+          "method": "eviction",
+          "status_code": 201
+        }
+      ]
+    }
+  }
+}
