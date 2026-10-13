@@ -24,9 +24,6 @@ from typing import Any
 import boto3
 from botocore.config import Config
 from kubernetes import client, config
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared/k8s"))
-
 from upgrade_canary import UpgradeCanary
 from upgrade_observer import ApplicationObserver
 

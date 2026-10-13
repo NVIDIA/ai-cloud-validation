@@ -72,7 +72,7 @@ commands:
       - name: fetch_upstream_k8s_versions
         phase: setup
         continue_on_failure: true
-        command: "python3 ../../shared/k8s/fetch_upstream_versions.py"
+        command: "python3 ../../../shared/k8s/fetch_upstream_versions.py"
         output_schema: k8s_upstream_versions
         timeout: 60
 
@@ -94,16 +94,47 @@ commands:
 
       # Workload ServiceAccount IAM (K8S16-01): runs a pod under a scoped
       # identity and reports what it could and could not reach.
+      # Remove skip after implementing the provider-specific IAM probe.
       - name: service_account_iam_test
         phase: test
+        skip: true
         continue_on_failure: true
         command: "python3 ../scripts/k8s/service_account_iam.py"
         output_schema: service_account_iam
         timeout: 1200
 
-      # Break-fix actions (BFX01). Demo stubs until real cluster APIs are wired.
+      # Networking probes (K8S29-01, K8S30-01, K8S31-01) on the current
+      # kubeconfig. Each skips until K8S_NETWORKING_CONFIG names a settings file;
+      # see ../scripts/k8s/README.md and networking-example.json.
+      - name: k8s_load_balancer_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/k8s/networking_probe.py"
+        args: ["--check=load_balancer"]
+        output_schema: k8s_networking
+        timeout: 4800
+
+      - name: k8s_dns_forwarding_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/k8s/networking_probe.py"
+        args: ["--check=dns_forwarding"]
+        output_schema: k8s_networking
+        timeout: 3000
+
+      - name: k8s_cidr_ranges_test
+        phase: test
+        continue_on_failure: true
+        command: "python3 ../scripts/k8s/networking_probe.py"
+        args: ["--check=cidr_ranges"]
+        output_schema: k8s_networking
+        timeout: 1800
+
+      # GPU reset scaffold (BFX01). Remove skip after implementing the reset
+      # and configuring region and machine_id for a disposable test target.
       - name: reset_gpus
         phase: test
+        skip: true
         continue_on_failure: true
         command: "python ../scripts/breakfix/reset_gpus.py"
         args:
@@ -113,9 +144,12 @@ commands:
           - "{{machine_id}}"
         timeout: 600
 
+      # Opt in to node cordoning by setting ISVTEST_BREAKFIX_NODE and removing
+      # skip. Pytest selection does not prevent lifecycle steps from running.
       - name: cordon_node
         phase: test
-        command: "python3 ../../shared/breakfix/cordon_node.py"
+        skip: true
+        command: "python3 ../../../shared/breakfix/cordon_node.py"
         args:
           - "--node={{breakfix_node}}"
         timeout: 1200

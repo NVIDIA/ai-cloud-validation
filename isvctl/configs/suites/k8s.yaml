@@ -164,7 +164,8 @@ tests:
           request_timeout_seconds: 2
           max_unavailable_nodes: 1
 
-    # Opt-in runtime probes supplied by providers/shared/k8s/networking.yaml.
+    # Opt-in runtime probes (my-isv/scripts/k8s/networking_probe.py); each
+    # skips until K8S_NETWORKING_CONFIG is set. Wired in my-isv/config/k8s.yaml.
     k8s_networking:
       checks:
         K8sLoadBalancerCheck:

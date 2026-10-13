@@ -323,13 +323,13 @@ def test_output_dir_scaffold_keeps_config_references_resolvable(tmp_path: Path) 
     assert not shared_script.startswith("../")
     assert (repo_root / shared_script).resolve().is_file()
     assert "isvctl/configs/suites/vm.yaml" in config_text
-    assert "isvctl/configs/providers/shared/deploy_nim.py" in config_text
+    assert "isvctl/configs/shared/nim/deploy_nim.py" in config_text
     assert "/Users/" not in config_text
     assert "../../.." not in config_text
 
 
 def test_output_dir_scaffold_imports_load_for_every_config(tmp_path: Path) -> None:
-    """Test every out-of-tree scaffold config can import its validation suite."""
+    """Every scaffold suite or explicit command overlay loads its validation contract."""
     target = tmp_path / "acme"
 
     result = runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(target)])
@@ -339,7 +339,12 @@ def test_output_dir_scaffold_imports_load_for_every_config(tmp_path: Path) -> No
     assert config_files, "no generated config files"
     for config_path in config_files:
         config_text = config_path.read_text(encoding="utf-8")
-        merged = merge_yaml_files([config_path])
+        paths = [config_path]
+        if config_path.name == "k8s-upgrades.yaml":
+            # This commands-only opt-in overlays k8s.yaml without declaring a
+            # second Kubernetes suite for --suite discovery.
+            paths.insert(0, config_path.with_name("k8s.yaml"))
+        merged = merge_yaml_files(paths)
 
         RunConfig.model_validate(merged)
         assert "commands" in merged, config_path

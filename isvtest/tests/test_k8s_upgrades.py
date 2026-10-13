@@ -20,7 +20,7 @@ CHECKS = {
     "control_plane_upgrade": K8sControlPlaneUpgradeCheck,
     "node_pool_upgrade": K8sNodePoolUpgradeCheck,
 }
-EXAMPLES = Path(__file__).resolve().parents[2] / "isvctl/configs/providers/shared/k8s/upgrade-example.json"
+EXAMPLES = Path(__file__).resolve().parents[2] / "isvctl/configs/providers/my-isv/scripts/k8s/upgrade-example.json"
 
 
 def evidence(name: str) -> dict[str, Any]:

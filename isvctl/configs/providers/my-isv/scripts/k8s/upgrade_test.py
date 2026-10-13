@@ -5,7 +5,7 @@
 """K8S08/09/10 provider adapter template; never upgrade a cluster in demo mode.
 
 TODO: implement the selected operation using your provider's upgrade API and
-independent application/PDB observers. See shared/k8s/upgrades.md for the contract,
+independent application/PDB observers. See docs/guides/kubernetes-upgrades.md for the contract,
 experiment, timeout and cleanup requirements. Demo records are illustrative only.
 """
 
@@ -24,7 +24,7 @@ def main() -> int:
     args = parser.parse_args()
     result = {"success": False, "platform": "kubernetes", "test_name": args.check}
     if os.environ.get("ISVCTL_DEMO_MODE") == "1":
-        examples = Path(__file__).resolve().parents[3] / "shared/k8s/upgrade-example.json"
+        examples = Path(__file__).with_name("upgrade-example.json")
         result = json.loads(examples.read_text())[args.check]
     else:
         result["error"] = "Not implemented - replace with your provider's upgrade operation and independent observers"

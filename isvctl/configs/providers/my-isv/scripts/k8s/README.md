@@ -4,7 +4,7 @@
 # Kubernetes networking probes
 
 For managed control-plane and node-pool upgrade evidence, see
-[Kubernetes upgrade checks](upgrades.md).
+[Kubernetes upgrade checks](../../../../../../docs/guides/kubernetes-upgrades.md).
 
 `networking_probe.py` supplies provider-neutral runtime evidence for `K8S29-01`,
 `K8S30-01`, and `K8S31-01`. The validators grade that evidence independently.
@@ -12,18 +12,25 @@ The probes use the current kubeconfig, or the command prefix selected by `KUBECT
 They do not change the caller's kubeconfig or provision a cluster.
 
 Copy [networking-example.json](networking-example.json), replace the provider
-settings and ranges with those used for your test cluster, and set an absolute path:
+settings and ranges with those used for your test cluster, and set an absolute path.
+The `k8s_*_test` steps in
+[my-isv/config/k8s.yaml](../../config/k8s.yaml) run the probes:
 
 ```bash
 export K8S_NETWORKING_CONFIG=/absolute/path/networking.json
-uv run isvctl test run -f isvctl/configs/providers/shared/k8s/networking.yaml --phase test -- \
+uv run isvctl test run -f isvctl/configs/providers/my-isv/config/k8s.yaml --phase test -- \
   -k 'K8sLoadBalancerCheck or K8sDnsForwardingCheck or K8sCidrRangesCheck'
 ```
+
+`--phase test` selects lifecycle steps; `-k` filters validations only. The config
+sets `skip: true` on the IAM, GPU reset, and node cordon steps so this command runs
+only the networking probes. To enable those other steps, follow their config
+comments and remove `skip: true`; restore it for networking-only runs.
 
 To collect one probe's JSON directly:
 
 ```bash
-uv run python isvctl/configs/providers/shared/k8s/networking_probe.py \
+uv run python isvctl/configs/providers/my-isv/scripts/k8s/networking_probe.py \
   --check=dns_forwarding --config=/absolute/path/networking.json
 ```
 

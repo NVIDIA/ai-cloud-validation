@@ -536,7 +536,7 @@ commands:
       - name: query_node_health_agents
         phase: test
         continue_on_failure: true
-        command: "python ../../shared/breakfix/query_node_health_agents.py"
+        command: "python ../scripts/breakfix/query_node_health_agents.py"
         args:
           - "--nodes={{health_agent_nodes}}"
           - "--expected-nodes={{steps.query_fleet_inventory.nodes | selectattr('gpu_count', 'greaterthan', 0) | list | length}}"

@@ -42,7 +42,7 @@ backend calls), so it is the fastest correctness loop while drafting:
 
 ```bash
 STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml \
-  uv run python isvctl/configs/providers/shared/storage_manifest_to_steps.py | uv run python -m json.tool
+  uv run python isvctl/configs/shared/storage/storage_manifest_to_steps.py | uv run python -m json.tool
 ```
 
 Confirm the emitted `storage.manifest_path` resolves to your manifest. (The

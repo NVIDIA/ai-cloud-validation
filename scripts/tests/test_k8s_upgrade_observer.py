@@ -15,7 +15,8 @@ from typing import Any
 import pytest
 
 SPEC = importlib.util.spec_from_file_location(
-    "upgrade_observer", Path(__file__).resolve().parents[2] / "isvctl/configs/providers/shared/k8s/upgrade_observer.py"
+    "upgrade_observer",
+    Path(__file__).resolve().parents[2] / "isvctl/configs/providers/aws/scripts/eks/upgrade_observer.py",
 )
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)

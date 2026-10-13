@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for providers/shared/insecure_protocols_test.py.
+"""Tests for shared/security/insecure_protocols_test.py.
 
 Cover the protocol-framing primitive and the response-classification table
 without opening real sockets - the wire format is RFC-frozen so we can
@@ -31,7 +31,7 @@ from typing import Any
 from unittest.mock import patch
 
 _SCRIPT_PATH = (
-    Path(__file__).resolve().parents[2] / "isvctl" / "configs" / "providers" / "shared" / "insecure_protocols_test.py"
+    Path(__file__).resolve().parents[2] / "isvctl" / "configs" / "shared" / "security" / "insecure_protocols_test.py"
 )
 _spec = importlib.util.spec_from_file_location("insecure_protocols_test", _SCRIPT_PATH)
 assert _spec and _spec.loader

@@ -16,19 +16,22 @@ performs real upgrades on an explicitly selected disposable CPU cluster. Other
 providers can implement the scaffold contract. Unconfigured steps skip; configured
 but unimplemented, failed or incomplete steps fail.
 
-[upgrade-example.json](upgrade-example.json) contains complete illustrative output
-for each check. The `my-isv` [adapter](../../my-isv/scripts/k8s/upgrade_test.py) emits
+[upgrade-example.json](../../isvctl/configs/providers/my-isv/scripts/k8s/upgrade-example.json) contains complete illustrative output
+for each check. The `my-isv` [adapter](../../isvctl/configs/providers/my-isv/scripts/k8s/upgrade_test.py) emits
 these records only under `ISVCTL_DEMO_MODE=1`. Preview the three checks without a cluster:
 
 ```bash
 ISVCTL_DEMO_MODE=1 uv run isvctl test run \
-  -f isvctl/configs/providers/shared/k8s/upgrades.yaml \
+  -f isvctl/configs/providers/my-isv/config/k8s.yaml \
+  -f isvctl/configs/providers/my-isv/config/k8s-upgrades.yaml \
   --phase test --label k8s_upgrades
 ```
 
-Copy the [opt-in wiring](upgrades.yaml) and replace the
-adapter with your provider implementation. Keep credentials and target cluster,
-pool and version settings in environment variables. Use a disposable managed
+Copy the [opt-in command overlay](../../isvctl/configs/providers/my-isv/config/k8s-upgrades.yaml) and replace the
+adapter with your provider implementation. Load it after your ordinary provider
+configuration using a second `-f` argument; it replaces the command step list with
+only the upgrade steps. It does not declare a second Kubernetes suite. Keep
+credentials and target cluster, pool and version settings in environment variables. Use a disposable managed
 cluster, an eligible next minor release, and a pool with at least two nodes and
 enough spare capacity for replacement pods. Ordinary `k8s.yaml` runs do not launch
 upgrade operations. The opt-in steps run sequentially and stop on failure.
@@ -60,7 +63,7 @@ does not establish uninterrupted availability between samples. Retain raw reques
 logs for review. Do not substitute API server health or Ready replica counts for
 actual application responses.
 
-[upgrade_observer.py](upgrade_observer.py) supplies `ApplicationObserver` for the
+The EKS [upgrade_observer.py](../../isvctl/configs/providers/aws/scripts/eks/upgrade_observer.py) supplies `ApplicationObserver` for the
 application part of a provider adapter. Construct it with the endpoint, expected
 canary response and a new JSONL artifact path. Call `start()` before submitting the
 upgrade; it requires a successful baseline response. Keep it running until a probe
@@ -158,8 +161,9 @@ Retain the original API/audit events alongside the normalized JSON for review.
 
 ## Live EKS reference run
 
-Use [upgrades-eks.yaml](upgrades-eks.yaml). It retains the standard suite's checks
-and binds only these three upgrade steps; select `--label k8s_upgrades`.
+Use [eks-upgrades.yaml](../../isvctl/configs/providers/aws/config/eks-upgrades.yaml).
+Load it after `eks.yaml` to retain the standard suite's checks and bind only these
+three upgrade steps; select `--label k8s_upgrades`.
 The reference supports a managed AL2023 x86 CPU pool without a custom launch
 template, at least two healthy nodes, `maxUnavailable=1`, and EKS audit logging
 enabled **before** the test. The initial control plane must be exactly one minor
@@ -176,7 +180,8 @@ export EKS_UPGRADE_ALLOW="$EKS_UPGRADE_CLUSTER"
 export EKS_UPGRADE_SOURCE_CIDRS=YOUR_CONTROLLER_PUBLIC_IP/32
 export EKS_UPGRADE_ARTIFACT_DIR=/tmp/unique-upgrade-run
 uv run isvctl test run \
-  -f isvctl/configs/providers/shared/k8s/upgrades-eks.yaml \
+  -f isvctl/configs/providers/aws/config/eks.yaml \
+  -f isvctl/configs/providers/aws/config/eks-upgrades.yaml \
   --phase test --label k8s_upgrades
 ```
 
@@ -206,7 +211,7 @@ interrupted, inspect the captured operation ID/provider status before retrying.
 Destroy disposable infrastructure after all experiments finish, including failures.
 
 A minimal CPU fixture is provided under
-[terraform-upgrade-test](../../aws/scripts/eks/terraform-upgrade-test/main.tf).
+[terraform-upgrade-test](../../isvctl/configs/providers/aws/scripts/eks/terraform-upgrade-test/main.tf).
 It creates a separate VPC, two private CPU nodes, one NAT gateway, restricted
 public API access and an audit log group. Initialize it with `TF_DATA_DIR` outside
 the repository and use `-state=/tmp/your-run/terraform.tfstate` for plan/apply/destroy.

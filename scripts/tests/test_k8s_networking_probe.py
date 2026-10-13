@@ -32,7 +32,8 @@ from isvctl.config.output_schemas import validate_output
 from isvtest.validations.k8s_networking import K8sCidrRangesCheck, K8sDnsForwardingCheck, K8sLoadBalancerCheck
 
 SPEC = importlib.util.spec_from_file_location(
-    "networking_probe", Path(__file__).resolve().parents[2] / "isvctl/configs/providers/shared/k8s/networking_probe.py"
+    "networking_probe",
+    Path(__file__).resolve().parents[2] / "isvctl/configs/providers/my-isv/scripts/k8s/networking_probe.py",
 )
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -413,7 +414,7 @@ def test_suite_and_provider_wire_all_three_checks() -> None:
     """Each canonical ID binds the matching executable mode and typed output contract."""
     root = Path(__file__).resolve().parents[2]
     suite = yaml.safe_load((root / "isvctl/configs/suites/k8s.yaml").read_text())
-    provider_path = root / "isvctl/configs/providers/shared/k8s/networking.yaml"
+    provider_path = root / "isvctl/configs/providers/my-isv/config/k8s.yaml"
     provider = merge_yaml_files([str(provider_path)])
     checks = suite["tests"]["validations"]["k8s_networking"]["checks"]
     steps = {s["name"]: s for s in provider["commands"]["kubernetes"]["steps"]}

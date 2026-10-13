@@ -5,6 +5,9 @@
 
 import importlib.util
 import json
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +21,9 @@ SPEC = importlib.util.spec_from_file_location(
 )
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+with pytest.MonkeyPatch.context() as patch:
+    patch.syspath_prepend(str(Path(SPEC.origin).parent))
+    SPEC.loader.exec_module(MODULE)
 
 
 def observations() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -169,10 +174,26 @@ def test_partial_create_registers_cleanup(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_eks_configuration_is_opt_in() -> None:
     """Bind all three canonical contracts without adding a default provider config."""
-    path = ROOT / "isvctl/configs/providers/shared/k8s/upgrades-eks.yaml"
-    merged = merge_yaml_files([str(path)])
+    path = ROOT / "isvctl/configs/providers/aws/config/eks-upgrades.yaml"
+    merged = merge_yaml_files([str(path.with_name("eks.yaml")), str(path)])
     RunConfig.model_validate(merged)
-    assert all("aws/scripts/eks/upgrade_test.py" in s["command"] for s in merged["commands"]["kubernetes"]["steps"])
+    assert all("../scripts/eks/upgrade_test.py" in s["command"] for s in merged["commands"]["kubernetes"]["steps"])
+
+
+def test_eks_command_imports_from_config_directory() -> None:
+    """The provider command loads its adjacent helpers without the removed shared directory."""
+    path = ROOT / "isvctl/configs/providers/aws/config/eks-upgrades.yaml"
+    merged = merge_yaml_files([str(path.with_name("eks.yaml")), str(path)])
+    command = shlex.split(merged["commands"]["kubernetes"]["steps"][0]["command"])
+    result = subprocess.run(
+        [sys.executable, *command[1:], "--help"],
+        cwd=path.parent,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "node_pool_upgrade" in result.stdout
 
 
 def test_requires_exact_cluster_opt_in(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

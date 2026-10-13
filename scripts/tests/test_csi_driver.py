@@ -29,7 +29,7 @@ import yaml
 from isvctl.config.output_schemas import OUTPUT_SCHEMAS
 from jsonschema import validate
 
-SCRIPT = Path(__file__).resolve().parents[2] / "isvctl/configs/providers/shared/csi_driver.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "isvctl/configs/providers/my-isv/scripts/storage/csi_driver.py"
 SPEC = importlib.util.spec_from_file_location("csi_driver", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
