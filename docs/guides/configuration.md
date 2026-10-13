@@ -883,7 +883,7 @@ isvctl test run -f config.yaml -- -m "workload"
 
 ### Deselected Tests in the Run Summary
 
-Tests deselected by `tests.exclude`, `--label`, `--exclude-label`, or `-- -k`/`-m` are recorded as `SKIPPED - test_excluded` in the JUnit XML and the uploaded report. The ORCHESTRATION RESULTS summary hides them by default and prints a count instead:
+Tests deselected by `tests.exclude`, `--label`, `--exclude-label`, or `-- -k`/`-m` are recorded as `SKIPPED - test_excluded` in the JUnit XML and the uploaded report. The ORCHESTRATION RESULTS summary hides those `test_excluded` entries by default and prints a count instead:
 
 ```text
   (39 validations not selected; set show_deselected_tests: true to list them)
@@ -897,7 +897,7 @@ tests:
     show_deselected_tests: true
 ```
 
-Runtime skips (for example, a step that produced no output) are always shown.
+The count covers entries marked `test_excluded`. Skips resolved before pytest selection, such as `step_not_configured`, stay listed individually, including on runs that pass `-- -k` or `-- -m`. Runtime skips (for example, a step that produced no output) are always shown.
 
 ## Test Labels
 
