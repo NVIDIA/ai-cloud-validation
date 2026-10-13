@@ -325,6 +325,7 @@ class TestContainerdConfigProbe:
             ('disabled_plugins = ["io.containerd.grpc.v1.cri"]\n' + CONTAINERD1_NVIDIA_CTK, False),
             ('disabled_plugins = ["io.containerd.cri.v1.runtime"]\n' + CONTAINERD2_GPU_OPERATOR, False),
             ('disabled_plugins = ["io.containerd.grpc.v1.cri"]\n' + CONTAINERD2_GPU_OPERATOR, False),
+            ('disabled_plugins = ["io.containerd.cri.v1.images"]\n' + CONTAINERD2_GPU_OPERATOR, False),
             (CONTAINERD1_NVIDIA_CTK.replace("io.containerd.grpc.v1.cri", "unrelated.plugin"), False),
             (
                 BINARY_MISSING
@@ -345,6 +346,7 @@ class TestContainerdConfigProbe:
             "cri-disabled-qualified-name",
             "containerd2-runtime-disabled",
             "containerd2-cri-service-disabled",
+            "containerd2-cri-images-disabled",
             "unrelated-plugin",
             "missing-first-valid-second",
             "cdi-runtime",

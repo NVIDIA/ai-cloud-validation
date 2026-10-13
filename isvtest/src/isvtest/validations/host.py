@@ -2009,7 +2009,7 @@ class ContainerRuntimeCheck(BaseValidation):
 
         # Containerd 2.x can retain disabled plugin tables in its dump.
         disabled = set(config.get("disabled_plugins", []))
-        if disabled.intersection({"cri", "io.containerd.grpc.v1.cri"}):
+        if disabled.intersection({"cri", "io.containerd.grpc.v1.cri", "io.containerd.cri.v1.images"}):
             return False, "CRI plugin is disabled"
         plugins = config.get("plugins", {})
         runtime_names = {"nvidia-container-runtime", "nvidia-container-runtime.cdi", "nvidia-container-runtime.legacy"}
