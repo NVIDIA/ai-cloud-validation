@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the shared BFX04-01 node-health-agent reference."""
+"""Tests for the NICo BFX04-01 node-health-agent reference."""
 
 from __future__ import annotations
 
@@ -24,20 +24,20 @@ from isvctl.config.schema import RunConfig
 from isvctl.orchestrator.context import Context
 from isvctl.orchestrator.step_executor import StepExecutor
 
-ISVCTL_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ISVCTL_ROOT / "configs" / "providers" / "shared" / "breakfix" / "query_node_health_agents.py"
+ISVCTL_ROOT = Path(__file__).resolve().parents[3]
+SCRIPT = ISVCTL_ROOT / "configs" / "providers" / "nico" / "scripts" / "breakfix" / "query_node_health_agents.py"
 BARE_METAL_SUITE = ISVCTL_ROOT / "configs" / "suites" / "bare_metal.yaml"
 NICO_CONFIG = ISVCTL_ROOT / "configs" / "providers" / "nico" / "config" / "bare_metal.yaml"
 
 
 @functools.cache
 def _load_script() -> ModuleType:
-    """Load the shared node-health-agent script as a module for direct testing.
+    """Load the NICo node-health-agent script as a module for direct testing.
 
     Cached: every patch a test applies to the module goes through ``monkeypatch``
     and is unwound afterwards, so re-executing the script per test buys nothing.
     """
-    spec = importlib.util.spec_from_file_location("test_shared_node_health_agents_script", SCRIPT)
+    spec = importlib.util.spec_from_file_location("test_nico_node_health_agents_script", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -80,14 +80,14 @@ def test_bare_metal_suite_declares_the_provider_neutral_validation() -> None:
     assert validation["checks"]["NodeHealthAgentCheck"]["labels"] == ["bare_metal", "breakfix"]
 
 
-def test_nico_provider_wires_the_shared_reference() -> None:
-    """The NICo bare-metal provider must execute the shared reference."""
+def test_nico_provider_wires_the_reference() -> None:
+    """The NICo bare-metal provider must execute the node-health-agent reference."""
     config = yaml.safe_load(NICO_CONFIG.read_text())
     step = next(
         item for item in config["commands"]["bare_metal"]["steps"] if item["name"] == "query_node_health_agents"
     )
 
-    assert step["command"] == "python ../../shared/breakfix/query_node_health_agents.py"
+    assert step["command"] == "python ../scripts/breakfix/query_node_health_agents.py"
     assert step["phase"] == "test"
     assert step["timeout"] == 300
     assert step["args"][0] == "--nodes={{health_agent_nodes}}"
@@ -298,7 +298,7 @@ def test_unconfigured_nodes_need_no_fleet_size() -> None:
 
 
 def test_a_fleet_can_name_its_own_agent_units(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A site running another agent configures it rather than editing shared/."""
+    """A site running another agent configures it rather than editing the script."""
     module = _load_script()
     calls: list[list[str]] = []
     monkeypatch.setattr(module.subprocess, "run", _ssh_stub({"gpu-01": "active\n"}, calls))

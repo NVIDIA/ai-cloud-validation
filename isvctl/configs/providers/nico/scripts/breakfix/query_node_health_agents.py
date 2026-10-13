@@ -12,8 +12,8 @@ expose agent state.
 BFX04-01 itself names no product -- the requirement is that *something* is
 watching GPU health -- so the unit list below is this reference's answer to
 "which processes count here", not the requirement's. A fleet running a different
-agent names its own units through ``--units`` rather than editing this shared
-script or failing the check.
+agent names its own units through ``--units`` rather than editing this script
+or failing the check.
 
 Nodes are named through ``--nodes``. With none configured the step emits a
 structured skip: an unconfigured site is indistinguishable from one with no
