@@ -11,7 +11,7 @@ They do not change the caller's kubeconfig or provision a cluster.
 Copy [networking-example.json](networking-example.json), replace the provider
 settings and ranges with those used for your test cluster, and set an absolute path.
 The `k8s_*_test` steps in
-[my-isv/config/k8s.yaml](../../my-isv/config/k8s.yaml) run the probes:
+[my-isv/config/k8s.yaml](../../providers/my-isv/config/k8s.yaml) run the probes:
 
 ```bash
 export K8S_NETWORKING_CONFIG=/absolute/path/networking.json
@@ -22,7 +22,7 @@ uv run isvctl test run -f isvctl/configs/providers/my-isv/config/k8s.yaml --phas
 To collect one probe's JSON directly:
 
 ```bash
-uv run python isvctl/configs/providers/shared/k8s/networking_probe.py \
+uv run python isvctl/configs/scripts/k8s/networking_probe.py \
   --check=dns_forwarding --config=/absolute/path/networking.json
 ```
 

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for providers/shared/mutual_tls_test.py."""
+"""Tests for scripts/security/mutual_tls_test.py."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 _SCRIPT_PATH = (
-    Path(__file__).resolve().parents[2] / "isvctl" / "configs" / "providers" / "shared" / "mutual_tls_test.py"
+    Path(__file__).resolve().parents[2] / "isvctl" / "configs" / "scripts" / "security" / "mutual_tls_test.py"
 )
 _spec = importlib.util.spec_from_file_location("mutual_tls_test", _SCRIPT_PATH)
 assert _spec and _spec.loader

@@ -43,7 +43,7 @@ commands:
       - name: fetch_upstream_k8s_versions
         phase: setup
         continue_on_failure: true
-        command: "python3 shared/k8s/fetch_upstream_versions.py"
+        command: "python3 ../scripts/k8s/fetch_upstream_versions.py"
         output_schema: k8s_upstream_versions
         timeout: 60
 

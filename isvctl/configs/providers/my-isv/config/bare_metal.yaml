@@ -315,7 +315,7 @@ commands:
       - name: deploy_nim
         phase: test
         skip: true
-        command: "python ../../shared/deploy_nim.py"
+        command: "python ../../../scripts/nim/deploy_nim.py"
         args:
           - "--host"
           - "{{steps.power_cycle_instance.public_ip}}"
@@ -326,7 +326,7 @@ commands:
       - name: teardown_nim
         phase: teardown
         skip: true
-        command: "python ../../shared/teardown_nim.py"
+        command: "python ../../../scripts/nim/teardown_nim.py"
         args:
           - "--host"
           - "{{steps.power_cycle_instance.public_ip}}"

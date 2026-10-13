@@ -29,7 +29,7 @@ import pytest
 
 def _load_teardown_nim() -> ModuleType:
     """Load the shared teardown_nim.py script as a module."""
-    script_path = Path(__file__).resolve().parents[1] / "configs" / "providers" / "shared" / "teardown_nim.py"
+    script_path = Path(__file__).resolve().parents[1] / "configs" / "scripts" / "nim" / "teardown_nim.py"
     spec = importlib.util.spec_from_file_location("shared_teardown_nim", script_path)
     assert spec is not None
     assert spec.loader is not None

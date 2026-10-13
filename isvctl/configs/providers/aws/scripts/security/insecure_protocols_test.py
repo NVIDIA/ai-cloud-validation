@@ -135,8 +135,8 @@ class FixtureReachabilityError(RuntimeError):
 
 
 def _load_shared_probe() -> Any:
-    """Load providers/shared/insecure_protocols_test.py as a module."""
-    shared_path = Path(__file__).resolve().parents[3] / "shared" / "insecure_protocols_test.py"
+    """Load scripts/security/insecure_protocols_test.py as a module."""
+    shared_path = Path(__file__).resolve().parents[4] / "scripts" / "security" / "insecure_protocols_test.py"
     spec = importlib.util.spec_from_file_location("shared_insecure_protocols_probe", shared_path)
     if spec is None or spec.loader is None:
         msg = f"Cannot load shared probe at {shared_path}"

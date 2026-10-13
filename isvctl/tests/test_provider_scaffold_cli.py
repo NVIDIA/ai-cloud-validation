@@ -323,7 +323,7 @@ def test_output_dir_scaffold_keeps_config_references_resolvable(tmp_path: Path) 
     assert not shared_script.startswith("../")
     assert (repo_root / shared_script).resolve().is_file()
     assert "isvctl/configs/suites/vm.yaml" in config_text
-    assert "isvctl/configs/providers/shared/deploy_nim.py" in config_text
+    assert "isvctl/configs/scripts/nim/deploy_nim.py" in config_text
     assert "/Users/" not in config_text
     assert "../../.." not in config_text
 

@@ -94,7 +94,7 @@ commands:
       - name: install_csi
         phase: setup
         skip: true
-        command: "python ../../shared/csi_driver.py install"
+        command: "python ../../../scripts/storage/csi_driver.py install"
         requires: [kubernetes]
         output_schema: generic
         timeout: 900
@@ -129,7 +129,7 @@ commands:
       # shim; loads no shim and makes no backend call.
       - name: storage_manifest
         phase: test
-        command: "python ../../shared/storage_manifest_to_steps.py"
+        command: "python ../../../scripts/storage/storage_manifest_to_steps.py"
         timeout: 30
         env:
           STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
@@ -293,7 +293,7 @@ commands:
       - name: remove_csi
         phase: teardown
         skip: true
-        command: "python ../../shared/csi_driver.py remove"
+        command: "python ../../../scripts/storage/csi_driver.py remove"
         requires: [kubernetes]
         output_schema: generic
         timeout: 900

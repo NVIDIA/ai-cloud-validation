@@ -36,8 +36,8 @@ Config (YAML) -> Script (boto3/paramiko) -> JSON output -> Validations (assertio
 | 5 | `start_instance` | test | `providers/aws/scripts/vm/start_instance.py` | Start stopped VM, verify recovery + SSH |
 | 6 | `reboot_instance` | test | `providers/aws/scripts/vm/reboot_instance.py` | Reboot and validate recovery |
 | 7 | `serial_console` | test | `providers/aws/scripts/vm/serial_console.py` | Retrieve serial console output |
-| 8 | `deploy_nim` | test | `providers/shared/deploy_nim.py` | Deploy NIM container via SSH (skipped if no NGC key) |
-| 9 | `teardown_nim` | teardown | `providers/shared/teardown_nim.py` | Stop NIM container |
+| 8 | `deploy_nim` | test | `scripts/nim/deploy_nim.py` | Deploy NIM container via SSH (skipped if no NGC key) |
+| 9 | `teardown_nim` | teardown | `scripts/nim/teardown_nim.py` | Stop NIM container |
 | 10 | `teardown` | teardown | `providers/aws/scripts/vm/teardown.py` | Terminate instance, delete key pair + SG |
 
 Only `launch_instance` is in the **setup** phase. If any test step fails, teardown still runs

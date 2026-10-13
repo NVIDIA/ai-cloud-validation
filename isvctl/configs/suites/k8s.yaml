@@ -141,7 +141,7 @@ tests:
           wait_timeout: 900
           poll_interval: 10
 
-    # Opt-in runtime probes (providers/shared/k8s/networking_probe.py); each
+    # Opt-in runtime probes (scripts/k8s/networking_probe.py); each
     # skips until K8S_NETWORKING_CONFIG is set. Wired in my-isv/config/k8s.yaml.
     k8s_networking:
       checks:

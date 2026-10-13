@@ -72,7 +72,7 @@ commands:
       - name: fetch_upstream_k8s_versions
         phase: setup
         continue_on_failure: true
-        command: "python3 ../../shared/k8s/fetch_upstream_versions.py"
+        command: "python3 ../../../scripts/k8s/fetch_upstream_versions.py"
         output_schema: k8s_upstream_versions
         timeout: 60
 
@@ -103,11 +103,11 @@ commands:
 
       # Networking probes (K8S29-01, K8S30-01, K8S31-01) on the current
       # kubeconfig. Each skips until K8S_NETWORKING_CONFIG names a settings file;
-      # see ../../shared/k8s/README.md and networking-example.json.
+      # see isvctl/configs/scripts/k8s/README.md and networking-example.json.
       - name: k8s_load_balancer_test
         phase: test
         continue_on_failure: true
-        command: "python3 ../../shared/k8s/networking_probe.py"
+        command: "python3 ../../../scripts/k8s/networking_probe.py"
         args: ["--check=load_balancer"]
         output_schema: k8s_networking
         timeout: 4800
@@ -115,7 +115,7 @@ commands:
       - name: k8s_dns_forwarding_test
         phase: test
         continue_on_failure: true
-        command: "python3 ../../shared/k8s/networking_probe.py"
+        command: "python3 ../../../scripts/k8s/networking_probe.py"
         args: ["--check=dns_forwarding"]
         output_schema: k8s_networking
         timeout: 3000
@@ -123,7 +123,7 @@ commands:
       - name: k8s_cidr_ranges_test
         phase: test
         continue_on_failure: true
-        command: "python3 ../../shared/k8s/networking_probe.py"
+        command: "python3 ../../../scripts/k8s/networking_probe.py"
         args: ["--check=cidr_ranges"]
         output_schema: k8s_networking
         timeout: 1800
@@ -142,7 +142,7 @@ commands:
 
       - name: cordon_node
         phase: test
-        command: "python3 ../../shared/breakfix/cordon_node.py"
+        command: "python3 ../../../scripts/breakfix/cordon_node.py"
         args:
           - "--node={{breakfix_node}}"
         timeout: 1200

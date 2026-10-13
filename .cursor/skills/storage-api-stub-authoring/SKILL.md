@@ -77,7 +77,7 @@ Manifest (schema v1alpha2):
 
 - Schema: `isvctl/schemas/storage-provider-manifest.schema.json`
 - Fully-populated example: `my-isv/config/storage-provider-manifest.example.yaml`
-- Manifest → step adapter: `isvctl/configs/providers/shared/storage_manifest_to_steps.py`
+- Manifest → step adapter: `isvctl/configs/scripts/storage/storage_manifest_to_steps.py`
   (resolves the manifest path, loads no shim; the `storage_manifest` step in `storage.yaml`)
 
 ## Session workflow
@@ -191,7 +191,7 @@ declare what the shim actually reports; omit a field to leave it unchecked.
 
 ```bash
 STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml \
-  uv run python isvctl/configs/providers/shared/storage_manifest_to_steps.py | uv run python -m json.tool
+  uv run python isvctl/configs/scripts/storage/storage_manifest_to_steps.py | uv run python -m json.tool
 ```
 
 **Critical couplings:**
