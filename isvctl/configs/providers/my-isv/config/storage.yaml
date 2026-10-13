@@ -94,7 +94,7 @@ commands:
       - name: install_csi
         phase: setup
         skip: true
-        command: "python ../../../scripts/storage/csi_driver.py install"
+        command: "python ../scripts/storage/csi_driver.py install"
         requires: [kubernetes]
         output_schema: generic
         timeout: 900
@@ -293,7 +293,7 @@ commands:
       - name: remove_csi
         phase: teardown
         skip: true
-        command: "python ../../../scripts/storage/csi_driver.py remove"
+        command: "python ../scripts/storage/csi_driver.py remove"
         requires: [kubernetes]
         output_schema: generic
         timeout: 900

@@ -32,7 +32,8 @@ from isvctl.config.output_schemas import validate_output
 from isvtest.validations.k8s_networking import K8sCidrRangesCheck, K8sDnsForwardingCheck, K8sLoadBalancerCheck
 
 SPEC = importlib.util.spec_from_file_location(
-    "networking_probe", Path(__file__).resolve().parents[2] / "isvctl/configs/scripts/k8s/networking_probe.py"
+    "networking_probe",
+    Path(__file__).resolve().parents[2] / "isvctl/configs/providers/my-isv/scripts/k8s/networking_probe.py",
 )
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
