@@ -282,6 +282,11 @@ tests:
           test_id: "N/A"
           labels: ["bare_metal", "ssh", "gpu", "workload", "slow"]
           description: "Check the bare metal host runs a GPU-enabled container"
+          # Docker and containerd are detected automatically. For any other
+          # runtime, override this check in the provider config with a command
+          # that runs nvidia-smi in a GPU container, e.g. for nerdctl:
+          #   commands:
+          #     gpu_container: "sudo nerdctl run --rm --gpus all nvcr.io/nvidia/cuda:13.0.3-base-ubuntu24.04 nvidia-smi"
           compose:
             - ContainerRuntimeCheck
 
