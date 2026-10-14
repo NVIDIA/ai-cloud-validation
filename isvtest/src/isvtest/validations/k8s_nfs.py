@@ -20,7 +20,7 @@ These checks exercise NFS/shared-filesystem behavior by mounting an RWX PVC
 ``kubectl exec``:
 
 * :class:`K8sNodeKernelModulesCheck` - required DKMS / vendor kernel modules
-  (e.g. ``lustre``, ``lnet``) are loaded on all matching worker nodes.
+  (e.g. ``lustre``, ``lnet``) are loaded on all matching nodes.
 * :class:`K8sNfsMountOptionsCheck` - the NFS mount backing an RWX PVC uses the
   expected version / nconnect / proto and (optionally) readahead.
 
@@ -362,11 +362,11 @@ class _K8sSharedFsCheck(BaseValidation):
 
 
 class K8sNodeKernelModulesCheck(_K8sSharedFsCheck):
-    """Verify required kernel modules are loaded on all GPU worker nodes.
+    """Verify required kernel modules are loaded on all matching nodes.
 
     Creates a lightweight no-PVC probe pod (pinned via ``nodeName``) on each
-    node matching ``node_selector`` and checks ``/proc/modules`` for every
-    module in ``kernel_modules``.
+    Ready node matching ``node_selector`` without untolerated NoExecute taints
+    and checks ``/proc/modules`` for every module in ``kernel_modules``.
 
     A subtest passes only when the module is found on **all** matching nodes,
     the failure message lists the nodes where it is absent.
@@ -385,7 +385,7 @@ class K8sNodeKernelModulesCheck(_K8sSharedFsCheck):
         timeout: Per-command timeout in seconds (default: 60).
     """
 
-    description: ClassVar[str] = "Verify required DKMS / vendor kernel modules are loaded on all GPU worker nodes."
+    description: ClassVar[str] = "Verify required DKMS / vendor kernel modules are loaded on all matching nodes."
     timeout: ClassVar[int] = 60
     _DEFAULT_NS_PREFIX = "isvtest-kmod"
     _DEFAULT_BIND_TIMEOUT_S: ClassVar[int] = 60

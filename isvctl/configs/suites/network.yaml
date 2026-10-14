@@ -471,14 +471,14 @@ tests:
           fabric: infiniband
         EastWestNetworkDMABufBandwidth-ethernet:
           test_id: "SDN29-05"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "slow", "gpu"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: ethernet
         EastWestNetworkDMABufBandwidth-infiniband:
           test_id: "SDN29-05"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "slow", "gpu"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"

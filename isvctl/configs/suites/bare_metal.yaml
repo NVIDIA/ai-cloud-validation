@@ -52,8 +52,8 @@ tests:
       step: launch_instance
       checks:
         BmHostRunningCheck:
-          test_id: "N/A"
-          labels: ["bare_metal"]
+          test_id: "CNP01-01"
+          labels: ["bare_metal", "min_req"]
           expected_state: "running"
           description: "Check the bare metal host reaches the running state after launch"
           compose:
@@ -101,7 +101,7 @@ tests:
             - SerialConsoleCheck
         SerialConsoleRetentionCheck:
           test_id: "CNP06-02"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "min_req", "observability"]
 
     cloud_init:
       step: launch_instance
@@ -202,7 +202,7 @@ tests:
       checks:
         BmHostStatusLogCheck:
           test_id: "BMAAS07-01"
-          labels: ["bare_metal"]
+          labels: ["bare_metal", "observability"]
 
     # GPU stress test - PyTorch matrix multiplications on all GPUs
     gpu_stress:
@@ -526,8 +526,8 @@ tests:
       step: teardown
       checks:
         BmResourcesDeletedCheck:
-          test_id: "N/A"
-          labels: ["bare_metal"]
+          test_id: "CNP01-03"
+          labels: ["bare_metal", "min_req"]
           description: "Check the teardown step reports the host and its resources released"
           compose:
             - StepSuccessCheck
@@ -536,8 +536,8 @@ tests:
       step: verify_teardown
       checks:
         BmHostTerminatedCheck:
-          test_id: "N/A"
-          labels: ["bare_metal"]
+          test_id: "CNP01-03"
+          labels: ["bare_metal", "min_req"]
           description: "Check the platform independently confirms the host is gone, rather than trusting teardown's own report"
           compose:
             - StepSuccessCheck
@@ -549,7 +549,7 @@ tests:
       checks:
         HardwareIngestionCheck:
           test_id: "HWING01-01"
-          labels: ["bare_metal", "ingestion"]
+          labels: ["bare_metal"]
           min_machines: 1
           expected_status: ["Ready", "InUse"]
           require_healthy: true
@@ -710,7 +710,7 @@ tests:
       checks:
         BmDiskSanitizationCheck:
           test_id: "SEC21-02"
-          labels: ["bare_metal", "disk", "min_req", "sanitization", "security"]
+          labels: ["bare_metal", "min_req", "sanitization", "security"]
 
     # Failure-domain topology observability (STG05-01). Asserts every host
     # reports the physical failure domain (rack/enclosure) it belongs to, so a
@@ -723,7 +723,7 @@ tests:
       checks:
         FailureDomainObservabilityCheck:
           test_id: "STG05-01"
-          labels: ["bare_metal", "sds_controller", "min_req"]
+          labels: ["bare_metal", "storage", "min_req"]
           min_failure_domains: 1
 
     # Break/fix skip-sanitization policy (STG02-01). Extends the SEC21
@@ -736,7 +736,7 @@ tests:
       checks:
         SkipSanitizationBreakfixCheck:
           test_id: "STG02-01"
-          labels: ["bare_metal", "min_req", "sanitization", "sds_controller"]
+          labels: ["bare_metal", "min_req", "sanitization", "storage"]
 
     # Stable admin IP observability (STG03-01). Asserts each host reports at
     # least one IP on its primary machineInterfaces entry so storage nodes have
@@ -747,7 +747,7 @@ tests:
       checks:
         StableStorageNodeIpCheck:
           test_id: "STG03-01"
-          labels: ["bare_metal", "min_req", "network", "sds_controller"]
+          labels: ["bare_metal", "min_req", "network", "storage"]
 
     # Out-of-band failure detection (STG04-01). Asserts the per-host health API
     # exposes BMC/out-of-band probes covering device failures at minimum. Only
@@ -757,7 +757,7 @@ tests:
       checks:
         OobFailureDetectionCheck:
           test_id: "STG04-01"
-          labels: ["bare_metal", "health", "min_req", "sds_controller"]
+          labels: ["bare_metal", "health", "min_req", "storage"]
 
     # Hardware/firmware attestation (SEC22 / CNP09). Each check asserts a host
     # establishes a hardware root of trust. Only runs for providers that
@@ -818,7 +818,7 @@ tests:
       checks:
         BmcKernelLogCheck:
           test_id: "BFX03-03"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "min_req", "observability"]
           min_hosts: 1
 
     maintenance_events:

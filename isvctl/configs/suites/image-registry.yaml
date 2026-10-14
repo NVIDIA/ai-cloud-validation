@@ -163,8 +163,8 @@ tests:
       step: teardown_image
       checks:
         CustomOsImageDeletedCheck:
-          test_id: "N/A"
-          labels: ["image_registry"]
+          test_id: "BOOT01-01"
+          labels: ["image_registry", "min_req"]
           requires: []
           description: "Check the uploaded image and its artifacts are deleted"
           compose:
