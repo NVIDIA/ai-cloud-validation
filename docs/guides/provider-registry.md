@@ -61,11 +61,14 @@ link is the entry's `documentation_url`, which is why it must explain them.
   `test run --provider acme --suite vm`, `--provider acme --label network`,
   and `doctor --provider acme`.
 - `test run --provider acme` refuses to run a registered provider that is not
-  fetched, or whose checkout is not at the commit the registry pins - for
+  fetched, or whose checkout does not match the commit and provider path the registry pins - for
   example after a `git pull` updated the entry. Run `provider fetch acme` again;
   it replaces the previous checkout, including any local edits. A `local`
   directory, such as your own scaffold, runs as it is; the entry describes the
   pinned commit, so its `status` does not apply to it.
+- Passing a config inside `providers-external/<name>/` with `test run -f`
+  applies the same registry checks, version warning, and automatic demo mode.
+  Each explicitly supplied config is checked, including relative paths and symlinks.
 - `provider fetch acme` and `test run --provider acme` warn when the entry's
   `tested_with` is not the isvctl version you are running.
 - `provider list` shows each entry's checkout as `yes`, `no`,

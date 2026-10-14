@@ -25,6 +25,7 @@ from isvctl.config.provider_registry import (
     RegistryEntry,
     ensure_fetched,
     fetch_state,
+    load_entry,
     load_registry,
     load_registry_skipping_invalid,
     run_git,
@@ -87,6 +88,54 @@ def test_loads_valid_entry(tmp_path: Path) -> None:
     assert entry.commit == COMMIT
     assert entry.suites == ("vm",)
     assert entry.status == "supported"
+
+
+def test_load_entry_ignores_unrelated_invalid_files(tmp_path: Path) -> None:
+    """Looking up one provider does not read another provider's unfinished entry."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry()})
+    (configs_root / "providers-registry" / "broken.yaml").write_text("name: [", encoding="utf-8")
+
+    entry, errors = load_entry("acme", configs_root)
+
+    assert entry is not None and entry.name == "acme"
+    assert errors == []
+
+
+@pytest.mark.parametrize("name", ["missing", "../acme", "/acme"])
+def test_load_entry_unknown_or_unsafe_name(tmp_path: Path, name: str) -> None:
+    """Missing names and paths outside the registry cannot select an entry."""
+    configs_root = _configs_root(tmp_path, {})
+    (configs_root / "acme.yaml").write_text(yaml.safe_dump(_entry()), encoding="utf-8")
+
+    assert load_entry(name, configs_root) == (None, [])
+
+
+@pytest.mark.parametrize(
+    ("content", "error"),
+    [
+        ("name: [", "invalid YAML"),
+        (yaml.safe_dump(_entry(commit="placeholder")), "commit:"),
+        (yaml.safe_dump(_entry(name="other")), "must match the filename"),
+        (yaml.safe_dump(_entry(suites=["missing"])), "not a suite"),
+    ],
+)
+def test_fetch_reports_requested_invalid_entry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str, error: str
+) -> None:
+    """Fetch uses the real single-entry loader and reports only the requested entry's errors."""
+    configs_root = _configs_root(tmp_path, {})
+    registry = configs_root / "providers-registry"
+    (registry / "acme.yaml").write_text(content, encoding="utf-8")
+    (registry / "broken.yaml").write_text("name: [", encoding="utf-8")
+    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", configs_root)
+
+    result = runner.invoke(provider_cli.app, ["fetch", "acme"])
+
+    assert result.exit_code == 1
+    assert "Skipping invalid registry entry acme.yaml" in result.output
+    assert error in result.output
+    assert "broken.yaml" not in result.output
+    assert not (configs_root / "providers-external").exists()
 
 
 def test_entries_are_sorted_by_name(tmp_path: Path) -> None:
@@ -471,7 +520,8 @@ def test_fetch_provider_in_subdirectory(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert list_providers(configs_root) == ["acme"]
 
 
-def test_changed_provider_path_requires_refetch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("by_file", [False, True])
+def test_changed_provider_path_requires_refetch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, by_file: bool) -> None:
     """Changing only the registry path blocks execution until refetch selects the new provider."""
     url, commit = _multi_provider_repo(tmp_path)
     configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(commit=commit, path="gpu")}, suites=("vm", "network"))
@@ -486,7 +536,12 @@ def test_changed_provider_path_requires_refetch(monkeypatch: pytest.MonkeyPatch,
     )
     assert fetch_state(entry, configs_root) == ("stale", commit)
     monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
-    result = runner.invoke(test_cli.app, ["run", "--provider", "acme", "--suite", "network"])
+    args = (
+        ["-f", str(_checkout(tmp_path) / "gpu" / "config" / "vm.yaml")]
+        if by_file
+        else ["--provider", "acme", "--suite", "network"]
+    )
+    result = runner.invoke(test_cli.app, ["run", *args])
     assert result.exit_code == 1, result.output
     assert "provider path" in result.output
     assert "isvctl provider fetch acme" in result.output
@@ -635,6 +690,28 @@ def test_local_provider_runs_without_fetch_checks(monkeypatch: pytest.MonkeyPatc
     assert "local" in output
 
 
+@pytest.mark.parametrize("registered", [False, True])
+def test_local_config_file_does_not_inherit_registry_demo_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, registered: bool
+) -> None:
+    """A direct-file run of local work neither requires fetching nor adopts the pin's demo status."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(status="demo")} if registered else {})
+    local = _local_provider(tmp_path, "acme")
+    config = local / "config" / "vm.yaml"
+    config.parent.mkdir()
+    config.write_text("tests:\n  capability: vm\n  validations: {}\n", encoding="utf-8")
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(test_cli, "Orchestrator", _EnvCapturingOrchestrator)
+    monkeypatch.setenv("ISVCTL_DEMO_MODE", "0")
+    _EnvCapturingOrchestrator.demo_mode = None
+
+    result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--no-upload"])
+
+    assert result.exit_code == 0, result.output
+    assert "status 'demo'" not in result.output
+    assert _EnvCapturingOrchestrator.demo_mode == "0"
+
+
 def test_remove_one_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Removing a provider deletes only its checkout."""
     external_dir = _fake_checkouts(tmp_path, "acme", "beta")
@@ -735,6 +812,26 @@ def test_ensure_fetched_rejects_stale_checkout(monkeypatch: pytest.MonkeyPatch, 
         ensure_fetched("acme", configs_root)
 
 
+def test_config_file_rejects_stale_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A provider passed as a later, relative -f argument still requires the pinned commit."""
+    url, first, tip = _upstream_repo(tmp_path)
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(commit=tip)})
+    _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=first), "acme")
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.chdir(configs_root)
+    overlay = tmp_path / "overlay.yaml"
+    overlay.write_text("context: {}\n", encoding="utf-8")
+
+    result = runner.invoke(
+        test_cli.app,
+        ["run", "-f", str(overlay), "-f", "providers-external/acme/config/vm.yaml", "--dry-run"],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert f"fetched at {first[:12]}, but the registry pins {tip[:12]}" in result.output
+    assert "isvctl provider fetch acme" in result.output
+
+
 def test_ensure_fetched_rejects_registered_but_not_fetched(tmp_path: Path) -> None:
     """A registered provider that was never fetched points at the fetch command."""
     configs_root = _configs_root(tmp_path, {"acme.yaml": _entry()})
@@ -831,20 +928,26 @@ def _no_upload_allowed() -> tuple[bool, str, str]:
     raise AssertionError("a demo-mode run must not attempt an upload")
 
 
-def test_test_run_turns_on_demo_mode_for_demo_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """`test run --provider <demo provider>` sets ISVCTL_DEMO_MODE=1 for its steps, never uploads, and warns on a version gap."""
+@pytest.mark.parametrize("selection", ["provider", "file", "symlink"])
+@pytest.mark.parametrize("provider_path", [None, "gpu"])
+def test_test_run_turns_on_demo_mode_for_demo_provider(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, selection: str, provider_path: str | None
+) -> None:
+    """Named and file-selected demo providers set demo mode, suppress uploads, and warn on version gaps."""
     configs_root = _configs_root(tmp_path, {})
     (configs_root / "suites" / "vm.yaml").write_text("tests:\n  capability: vm\n  validations: {}\n", encoding="utf-8")
     checkout = configs_root / "providers-external" / "acme"
-    (checkout / "config").mkdir(parents=True)
-    (checkout / "config" / "vm.yaml").write_text(
-        "import: ../../../suites/vm.yaml\ncommands:\n  vm:\n    phases: [test]\n    steps: []\n", encoding="utf-8"
+    config = checkout / (provider_path or "") / "config" / "vm.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        "tests:\n  capability: vm\n  validations: {}\ncommands:\n  vm:\n    phases: [test]\n    steps: []\n",
+        encoding="utf-8",
     )
     _git(checkout, "init", "-q")
     _git(checkout, "commit", "-q", "--allow-empty", "-m", "fetched")
-    mark_fetched(checkout, None)
+    mark_fetched(checkout, provider_path)
     (configs_root / "providers-registry" / "acme.yaml").write_text(
-        yaml.safe_dump(_entry(status="demo", commit=_head(checkout))), encoding="utf-8"
+        yaml.safe_dump(_entry(status="demo", commit=_head(checkout), path=provider_path)), encoding="utf-8"
     )
     # Registers the variable for restoration; the CLI overwrites it in os.environ.
     monkeypatch.setenv("ISVCTL_DEMO_MODE", "0")
@@ -854,7 +957,12 @@ def test_test_run_turns_on_demo_mode_for_demo_provider(monkeypatch: pytest.Monke
     monkeypatch.setattr(test_cli, "__version__", "1.1.0")
     _EnvCapturingOrchestrator.demo_mode = None
 
-    result = runner.invoke(test_cli.app, ["run", "--provider", "acme", "--suite", "vm"])
+    if selection == "symlink":
+        link = tmp_path / "vm.yaml"
+        link.symlink_to(config)
+        config = link
+    args = ["--provider", "acme", "--suite", "vm"] if selection == "provider" else ["-f", str(config)]
+    result = runner.invoke(test_cli.app, ["run", *args])
 
     assert result.exit_code == 0, result.output
     assert "validated against isvctl 0.13.0, but this is isvctl 1.1.0" in result.output

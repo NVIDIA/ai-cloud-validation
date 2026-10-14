@@ -65,6 +65,15 @@ def external_provider_dir(provider: str, configs_root: Path) -> Path:
     return configs_root / EXTERNAL_PROVIDERS_DIRNAME / provider
 
 
+def external_provider_for_path(path: Path, configs_root: Path) -> str | None:
+    """Return the external checkout containing a path, including symlinked config files."""
+    try:
+        relative = path.resolve().relative_to((configs_root / EXTERNAL_PROVIDERS_DIRNAME).resolve())
+    except ValueError:
+        return None
+    return relative.parts[0] if len(relative.parts) > 1 else None
+
+
 def provider_dir(provider: str, configs_root: Path) -> Path:
     """Return a provider's directory: in-tree under ``providers/``, else fetched under ``providers-external/``.
 

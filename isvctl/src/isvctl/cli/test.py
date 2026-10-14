@@ -54,6 +54,7 @@ from isvctl.config.schema import RunConfig
 from isvctl.config.suite_resolution import (
     CONFIGS_ROOT,
     SuiteResolutionError,
+    external_provider_for_path,
     parse_capability,
     resolve_suite_name,
     select_suite,
@@ -426,9 +427,12 @@ def run(
 
     suite_label: str | None = None
 
-    if provider:
+    # Explicit files need the same registry checks and demo settings as --provider.
+    providers = [provider] if provider else []
+    providers.extend(name for path in config_files or [] if (name := external_provider_for_path(path, CONFIGS_ROOT)))
+    for name in dict.fromkeys(providers):
         try:
-            registered = ensure_fetched(provider, CONFIGS_ROOT)
+            registered = ensure_fetched(name, CONFIGS_ROOT)
         except ProviderRegistryError as exc:
             print_error(str(exc))
             raise typer.Exit(code=1)
@@ -438,7 +442,7 @@ def run(
             if registered.status == "demo":
                 # Steps inherit this process's environment, so every script sees it.
                 os.environ[DEMO_MODE_ENV] = "1"
-                print_progress(f"'{provider}' has status 'demo': running with {DEMO_MODE_ENV}=1.")
+                print_progress(f"'{name}' has status 'demo': running with {DEMO_MODE_ENV}=1.")
 
     if suite:
         try:
