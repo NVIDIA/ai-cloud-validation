@@ -17,7 +17,9 @@
 
 import json
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from isvtest.core.resolution import (
@@ -728,6 +730,65 @@ EOF
         assert "ProbeFieldPresentCheck" in cases
         assert cases["ProbeFieldPresentCheck"].find("error") is not None
         assert cases["ProbeFieldPresentCheck"].find("error").attrib["type"] == "template_render_failed"
+
+
+class TestPytestSessionStatus:
+    """Session errors must fail orchestration even without failed validation results."""
+
+    @pytest.mark.parametrize("exit_code", [1, 2, 3, 4, 42])
+    @pytest.mark.parametrize("validation_state", [State.SKIPPED, State.PASSED])
+    @pytest.mark.parametrize("failure_phase", ["setup", "test"])
+    @pytest.mark.parametrize("teardown_on_failure", [True, False])
+    def test_session_failure_respects_lifecycle(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        exit_code: int,
+        validation_state: State,
+        failure_phase: str,
+        teardown_on_failure: bool,
+    ) -> None:
+        """Fail on session status, skip later work, and honor the teardown setting."""
+
+        def run_pytest(entries: list[ResolvedEntry], **kwargs: Any) -> tuple[int, list[ResolvedEntry]]:
+            """Simulate an aborted session with no individual validation failures."""
+            return exit_code, [replace(entry, state=validation_state) for entry in entries]
+
+        monkeypatch.setattr("isvctl.orchestrator.loop.run_validations_via_pytest", run_pytest)
+        config = RunConfig(
+            commands={
+                "kubernetes": PlatformCommands(
+                    phases=["setup", "test", "teardown"],
+                    steps=[
+                        StepConfig(name=phase, command="true", phase=phase) for phase in ("setup", "test", "teardown")
+                    ],
+                )
+            },
+            tests=ValidationConfig(
+                capability="kubernetes",
+                validations={
+                    "checks": {"phase": failure_phase, "checks": {"K8sNodeCountCheck": {}}},
+                },
+            ),
+        )
+
+        result = Orchestrator(config).run(teardown_on_failure=teardown_on_failure)
+
+        assert not result.success
+        phases = {phase.phase.value: phase for phase in result.phases}
+        failed = phases[failure_phase]
+        assert not failed.success
+        assert f"exit code {exit_code}" in failed.message
+        assert failed.details["pytest_exit_code"] == exit_code
+        assert all(entry.state == validation_state for entry in result.validations)
+        if failure_phase == "setup":
+            assert phases["test"].message == "SKIPPED: previous phase failed"
+        teardown = phases["teardown"]
+        if teardown_on_failure:
+            assert teardown.success
+            assert teardown.details["steps"][0]["name"] == "teardown"
+            assert teardown.details["pytest_exit_code"] is None
+        else:
+            assert teardown.message == "SKIPPED: teardown_on_failure is disabled"
 
 
 class TestLabelFiltering:
