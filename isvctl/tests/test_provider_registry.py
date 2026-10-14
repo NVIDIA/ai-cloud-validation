@@ -79,6 +79,17 @@ def _problems(configs_root: Path) -> str:
     return str(excinfo.value)
 
 
+def _importing_config(tmp_path: Path, config: Path) -> Path:
+    """Reach a provider through two relative imports sharing the same base config."""
+    for name in ("first", "second"):
+        (tmp_path / f"{name}.yaml").write_text(
+            yaml.safe_dump({"import": os.path.relpath(config, tmp_path)}), encoding="utf-8"
+        )
+    wrapper = tmp_path / "wrapper.yaml"
+    wrapper.write_text("import: [first.yaml, second.yaml]\n", encoding="utf-8")
+    return wrapper
+
+
 def test_loads_valid_entry(tmp_path: Path) -> None:
     """A valid entry loads with every field, and non-YAML files such as README.md are ignored."""
     [entry] = load_registry(_configs_root(tmp_path, {"acme.yaml": _entry()}))
@@ -99,6 +110,34 @@ def test_load_entry_ignores_unrelated_invalid_files(tmp_path: Path) -> None:
 
     assert entry is not None and entry.name == "acme"
     assert errors == []
+
+
+@pytest.mark.parametrize(
+    "duplicate", ["status: demo", f"commit: {'a' * 40}", "repo_url: https://github.com/acme/other"]
+)
+def test_registry_rejects_duplicate_keys(tmp_path: Path, duplicate: str) -> None:
+    """Registry policy fields cannot silently overwrite an earlier value in the same entry."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry()})
+    path = configs_root / "providers-registry" / "acme.yaml"
+    path.write_text(path.read_text(encoding="utf-8") + duplicate + "\n", encoding="utf-8")
+
+    entry, errors = load_entry("acme", configs_root)
+
+    assert entry is None
+    assert "duplicate mapping key" in "\n".join(errors)
+    assert "duplicate mapping key" in _problems(configs_root)
+
+
+def test_registry_rejects_duplicate_nested_keys(tmp_path: Path) -> None:
+    """Duplicate keys in nested maintainer mappings are rejected too."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry()})
+    path = configs_root / "providers-registry" / "acme.yaml"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("github: acme-handle", "github: acme-handle\n  github: other"),
+        encoding="utf-8",
+    )
+
+    assert "duplicate mapping key" in _problems(configs_root)
 
 
 @pytest.mark.parametrize("name", ["missing", "../acme", "/acme"])
@@ -690,9 +729,10 @@ def test_local_provider_runs_without_fetch_checks(monkeypatch: pytest.MonkeyPatc
     assert "local" in output
 
 
+@pytest.mark.parametrize("via_import", [False, True])
 @pytest.mark.parametrize("registered", [False, True])
 def test_local_config_file_does_not_inherit_registry_demo_mode(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, registered: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, registered: bool, via_import: bool
 ) -> None:
     """A direct-file run of local work neither requires fetching nor adopts the pin's demo status."""
     configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(status="demo")} if registered else {})
@@ -705,6 +745,8 @@ def test_local_config_file_does_not_inherit_registry_demo_mode(
     monkeypatch.setenv("ISVCTL_DEMO_MODE", "0")
     _EnvCapturingOrchestrator.demo_mode = None
 
+    if via_import:
+        config = _importing_config(tmp_path, config)
     result = runner.invoke(test_cli.app, ["run", "-f", str(config), "--no-upload"])
 
     assert result.exit_code == 0, result.output
@@ -812,7 +854,8 @@ def test_ensure_fetched_rejects_stale_checkout(monkeypatch: pytest.MonkeyPatch, 
         ensure_fetched("acme", configs_root)
 
 
-def test_config_file_rejects_stale_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("via_import", [False, True])
+def test_config_file_rejects_stale_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, via_import: bool) -> None:
     """A provider passed as a later, relative -f argument still requires the pinned commit."""
     url, first, tip = _upstream_repo(tmp_path)
     configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(commit=tip)})
@@ -821,15 +864,34 @@ def test_config_file_rejects_stale_checkout(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.chdir(configs_root)
     overlay = tmp_path / "overlay.yaml"
     overlay.write_text("context: {}\n", encoding="utf-8")
+    config = Path("providers-external/acme/config/vm.yaml")
+    if via_import:
+        config = _importing_config(tmp_path, config.resolve())
 
     result = runner.invoke(
         test_cli.app,
-        ["run", "-f", str(overlay), "-f", "providers-external/acme/config/vm.yaml", "--dry-run"],
+        ["run", "-f", str(overlay), "-f", str(config), "--dry-run"],
     )
 
     assert result.exit_code == 1, result.output
     assert f"fetched at {first[:12]}, but the registry pins {tip[:12]}" in result.output
     assert "isvctl provider fetch acme" in result.output
+
+
+def test_fetched_provider_cannot_run_with_invalid_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Rejecting duplicate keys must also block an existing checkout, not treat it as unregistered."""
+    url, first, _ = _upstream_repo(tmp_path)
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(commit=first, status="demo")})
+    _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=first), "acme")
+    path = configs_root / "providers-registry" / "acme.yaml"
+    path.write_text(path.read_text(encoding="utf-8") + "status: supported\n", encoding="utf-8")
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+
+    result = runner.invoke(test_cli.app, ["run", "--provider", "acme", "--suite", "vm", "--dry-run"])
+
+    assert result.exit_code == 1, result.output
+    assert "Invalid registry entry" in result.output
+    assert "duplicate mapping key" in result.output
 
 
 def test_ensure_fetched_rejects_registered_but_not_fetched(tmp_path: Path) -> None:
@@ -928,7 +990,7 @@ def _no_upload_allowed() -> tuple[bool, str, str]:
     raise AssertionError("a demo-mode run must not attempt an upload")
 
 
-@pytest.mark.parametrize("selection", ["provider", "file", "symlink"])
+@pytest.mark.parametrize("selection", ["provider", "file", "symlink", "import"])
 @pytest.mark.parametrize("provider_path", [None, "gpu"])
 def test_test_run_turns_on_demo_mode_for_demo_provider(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, selection: str, provider_path: str | None
@@ -961,12 +1023,14 @@ def test_test_run_turns_on_demo_mode_for_demo_provider(
         link = tmp_path / "vm.yaml"
         link.symlink_to(config)
         config = link
+    elif selection == "import":
+        config = _importing_config(tmp_path, config)
     args = ["--provider", "acme", "--suite", "vm"] if selection == "provider" else ["-f", str(config)]
     result = runner.invoke(test_cli.app, ["run", *args])
 
     assert result.exit_code == 0, result.output
     assert "validated against isvctl 0.13.0, but this is isvctl 1.1.0" in result.output
-    assert "'acme' has status 'demo': running with ISVCTL_DEMO_MODE=1." in result.output
+    assert result.output.count("'acme' has status 'demo': running with ISVCTL_DEMO_MODE=1.") == 1
     assert "never uploaded to ISV Lab Service" in result.output
     assert _EnvCapturingOrchestrator.demo_mode == "1"
 

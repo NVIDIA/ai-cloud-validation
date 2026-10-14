@@ -68,7 +68,9 @@ link is the entry's `documentation_url`, which is why it must explain them.
   pinned commit, so its `status` does not apply to it.
 - Passing a config inside `providers-external/<name>/` with `test run -f`
   applies the same registry checks, version warning, and automatic demo mode.
-  Each explicitly supplied config is checked, including relative paths and symlinks.
+  This includes transitive imports, relative paths, and symlinks.
+  Invalid registry entries block fetched checkouts; local scaffolds remain runnable.
+  Duplicate YAML mapping keys are rejected instead of silently overriding earlier values.
 - `provider fetch acme` and `test run --provider acme` warn when the entry's
   `tested_with` is not the isvctl version you are running.
 - `provider list` shows each entry's checkout as `yes`, `no`,

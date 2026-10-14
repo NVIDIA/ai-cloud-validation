@@ -103,10 +103,23 @@ def registry_entry_path(name: str, configs_root: Path = CONFIGS_ROOT) -> Path:
     return configs_root / REGISTRY_DIRNAME / f"{name}.yaml"
 
 
+class _RegistryLoader(yaml.SafeLoader):
+    """Reject ambiguous registry mappings instead of silently overwriting duplicate keys."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        """Construct a safe mapping and require one distinct key per entry."""
+        mapping = super().construct_mapping(node, deep=deep)
+        if len(mapping) != len(node.value):
+            raise yaml.constructor.ConstructorError(
+                "while constructing a registry mapping", node.start_mark, "duplicate mapping key", node.start_mark
+            )
+        return mapping
+
+
 def _load_entry_file(path: Path, configs_root: Path) -> tuple[RegistryEntry | None, list[str]]:
     """Load one registry file: the entry if it is valid, else None and its problems."""
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_RegistryLoader)
     except yaml.YAMLError as exc:
         return None, [f"invalid YAML: {exc}"]
     errors = _entry_errors(path, data, configs_root)
@@ -236,16 +249,19 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     development, also returns None and is run as it is: the entry describes the
     pinned commit, not that directory.
 
-    Invalid registry entries are skipped, so an unfinished entry for this very
-    provider leaves its local scaffold runnable.
+    Invalid registry entries leave local scaffolds runnable, but block fetched
+    checkouts so malformed policy cannot disable their registry checks.
 
     Raises:
         ProviderRegistryError: If the provider is not fetched, or is fetched at a
-            different commit or provider path than the registry pins.
+            different commit or provider path than the registry pins, or its fetched
+            checkout has an invalid registry entry.
     """
     if in_tree_provider_dir(provider, configs_root).is_dir():
         return None
-    entry, _ = load_entry(provider, configs_root)
+    entry, errors = load_entry(provider, configs_root)
+    if errors and is_fetched_checkout(external_provider_dir(provider, configs_root)):
+        raise ProviderRegistryError(f"Invalid registry entry '{provider}': {'; '.join(errors)}")
     if entry is None:
         return None
     state, head = fetch_state(entry, configs_root)

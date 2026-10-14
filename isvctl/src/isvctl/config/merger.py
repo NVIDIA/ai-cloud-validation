@@ -29,6 +29,7 @@ before the importing file's own content is applied on top.
 
 import copy
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +120,8 @@ def apply_set_value(config: dict[str, Any], path_parts: list[str], value: Any) -
 def _load_yaml_with_imports(
     path: Path,
     _visited: set[str] | None = None,
+    *,
+    on_load: Callable[[Path], None] | None = None,
 ) -> dict[str, Any]:
     """Load a YAML file and recursively resolve its ``import:`` directives.
 
@@ -131,6 +134,7 @@ def _load_yaml_with_imports(
     Args:
         path: Path to the YAML file.
         _visited: Tracks resolved paths to detect circular imports.
+        on_load: Optional check called before reading each file, including imports.
 
     Returns:
         Merged dictionary with ``import`` key stripped.
@@ -149,6 +153,9 @@ def _load_yaml_with_imports(
 
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found: {path}")
+
+    if on_load is not None:
+        on_load(path)
 
     with open(path, encoding="utf-8") as f:
         content = yaml.safe_load(f)
@@ -174,7 +181,7 @@ def _load_yaml_with_imports(
     for imp in import_list:
         imp_path = _resolve_import_path(path, imp)
         logger.debug("Resolving import %s -> %s", imp, imp_path)
-        imported = _load_yaml_with_imports(Path(imp_path), _visited.copy())
+        imported = _load_yaml_with_imports(Path(imp_path), _visited.copy(), on_load=on_load)
         base = deep_merge(base, imported)
 
     # The importing file's content wins over the base
@@ -217,6 +224,8 @@ def _resolve_import_path(path: Path, imp: Any) -> Path:
 def merge_yaml_files(
     file_paths: list[str | Path],
     set_values: list[str] | None = None,
+    *,
+    on_load: Callable[[Path], None] | None = None,
 ) -> dict[str, Any]:
     """Merge multiple YAML files with optional --set overrides.
 
@@ -230,6 +239,7 @@ def merge_yaml_files(
     Args:
         file_paths: List of paths to YAML files
         set_values: Optional list of --set strings (e.g., ['context.node_count=8'])
+        on_load: Optional check called before reading each file, including transitive imports.
 
     Returns:
         Merged configuration dictionary
@@ -241,7 +251,7 @@ def merge_yaml_files(
     result: dict[str, Any] = {}
 
     for file_path in file_paths:
-        content = _load_yaml_with_imports(Path(file_path))
+        content = _load_yaml_with_imports(Path(file_path), on_load=on_load)
         if content:
             result = deep_merge(result, content)
 

@@ -97,6 +97,19 @@ app = typer.Typer(
 )
 
 
+def _apply_provider_registry_policy(provider: str) -> None:
+    """Check a fetched provider and apply its version warning and demo settings."""
+    registered = ensure_fetched(provider, CONFIGS_ROOT)
+    if registered is None:
+        return
+    if warning := version_warning(registered, __version__):
+        print_warning(warning)
+    if registered.status == "demo":
+        # Steps inherit this process's environment, so every script sees it.
+        os.environ[DEMO_MODE_ENV] = "1"
+        print_progress(f"'{provider}' has status 'demo': running with {DEMO_MODE_ENV}=1.")
+
+
 def _provider_discovery_plan(provider: str, labels: list[str], matches: list[ProviderConfigMatch]) -> dict[str, Any]:
     """Return a JSON-serializable provider label discovery plan."""
     return {
@@ -432,17 +445,19 @@ def run(
     providers.extend(name for path in config_files or [] if (name := external_provider_for_path(path, CONFIGS_ROOT)))
     for name in dict.fromkeys(providers):
         try:
-            registered = ensure_fetched(name, CONFIGS_ROOT)
+            _apply_provider_registry_policy(name)
         except ProviderRegistryError as exc:
             print_error(str(exc))
             raise typer.Exit(code=1)
-        if registered is not None:
-            if warning := version_warning(registered, __version__):
-                print_warning(warning)
-            if registered.status == "demo":
-                # Steps inherit this process's environment, so every script sees it.
-                os.environ[DEMO_MODE_ENV] = "1"
-                print_progress(f"'{name}' has status 'demo': running with {DEMO_MODE_ENV}=1.")
+
+    checked_providers = set(providers)
+
+    def check_provider_config(path: Path) -> None:
+        """Apply registry policy once per provider, including those reached through imports."""
+        name = external_provider_for_path(path, CONFIGS_ROOT)
+        if name is not None and name not in checked_providers:
+            _apply_provider_registry_policy(name)
+            checked_providers.add(name)
 
     if suite:
         try:
@@ -524,7 +539,9 @@ def run(
 
     # Load and merge YAML files (resolving import: directives)
     try:
-        merged_config = merge_yaml_files([str(p) for p in config_files], set_values or [])
+        merged_config = merge_yaml_files(
+            [str(p) for p in config_files], set_values or [], on_load=check_provider_config
+        )
     except Exception as e:
         print_error(f"Failed to load configuration: {e}")
         raise typer.Exit(code=1)
