@@ -91,7 +91,7 @@ tests:
       checks:
         BmcSelLogsCheck:
           test_id: "OBS17-01"
-          labels: ["min_req", "observability", "security"]
+          labels: ["min_req", "observability"]
           requires: []
           step: bmc_sel_logs
 
@@ -99,7 +99,7 @@ tests:
       checks:
         BmcGpuTelemetryCheck:
           test_id: "TELEM04-01"
-          labels: ["gpu", "min_req", "observability", "security"]
+          labels: ["gpu", "min_req", "observability"]
           requires: []
           step: bmc_gpu_telemetry
 

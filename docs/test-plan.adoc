@@ -478,7 +478,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/35[#35]
 | [[HWING01-01]]HWING01-01
 | HWING01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/133[#133]
-| bare_metal, ingestion
+| bare_metal
 | operator
 |
 | P1 (check w/ ISVs)
@@ -682,7 +682,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/47[#47]
 | [[SEC21-02]]SEC21-02
 | SEC21
 | https://github.com/NVIDIA/ai-cloud-validation/issues/134[#134]
-| bare_metal, disk, min_req, sanitization, security
+| bare_metal, min_req, sanitization, security
 | operator
 |
 | P0
@@ -3951,7 +3951,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/662[#662]
 | [[K8S01-01]]K8S01-01
 | K8S01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/233[#233]
-| kubernetes, l2, min_req, slow
+| kubernetes, min_req, slow
 | tenant
 | k8s01
 | P0
@@ -4926,7 +4926,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/353[#353]
 | [[OBS17-01]]OBS17-01
 | OBS17
 | https://github.com/NVIDIA/ai-cloud-validation/issues/354[#354]
-| min_req, observability, security
+| min_req, observability
 | both
 |
 | P1
@@ -5021,7 +5021,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/121[#121]
 | [[TELEM04-01]]TELEM04-01
 | TELEM04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/362[#362]
-| gpu, min_req, observability, security
+| gpu, min_req, observability
 | both
 |
 | P1

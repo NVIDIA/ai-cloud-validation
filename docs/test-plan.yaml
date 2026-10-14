@@ -485,7 +485,6 @@ domains:
                 notes: ""
                 labels:
                   - bare_metal
-                  - ingestion
               - summary: Make sure that a device can be removed from the system
                 priority: P1
                 dependencies:
@@ -660,7 +659,6 @@ domains:
               - summary: Confirm sanitization on delete - Low Level
                 labels:
                   - bare_metal
-                  - disk
                   - min_req
                   - sanitization
                   - security
@@ -3631,7 +3629,6 @@ domains:
               - summary: "get versions, topology, core APIs by: (a) pass CNCF k8s conformance: https://github.com/cncf/k8s-conformance (b) add AI conformance: [https://github.com/cncf/k8s-ai-conformance](https://github.com/cncf/k8s-ai-conformance)"
                 labels:
                   - kubernetes
-                  - l2
                   - min_req
                   - slow
                 notes: k8s01
@@ -4489,7 +4486,6 @@ domains:
                 labels:
                   - min_req
                   - observability
-                  - security
                 priority: P1
                 milestone: M7
                 notes: ""
@@ -4582,7 +4578,6 @@ domains:
                   - gpu
                   - min_req
                   - observability
-                  - security
                 priority: P1
                 milestone: M7
                 notes: ""

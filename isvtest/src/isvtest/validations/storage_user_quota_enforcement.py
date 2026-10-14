@@ -120,7 +120,7 @@ class StorageUserQuotaEnforcementCheck(BaseValidation):
 
     description: ClassVar[str] = "Exercise user-quota CRUD and enforcement against a live volume"
     timeout: ClassVar[int] = 600
-    labels: ClassVar[tuple[str, ...]] = ("storage", "storage_provider_api", "slow")
+    labels: ClassVar[tuple[str, ...]] = ("storage", "slow")
 
     def run(self) -> None:
         """Load the manifest and drive each user-quota-capable shim provider."""

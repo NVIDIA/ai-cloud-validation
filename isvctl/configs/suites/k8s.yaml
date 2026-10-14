@@ -20,7 +20,7 @@
 # in the environment or under `env` for commands.
 #
 # Every check carries at least the ``kubernetes`` label (so the suite is
-# selectable with ``-m kubernetes``); GPU/workload/slow/l2 trait labels live
+# selectable with ``-m kubernetes``); GPU/workload/slow trait labels live
 # on the wiring rather than the validation class.
 #
 # Usage:
@@ -341,7 +341,7 @@ tests:
       checks:
         K8sCncfConformanceCheck:
           test_id: "K8S01-01"
-          labels: ["kubernetes", "l2", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "slow"]
           # Valid `mode` values (see docs/guides/configuration.md#kubernetes-conformance-modes):
           #   - "certified-conformance": full [Conformance] suite, serial. Required
           #     for CNCF certification; expect multi-hour runtime.

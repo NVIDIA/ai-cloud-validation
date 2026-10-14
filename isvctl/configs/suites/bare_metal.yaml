@@ -549,7 +549,7 @@ tests:
       checks:
         HardwareIngestionCheck:
           test_id: "HWING01-01"
-          labels: ["bare_metal", "ingestion"]
+          labels: ["bare_metal"]
           min_machines: 1
           expected_status: ["Ready", "InUse"]
           require_healthy: true
@@ -710,7 +710,7 @@ tests:
       checks:
         BmDiskSanitizationCheck:
           test_id: "SEC21-02"
-          labels: ["bare_metal", "disk", "min_req", "sanitization", "security"]
+          labels: ["bare_metal", "min_req", "sanitization", "security"]
 
     # Failure-domain topology observability (STG05-01). Asserts every host
     # reports the physical failure domain (rack/enclosure) it belongs to, so a
