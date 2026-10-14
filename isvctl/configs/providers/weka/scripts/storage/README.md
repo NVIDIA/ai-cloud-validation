@@ -17,7 +17,7 @@ quota model before relying on the results.
 
 ## How it works
 
-The manifest at [`../../config/storage-provider-manifest.yaml`](../../config/storage-provider-manifest.yaml)
+The manifest at [`../../config/overlays/storage-provider-manifest.yaml`](../../config/overlays/storage-provider-manifest.yaml)
 (schema `v1alpha2`) declares one `weka-shared-fs` provider; `shim.module` points
 at [`weka/api.py`](weka/api.py); `StorageProviderApiCheck` loads the shim
 in-process and runs the subtests below.
@@ -227,7 +227,7 @@ export WEKA_INSECURE_SKIP_VERIFY=1   # if using cluster-internal TLS
 
 # Sanity probe:
 uv run python .cursor/skills/storage-api-stub-authoring/scripts/probe_shim.py \
-  --manifest isvctl/configs/providers/weka/config/storage-provider-manifest.yaml
+  --manifest isvctl/configs/providers/weka/config/overlays/storage-provider-manifest.yaml
 
 # Full check:
 uv run isvctl test run \

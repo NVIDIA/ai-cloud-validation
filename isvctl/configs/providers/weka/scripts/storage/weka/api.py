@@ -19,7 +19,7 @@ Calls the WEKA cluster REST API (``/api/v2``). The shim subclasses
 ``Implementation`` and is served through ``new_implementation()``: it implements
 only the surfaces it backs, and the SDK *detects* which are supported. Which
 surfaces are *supported* is also declared in the sibling
-``config/storage-provider-manifest.yaml`` (the contract); the validation suite
+``config/overlays/storage-provider-manifest.yaml`` (the contract); the validation suite
 probes each declared-supported surface at runtime and fails if it raises
 ``NotSupportedError``.
 

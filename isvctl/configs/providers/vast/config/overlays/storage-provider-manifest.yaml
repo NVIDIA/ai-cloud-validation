@@ -16,14 +16,14 @@
 # VAST Storage Provider Manifest (schema v1alpha2).
 #
 # Drives StorageProviderApiCheck ONLY, via the VMS REST API shim
-# (../scripts/storage/vast/api.py) - config/storage.yaml (no cluster needed).
+# (../../scripts/storage/vast/api.py) - config/storage.yaml (no cluster needed).
 #
 # v1alpha2 mirrors the upstream StorageProvider package manifest: a package-level
 # namespace + vendor, a per-provider `provider` identity block, and a
 # hierarchical `capabilities` block (native | default | none). The declared
 # identity + capabilities are a CONTRACT: StorageProviderApiCheck cross-checks
 # them against the running shim's properties(). Keep this in sync with
-# ../scripts/storage/vast/api.py (VastApi's ProviderProperties core).
+# ../../scripts/storage/vast/api.py (VastApi's ProviderProperties core).
 #
 # The K8sCsi* / K8sFilesystem* / K8sNfsMountOptions checks (config/storage.yaml,
 # --capability kubernetes) get their StorageClass names from K8S_CSI_* env vars
@@ -75,7 +75,7 @@ providers:
     shim:
       kind: python
       # Resolved relative to this manifest's parent directory.
-      module: ../scripts/storage/vast/api.py
+      module: ../../scripts/storage/vast/api.py
 
     # Hierarchical capabilities (native | default | none), lowered by the loader
     # to a cap_id -> supported? map and cross-checked against properties():
