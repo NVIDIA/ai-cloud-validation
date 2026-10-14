@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Explicit opt-in on a disposable managed cluster. Implement the provider adapter
+# before a real run; this template does not perform cluster upgrades.
+# Commands are relative to the first config file's directory, not this overlay.
+# Command overlay: load after k8s.yaml with a second -f argument.
+version: "1.0"
+commands:
+  kubernetes:
+    steps:
+      - name: describe_managed_upgrade_policy
+        phase: test
+        command: "python3 ../scripts/k8s/upgrade_test.py"
+        args: ["--check=managed_upgrade_policy"]
+        output_schema: k8s_upgrade
+        timeout: 120
+      - name: control_plane_upgrade_test
+        phase: test
+        command: "python3 ../scripts/k8s/upgrade_test.py"
+        args: ["--check=control_plane_upgrade"]
+        output_schema: k8s_upgrade
+        timeout: 7200
+      - name: node_pool_upgrade_test
+        phase: test
+        command: "python3 ../scripts/k8s/upgrade_test.py"
+        args: ["--check=node_pool_upgrade"]
+        output_schema: k8s_upgrade
+        timeout: 7200

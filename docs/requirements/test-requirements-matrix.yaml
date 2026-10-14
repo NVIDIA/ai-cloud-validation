@@ -1974,6 +1974,13 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: K8S08-01
+    requirements:
+      - req_id: K8S08
+        source: offtake
+        coverage: full
+    annotations: ''
+    notes: ''
   - test_id: K8S09-01
     requirements:
       - req_id: K8S09

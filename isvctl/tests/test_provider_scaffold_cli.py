@@ -329,7 +329,7 @@ def test_output_dir_scaffold_keeps_config_references_resolvable(tmp_path: Path) 
 
 
 def test_output_dir_scaffold_imports_load_for_every_config(tmp_path: Path) -> None:
-    """Test every out-of-tree scaffold config can import its validation suite."""
+    """Every top-level scaffold suite loads its validation contract."""
     target = tmp_path / "acme"
 
     result = runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(target)])

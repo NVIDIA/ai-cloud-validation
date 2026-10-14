@@ -141,6 +141,29 @@ tests:
           wait_timeout: 900
           poll_interval: 10
 
+    # Upgrade operations are opt-in provider steps; absent steps skip these checks.
+    k8s_upgrades:
+      - K8sManagedUpgradePolicyCheck:
+          labels: ["kubernetes", "min_req", "k8s_upgrades"]
+          test_id: K8S08-01
+          step: describe_managed_upgrade_policy
+          phase: test
+      - K8sControlPlaneUpgradeCheck:
+          labels: ["kubernetes", "min_req", "slow", "k8s_upgrades"]
+          test_id: K8S09-01
+          step: control_plane_upgrade_test
+          phase: test
+          max_probe_gap_seconds: 5
+          request_timeout_seconds: 2
+      - K8sNodePoolUpgradeCheck:
+          labels: ["kubernetes", "min_req", "slow", "k8s_upgrades"]
+          test_id: K8S10-01
+          step: node_pool_upgrade_test
+          phase: test
+          max_probe_gap_seconds: 5
+          request_timeout_seconds: 2
+          max_unavailable_nodes: 1
+
     # Opt-in runtime probes (my-isv/scripts/k8s/networking_probe.py); each
     # skips until K8S_NETWORKING_CONFIG is set. Wired in my-isv/config/k8s.yaml.
     k8s_networking:

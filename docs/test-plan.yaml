@@ -3864,24 +3864,46 @@ domains:
                 status: pending
           - description: Zero-Downtime Upgrades
             tests:
-              - summary: Perform a minor version control plane upgrade and verify zero application downtime
+              - summary: Verify provider-managed control plane version policy and supported transitions
                 labels:
+                  - k8s_upgrades
+                  - kubernetes
                   - min_req
                 priority: INFO
                 milestone: M5
+                notes: Read live managed-service configuration and supported version transitions; active continuity is covered by K8S09-01.
+                github_issues:
+                  - "#661"
+                req_id: K8S08
+                test_id: K8S08-01
+                actor: operator
+                status: pending
+              - summary: Perform a minor version control plane upgrade and verify zero application downtime
+                labels:
+                  - k8s_upgrades
+                  - kubernetes
+                  - min_req
+                  - slow
+                priority: INFO
+                milestone: M5
                 notes: ""
-                github_issues: []
+                github_issues:
+                  - "#661"
                 req_id: K8S09
                 test_id: K8S09-01
                 actor: tenant
                 status: pending
               - summary: Perform a rolling node upgrade and verify disruption budgets are respected
                 labels:
+                  - k8s_upgrades
+                  - kubernetes
                   - min_req
+                  - slow
                 priority: INFO
                 milestone: M5
                 notes: ""
-                github_issues: []
+                github_issues:
+                  - "#661"
                 req_id: K8S10
                 test_id: K8S10-01
                 actor: tenant

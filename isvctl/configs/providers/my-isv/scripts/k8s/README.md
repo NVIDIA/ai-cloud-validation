@@ -3,6 +3,9 @@
 
 # Kubernetes networking probes
 
+For managed control-plane and node-pool upgrade evidence, see
+[Kubernetes upgrade checks](../../../../../../docs/references/kubernetes-upgrades.md).
+
 `networking_probe.py` supplies provider-neutral runtime evidence for `K8S29-01`,
 `K8S30-01`, and `K8S31-01`. The validators grade that evidence independently.
 The probes use the current kubeconfig, or the command prefix selected by `KUBECTL`.
