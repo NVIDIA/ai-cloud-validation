@@ -22,13 +22,14 @@ Later files override earlier ones. The --set flag can override individual values
 
 Files may declare an ``import:`` key with a list of paths. The
 ``_resolve_import_path`` helper resolves imports relative to the importing file,
-then searches the current working directory and its parents before falling back
-to the current working directory. Imported files are loaded and merged as a base
+then searches its ancestors before the current working directory and its parents.
+Imported files are loaded and merged as a base
 before the importing file's own content is applied on top.
 """
 
 import copy
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -119,18 +120,20 @@ def apply_set_value(config: dict[str, Any], path_parts: list[str], value: Any) -
 def _load_yaml_with_imports(
     path: Path,
     _visited: set[str] | None = None,
+    *,
+    on_load: Callable[[Path], None] | None = None,
 ) -> dict[str, Any]:
     """Load a YAML file and recursively resolve its ``import:`` directives.
 
     Imported files are merged in order to form a base, then the importing
     file's own content is deep-merged on top. Paths in ``import:`` are resolved
     by ``_resolve_import_path`` relative to the importing file's directory, then
-    by searching the current working directory and its parents before falling
-    back to the current working directory.
+    its ancestors, followed by the current working directory and its parents.
 
     Args:
         path: Path to the YAML file.
         _visited: Tracks resolved paths to detect circular imports.
+        on_load: Optional check called before reading each file, including imports.
 
     Returns:
         Merged dictionary with ``import`` key stripped.
@@ -149,6 +152,9 @@ def _load_yaml_with_imports(
 
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found: {path}")
+
+    if on_load is not None:
+        on_load(path)
 
     with open(path, encoding="utf-8") as f:
         content = yaml.safe_load(f)
@@ -174,7 +180,7 @@ def _load_yaml_with_imports(
     for imp in import_list:
         imp_path = _resolve_import_path(path, imp)
         logger.debug("Resolving import %s -> %s", imp, imp_path)
-        imported = _load_yaml_with_imports(Path(imp_path), _visited.copy())
+        imported = _load_yaml_with_imports(Path(imp_path), _visited.copy(), on_load=on_load)
         base = deep_merge(base, imported)
 
     # The importing file's content wins over the base
@@ -184,10 +190,10 @@ def _load_yaml_with_imports(
 def _resolve_import_path(path: Path, imp: Any) -> Path:
     """Resolve an import path.
 
-    Prefer paths relative to the importing file. If that does not exist, fall
-    back to the current working directory or one of its parents so out-of-tree
-    provider configs can import validation-suite files using checkout-root-relative
-    paths even when commands run from a package subdirectory.
+    Prefer paths relative to the importing file, then its ancestors so fetched
+    providers use their own checkout even when cwd is another checkout. Fall
+    back to the current working directory and its parents for out-of-tree
+    provider configs using checkout-root-relative paths.
     """
     if not isinstance(imp, (str, Path)):
         raise ValueError(
@@ -204,7 +210,7 @@ def _resolve_import_path(path: Path, imp: Any) -> Path:
         return expanded.resolve()
 
     cwd = Path.cwd().resolve()
-    for root in (cwd, *cwd.parents):
+    for root in (*path.resolve().parents, cwd, *cwd.parents):
         candidate = root / expanded
         if candidate.exists():
             return candidate.resolve()
@@ -215,19 +221,21 @@ def _resolve_import_path(path: Path, imp: Any) -> Path:
 def merge_yaml_files(
     file_paths: list[str | Path],
     set_values: list[str] | None = None,
+    *,
+    on_load: Callable[[Path], None] | None = None,
 ) -> dict[str, Any]:
     """Merge multiple YAML files with optional --set overrides.
 
     Files are merged in order - later files override earlier ones.
     Each file may contain an ``import:`` key listing other YAML files
     to load as a base. Imports are resolved relative to the importing file,
-    then by searching the current working directory and its parents before
-    falling back to the current working directory.
+    then its ancestors, followed by the current working directory and its parents.
     --set values are applied after all files are merged.
 
     Args:
         file_paths: List of paths to YAML files
         set_values: Optional list of --set strings (e.g., ['context.node_count=8'])
+        on_load: Optional check called before reading each file, including transitive imports.
 
     Returns:
         Merged configuration dictionary
@@ -239,7 +247,7 @@ def merge_yaml_files(
     result: dict[str, Any] = {}
 
     for file_path in file_paths:
-        content = _load_yaml_with_imports(Path(file_path))
+        content = _load_yaml_with_imports(Path(file_path), on_load=on_load)
         if content:
             result = deep_merge(result, content)
 

@@ -20,7 +20,10 @@ Handles the test lifecycle: setup cluster, run tests, teardown.
 
 import json
 import logging
+import os
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, TextIO
@@ -30,6 +33,7 @@ import yaml
 from isvtest.catalog import build_catalog, catalog_document, get_catalog_version
 from isvtest.core.resolution import SkipReason, parse_validations, requirements_satisfied
 
+from isvctl import __version__
 from isvctl.cli import setup_logging
 from isvctl.cli.common import (
     OUTPUT_DIR_NAME,
@@ -39,6 +43,7 @@ from isvctl.cli.common import (
     print_progress,
     print_warning,
 )
+from isvctl.config.env_catalog import DEMO_MODE_ENV, demo_mode_enabled
 from isvctl.config.label_discovery import (
     ProviderConfigMatch,
     available_labels,
@@ -46,10 +51,12 @@ from isvctl.config.label_discovery import (
     list_providers,
 )
 from isvctl.config.merger import merge_yaml_files
+from isvctl.config.provider_registry import ProviderRegistryError, ensure_fetched, version_warning
 from isvctl.config.schema import RunConfig
 from isvctl.config.suite_resolution import (
     CONFIGS_ROOT,
     SuiteResolutionError,
+    external_provider_for_path,
     parse_capability,
     resolve_suite_name,
     select_suite,
@@ -90,6 +97,32 @@ app = typer.Typer(
     help="Run validation tests with cluster lifecycle management",
     no_args_is_help=True,
 )
+
+
+@contextmanager
+def _preserve_demo_mode() -> Iterator[None]:
+    """Restore the caller's demo setting after each run, including nested invocations."""
+    original = os.environ.get(DEMO_MODE_ENV)
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop(DEMO_MODE_ENV, None)
+        else:
+            os.environ[DEMO_MODE_ENV] = original
+
+
+def _apply_provider_registry_policy(provider: str) -> None:
+    """Check a fetched provider and apply its version warning and demo settings."""
+    registered = ensure_fetched(provider, CONFIGS_ROOT)
+    if registered is None:
+        return
+    if warning := version_warning(registered, __version__):
+        print_warning(warning)
+    if registered.status == "demo":
+        # Steps inherit this process's environment, so every script sees it.
+        os.environ[DEMO_MODE_ENV] = "1"
+        print_progress(f"'{provider}' has status 'demo': running with {DEMO_MODE_ENV}=1.")
 
 
 def _provider_discovery_plan(provider: str, labels: list[str], matches: list[ProviderConfigMatch]) -> dict[str, Any]:
@@ -243,6 +276,7 @@ def _human_readable_dry_run(
     # stale flags like `--platform` fail loudly instead of being forwarded.
     context_settings={"allow_extra_args": True, "ignore_unknown_options": False},
 )
+@_preserve_demo_mode()
 def run(
     ctx: typer.Context,
     config_files: Annotated[
@@ -422,6 +456,25 @@ def run(
 
     suite_label: str | None = None
 
+    # Explicit files need the same registry checks and demo settings as --provider.
+    providers = [provider] if provider else []
+    providers.extend(name for path in config_files or [] if (name := external_provider_for_path(path, CONFIGS_ROOT)))
+    for name in dict.fromkeys(providers):
+        try:
+            _apply_provider_registry_policy(name)
+        except ProviderRegistryError as exc:
+            print_error(str(exc))
+            raise typer.Exit(code=1)
+
+    checked_providers = set(providers)
+
+    def check_provider_config(path: Path) -> None:
+        """Apply registry policy once per provider, including those reached through imports."""
+        name = external_provider_for_path(path, CONFIGS_ROOT)
+        if name is not None and name not in checked_providers:
+            _apply_provider_registry_policy(name)
+            checked_providers.add(name)
+
     if suite:
         try:
             selected_suite, selection_message = select_suite(suite, config_files, provider, configs_root=CONFIGS_ROOT)
@@ -502,7 +555,9 @@ def run(
 
     # Load and merge YAML files (resolving import: directives)
     try:
-        merged_config = merge_yaml_files([str(p) for p in config_files], set_values or [])
+        merged_config = merge_yaml_files(
+            [str(p) for p in config_files], set_values or [], on_load=check_provider_config
+        )
     except Exception as e:
         print_error(f"Failed to load configuration: {e}")
         raise typer.Exit(code=1)
@@ -567,6 +622,9 @@ def run(
 
     # Check if we should upload results to ISV Lab Service
     upload_results = not no_upload
+    if upload_results and demo_mode_enabled():
+        print_warning(f"{DEMO_MODE_ENV}=1: scripts return dummy results, which are never uploaded to ISV Lab Service")
+        upload_results = False
     test_run_id: str | None = None
     start_time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 

@@ -1,0 +1,83 @@
+#
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fetches registered providers at their pinned commits and checks them against
+# this checkout (scripts/check_registered_providers.py). A pull request that
+# changes only registry entries checks just those, so a broken third-party entry
+# cannot fail an unrelated one. A pull request that changes what providers
+# depend on (suites, shared scripts, config loading, validations) checks every
+# entry, so it cannot break them unnoticed; so does the weekly run against main.
+name: Provider Registry
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+    paths:
+      - "isvctl/configs/providers-registry/**"
+      - "isvctl/configs/suites/**"
+      - "isvctl/configs/shared/**"
+      - "isvctl/schemas/**"
+      - "isvctl/src/isvctl/config/**"
+      - "isvctl/src/isvctl/orchestrator/**"
+      - "isvctl/src/isvctl/cli/provider.py"
+      - "isvctl/src/isvctl/cli/test.py"
+      - "isvtest/src/isvtest/validations/**"
+      - "scripts/check_registered_providers.py"
+      - ".github/workflows/provider-registry.yml"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+# Fetched code belongs to the providers, not to this repository: read-only
+# token, no secrets.
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  check-registered-providers:
+    name: Check registered providers
+    runs-on: linux-amd64-cpu4
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/nvidia/dsx-cds-tools:latest
+
+    steps:
+      # Full history, so the PR's changes can be diffed against its merge base
+      # with main (blobs on demand: the diff needs names only); no persisted
+      # token, since demo entries run provider scripts.
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install dependencies
+        run: uv sync
+
+      # On a pull request, only the entries it adds or changes, unless it also
+      # changes what providers depend on; if it changes no entry, every entry.
+      # Keep the pathspecs below in step with on.push.paths.
+      - name: Check registered providers
+        run: |
+          names=""
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            contract=$(git diff --name-only origin/main...HEAD -- \
+              isvctl/configs/suites isvctl/configs/shared isvctl/schemas \
+              isvctl/src/isvctl/config isvctl/src/isvctl/orchestrator \
+              isvctl/src/isvctl/cli/provider.py isvctl/src/isvctl/cli/test.py \
+              isvtest/src/isvtest/validations \
+              scripts/check_registered_providers.py .github/workflows/provider-registry.yml)
+            if [ -z "$contract" ]; then
+              names=$(git diff --name-only --diff-filter=AMR origin/main...HEAD -- 'isvctl/configs/providers-registry/*.yaml' \
+                | xargs -r -n1 basename | sed 's/\.yaml$//')
+            fi
+          fi
+          # shellcheck disable=SC2086 # names is a space-separated list
+          uv run python scripts/check_registered_providers.py $names

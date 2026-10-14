@@ -16,6 +16,7 @@
 """Unit tests for provider scaffold CLI commands."""
 
 import shlex
+import shutil
 import stat
 from pathlib import Path
 
@@ -28,10 +29,29 @@ from isvctl.cli import provider as provider_cli
 from isvctl.cli import test as test_cli
 from isvctl.cli.provider import RELATIVE_PATH_RE, _rewrite_text_files
 from isvctl.config.merger import merge_yaml_files
+from isvctl.config.provider_registry import ProviderRegistryError, load_registry
 from isvctl.config.schema import RunConfig
 from isvctl.main import app as main_app
+from isvctl.orchestrator.context import Context
+from isvctl.orchestrator.step_executor import StepExecutor
 
 runner = CliRunner()
+REAL_SUITES_DIR = provider_cli.CONFIGS_ROOT / "suites"
+
+
+@pytest.fixture(autouse=True)
+def _isolated_configs_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Point CONFIGS_ROOT at a temporary tree, so registry entry stubs never land in this checkout.
+
+    The real suites are linked in, because the stub lists the scaffold's configs
+    that match a suite.
+    """
+    configs_root = tmp_path / "configs-root"
+    configs_root.mkdir()
+    (configs_root / "suites").symlink_to(REAL_SUITES_DIR)
+    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", configs_root)
+    return configs_root
+
 
 # Storage provider manifests live alongside run-configs in a provider's config/
 # directory but are not RunConfigs (no commands/tests) and carry no path
@@ -80,6 +100,114 @@ def test_successful_scaffold_into_output_dir(tmp_path: Path) -> None:
     assert "Created provider scaffold:" in result.output
     assert "ISVCTL_DEMO_MODE=1 uv run isvctl test run -f" in result.output
     assert "scripts/vm/launch_instance.py" in result.output
+
+
+def test_scaffold_defaults_to_providers_external(_isolated_configs_root: Path) -> None:
+    """Without --output-dir the scaffold lands in providers-external/<name>/, with its registry entry stub."""
+    result = runner.invoke(main_app, ["provider", "scaffold", "acme"])
+
+    target = _isolated_configs_root / "providers-external" / "acme"
+    assert result.exit_code == 0, result.output
+    assert (target / "config" / "vm.yaml").is_file()
+    assert (_isolated_configs_root / "providers-registry" / "acme.yaml").is_file()
+    assert "ISVCTL_DEMO_MODE=1 uv run isvctl test run --provider acme --suite vm" in result.output
+    assert "Created its registry entry; when the provider is validated, fill it in and submit it:" in result.output
+
+
+def test_scaffold_default_rejects_in_tree_provider_name(_isolated_configs_root: Path) -> None:
+    """A default scaffold may not shadow an in-tree provider, or --provider would be ambiguous."""
+    result = runner.invoke(main_app, ["provider", "scaffold", "aws"])
+
+    assert result.exit_code == 1
+    assert "'aws' is already an in-tree provider" in result.output
+    assert not (_isolated_configs_root / "providers-external").exists()
+    assert not (_isolated_configs_root / "providers-registry").exists()
+
+
+def test_default_scaffold_runs_shared_script_from_package_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default scaffolds retain config-relative shared scripts when invoked below the repo root."""
+    configs_root = tmp_path / "repo" / "isvctl" / "configs"
+    template_dir = configs_root / "providers" / "my-isv"
+    shutil.copytree(provider_cli._find_template_dir(), template_dir)
+    (configs_root / "suites").symlink_to(REAL_SUITES_DIR)
+    (configs_root / "shared").symlink_to(REAL_SUITES_DIR.parent / "shared")
+    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(provider_cli, "_find_template_dir", lambda: template_dir)
+    monkeypatch.chdir(configs_root.parent)
+    monkeypatch.setenv("ISVCTL_DEMO_MODE", "1")
+
+    result = runner.invoke(main_app, ["provider", "scaffold", "acme"])
+    assert result.exit_code == 0, result.output
+
+    config_path = configs_root / "providers-external" / "acme" / "config" / "storage.yaml"
+    config = RunConfig.model_validate(merge_yaml_files([config_path]))
+    steps = [step for command in config.commands.values() for step in command.steps if step.name == "storage_manifest"]
+    assert len(steps) == 1
+    results = StepExecutor(working_dir=config_path.parent).execute_steps(steps, Context(config))
+
+    assert results.success, results.steps
+    assert results.accumulated_outputs["storage_manifest"]["success"] is True
+
+
+def test_scaffold_keeps_existing_registry_entry(_isolated_configs_root: Path, tmp_path: Path) -> None:
+    """A scaffold never replaces a registry entry that already exists."""
+    entry = _isolated_configs_root / "providers-registry" / "acme.yaml"
+    entry.parent.mkdir()
+    entry.write_text("name: acme\n", encoding="utf-8")
+
+    result = runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(tmp_path / "acme")])
+
+    assert result.exit_code == 0, result.output
+    assert entry.read_text(encoding="utf-8") == "name: acme\n"
+    assert "Kept its existing registry entry" in result.output
+
+
+def test_registry_entry_stub_is_prefilled_and_fails_until_completed(
+    _isolated_configs_root: Path, tmp_path: Path
+) -> None:
+    """The stub carries what the scaffold knows, fails validation as generated, and validates once filled."""
+    runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(tmp_path / "acme")])
+    registry_file = _isolated_configs_root / "providers-registry" / "acme.yaml"
+    stub_text = registry_file.read_text(encoding="utf-8")
+    stub = yaml.safe_load(stub_text)
+    configs_root = _isolated_configs_root
+    with pytest.raises(ProviderRegistryError) as unfilled:
+        load_registry(configs_root)
+
+    filled = {
+        **stub,
+        "vendor": "Acme Cloud Inc.",
+        "description": "Acme GPU instances.",
+        "repo_url": "https://github.com/acme/external-provider-acme",
+        "commit": "0123456789abcdef0123456789abcdef01234567",
+        "maintainers": [{"github": "acme-handle", "email": "oss@acme.example"}],
+        "documentation_url": "https://github.com/acme/external-provider-acme#reproducing",
+    }
+    registry_file.write_text(yaml.safe_dump(filled), encoding="utf-8")
+
+    assert stub_text.startswith("# SPDX-FileCopyrightText:")
+    assert stub["name"] == "acme"
+    assert stub["tested_with"] == provider_cli.__version__
+    assert "vm" in stub["suites"] and "storage-k8s" not in stub["suites"]
+    assert "#   demo " in stub_text
+    for field in ("repo_url", "commit", "documentation_url"):
+        assert f"acme.yaml: {field}:" in str(unfilled.value)
+    assert [entry.name for entry in load_registry(configs_root)] == ["acme"]
+
+
+def test_overwrite_refuses_git_repository(tmp_path: Path) -> None:
+    """--overwrite never deletes a scaffold that has become a git repository."""
+    target = tmp_path / "acme"
+    runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(target)])
+    (target / ".git").mkdir()
+
+    result = runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(target), "--overwrite"])
+
+    assert result.exit_code == 1
+    assert "it is a git repository" in result.output
+    assert (target / ".git").is_dir()
 
 
 def test_scaffold_next_steps_quote_paths_with_spaces(tmp_path: Path) -> None:

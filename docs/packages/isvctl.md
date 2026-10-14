@@ -39,8 +39,13 @@ isvctl test run -f isvctl/configs/providers/k3s.yaml
 # Validate a Slurm cluster
 isvctl test run -f isvctl/configs/suites/slurm.yaml
 
-# Create a provider scaffold
+# Create a provider scaffold in isvctl/configs/providers-external/acme/
 isvctl provider scaffold acme
+
+# List, fetch and run an externally maintained provider from the registry
+isvctl provider list
+isvctl provider fetch example
+isvctl test run --provider example --suite vm
 
 # Check local readiness before a run
 isvctl doctor -f isvctl/configs/suites/k8s.yaml
@@ -63,6 +68,8 @@ isvctl/
 │   │   │   ├── config/        # my-isv YAML bindings (copy-and-fill-in starting point)
 │   │   │   └── scripts/       # my-isv lifecycle scripts (copy-and-fill-in stubs)
 │   │   └── common/            # Shared scripts used across providers (NIM deploy/teardown)
+│   ├── providers-registry/    # Registry entries for externally maintained providers
+│   ├── providers-external/    # Git-ignored: fetched providers and new scaffolds
 │   └── overrides.yaml # Example override file for customizing any suite
 ├── schemas/           # JSON Schema for validation
 ├── scripts/           # Helper scripts
@@ -192,7 +199,7 @@ This output is validated and becomes the `{{inventory.*}}` available in template
 
 ### Directory Organization
 
-Generate provider-specific lifecycle scripts with `isvctl provider scaffold <your-isv-name>`, then implement the TODO blocks under `isvctl/configs/providers/<your-isv-name>/scripts/` (e.g. `isvctl/configs/providers/acme/scripts/k8s/setup.sh`). The providers directory contains:
+Generate provider-specific lifecycle scripts with `isvctl provider scaffold <your-isv-name>`, then implement the TODO blocks under `isvctl/configs/providers-external/<your-isv-name>/scripts/` (e.g. `isvctl/configs/providers-external/acme/scripts/k8s/setup.sh`). The scaffold also writes a registry entry stub to `isvctl/configs/providers-registry/<your-isv-name>.yaml`; see the [provider registry guide](../guides/provider-registry.md) to publish the provider from your own repository. The providers directory contains:
 
 - `isvctl/configs/providers/my-isv/scripts/` - source template scripts for every scaffolded domain
 - `isvctl/configs/providers/aws/scripts/` - fully-implemented AWS reference (follow its layout and JSON output contracts)

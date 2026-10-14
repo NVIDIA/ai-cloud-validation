@@ -124,7 +124,9 @@ def _resolve_python_script_path(cmd_parts: list[str], cwd: Path) -> list[str]:
 
     Python interpreter options may precede the script argument, so this scans
     past supported flags and only rewrites a relative script path when it is
-    missing from the step cwd but exists from the current process cwd.
+    missing from the step cwd but exists from a parent of the step cwd or, as
+    a fallback, the current process cwd. Like suite imports, this keeps fetched
+    providers in their own checkout when the process cwd is another checkout.
 
     Args:
         cmd_parts: Parsed command tokens beginning with the Python interpreter.
@@ -156,13 +158,13 @@ def _resolve_python_script_path(cmd_parts: list[str], cwd: Path) -> list[str]:
     if script_path.is_absolute() or (cwd / script_path).exists():
         return cmd_parts
 
-    cwd_relative = Path.cwd() / script_path
-    if not cwd_relative.exists():
-        return cmd_parts
-
-    updated = cmd_parts.copy()
-    updated[script_idx] = str(cwd_relative.resolve())
-    return updated
+    for root in (*cwd.resolve().parents, Path.cwd()):
+        candidate = root / script_path
+        if candidate.exists():
+            updated = cmd_parts.copy()
+            updated[script_idx] = str(candidate.resolve())
+            return updated
+    return cmd_parts
 
 
 def _find_missing_step_path(arg: str, steps_data: dict[str, Any]) -> str | None:

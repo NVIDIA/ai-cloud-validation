@@ -21,8 +21,17 @@ presence) and `isvctl configure` (which persists values) consume this table so
 they never drift.
 """
 
+import os
 from dataclasses import dataclass
 from enum import StrEnum
+
+# Scaffold scripts return dummy success only when this is "1"; otherwise they fail as "Not implemented".
+DEMO_MODE_ENV = "ISVCTL_DEMO_MODE"
+
+
+def demo_mode_enabled() -> bool:
+    """Return True when scaffold scripts return dummy results instead of doing real work."""
+    return os.environ.get(DEMO_MODE_ENV) == "1"
 
 
 class Requirement(StrEnum):
@@ -119,7 +128,7 @@ ENV_VARS: tuple[EnvVar, ...] = (
         persistable=False,
     ),
     EnvVar(
-        "ISVCTL_DEMO_MODE",
+        DEMO_MODE_ENV,
         "Flags",
         Requirement.OPTIONAL,
         "set to '1' to use my-isv demo stubs",

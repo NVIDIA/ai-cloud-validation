@@ -103,6 +103,27 @@ def test_python_script_path_falls_back_to_current_working_directory(
     assert resolved[1] == str(script.resolve())
 
 
+def test_python_script_path_falls_back_to_parent_of_step_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider fetched into the checkout resolves repo-root-relative commands from any working directory."""
+    repo_root = tmp_path / "repo"
+    script = repo_root / "isvctl" / "configs" / "shared" / "nim" / "deploy_nim.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+    provider_config_dir = repo_root / "isvctl" / "configs" / "providers-external" / "acme" / "config"
+    provider_config_dir.mkdir(parents=True)
+
+    monkeypatch.chdir(repo_root / "isvctl")
+
+    resolved = _resolve_python_script_path(
+        ["python", "isvctl/configs/shared/nim/deploy_nim.py"],
+        provider_config_dir,
+    )
+    assert resolved[1] == str(script.resolve())
+
+
 def test_python_script_path_falls_back_after_interpreter_flags(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -123,6 +144,24 @@ def test_python_script_path_falls_back_after_interpreter_flags(
     )
     assert resolved[1] == "-u"
     assert resolved[2] == str(script.resolve())
+
+
+def test_python_script_path_prefers_provider_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shared scripts come from the step's checkout when cwd contains another copy."""
+    relative_script = Path("isvctl/configs/shared/nim/deploy_nim.py")
+    for name in ("provider-checkout", "working-checkout"):
+        script = tmp_path / name / relative_script
+        script.parent.mkdir(parents=True)
+        script.write_text(f"print('{name}')\n", encoding="utf-8")
+    provider_config_dir = (
+        tmp_path / "provider-checkout" / "isvctl" / "configs" / "providers-external" / "acme" / "config"
+    )
+    provider_config_dir.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path / "working-checkout")
+
+    resolved = _resolve_python_script_path(["python", str(relative_script)], provider_config_dir)
+
+    assert resolved[1] == str(tmp_path / "provider-checkout" / relative_script)
 
 
 def _write_script(tmp_path: Path, name: str, content: str) -> str:

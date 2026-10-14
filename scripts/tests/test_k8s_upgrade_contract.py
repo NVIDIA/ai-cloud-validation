@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from isvctl.cli import provider as provider_cli
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.output_schemas import get_schema_for_step, validate_output
 from isvctl.config.schema import RunConfig
@@ -70,8 +71,12 @@ def test_suite_wiring_and_opt_in() -> None:
     assert not {s["name"] for s in steps} & {s["name"] for s in default["commands"]["kubernetes"]["steps"]}
 
 
-def test_generated_provider_upgrade_demo(tmp_path: Path) -> None:
+def test_generated_provider_upgrade_demo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A scaffold outside the repository carries its own upgrade adapter and evidence."""
+    configs_root = tmp_path / "configs-root"
+    configs_root.mkdir()
+    (configs_root / "suites").symlink_to(provider_cli.CONFIGS_ROOT / "suites")
+    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", configs_root)
     target = tmp_path / "acme"
     result = CliRunner().invoke(app, ["provider", "scaffold", "acme", "--output-dir", str(target)])
     assert result.exit_code == 0, result.output
