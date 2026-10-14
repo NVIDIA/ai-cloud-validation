@@ -35,6 +35,14 @@ def endpoint() -> Iterator[tuple[str, dict[str, Any]]]:
         def do_GET(self) -> None:
             """Serve a canary response or redirect to a URL that must not be followed."""
             state["calls"] += 1
+            if state.get("wire_error"):
+                responses = {
+                    "BadStatusLine": b"private malformed status\r\n\r\n",
+                    "IncompleteRead": b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nshort",
+                }
+                self.wfile.write(responses[state["wire_error"]])
+                self.close_connection = True
+                return
             self.send_response(state["status"])
             if state["status"] == 302:
                 self.send_header("Location", "/would-mask-an-outage")
@@ -146,3 +154,29 @@ def test_connection_failure_is_recorded(tmp_path: Path, monkeypatch: pytest.Monk
     assert probe["status_code"] == 0
     assert probe["error_type"] == "TimeoutError"
     assert "private endpoint" not in json.dumps(probe)
+
+
+@pytest.mark.parametrize("error_type", ["BadStatusLine", "IncompleteRead"])
+def test_http_protocol_failure_preserves_observation_and_recovery(
+    endpoint: tuple[str, dict[str, Any]], tmp_path: Path, error_type: str
+) -> None:
+    """Malformed and truncated responses remain failed probes while observation continues."""
+    url, state = endpoint
+    artifact = tmp_path / "application.jsonl"
+    observer = MODULE.ApplicationObserver(url, TOKEN, artifact, interval=0.02)
+    observer.start()
+    try:
+        state["wire_error"] = error_type
+        wait_for(lambda: any(p.get("error_type") == error_type for p in observer.probes))
+        failed_index = len(observer.probes)
+        state.pop("wire_error")
+        wait_for(lambda: any(p["response"] == TOKEN for p in observer.probes[failed_index:]))
+    finally:
+        output = observer.stop()
+    assert observer.error is None
+    failures = [p for p in output["probes"] if p.get("error_type") == error_type]
+    assert failures and all(p["response"] != TOKEN for p in failures)
+    assert all(p["duration_seconds"] >= 0 for p in failures)
+    assert "private malformed status" not in json.dumps(output)
+    assert [json.loads(line) for line in artifact.read_text().splitlines()] == output["probes"]
+    assert state["calls"] == len(output["probes"])

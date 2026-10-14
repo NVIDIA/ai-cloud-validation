@@ -208,3 +208,62 @@ def test_requires_exact_cluster_opt_in(monkeypatch: pytest.MonkeyPatch, tmp_path
         monkeypatch.setenv(key, value)
     with pytest.raises(ValueError, match="exact disposable cluster"):
         MODULE.Experiment("control_plane_upgrade")
+
+
+@pytest.mark.parametrize("operation_fails", [True, False])
+def test_observer_shutdown_preserves_primary_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, operation_fails: bool
+) -> None:
+    """Keep the first error/type together and retain later failures without skipping cleanup."""
+    calls: list[str] = []
+
+    class Observer:
+        """Raise a distinct shutdown failure for each observer."""
+
+        def __init__(self, name: str, error: Exception) -> None:
+            """Configure the observer's shutdown error."""
+            self.name, self.error = name, error
+
+        def stop(self) -> None:
+            """Record shutdown before raising."""
+            calls.append(self.name)
+            raise self.error
+
+    class Resources:
+        """Record cleanup calls without contacting a cluster."""
+
+        def cleanup(self) -> None:
+            """Remove this test's canary."""
+            calls.append("canary")
+
+        def close(self) -> None:
+            """Close the API client."""
+            calls.append("api")
+
+    def operation() -> None:
+        """Either finish normally or fail before observer shutdown."""
+        if operation_fails:
+            raise ValueError("upgrade operation failed")
+
+    experiment = MODULE.Experiment.__new__(MODULE.Experiment)
+    experiment.check = "control_plane_upgrade"
+    experiment.directory = tmp_path
+    experiment.result = {"success": False, "platform": "kubernetes", "test_name": experiment.check}
+    experiment.pool_observer = Observer("pool", TimeoutError("pool shutdown failed"))
+    experiment.observer = Observer("application", RuntimeError("application shutdown failed"))
+    experiment.canary = Resources()
+    monkeypatch.setattr(experiment, "prepare", lambda: Resources())
+    monkeypatch.setattr(experiment, "control_plane", operation)
+
+    result = experiment.run()
+    assert result["success"] is False
+    expected_primary = (
+        ("upgrade operation failed", "ValueError") if operation_fails else ("pool shutdown failed", "TimeoutError")
+    )
+    assert (result["error"], result["error_type"]) == expected_primary
+    secondary = [{"observer": "application", "error": "application shutdown failed", "error_type": "RuntimeError"}]
+    if operation_fails:
+        secondary.insert(0, {"observer": "pool", "error": "pool shutdown failed", "error_type": "TimeoutError"})
+    assert result["observer_errors"] == secondary
+    assert calls == ["pool", "application", "canary", "api"]
+    assert json.loads((tmp_path / "result.json").read_text()) == result

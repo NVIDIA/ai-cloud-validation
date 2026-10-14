@@ -8,6 +8,7 @@ Requests are neither retried nor redirected: either could conceal an outage.
 Each result is flushed to a JSONL artifact before the next request starts.
 """
 
+import http.client
 import json
 import math
 import threading
@@ -65,7 +66,7 @@ class ApplicationObserver:
         except urllib.error.HTTPError as error:
             probe["status_code"] = error.code
             error.close()
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, http.client.HTTPException) as error:
             # Do not serialize exception text, which can include a credential-bearing URL.
             probe["error_type"] = type(error).__name__
         finally:

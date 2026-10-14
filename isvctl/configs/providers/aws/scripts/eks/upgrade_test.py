@@ -506,7 +506,17 @@ class Experiment:
                         if observer is self.observer:
                             self.result["application"] = evidence
                     except Exception as error:
-                        self.result.update(success=False, error=str(error))
+                        self.result["success"] = False
+                        if "error" in self.result:
+                            self.result.setdefault("observer_errors", []).append(
+                                {
+                                    "observer": "application" if observer is self.observer else "pool",
+                                    "error": str(error),
+                                    "error_type": type(error).__name__,
+                                }
+                            )
+                        else:
+                            self.result.update(error=str(error), error_type=type(error).__name__)
             if self.canary is not None:
                 try:
                     self.canary.cleanup()
