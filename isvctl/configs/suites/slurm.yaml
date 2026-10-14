@@ -144,7 +144,7 @@ tests:
 
         # Inline script (no manifest file needed)
         SlurmSbatchWorkload-inline:
-          test_id: "SLURM09-01"
+          test_id: "SLURM10-01"
           labels: ["slurm", "workload", "slow"]
           script_content: |
             #!/bin/bash

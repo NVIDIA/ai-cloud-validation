@@ -421,7 +421,7 @@ tests:
               workloads: {}
           min_controller_replicas: 1
         K8sCsiConcurrentPvcCheck:
-          test_id: "N/A"
+          test_id: "HSS03-08"
           labels: ["kubernetes", "min_req", "storage"]
           requires: [kubernetes]
           storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"

@@ -52,8 +52,8 @@ tests:
       step: launch_instance
       checks:
         BmHostRunningCheck:
-          test_id: "N/A"
-          labels: ["bare_metal"]
+          test_id: "CNP01-01"
+          labels: ["bare_metal", "min_req"]
           expected_state: "running"
           description: "Check the bare metal host reaches the running state after launch"
           compose:
@@ -526,8 +526,8 @@ tests:
       step: teardown
       checks:
         BmResourcesDeletedCheck:
-          test_id: "N/A"
-          labels: ["bare_metal"]
+          test_id: "CNP01-03"
+          labels: ["bare_metal", "min_req"]
           description: "Check the teardown step reports the host and its resources released"
           compose:
             - StepSuccessCheck
@@ -536,8 +536,8 @@ tests:
       step: verify_teardown
       checks:
         BmHostTerminatedCheck:
-          test_id: "N/A"
-          labels: ["bare_metal"]
+          test_id: "CNP01-03"
+          labels: ["bare_metal", "min_req"]
           description: "Check the platform independently confirms the host is gone, rather than trusting teardown's own report"
           compose:
             - StepSuccessCheck

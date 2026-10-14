@@ -147,8 +147,8 @@ tests:
       step: describe_instance
       checks:
         VmStateReportedCheck:
-          test_id: "N/A"
-          labels: ["vm"]
+          test_id: "CNP01-10"
+          labels: ["min_req", "vm"]
           expected_state: "running"
           description: "Check the platform reports the VM as running when described"
           compose:
@@ -371,8 +371,8 @@ tests:
       step: teardown
       checks:
         VmResourcesDeletedCheck:
-          test_id: "N/A"
-          labels: ["vm"]
+          test_id: "CNP01-12"
+          labels: ["min_req", "vm"]
           description: "Check the VM and its associated resources are deleted"
           compose:
             - StepSuccessCheck

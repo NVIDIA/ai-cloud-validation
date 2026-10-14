@@ -449,6 +449,7 @@ domains:
                 notes: ""
                 labels:
                   - control_plane
+                  - iam
               - summary: Add user to tenant
                 labels:
                   - min_req
@@ -597,6 +598,7 @@ domains:
             tests:
               - summary: Create a Bare Metal node
                 labels:
+                  - bare_metal
                   - min_req
                 priority: P0
                 dependencies:
@@ -624,6 +626,7 @@ domains:
                 status: published
               - summary: Delete a Bare Metal node
                 labels:
+                  - bare_metal
                   - min_req
                 priority: P0
                 dependencies:
@@ -1058,6 +1061,7 @@ domains:
                 notes: ""
                 labels:
                   - min_req
+                  - vm
                 priority: P0
                 dependencies:
                   - LimitedEnv
@@ -1086,6 +1090,7 @@ domains:
               - summary: Delete a VM node
                 labels:
                   - min_req
+                  - vm
                 priority: P0
                 dependencies:
                   - LimitedEnv
@@ -2650,6 +2655,8 @@ domains:
                 status: published
               - summary: Verify multiple concurrent PVCs bind to distinct PVs
                 labels:
+                  - kubernetes
+                  - min_req
                   - storage
                 priority: P1
                 milestone: M7
@@ -3447,6 +3454,10 @@ domains:
                 milestone: M0
                 req_id: SLURM10
                 test_id: SLURM10-01
+                labels:
+                  - slow
+                  - slurm
+                  - workload
                 actor: tenant
                 legacy_ids: [SLURM-XX-10]
                 status: published

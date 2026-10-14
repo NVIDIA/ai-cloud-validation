@@ -132,7 +132,7 @@ tests:
           # No dedicated "delete access key" plan item; access-key lifecycle is
           # CP05-01 (create) and CP06-01 (disable).
           test_id: "N/A"
-          labels: ["control_plane"]
+          labels: ["control_plane", "iam"]
           requires: []
           step: delete_access_key
           description: "Check the access key created for the run is deleted"
@@ -140,7 +140,7 @@ tests:
             - StepSuccessCheck
         TenantDeletedCheck:
           test_id: "CP10-01"
-          labels: ["control_plane"]
+          labels: ["control_plane", "iam"]
           requires: []
           step: delete_tenant
           description: "Check the tenant created for the run is deleted"
