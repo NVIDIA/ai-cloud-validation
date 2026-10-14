@@ -19,7 +19,7 @@ from typer.testing import CliRunner
 from isvctl.cli import provider as provider_cli
 from isvctl.cli import test as test_cli
 from isvctl.config import provider_registry
-from isvctl.config.label_discovery import list_providers
+from isvctl.config.label_discovery import ProviderConfigMatch, list_providers
 from isvctl.config.provider_registry import (
     ProviderRegistryError,
     RegistryEntry,
@@ -1033,6 +1033,59 @@ def test_test_run_turns_on_demo_mode_for_demo_provider(
     assert result.output.count("'acme' has status 'demo': running with ISVCTL_DEMO_MODE=1.") == 1
     assert "never uploaded to ISV Lab Service" in result.output
     assert _EnvCapturingOrchestrator.demo_mode == "1"
+    assert os.environ["ISVCTL_DEMO_MODE"] == "0"
+
+
+@pytest.mark.parametrize("original", [None, "0", "1"])
+@pytest.mark.parametrize("exit_path", ["dry-run", "failure", "recursive"])
+def test_registry_demo_mode_is_scoped_to_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, original: str | None, exit_path: str
+) -> None:
+    """Demo policy is restored on every exit, so a later ordinary invocation keeps its upload policy."""
+    url, first, _ = _upstream_repo(tmp_path)
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(commit=first, status="demo")})
+    _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=first), "acme")
+    config = _checkout(tmp_path) / "config" / "vm.yaml"
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(test_cli, "Orchestrator", _EnvCapturingOrchestrator)
+    monkeypatch.setattr(test_cli, "check_upload_credentials", _no_upload_allowed)
+    if original is None:
+        monkeypatch.delenv("ISVCTL_DEMO_MODE", raising=False)
+    else:
+        monkeypatch.setenv("ISVCTL_DEMO_MODE", original)
+    args = ["--provider", "acme", "--suite", "vm"]
+    if exit_path == "dry-run":
+        args.append("--dry-run")
+    elif exit_path == "failure":
+        config.write_text("tests: invalid\n", encoding="utf-8")
+    else:
+        monkeypatch.setattr(
+            test_cli, "discover_provider_label_configs", lambda *args, **kwargs: [ProviderConfigMatch(config, ())]
+        )
+        args = ["--provider", "acme", "--label", "demo"]
+
+    result = runner.invoke(test_cli.app, ["run", *args])
+
+    assert result.exit_code == (1 if exit_path == "failure" else 0), result.output
+    assert os.environ.get("ISVCTL_DEMO_MODE") == original
+    if exit_path == "recursive":
+        assert _EnvCapturingOrchestrator.demo_mode == "1"
+
+    credential_checks = []
+
+    def no_credentials() -> tuple[bool, str, str]:
+        """Record the ordinary run's upload eligibility check without contacting the service."""
+        credential_checks.append(True)
+        return False, "", ""
+
+    ordinary = tmp_path / "ordinary.yaml"
+    ordinary.write_text("tests: {}\n", encoding="utf-8")
+    monkeypatch.setattr(test_cli, "check_upload_credentials", no_credentials)
+    result = runner.invoke(test_cli.app, ["run", "-f", str(ordinary)])
+
+    assert result.exit_code == 0, result.output
+    assert _EnvCapturingOrchestrator.demo_mode == original
+    assert len(credential_checks) == (0 if original == "1" else 1)
 
 
 def test_demo_mode_never_uploads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -22,6 +22,8 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, TextIO
@@ -95,6 +97,19 @@ app = typer.Typer(
     help="Run validation tests with cluster lifecycle management",
     no_args_is_help=True,
 )
+
+
+@contextmanager
+def _preserve_demo_mode() -> Iterator[None]:
+    """Restore the caller's demo setting after each run, including nested invocations."""
+    original = os.environ.get(DEMO_MODE_ENV)
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop(DEMO_MODE_ENV, None)
+        else:
+            os.environ[DEMO_MODE_ENV] = original
 
 
 def _apply_provider_registry_policy(provider: str) -> None:
@@ -261,6 +276,7 @@ def _human_readable_dry_run(
     # stale flags like `--platform` fail loudly instead of being forwarded.
     context_settings={"allow_extra_args": True, "ignore_unknown_options": False},
 )
+@_preserve_demo_mode()
 def run(
     ctx: typer.Context,
     config_files: Annotated[

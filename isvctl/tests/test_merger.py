@@ -283,6 +283,23 @@ class TestImportDirective:
 
         assert merge_yaml_files([str(provider)]) == {"tests": {"suite_only": "inherited"}}
 
+    def test_import_prefers_provider_checkout_over_working_checkout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A second checkout in cwd must not supply the fetched provider's suite."""
+        for name in ("provider-checkout", "working-checkout"):
+            suite = tmp_path / name / "isvctl" / "configs" / "suites" / "vm.yaml"
+            suite.parent.mkdir(parents=True)
+            suite.write_text(f"context:\n  source: {name}\n", encoding="utf-8")
+        provider = (
+            tmp_path / "provider-checkout" / "isvctl" / "configs" / "providers-external" / "acme" / "config" / "vm.yaml"
+        )
+        provider.parent.mkdir(parents=True)
+        provider.write_text("import: isvctl/configs/suites/vm.yaml\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path / "working-checkout" / "isvctl")
+
+        assert merge_yaml_files([provider])["context"]["source"] == "provider-checkout"
+
     def test_multiple_imports(self, tmp_path: Path) -> None:
         """Multiple imports are merged in order, child wins."""
         (tmp_path / "a.yaml").write_text("x: 1\ny: from_a")
