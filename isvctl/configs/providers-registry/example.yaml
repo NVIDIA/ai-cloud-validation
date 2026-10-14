@@ -26,7 +26,7 @@ maintainers:
   - github: abegnoche
 documentation_url: https://github.com/abegnoche/external-provider-example#reproducing-the-results
 # status is one of:
-#   supported   maintained, and `commit` passed the declared suites against `tested_with`
+#   supported   maintained; its maintainers, not NVIDIA, state that `commit` passed the declared suites against `tested_with`
 #   deprecated  no longer maintained or validated; hidden from `isvctl provider list` unless --all
 #   demo        scripts only return dummy results; runs in demo mode and is never uploaded
 status: demo

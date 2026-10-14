@@ -103,6 +103,27 @@ def test_python_script_path_falls_back_to_current_working_directory(
     assert resolved[1] == str(script.resolve())
 
 
+def test_python_script_path_falls_back_to_parent_of_step_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider fetched into the checkout resolves repo-root-relative commands from any working directory."""
+    repo_root = tmp_path / "repo"
+    script = repo_root / "isvctl" / "configs" / "shared" / "nim" / "deploy_nim.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('ok')\n", encoding="utf-8")
+    provider_config_dir = repo_root / "isvctl" / "configs" / "providers-external" / "acme" / "config"
+    provider_config_dir.mkdir(parents=True)
+
+    monkeypatch.chdir(repo_root / "isvctl")
+
+    resolved = _resolve_python_script_path(
+        ["python", "isvctl/configs/shared/nim/deploy_nim.py"],
+        provider_config_dir,
+    )
+    assert resolved[1] == str(script.resolve())
+
+
 def test_python_script_path_falls_back_after_interpreter_flags(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

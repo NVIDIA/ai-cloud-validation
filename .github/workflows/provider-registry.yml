@@ -3,9 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Fetches registered providers at their pinned commits and checks them against
-# this checkout (scripts/check_registered_providers.py). A pull request checks
-# only the entries it adds or changes, so a broken third-party entry cannot fail
-# an unrelated one; the weekly run checks every entry against main.
+# this checkout (scripts/check_registered_providers.py). A pull request that
+# changes only registry entries checks just those, so a broken third-party entry
+# cannot fail an unrelated one. A pull request that changes what providers
+# depend on (suites, shared scripts, config loading, validations) checks every
+# entry, so it cannot break them unnoticed; so does the weekly run against main.
 name: Provider Registry
 
 on:
@@ -14,6 +16,14 @@ on:
       - "pull-request/[0-9]+"
     paths:
       - "isvctl/configs/providers-registry/**"
+      - "isvctl/configs/suites/**"
+      - "isvctl/configs/shared/**"
+      - "isvctl/schemas/**"
+      - "isvctl/src/isvctl/config/**"
+      - "isvctl/src/isvctl/orchestrator/**"
+      - "isvctl/src/isvctl/cli/provider.py"
+      - "isvctl/src/isvctl/cli/test.py"
+      - "isvtest/src/isvtest/validations/**"
       - "scripts/check_registered_providers.py"
       - ".github/workflows/provider-registry.yml"
   schedule:
@@ -49,14 +59,23 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      # On a pull request, only the entries it adds or changes; if it changes
-      # none (e.g. only this workflow or the script), every entry.
+      # On a pull request, only the entries it adds or changes, unless it also
+      # changes what providers depend on; if it changes no entry, every entry.
+      # Keep the pathspecs below in step with on.push.paths.
       - name: Check registered providers
         run: |
           names=""
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            names=$(git diff --name-only --diff-filter=AM origin/main...HEAD -- 'isvctl/configs/providers-registry/*.yaml' \
-              | xargs -r -n1 basename | sed 's/\.yaml$//')
+            contract=$(git diff --name-only origin/main...HEAD -- \
+              isvctl/configs/suites isvctl/configs/shared isvctl/schemas \
+              isvctl/src/isvctl/config isvctl/src/isvctl/orchestrator \
+              isvctl/src/isvctl/cli/provider.py isvctl/src/isvctl/cli/test.py \
+              isvtest/src/isvtest/validations \
+              scripts/check_registered_providers.py .github/workflows/provider-registry.yml)
+            if [ -z "$contract" ]; then
+              names=$(git diff --name-only --diff-filter=AM origin/main...HEAD -- 'isvctl/configs/providers-registry/*.yaml' \
+                | xargs -r -n1 basename | sed 's/\.yaml$//')
+            fi
           fi
           # shellcheck disable=SC2086 # names is a space-separated list
           uv run python scripts/check_registered_providers.py $names

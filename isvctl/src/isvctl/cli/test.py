@@ -31,6 +31,7 @@ import yaml
 from isvtest.catalog import build_catalog, catalog_document, get_catalog_version
 from isvtest.core.resolution import SkipReason, parse_validations, requirements_satisfied
 
+from isvctl import __version__
 from isvctl.cli import setup_logging
 from isvctl.cli.common import (
     OUTPUT_DIR_NAME,
@@ -48,7 +49,7 @@ from isvctl.config.label_discovery import (
     list_providers,
 )
 from isvctl.config.merger import merge_yaml_files
-from isvctl.config.provider_registry import ProviderRegistryError, ensure_fetched
+from isvctl.config.provider_registry import ProviderRegistryError, ensure_fetched, version_warning
 from isvctl.config.schema import RunConfig
 from isvctl.config.suite_resolution import (
     CONFIGS_ROOT,
@@ -431,6 +432,8 @@ def run(
         except ProviderRegistryError as exc:
             print_error(str(exc))
             raise typer.Exit(code=1)
+        if registered is not None and (warning := version_warning(registered, __version__)):
+            print_warning(warning)
         if registered is not None and registered.status == "demo":
             # Steps inherit this process's environment, so every script sees it.
             os.environ[DEMO_MODE_ENV] = "1"

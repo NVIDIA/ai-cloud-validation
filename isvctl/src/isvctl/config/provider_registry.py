@@ -226,7 +226,8 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     In-tree providers and names the registry does not know return None, so the
     caller's usual unknown-provider handling still applies. A local directory
     that ``fetch`` did not create, such as the partner's own scaffold under
-    development, is run as it is.
+    development, also returns None and is run as it is: the entry describes the
+    pinned commit, not that directory.
 
     Invalid registry entries are skipped, so an unfinished entry for this very
     provider leaves its local scaffold runnable.
@@ -242,6 +243,8 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     if entry is None:
         return None
     state, head = fetch_state(entry, configs_root)
+    if state == "local":
+        return None
     hint = f"Run: isvctl provider fetch {provider}"
     if state == "missing":
         raise ProviderRegistryError(f"Provider '{provider}' is registered but not fetched. {hint}")
@@ -254,3 +257,14 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
             f"Provider '{provider}' is fetched at {head[:12]}, but the registry pins {entry.commit[:12]}. {hint}"
         )
     return entry
+
+
+def version_warning(entry: RegistryEntry, isvctl_version: str) -> str | None:
+    """Return a warning if ``entry`` was validated against another isvctl release than ``isvctl_version``."""
+    # Entries spell release candidates X.Y.Z-rcN; package metadata spells them X.Y.ZrcN.
+    if entry.tested_with.replace("-rc", "rc") == isvctl_version:
+        return None
+    return (
+        f"'{entry.name}' was validated against isvctl {entry.tested_with}, but this is isvctl {isvctl_version}; "
+        "its configs may not match this version's suites."
+    )

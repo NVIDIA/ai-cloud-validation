@@ -36,6 +36,7 @@ from isvctl.config.provider_registry import (
     load_registry_skipping_invalid,
     registry_entry_path,
     run_git,
+    version_warning,
 )
 from isvctl.config.suite_resolution import (
     CONFIGS_ROOT,
@@ -66,7 +67,7 @@ SPDX_HEADER = """\
 """
 STATUS_COMMENT = """\
 # status is one of:
-#   supported   maintained, and `commit` passed the declared suites against `tested_with`
+#   supported   maintained; its maintainers, not NVIDIA, state that `commit` passed the declared suites against `tested_with`
 #   deprecated  no longer maintained or validated; hidden from `isvctl provider list` unless --all
 #   demo        scripts only return dummy results; runs in demo mode and is never uploaded
 """
@@ -533,6 +534,8 @@ def fetch_cmd(
         shutil.rmtree(previous)
 
     typer.echo(f"Fetched {name} at {head[:12]} into {_display_path(target)}")
+    if warning := version_warning(entry, __version__):
+        print_warning(warning)
     _print_fetch_next_steps(entry, provider_dir(entry.name, CONFIGS_ROOT))
 
 

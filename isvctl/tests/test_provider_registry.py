@@ -28,6 +28,7 @@ from isvctl.config.provider_registry import (
     load_registry,
     load_registry_skipping_invalid,
     run_git,
+    version_warning,
 )
 from isvctl.config.suite_resolution import mark_fetched, provider_dir
 from isvctl.orchestrator.loop import OrchestratorResult, Phase, PhaseResult
@@ -621,14 +622,17 @@ def test_fetch_refuses_to_replace_local_provider(monkeypatch: pytest.MonkeyPatch
 
 
 def test_local_provider_runs_without_fetch_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A registered name with a local (non-fetched) directory is the partner's own work: run it, list it as local."""
-    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry()})
+    """A registered name with a local (non-fetched) directory is the partner's own work.
+
+    It runs without the entry's settings, which describe the pinned commit, and is listed as local.
+    """
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(status="demo")})
     _local_provider(tmp_path, "acme")
 
     entry = ensure_fetched("acme", configs_root)
     _, output = _list(monkeypatch, configs_root)
 
-    assert entry is not None and entry.name == "acme"
+    assert entry is None
     assert "local" in output
 
 
@@ -743,15 +747,31 @@ def test_ensure_fetched_rejects_registered_but_not_fetched(tmp_path: Path) -> No
         ensure_fetched("acme", configs_root)
 
 
-def test_ensure_fetched_runs_local_scaffold_with_valid_entry(tmp_path: Path) -> None:
-    """A partner's own scaffold keeps running by name once its registry entry is filled in."""
-    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry()})
-    _local_provider(tmp_path, "acme")
+@pytest.mark.parametrize(("tested_with", "running"), [("1.0.0", "1.0.0"), ("1.0.0-rc1", "1.0.0rc1")])
+def test_version_warning_silent_for_matching_release(tested_with: str, running: str) -> None:
+    """The release an entry was validated against, including a release candidate, needs no warning."""
+    assert version_warning(_registry_entry("https://example.com/acme", tested_with=tested_with), running) is None
 
-    entry = ensure_fetched("acme", configs_root)
 
-    assert entry is not None
-    assert entry.name == "acme"
+def test_version_warning_names_both_versions() -> None:
+    """Another isvctl version than the entry's tested_with is pointed out."""
+    warning = version_warning(_registry_entry("https://example.com/acme", tested_with="1.0.0"), "1.1.0")
+
+    assert warning == (
+        "'acme' was validated against isvctl 1.0.0, but this is isvctl 1.1.0; "
+        "its configs may not match this version's suites."
+    )
+
+
+def test_fetch_warns_about_another_isvctl_version(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """fetch points out that the entry was validated against another isvctl version."""
+    url, first, _ = _upstream_repo(tmp_path)
+    monkeypatch.setattr(provider_cli, "__version__", "1.1.0")
+
+    exit_code, output = _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=first, tested_with="1.0.0"), "acme")
+
+    assert exit_code == 0, output
+    assert "validated against isvctl 1.0.0, but this is isvctl 1.1.0" in output
 
 
 def test_run_git_reports_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -814,7 +834,7 @@ def _no_upload_allowed() -> tuple[bool, str, str]:
 
 
 def test_test_run_turns_on_demo_mode_for_demo_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """`test run --provider <demo provider>` sets ISVCTL_DEMO_MODE=1 for its steps and never uploads."""
+    """`test run --provider <demo provider>` sets ISVCTL_DEMO_MODE=1 for its steps, never uploads, and warns on a version gap."""
     configs_root = _configs_root(tmp_path, {})
     (configs_root / "suites" / "vm.yaml").write_text("tests:\n  capability: vm\n  validations: {}\n", encoding="utf-8")
     checkout = configs_root / "providers-external" / "acme"
@@ -824,6 +844,7 @@ def test_test_run_turns_on_demo_mode_for_demo_provider(monkeypatch: pytest.Monke
     )
     _git(checkout, "init", "-q")
     _git(checkout, "commit", "-q", "--allow-empty", "-m", "fetched")
+    mark_fetched(checkout, None)
     (configs_root / "providers-registry" / "acme.yaml").write_text(
         yaml.safe_dump(_entry(status="demo", commit=_head(checkout))), encoding="utf-8"
     )
@@ -832,11 +853,13 @@ def test_test_run_turns_on_demo_mode_for_demo_provider(monkeypatch: pytest.Monke
     monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
     monkeypatch.setattr(test_cli, "Orchestrator", _EnvCapturingOrchestrator)
     monkeypatch.setattr(test_cli, "check_upload_credentials", _no_upload_allowed)
+    monkeypatch.setattr(test_cli, "__version__", "1.1.0")
     _EnvCapturingOrchestrator.demo_mode = None
 
     result = runner.invoke(test_cli.app, ["run", "--provider", "acme", "--suite", "vm"])
 
     assert result.exit_code == 0, result.output
+    assert "validated against isvctl 0.13.0, but this is isvctl 1.1.0" in result.output
     assert "'acme' has status 'demo': running with ISVCTL_DEMO_MODE=1." in result.output
     assert "never uploaded to ISV Lab Service" in result.output
     assert _EnvCapturingOrchestrator.demo_mode == "1"

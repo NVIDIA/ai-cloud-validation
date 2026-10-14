@@ -64,7 +64,10 @@ link is the entry's `documentation_url`, which is why it must explain them.
   fetched, or whose checkout is not at the commit the registry pins - for
   example after a `git pull` updated the entry. Run `provider fetch acme` again;
   it replaces the previous checkout, including any local edits. A `local`
-  directory, such as your own scaffold, runs as it is.
+  directory, such as your own scaffold, runs as it is; the entry describes the
+  pinned commit, so its `status` does not apply to it.
+- `provider fetch acme` and `test run --provider acme` warn when the entry's
+  `tested_with` is not the isvctl version you are running.
 - `provider list` shows each entry's checkout as `yes`, `no`,
   `stale (<commit>)`, or `local` (a directory `fetch` did not create, such as
   your own scaffold).
@@ -130,8 +133,10 @@ link is the entry's `documentation_url`, which is why it must explain them.
 
 `status` is one of:
 
-- `supported`: maintained by its maintainers (not NVIDIA), and the commit passed
-  the declared suites against `tested_with`.
+- `supported`: maintained by its maintainers (not NVIDIA), who state that the
+  commit passed the declared suites against `tested_with`. NVIDIA does not run
+  those suites or verify the results; CI here only checks that the configs load
+  (see below).
 - `deprecated`: no longer maintained or validated; hidden from `provider list`
   unless `--all`.
 - `demo`: dummy results only; runs in demo mode and is never uploaded.
@@ -139,7 +144,9 @@ link is the entry's `documentation_url`, which is why it must explain them.
 This repository's CI fetches entries at their pinned commits and dry-runs
 each declared suite: the configs must load against the current suites, but
 no script runs, except for `demo` entries. A pull request checks the entries
-it adds or changes; a weekly job checks every entry except `deprecated` ones.
+it adds or changes, or every entry when it changes what providers depend on
+(suites, shared scripts, config loading); a weekly job checks every entry.
+`deprecated` entries are never checked.
 
 An entry that has not been re-validated against a recent release for a
 while may be moved to `deprecated`. It stays fetchable, so users can still

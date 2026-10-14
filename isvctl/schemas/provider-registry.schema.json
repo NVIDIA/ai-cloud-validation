@@ -78,7 +78,7 @@
       "pattern": "^https://\\S+$"
     },
     "status": {
-      "description": "supported: maintained by its maintainers, and `commit` passed the declared suites against `tested_with` (support comes from the maintainers, not NVIDIA). deprecated: no longer maintained or validated; hidden from `isvctl provider list` unless --all. demo: scripts only return dummy results, like the living example; `isvctl test run --provider <name>` sets ISVCTL_DEMO_MODE=1 itself, and results are never uploaded.",
+      "description": "supported: maintained by its maintainers, who state that `commit` passed the declared suites against `tested_with`; NVIDIA neither runs those suites nor supports the provider, and CI only checks that its configs load. deprecated: no longer maintained or validated; hidden from `isvctl provider list` unless --all. demo: scripts only return dummy results, like the living example; `isvctl test run --provider <name>` sets ISVCTL_DEMO_MODE=1 itself, and results are never uploaded.",
       "type": "string",
       "enum": ["supported", "deprecated", "demo"]
     }
