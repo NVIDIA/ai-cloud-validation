@@ -63,7 +63,8 @@ link is the entry's `documentation_url`, which is why it must explain them.
 - `test run --provider acme` refuses to run a registered provider that is not
   fetched, or whose checkout is not at the commit the registry pins - for
   example after a `git pull` updated the entry. Run `provider fetch acme` again;
-  it replaces the previous checkout, including any local edits.
+  it replaces the previous checkout, including any local edits. A `local`
+  directory, such as your own scaffold, runs as it is.
 - `provider list` shows each entry's checkout as `yes`, `no`,
   `stale (<commit>)`, or `local` (a directory `fetch` did not create, such as
   your own scaffold).

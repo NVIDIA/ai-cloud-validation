@@ -523,10 +523,12 @@ def fetch_cmd(
         target.rename(previous)
     try:
         staging.rename(target)
-    except OSError:
+    except OSError as exc:
         if previous is not None:
             previous.rename(target)
-        raise
+        shutil.rmtree(staging, ignore_errors=True)
+        print_error(f"Could not move the fetched '{name}' into {_display_path(target)}: {exc}")
+        raise typer.Exit(code=1) from exc
     if previous is not None:
         shutil.rmtree(previous)
 

@@ -27,6 +27,7 @@ from isvctl.config.provider_registry import (
     fetch_state,
     load_registry,
     load_registry_skipping_invalid,
+    run_git,
 )
 from isvctl.config.suite_resolution import mark_fetched, provider_dir
 from isvctl.orchestrator.loop import OrchestratorResult, Phase, PhaseResult
@@ -370,7 +371,7 @@ def test_refetch_replaces_previous_checkout(monkeypatch: pytest.MonkeyPatch, tmp
 
 
 def test_refetch_restores_previous_checkout_if_rename_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """If the new checkout cannot be moved into place, the previous one is put back."""
+    """If the new checkout cannot be moved into place, the previous one is put back and the staging is removed."""
     url, first, tip = _upstream_repo(tmp_path)
     _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=first), "acme")
     real_rename = Path.rename
@@ -382,10 +383,12 @@ def test_refetch_restores_previous_checkout_if_rename_fails(monkeypatch: pytest.
         return real_rename(self, target)
 
     monkeypatch.setattr(Path, "rename", rename)
-    exit_code, _ = _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=tip), "acme")
+    exit_code, output = _fetch(monkeypatch, tmp_path, _registry_entry(url, commit=tip), "acme")
 
-    assert exit_code != 0
+    assert exit_code == 1
+    assert "Could not move the fetched 'acme' into" in output
     assert _head(_checkout(tmp_path)) == first
+    assert [path.name for path in _checkout(tmp_path).parent.iterdir()] == ["acme"]
 
 
 def test_failed_fetch_keeps_previous_checkout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -738,6 +741,29 @@ def test_ensure_fetched_rejects_registered_but_not_fetched(tmp_path: Path) -> No
         ProviderRegistryError, match=re.escape("registered but not fetched. Run: isvctl provider fetch acme")
     ):
         ensure_fetched("acme", configs_root)
+
+
+def test_ensure_fetched_runs_local_scaffold_with_valid_entry(tmp_path: Path) -> None:
+    """A partner's own scaffold keeps running by name once its registry entry is filled in."""
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry()})
+    _local_provider(tmp_path, "acme")
+
+    entry = ensure_fetched("acme", configs_root)
+
+    assert entry is not None
+    assert entry.name == "acme"
+
+
+def test_run_git_reports_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A git command that hangs, e.g. on an unresponsive remote, fails like any other git error."""
+
+    def hang(*args: Any, **kwargs: Any) -> None:
+        raise subprocess.TimeoutExpired(cmd="git", timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", hang)
+
+    with pytest.raises(RuntimeError, match=re.escape("git fetch timed out after 5s")):
+        run_git("fetch", "origin", cwd=tmp_path, timeout=5)
 
 
 def test_test_run_by_name_requires_a_fetch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

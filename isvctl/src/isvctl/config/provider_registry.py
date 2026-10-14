@@ -182,16 +182,20 @@ def _git_env() -> dict[str, str]:
     }
 
 
-def run_git(*args: str, cwd: Path) -> str:
+def run_git(*args: str, cwd: Path, timeout: float = 600) -> str:
     """Run a git command and return its stripped stdout.
 
     Raises:
-        RuntimeError: If git is missing or the command fails.
+        RuntimeError: If git is missing, the command fails, or it runs longer than ``timeout`` seconds.
     """
     try:
-        result = subprocess.run(["git", *args], cwd=cwd, env=_git_env(), capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            ["git", *args], cwd=cwd, env=_git_env(), capture_output=True, text=True, check=False, timeout=timeout
+        )
     except FileNotFoundError as exc:
         raise RuntimeError("git command not found in PATH") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"git {args[0]} timed out after {timeout:g}s") from exc
     if result.returncode != 0:
         raise RuntimeError(f"git {args[0]} failed: {result.stderr.strip()}")
     return result.stdout.strip()
