@@ -181,6 +181,7 @@ domains:
                 github_issues:
                   - "#247"
                 labels:
+                  - iam
                   - vm
               - summary: Access other components via a specified key as possible (SOL, Network devices)
                 milestone: M5
@@ -884,6 +885,7 @@ domains:
                   - "#250"
                 labels:
                   - bare_metal
+                  - observability
               - summary: Serial console access is required (read-only sufficient, interactive preferred) (Bare Metal)
                 labels:
                   - bare_metal
@@ -1000,6 +1002,7 @@ domains:
                 labels:
                   - bare_metal
                   - min_req
+                  - observability
                 priority: P0
                 milestone: M5
                 notes: ""
@@ -2153,6 +2156,7 @@ domains:
                 notes: "Ethernet and InfiniBand variants share this test ID"
               - summary: Verify GPUDirect RDMA (DMA-BUF) bandwidth between GPU pods meets the reference minimum
                 labels:
+                  - gpu
                   - kubernetes
                   - network
                   - network_operator
@@ -2343,6 +2347,7 @@ domains:
               - summary: Request a reset of GPUs on an operator-managed node
                 labels:
                   - breakfix
+                  - gpu
                   - kubernetes
                   - min_req
                 priority: P2
@@ -2503,6 +2508,7 @@ domains:
                   - bare_metal
                   - breakfix
                   - min_req
+                  - observability
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -3171,6 +3177,7 @@ domains:
                 labels:
                   - control_plane
                   - min_req
+                  - storage
                 priority: P2
                 milestone: M6
                 notes: ""
@@ -3372,6 +3379,7 @@ domains:
                 legacy_ids: [SLURM-XX-04]
                 status: published
                 labels:
+                  - gpu
                   - slurm
               - summary: SlurmGpuAllocation 1gpu and 2gpu
                 notes: ""
@@ -3385,6 +3393,7 @@ domains:
                 legacy_ids: [SLURM-XX-05]
                 status: published
                 labels:
+                  - gpu
                   - slurm
               - summary: SlurmNodeJobExecution cpu and gpu
                 notes: ""
@@ -3680,6 +3689,7 @@ domains:
                 labels:
                   - kubernetes
                   - min_req
+                  - network
                 notes: K8s20
                 req_id: K8S22
                 test_id: K8S22-01
@@ -3803,6 +3813,7 @@ domains:
             tests:
               - summary: "TODO: Compatibility with the mainline NVIDIA GPU Operator"
                 labels:
+                  - gpu
                   - kubernetes
                   - min_req
                 notes: K8S23
@@ -3814,6 +3825,7 @@ domains:
                 milestone: ""
               - summary: Verify provider-default accelerator operators and drivers can be replaced or overridden with tenant-required versions
                 labels:
+                  - gpu
                   - kubernetes
                   - min_req
                 notes: ""
@@ -3909,6 +3921,8 @@ domains:
                 labels:
                   - kubernetes
                   - min_req
+                  - network
+                  - security
                 priority: P0
                 milestone: M5
                 notes: ""
@@ -4065,6 +4079,7 @@ domains:
             tests:
               - summary: Verify a workload assumes its ServiceAccount-bound platform IAM identity and enforces allowed and denied resource scopes
                 labels:
+                  - iam
                   - kubernetes
                   - min_req
                 priority: P0
@@ -4080,6 +4095,7 @@ domains:
             tests:
               - summary: Verify the cluster exposes a cluster-specific OIDC Issuer endpoint for workload identity federation
                 labels:
+                  - iam
                   - kubernetes
                   - min_req
                 priority: P0
@@ -4131,6 +4147,7 @@ domains:
                 labels:
                   - kubernetes
                   - min_req
+                  - network
                 priority: P0
                 milestone: M6
                 notes: ""
@@ -4140,7 +4157,7 @@ domains:
           - description: LoadBalancer Service Support
             tests:
               - summary: Verify public and private LoadBalancer connectivity and exact static IP assignment
-                labels: [kubernetes, min_req, slow]
+                labels: [kubernetes, min_req, network, slow]
                 priority: P0
                 milestone: M5
                 notes: "Creates three disposable Services and checks their backend responses through assigned ingress IPs; requires provider annotations and reserved static addresses."
@@ -4152,7 +4169,7 @@ domains:
           - description: Conditional DNS Forwarding
             tests:
               - summary: Verify a temporary CoreDNS zone forwards to the designated resolver and cluster DNS still works
-                labels: [kubernetes, min_req, slow]
+                labels: [kubernetes, min_req, network, slow]
                 priority: P0
                 milestone: M5
                 notes: "Adds and restores one unique CoreDNS zone; checks the answer and upstream query log."
@@ -4164,7 +4181,7 @@ domains:
           - description: Configured Kubernetes CIDR Ranges
             tests:
               - summary: Verify configured service, node and pod ranges against live control-plane ranges and fresh allocations
-                labels: [kubernetes, min_req, slow]
+                labels: [kubernetes, min_req, network, slow]
                 priority: P0
                 milestone: M5
                 notes: "Validates a preconfigured cluster; does not reprovision alternate ranges. Requires ServiceCIDR API and node podCIDRs; CNIs without those need a provider-specific probe."
@@ -4381,6 +4398,7 @@ domains:
               - summary: Verify Fabric Manager logs are available (where applicable)
                 labels:
                   - min_req
+                  - network
                   - observability
                 priority: P1
                 milestone: M7
@@ -4395,6 +4413,7 @@ domains:
               - summary: Verify Subnet Manager logs are available (where applicable)
                 labels:
                   - min_req
+                  - network
                   - observability
                 priority: P1
                 milestone: M7
@@ -4409,6 +4428,7 @@ domains:
               - summary: Verify UFM Event logs are available
                 labels:
                   - min_req
+                  - network
                   - observability
                 priority: P1
                 milestone: M7
@@ -4579,6 +4599,7 @@ domains:
                 labels:
                   - min_req
                   - observability
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -4593,6 +4614,7 @@ domains:
                 labels:
                   - min_req
                   - observability
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -4607,7 +4629,9 @@ domains:
             tests:
               - summary: Verify NVLink metrics are available from the GPU perspective (per-link counters, bandwidth utilization)
                 labels:
+                  - gpu
                   - min_req
+                  - network
                   - observability
                 priority: P1
                 milestone: M5
@@ -4622,6 +4646,7 @@ domains:
               - summary: Verify NVLink metrics are available from the switch perspective (port-level counters, error rates)
                 labels:
                   - min_req
+                  - network
                   - observability
                 priority: P1
                 milestone: M5

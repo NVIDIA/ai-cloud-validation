@@ -74,7 +74,7 @@ tests:
       checks:
         VmLaunchedWithSpecifiedKeyCheck:
           test_id: "AUTH02-01"
-          labels: ["vm"]
+          labels: ["vm", "iam"]
 
     component_key_access:
       step: component_key_access

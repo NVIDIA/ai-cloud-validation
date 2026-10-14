@@ -116,7 +116,7 @@ tests:
       checks:
         ObjectStorageCrudCheck:
           test_id: "DATASVC01-01"
-          labels: ["control_plane", "min_req"]
+          labels: ["control_plane", "min_req", "storage"]
           requires: []
           description: "Check objects can be put, read back, and deleted through the object storage API"
           compose:

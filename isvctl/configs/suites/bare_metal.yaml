@@ -101,7 +101,7 @@ tests:
             - SerialConsoleCheck
         SerialConsoleRetentionCheck:
           test_id: "CNP06-02"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "min_req", "observability"]
 
     cloud_init:
       step: launch_instance
@@ -202,7 +202,7 @@ tests:
       checks:
         BmHostStatusLogCheck:
           test_id: "BMAAS07-01"
-          labels: ["bare_metal"]
+          labels: ["bare_metal", "observability"]
 
     # GPU stress test - PyTorch matrix multiplications on all GPUs
     gpu_stress:
@@ -818,7 +818,7 @@ tests:
       checks:
         BmcKernelLogCheck:
           test_id: "BFX03-03"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "min_req", "observability"]
           min_hosts: 1
 
     maintenance_events:

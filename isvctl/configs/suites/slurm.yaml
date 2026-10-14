@@ -72,14 +72,14 @@ tests:
           require_available: true
         SlurmJobSubmission:
           test_id: "SLURM04-01"
-          labels: ["slurm"]
+          labels: ["slurm", "gpu"]
         SlurmGpuAllocation-1gpu:
           test_id: "SLURM05-01"
-          labels: ["slurm"]
+          labels: ["slurm", "gpu"]
           num_gpus: 1
         SlurmGpuAllocation-2gpu:
           test_id: "SLURM05-01"
-          labels: ["slurm"]
+          labels: ["slurm", "gpu"]
           num_gpus: 2
         SlurmNodeJobExecution-cpu:
           test_id: "SLURM06-01"
