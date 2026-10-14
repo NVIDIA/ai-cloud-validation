@@ -73,7 +73,7 @@ jobs:
               isvtest/src/isvtest/validations \
               scripts/check_registered_providers.py .github/workflows/provider-registry.yml)
             if [ -z "$contract" ]; then
-              names=$(git diff --name-only --diff-filter=AM origin/main...HEAD -- 'isvctl/configs/providers-registry/*.yaml' \
+              names=$(git diff --name-only --diff-filter=AMR origin/main...HEAD -- 'isvctl/configs/providers-registry/*.yaml' \
                 | xargs -r -n1 basename | sed 's/\.yaml$//')
             fi
           fi
