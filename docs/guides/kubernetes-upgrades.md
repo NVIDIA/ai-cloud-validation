@@ -72,6 +72,10 @@ contract. The observer uses a separate thread, opens fresh HTTP connections, rej
 redirects and records every failed attempt without retries. Evidence is flushed
 after each probe; an existing artifact is never overwritten. Call `stop()` in the
 adapter's `finally` block and treat collector or persistence errors as test failures.
+Malformed or truncated HTTP responses are failed probes; collection continues so
+the evidence can show recovery. If observer shutdown also fails, the EKS adapter
+preserves the original `error` and `error_type` and records subsequent shutdown
+failures in `observer_errors` without skipping canary cleanup.
 
 Adapters must bound API calls, upgrade polling and cleanup within the step timeout
 (two hours for each active upgrade). Emit `success: false` and a diagnostic `error`
@@ -246,3 +250,36 @@ After testing, all 23 Terraform-managed resources were destroyed. Direct AWS
 checks confirmed removal of the cluster, VPC, worker instances, load balancers,
 active NAT gateways, elastic IPs, test IAM roles and audit log group. The Terraform
 state is empty. Local verification passed 4,831 tests and all pre-commit checks.
+
+## Live verification after refactor and review fixes: 2026-10-14
+
+Ran the documented `eks.yaml` plus `eks-upgrades.yaml` command end to end on a
+new disposable CPU-only EKS cluster in `us-east-2`, after merging the provider
+layout refactor and fixing HTTP protocol-error handling and observer shutdown
+diagnostics. All three checks passed with the unchanged two-second request budget
+and five-second maximum observation gap.
+
+| Check | Observed result |
+| --- | --- |
+| K8S08 | Passed: live managed configuration and supported version transition |
+| K8S09 | Passed: `1.35.8` to `1.36.4`, 414 correct HTTP responses, maximum latency 0.276 seconds |
+| K8S10 | Passed: both workers replaced, 695 correct HTTP responses, maximum latency 0.345 seconds |
+
+Neither upgrade had a failed HTTP request, wrong response or latency violation.
+Maximum probe gaps were 1.011 seconds or less. The node test collected 692 PDB
+samples, observed an actual budget-rejected eviction (HTTP 429), then three
+successful Eviction API calls across the two original workers. Drains were
+sequential; the PDB maintained at least two healthy replicas and recovered all
+three. Both replacement workers were healthy and schedulable at the target image.
+Both test-owned canary namespaces were removed without cleanup errors.
+
+The previous run's latency violation remains a failed historical result; this
+passing run does not establish its cause or remove it from the evidence.
+Verification covers the EKS CPU reference implementation, not GPU workloads or
+other providers. Local checks passed 4,847 tests (one skipped, 280 deselected),
+lint, pre-commit, scaffold demos and the three-check upgrade-overlay demo.
+
+Afterward, all 23 Terraform-managed resources were destroyed. Eleven direct
+AWS/state checks confirmed removal of the cluster, VPC, active workers, load
+balancers, NAT gateways, elastic IPs, test IAM roles and audit log group, plus
+empty Terraform state. The production cluster was not modified.
