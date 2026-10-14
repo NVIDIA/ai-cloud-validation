@@ -19,7 +19,7 @@ from pathlib import Path
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
-from isvctl.config.suite_resolution import provider_dir
+from isvctl.config.suite_resolution import in_tree_provider_dir, provider_dir
 from isvctl.doctor.result import CategoryReport, CheckResult, Status
 
 
@@ -92,7 +92,7 @@ def _check_provider_arg(root: Path, providers: list[str]) -> list[CheckResult]:
                     status=Status.FAIL,
                     message="provider scripts directory not found",
                     remediation=(
-                        f"expected path: {configs_root / 'providers' / prov / 'scripts'}, "
+                        f"expected path: {in_tree_provider_dir(prov, configs_root) / 'scripts'}, "
                         f"or run `isvctl provider fetch {prov}` if it is a registered external provider"
                     ),
                 )

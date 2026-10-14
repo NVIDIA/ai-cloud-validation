@@ -127,13 +127,12 @@ ISVCTL_DEMO_MODE=1 uv run isvctl test run --provider acme --suite vm
 ```
 
 Make that directory your provider's own Git repository and implement the
-scripts there. Delete `.scaffold-meta` once it is a repository: the marker lets
-`isvctl provider scaffold --overwrite` replace the directory.
+scripts there. Once it is a repository, `isvctl provider scaffold --overwrite`
+refuses to replace it.
 
 ```bash
 cd isvctl/configs/providers-external/acme
 git init
-rm .scaffold-meta
 git remote add origin git@github.com:acme/external-provider-acme.git
 # implement scripts/*
 ```

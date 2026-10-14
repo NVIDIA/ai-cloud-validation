@@ -64,7 +64,7 @@ def isvctl_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 
 def test_checks_depend_on_status(tmp_path: Path, isvctl_calls: list[list[str]]) -> None:
-    """Supported entries are fetched and dry-run, demo entries also run, deprecated ones are skipped."""
+    """Supported entries are fetched and dry-run, demo entries run instead, deprecated ones are skipped."""
     configs_root = _configs_root(tmp_path, {"acme": "supported", "demo1": "demo", "old": "deprecated"})
 
     assert check_registered_providers.main([], configs_root) == 0
@@ -73,9 +73,7 @@ def test_checks_depend_on_status(tmp_path: Path, isvctl_calls: list[list[str]]) 
         ["test", "run", "--provider", "acme", "--suite", "vm", "--dry-run"],
         ["test", "run", "--provider", "acme", "--suite", "iam", "--dry-run"],
         ["provider", "fetch", "demo1"],
-        ["test", "run", "--provider", "demo1", "--suite", "vm", "--dry-run"],
         ["test", "run", "--provider", "demo1", "--suite", "vm"],
-        ["test", "run", "--provider", "demo1", "--suite", "iam", "--dry-run"],
         ["test", "run", "--provider", "demo1", "--suite", "iam"],
     ]
 

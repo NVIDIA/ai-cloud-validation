@@ -46,11 +46,13 @@ jobs:
 
     steps:
       # Full history, so the PR's changes can be diffed against its merge base
-      # with main; no persisted token, since demo entries run provider scripts.
+      # with main (blobs on demand: the diff needs names only); no persisted
+      # token, since demo entries run provider scripts.
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Fix git safe directory

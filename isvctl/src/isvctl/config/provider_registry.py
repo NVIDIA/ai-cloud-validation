@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 import jsonschema
 import yaml
+from isvtest.core.process import run_command_process
 
 from isvctl.config.suite_resolution import (
     CONFIGS_ROOT,
@@ -35,26 +36,16 @@ class ProviderRegistryError(Exception):
 
 
 @dataclass(frozen=True)
-class Maintainer:
-    """A partner contact for a registry entry."""
-
-    github: str
-    email: str | None
-
-
-@dataclass(frozen=True)
 class RegistryEntry:
     """One externally maintained provider pinned by the registry."""
 
     name: str
     vendor: str
-    description: str
     repo_url: str
     path: str | None
     commit: str
     tested_with: str
     suites: tuple[str, ...]
-    maintainers: tuple[Maintainer, ...]
     documentation_url: str
     status: str
 
@@ -97,13 +88,11 @@ def _to_entry(data: dict[str, Any]) -> RegistryEntry:
     return RegistryEntry(
         name=data["name"],
         vendor=data["vendor"],
-        description=data["description"],
         repo_url=data["repo_url"],
         path=data.get("path"),
         commit=data["commit"],
         tested_with=data["tested_with"],
         suites=tuple(data["suites"]),
-        maintainers=tuple(Maintainer(github=m["github"], email=m.get("email")) for m in data["maintainers"]),
         documentation_url=data["documentation_url"],
         status=data["status"],
     )
@@ -112,6 +101,28 @@ def _to_entry(data: dict[str, Any]) -> RegistryEntry:
 def registry_entry_path(name: str, configs_root: Path = CONFIGS_ROOT) -> Path:
     """Return where the registry entry for provider ``name`` lives; the path may not exist."""
     return configs_root / REGISTRY_DIRNAME / f"{name}.yaml"
+
+
+def _load_entry_file(path: Path, configs_root: Path) -> tuple[RegistryEntry | None, list[str]]:
+    """Load one registry file: the entry if it is valid, else None and its problems."""
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        return None, [f"invalid YAML: {exc}"]
+    errors = _entry_errors(path, data, configs_root)
+    return (None, errors) if errors else (_to_entry(data), [])
+
+
+def load_entry(name: str, configs_root: Path = CONFIGS_ROOT) -> tuple[RegistryEntry | None, list[str]]:
+    """Load the registry entry for provider ``name`` alone: the entry if it is valid, else None and its problems.
+
+    A name the registry does not know returns None and no problems.
+    """
+    path = registry_entry_path(name, configs_root)
+    # Keeps a name such as '../x' from reading a file outside the registry.
+    if Path(name).name != name or not path.is_file():
+        return None, []
+    return _load_entry_file(path, configs_root)
 
 
 def load_registry_skipping_invalid(
@@ -128,16 +139,11 @@ def load_registry_skipping_invalid(
     entries = []
     problems: dict[str, list[str]] = {}
     for path in sorted(registry_dir.glob("*.yaml")):
-        try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            problems[path.name] = [f"invalid YAML: {exc}"]
-            continue
-        errors = _entry_errors(path, data, configs_root)
-        if errors:
+        entry, errors = _load_entry_file(path, configs_root)
+        if entry is None:
             problems[path.name] = errors
         else:
-            entries.append(_to_entry(data))
+            entries.append(entry)
     return entries, problems
 
 
@@ -185,13 +191,14 @@ def _git_env() -> dict[str, str]:
 def run_git(*args: str, cwd: Path, timeout: float = 600) -> str:
     """Run a git command and return its stripped stdout.
 
+    On timeout the whole process group is stopped, including the transport (ssh,
+    ``git-remote-https``) that ``git fetch`` starts.
+
     Raises:
         RuntimeError: If git is missing, the command fails, or it runs longer than ``timeout`` seconds.
     """
     try:
-        result = subprocess.run(
-            ["git", *args], cwd=cwd, env=_git_env(), capture_output=True, text=True, check=False, timeout=timeout
-        )
+        result = run_command_process(["git", *args], cwd=cwd, env=_git_env(), timeout=timeout)
     except FileNotFoundError as exc:
         raise RuntimeError("git command not found in PATH") from exc
     except subprocess.TimeoutExpired as exc:
@@ -238,8 +245,7 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     """
     if in_tree_provider_dir(provider, configs_root).is_dir():
         return None
-    entries, _ = load_registry_skipping_invalid(configs_root)
-    entry = next((entry for entry in entries if entry.name == provider), None)
+    entry, _ = load_entry(provider, configs_root)
     if entry is None:
         return None
     state, head = fetch_state(entry, configs_root)

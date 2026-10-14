@@ -18,9 +18,9 @@ from typer.testing import CliRunner
 
 from isvctl.cli import provider as provider_cli
 from isvctl.cli import test as test_cli
+from isvctl.config import provider_registry
 from isvctl.config.label_discovery import list_providers
 from isvctl.config.provider_registry import (
-    Maintainer,
     ProviderRegistryError,
     RegistryEntry,
     ensure_fetched,
@@ -86,7 +86,6 @@ def test_loads_valid_entry(tmp_path: Path) -> None:
     assert entry.path is None
     assert entry.commit == COMMIT
     assert entry.suites == ("vm",)
-    assert entry.maintainers == (Maintainer(github="acme-handle", email="oss@acme.example"),)
     assert entry.status == "supported"
 
 
@@ -306,13 +305,11 @@ def _registry_entry(repo_url: str, **overrides: Any) -> RegistryEntry:
     entry = RegistryEntry(
         name="acme",
         vendor="Acme Cloud Inc.",
-        description="Acme GPU instances.",
         repo_url=repo_url,
         path=None,
         commit=COMMIT,
         tested_with="0.13.0",
         suites=("vm",),
-        maintainers=(Maintainer(github="acme-handle", email=None),),
         documentation_url="https://example.com/acme",
         status="supported",
     )
@@ -322,7 +319,9 @@ def _registry_entry(repo_url: str, **overrides: Any) -> RegistryEntry:
 def _fetch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, entry: RegistryEntry, *args: str) -> tuple[int, str]:
     """Run ``isvctl provider fetch`` against ``tmp_path/configs`` with the registry replaced by one entry."""
     monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", tmp_path / "configs")
-    monkeypatch.setattr(provider_cli, "load_registry_skipping_invalid", lambda configs_root: ([entry], {}))
+    monkeypatch.setattr(
+        provider_cli, "load_entry", lambda name, configs_root: (entry if name == entry.name else None, [])
+    )
     result = runner.invoke(provider_cli.app, ["fetch", *args])
     return result.exit_code, result.output
 
@@ -706,7 +705,6 @@ def test_list_shows_fetch_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     )
     for name, commit in (("acme", first), ("beta", tip)):
         _fetch(monkeypatch, tmp_path, _registry_entry(url, name=name, commit=commit), name)
-    monkeypatch.setattr(provider_cli, "load_registry_skipping_invalid", load_registry_skipping_invalid)
 
     exit_code, output = _list(monkeypatch, configs_root)
 
@@ -780,7 +778,7 @@ def test_run_git_reports_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     def hang(*args: Any, **kwargs: Any) -> None:
         raise subprocess.TimeoutExpired(cmd="git", timeout=kwargs["timeout"])
 
-    monkeypatch.setattr(subprocess, "run", hang)
+    monkeypatch.setattr(provider_registry, "run_command_process", hang)
 
     with pytest.raises(RuntimeError, match=re.escape("git fetch timed out after 5s")):
         run_git("fetch", "origin", cwd=tmp_path, timeout=5)

@@ -432,12 +432,13 @@ def run(
         except ProviderRegistryError as exc:
             print_error(str(exc))
             raise typer.Exit(code=1)
-        if registered is not None and (warning := version_warning(registered, __version__)):
-            print_warning(warning)
-        if registered is not None and registered.status == "demo":
-            # Steps inherit this process's environment, so every script sees it.
-            os.environ[DEMO_MODE_ENV] = "1"
-            print_progress(f"'{provider}' has status 'demo': running with {DEMO_MODE_ENV}=1.")
+        if registered is not None:
+            if warning := version_warning(registered, __version__):
+                print_warning(warning)
+            if registered.status == "demo":
+                # Steps inherit this process's environment, so every script sees it.
+                os.environ[DEMO_MODE_ENV] = "1"
+                print_progress(f"'{provider}' has status 'demo': running with {DEMO_MODE_ENV}=1.")
 
     if suite:
         try:

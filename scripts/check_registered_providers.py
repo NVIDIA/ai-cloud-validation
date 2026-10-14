@@ -19,7 +19,7 @@
 For each entry in ``isvctl/configs/providers-registry/``, except ``deprecated``
 ones: fetch the pinned commit, then dry-run each declared suite, which loads and
 validates the provider's configs against the current suites without running any
-script. ``demo`` entries also run each suite, since their scripts need no
+script. ``demo`` entries run each suite instead, since their scripts need no
 credentials. Needs network access.
 
 Usage:
@@ -47,9 +47,8 @@ def _commands(entry: RegistryEntry) -> list[list[str]]:
     commands = [["provider", "fetch", entry.name]]
     for suite in entry.suites:
         run = ["test", "run", "--provider", entry.name, "--suite", suite]
-        commands.append([*run, "--dry-run"])
-        if entry.status == "demo":
-            commands.append(run)
+        # A real run loads and validates the same configs, so a demo entry needs no dry run first.
+        commands.append(run if entry.status == "demo" else [*run, "--dry-run"])
     return commands
 
 
