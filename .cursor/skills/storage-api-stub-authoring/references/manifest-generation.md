@@ -1,6 +1,6 @@
 # Manifest generation (discover, then ask)
 
-How to fill `config/storage-provider-manifest.yaml` (schema **v1alpha2**) by
+How to fill `config/overlays/storage-provider-manifest.yaml` (schema **v1alpha2**) by
 **probing the environment first** and **asking the customer only for what you
 can't observe**. Discovery proposes values; Q&A confirms intent and fills gaps.
 
@@ -17,8 +17,8 @@ So: **don't declare what you can't back up.** Discover it, or ask, or omit it
 
 Two files ship beside the template:
 
-- `config/storage-provider-manifest.yaml` — the blank template to fill (edit in place).
-- `config/storage-provider-manifest.example.yaml` — a fully-populated multi-provider reference.
+- `config/overlays/storage-provider-manifest.yaml` — the blank template to fill (edit in place).
+- `config/overlays/storage-provider-manifest.example.yaml` — a fully-populated multi-provider reference.
 - Schema: `isvctl/schemas/storage-provider-manifest.schema.json`.
 
 ---
@@ -41,7 +41,7 @@ The manifest adapter parses the manifest **without loading any shim** (no
 backend calls), so it is the fastest correctness loop while drafting:
 
 ```bash
-STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml \
+STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/overlays/storage-provider-manifest.yaml \
   uv run python isvctl/configs/shared/storage/storage_manifest_to_steps.py | uv run python -m json.tool
 ```
 
@@ -77,7 +77,7 @@ when omitted — but set them explicitly; `name` is the subtest tag.
 | Field | Discover | Ask if not discoverable |
 | ----- | -------- | ----------------------- |
 | `shim.kind` | Phase 1a is always `python` (in-process). `rest` is declared-but-skipped. | — |
-| `shim.module` | Keep `../scripts/storage/api.py` for the flat my-isv layout | — |
+| `shim.module` | Keep `../../scripts/storage/api.py` (relative to `config/overlays/`) | — |
 | `shim.configmap` / `credentials_secret` | Production handoff names (not needed for local runs) | "ConfigMap/Secret names ops will mount in-cluster?" (informational) |
 
 **Omit the entire `shim:` block for providers with no management API** — the

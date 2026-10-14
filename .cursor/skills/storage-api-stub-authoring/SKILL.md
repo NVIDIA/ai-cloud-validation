@@ -31,7 +31,7 @@ a separate handoff folder.
 | In scope (my-isv) | Path |
 | ----------------- | ---- |
 | Required | `scripts/storage/api.py` — edit `MyStorageApi` TODO blocks in place |
-| Required | `config/storage-provider-manifest.yaml` |
+| Required | `config/overlays/storage-provider-manifest.yaml` |
 | Harness (exists) | `config/storage.yaml` — tweak in place if needed for tests |
 | Optional | `scripts/storage/README.md` (document env vars when stub is done) |
 
@@ -51,7 +51,7 @@ only when the user wants k8s-integrated runs.
 
 By session end the user should have:
 
-1. `config/storage-provider-manifest.yaml` declaring the provider and pointing at the shim
+1. `config/overlays/storage-provider-manifest.yaml` declaring the provider and pointing at the shim
 2. `scripts/storage/.../api.py` implementing `StorageApi` + `build_api()`
 3. Documented env vars in `scripts/storage/README.md` (when stub is complete)
 4. Passing isolated probes (`probe_shim.py`) before any full `isvctl test run`
@@ -64,7 +64,7 @@ By session end the user should have:
 | AWS FSx Lustre | `isvctl/configs/providers/aws/scripts/storage/fsx-lustre/api.py` | `aws/config/overlays/storage-provider-manifest.yaml` | `aws/config/storage.yaml` |
 | VAST NFS | `isvctl/configs/providers/vast/scripts/storage/vast/api.py` | `vast/config/storage-provider-manifest.yaml` | `vast/config/storage.yaml` |
 | WEKA | `isvctl/configs/providers/weka/scripts/storage/weka/api.py` | `weka/config/storage-provider-manifest.yaml` | `weka/config/storage.yaml` |
-| **Authoring target (edit in place)** | `my-isv/scripts/storage/api.py` | `my-isv/config/storage-provider-manifest.yaml` | `my-isv/config/storage.yaml` |
+| **Authoring target (edit in place)** | `my-isv/scripts/storage/api.py` | `my-isv/config/overlays/storage-provider-manifest.yaml` | `my-isv/config/storage.yaml` |
 
 Contract: `isvtest/src/isvtest/core/storage_provider/api.py` (per-method
 docstrings cover inputs/outputs, error conditions, and capability/qualifier semantics)
@@ -76,7 +76,7 @@ Check drivers:
 Manifest (schema v1alpha2):
 
 - Schema: `isvctl/schemas/storage-provider-manifest.schema.json`
-- Fully-populated example: `my-isv/config/storage-provider-manifest.example.yaml`
+- Fully-populated example: `my-isv/config/overlays/storage-provider-manifest.example.yaml`
 - Manifest → step adapter: `isvctl/configs/shared/storage/storage_manifest_to_steps.py`
   (resolves the manifest path, loads no shim; the `storage_manifest` step in `storage.yaml`)
 
@@ -147,7 +147,7 @@ Open the existing files — they already contain `TODO` markers and `DEMO_MODE`:
 
 ```text
 isvctl/configs/providers/my-isv/
-├── config/storage-provider-manifest.yaml   # shim.module → ../scripts/storage/api.py
+├── config/overlays/storage-provider-manifest.yaml   # shim.module → ../../scripts/storage/api.py
 ├── config/storage.yaml                     # storage_manifest step already points at the manifest
 └── scripts/storage/api.py                  # MyStorageApi — fill each TODO block
 ```
@@ -158,8 +158,8 @@ Before coding:
 
 1. Read `scripts/storage/api.py` end-to-end — every method has a `TODO` block to replace
 2. Read AWS/VAST reference shims for patterns matching intake answers
-3. Update `config/storage-provider-manifest.yaml` (v1alpha2): `providers[].name`, `identity`/`provider`, `shim`, `capabilities` — see [manifest-generation.md](references/manifest-generation.md)
-4. Keep `shim.module: ../scripts/storage/api.py` (flat my-isv layout)
+3. Update `config/overlays/storage-provider-manifest.yaml` (v1alpha2): `providers[].name`, `identity`/`provider`, `shim`, `capabilities` — see [manifest-generation.md](references/manifest-generation.md)
+4. Keep `shim.module: ../../scripts/storage/api.py` (relative to `config/overlays/`)
 5. Keep `DEMO_MODE` until real backend calls land — enables smoke without credentials
 
 Rename `MyStorageApi` / `properties()` identity fields to match the backend; keep
@@ -169,7 +169,7 @@ Rename `MyStorageApi` / `properties()` identity fields to match the backend; kee
 
 ## Phase 2: Manifest generation and config wiring
 
-Generate `config/storage-provider-manifest.yaml` (schema **v1alpha2**) using the
+Generate `config/overlays/storage-provider-manifest.yaml` (schema **v1alpha2**) using the
 **discover-then-ask** workflow in
 [manifest-generation.md](references/manifest-generation.md): probe the
 environment to propose field values, ask the customer for what you can't
@@ -179,8 +179,8 @@ feeds it to the checks — see [config-wiring.md](references/config-wiring.md).
 
 Two files ship beside the template — use them as you fill the blank one:
 
-- `config/storage-provider-manifest.yaml` — blank template to edit in place
-- `config/storage-provider-manifest.example.yaml` — fully-populated v1alpha2 reference (every field)
+- `config/overlays/storage-provider-manifest.yaml` — blank template to edit in place
+- `config/overlays/storage-provider-manifest.example.yaml` — fully-populated v1alpha2 reference (every field)
 
 **The manifest is a contract, not docs.** For providers with a `shim:` block,
 `StorageProviderApiCheck` cross-checks declared `identity`/`capabilities` against
@@ -190,7 +190,7 @@ declare what the shim actually reports; omit a field to leave it unchecked.
 **Validate the draft without a backend** (parses the manifest, loads no shim):
 
 ```bash
-STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml \
+STORAGE_PROVIDER_MANIFEST=isvctl/configs/providers/my-isv/config/overlays/storage-provider-manifest.yaml \
   uv run python isvctl/configs/shared/storage/storage_manifest_to_steps.py | uv run python -m json.tool
 ```
 
@@ -252,7 +252,7 @@ Run **before** full suite. Order matters.
 ```bash
 uv run python -c "
 from isvtest.core.storage import load_provider_registry
-ps = load_provider_registry({'manifest_path': 'isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml'})
+ps = load_provider_registry({'manifest_path': 'isvctl/configs/providers/my-isv/config/overlays/storage-provider-manifest.yaml'})
 print([p.name for p in ps if p.has_shim])
 "
 ```
@@ -261,7 +261,7 @@ print([p.name for p in ps if p.has_shim])
 
 ```bash
 uv run python .cursor/skills/storage-api-stub-authoring/scripts/probe_shim.py \
-  --manifest isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml
+  --manifest isvctl/configs/providers/my-isv/config/overlays/storage-provider-manifest.yaml
 ```
 
 Expect: `health_check` ok, `get_tenant_quota` with `hard_limit_bytes > 0`, and either
