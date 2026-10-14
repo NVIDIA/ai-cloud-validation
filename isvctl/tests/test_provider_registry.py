@@ -43,12 +43,12 @@ def _entry(**overrides: Any) -> dict[str, Any]:
         "name": "acme",
         "vendor": "Acme Cloud Inc.",
         "description": "Acme GPU instances.",
-        "repo_url": "https://github.com/acme/isvctl-provider-acme",
+        "repo_url": "https://github.com/acme/external-provider-acme",
         "commit": COMMIT,
         "tested_with": "0.13.0",
         "suites": ["vm"],
         "maintainers": [{"github": "acme-handle", "email": "oss@acme.example"}],
-        "documentation_url": "https://github.com/acme/isvctl-provider-acme#reproducing",
+        "documentation_url": "https://github.com/acme/external-provider-acme#reproducing",
         "status": "supported",
     }
     entry.update(overrides)

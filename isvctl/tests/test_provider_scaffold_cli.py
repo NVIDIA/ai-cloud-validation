@@ -180,10 +180,10 @@ def test_registry_entry_stub_is_prefilled_and_fails_until_completed(
         **stub,
         "vendor": "Acme Cloud Inc.",
         "description": "Acme GPU instances.",
-        "repo_url": "https://github.com/acme/isvctl-provider-acme",
+        "repo_url": "https://github.com/acme/external-provider-acme",
         "commit": "0123456789abcdef0123456789abcdef01234567",
         "maintainers": [{"github": "acme-handle", "email": "oss@acme.example"}],
-        "documentation_url": "https://github.com/acme/isvctl-provider-acme#reproducing",
+        "documentation_url": "https://github.com/acme/external-provider-acme#reproducing",
     }
     registry_file.write_text(yaml.safe_dump(filled), encoding="utf-8")
 

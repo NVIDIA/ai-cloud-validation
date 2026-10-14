@@ -27,7 +27,7 @@ others. `fetch` checks out the whole repository, so providers can share code
 kept elsewhere in it.
 
 The registry includes a living example,
-[isvctl-provider-example](https://github.com/abegnoche/isvctl-provider-example):
+[external-provider-example](https://github.com/abegnoche/external-provider-example):
 one repository holding two providers, registered as `example` and `showcase`
 with `status: demo`. Both are unimplemented scaffolds that pass in demo mode
 and run weekly against the latest release. Use it as the model for your own
@@ -49,7 +49,7 @@ checked-out commit matches the registry, and lists the suites it can run:
 ```text
 Fetched acme at 0123456789ab into isvctl/configs/providers-external/acme
 Suites: network, vm
-Setup and prerequisites (credentials, environment): https://github.com/acme/isvctl-provider-acme#reproducing
+Setup and prerequisites (credentials, environment): https://github.com/acme/external-provider-acme#reproducing
 Then run one with:
   uv run isvctl test run --provider acme --suite network
 ```

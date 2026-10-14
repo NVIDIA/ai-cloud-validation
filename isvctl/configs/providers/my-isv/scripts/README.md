@@ -134,14 +134,14 @@ scripts there. Delete `.scaffold-meta` once it is a repository: the marker lets
 cd isvctl/configs/providers-external/acme
 git init
 rm .scaffold-meta
-git remote add origin git@github.com:acme/isvctl-provider-acme.git
+git remote add origin git@github.com:acme/external-provider-acme.git
 # implement scripts/*
 ```
 
 `isvctl provider fetch` and `isvctl provider remove` never touch a directory
 there that `fetch` did not create. To keep the repository elsewhere, pass
 `--output-dir` and run its configs by path from this checkout, e.g.
-`uv run isvctl test run -f ../isvctl-provider-acme/config/vm.yaml`.
+`uv run isvctl test run -f ../external-provider-acme/config/vm.yaml`.
 
 To let others find and fetch your provider at a pinned commit, fill in the
 registry entry the scaffold wrote to `isvctl/configs/providers-registry/acme.yaml`

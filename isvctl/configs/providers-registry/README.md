@@ -17,7 +17,7 @@ schema_version: 1
 name: acme
 vendor: Acme Cloud Inc.
 description: Acme Cloud GPU instances and networking.
-repo_url: https://github.com/acme/isvctl-provider-acme
+repo_url: https://github.com/acme/external-provider-acme
 path: acme-gpu  # optional: the provider's directory in the repository
 commit: 0123456789abcdef0123456789abcdef01234567
 tested_with: "0.13.0"
@@ -25,7 +25,7 @@ suites: [vm, network]
 maintainers:
   - github: acme-handle
     email: oss@acme.example
-documentation_url: https://github.com/acme/isvctl-provider-acme#reproducing
+documentation_url: https://github.com/acme/external-provider-acme#reproducing
 status: supported
 ```
 
