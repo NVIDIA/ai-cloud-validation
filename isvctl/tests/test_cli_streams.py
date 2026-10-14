@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 import isvctl.cli.catalog as catalog_cli
@@ -157,3 +158,47 @@ def test_clean_run_unknown_operation_error_on_stderr() -> None:
     assert "Unknown operation" in result.stderr
     # Nothing should be written to stdout for a pure error path.
     assert result.stdout.strip() == ""
+
+
+@pytest.mark.parametrize(
+    ("pytest_args", "exit_code", "diagnostic"),
+    [
+        (["not_a_real_path"], 1, "pytest failed: usage error (exit code 4)"),
+        (["-k", "("], 1, "pytest failed: usage error (exit code 4)"),
+        (["-k", "not K8sNodeCountCheck"], 0, "WARNING: No tests collected by pytest"),
+        (["-m", "nonexistent_marker"], 0, "WARNING: No tests collected by pytest"),
+        ([], 0, "All phases completed successfully"),
+    ],
+)
+def test_run_reports_pytest_session_status(
+    tmp_path: Path, pytest_args: list[str], exit_code: int, diagnostic: str
+) -> None:
+    """Real pytest usage errors fail the CLI; empty selections warn and still succeed."""
+    config = tmp_path / "validations.yaml"
+    config.write_text(
+        "tests:\n  validations:\n    smoke:\n      checks:\n        K8sNodeCountCheck: {}\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        test_cli.app,
+        [
+            "run",
+            "-f",
+            str(config),
+            "--phase",
+            "test",
+            "--no-upload",
+            "--junitxml",
+            str(tmp_path / "junit.xml"),
+            "--",
+            *pytest_args,
+        ],
+    )
+
+    assert result.exit_code == exit_code, result.output
+    assert diagnostic in result.stdout
+    if exit_code:
+        assert "[FAIL] TEST" in result.stdout
+        assert "[FAIL] Orchestration failed" in result.stdout
+        assert "All phases completed successfully" not in result.stdout

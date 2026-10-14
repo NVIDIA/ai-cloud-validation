@@ -156,7 +156,7 @@ class StorageProviderApiCheck(BaseValidation):
 
     description: ClassVar[str] = "Validate StorageProvider API contract"
     timeout: ClassVar[int] = 300
-    labels: ClassVar[tuple[str, ...]] = ("storage", "storage_provider_api")
+    labels: ClassVar[tuple[str, ...]] = ("storage",)
 
     def run(self) -> None:
         """Load the manifest and drive per provider."""

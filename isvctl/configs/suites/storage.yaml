@@ -261,7 +261,7 @@ tests:
       checks:
         StorageProviderApiCheck:
           test_id: "N/A"
-          labels: ["storage", "storage_provider_api"]
+          labels: ["storage"]
           requires: []
           # Drives StorageProvider API contract conformity. The manifest enumerates
           # one or more backend providers; this check imports each provider's shim
@@ -272,7 +272,7 @@ tests:
           volume_size_bytes: 1073741824 # 1 GiB
         StorageDirectoryQuotaEnforcementCheck:
           test_id: "N/A"
-          labels: ["storage", "storage_provider_api", "slow"]
+          labels: ["storage", "slow"]
           requires: []
           # Real directory-quota lifecycle + enforcement (vs. the sentinel-id probes
           # in StorageProviderApiCheck). Uses the Kubernetes PVC/pod path for
@@ -290,7 +290,7 @@ tests:
           enforcement_hard_bytes: 67108864 # 64 MiB
         StorageUserQuotaEnforcementCheck:
           test_id: "N/A"
-          labels: ["storage", "storage_provider_api", "slow"]
+          labels: ["storage", "slow"]
           requires: []
           # Real per-UID quota lifecycle + enforcement (vs. the sentinel-id probes
           # in StorageProviderApiCheck). Same volume-acquisition paths as
@@ -421,7 +421,7 @@ tests:
               workloads: {}
           min_controller_replicas: 1
         K8sCsiConcurrentPvcCheck:
-          test_id: "N/A"
+          test_id: "HSS03-08"
           labels: ["kubernetes", "min_req", "storage"]
           requires: [kubernetes]
           storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"

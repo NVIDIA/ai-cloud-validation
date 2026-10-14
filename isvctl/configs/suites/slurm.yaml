@@ -72,14 +72,14 @@ tests:
           require_available: true
         SlurmJobSubmission:
           test_id: "SLURM04-01"
-          labels: ["slurm"]
+          labels: ["slurm", "gpu"]
         SlurmGpuAllocation-1gpu:
           test_id: "SLURM05-01"
-          labels: ["slurm"]
+          labels: ["slurm", "gpu"]
           num_gpus: 1
         SlurmGpuAllocation-2gpu:
           test_id: "SLURM05-01"
-          labels: ["slurm"]
+          labels: ["slurm", "gpu"]
           num_gpus: 2
         SlurmNodeJobExecution-cpu:
           test_id: "SLURM06-01"
@@ -144,7 +144,7 @@ tests:
 
         # Inline script (no manifest file needed)
         SlurmSbatchWorkload-inline:
-          test_id: "SLURM09-01"
+          test_id: "SLURM10-01"
           labels: ["slurm", "workload", "slow"]
           script_content: |
             #!/bin/bash

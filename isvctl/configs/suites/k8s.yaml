@@ -20,7 +20,7 @@
 # in the environment or under `env` for commands.
 #
 # Every check carries at least the ``kubernetes`` label (so the suite is
-# selectable with ``-m kubernetes``); GPU/workload/slow/l2 trait labels live
+# selectable with ``-m kubernetes``); GPU/workload/slow trait labels live
 # on the wiring rather than the validation class.
 #
 # Usage:
@@ -170,17 +170,17 @@ tests:
       checks:
         K8sLoadBalancerCheck:
           test_id: "K8S29-01"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "slow", "network"]
           step: k8s_load_balancer_test
           phase: test
         K8sDnsForwardingCheck:
           test_id: "K8S30-01"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "slow", "network"]
           step: k8s_dns_forwarding_test
           phase: test
         K8sCidrRangesCheck:
           test_id: "K8S31-01"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "slow", "network"]
           step: k8s_cidr_ranges_test
           phase: test
 
@@ -190,7 +190,7 @@ tests:
       checks:
         K8sMultiClusterSameVpcCheck:
           test_id: "K8S26-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "network"]
           step: create_test_shared_vpc_cluster
 
     # Control-plane size pinning (K8S27-01). Only runs for providers that
@@ -278,15 +278,15 @@ tests:
           expected_total: "{{ steps.setup.kubernetes.total_gpus | default(16, true) }}"
         K8sGpuOperatorNamespaceCheck:
           test_id: "K8S25-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "gpu"]
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
         K8sGpuOperatorPodsCheck:
           test_id: "K8S25-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "gpu"]
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
         K8sGpuOperatorOverrideCheck:
           test_id: "K8S25-02"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "gpu"]
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
           driver_version: "{{ steps.setup.kubernetes.driver_version | default('580.82.07') }}"
         K8sGpuLabelsCheck:
@@ -313,7 +313,7 @@ tests:
             "nvidia.com/mig.strategy": "single"
         K8sDualStackNodeCheck:
           test_id: "K8S22-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "network"]
           require_dual_stack: "auto" # true | false | "auto"
         K8sClusterAutoscalerCheck:
           test_id: "K8S36-01"
@@ -328,7 +328,7 @@ tests:
             - "k8s-app=cluster-autoscaler"
         K8sNetworkPolicyCheck:
           test_id: "K8S22-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "network"]
           image: "registry.k8s.io/e2e-test-images/agnhost:2.47"
           probe_port: 8080
           probe_timeout_s: 10
@@ -353,18 +353,18 @@ tests:
       checks:
         K8sServiceAccountIamCheck:
           test_id: "K8S16-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "iam"]
           step: service_account_iam_test
           phase: test
         K8sOidcIssuerCheck:
           test_id: "K8S17-02"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "iam"]
 
     k8s_conformance:
       checks:
         K8sCncfConformanceCheck:
           test_id: "K8S01-01"
-          labels: ["kubernetes", "l2", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "slow"]
           # Valid `mode` values (see docs/guides/configuration.md#kubernetes-conformance-modes):
           #   - "certified-conformance": full [Conformance] suite, serial. Required
           #     for CNCF certification; expect multi-hour runtime.
@@ -461,7 +461,7 @@ tests:
       checks:
         K8sApiNetworkAclCheck:
           test_id: "K8S15-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "network", "security"]
           # Probe-based, provider-agnostic: verifies the reviewed cluster's
           # Kubernetes API endpoint refuses connections from a source that
           # should be blocked. By default the validation uses the configured
@@ -497,7 +497,7 @@ tests:
       checks:
         GpuResetCheck:
           test_id: "BFX01-01"
-          labels: ["kubernetes", "breakfix", "min_req"]
+          labels: ["kubernetes", "breakfix", "min_req", "gpu"]
 
     cordon_node:
       step: cordon_node

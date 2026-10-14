@@ -54,7 +54,6 @@ CUSTOM_MARKERS = [
     "validation: Infrastructure validation tests (run on target systems)",
     "workload: Workload-based validation tests (longer running)",
     # Speed/scope
-    "l2: Level 2 extended platform validation tests (longer running, e2e)",
     "slow: Tests that take longer than 5 minutes to run",
 ]
 

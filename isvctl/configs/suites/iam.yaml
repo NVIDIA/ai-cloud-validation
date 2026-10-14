@@ -51,7 +51,7 @@ tests:
       step: create_user
       checks:
         IamUserCreatedCheck:
-          test_id: "N/A"
+          test_id: "IAM01-01"
           labels: ["iam", "min_req"]
           requires: []
           description: "Check the IAM user is created and its access key is returned"
