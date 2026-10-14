@@ -31,7 +31,7 @@
 The shim subclasses ``Implementation`` and is served through
 ``new_implementation()``: it implements only the surfaces it backs, and the SDK
 *detects* which are supported. Which surfaces are *supported* is also declared in
-the sibling ``config/storage-provider-manifest.yaml`` (the contract); the
+the sibling ``config/overlays/storage-provider-manifest.yaml`` (the contract); the
 validation suite probes each declared-supported surface at runtime. Surfaces this
 shim does NOT back (tenant enumeration, volume lifecycle, directory/user quotas)
 are simply left undefined - detected as unimplemented and gated - and the

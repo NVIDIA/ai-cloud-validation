@@ -61,7 +61,7 @@ By session end the user should have:
 
 | Backend | Shim | Manifest | Config |
 | ------- | ---- | -------- | ------ |
-| AWS FSx Lustre | `isvctl/configs/providers/aws/scripts/storage/fsx-lustre/api.py` | `aws/config/storage-provider-manifest.yaml` | `aws/config/storage.yaml` |
+| AWS FSx Lustre | `isvctl/configs/providers/aws/scripts/storage/fsx-lustre/api.py` | `aws/config/overlays/storage-provider-manifest.yaml` | `aws/config/storage.yaml` |
 | VAST NFS | `isvctl/configs/providers/vast/scripts/storage/vast/api.py` | `vast/config/storage-provider-manifest.yaml` | `vast/config/storage.yaml` |
 | WEKA | `isvctl/configs/providers/weka/scripts/storage/weka/api.py` | `weka/config/storage-provider-manifest.yaml` | `weka/config/storage.yaml` |
 | **Authoring target (edit in place)** | `my-isv/scripts/storage/api.py` | `my-isv/config/storage-provider-manifest.yaml` | `my-isv/config/storage.yaml` |

@@ -16,7 +16,7 @@
 # AWS Storage Provider Manifest.
 #
 # Drives `StorageProviderApiCheck` against a live EKS + FSx Lustre cluster via
-# the boto3 shim under `../scripts/storage/fsx-lustre/api.py`.
+# the boto3 shim under `../../scripts/storage/fsx-lustre/api.py`.
 # Tenant = AWS account + region.
 #
 # v1alpha2 mirrors the upstream StorageProvider package manifest: a package-level
@@ -24,7 +24,7 @@
 # hierarchical `capabilities` block (native | default | none). The declared
 # identity + capabilities are a CONTRACT: StorageProviderApiCheck cross-checks
 # them against the running shim's properties(). Keep this in sync with
-# `../scripts/storage/fsx-lustre/api.py` (AwsFsxLustreApi's ProviderProperties
+# `../../scripts/storage/fsx-lustre/api.py` (AwsFsxLustreApi's ProviderProperties
 # core).
 
 schema_version: v1alpha2
@@ -52,7 +52,8 @@ providers:
 
     shim:
       kind: python
-      module: ../scripts/storage/fsx-lustre/api.py
+      # Resolved relative to this manifest's parent directory.
+      module: ../../scripts/storage/fsx-lustre/api.py
 
     capabilities:
       tenantManagement:

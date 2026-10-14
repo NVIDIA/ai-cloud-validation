@@ -23,7 +23,7 @@
 #     live expansion, root-squash (other HSS checks excluded — need a mounted
 #     client or are not exposed by managed FSx)
 #   - Storage provider API (FSx for Lustre boto3 shim): StorageProviderApiCheck
-#     via the storage_manifest step and storage-provider-manifest.yaml (see
+#     via the storage_manifest step and overlays/storage-provider-manifest.yaml (see
 #     scripts/storage/fsx-lustre/)
 #
 # Block-volume steps reuse the VM scripts for launch/teardown; volume steps
@@ -114,7 +114,7 @@ commands:
         command: "python ../../../shared/storage/storage_manifest_to_steps.py"
         timeout: 30
         env:
-          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
+          STORAGE_PROVIDER_MANIFEST: "overlays/storage-provider-manifest.yaml"
 
       - name: snapshot_lifecycle
         phase: test

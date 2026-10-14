@@ -11,7 +11,7 @@ against a live EKS + FSx Lustre cluster.
 
 ## How it works
 
-The manifest at [`../../../config/storage-provider-manifest.yaml`](../../../config/storage-provider-manifest.yaml)
+The manifest at [`../../../config/overlays/storage-provider-manifest.yaml`](../../../config/overlays/storage-provider-manifest.yaml)
 declares one `aws-fsx-lustre` provider; `shim.module` points at
 [`api.py`](api.py); `StorageProviderApiCheck` loads the shim in-process
 and runs three subtests against the AWS APIs below.
