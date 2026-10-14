@@ -2866,7 +2866,7 @@ domains:
                   - bare_metal
                   - min_req
                   - sanitization
-                  - sds_controller
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2881,7 +2881,7 @@ domains:
                   - bare_metal
                   - min_req
                   - network
-                  - sds_controller
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2896,7 +2896,7 @@ domains:
                   - bare_metal
                   - health
                   - min_req
-                  - sds_controller
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""
@@ -2910,7 +2910,7 @@ domains:
                 labels:
                   - bare_metal
                   - min_req
-                  - sds_controller
+                  - storage
                 priority: P1
                 milestone: M5
                 notes: ""

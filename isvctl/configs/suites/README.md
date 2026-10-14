@@ -136,7 +136,7 @@ no per-host reading of it to distinguish: `GovernanceMetricsCheck` (fleet-wide
 counts), `HealthAggregationCheck` (cluster/nodegroup/reservation level),
 `IbTenantIsolationCheck` (fabric), `StableStorageNodeIpCheck` (storage service).
 Those live here because that is where the provider supplying the step imports
-from; several already carry a `network` or `sds_controller` label for the same
+from; several already carry a `network` or `storage` label for the same
 reason. Prefixing them would claim a scope their plan items do not have.
 
 Three more stay unprefixed for narrower reasons.

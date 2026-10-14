@@ -3105,7 +3105,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/266[#266]
 | [[STG02-01]]STG02-01
 | STG02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
-| bare_metal, min_req, sanitization, sds_controller
+| bare_metal, min_req, sanitization, storage
 | tenant
 |
 | P1
@@ -3120,7 +3120,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
 | [[STG03-01]]STG03-01
 | STG03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
-| bare_metal, min_req, network, sds_controller
+| bare_metal, min_req, network, storage
 | tenant
 |
 | P1
@@ -3135,7 +3135,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
 | [[STG04-01]]STG04-01
 | STG04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
-| bare_metal, health, min_req, sds_controller
+| bare_metal, health, min_req, storage
 | tenant
 |
 | P1
@@ -3150,7 +3150,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
 | [[STG05-01]]STG05-01
 | STG05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/361[#361]
-| bare_metal, min_req, sds_controller
+| bare_metal, min_req, storage
 | tenant
 |
 | P1

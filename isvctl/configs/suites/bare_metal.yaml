@@ -723,7 +723,7 @@ tests:
       checks:
         FailureDomainObservabilityCheck:
           test_id: "STG05-01"
-          labels: ["bare_metal", "sds_controller", "min_req"]
+          labels: ["bare_metal", "storage", "min_req"]
           min_failure_domains: 1
 
     # Break/fix skip-sanitization policy (STG02-01). Extends the SEC21
@@ -736,7 +736,7 @@ tests:
       checks:
         SkipSanitizationBreakfixCheck:
           test_id: "STG02-01"
-          labels: ["bare_metal", "min_req", "sanitization", "sds_controller"]
+          labels: ["bare_metal", "min_req", "sanitization", "storage"]
 
     # Stable admin IP observability (STG03-01). Asserts each host reports at
     # least one IP on its primary machineInterfaces entry so storage nodes have
@@ -747,7 +747,7 @@ tests:
       checks:
         StableStorageNodeIpCheck:
           test_id: "STG03-01"
-          labels: ["bare_metal", "min_req", "network", "sds_controller"]
+          labels: ["bare_metal", "min_req", "network", "storage"]
 
     # Out-of-band failure detection (STG04-01). Asserts the per-host health API
     # exposes BMC/out-of-band probes covering device failures at minimum. Only
@@ -757,7 +757,7 @@ tests:
       checks:
         OobFailureDetectionCheck:
           test_id: "STG04-01"
-          labels: ["bare_metal", "health", "min_req", "sds_controller"]
+          labels: ["bare_metal", "health", "min_req", "storage"]
 
     # Hardware/firmware attestation (SEC22 / CNP09). Each check asserts a host
     # establishes a hardware root of trust. Only runs for providers that
