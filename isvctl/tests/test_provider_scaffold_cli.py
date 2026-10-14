@@ -16,6 +16,7 @@
 """Unit tests for provider scaffold CLI commands."""
 
 import shlex
+import shutil
 import stat
 from pathlib import Path
 
@@ -31,6 +32,8 @@ from isvctl.config.merger import merge_yaml_files
 from isvctl.config.provider_registry import ProviderRegistryError, load_registry
 from isvctl.config.schema import RunConfig
 from isvctl.main import app as main_app
+from isvctl.orchestrator.context import Context
+from isvctl.orchestrator.step_executor import StepExecutor
 
 runner = CliRunner()
 REAL_SUITES_DIR = provider_cli.CONFIGS_ROOT / "suites"
@@ -119,6 +122,33 @@ def test_scaffold_default_rejects_in_tree_provider_name(_isolated_configs_root: 
     assert "'aws' is already an in-tree provider" in result.output
     assert not (_isolated_configs_root / "providers-external").exists()
     assert not (_isolated_configs_root / "providers-registry").exists()
+
+
+def test_default_scaffold_runs_shared_script_from_package_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default scaffolds retain config-relative shared scripts when invoked below the repo root."""
+    configs_root = tmp_path / "repo" / "isvctl" / "configs"
+    template_dir = configs_root / "providers" / "my-isv"
+    shutil.copytree(provider_cli._find_template_dir(), template_dir)
+    (configs_root / "suites").symlink_to(REAL_SUITES_DIR)
+    (configs_root / "shared").symlink_to(REAL_SUITES_DIR.parent / "shared")
+    monkeypatch.setattr(provider_cli, "CONFIGS_ROOT", configs_root)
+    monkeypatch.setattr(provider_cli, "_find_template_dir", lambda: template_dir)
+    monkeypatch.chdir(configs_root.parent)
+    monkeypatch.setenv("ISVCTL_DEMO_MODE", "1")
+
+    result = runner.invoke(main_app, ["provider", "scaffold", "acme"])
+    assert result.exit_code == 0, result.output
+
+    config_path = configs_root / "providers-external" / "acme" / "config" / "storage.yaml"
+    config = RunConfig.model_validate(merge_yaml_files([config_path]))
+    steps = [step for command in config.commands.values() for step in command.steps if step.name == "storage_manifest"]
+    assert len(steps) == 1
+    results = StepExecutor(working_dir=config_path.parent).execute_steps(steps, Context(config))
+
+    assert results.success, results.steps
+    assert results.accumulated_outputs["storage_manifest"]["success"] is True
 
 
 def test_scaffold_keeps_existing_registry_entry(_isolated_configs_root: Path, tmp_path: Path) -> None:

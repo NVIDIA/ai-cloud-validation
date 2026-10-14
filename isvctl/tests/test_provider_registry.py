@@ -24,6 +24,7 @@ from isvctl.config.provider_registry import (
     ProviderRegistryError,
     RegistryEntry,
     ensure_fetched,
+    fetch_state,
     load_registry,
     load_registry_skipping_invalid,
 )
@@ -465,6 +466,47 @@ def test_fetch_provider_in_subdirectory(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert (_checkout(tmp_path) / "cpu").is_dir()
     assert provider_dir("acme", configs_root) == _checkout(tmp_path) / "gpu"
     assert list_providers(configs_root) == ["acme"]
+
+
+def test_changed_provider_path_requires_refetch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Changing only the registry path blocks execution until refetch selects the new provider."""
+    url, commit = _multi_provider_repo(tmp_path)
+    configs_root = _configs_root(tmp_path, {"acme.yaml": _entry(commit=commit, path="gpu")}, suites=("vm", "network"))
+    entry = _registry_entry(url, commit=commit, path="gpu")
+    exit_code, output = _fetch(monkeypatch, tmp_path, entry, "acme")
+    assert exit_code == 0, output
+    assert fetch_state(entry, configs_root) == ("current", commit)
+
+    entry = dataclasses.replace(entry, path="cpu", suites=("network",))
+    (configs_root / "providers-registry" / "acme.yaml").write_text(
+        yaml.safe_dump(_entry(commit=commit, path="cpu", suites=["network"])), encoding="utf-8"
+    )
+    assert fetch_state(entry, configs_root) == ("stale", commit)
+    monkeypatch.setattr(test_cli, "CONFIGS_ROOT", configs_root)
+    result = runner.invoke(test_cli.app, ["run", "--provider", "acme", "--suite", "network"])
+    assert result.exit_code == 1, result.output
+    assert "provider path" in result.output
+    assert "isvctl provider fetch acme" in result.output
+
+    exit_code, output = _fetch(monkeypatch, tmp_path, entry, "acme")
+    assert exit_code == 0, output
+    assert fetch_state(entry, configs_root) == ("current", commit)
+    assert ensure_fetched("acme", configs_root).path == "cpu"
+    assert provider_dir("acme", configs_root) == _checkout(tmp_path) / "cpu"
+
+
+@pytest.mark.parametrize(("old_path", "new_path"), [(None, "gpu"), ("gpu", None)])
+def test_provider_path_change_to_or_from_root_is_stale(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, old_path: str | None, new_path: str | None
+) -> None:
+    """Adding or removing a registry path also invalidates a checkout at the same commit."""
+    url, first, _ = _upstream_repo(tmp_path)
+    entry = _registry_entry(url, commit=first)
+    exit_code, output = _fetch(monkeypatch, tmp_path, entry, "acme")
+    assert exit_code == 0, output
+    mark_fetched(_checkout(tmp_path), old_path)
+
+    assert fetch_state(dataclasses.replace(entry, path=new_path), tmp_path / "configs") == ("stale", first)
 
 
 def test_fetch_rejects_path_without_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

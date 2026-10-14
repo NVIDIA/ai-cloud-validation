@@ -140,11 +140,12 @@ def _relative_posix_path(path: Path, start: Path) -> str:
 def _built_in_reference(path: Path, start: Path, target_dir: Path, template_dir: Path) -> str:
     """Return a reference to a validation-suite-owned file.
 
-    In-tree provider scaffolds keep config-file-relative references. Out-of-tree
-    scaffolds are supported from the validation checkout root, so use paths
-    relative to that root instead of generating long ``../../Users/...`` paths.
+    Scaffolds under providers/ or providers-external/ keep config-file-relative
+    references. Out-of-tree scaffolds are supported from the validation checkout
+    root, so use paths relative to that root instead of long ``../../Users/...`` paths.
     """
-    if _is_in_tree(target_dir, template_dir):
+    external_dir = template_dir.parents[1] / EXTERNAL_PROVIDERS_DIRNAME
+    if _is_in_tree(target_dir, template_dir) or target_dir.resolve().is_relative_to(external_dir.resolve()):
         return _relative_posix_path(path, start=start)
 
     repo_root = template_dir.parents[3]

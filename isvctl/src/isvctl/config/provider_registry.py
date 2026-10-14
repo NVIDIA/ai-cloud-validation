@@ -21,6 +21,7 @@ from isvctl.config.suite_resolution import (
     external_provider_dir,
     in_tree_provider_dir,
     is_fetched_checkout,
+    provider_dir,
 )
 
 SCHEMA_PATH = CONFIGS_ROOT.parent / "schemas" / "provider-registry.schema.json"
@@ -201,7 +202,7 @@ def fetch_state(entry: RegistryEntry, configs_root: Path = CONFIGS_ROOT) -> tupl
 
     The state is ``missing`` (no usable fetched checkout), ``local`` (a directory
     that ``fetch`` did not create, such as the partner's own scaffold), ``stale``
-    (fetched at another commit than the registry pins) or ``current``. The
+    (fetched at another commit or provider path than the registry pins) or ``current``. The
     commit is None unless the checkout was fetched.
     """
     checkout = external_provider_dir(entry.name, configs_root)
@@ -211,11 +212,12 @@ def fetch_state(entry: RegistryEntry, configs_root: Path = CONFIGS_ROOT) -> tupl
         head = run_git("rev-parse", "HEAD", cwd=checkout)
     except RuntimeError:
         return "missing", None
-    return ("current" if head == entry.commit else "stale"), head
+    path_matches = provider_dir(entry.name, configs_root) == checkout / (entry.path or "")
+    return ("current" if head == entry.commit and path_matches else "stale"), head
 
 
 def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> RegistryEntry | None:
-    """Return the registry entry for ``provider`` once it is fetched at its pinned commit.
+    """Return the registry entry for ``provider`` once its fetched commit and path match.
 
     In-tree providers and names the registry does not know return None, so the
     caller's usual unknown-provider handling still applies. A local directory
@@ -227,7 +229,7 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
 
     Raises:
         ProviderRegistryError: If the provider is not fetched, or is fetched at a
-            different commit than the registry pins.
+            different commit or provider path than the registry pins.
     """
     if in_tree_provider_dir(provider, configs_root).is_dir():
         return None
@@ -240,6 +242,10 @@ def ensure_fetched(provider: str, configs_root: Path = CONFIGS_ROOT) -> Registry
     if state == "missing":
         raise ProviderRegistryError(f"Provider '{provider}' is registered but not fetched. {hint}")
     if state == "stale":
+        if head == entry.commit:
+            raise ProviderRegistryError(
+                f"Provider '{provider}' is fetched with a different provider path than the registry specifies. {hint}"
+            )
         raise ProviderRegistryError(
             f"Provider '{provider}' is fetched at {head[:12]}, but the registry pins {entry.commit[:12]}. {hint}"
         )
