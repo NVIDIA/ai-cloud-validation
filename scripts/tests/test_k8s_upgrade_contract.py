@@ -25,7 +25,7 @@ from isvtest.validations.k8s_upgrades import (
 from typer.testing import CliRunner
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG = ROOT / "isvctl/configs/providers/my-isv/config/k8s-upgrades.yaml"
+CONFIG = ROOT / "isvctl/configs/providers/my-isv/config/overlays/k8s-upgrades.yaml"
 SCRIPT = ROOT / "isvctl/configs/providers/my-isv/scripts/k8s/upgrade_test.py"
 CHECKS = {
     "managed_upgrade_policy": K8sManagedUpgradePolicyCheck,
@@ -56,7 +56,7 @@ def test_adapter_contract(name: str, demo: bool) -> None:
 
 def test_suite_wiring_and_opt_in() -> None:
     """Every contract is discovered and bound only when upgrade steps are opted in."""
-    merged = merge_yaml_files([str(CONFIG.with_name("k8s.yaml")), str(CONFIG)])
+    merged = merge_yaml_files([str(CONFIG.parent.parent / "k8s.yaml"), str(CONFIG)])
     RunConfig.model_validate(merged)
     entries = merged["tests"]["validations"]["k8s_upgrades"]
     checks = [next(iter(entry.values())) for entry in entries]
@@ -75,14 +75,14 @@ def test_generated_provider_upgrade_demo(tmp_path: Path) -> None:
     target = tmp_path / "acme"
     result = CliRunner().invoke(app, ["provider", "scaffold", "acme", "--output-dir", str(target)])
     assert result.exit_code == 0, result.output
-    config = target / "config/k8s-upgrades.yaml"
-    merged = merge_yaml_files([str(config.with_name("k8s.yaml")), str(config)])
+    config = target / "config/overlays/k8s-upgrades.yaml"
+    merged = merge_yaml_files([str(config.parent.parent / "k8s.yaml"), str(config)])
     RunConfig.model_validate(merged)
     for step in merged["commands"]["kubernetes"]["steps"]:
         command = shlex.split(step["command"])
         result = subprocess.run(
             [sys.executable, *command[1:], *step["args"]],
-            cwd=config.parent,
+            cwd=config.parent.parent,
             env={**os.environ, "ISVCTL_DEMO_MODE": "1"},
             capture_output=True,
             text=True,

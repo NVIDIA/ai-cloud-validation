@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Opt in only on a disposable CPU EKS cluster.
-# See docs/guides/kubernetes-upgrades.md for required env vars.
+# See docs/references/kubernetes-upgrades.md for required env vars.
+# Commands are relative to the first config file's directory, not this overlay.
 # Command overlay: load after eks.yaml with a second -f argument.
 version: "1.0"
 commands:

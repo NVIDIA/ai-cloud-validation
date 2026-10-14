@@ -23,11 +23,11 @@ these records only under `ISVCTL_DEMO_MODE=1`. Preview the three checks without 
 ```bash
 ISVCTL_DEMO_MODE=1 uv run isvctl test run \
   -f isvctl/configs/providers/my-isv/config/k8s.yaml \
-  -f isvctl/configs/providers/my-isv/config/k8s-upgrades.yaml \
+  -f isvctl/configs/providers/my-isv/config/overlays/k8s-upgrades.yaml \
   --phase test --label k8s_upgrades
 ```
 
-Copy the [opt-in command overlay](../../isvctl/configs/providers/my-isv/config/k8s-upgrades.yaml) and replace the
+Copy the [opt-in command overlay](../../isvctl/configs/providers/my-isv/config/overlays/k8s-upgrades.yaml) and replace the
 adapter with your provider implementation. Load it after your ordinary provider
 configuration using a second `-f` argument; it replaces the command step list with
 only the upgrade steps. It does not declare a second Kubernetes suite. Keep
@@ -165,7 +165,7 @@ Retain the original API/audit events alongside the normalized JSON for review.
 
 ## Live EKS reference run
 
-Use [eks-upgrades.yaml](../../isvctl/configs/providers/aws/config/eks-upgrades.yaml).
+Use [eks-upgrades.yaml](../../isvctl/configs/providers/aws/config/overlays/eks-upgrades.yaml).
 Load it after `eks.yaml` to retain the standard suite's checks and bind only these
 three upgrade steps; select `--label k8s_upgrades`.
 The reference supports a managed AL2023 x86 CPU pool without a custom launch
@@ -185,7 +185,7 @@ export EKS_UPGRADE_SOURCE_CIDRS=YOUR_CONTROLLER_PUBLIC_IP/32
 export EKS_UPGRADE_ARTIFACT_DIR=/tmp/unique-upgrade-run
 uv run isvctl test run \
   -f isvctl/configs/providers/aws/config/eks.yaml \
-  -f isvctl/configs/providers/aws/config/eks-upgrades.yaml \
+  -f isvctl/configs/providers/aws/config/overlays/eks-upgrades.yaml \
   --phase test --label k8s_upgrades
 ```
 

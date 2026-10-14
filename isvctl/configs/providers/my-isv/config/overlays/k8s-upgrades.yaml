@@ -3,6 +3,7 @@
 
 # Explicit opt-in on a disposable managed cluster. Implement the provider adapter
 # before a real run; this template does not perform cluster upgrades.
+# Commands are relative to the first config file's directory, not this overlay.
 # Command overlay: load after k8s.yaml with a second -f argument.
 version: "1.0"
 commands:

@@ -5,7 +5,7 @@
 """K8S08/09/10 provider adapter template; never upgrade a cluster in demo mode.
 
 TODO: implement the selected operation using your provider's upgrade API and
-independent application/PDB observers. See docs/guides/kubernetes-upgrades.md for the contract,
+independent application/PDB observers. See docs/references/kubernetes-upgrades.md for the contract,
 experiment, timeout and cleanup requirements. Demo records are illustrative only.
 """
 

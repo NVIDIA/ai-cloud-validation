@@ -28,6 +28,7 @@ ai-cloud-validation*.tar.gz
 
 # Terraform local artifacts
 **/.terraform/
+.terraform.lock.hcl
 
 # Trivy local / CI artifact (default output name)
 *.sarif

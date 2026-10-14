@@ -329,7 +329,7 @@ def test_output_dir_scaffold_keeps_config_references_resolvable(tmp_path: Path) 
 
 
 def test_output_dir_scaffold_imports_load_for_every_config(tmp_path: Path) -> None:
-    """Every scaffold suite or explicit command overlay loads its validation contract."""
+    """Every top-level scaffold suite loads its validation contract."""
     target = tmp_path / "acme"
 
     result = runner.invoke(main_app, ["provider", "scaffold", "acme", "--output-dir", str(target)])
@@ -339,12 +339,7 @@ def test_output_dir_scaffold_imports_load_for_every_config(tmp_path: Path) -> No
     assert config_files, "no generated config files"
     for config_path in config_files:
         config_text = config_path.read_text(encoding="utf-8")
-        paths = [config_path]
-        if config_path.name == "k8s-upgrades.yaml":
-            # This commands-only opt-in overlays k8s.yaml without declaring a
-            # second Kubernetes suite for --suite discovery.
-            paths.insert(0, config_path.with_name("k8s.yaml"))
-        merged = merge_yaml_files(paths)
+        merged = merge_yaml_files([config_path])
 
         RunConfig.model_validate(merged)
         assert "commands" in merged, config_path
