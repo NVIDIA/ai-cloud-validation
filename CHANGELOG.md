@@ -30,6 +30,85 @@ Workflow:
 > attached to a milestone. The file you are reading now is the canonical
 > per-tag changelog.
 
+## [1.0.0] - 2026-10-15
+
+### Added
+
+- **Registry for externally maintained providers** ([#697](https://github.com/NVIDIA/ai-cloud-validation/pull/697))
+  Adds `isvctl provider list`, `fetch`, and `remove` to discover and run partner providers pinned to exact commits, including multiple providers in one repository and compatibility warnings when their tested release differs.
+- **Managed Kubernetes version and upgrade validations** ([#673](https://github.com/NVIDIA/ai-cloud-validation/pull/673), [#735](https://github.com/NVIDIA/ai-cloud-validation/pull/735))
+  Adds K8S02 checks for supported Kubernetes minors and automated control-plane patching, plus opt-in K8S08/K8S09/K8S10 checks for managed version policy, application continuity during control-plane upgrades, and rolling node updates that honor PodDisruptionBudgets, with AWS EKS reference coverage.
+- **Kubernetes Dynamic Resource Allocation validation** ([#689](https://github.com/NVIDIA/ai-cloud-validation/pull/689))
+  Adds `K8sDraCheck` (K8S24-01) to verify served DRA APIs, device inventory, and a running pod backed by an allocated ResourceClaim, supporting NVIDIA GPU and ComputeDomain drivers.
+- **Driver-managed IMEX domain departure validation** ([#637](https://github.com/NVIDIA/ai-cloud-validation/pull/637))
+  Adds SDN19-02 to deliberately remove a node from an allocated compute domain and verify clean daemon shutdown, bounded detection by a surviving peer, and continued operation among remaining members before restoring the node.
+- **ServiceAccount IAM identity and permission validation** ([#726](https://github.com/NVIDIA/ai-cloud-validation/pull/726))
+  Adds K8S16-01 to verify that a workload assumes its ServiceAccount-bound identity, accesses an allowed resource, and is denied access outside that scope, with an AWS IRSA reference probe.
+- **Network Operator validation through Kubernetes Launch Kit** ([#706](https://github.com/NVIDIA/ai-cloud-validation/pull/706))
+  Adds optional SDN29 deployment, connectivity, and bandwidth checks to the network suite, configured through `tests.settings.k8s_launch_kit`, with native per-check results and a collected diagnostic archive.
+- **Kubernetes LoadBalancer, DNS forwarding, and CIDR validations** ([#727](https://github.com/NVIDIA/ai-cloud-validation/pull/727))
+  Adds opt-in K8S29-01, K8S30-01, and K8S31-01 probes for public/private/static-IP LoadBalancer traffic, conditional DNS forwarding, and configured ranges with fresh Service and pod allocations.
+- **Traffic-filtering and tenant-boundary validations** ([#732](https://github.com/NVIDIA/ai-cloud-validation/pull/732), [#730](https://github.com/NVIDIA/ai-cloud-validation/pull/730))
+  Adds SEC15-01 to verify filtering by individual traffic-match dimensions and SEC30-01 to verify default-deny across tenant/provider segments, using successful control flows and dropped prohibited traffic with AWS reference and `my-isv` scaffold coverage.
+- **Per-user storage quota enforcement** ([#589](https://github.com/NVIDIA/ai-cloud-validation/pull/589))
+  Adds `StorageUserQuotaEnforcementCheck` to exercise per-UID quota creation, updates, deletion, and write enforcement through storage-provider shims, including WEKA quota-record compatibility.
+
+### Changed
+
+- **Concise summaries for filtered test runs** ([#723](https://github.com/NVIDIA/ai-cloud-validation/pull/723))
+  Deselected validations now collapse into a count by default while runtime skips remain visible; replace `tests.settings.show_skipped_tests` with `show_deselected_tests` to control whether excluded checks are listed.
+- **External provider scaffolds and demo reporting** ([#697](https://github.com/NVIDIA/ai-cloud-validation/pull/697))
+  New scaffolds default to `isvctl/configs/providers-external/` and include a registry-entry stub, while demo-mode runs no longer upload results to the ISV Lab Service.
+- **Provider script and storage-manifest locations** ([#734](https://github.com/NVIDIA/ai-cloud-validation/pull/734), [#743](https://github.com/NVIDIA/ai-cloud-validation/pull/743))
+  Replaces `providers/shared/` with cross-provider scripts under `isvctl/configs/shared/<domain>/` and provider-local CSI/networking workflows, and moves storage-provider manifests into each provider's `config/overlays/`; custom configs must update affected paths and remove the retired `{{ config_dir }}` placeholder.
+- **Updated GPU workload defaults** ([#694](https://github.com/NVIDIA/ai-cloud-validation/pull/694))
+  Updates NCCL, CUDA, and PyTorch images, replaces the CuPy stress workload with PyTorch, and enables NVLS by default in the NCCL image while preserving image overrides, including `NCCL_IMAGE` for single-node Kubernetes jobs.
+
+### Fixed
+
+- **Required and unverifiable sub-checks no longer produce false passes** ([#702](https://github.com/NVIDIA/ai-cloud-validation/pull/702), [#707](https://github.com/NVIDIA/ai-cloud-validation/pull/707))
+  Required skipped sub-checks now skip their parent unless another sub-check fails, missing required entries fail, and provider scripts must report unverifiable results as `skipped` with `skip_reason` instead of `provider_hidden` passes; the mTLS probe flag becomes `--east-west-skip-reason`.
+- **Skipped steps and retained resources are reported accurately** ([#726](https://github.com/NVIDIA/ai-cloud-validation/pull/726))
+  Steps that skip their work now display the reason, and VM/bare-metal deletion checks report skipped when `--skip-destroy` retains the instance.
+- **Pytest session failures propagate to the CLI** ([#736](https://github.com/NVIDIA/ai-cloud-validation/pull/736))
+  Collection, usage, and other pytest session errors now fail orchestration and return a failing CLI exit status, while empty selections produce a warning.
+- **Readable and relevant template warnings** ([#682](https://github.com/NVIDIA/ai-cloud-validation/pull/682), [#684](https://github.com/NVIDIA/ai-cloud-validation/pull/684))
+  Groups masked `default(...)` fallbacks into a readable warning and suppresses warnings for configured steps omitted from the current run, while retaining warnings for unknown steps and missing fields in completed steps.
+- **Anonymous OIDC discovery and signing-key verification** ([#681](https://github.com/NVIDIA/ai-cloud-validation/pull/681))
+  K8S17-02 now fetches discovery metadata and signing keys over anonymous HTTPS and verifies the issuer and nonempty key set, preventing authenticated Kubernetes access from masking an inaccessible public issuer.
+- **Complete node and GPU Operator health evidence** ([#683](https://github.com/NVIDIA/ai-cloud-validation/pull/683), [#685](https://github.com/NVIDIA/ai-cloud-validation/pull/685))
+  Node readiness and dual-stack checks now fail on empty clusters, and GPU Operator validation requires every pod to be healthy or successfully completed instead of accepting a single running pod.
+- **Dual-stack validation includes pod addresses** ([#698](https://github.com/NVIDIA/ai-cloud-validation/pull/698))
+  Dual-stack validation now requires both address families on each eligible pod as well as nodes, and auto mode reports a skip on single-stack clusters instead of a pass.
+- **Conformance runs require executed test evidence** ([#696](https://github.com/NVIDIA/ai-cloud-validation/pull/696))
+  Quick mode now selects a real ConfigMap lifecycle test, and every conformance mode rejects runs with no passing testcases rather than counting successful suite hooks as validation evidence.
+- **API server SLO metric validation** ([#708](https://github.com/NVIDIA/ai-cloud-validation/pull/708))
+  K8S07-01 now requires the expected metric names, labels on every selected series, and declared latency histogram buckets, preventing incomplete or similarly named metrics from passing.
+- **Live health evidence for both Kubernetes clusters** ([#725](https://github.com/NVIDIA/ai-cloud-validation/pull/725))
+  Multi-cluster validation now requires distinct cluster identities, ready APIs, and Ready nodes from both clusters instead of accepting lifecycle metadata alone.
+- **Executable storage suites and complete CSI lifecycle evidence** ([#688](https://github.com/NVIDIA/ai-cloud-validation/pull/688), [#699](https://github.com/NVIDIA/ai-cloud-validation/pull/699))
+  Consolidates provider storage wiring in `storage.yaml`, restores AWS/EKS execution, and requires canonical storage checks to prove configured storage types, CSI installation, snapshot restoration, and measured filesystem growth with preserved data. Optional CSI installation and teardown support Helm or Kustomize with ownership and active-volume safeguards.
+- **EKS reference cluster compatibility and test-pool networking** ([#701](https://github.com/NVIDIA/ai-cloud-validation/pull/701), [#726](https://github.com/NVIDIA/ai-cloud-validation/pull/726))
+  Updates the EKS reference to Kubernetes 1.36, AL2023 NVIDIA GPU images, and GPU Operator v26.7.1, and restores test-pool pod access to cluster DNS through the required security-group rules.
+- **Reliable single-node NCCL shared memory** ([#695](https://github.com/NVIDIA/ai-cloud-validation/pull/695))
+  Mounts an 8 GiB memory-backed `/dev/shm` volume for Kubernetes NCCL jobs to prevent MPI/UCX startup crashes on multi-GPU nodes.
+- **GPU workload diagnostics and clean redeployment** ([#694](https://github.com/NVIDIA/ai-cloud-validation/pull/694))
+  Captures pod logs when Kubernetes jobs time out and removes stale source and suite files before remote deployment so deleted validations are not rediscovered.
+- **Launched instances must appear in returned inventory** ([#721](https://github.com/NVIDIA/ai-cloud-validation/pull/721))
+  VM and bare-metal listing checks now verify the launched instance ID against the returned inventory instead of trusting a provider script's `found_target` assertion.
+- **Container runtime detection follows the active configuration** ([#728](https://github.com/NVIDIA/ai-cloud-validation/pull/728))
+  `ContainerRuntimeCheck` now validates enabled containerd CRI handlers from the running daemon's configuration and imports, retains Docker GPU execution checks, and replaces automatic nerdctl/runc/crun detection with an explicit `commands.gpu_container` override.
+- **Correct catalog mappings and filtering labels** ([#737](https://github.com/NVIDIA/ai-cloud-validation/pull/737))
+  Corrects requirement IDs, domain labels, and descriptions so catalog attribution and label-based selection match the intended checks.
+- **Safely quoted IMEX probe settings** ([#667](https://github.com/NVIDIA/ai-cloud-validation/pull/667))
+  Quotes configurable service and executable names in remote IMEX probes so shell metacharacters in those values cannot alter the command.
+
+### Internal
+
+- Link milestone issues to their merged PRs without duplicate release-note entries ([#641](https://github.com/NVIDIA/ai-cloud-validation/pull/641)).
+- Restrict release publish-job permissions and pin setup-uv to a commit ([#667](https://github.com/NVIDIA/ai-cloud-validation/pull/667)).
+- Document AI-assisted contribution requirements and add a PR evidence template ([#700](https://github.com/NVIDIA/ai-cloud-validation/pull/700)).
+
 ## [0.13.0] - 2026-09-15
 
 ### Added
