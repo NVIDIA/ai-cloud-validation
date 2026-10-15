@@ -13,7 +13,7 @@ Clone the repository, select an explicit release, and install dependencies:
 ```bash
 git clone https://github.com/NVIDIA/ai-cloud-validation.git
 cd ai-cloud-validation
-git checkout v0.11.0
+git checkout v1.0.0
 uv sync
 ```
 

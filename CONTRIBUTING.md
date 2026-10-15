@@ -294,12 +294,11 @@ By making a contribution to this project, I certify that:
 
 ### Versioning Policy
 
-The project follows [semver](https://semver.org/) but is still pre-1.0
-(experimental), and that frames how we bump:
+The project follows [semver](https://semver.org/):
 
-- **Major** (`X.Y.Z` -> `(X+1).0.0`) - reserved for graduation out of the
-  experimental `0.x` line. Do not bump until the project is no longer
-  declared experimental.
+- **Major** (`X.Y.Z` -> `(X+1).0.0`) - backward-incompatible changes to the
+  CLI, the config schema, or the step JSON contract between scripts and
+  validations.
 - **Minor** (`X.Y.Z` -> `X.(Y+1).0`) - milestone releases: a coherent set of
   new features, a new domain coming online, or a behavior change worth
   flagging to downstream consumers.
