@@ -53,9 +53,9 @@ def _isolated_configs_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> P
     return configs_root
 
 
-# Storage provider manifests live alongside run-configs in a provider's config/
-# directory but are not RunConfigs (no commands/tests) and carry no path
-# references, so the run-config assertions below skip them.
+# Storage provider manifests live under config/overlays/. They are not RunConfigs
+# (no commands/tests). The run-config assertions below still skip any that sit
+# directly in config/.
 _MANIFEST_GLOB = "storage-provider-manifest*.yaml"
 
 
@@ -599,6 +599,17 @@ def test_every_generated_config_relative_path_resolves(tmp_path: Path) -> None:
             total_refs += 1
 
     assert total_refs > 0, "expected at least one relative reference across generated configs"
+
+    # The storage_manifest step runs with cwd set to the config directory.
+    # STORAGE_PROVIDER_MANIFEST is relative to that directory; shim.module is
+    # relative to the manifest file.
+    storage = yaml.safe_load((target / "config" / "storage.yaml").read_text(encoding="utf-8"))
+    steps = storage["commands"]["storage"]["steps"]
+    storage_manifest = next(step for step in steps if step["name"] == "storage_manifest")
+    manifest_path = target / "config" / storage_manifest["env"]["STORAGE_PROVIDER_MANIFEST"]
+    assert manifest_path.is_file()
+    shim_module = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))["providers"][0]["shim"]["module"]
+    assert (manifest_path.parent / shim_module).is_file()
 
 
 def test_meta_file_is_written_and_records_provider_name(tmp_path: Path) -> None:

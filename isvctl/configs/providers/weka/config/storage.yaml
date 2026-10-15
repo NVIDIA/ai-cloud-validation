@@ -17,7 +17,7 @@
 #
 # Imports suites/storage.yaml. Two independent inputs:
 #
-#   1. StorageProviderApiCheck is driven from storage-provider-manifest.yaml
+#   1. StorageProviderApiCheck is driven from overlays/storage-provider-manifest.yaml
 #      (the storage_manifest step emits its manifest_path) against a live WEKA
 #      cluster via the REST API shim. No Kubernetes cluster required for the
 #      shim itself, but the WEKA API endpoints must be reachable from the test
@@ -76,7 +76,7 @@ commands:
         command: "python ../../../shared/storage/storage_manifest_to_steps.py"
         timeout: 30
         env:
-          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
+          STORAGE_PROVIDER_MANIFEST: "overlays/storage-provider-manifest.yaml"
 
       - name: teardown_cluster
         phase: teardown

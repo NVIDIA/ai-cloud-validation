@@ -48,7 +48,7 @@ dummy-success stub has nothing to return for them.
 > Provider Shim (the [`StorageApi`](../../../../../isvtest/src/isvtest/core/storage_provider/api.py)
 > ABC) instead of
 > per-test-case scripts: one [`api.py`](storage/api.py) per backend
-> subclasses `StorageApi` and a [provider manifest](../config/storage-provider-manifest.yaml)
+> subclasses `StorageApi` and a [provider manifest](../config/overlays/storage-provider-manifest.yaml)
 > declares which `api.py` to load. See [`storage/README.md`](storage/README.md)
 > for the authoring guide.
 

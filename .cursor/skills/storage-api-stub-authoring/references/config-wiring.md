@@ -7,7 +7,7 @@ How manifest, shim, and (optionally) test harness connect.
 **Default workspace:** `isvctl/configs/providers/my-isv/`
 
 Edit in place — fill `scripts/storage/api.py` TODO blocks and update
-`config/storage-provider-manifest.yaml`. Do not copy to `providers/<name>/`
+`config/overlays/storage-provider-manifest.yaml`. Do not copy to `providers/<name>/`
 unless the user explicitly requests a handoff folder.
 
 **Test harness:** `my-isv/config/storage.yaml` declares the `storage_manifest`
@@ -17,7 +17,7 @@ when the user wants k8s-integrated runs.
 ## Two-artifact model
 
 ```text
-config/storage-provider-manifest.yaml     # discovery — lists providers
+config/overlays/storage-provider-manifest.yaml     # discovery — lists providers
         │
         │ providers[].shim.module (relative path)
         ▼
@@ -51,7 +51,7 @@ commands:
         phase: test
         command: "python ../../../shared/storage/storage_manifest_to_steps.py"
         env:
-          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
+          STORAGE_PROVIDER_MANIFEST: "overlays/storage-provider-manifest.yaml"
 ```
 
 The same config runs the Kubernetes CSI/filesystem checks with
@@ -78,7 +78,7 @@ providers:
 
     shim:                               # omit entirely for providers with no mgmt API
       kind: python
-      module: ../scripts/storage/api.py
+      module: ../../scripts/storage/api.py
 
     capabilities:                        # CONTRACT for shim providers (source of truth; probed at runtime)
       tenantManagement: native|default|none      # or { list, get, getQuota }

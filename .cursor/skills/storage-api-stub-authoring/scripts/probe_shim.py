@@ -7,7 +7,7 @@ Loads the provider manifest, exercises each Python shim in-process, and
 prints pass/fail per subtest. Run from repo root after ``uv sync``::
 
     uv run python .cursor/skills/storage-api-stub-authoring/scripts/probe_shim.py \\
-        --manifest isvctl/configs/providers/my-isv/config/storage-provider-manifest.yaml
+        --manifest isvctl/configs/providers/my-isv/config/overlays/storage-provider-manifest.yaml
 
 Exit code 0 when all providers pass; 1 otherwise.
 """

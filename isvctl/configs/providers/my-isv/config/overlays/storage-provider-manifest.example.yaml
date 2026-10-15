@@ -20,7 +20,7 @@
 # This file is a reference showing every field a customer can supply. It is NOT
 # wired into any test config - copy `storage-provider-manifest.yaml` (the blank
 # template) instead and fill it in for your environment. See
-# `../scripts/storage/README.md` and the schema
+# `../../scripts/storage/README.md` and the schema
 # `isvctl/schemas/storage-provider-manifest.schema.json`.
 #
 # v1alpha2 mirrors the upstream StorageProvider package manifest:
@@ -90,7 +90,7 @@ providers:
       kind: python # python (in-process) | rest (Phase 2 endpoint, skipped today)
       # Resolved relative to this manifest's parent directory. In a real
       # cluster this names a key inside the per-provider ConfigMap below.
-      module: ../scripts/storage/api.py
+      module: ../../scripts/storage/api.py
       configmap: shim-acme-shared-fs # (k8s) ConfigMap holding the shim
       credentials_secret: creds-acme-shared-fs # (k8s) Secret holding the credentials
 

@@ -59,7 +59,7 @@ providers:
       # Resolved relative to this manifest's parent directory. In a real
       # cluster this names a key inside the per-provider ConfigMap
       # (providers[].shim.configmap) instead.
-      module: ../scripts/storage/api.py
+      module: ../../scripts/storage/api.py
 
     # Hierarchical capabilities (native | default | none), lowered by the loader
     # to a cap_id -> supported? map. This example backs tenant-quota visibility

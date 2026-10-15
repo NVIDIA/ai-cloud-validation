@@ -16,7 +16,7 @@
 # WEKA Storage Provider Manifest (schema v1alpha2).
 #
 # Drives StorageProviderApiCheck ONLY, via the WEKA REST API shim
-# (../scripts/storage/weka/api.py) - config/storage.yaml (no cluster required).
+# (../../scripts/storage/weka/api.py) - config/storage.yaml (no cluster required).
 # The K8sCsi* / K8sFilesystem* checks (config/storage.yaml, --capability
 # kubernetes) get the WEKA StorageClass name from K8S_CSI_* env vars or the
 # cluster, NOT from this manifest.
@@ -26,7 +26,7 @@
 # hierarchical `capabilities` block (native | default | none). The declared
 # identity + capabilities are a CONTRACT: StorageProviderApiCheck cross-checks
 # them against the running shim's properties(). Keep this in sync with
-# ../scripts/storage/weka/api.py (WekaApi's ProviderProperties core).
+# ../../scripts/storage/weka/api.py (WekaApi's ProviderProperties core).
 #
 # Needs WEKA_ENDPOINTS (or WEKA_ENDPOINT), WEKA_USERNAME, WEKA_PASSWORD and
 # WEKA_FILESYSTEM at runtime:
@@ -77,7 +77,7 @@ providers:
     shim:
       kind: python
       # Resolved relative to this manifest's parent directory.
-      module: ../scripts/storage/weka/api.py
+      module: ../../scripts/storage/weka/api.py
 
     # Hierarchical capabilities (native | default | none), lowered by the loader
     # to a cap_id -> supported? map and cross-checked against properties():

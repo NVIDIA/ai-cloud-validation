@@ -186,13 +186,22 @@ def test_storage_suite_templates_read_the_suite_cluster_fixture() -> None:
     assert referenced - bound == {fixture, "install_csi"}
 
 
-@pytest.mark.parametrize(
-    "config",
-    sorted(
-        str(manifest.relative_to(CONFIGS_ROOT / "providers").with_name("storage.yaml"))
-        for manifest in (CONFIGS_ROOT / "providers").glob("*/config/storage-provider-manifest.yaml")
-    ),
-)
+def _storage_configs_shipping_a_manifest() -> list[str]:
+    """Provider storage.yaml paths whose config tree ships a storage-provider manifest."""
+    providers = CONFIGS_ROOT / "providers"
+    configs: set[Path] = set()
+    patterns = (
+        "*/config/storage-provider-manifest.yaml",
+        "*/config/overlays/storage-provider-manifest.yaml",
+    )
+    for pattern in patterns:
+        for manifest in providers.glob(pattern):
+            config_dir = manifest.parent.parent if manifest.parent.name == "overlays" else manifest.parent
+            configs.add(config_dir / "storage.yaml")
+    return sorted(str(path.relative_to(providers)) for path in configs)
+
+
+@pytest.mark.parametrize("config", _storage_configs_shipping_a_manifest())
 def test_storage_shim_configs_declare_the_manifest_step(config: str) -> None:
     """The storage-provider checks bind to storage_manifest; a config shipping a shim must declare it.
 

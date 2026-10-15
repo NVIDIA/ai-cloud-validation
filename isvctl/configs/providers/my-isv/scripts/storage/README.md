@@ -14,7 +14,7 @@ validation runs.
 ## The two pieces
 
 ```text
-config/storage-provider-manifest.yaml   <- declares the provider(s)
+config/overlays/storage-provider-manifest.yaml   <- declares the provider(s)
                                             (see the JSON schema)
                   │
                   ▼ providers[].shim.module points at
@@ -65,7 +65,7 @@ for it. So you can't declare `provider.protocols: [lustre]` or
 `quotaManagement.directory: native` unless the shim actually backs it. Omit a
 field to leave it unchecked; declare a surface `none` to leave it unprobed.
 
-Two artifacts ship beside this README under `../../config/`:
+Two artifacts ship beside this README under `../../config/overlays/`:
 
 - `storage-provider-manifest.yaml` — the **blank template** (one working
   provider, heavily commented). Copy and fill it in.
@@ -156,7 +156,7 @@ ISVCTL_DEMO_MODE=1 \
 
 Once your `api.py` is real, the production delivery bundles:
 
-- The manifest (`config/storage-provider-manifest.yaml`) into a well-known
+- The manifest (`config/overlays/storage-provider-manifest.yaml`) into a well-known
   ConfigMap (default name `storage-provider-manifest`).
 - Each provider's `api.py` (plus optional `config.yaml`) into a
   provider-chosen per-provider ConfigMap.

@@ -17,7 +17,7 @@ quota model before relying on the results.
 
 ## How it works
 
-The manifest at [`../../config/storage-provider-manifest.yaml`](../../config/storage-provider-manifest.yaml)
+The manifest at [`../../config/overlays/storage-provider-manifest.yaml`](../../config/overlays/storage-provider-manifest.yaml)
 (schema `v1alpha2`) declares one `vast-nfs` provider and drives the management
 API check:
 

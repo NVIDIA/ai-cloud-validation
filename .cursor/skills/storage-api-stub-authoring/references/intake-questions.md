@@ -14,7 +14,7 @@ handoff folder (e.g. `providers/weka/`).
 | File | Action |
 | ---- | ------ |
 | `scripts/storage/api.py` | Replace `TODO` blocks in the existing `MyStorageApi` class |
-| `config/storage-provider-manifest.yaml` | Update `providers[]`, `shim.module`, `csi`, `attributes` |
+| `config/overlays/storage-provider-manifest.yaml` | Update `providers[]`, `shim.module`, `csi`, `attributes` |
 | `config/storage.yaml` | Already declares the `storage_manifest` step; tweak `STORAGE_PROVIDER_MANIFEST` only if the path changes |
 | `scripts/storage/README.md` | Document env vars when the stub is complete |
 

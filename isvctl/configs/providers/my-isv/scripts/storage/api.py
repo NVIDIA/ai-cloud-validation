@@ -30,7 +30,7 @@ gates everything else. This is the key rule of the detection model:
   Do NOT ship a stub that raises: an overridden method reads as *supported* and
   fails the suite when probed.
 
-The sibling ``config/storage-provider-manifest.yaml`` is the contract the
+The sibling ``config/overlays/storage-provider-manifest.yaml`` is the contract the
 validation suite probes: every capability it marks ``supported`` must answer,
 and a surface you did not implement must be declared ``none``. Keep the two in
 sync - detection and the manifest must agree.
@@ -48,7 +48,7 @@ Authoring checklist:
      declare it ``none`` (the managed-K8s default is that the CSI driver owns
      volume lifecycle, so ``create_volume`` / ``delete_volume`` are omitted here
      and the suite falls back to ``list_volumes``).
-  6. Keep ``config/storage-provider-manifest.yaml`` in sync: every capability it
+  6. Keep ``config/overlays/storage-provider-manifest.yaml`` in sync: every capability it
      marks ``native``/``default`` must be implemented (the suite enforces it).
 """
 

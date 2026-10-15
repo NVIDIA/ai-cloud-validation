@@ -37,7 +37,7 @@
 #   HssChangelogAuditCheck (HSS15-01), HssMultipathCheck (HSS18-01).
 #
 # Storage provider API (StorageProviderApiCheck, StorageDirectoryQuotaEnforcementCheck):
-#   the storage_manifest step resolves storage-provider-manifest.yaml, whose shim
+#   the storage_manifest step resolves overlays/storage-provider-manifest.yaml, whose shim
 #   (scripts/storage/api.py) the checks load in-process. See scripts/storage/README.md.
 #
 # Kubernetes CSI / filesystem checks (--capability kubernetes) run against the
@@ -132,7 +132,7 @@ commands:
         command: "python ../../../shared/storage/storage_manifest_to_steps.py"
         timeout: 30
         env:
-          STORAGE_PROVIDER_MANIFEST: "storage-provider-manifest.yaml"
+          STORAGE_PROVIDER_MANIFEST: "overlays/storage-provider-manifest.yaml"
 
       - name: snapshot_lifecycle
         phase: test
