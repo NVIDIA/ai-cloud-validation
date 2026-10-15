@@ -3852,12 +3852,12 @@ a|
 
 | [[K8S39-01]]K8S39-01
 | K8S39
-|
-|
+| https://github.com/NVIDIA/ai-cloud-validation/issues/742[#742]
+| kubernetes
 | tenant
-|
+| Stopgap wiring: K8sPodHealthCheck + K8sNoErrorPodsCheck verify the cluster's existing pods are healthy. A check that deploys a tenant workload is a follow-up.
 | P0
-a|
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/742[#742]
 | LimitedEnv
 | M0
 |

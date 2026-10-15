@@ -3531,7 +3531,11 @@ domains:
                 notes: ""
                 priority: ""
               - summary: Be able to run k8s workloads
-                notes: ""
+                labels:
+                  - kubernetes
+                notes: "Stopgap wiring: K8sPodHealthCheck + K8sNoErrorPodsCheck verify the cluster's existing pods are healthy. A check that deploys a tenant workload is a follow-up."
+                github_issues:
+                  - "#742"
                 priority: P0
                 dependencies:
                   - LimitedEnv
