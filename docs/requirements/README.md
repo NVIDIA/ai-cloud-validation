@@ -74,7 +74,7 @@ record.
 
 | Prefix | Owner | Concern |
 | ------ | ----- | ------- |
-| `CNP` `BOOT` `SDN` `K8S` `SEC` `BFX` `DIR` `HSS` `DMS` `STG` `NET` `CAP` `BM` | offtake | min-req domains (see offtake doc) |
+| `CNP` `BOOT` `SDN` `K8S` `SEC` `BFX` `DIR` `HSS` `DMS` `STG` `NET` `CAP` `BM` | offtake | offtake requirement domains (see offtake doc) |
 | `IMG` | reference | image registry / golden images |
 | `AUTH` | reference | key & secret mgmt |
 | `IAM` | reference | identity & access mgmt |
@@ -135,15 +135,32 @@ actor without reconciling the test plan.
 The end goal is to run **subsets** of tests - an arbitrary tag, or *every test
 belonging to a given requirements document*. We keep the data flexible for this:
 
-- A test may carry many `labels` in `test-plan.yaml` (e.g. `min_req`); this list
+- A test may carry many `labels` in `test-plan.yaml` (e.g. `offtake`); this list
   is open-ended and multi-valued.
 - **Requirement-document membership is derivable from the index**: a test
   "belongs to" document *X* if any of its `requirements[].source == X` in
   `test-requirements-matrix.yaml`. So "run all offtake tests" = select tests
   with an `offtake`-source requirement; "run all NSRG/reference tests" = `reference`.
 - Therefore membership is **derived, not duplicated** by default. Materialized
-  convenience labels (e.g. a generated `doc:offtake` tag) may be produced later
-  from the index, but the index stays the source of truth.
+  convenience labels may be produced from the index, but the index stays the
+  source of truth.
+
+### Materialized labels
+
+The following labels are materialized on tests in `test-plan.yaml` and on
+every suite check mapped to those tests (plan and suite labels must stay in
+sync; see sec. 7).
+
+| Family | Labels | Meaning |
+| ------ | ------ | ------- |
+| Offtake | `offtake` | The test maps to at least one `offtake`-source requirement (full or partial coverage) that is present in the *NVIDIA Requirements for AI Clouds* v2.4 (`docs/references/requirements-for-ai-clouds-v2.4.md`). Requirements removed in v2.4 do not confer the label. |
+
+`offtake` replaces the former hand-applied `min_req` label, which drifted from
+the requirement mappings and has been removed. Use `--label offtake` to select
+offtake tests.
+
+Select a subset at run time by label, for example
+`isvctl test run --provider aws --suite vm --label offtake`.
 
 ## 6. Onboarding a new requirements document (runbook)
 

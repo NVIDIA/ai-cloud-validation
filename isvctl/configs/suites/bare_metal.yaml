@@ -53,7 +53,7 @@ tests:
       checks:
         BmHostRunningCheck:
           test_id: "CNP01-01"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           expected_state: "running"
           description: "Check the bare metal host reaches the running state after launch"
           compose:
@@ -77,7 +77,7 @@ tests:
       checks:
         BmHostTaggedCheck:
           test_id: "CNP05-01"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           required_keys: ["Name", "CreatedBy"]
           description: "Check the bare metal host carries the required tags"
           compose:
@@ -88,27 +88,27 @@ tests:
       checks:
         BmTopologyPlacementCheck:
           test_id: "CNP01-04"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
 
     serial_console:
       step: serial_console
       checks:
         BmSerialConsoleCheck:
           test_id: "CNP06-01"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           description: "Check the bare metal host's serial console is reachable"
           compose:
             - SerialConsoleCheck
         SerialConsoleRetentionCheck:
           test_id: "CNP06-02"
-          labels: ["bare_metal", "min_req", "observability"]
+          labels: ["bare_metal", "offtake", "observability"]
 
     cloud_init:
       step: launch_instance
       checks:
         BmCloudInitCheck:
           test_id: "BOOT02-01"
-          labels: ["bare_metal", "min_req", "ssh"]
+          labels: ["bare_metal", "offtake", "ssh"]
           description: "Check cloud-init completed on the bare metal host"
           compose:
             - CloudInitCheck
@@ -122,7 +122,7 @@ tests:
       checks:
         BmHostRunsExpectedImageCheck:
           test_id: "BOOT01-03"
-          labels: ["bare_metal", "image_registry", "min_req"]
+          labels: ["bare_metal", "image_registry", "offtake"]
           description: "Check a running bare metal host reports the OS image it was configured with"
           compose:
             - StepSuccessCheck
@@ -210,7 +210,7 @@ tests:
       checks:
         BmGpuStressCheck:
           test_id: "BMAAS09-01"
-          labels: ["bare_metal", "gpu", "min_req", "ssh", "workload"]
+          labels: ["bare_metal", "gpu", "ssh", "workload"]
           runtime: 30
           memory_gb: 16
 
@@ -220,7 +220,7 @@ tests:
       checks:
         BmNcclCheck:
           test_id: "BMAAS11-01"
-          labels: ["bare_metal", "gpu", "min_req", "ssh", "workload"]
+          labels: ["bare_metal", "gpu", "ssh", "workload"]
 
     # DDP training workload - validates full training stack
     training:
@@ -228,7 +228,7 @@ tests:
       checks:
         BmTrainingCheck:
           test_id: "BMAAS12-01"
-          labels: ["bare_metal", "gpu", "min_req", "ssh", "workload"]
+          labels: ["bare_metal", "gpu", "ssh", "workload"]
           steps: 50
 
     # Network / interconnect checks
@@ -295,7 +295,7 @@ tests:
       checks:
         BmHostStoppedCheck:
           test_id: "CNP01-07"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           description: "Check the bare metal host stops on request"
           compose:
             - InstanceStopCheck
@@ -305,13 +305,13 @@ tests:
       checks:
         BmHostStartedCheck:
           test_id: "CNP01-08"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           description: "Check the bare metal host starts again after being stopped"
           compose:
             - InstanceStartCheck
         BmIdentifierStableAfterStartCheck:
           test_id: "N/A"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal"]
           reference_id: "{{steps.launch_instance.instance_id}}"
           description: "Check the bare metal host keeps its identifier across a start"
           compose:
@@ -353,14 +353,14 @@ tests:
       checks:
         BmHostRebootedCheck:
           test_id: "CNP01-05"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           max_uptime: 600
           description: "Check the bare metal host reboots on request"
           compose:
             - InstanceRebootCheck
         BmIdentifierStableAfterRebootCheck:
           test_id: "CNP08-01"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           reference_id: "{{steps.launch_instance.instance_id}}"
           description: "Check the bare metal host keeps its identifier across a reboot"
           compose:
@@ -409,14 +409,14 @@ tests:
       checks:
         BmHostPowerCycledCheck:
           test_id: "CNP01-06"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           max_recovery_time: 900
           description: "Check the bare metal host recovers after a power cycle"
           compose:
             - InstancePowerCycleCheck
         BmIdentifierStableAfterPowerCycleCheck:
           test_id: "N/A"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal"]
           reference_id: "{{steps.launch_instance.instance_id}}"
           description: "Check the bare metal host keeps its identifier across a power cycle"
           compose:
@@ -469,7 +469,7 @@ tests:
             - InstanceStateCheck
         BmIdentifierStableAfterReinstallCheck:
           test_id: "CNP08-02"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           reference_id: "{{steps.launch_instance.instance_id}}"
           description: "Check the bare metal host keeps its identifier across a reinstall"
           compose:
@@ -503,7 +503,7 @@ tests:
       checks:
         BmNimInferenceReadyCheck:
           test_id: "BMAAS10-01"
-          labels: ["bare_metal", "gpu", "min_req", "slow", "ssh", "workload"]
+          labels: ["bare_metal", "gpu", "slow", "ssh", "workload"]
           description: "Check the deployed NIM is healthy, exposes its model, and answers an inference request"
           compose:
             - NimHealthCheck
@@ -527,7 +527,7 @@ tests:
       checks:
         BmResourcesDeletedCheck:
           test_id: "CNP01-03"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           description: "Check the teardown step reports the host and its resources released"
           compose:
             - StepSuccessCheck
@@ -537,7 +537,7 @@ tests:
       checks:
         BmHostTerminatedCheck:
           test_id: "CNP01-03"
-          labels: ["bare_metal", "min_req"]
+          labels: ["bare_metal", "offtake"]
           description: "Check the platform independently confirms the host is gone, rather than trusting teardown's own report"
           compose:
             - StepSuccessCheck
@@ -584,7 +584,7 @@ tests:
       checks:
         GovernanceMetricsCheck:
           test_id: "CAP01-01"
-          labels: ["bare_metal", "governance", "min_req"]
+          labels: ["bare_metal", "governance", "offtake"]
           min_delivered_nodes: 1
 
     # Fleet management API (CAP02-01): the resource governance API must return a
@@ -597,7 +597,7 @@ tests:
       checks:
         FleetManagementApiCheck:
           test_id: "CAP02-01"
-          labels: ["bare_metal", "governance", "min_req"]
+          labels: ["bare_metal", "governance", "offtake"]
           min_nodes: 1
 
     # Resource discovery API (CAP03-01): newly delivered capacity must be
@@ -614,7 +614,7 @@ tests:
       checks:
         ResourceDiscoveryApiCheck:
           test_id: "CAP03-01"
-          labels: ["bare_metal", "governance", "min_req"]
+          labels: ["bare_metal", "governance", "offtake"]
           min_resources: 1
           min_polls: 2
 
@@ -629,7 +629,7 @@ tests:
       checks:
         HostHealthCheck:
           test_id: "CAP05-01"
-          labels: ["bare_metal", "health", "min_req"]
+          labels: ["bare_metal", "health", "offtake"]
           require_report: true
 
     # Primitive-level health aggregation at the nodegroup/reservation level
@@ -640,7 +640,7 @@ tests:
       checks:
         HealthAggregationCheck:
           test_id: "CAP05-02"
-          labels: ["bare_metal", "health", "min_req"]
+          labels: ["bare_metal", "health", "offtake"]
           min_groups: 1
 
     # InfiniBand tenant isolation (SDN04-04). Verifies each tenant's IB
@@ -653,7 +653,7 @@ tests:
       checks:
         IbTenantIsolationCheck:
           test_id: "SDN04-04"
-          labels: ["bare_metal", "infiniband", "min_req", "network", "security"]
+          labels: ["bare_metal", "infiniband", "offtake", "network", "security"]
           min_partitions: 1
 
     # InfiniBand security keys (SDN04-05). The full requirement covers the
@@ -669,7 +669,7 @@ tests:
       checks:
         IbKeysConfiguredCheck:
           test_id: "SDN04-05"
-          labels: ["bare_metal", "infiniband", "min_req", "network", "security"]
+          labels: ["bare_metal", "infiniband", "offtake", "network", "security"]
           required_keys: ["p_key", "management_key"]
 
     # Tenant-transition data sanitization (SEC21 / SEC22). Each check asserts
@@ -685,21 +685,21 @@ tests:
       checks:
         BmMemorySanitizationCheck:
           test_id: "SEC21-04"
-          labels: ["bare_metal", "min_req", "sanitization", "security"]
+          labels: ["bare_metal", "offtake", "sanitization", "security"]
 
     gpu_memory_sanitization:
       step: query_sanitization
       checks:
         BmGpuMemorySanitizationCheck:
           test_id: "SEC21-05"
-          labels: ["bare_metal", "gpu", "min_req", "sanitization", "security"]
+          labels: ["bare_metal", "gpu", "offtake", "sanitization", "security"]
 
     firmware_reset:
       step: query_sanitization
       checks:
         BmFirmwareResetCheck:
           test_id: "SEC21-06"
-          labels: ["bare_metal", "firmware", "min_req", "sanitization", "security"]
+          labels: ["bare_metal", "firmware", "offtake", "sanitization", "security"]
 
     # SEC21-02: confirm storage is sanitized on delete. Gates on the same
     # sanitizing lifecycle stage as the memory check, because that stage also
@@ -710,7 +710,7 @@ tests:
       checks:
         BmDiskSanitizationCheck:
           test_id: "SEC21-02"
-          labels: ["bare_metal", "min_req", "sanitization", "security"]
+          labels: ["bare_metal", "offtake", "sanitization", "security"]
 
     # Failure-domain topology observability (STG05-01). Asserts every host
     # reports the physical failure domain (rack/enclosure) it belongs to, so a
@@ -723,7 +723,7 @@ tests:
       checks:
         FailureDomainObservabilityCheck:
           test_id: "STG05-01"
-          labels: ["bare_metal", "storage", "min_req"]
+          labels: ["bare_metal", "storage", "offtake"]
           min_failure_domains: 1
 
     # Break/fix skip-sanitization policy (STG02-01). Extends the SEC21
@@ -736,7 +736,7 @@ tests:
       checks:
         SkipSanitizationBreakfixCheck:
           test_id: "STG02-01"
-          labels: ["bare_metal", "min_req", "sanitization", "storage"]
+          labels: ["bare_metal", "offtake", "sanitization", "storage"]
 
     # Stable admin IP observability (STG03-01). Asserts each host reports at
     # least one IP on its primary machineInterfaces entry so storage nodes have
@@ -747,7 +747,7 @@ tests:
       checks:
         StableStorageNodeIpCheck:
           test_id: "STG03-01"
-          labels: ["bare_metal", "min_req", "network", "storage"]
+          labels: ["bare_metal", "offtake", "network", "storage"]
 
     # Out-of-band failure detection (STG04-01). Asserts the per-host health API
     # exposes BMC/out-of-band probes covering device failures at minimum. Only
@@ -757,7 +757,7 @@ tests:
       checks:
         OobFailureDetectionCheck:
           test_id: "STG04-01"
-          labels: ["bare_metal", "health", "min_req", "storage"]
+          labels: ["bare_metal", "health", "offtake", "storage"]
 
     # Hardware/firmware attestation (SEC22 / CNP09). Each check asserts a host
     # establishes a hardware root of trust. Only runs for providers that
@@ -771,14 +771,14 @@ tests:
       checks:
         BmNonceAttestationCheck:
           test_id: "SEC22-01"
-          labels: ["bare_metal", "security", "attestation"]
+          labels: ["bare_metal", "security", "attestation", "offtake"]
 
     firmware_attestation:
       step: query_attestation
       checks:
         BmFirmwareAttestationCheck:
           test_id: "CNP09-02"
-          labels: ["attestation", "bare_metal", "firmware", "min_req", "security"]
+          labels: ["attestation", "bare_metal", "firmware", "offtake", "security"]
 
     # Specified-key access to out-of-band components (AUTH-XX-03). Verifies a
     # tenant-specified key (e.g. an SSH key) can be used to access other
@@ -802,7 +802,7 @@ tests:
       checks:
         BmHardwareSerialCheck:
           test_id: "BFX03-01"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
           min_machines: 1
 
     switch_firmware:
@@ -810,7 +810,7 @@ tests:
       checks:
         NvSwitchFirmwareCheck:
           test_id: "BFX03-02"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
           min_trays: 1
 
     bmc_kernel_logs:
@@ -818,7 +818,7 @@ tests:
       checks:
         BmcKernelLogCheck:
           test_id: "BFX03-03"
-          labels: ["bare_metal", "breakfix", "min_req", "observability"]
+          labels: ["bare_metal", "breakfix", "offtake", "observability"]
           min_hosts: 1
 
     maintenance_events:
@@ -826,21 +826,21 @@ tests:
       checks:
         MaintenanceEventsCheck:
           test_id: "BFX02-01"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
 
     retirement_notices:
       step: query_retirement_notices
       checks:
         RetirementNoticesCheck:
           test_id: "BFX02-02"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
 
     repair_history:
       step: query_repair_history
       checks:
         RepairHistoryCheck:
           test_id: "BFX02-03"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
 
     # Report a node as needing repair while keeping it, and verify the provider
     # moves it into a repair state. The destructive counterpart is BFX01-02 below.
@@ -849,28 +849,28 @@ tests:
       checks:
         ReportNodeRepairCheck:
           test_id: "BFX01-06"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
 
     return_node_maintenance:
       step: return_node_maintenance
       checks:
         ReturnNodeMaintenanceCheck:
           test_id: "BFX01-02"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
 
     return_rack_maintenance:
       step: return_rack_maintenance
       checks:
         ReturnRackMaintenanceCheck:
           test_id: "BFX01-03"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
 
     host_replacement:
       step: request_host_replacement
       checks:
         HostReplacementCheck:
           test_id: "BFX01-05"
-          labels: ["bare_metal", "breakfix", "min_req"]
+          labels: ["bare_metal", "breakfix", "offtake"]
 
     node_health_agents:
       step: query_node_health_agents

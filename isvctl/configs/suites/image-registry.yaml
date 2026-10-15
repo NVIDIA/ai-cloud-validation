@@ -55,7 +55,7 @@ tests:
       checks:
         CustomOsImageUploadedCheck:
           test_id: "BOOT01-01"
-          labels: ["image_registry", "min_req"]
+          labels: ["image_registry", "offtake"]
           requires: []
           description: "Check a custom OS image is uploaded and registered with its disks"
           compose:
@@ -69,7 +69,7 @@ tests:
       checks:
         CustomOsImageCrudCheck:
           test_id: "BOOT03-02"
-          labels: ["image_registry", "min_req"]
+          labels: ["image_registry", "offtake"]
           requires: []
           description: "Check custom OS images support get, list, create, and delete"
           compose:
@@ -85,7 +85,7 @@ tests:
       checks:
         VmBootedFromCustomImageCheck:
           test_id: "BOOT01-05"
-          labels: ["image_registry", "min_req"]
+          labels: ["image_registry", "offtake"]
           requires: [vm]
           description: "Check a VM launches from the custom image and reaches the running state"
           compose:
@@ -114,7 +114,7 @@ tests:
       checks:
         OsInstallConfigCrudCheck:
           test_id: "BOOT01-02"
-          labels: ["image_registry"]
+          labels: ["image_registry", "offtake"]
           requires: []
           description: "Check an OS install configuration can be created and managed"
           compose:
@@ -130,7 +130,7 @@ tests:
       checks:
         BmHostBootedFromCustomImageCheck:
           test_id: "BOOT01-03"
-          labels: ["bare_metal", "image_registry", "min_req"]
+          labels: ["bare_metal", "image_registry", "offtake"]
           requires: [bare_metal]
           description: "Check a bare metal host installs the custom OS image and reaches the running state"
           compose:
@@ -146,7 +146,7 @@ tests:
       checks:
         BmHostBootedFromInstallConfigCheck:
           test_id: "BOOT01-04"
-          labels: ["image_registry", "min_req"]
+          labels: ["image_registry", "offtake"]
           requires: [bare_metal]
           description: "Check a bare metal host installs from the OS install configuration and reaches the running state"
           compose:
@@ -164,7 +164,7 @@ tests:
       checks:
         CustomOsImageDeletedCheck:
           test_id: "BOOT01-01"
-          labels: ["image_registry", "min_req"]
+          labels: ["image_registry", "offtake"]
           requires: []
           description: "Check the uploaded image and its artifacts are deleted"
           compose:

@@ -57,7 +57,7 @@ tests:
       checks:
         ControlPlaneApiHealthCheck:
           test_id: "CP03-01"
-          labels: ["control_plane", "min_req"]
+          labels: ["control_plane"]
           requires: []
           description: "Check the control plane API answers an authenticated request for the account"
           compose:
@@ -89,12 +89,12 @@ tests:
           step: test_access_key
         AccessKeyDisabledCheck:
           test_id: "CP06-01"
-          labels: ["control_plane", "iam", "min_req"]
+          labels: ["control_plane", "iam"]
           requires: []
           step: disable_access_key
         AccessKeyRejectedCheck:
           test_id: "CP06-01"
-          labels: ["control_plane", "iam", "min_req"]
+          labels: ["control_plane", "iam"]
           requires: []
           step: verify_key_rejected
 
@@ -116,7 +116,7 @@ tests:
       checks:
         ObjectStorageCrudCheck:
           test_id: "DATASVC01-01"
-          labels: ["control_plane", "min_req", "storage"]
+          labels: ["control_plane", "storage"]
           requires: []
           description: "Check objects can be put, read back, and deleted through the object storage API"
           compose:

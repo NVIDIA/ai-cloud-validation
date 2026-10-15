@@ -62,7 +62,7 @@ tests:
       checks:
         VmCreatedCheck:
           test_id: "CNP01-09"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           expected_state: "running"
           description: "Check the VM is created and reaches the running state"
           compose:
@@ -88,7 +88,7 @@ tests:
       checks:
         VmListedCheck:
           test_id: "CNP01-11"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           min_count: 1
           target_instance: "{{steps.launch_instance.instance_id}}"
           description: "Check the VM appears when instances are listed"
@@ -100,7 +100,7 @@ tests:
       checks:
         VmTaggedCheck:
           test_id: "CNP05-02"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           required_keys: ["Name", "CreatedBy"]
           description: "Check the VM carries the required tags"
           compose:
@@ -111,7 +111,7 @@ tests:
       checks:
         VmSerialConsoleCheck:
           test_id: "CNP06-03"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           description: "Check the VM's serial console is reachable"
           compose:
             - SerialConsoleCheck
@@ -121,21 +121,21 @@ tests:
       checks:
         VmConsoleRbacCheck:
           test_id: "CNP01-16"
-          labels: ["iam", "min_req", "security", "vm"]
+          labels: ["iam", "offtake", "security", "vm"]
 
     virtual_device_hardening:
       step: virtual_device_hardening
       checks:
         VirtualDeviceHardeningCheck:
           test_id: "CNP01-17"
-          labels: ["min_req", "security", "vm"]
+          labels: ["offtake", "security", "vm"]
 
     cloud_init:
       step: launch_instance
       checks:
         VmCloudInitCheck:
           test_id: "BOOT02-02"
-          labels: ["min_req", "ssh", "vm"]
+          labels: ["offtake", "ssh", "vm"]
           description: "Check cloud-init completed on the VM"
           compose:
             - CloudInitCheck
@@ -148,7 +148,7 @@ tests:
       checks:
         VmStateReportedCheck:
           test_id: "CNP01-10"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           expected_state: "running"
           description: "Check the platform reports the VM as running when described"
           compose:
@@ -234,7 +234,7 @@ tests:
       checks:
         VmStoppedCheck:
           test_id: "CNP01-14"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           description: "Check the VM stops on request"
           compose:
             - InstanceStopCheck
@@ -244,13 +244,13 @@ tests:
       checks:
         VmStartedCheck:
           test_id: "CNP01-15"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           description: "Check the VM starts again after being stopped"
           compose:
             - InstanceStartCheck
         VmIdentifierStableAfterStartCheck:
           test_id: "CNP08-03"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           reference_id: "{{steps.launch_instance.instance_id}}"
           description: "Check the VM keeps its identifier across a start"
           compose:
@@ -289,14 +289,14 @@ tests:
       checks:
         VmRebootedCheck:
           test_id: "CNP01-13"
-          labels: ["vm"]
+          labels: ["offtake", "vm"]
           max_uptime: 600
           description: "Check the VM reboots on request"
           compose:
             - InstanceRebootCheck
         VmIdentifierStableAfterRebootCheck:
           test_id: "N/A"
-          labels: ["min_req", "vm"]
+          labels: ["vm"]
           reference_id: "{{steps.launch_instance.instance_id}}"
           description: "Check the VM keeps its identifier across a reboot"
           compose:
@@ -372,7 +372,7 @@ tests:
       checks:
         VmResourcesDeletedCheck:
           test_id: "CNP01-12"
-          labels: ["min_req", "vm"]
+          labels: ["offtake", "vm"]
           description: "Check the VM and its associated resources are deleted"
           compose:
             - StepSuccessCheck

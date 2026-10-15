@@ -18,7 +18,7 @@ Run `make plan` to regenerate.
 | [[BOOT01-01]]BOOT01-01
 | BOOT01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/37[#37]
-| image_registry, min_req
+| image_registry, offtake
 | tenant
 |
 | P0
@@ -34,7 +34,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/38[#38]
 | [[BOOT01-02]]BOOT01-02
 | BOOT01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/39[#39]
-| image_registry
+| image_registry, offtake
 | tenant
 |
 | P0
@@ -49,7 +49,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/39[#39]
 | [[BOOT03-01]]BOOT03-01
 | BOOT03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/40[#40]
-| min_req
+| offtake
 | tenant
 |
 | P0
@@ -64,7 +64,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/40[#40]
 | [[BOOT03-02]]BOOT03-02
 | BOOT03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/104[#104]
-| image_registry, min_req
+| image_registry, offtake
 | tenant
 |
 | P0
@@ -79,7 +79,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/104[#104]
 | [[BOOT01-03]]BOOT01-03
 | BOOT01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/41[#41]
-| bare_metal, image_registry, min_req
+| bare_metal, image_registry, offtake
 | tenant
 |
 | P0
@@ -94,7 +94,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/41[#41]
 | [[BOOT01-04]]BOOT01-04
 | BOOT01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/43[#43]
-| image_registry, min_req
+| image_registry, offtake
 | tenant
 |
 | P0
@@ -109,7 +109,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/43[#43]
 | [[BOOT01-05]]BOOT01-05
 | BOOT01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/44[#44]
-| image_registry, min_req
+| image_registry, offtake
 | tenant
 |
 | P0
@@ -220,7 +220,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/248[#248]
 | [[IAM01-01]]IAM01-01
 | IAM01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/21[#21]
-| iam, min_req
+| iam
 | tenant
 |
 | P0
@@ -338,7 +338,7 @@ a|
 | [[CP03-01]]CP03-01
 | CP03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/26[#26]
-| control_plane, min_req
+| control_plane
 | tenant
 |
 | P0
@@ -384,7 +384,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/28[#28]
 | [[CP06-01]]CP06-01
 | CP06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/29[#29]
-| control_plane, iam, min_req
+| control_plane, iam
 | tenant
 |
 | P0
@@ -460,7 +460,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/34[#34]
 | [[CP11-01]]CP11-01
 | CP11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/35[#35]
-| min_req
+|
 | tenant
 |
 | P0
@@ -511,7 +511,7 @@ a|
 | [[SEC22-01]]SEC22-01
 | SEC22
 | https://github.com/NVIDIA/ai-cloud-validation/issues/315[#315]
-| attestation, bare_metal, security
+| attestation, bare_metal, offtake, security
 | operator
 |
 | P1
@@ -541,7 +541,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/243[#243]
 | [[SEC22-02]]SEC22-02
 | SEC22
 | https://github.com/NVIDIA/ai-cloud-validation/issues/316[#316]
-|
+| offtake
 | operator
 |
 | P1
@@ -572,7 +572,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/246[#246]
 | [[CNP09-01]]CNP09-01
 | CNP09
 |
-| min_req
+| offtake
 | operator
 |
 | P1
@@ -587,7 +587,7 @@ a|
 | [[CNP09-02]]CNP09-02
 | CNP09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/259[#259]
-| attestation, bare_metal, firmware, min_req, security
+| attestation, bare_metal, firmware, offtake, security
 | operator
 |
 | P1
@@ -602,7 +602,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/259[#259]
 | [[SEC22-03]]SEC22-03
 | SEC22
 |
-|
+| offtake
 | operator
 | REVIEW
 | P0
@@ -620,7 +620,7 @@ a|
 | [[CNP01-01]]CNP01-01
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/49[#49]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 |
 | P0
@@ -635,7 +635,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/49[#49]
 | [[CNP01-02]]CNP01-02
 | CNP01, CNP04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/51[#51]
-| min_req
+| offtake
 | tenant
 |
 | P0
@@ -651,7 +651,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/52[#52]
 | [[CNP01-03]]CNP01-03
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/53[#53]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 |
 | P0
@@ -666,7 +666,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/53[#53]
 | [[SEC21-01]]SEC21-01
 | SEC21
 | https://github.com/NVIDIA/ai-cloud-validation/issues/54[#54]
-| bare_metal, min_req, security
+| bare_metal, offtake, security
 | tenant
 |
 | P0
@@ -682,7 +682,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/47[#47]
 | [[SEC21-02]]SEC21-02
 | SEC21
 | https://github.com/NVIDIA/ai-cloud-validation/issues/134[#134]
-| bare_metal, min_req, sanitization, security
+| bare_metal, offtake, sanitization, security
 | operator
 |
 | P0
@@ -697,7 +697,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/134[#134]
 | [[CNP01-04]]CNP01-04
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/105[#105]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 |
 | P0
@@ -760,7 +760,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/56[#56]
 | [[CNP01-05]]CNP01-05
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/50[#50]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 |
 | P0
@@ -776,7 +776,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/57[#57]
 | [[CNP01-06]]CNP01-06
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/135[#135]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 |
 | P0
@@ -807,7 +807,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/69[#69]
 | [[CNP01-07]]CNP01-07
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/106[#106]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 | MinAPI
 | P0
@@ -822,7 +822,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/106[#106]
 | [[BOOT02-01]]BOOT02-01
 | BOOT02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/107[#107]
-| bare_metal, min_req, ssh
+| bare_metal, offtake, ssh
 | tenant
 | MinAPI
 | P0
@@ -838,7 +838,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/113[#113]
 | [[CNP01-08]]CNP01-08
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/108[#108]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 | MinAPI
 | P0
@@ -853,7 +853,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/108[#108]
 | [[CNP05-01]]CNP05-01
 | CNP05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/112[#112]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 | MinAPI
 | P0
@@ -918,7 +918,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/250[#250]
 | [[CNP06-01]]CNP06-01
 | CNP06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/109[#109]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 |
 | P0
@@ -949,7 +949,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/61[#61]
 | [[BMAAS09-01]]BMAAS09-01
 | BMAAS09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/63[#63]
-| bare_metal, gpu, min_req, ssh, workload
+| bare_metal, gpu, ssh, workload
 | tenant
 |
 | P0
@@ -965,7 +965,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/68[#68]
 | [[BMAAS10-01]]BMAAS10-01
 | BMAAS10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/64[#64]
-| bare_metal, gpu, min_req, slow, ssh, workload
+| bare_metal, gpu, slow, ssh, workload
 | tenant
 |
 | P0
@@ -981,7 +981,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/82[#82]
 | [[BMAAS11-01]]BMAAS11-01
 | BMAAS11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/65[#65]
-| bare_metal, gpu, min_req, ssh, workload
+| bare_metal, gpu, ssh, workload
 | tenant
 |
 | P0
@@ -996,7 +996,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/65[#65]
 | [[BMAAS12-01]]BMAAS12-01
 | BMAAS12
 | https://github.com/NVIDIA/ai-cloud-validation/issues/66[#66]
-| bare_metal, gpu, min_req, ssh, workload
+| bare_metal, gpu, ssh, workload
 | tenant
 |
 | P0
@@ -1011,7 +1011,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/66[#66]
 | [[CNP06-02]]CNP06-02
 | CNP06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/258[#258]
-| bare_metal, min_req, observability
+| bare_metal, offtake, observability
 | tenant
 |
 | P0
@@ -1028,7 +1028,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/258[#258]
 | [[CNP08-01]]CNP08-01
 | CNP08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/197[#197]
-| bare_metal, min_req
+| bare_metal, offtake
 | tenant
 |
 | P0
@@ -1045,7 +1045,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/185[#185]
 | [[CNP08-02]]CNP08-02
 | CNP08
 |
-| bare_metal, min_req
+| bare_metal, offtake
 | provider-dependent
 |
 | P0
@@ -1063,7 +1063,7 @@ a|
 | [[CNP01-09]]CNP01-09
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/42[#42]
-| min_req, vm
+| offtake, vm
 | tenant
 |
 | P0
@@ -1078,7 +1078,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/42[#42]
 | [[CNP01-10]]CNP01-10
 | CNP01, CNP04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/51[#51]
-| min_req, vm
+| offtake, vm
 | tenant
 |
 | P0
@@ -1093,7 +1093,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/51[#51]
 | [[CNP01-11]]CNP01-11
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/45[#45]
-| min_req, vm
+| offtake, vm
 | tenant
 |
 | P0
@@ -1108,7 +1108,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/45[#45]
 | [[CNP01-12]]CNP01-12
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/46[#46]
-| min_req, vm
+| offtake, vm
 | tenant
 |
 | P0
@@ -1123,7 +1123,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/46[#46]
 | [[SEC21-03]]SEC21-03
 | SEC21
 | https://github.com/NVIDIA/ai-cloud-validation/issues/47[#47]
-| min_req
+| offtake
 | tenant
 |
 | P0
@@ -1155,7 +1155,7 @@ a|
 | [[CNP01-13]]CNP01-13
 | CNP01
 |
-| vm
+| offtake, vm
 | tenant
 |
 | P0
@@ -1185,7 +1185,7 @@ a|
 | [[CNP01-14]]CNP01-14
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/110[#110]
-| min_req, vm
+| offtake, vm
 | tenant
 | MinAPI
 | P0
@@ -1200,7 +1200,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/110[#110]
 | [[CNP01-15]]CNP01-15
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/111[#111]
-| min_req, vm
+| offtake, vm
 | tenant
 | MinAPI
 | P0
@@ -1215,7 +1215,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/111[#111]
 | [[CNP05-02]]CNP05-02
 | CNP05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/112[#112]
-| min_req, vm
+| offtake, vm
 | tenant
 | MinAPI
 | P0
@@ -1230,7 +1230,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/112[#112]
 | [[BOOT02-02]]BOOT02-02
 | BOOT02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/113[#113]
-| min_req, ssh, vm
+| offtake, ssh, vm
 | tenant
 |
 | P0
@@ -1435,7 +1435,7 @@ a|
 | [[CNP06-03]]CNP06-03
 | CNP06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/114[#114]
-| min_req, vm
+| offtake, vm
 | tenant
 |
 | P0
@@ -1452,7 +1452,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/114[#114]
 | [[CNP08-03]]CNP08-03
 | CNP08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/198[#198]
-| min_req, vm
+| offtake, vm
 | tenant
 |
 | P0
@@ -1467,7 +1467,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/198[#198]
 | [[CNP08-04]]CNP08-04
 | CNP08
 |
-| min_req
+| offtake
 | provider-dependent
 |
 | P0
@@ -1484,7 +1484,7 @@ a|
 | [[CNP01-16]]CNP01-16
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/256[#256]
-| iam, min_req, security, vm
+| iam, offtake, security, vm
 | tenant
 |
 | P0
@@ -1499,7 +1499,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/256[#256]
 | [[CNP01-17]]CNP01-17
 | CNP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/257[#257]
-| min_req, security, vm
+| offtake, security, vm
 | tenant
 |
 | P1
@@ -1517,7 +1517,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/257[#257]
 | [[SDN01-01]]SDN01-01
 | SDN01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/11[#11]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -1532,7 +1532,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/11[#11]
 | [[SDN01-02]]SDN01-02
 | SDN01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/12[#12]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -1547,7 +1547,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/12[#12]
 | [[SDN01-03]]SDN01-03
 | SDN01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/13[#13]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -1562,7 +1562,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/13[#13]
 | [[SDN01-04]]SDN01-04
 | SDN01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/14[#14]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -1577,7 +1577,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/14[#14]
 | [[SDN04-01]]SDN04-01
 | SDN04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/16[#16]
-|
+| offtake
 | tenant
 |
 | P0
@@ -1592,7 +1592,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/16[#16]
 | [[SDN04-02]]SDN04-02
 | SDN04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/17[#17]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -1608,7 +1608,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/18[#18]
 | [[SDN04-03]]SDN04-03
 | SDN04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/18[#18]
-| min_req
+| offtake
 | tenant
 |
 | P0
@@ -1623,7 +1623,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/18[#18]
 | [[NET03-01]]NET03-01
 | NET03, SDN01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/115[#115]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -1638,7 +1638,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/115[#115]
 | [[SDN11-01]]SDN11-01
 | SDN11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/116[#116]
-| min_req, network
+| network
 | tenant
 |
 | P0
@@ -1653,7 +1653,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/116[#116]
 | [[SDN05-01]]SDN05-01
 | SDN05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/117[#117]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -1668,7 +1668,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/117[#117]
 | [[SDN06-01]]SDN06-01
 | SDN06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/118[#118]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -1683,7 +1683,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/118[#118]
 | [[SDN07-01]]SDN07-01
 | SDN07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/119[#119]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -1698,7 +1698,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/119[#119]
 | [[SDN02-01]]SDN02-01
 | SDN02, SDN03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/199[#199]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -1715,7 +1715,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/178[#178]
 | [[SDN02-02]]SDN02-02
 | SDN02, SDN03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/200[#200]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -1730,7 +1730,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/200[#200]
 | [[SDN02-03]]SDN02-03
 | SDN02, SDN03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/201[#201]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -1745,7 +1745,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/201[#201]
 | [[SDN02-04]]SDN02-04
 | SDN02, SDN03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/202[#202]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -1760,7 +1760,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/202[#202]
 | [[CNP03-01]]CNP03-01
 | CNP03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/19[#19]
-|
+| offtake
 | tenant
 |
 | P0
@@ -1850,7 +1850,7 @@ a|
 | [[SDN17-01]]SDN17-01
 | SDN17
 |
-| min_req, network
+| network
 | tenant
 |
 |
@@ -1865,7 +1865,7 @@ a|
 | [[SDN17-02]]SDN17-02
 | SDN17
 | https://github.com/NVIDIA/ai-cloud-validation/issues/598[#598]
-| kubernetes, min_req, network
+| kubernetes, network
 | tenant
 | The Kubernetes half of SDN17, asserting cluster objects rather than packages on a host. Says nothing about any host IMEX daemon - the driver's two ownership modes disagree on whether one should be running.
 | P0
@@ -1880,7 +1880,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/598[#598]
 | [[SDN18-01]]SDN18-01
 | SDN18
 |
-| min_req, network
+| network
 | tenant
 |
 |
@@ -1895,7 +1895,7 @@ a|
 | [[SDN18-02]]SDN18-02
 | SDN18
 | https://github.com/NVIDIA/ai-cloud-validation/issues/623[#623]
-| kubernetes, min_req, network, slow
+| kubernetes, network, slow
 | tenant
 | The Kubernetes DRA reading of SDN18, asserting cluster objects rather than a host service unit. Destructive - allocates a compute domain, deletes a daemon inside it, and releases the domain afterwards, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service, read from the mode the driver declares rather than from the absence of a daemon.
 | P1
@@ -1910,7 +1910,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/623[#623]
 | [[SDN19-01]]SDN19-01
 | SDN19
 |
-| min_req, network
+| network
 | tenant
 |
 |
@@ -1925,7 +1925,7 @@ a|
 | [[SDN19-02]]SDN19-02
 | SDN19
 | https://github.com/NVIDIA/ai-cloud-validation/issues/624[#624]
-| kubernetes, min_req, network, slow
+| kubernetes, network, slow
 | tenant
 | The Kubernetes DRA reading of SDN19, asserting cluster objects rather than a host service unit. The departure is a shrink of the domain - withdrawing one node's channel claim - because a drain leaves the driver's DaemonSet pods running and would report a departure that never happened. What peers observed is read from a surviving daemon's own report, never from the domain's record of the departed node, so stale controller bookkeeping is not mistaken for members noticing. Destructive - removes a node from a live domain, restores it, and releases the domain afterwards, so it needs an idle cluster. Skips where the driver defers the daemon to an operator-run host service.
 | P1
@@ -1940,7 +1940,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/624[#624]
 | [[SDN20-01]]SDN20-01
 | SDN20
 |
-| min_req, network, slow
+| network, slow
 | tenant
 |
 |
@@ -1955,7 +1955,7 @@ a|
 | [[SDN21-01]]SDN21-01
 | SDN21
 |
-| min_req, network
+| network
 | tenant
 |
 |
@@ -2077,7 +2077,7 @@ a|
 | [[SDN02-05]]SDN02-05
 | SDN02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/281[#281]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -2092,7 +2092,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/281[#281]
 | [[SDN02-06]]SDN02-06
 | SDN02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/282[#282]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -2107,7 +2107,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/282[#282]
 | [[SDN02-07]]SDN02-07
 | SDN02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/283[#283]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -2122,7 +2122,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/283[#283]
 | [[SDN02-08]]SDN02-08
 | SDN02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/284[#284]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P1
@@ -2137,7 +2137,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/284[#284]
 | [[SDN02-09]]SDN02-09
 | SDN02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/285[#285]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -2154,7 +2154,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/285[#285]
 | [[SDN08-01]]SDN08-01
 | SDN08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/289[#289]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P1
@@ -2171,7 +2171,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/289[#289]
 | [[SDN02-10]]SDN02-10
 | SDN02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/286[#286]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P1
@@ -2188,7 +2188,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/286[#286]
 | [[SDN09-01]]SDN09-01
 | SDN09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/290[#290]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P1
@@ -2203,7 +2203,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/290[#290]
 | [[SDN09-02]]SDN09-02
 | SDN09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/291[#291]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P1
@@ -2218,7 +2218,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/291[#291]
 | [[SDN09-03]]SDN09-03
 | SDN09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/292[#292]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P1
@@ -2346,7 +2346,7 @@ a|
 | [[CAP02-01]]CAP02-01
 | CAP02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/203[#203]
-| bare_metal, governance, min_req
+| bare_metal, governance, offtake
 | tenant
 |
 | P1
@@ -2361,7 +2361,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/203[#203]
 | [[CAP03-01]]CAP03-01
 | CAP03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/204[#204]
-| bare_metal, governance, min_req
+| bare_metal, governance, offtake
 | tenant
 |
 | P1
@@ -2378,7 +2378,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/204[#204]
 | [[CNP08-05]]CNP08-05
 | CNP08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/205[#205]
-| min_req
+| offtake
 | tenant
 |
 | P1
@@ -2506,7 +2506,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/557[#557]
 | [[BFX01-01]]BFX01-01
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/206[#206]
-| breakfix, gpu, kubernetes, min_req
+| breakfix, gpu, kubernetes, offtake
 | both
 |
 | P2
@@ -2521,7 +2521,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/206[#206]
 | [[BFX01-02]]BFX01-02
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/207[#207]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | both
 |
 | P1
@@ -2536,7 +2536,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/207[#207]
 | [[BFX01-03]]BFX01-03
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/208[#208]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | both
 |
 | P1
@@ -2551,7 +2551,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/208[#208]
 | [[BFX01-04]]BFX01-04
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/209[#209]
-| breakfix, kubernetes, min_req
+| breakfix, kubernetes, offtake
 | tenant
 |
 | P1
@@ -2566,7 +2566,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/209[#209]
 | [[BFX01-05]]BFX01-05
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/210[#210]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | both
 |
 | P1
@@ -2581,7 +2581,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/210[#210]
 | [[BFX01-06]]BFX01-06
 | BFX01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/610[#610]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | both
 | The non-destructive counterpart to BFX01-02 - the tenant keeps the node and its workload while flagging that it needs repair eventually. Return relinquishes the node; report does not.
 | P1
@@ -2598,7 +2598,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/610[#610]
 | [[BFX02-01]]BFX02-01
 | BFX02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/211[#211]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | tenant
 |
 | P1
@@ -2613,7 +2613,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/211[#211]
 | [[BFX02-02]]BFX02-02
 | BFX02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/212[#212]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | tenant
 |
 | P1
@@ -2628,7 +2628,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/212[#212]
 | [[BFX02-03]]BFX02-03
 | BFX02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/213[#213]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | tenant
 |
 | P1
@@ -2645,7 +2645,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/213[#213]
 | [[BFX03-01]]BFX03-01
 | BFX03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/320[#320]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | tenant
 |
 | P1
@@ -2660,7 +2660,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/320[#320]
 | [[BFX03-02]]BFX03-02
 | BFX03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/214[#214]
-| bare_metal, breakfix, min_req
+| bare_metal, breakfix, offtake
 | tenant
 |
 | P1
@@ -2675,7 +2675,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/214[#214]
 | [[BFX03-03]]BFX03-03
 | BFX03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/215[#215]
-| bare_metal, breakfix, min_req, observability
+| bare_metal, breakfix, offtake, observability
 | tenant
 |
 | P1
@@ -2694,7 +2694,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/215[#215]
 | [[HSS01-01]]HSS01-01
 | HSS01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -2709,7 +2709,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/327[#327]
 | [[HSS01-02]]HSS01-02
 | HSS01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/505[#505]
-| storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -2724,7 +2724,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/505[#505]
 | [[HSS01-03]]HSS01-03
 | HSS01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/506[#506]
-| storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -2739,7 +2739,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/506[#506]
 | [[HSS02-01]]HSS02-01
 | HSS02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/328[#328]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -2754,7 +2754,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/328[#328]
 | [[HSS03-01]]HSS03-01
 | HSS03, K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/329[#329]
-| min_req
+| offtake
 | tenant
 |
 | P1
@@ -2769,7 +2769,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/329[#329]
 | [[HSS03-02]]HSS03-02
 | HSS03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/486[#486]
-| storage
+| offtake, storage
 | tenant
 | Implemented in #523 (K8sCsiDriverHealthCheck).
 | P1
@@ -2784,7 +2784,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/486[#486]
 | [[HSS03-03]]HSS03-03
 | HSS03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/487[#487]
-| storage
+| offtake, storage
 | tenant
 | Implemented in #523 (K8sCsiDriverHealthCheck).
 | P1
@@ -2799,7 +2799,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/487[#487]
 | [[HSS03-04]]HSS03-04
 | HSS03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/488[#488]
-| storage
+| offtake, storage
 | tenant
 | Implemented in #523 (K8sCsiDriverHealthCheck).
 | P1
@@ -2814,7 +2814,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/488[#488]
 | [[HSS03-05]]HSS03-05
 | HSS03, K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/489[#489]
-| storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -2829,7 +2829,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/489[#489]
 | [[HSS03-06]]HSS03-06
 | HSS03, K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/490[#490]
-| storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -2844,7 +2844,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/490[#490]
 | [[HSS03-07]]HSS03-07
 | HSS03, K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/491[#491]
-| storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -2859,7 +2859,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/491[#491]
 | [[HSS03-08]]HSS03-08
 | HSS03, K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/492[#492]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P1
@@ -2874,7 +2874,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/492[#492]
 | [[HSS04-01]]HSS04-01
 | HSS04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/330[#330]
-| min_req
+|
 | tenant
 |
 | P1
@@ -2949,7 +2949,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/510[#510]
 | [[HSS05-01]]HSS05-01
 | HSS05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/331[#331]
-| min_req, storage
+| storage
 | both
 |
 | P1
@@ -2981,7 +2981,7 @@ a|
 | [[DIR02-01]]DIR02-01
 | DIR02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -2996,7 +2996,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/326[#326]
 | [[DIR02-02]]DIR02-02
 | DIR02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/494[#494]
-| kubernetes, slow, storage
+| kubernetes, offtake, slow, storage
 | tenant
 |
 | P1
@@ -3011,7 +3011,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/494[#494]
 | [[DIR01-01]]DIR01-01
 | DIR01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/324[#324]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -3026,7 +3026,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/324[#324]
 | [[DIR01-02]]DIR01-02
 | DIR01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/325[#325]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -3043,7 +3043,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/325[#325]
 | [[DMS01-01]]DMS01-01
 | DMS01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/263[#263]
-| min_req
+| offtake
 | provider-dependent
 |
 | P1
@@ -3058,7 +3058,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/263[#263]
 | [[DMS02-01]]DMS02-01
 | DMS02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/264[#264]
-| min_req
+| offtake
 | tenant
 |
 | P1
@@ -3073,7 +3073,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/264[#264]
 | [[DMS03-01]]DMS03-01
 | DMS03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/265[#265]
-| min_req
+| offtake
 | tenant
 |
 | P1
@@ -3088,7 +3088,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/265[#265]
 | [[DMS05-01]]DMS05-01
 | DMS05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/266[#266]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P1
@@ -3105,7 +3105,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/266[#266]
 | [[STG02-01]]STG02-01
 | STG02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
-| bare_metal, min_req, sanitization, storage
+| bare_metal, offtake, sanitization, storage
 | tenant
 |
 | P1
@@ -3120,7 +3120,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/358[#358]
 | [[STG03-01]]STG03-01
 | STG03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
-| bare_metal, min_req, network, storage
+| bare_metal, offtake, network, storage
 | tenant
 |
 | P1
@@ -3135,7 +3135,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/359[#359]
 | [[STG04-01]]STG04-01
 | STG04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
-| bare_metal, health, min_req, storage
+| bare_metal, health, offtake, storage
 | tenant
 |
 | P1
@@ -3150,7 +3150,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/360[#360]
 | [[STG05-01]]STG05-01
 | STG05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/361[#361]
-| bare_metal, min_req, storage
+| bare_metal, offtake, storage
 | tenant
 |
 | P1
@@ -3167,7 +3167,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/361[#361]
 | [[SEC04-01]]SEC04-01
 | SEC04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
-| iam, min_req, security
+| iam, offtake, security
 | tenant
 |
 | P1
@@ -3182,7 +3182,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/296[#296]
 | [[SEC04-03]]SEC04-03
 | SEC04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/511[#511]
-| security, storage
+| offtake, security, storage
 | tenant
 |
 | P1
@@ -3199,7 +3199,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/511[#511]
 | [[HSS06-01]]HSS06-01
 | HSS06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/332[#332]
-| min_req, storage
+| storage
 | tenant
 |
 | P1
@@ -3217,7 +3217,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/332[#332]
 | [[HSS07-01]]HSS07-01
 | HSS07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -3232,7 +3232,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/333[#333]
 | [[HSS07-02]]HSS07-02
 | HSS07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/498[#498]
-| kubernetes, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P1
@@ -3248,7 +3248,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/499[#499]
 | [[HSS09-01]]HSS09-01
 | HSS09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/334[#334]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -3263,7 +3263,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/334[#334]
 | [[HSS10-01]]HSS10-01
 | HSS10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/335[#335]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -3278,7 +3278,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/335[#335]
 | [[HSS10-02]]HSS10-02
 | HSS10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/493[#493]
-| storage
+| offtake, storage
 | tenant
 | Platform/context-sensitive (platform: kubernetes). Overlaps HSS10-01 (platform-agnostic whole-filesystem expansion). Candidate for consolidation/deprecation before v1.0; two implementations of one behavior must not both ship to customers.
 | P1
@@ -3293,7 +3293,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/493[#493]
 | [[HSS12-01]]HSS12-01
 | HSS12
 | https://github.com/NVIDIA/ai-cloud-validation/issues/336[#336]
-| min_req, storage
+| storage
 | tenant
 |
 | P1
@@ -3308,7 +3308,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/336[#336]
 | [[HSS13-01]]HSS13-01
 | HSS13
 | https://github.com/NVIDIA/ai-cloud-validation/issues/337[#337]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -3323,7 +3323,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/337[#337]
 | [[HSS14-01]]HSS14-01
 | HSS14
 | https://github.com/NVIDIA/ai-cloud-validation/issues/338[#338]
-| min_req, storage
+| storage
 | tenant
 |
 | P1
@@ -3353,7 +3353,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/495[#495]
 | [[HSS15-01]]HSS15-01
 | HSS15
 | https://github.com/NVIDIA/ai-cloud-validation/issues/339[#339]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -3368,7 +3368,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/339[#339]
 | [[HSS18-01]]HSS18-01
 | HSS18
 | https://github.com/NVIDIA/ai-cloud-validation/issues/340[#340]
-| min_req, storage
+| offtake, storage
 | tenant
 |
 | P1
@@ -3383,7 +3383,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/340[#340]
 | [[HSS17-01]]HSS17-01
 | HSS17
 | https://github.com/NVIDIA/ai-cloud-validation/issues/496[#496]
-| kubernetes, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P1
@@ -3398,7 +3398,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/496[#496]
 | [[HSS17-02]]HSS17-02
 | HSS17
 | https://github.com/NVIDIA/ai-cloud-validation/issues/497[#497]
-| kubernetes, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P1
@@ -3413,7 +3413,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/497[#497]
 | [[HSS11-01]]HSS11-01
 | HSS11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/500[#500]
-| kubernetes, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P1
@@ -3431,7 +3431,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/503[#503]
 | [[HSS11-04]]HSS11-04
 | HSS11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/504[#504]
-| kubernetes, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P1
@@ -3449,7 +3449,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/504[#504]
 | [[DATASVC01-01]]DATASVC01-01
 | DATASVC01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/262[#262]
-| control_plane, min_req, storage
+| control_plane, storage
 | tenant
 |
 | P2
@@ -3467,7 +3467,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/262[#262]
 | [[K8S23-01]]K8S23-01
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/272[#272]
-| min_req
+| offtake
 | tenant
 |
 | P2
@@ -3482,7 +3482,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/272[#272]
 | [[DATASVC02-01]]DATASVC02-01
 | DATASVC02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/321[#321]
-| min_req, storage
+| storage
 | tenant
 |
 | P1
@@ -3497,7 +3497,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/321[#321]
 | [[DATASVC03-01]]DATASVC03-01
 | DATASVC03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/322[#322]
-| min_req, storage
+| storage
 | tenant
 |
 | P1
@@ -3512,7 +3512,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/322[#322]
 | [[DATASVC04-01]]DATASVC04-01
 | DATASVC04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/323[#323]
-| min_req, storage
+| storage
 | tenant
 |
 | P1
@@ -3774,7 +3774,7 @@ a|
 | [[K8S05-01]]K8S05-01
 | K8S05
 |
-| kubernetes, min_req
+| kubernetes, offtake
 | tenant
 |
 | P0
@@ -3791,7 +3791,7 @@ a|
 | [[K8S38-01]]K8S38-01
 | K8S38
 |
-| min_req
+|
 | both
 | Cross-role: the tenant requests lifecycle operations; the platform operator executes the managed control plane update. Application continuity is tested separately by K8S09-01.
 |
@@ -3821,7 +3821,7 @@ a|
 | [[K8S27-01]]K8S27-01
 | K8S27
 | https://github.com/NVIDIA/ai-cloud-validation/issues/217[#217]
-| kubernetes, min_req
+| kubernetes, offtake
 | tenant
 |
 | P2
@@ -3838,7 +3838,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/217[#217]
 | [[K8S14-01]]K8S14-01
 | K8S14
 |
-| min_req
+| offtake
 | both
 |
 |
@@ -3853,7 +3853,7 @@ a|
 | [[K8S39-01]]K8S39-01
 | K8S39
 |
-| min_req
+|
 | tenant
 |
 | P0
@@ -3900,7 +3900,7 @@ a|
 | [[K8S33-01]]K8S33-01
 | K8S33
 |
-| gpu, kubernetes, min_req, slow, workload
+| gpu, kubernetes, slow, workload
 | tenant
 |
 | P0
@@ -3917,7 +3917,7 @@ a|
 | [[K8S34-01]]K8S34-01
 | K8S34
 |
-| min_req
+|
 | tenant
 | k8s05
 | P0
@@ -3934,7 +3934,7 @@ a|
 | [[K8S24-01]]K8S24-01
 | K8S24
 | https://github.com/NVIDIA/ai-cloud-validation/issues/662[#662]
-| gpu, kubernetes, min_req
+| gpu, kubernetes, offtake
 | tenant
 | k8s06/22
 | P0
@@ -3951,7 +3951,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/662[#662]
 | [[K8S01-01]]K8S01-01
 | K8S01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/233[#233]
-| kubernetes, min_req, slow
+| kubernetes, offtake, slow
 | tenant
 | k8s01
 | P0
@@ -3968,7 +3968,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/233[#233]
 | [[K8S17-01]]K8S17-01
 | K8S17
 |
-| min_req
+| offtake
 | tenant
 |
 |
@@ -3985,7 +3985,7 @@ a|
 | [[K8S21-01]]K8S21-01
 | K8S21
 | https://github.com/NVIDIA/ai-cloud-validation/issues/218[#218]
-| kubernetes, min_req
+| kubernetes
 | tenant
 | k8s19
 | P1
@@ -4002,7 +4002,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/218[#218]
 | [[K8S35-01]]K8S35-01
 | K8S35
 |
-| min_req
+|
 | tenant
 | K8s16
 | P1
@@ -4019,7 +4019,7 @@ a|
 | [[K8S22-01]]K8S22-01
 | K8S22
 | https://github.com/NVIDIA/ai-cloud-validation/issues/219[#219]
-| kubernetes, min_req, network
+| kubernetes, offtake, network
 | tenant
 | K8s20
 | P0
@@ -4036,7 +4036,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/219[#219]
 | [[K8S23-02]]K8S23-02
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/650[#650]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 | K8S23 permits Helm or Kustomize; the unused alternative skips only after verified successful installation.
 | P0
@@ -4051,7 +4051,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/650[#650]
 | [[K8S23-03]]K8S23-03
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/650[#650]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 | K8S23 permits Helm or Kustomize; the unused alternative skips only after verified successful installation.
 | P0
@@ -4066,7 +4066,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/650[#650]
 | [[K8S23-04]]K8S23-04
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/273[#273]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P0
@@ -4081,7 +4081,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/273[#273]
 | [[K8S23-05]]K8S23-05
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/274[#274]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P0
@@ -4096,7 +4096,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/274[#274]
 | [[K8S23-06]]K8S23-06
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/275[#275]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P0
@@ -4111,7 +4111,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/275[#275]
 | [[K8S23-07]]K8S23-07
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/276[#276]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P0
@@ -4126,7 +4126,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/276[#276]
 | [[K8S23-08]]K8S23-08
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/650[#650]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P0
@@ -4141,7 +4141,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/650[#650]
 | [[K8S23-09]]K8S23-09
 | K8S23
 | https://github.com/NVIDIA/ai-cloud-validation/issues/650[#650]
-| kubernetes, min_req, storage
+| kubernetes, offtake, storage
 | tenant
 |
 | P0
@@ -4158,7 +4158,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/650[#650]
 | [[K8S25-01]]K8S25-01
 | K8S25
 |
-| gpu, kubernetes, min_req
+| gpu, kubernetes, offtake
 | tenant
 | K8S23
 | P0
@@ -4173,7 +4173,7 @@ a|
 | [[K8S25-02]]K8S25-02
 | K8S25
 | https://github.com/NVIDIA/ai-cloud-validation/issues/220[#220]
-| gpu, kubernetes, min_req
+| gpu, kubernetes, offtake
 | both
 |
 | P0
@@ -4190,7 +4190,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/220[#220]
 | [[K8S02-01]]K8S02-01
 | K8S02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/659[#659]
-| kubernetes, min_req
+| kubernetes, offtake
 | tenant
 |
 | INFO
@@ -4205,7 +4205,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/659[#659]
 | [[K8S02-02]]K8S02-02
 | K8S02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/659[#659]
-| kubernetes, min_req
+| kubernetes, offtake
 | operator
 | Downtime during control plane updates is covered by K8S09-01.
 | INFO
@@ -4222,7 +4222,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/659[#659]
 | [[K8S08-01]]K8S08-01
 | K8S08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/661[#661]
-| k8s_upgrades, kubernetes, min_req
+| k8s_upgrades, kubernetes, offtake
 | operator
 | Read live managed-service configuration and supported version transitions; active continuity is covered by K8S09-01.
 | INFO
@@ -4237,7 +4237,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/661[#661]
 | [[K8S09-01]]K8S09-01
 | K8S09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/661[#661]
-| k8s_upgrades, kubernetes, min_req, slow
+| k8s_upgrades, kubernetes, offtake, slow
 | tenant
 |
 | INFO
@@ -4252,7 +4252,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/661[#661]
 | [[K8S10-01]]K8S10-01
 | K8S10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/661[#661]
-| k8s_upgrades, kubernetes, min_req, slow
+| k8s_upgrades, kubernetes, offtake, slow
 | tenant
 |
 | INFO
@@ -4269,7 +4269,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/661[#661]
 | [[K8S11-01]]K8S11-01
 | K8S11
 |
-| min_req
+| offtake
 | operator
 |
 | INFO
@@ -4286,7 +4286,7 @@ a|
 | [[K8S12-01]]K8S12-01
 | K8S12
 |
-| min_req
+| offtake
 | operator
 |
 | INFO
@@ -4303,7 +4303,7 @@ a|
 | [[K8S15-01]]K8S15-01
 | K8S15
 | https://github.com/NVIDIA/ai-cloud-validation/issues/271[#271]
-| kubernetes, min_req, network, security
+| kubernetes, offtake, network, security
 | tenant
 |
 | P0
@@ -4320,7 +4320,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/271[#271]
 | [[K8S19-01]]K8S19-01
 | K8S19
 |
-| min_req
+| offtake
 | operator
 |
 | INFO
@@ -4337,7 +4337,7 @@ a|
 | [[SEC09-01]]SEC09-01
 | SEC09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/301[#301]
-| min_req, security
+| offtake, security
 | operator
 |
 | P1
@@ -4352,7 +4352,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/301[#301]
 | [[SEC09-02]]SEC09-02
 | SEC09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/302[#302]
-| min_req, security
+| offtake, security
 | both
 |
 | P1
@@ -4369,7 +4369,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/302[#302]
 | [[K8S36-01]]K8S36-01
 | K8S36
 | https://github.com/NVIDIA/ai-cloud-validation/issues/267[#267]
-| kubernetes, min_req
+| kubernetes
 | tenant
 |
 | P1
@@ -4386,7 +4386,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/267[#267]
 | [[K8S04-01]]K8S04-01
 | K8S04
 |
-| min_req
+| offtake
 | operator
 | INFO
 | INFO
@@ -4403,7 +4403,7 @@ a|
 | [[K8S06-01]]K8S06-01
 | K8S06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/269[#269]
-| kubernetes, min_req, slow
+| kubernetes, offtake, slow
 | tenant
 |
 | P0
@@ -4419,7 +4419,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/221[#221]
 | [[K8S06-02]]K8S06-02
 | K8S06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/270[#270]
-| kubernetes, min_req, slow
+| kubernetes, offtake, slow
 | tenant
 |
 | P0
@@ -4435,7 +4435,7 @@ https://github.com/NVIDIA/ai-cloud-validation/issues/222[#222]
 | [[K8S06-03]]K8S06-03
 | K8S06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/223[#223]
-| kubernetes, min_req, slow
+| kubernetes, offtake, slow
 | tenant
 |
 | P0
@@ -4450,7 +4450,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/223[#223]
 | [[K8S06-04]]K8S06-04
 | K8S06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/224[#224]
-| min_req
+| offtake
 | tenant
 |
 | P0
@@ -4467,7 +4467,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/224[#224]
 | [[K8S07-01]]K8S07-01
 | K8S07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/225[#225]
-| kubernetes, min_req
+| kubernetes, offtake
 | both
 |
 | P1
@@ -4484,7 +4484,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/225[#225]
 | [[K8S16-01]]K8S16-01
 | K8S16
 | https://github.com/NVIDIA/ai-cloud-validation/issues/663[#663]
-| iam, kubernetes, min_req
+| iam, kubernetes, offtake
 | tenant
 | Runs cloud operations from a pod and verifies the observed identity. The AWS reference uses IRSA and scoped S3 object reads.
 | P0
@@ -4501,7 +4501,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/663[#663]
 | [[K8S17-02]]K8S17-02
 | K8S17
 | https://github.com/NVIDIA/ai-cloud-validation/issues/226[#226]
-| iam, kubernetes, min_req
+| iam, kubernetes, offtake
 | tenant
 |
 | P0
@@ -4518,7 +4518,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/226[#226]
 | [[K8S20-01]]K8S20-01
 | K8S20
 | https://github.com/NVIDIA/ai-cloud-validation/issues/227[#227]
-| kubernetes, min_req
+| kubernetes, offtake
 | both
 |
 | P1
@@ -4535,7 +4535,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/227[#227]
 | [[K8S28-01]]K8S28-01
 | K8S28
 | https://github.com/NVIDIA/ai-cloud-validation/issues/268[#268]
-| min_req
+| offtake
 | tenant
 | Consolidates the duplicate reference requirement and former test K8S37-01 into the canonical offtake K8S28 requirement.
 | P0
@@ -4552,7 +4552,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/268[#268]
 | [[K8S26-01]]K8S26-01
 | K8S26
 | https://github.com/NVIDIA/ai-cloud-validation/issues/277[#277]
-| kubernetes, min_req, network
+| kubernetes, offtake, network
 | tenant
 |
 | P0
@@ -4569,7 +4569,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/277[#277]
 | [[K8S29-01]]K8S29-01
 | K8S29
 | https://github.com/NVIDIA/ai-cloud-validation/issues/665[#665]
-| kubernetes, min_req, network, slow
+| kubernetes, offtake, network, slow
 | operator
 | Creates three disposable Services and checks their backend responses through assigned ingress IPs; requires provider annotations and reserved static addresses.
 | P0
@@ -4586,7 +4586,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/665[#665]
 | [[K8S30-01]]K8S30-01
 | K8S30
 | https://github.com/NVIDIA/ai-cloud-validation/issues/665[#665]
-| kubernetes, min_req, network, slow
+| kubernetes, offtake, network, slow
 | operator
 | Adds and restores one unique CoreDNS zone; checks the answer and upstream query log.
 | P0
@@ -4603,7 +4603,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/665[#665]
 | [[K8S31-01]]K8S31-01
 | K8S31
 | https://github.com/NVIDIA/ai-cloud-validation/issues/665[#665]
-| kubernetes, min_req, network, slow
+| kubernetes, offtake, network, slow
 | operator
 | Validates a preconfigured cluster; does not reprovision alternate ranges. Requires ServiceCIDR API and node podCIDRs; CNIs without those need a provider-specific probe.
 | P0
@@ -4757,7 +4757,7 @@ a|
 | [[OBS05-01]]OBS05-01
 | OBS05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/342[#342]
-| min_req, observability
+| observability
 | both
 |
 | P1
@@ -4774,7 +4774,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/342[#342]
 | [[OBS06-01]]OBS06-01
 | OBS06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/343[#343]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4789,7 +4789,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/343[#343]
 | [[OBS07-01]]OBS07-01
 | OBS07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/344[#344]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4804,7 +4804,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/344[#344]
 | [[OBS08-01]]OBS08-01
 | OBS08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/345[#345]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4819,7 +4819,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/345[#345]
 | [[OBS09-01]]OBS09-01
 | OBS09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/346[#346]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4834,7 +4834,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/346[#346]
 | [[OBS10-01]]OBS10-01
 | OBS10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/347[#347]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4851,7 +4851,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/347[#347]
 | [[OBS11-01]]OBS11-01
 | OBS11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/348[#348]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4866,7 +4866,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/348[#348]
 | [[OBS12-01]]OBS12-01
 | OBS12
 | https://github.com/NVIDIA/ai-cloud-validation/issues/349[#349]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4881,7 +4881,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/349[#349]
 | [[OBS13-01]]OBS13-01
 | OBS13
 | https://github.com/NVIDIA/ai-cloud-validation/issues/350[#350]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4896,7 +4896,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/350[#350]
 | [[OBS14-01]]OBS14-01
 | OBS14
 | https://github.com/NVIDIA/ai-cloud-validation/issues/351[#351]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4911,7 +4911,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/351[#351]
 | [[OBS15-01]]OBS15-01
 | OBS15
 | https://github.com/NVIDIA/ai-cloud-validation/issues/352[#352]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4926,7 +4926,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/352[#352]
 | [[OBS16-01]]OBS16-01
 | OBS16
 | https://github.com/NVIDIA/ai-cloud-validation/issues/353[#353]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -4941,7 +4941,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/353[#353]
 | [[OBS17-01]]OBS17-01
 | OBS17
 | https://github.com/NVIDIA/ai-cloud-validation/issues/354[#354]
-| min_req, observability
+| observability
 | both
 |
 | P1
@@ -4956,7 +4956,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/354[#354]
 | [[OBS18-01]]OBS18-01
 | OBS18
 | https://github.com/NVIDIA/ai-cloud-validation/issues/355[#355]
-| bare_metal, min_req, observability
+| bare_metal, observability
 | both
 |
 | P1
@@ -4971,7 +4971,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/355[#355]
 | [[OBS19-01]]OBS19-01
 | OBS19
 | https://github.com/NVIDIA/ai-cloud-validation/issues/356[#356]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -5004,7 +5004,7 @@ a|
 | [[TELEM02-01]]TELEM02-01
 | TELEM02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/120[#120]
-| min_req
+|
 | tenant
 | MinAPI
 | P0
@@ -5019,7 +5019,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/120[#120]
 | [[TELEM03-01]]TELEM03-01
 | TELEM03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/121[#121]
-| min_req
+|
 | tenant
 | MinAPI
 | P0
@@ -5036,7 +5036,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/121[#121]
 | [[TELEM04-01]]TELEM04-01
 | TELEM04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/362[#362]
-| gpu, min_req, observability
+| gpu, observability
 | both
 |
 | P1
@@ -5053,7 +5053,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/362[#362]
 | [[TELEM05-01]]TELEM05-01
 | TELEM05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/363[#363]
-| min_req, observability, storage
+| observability, storage
 | both
 |
 | P1
@@ -5068,7 +5068,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/363[#363]
 | [[TELEM06-01]]TELEM06-01
 | TELEM06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/364[#364]
-| min_req, observability, storage
+| observability, storage
 | both
 |
 | P1
@@ -5085,7 +5085,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/364[#364]
 | [[TELEM07-01]]TELEM07-01
 | TELEM07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/365[#365]
-| gpu, min_req, network, observability
+| gpu, network, observability
 | both
 |
 | P1
@@ -5100,7 +5100,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/365[#365]
 | [[TELEM08-01]]TELEM08-01
 | TELEM08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
-| min_req, network, observability
+| network, observability
 | both
 |
 | P1
@@ -5119,7 +5119,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | [[SEC12-01]]SEC12-01
 | SEC12
 | https://github.com/NVIDIA/ai-cloud-validation/issues/306[#306]
-| min_req, network, security
+| offtake, network, security
 | operator
 |
 | P0
@@ -5134,7 +5134,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/306[#306]
 | [[SEC12-02]]SEC12-02
 | SEC12
 | https://github.com/NVIDIA/ai-cloud-validation/issues/307[#307]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P0
@@ -5149,7 +5149,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/307[#307]
 | [[CNP10-01]]CNP10-01
 | CNP10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/260[#260]
-| min_req, network, security
+| offtake, network, security
 | operator
 |
 | P0
@@ -5164,7 +5164,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/260[#260]
 | [[SEC12-03]]SEC12-03
 | SEC12
 | https://github.com/NVIDIA/ai-cloud-validation/issues/308[#308]
-| min_req, network, security
+| offtake, network, security
 | operator
 |
 | P0
@@ -5181,7 +5181,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/308[#308]
 | [[SEC13-01]]SEC13-01
 | SEC13
 | https://github.com/NVIDIA/ai-cloud-validation/issues/309[#309]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P1
@@ -5198,7 +5198,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/309[#309]
 | [[SEC14-01]]SEC14-01
 | SEC14
 | https://github.com/NVIDIA/ai-cloud-validation/issues/311[#311]
-| min_req, network, security
+| offtake, network, security
 | both
 |
 | P0
@@ -5213,7 +5213,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/311[#311]
 | [[SEC13-02]]SEC13-02
 | SEC13
 | https://github.com/NVIDIA/ai-cloud-validation/issues/310[#310]
-| min_req, network, security
+| offtake, network, security
 | tenant
 |
 | P1
@@ -5228,7 +5228,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/310[#310]
 | [[SEC15-01]]SEC15-01
 | SEC15
 | https://github.com/NVIDIA/ai-cloud-validation/issues/711[#711]
-| min_req, network, security
+| offtake, network, security
 | tenant
 | Only a dropped probe (timeout) counts as filtered; a refused probe reached the host. Source port is opt-in via required_dimensions, since common security group and ACL implementations cannot match on it.
 | P1
@@ -5245,7 +5245,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/711[#711]
 | [[SDN04-04]]SDN04-04
 | SDN04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/287[#287]
-| bare_metal, infiniband, min_req, network, security
+| bare_metal, infiniband, offtake, network, security
 | operator
 |
 | P0
@@ -5260,7 +5260,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/287[#287]
 | [[SDN04-05]]SDN04-05
 | SDN04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
-| bare_metal, infiniband, min_req, network, security
+| bare_metal, infiniband, offtake, network, security
 | operator
 |
 | P0
@@ -5277,7 +5277,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
 | [[SEC11-01]]SEC11-01
 | SEC11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
-| iam, min_req, network, security
+| iam, offtake, network, security
 | tenant
 |
 | P0
@@ -5292,7 +5292,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
 | [[SEC30-01]]SEC30-01
 | SEC30
 | https://github.com/NVIDIA/ai-cloud-validation/issues/718[#718]
-| min_req, network, security
+| network, security
 | tenant
 |
 | P0
@@ -5310,7 +5310,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/718[#718]
 | [[SEC01-01]]SEC01-01
 | SEC01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/293[#293]
-| iam, min_req, security
+| iam, offtake, security
 | tenant
 |
 | P0
@@ -5327,7 +5327,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/293[#293]
 | [[SEC06-01]]SEC06-01
 | SEC06
 | https://github.com/NVIDIA/ai-cloud-validation/issues/294[#294]
-| iam, min_req, security
+| iam, offtake, security
 | tenant
 |
 | P0
@@ -5344,7 +5344,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/294[#294]
 | [[SEC03-01]]SEC03-01
 | SEC03
 | https://github.com/NVIDIA/ai-cloud-validation/issues/295[#295]
-| iam, min_req, security
+| iam, offtake, security
 | tenant
 |
 | P0
@@ -5361,7 +5361,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/295[#295]
 | [[SEC07-01]]SEC07-01
 | SEC07
 | https://github.com/NVIDIA/ai-cloud-validation/issues/298[#298]
-| iam, min_req, security
+| iam, offtake, security
 | operator
 | INFO
 | P0
@@ -5379,7 +5379,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/298[#298]
 | [[SEC04-02]]SEC04-02
 | SEC04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/297[#297]
-| iam, min_req, security
+| iam, offtake, security
 | tenant
 |
 | P1
@@ -5397,7 +5397,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/297[#297]
 | [[SEC08-01]]SEC08-01
 | SEC08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/299[#299]
-| min_req, security
+| offtake, security
 | operator
 |
 | P1
@@ -5412,7 +5412,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/299[#299]
 | [[SEC08-02]]SEC08-02
 | SEC08
 | https://github.com/NVIDIA/ai-cloud-validation/issues/300[#300]
-| min_req, security
+| offtake, security
 | operator
 |
 | P1
@@ -5430,7 +5430,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/300[#300]
 | [[SEC21-04]]SEC21-04
 | SEC21
 | https://github.com/NVIDIA/ai-cloud-validation/issues/312[#312]
-| bare_metal, min_req, sanitization, security
+| bare_metal, offtake, sanitization, security
 | operator
 |
 | P0
@@ -5445,7 +5445,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/312[#312]
 | [[SEC21-05]]SEC21-05
 | SEC21
 | https://github.com/NVIDIA/ai-cloud-validation/issues/313[#313]
-| bare_metal, gpu, min_req, sanitization, security
+| bare_metal, gpu, offtake, sanitization, security
 | operator
 |
 | P0
@@ -5460,7 +5460,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/313[#313]
 | [[SEC21-06]]SEC21-06
 | SEC21, SEC22
 | https://github.com/NVIDIA/ai-cloud-validation/issues/314[#314]
-| bare_metal, firmware, min_req, sanitization, security
+| bare_metal, firmware, offtake, sanitization, security
 | operator
 |
 | P0
@@ -5477,7 +5477,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/314[#314]
 | [[SEC20-01]]SEC20-01
 | SEC20
 |
-| min_req
+| offtake
 | operator
 |
 | INFO
@@ -5494,7 +5494,7 @@ a|
 | [[SEC09-03]]SEC09-03
 | SEC09, SEC10
 | https://github.com/NVIDIA/ai-cloud-validation/issues/303[#303]
-| min_req, security
+| offtake, security
 | operator
 |
 | P1
@@ -5509,7 +5509,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/303[#303]
 | [[SEC09-04]]SEC09-04
 | SEC09
 | https://github.com/NVIDIA/ai-cloud-validation/issues/304[#304]
-| min_req, security, slow, workload
+| offtake, security, slow, workload
 | tenant
 |
 | P0
@@ -5528,7 +5528,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/304[#304]
 | [[NET01-01]]NET01-01
 | NET01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/278[#278]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -5546,7 +5546,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/278[#278]
 | [[NET02-02]]NET02-02
 | NET02
 | https://github.com/NVIDIA/ai-cloud-validation/issues/279[#279]
-| min_req, network
+| offtake, network
 | tenant
 |
 | P0
@@ -5564,7 +5564,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/279[#279]
 | [[NET04-01]]NET04-01
 | NET04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/280[#280]
-| min_req
+| offtake
 | tenant
 |
 | P1
@@ -5581,7 +5581,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/280[#280]
 | [[NET05-01]]NET05-01
 | NET05
 |
-| min_req
+| offtake
 | tenant
 |
 | INFO
@@ -5596,7 +5596,7 @@ a|
 | [[NET05-02]]NET05-02
 | NET05
 |
-| min_req
+| offtake
 | both
 |
 | INFO
@@ -5613,7 +5613,7 @@ a|
 | [[NET06-01]]NET06-01
 | NET06
 |
-| min_req
+| offtake
 | tenant
 |
 | INFO
@@ -5628,7 +5628,7 @@ a|
 | [[NET06-02]]NET06-02
 | NET06
 |
-| min_req
+| offtake
 | operator
 |
 | INFO
@@ -5647,7 +5647,7 @@ a|
 | [[CAP01-01]]CAP01-01
 | CAP01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/251[#251]
-| bare_metal, governance, min_req
+| bare_metal, governance, offtake
 | tenant
 |
 | P1
@@ -5665,7 +5665,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/251[#251]
 | [[CAP04-01]]CAP04-01
 | CAP04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
-| bare_metal, capacity, min_req, security
+| bare_metal, capacity, offtake, security
 | tenant
 |
 | P1
@@ -5680,7 +5680,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/252[#252]
 | [[CAP04-02]]CAP04-02
 | CAP04
 | https://github.com/NVIDIA/ai-cloud-validation/issues/253[#253]
-| bare_metal, capacity, min_req, security
+| bare_metal, capacity, offtake, security
 | tenant
 |
 | P1
@@ -5698,7 +5698,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/253[#253]
 | [[CAP05-01]]CAP05-01
 | CAP05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/254[#254]
-| bare_metal, health, min_req
+| bare_metal, health, offtake
 | tenant
 |
 | P1
@@ -5713,7 +5713,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/254[#254]
 | [[CAP05-02]]CAP05-02
 | CAP05
 | https://github.com/NVIDIA/ai-cloud-validation/issues/255[#255]
-| bare_metal, health, min_req
+| bare_metal, health, offtake
 | tenant
 |
 | P1
@@ -5732,7 +5732,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/255[#255]
 | [[BM01-01]]BM01-01
 | BM01
 |
-| min_req
+| offtake
 | tenant
 |
 |
@@ -5777,7 +5777,7 @@ a|
 | [[BM01-02]]BM01-02
 | BM01
 | https://github.com/NVIDIA/ai-cloud-validation/issues/249[#249]
-| min_req
+| offtake
 | tenant
 |
 | P1
