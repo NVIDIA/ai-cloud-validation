@@ -4136,18 +4136,30 @@ domains:
                 status: published
           - description: K8s Performance
             tests:
-              - summary: Verify the managed Kubernetes service meets standard Kubernetes performance and control plane SLO targets at up to 5,000 nodes or the provider's declared maximum cluster size, whichever is smaller
+              - summary: Run a job of at least 4 nodes and verify the managed Kubernetes service meets standard Kubernetes performance and control plane SLO targets
                 labels:
                   - offtake
                 priority: P0
                 milestone: M5
-                notes: "Consolidates the duplicate reference requirement and former test K8S37-01 into the canonical offtake K8S28 requirement."
+                notes: "Consolidates the duplicate reference requirement and former test K8S37-01 into the canonical offtake K8S28 requirement. The 5,000-node target is covered by K8S28-02."
                 github_issues:
                   - "#268"
                 req_id: K8S28
                 test_id: K8S28-01
                 actor: tenant
                 legacy_ids: [K8S-XX-09, K8S37-01]
+                status: pending
+              - summary: Provider attests, as a policy statement, the maximum managed Kubernetes cluster size it supports and its commitment to the 5,000-node target
+                labels:
+                  - offtake
+                priority: P0
+                milestone: M5
+                notes: "Placeholder for a provider policy attestation; not an automated test."
+                github_issues:
+                  - "#268"
+                req_id: K8S28
+                test_id: K8S28-02
+                actor: operator
                 status: pending
           - description: Multi-Cluster Support
             tests:
