@@ -52,7 +52,7 @@ tests:
       checks:
         IamUserCreatedCheck:
           test_id: "IAM01-01"
-          labels: ["iam", "min_req"]
+          labels: ["iam"]
           requires: []
           description: "Check the IAM user is created and its access key is returned"
           compose:
@@ -65,7 +65,7 @@ tests:
       checks:
         IamUserAuthenticatedCheck:
           test_id: "IAM01-01"
-          labels: ["iam", "min_req"]
+          labels: ["iam"]
           requires: []
           description: "Check the created user can log in with the credentials it was issued"
           compose:

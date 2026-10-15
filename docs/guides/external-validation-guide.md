@@ -293,7 +293,7 @@ isvctl test run -f config.yaml --label gpu
 isvctl test run -f config.yaml -- -m "not slow"
 
 # Labels compose with suite selection
-isvctl test run --provider acme --suite storage --capability vm --label min_req
+isvctl test run --provider acme --suite storage --capability vm --label offtake
 
 # Re-run one failed check in its lifecycle context (pytest passthrough)
 isvctl test run --provider acme --suite storage --capability kubernetes -- -k K8sCsiPvcExpandCheck

@@ -107,19 +107,19 @@ def test_consistency_passes_when_yaml_label_supplies_domain() -> None:
 
 def test_label_sync_errors_require_plan_and_suite_union() -> None:
     """Plan and suite wiring must both carry the union of labels for a test_id."""
-    plan = {"SEC01-01": {"labels": ["min_req"]}}
+    plan = {"SEC01-01": {"labels": ["offtake"]}}
     instances = [("suite.yaml", "SecurityCheck", "SEC01-01", ["security"])]
 
     errors = test_plan_coverage.label_sync_errors(plan, instances)
 
     assert any("docs/test-plan.yaml:SEC01-01" in error and "security" in error for error in errors)
-    assert any("suite.yaml: SecurityCheck" in error and "min_req" in error for error in errors)
+    assert any("suite.yaml: SecurityCheck" in error and "offtake" in error for error in errors)
 
 
 def test_label_sync_errors_empty_when_plan_and_suite_match() -> None:
     """No drift when every mapped check and plan entry has the same label union."""
-    plan = {"SEC01-01": {"labels": ["min_req", "security"]}}
-    instances = [("suite.yaml", "SecurityCheck", "SEC01-01", ["min_req", "security"])]
+    plan = {"SEC01-01": {"labels": ["offtake", "security"]}}
+    instances = [("suite.yaml", "SecurityCheck", "SEC01-01", ["offtake", "security"])]
 
     assert test_plan_coverage.label_sync_errors(plan, instances) == []
 

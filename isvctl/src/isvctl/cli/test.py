@@ -430,7 +430,7 @@ def run(
     Examples:
         isvctl test run --suite storage --capability kubernetes --phase test
         isvctl test run --provider aws --suite k8s
-        isvctl test run --provider aws --suite storage --label min_req
+        isvctl test run --provider aws --suite storage --label offtake
         isvctl test run --provider aws --label network
         isvctl test run -f lab.yaml -f commands.yaml -f suites/k8s.yaml
         isvctl test run -f config.yaml --set context.node_count=8
