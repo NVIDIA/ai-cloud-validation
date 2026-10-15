@@ -54,41 +54,41 @@ tests:
       checks:
         SlurmInfoAvailable:
           test_id: "SLURM02-01"
-          labels: ["slurm"]
+          labels: ["platform_slurm", "slurm", "stage_1_proof_of_life"]
           min_partitions: 1
         SlurmPartition-cpu:
           test_id: "SLURM03-01"
-          labels: ["slurm"]
+          labels: ["platform_slurm", "slurm", "stage_1_proof_of_life"]
           partition_name: "cpu"
           expected_nodes: "{{ steps.setup.slurm.partitions.cpu.nodes | default([]) | length }}"
           required_nodes: '{{ steps.setup.slurm.partitions.cpu.nodes | default([]) | tojson }}'
           require_available: true
         SlurmPartition-gpu:
           test_id: "SLURM03-01"
-          labels: ["slurm"]
+          labels: ["platform_slurm", "slurm", "stage_1_proof_of_life"]
           partition_name: "gpu"
           expected_nodes: "{{ steps.setup.slurm.partitions.gpu.nodes | default([]) | length }}"
           required_nodes: '{{ steps.setup.slurm.partitions.gpu.nodes | default([]) | tojson }}'
           require_available: true
         SlurmJobSubmission:
           test_id: "SLURM04-01"
-          labels: ["slurm", "gpu"]
+          labels: ["gpu", "platform_slurm", "slurm", "stage_1_proof_of_life"]
         SlurmGpuAllocation-1gpu:
           test_id: "SLURM05-01"
-          labels: ["slurm", "gpu"]
+          labels: ["gpu", "platform_slurm", "slurm", "stage_3_gpu_workloads"]
           num_gpus: 1
         SlurmGpuAllocation-2gpu:
           test_id: "SLURM05-01"
-          labels: ["slurm", "gpu"]
+          labels: ["gpu", "platform_slurm", "slurm", "stage_3_gpu_workloads"]
           num_gpus: 2
         SlurmNodeJobExecution-cpu:
           test_id: "SLURM06-01"
-          labels: ["slurm"]
+          labels: ["platform_slurm", "slurm", "stage_3_gpu_workloads"]
           partition_name: "cpu"
           storage_path: "{{ steps.setup.slurm.storage_path | default('/tmp') }}"
         SlurmNodeJobExecution-gpu:
           test_id: "SLURM06-01"
-          labels: ["slurm"]
+          labels: ["platform_slurm", "slurm", "stage_3_gpu_workloads"]
           partition_name: "gpu"
           storage_path: "{{ steps.setup.slurm.storage_path | default('/tmp') }}"
 
@@ -97,7 +97,7 @@ tests:
       checks:
         SlurmGpuStressWorkload:
           test_id: "SLURM07-01"
-          labels: ["slurm", "gpu", "workload", "slow"]
+          labels: ["gpu", "platform_slurm", "slow", "slurm", "stage_3_gpu_workloads", "workload"]
           partition: "{{ steps.setup.slurm.default_partition | default('gpu') }}"
           runtime: 30
           memory_gb: 16
@@ -107,7 +107,7 @@ tests:
         # Multi-node NCCL test - validates GPU communication across nodes
         SlurmNcclMultiNodeWorkload:
           test_id: "SLURM08-01"
-          labels: ["slurm", "gpu", "workload", "slow"]
+          labels: ["gpu", "platform_slurm", "slow", "slurm", "stage_3_gpu_workloads", "workload"]
           partition: "{{ steps.setup.slurm.default_partition | default('gpu') }}"
           nodes: "{{ steps.setup.slurm.partitions.gpu.nodes | default([]) | length }}"
           # gpus_per_node: auto-detected from partition GRES if not specified
@@ -118,7 +118,7 @@ tests:
         # Run GPU job from manifest file with variable substitution
         SlurmSbatchWorkload-gpu:
           test_id: "SLURM09-01"
-          labels: ["slurm", "workload", "slow"]
+          labels: ["platform_slurm", "slow", "slurm", "stage_3_gpu_workloads", "workload"]
           script: "example_gpu_job.sbatch"
           variables:
             JOB_NAME: "demo-gpu-test"
@@ -132,7 +132,7 @@ tests:
         # Run CPU job from manifest file
         SlurmSbatchWorkload-cpu:
           test_id: "SLURM09-01"
-          labels: ["slurm", "workload", "slow"]
+          labels: ["platform_slurm", "slow", "slurm", "stage_3_gpu_workloads", "workload"]
           script: "example_cpu_job.sbatch"
           variables:
             JOB_NAME: "demo-cpu-test"
@@ -145,7 +145,7 @@ tests:
         # Inline script (no manifest file needed)
         SlurmSbatchWorkload-inline:
           test_id: "SLURM10-01"
-          labels: ["slurm", "workload", "slow"]
+          labels: ["platform_slurm", "slow", "slurm", "stage_3_gpu_workloads", "workload"]
           script_content: |
             #!/bin/bash
             #SBATCH --job-name=inline-test

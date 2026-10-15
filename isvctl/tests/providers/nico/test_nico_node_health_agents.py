@@ -77,7 +77,12 @@ def test_bare_metal_suite_declares_the_provider_neutral_validation() -> None:
 
     assert validation["step"] == "query_node_health_agents"
     assert validation["checks"]["NodeHealthAgentCheck"]["test_id"] == "BFX04-01"
-    assert validation["checks"]["NodeHealthAgentCheck"]["labels"] == ["bare_metal", "breakfix"]
+    assert validation["checks"]["NodeHealthAgentCheck"]["labels"] == [
+        "bare_metal",
+        "breakfix",
+        "platform_bmaas",
+        "stage_4_hardening_scale",
+    ]
 
 
 def test_nico_provider_wires_the_reference() -> None:

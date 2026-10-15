@@ -57,7 +57,7 @@ tests:
       checks:
         ControlPlaneApiHealthCheck:
           test_id: "CP03-01"
-          labels: ["control_plane", "min_req"]
+          labels: ["control_plane", "min_req", "platform_core", "stage_1_proof_of_life"]
           requires: []
           description: "Check the control plane API answers an authenticated request for the account"
           compose:
@@ -71,12 +71,12 @@ tests:
       checks:
         AccessKeyCreatedCheck:
           test_id: "CP05-01"
-          labels: ["control_plane", "iam"]
+          labels: ["control_plane", "iam", "platform_core", "stage_1_proof_of_life"]
           requires: []
           step: create_access_key
         TenantCreatedCheck:
           test_id: "CP07-01"
-          labels: ["control_plane", "iam"]
+          labels: ["control_plane", "iam", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: create_tenant
 
@@ -84,17 +84,17 @@ tests:
       checks:
         AccessKeyAuthenticatedCheck:
           test_id: "CP05-01"
-          labels: ["control_plane", "iam"]
+          labels: ["control_plane", "iam", "platform_core", "stage_1_proof_of_life"]
           requires: []
           step: test_access_key
         AccessKeyDisabledCheck:
           test_id: "CP06-01"
-          labels: ["control_plane", "iam", "min_req"]
+          labels: ["control_plane", "iam", "min_req", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: disable_access_key
         AccessKeyRejectedCheck:
           test_id: "CP06-01"
-          labels: ["control_plane", "iam", "min_req"]
+          labels: ["control_plane", "iam", "min_req", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: verify_key_rejected
 
@@ -102,12 +102,12 @@ tests:
       checks:
         TenantListedCheck:
           test_id: "CP08-01"
-          labels: ["control_plane", "iam"]
+          labels: ["control_plane", "iam", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: list_tenants
         TenantInfoCheck:
           test_id: "CP09-01"
-          labels: ["control_plane", "iam"]
+          labels: ["control_plane", "iam", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: get_tenant
 
@@ -116,7 +116,7 @@ tests:
       checks:
         ObjectStorageCrudCheck:
           test_id: "DATASVC01-01"
-          labels: ["control_plane", "min_req", "storage"]
+          labels: ["control_plane", "min_req", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: []
           description: "Check objects can be put, read back, and deleted through the object storage API"
           compose:
@@ -140,7 +140,7 @@ tests:
             - StepSuccessCheck
         TenantDeletedCheck:
           test_id: "CP10-01"
-          labels: ["control_plane", "iam"]
+          labels: ["control_plane", "iam", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: delete_tenant
           description: "Check the tenant created for the run is deleted"

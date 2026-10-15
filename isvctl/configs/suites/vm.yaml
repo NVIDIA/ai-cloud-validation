@@ -62,7 +62,7 @@ tests:
       checks:
         VmCreatedCheck:
           test_id: "CNP01-09"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_1_proof_of_life", "vm"]
           expected_state: "running"
           description: "Check the VM is created and reaches the running state"
           compose:
@@ -74,21 +74,21 @@ tests:
       checks:
         VmLaunchedWithSpecifiedKeyCheck:
           test_id: "AUTH02-01"
-          labels: ["vm", "iam"]
+          labels: ["iam", "platform_vmaas", "stage_4_hardening_scale", "vm"]
 
     component_key_access:
       step: component_key_access
       checks:
         VmComponentKeyAccessCheck:
           test_id: "AUTH03-01"
-          labels: ["bare_metal", "iam", "security", "vm"]
+          labels: ["bare_metal", "iam", "platform_core", "security", "stage_4_hardening_scale", "vm"]
 
     list_instances:
       step: list_instances
       checks:
         VmListedCheck:
           test_id: "CNP01-11"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_2_lifecycle_ops", "vm"]
           min_count: 1
           target_instance: "{{steps.launch_instance.instance_id}}"
           description: "Check the VM appears when instances are listed"
@@ -100,7 +100,7 @@ tests:
       checks:
         VmTaggedCheck:
           test_id: "CNP05-02"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_2_lifecycle_ops", "vm"]
           required_keys: ["Name", "CreatedBy"]
           description: "Check the VM carries the required tags"
           compose:
@@ -111,7 +111,7 @@ tests:
       checks:
         VmSerialConsoleCheck:
           test_id: "CNP06-03"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_4_hardening_scale", "vm"]
           description: "Check the VM's serial console is reachable"
           compose:
             - SerialConsoleCheck
@@ -121,21 +121,21 @@ tests:
       checks:
         VmConsoleRbacCheck:
           test_id: "CNP01-16"
-          labels: ["iam", "min_req", "security", "vm"]
+          labels: ["iam", "min_req", "offtake", "platform_vmaas", "security", "stage_2_lifecycle_ops", "vm"]
 
     virtual_device_hardening:
       step: virtual_device_hardening
       checks:
         VirtualDeviceHardeningCheck:
           test_id: "CNP01-17"
-          labels: ["min_req", "security", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "security", "stage_4_hardening_scale", "vm"]
 
     cloud_init:
       step: launch_instance
       checks:
         VmCloudInitCheck:
           test_id: "BOOT02-02"
-          labels: ["min_req", "ssh", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "ssh", "stage_2_lifecycle_ops", "vm"]
           description: "Check cloud-init completed on the VM"
           compose:
             - CloudInitCheck
@@ -148,7 +148,7 @@ tests:
       checks:
         VmStateReportedCheck:
           test_id: "CNP01-10"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_1_proof_of_life", "vm"]
           expected_state: "running"
           description: "Check the platform reports the VM as running when described"
           compose:
@@ -161,13 +161,13 @@ tests:
         # stay separate tests.
         VmReachableOverSshCheck:
           test_id: "VMAAS01-01"
-          labels: ["vm", "ssh"]
+          labels: ["platform_vmaas", "ssh", "stage_1_proof_of_life", "vm"]
           description: "Check the VM answers SSH and runs commands"
           compose:
             - ConnectivityCheck
         VmOsImageCheck:
           test_id: "VMAAS05-01"
-          labels: ["vm", "ssh"]
+          labels: ["platform_vmaas", "ssh", "stage_3_gpu_workloads", "vm"]
           expected_os: "ubuntu"
           description: "Check the VM runs the expected OS image"
           compose:
@@ -178,7 +178,7 @@ tests:
       checks:
         VmGpusPresentCheck:
           test_id: "VMAAS06-01"
-          labels: ["vm", "ssh", "gpu"]
+          labels: ["gpu", "platform_vmaas", "ssh", "stage_3_gpu_workloads", "vm"]
           expected_gpus: 1
           description: "Check the VM exposes the expected number of GPUs"
           compose:
@@ -189,7 +189,7 @@ tests:
       checks:
         VmComputeTopologyCheck:
           test_id: "VMAAS09-01"
-          labels: ["gpu", "ssh", "vm"]
+          labels: ["gpu", "platform_vmaas", "ssh", "stage_3_gpu_workloads", "vm"]
           description: "Check the VM reports valid vCPU pinning, NUMA, and PCI/GPU topology"
           compose:
             - VcpuPinningCheck
@@ -197,7 +197,7 @@ tests:
                 expected_gpus: 1
         VmSoftwareStackCheck:
           test_id: "VMAAS07-01"
-          labels: ["gpu", "ssh", "vm"]
+          labels: ["gpu", "platform_vmaas", "ssh", "stage_3_gpu_workloads", "vm"]
           description: "Check the VM reports a usable host, kernel, and GPU software stack"
           compose:
             - HostSoftwareCheck
@@ -234,7 +234,7 @@ tests:
       checks:
         VmStoppedCheck:
           test_id: "CNP01-14"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_2_lifecycle_ops", "vm"]
           description: "Check the VM stops on request"
           compose:
             - InstanceStopCheck
@@ -244,13 +244,13 @@ tests:
       checks:
         VmStartedCheck:
           test_id: "CNP01-15"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_2_lifecycle_ops", "vm"]
           description: "Check the VM starts again after being stopped"
           compose:
             - InstanceStartCheck
         VmIdentifierStableAfterStartCheck:
           test_id: "CNP08-03"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_2_lifecycle_ops", "vm"]
           reference_id: "{{steps.launch_instance.instance_id}}"
           description: "Check the VM keeps its identifier across a start"
           compose:
@@ -261,13 +261,13 @@ tests:
       checks:
         VmReachableOverSshAfterStartCheck:
           test_id: "VMAAS01-01"
-          labels: ["vm", "ssh"]
+          labels: ["platform_vmaas", "ssh", "stage_1_proof_of_life", "vm"]
           description: "Check the VM answers SSH after a start"
           compose:
             - ConnectivityCheck
         VmOsImageAfterStartCheck:
           test_id: "VMAAS05-01"
-          labels: ["vm", "ssh"]
+          labels: ["platform_vmaas", "ssh", "stage_3_gpu_workloads", "vm"]
           expected_os: "ubuntu"
           description: "Check the VM still runs the expected OS image after a start"
           compose:
@@ -278,7 +278,7 @@ tests:
       checks:
         VmGpusPresentAfterStartCheck:
           test_id: "VMAAS06-01"
-          labels: ["vm", "ssh", "gpu"]
+          labels: ["gpu", "platform_vmaas", "ssh", "stage_3_gpu_workloads", "vm"]
           expected_gpus: 1
           description: "Check the GPUs are still present after a start"
           compose:
@@ -289,7 +289,7 @@ tests:
       checks:
         VmRebootedCheck:
           test_id: "CNP01-13"
-          labels: ["vm"]
+          labels: ["offtake", "platform_vmaas", "stage_2_lifecycle_ops", "vm"]
           max_uptime: 600
           description: "Check the VM reboots on request"
           compose:
@@ -318,13 +318,13 @@ tests:
       checks:
         VmReachableOverSshAfterRebootCheck:
           test_id: "VMAAS01-01"
-          labels: ["vm", "ssh"]
+          labels: ["platform_vmaas", "ssh", "stage_1_proof_of_life", "vm"]
           description: "Check the VM answers SSH after a reboot"
           compose:
             - ConnectivityCheck
         VmOsImageAfterRebootCheck:
           test_id: "VMAAS05-01"
-          labels: ["vm", "ssh"]
+          labels: ["platform_vmaas", "ssh", "stage_3_gpu_workloads", "vm"]
           expected_os: "ubuntu"
           description: "Check the VM still runs the expected OS image after a reboot"
           compose:
@@ -335,7 +335,7 @@ tests:
       checks:
         VmGpusPresentAfterRebootCheck:
           test_id: "VMAAS06-01"
-          labels: ["vm", "ssh", "gpu"]
+          labels: ["gpu", "platform_vmaas", "ssh", "stage_3_gpu_workloads", "vm"]
           expected_gpus: 1
           description: "Check the GPUs are still present after a reboot"
           compose:
@@ -347,7 +347,7 @@ tests:
       checks:
         VmNimInferenceReadyCheck:
           test_id: "VMAAS12-01"
-          labels: ["vm", "ssh", "gpu", "workload", "slow"]
+          labels: ["gpu", "platform_vmaas", "slow", "ssh", "stage_3_gpu_workloads", "vm", "workload"]
           description: "Check the deployed NIM is healthy, exposes its model, and answers an inference request"
           compose:
             - NimHealthCheck
@@ -372,7 +372,7 @@ tests:
       checks:
         VmResourcesDeletedCheck:
           test_id: "CNP01-12"
-          labels: ["min_req", "vm"]
+          labels: ["min_req", "offtake", "platform_vmaas", "stage_1_proof_of_life", "vm"]
           description: "Check the VM and its associated resources are deleted"
           compose:
             - StepSuccessCheck

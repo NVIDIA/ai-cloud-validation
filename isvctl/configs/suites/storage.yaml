@@ -124,7 +124,7 @@ tests:
       checks:
         VolumeSnapshotRestoredCheck:
           test_id: "DATASVC02-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           description: "Check a volume snapshot can be taken and restored with its data intact"
           compose:
@@ -140,7 +140,7 @@ tests:
       checks:
         VolumeResizedCheck:
           test_id: "DATASVC03-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           description: "Check a volume can be grown and the filesystem reports the new size"
           compose:
@@ -156,7 +156,7 @@ tests:
       checks:
         VolumePersistsAcrossRestartCheck:
           test_id: "DATASVC04-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           description: "Check a volume stays attached with its data after the instance restarts"
           compose:
@@ -172,15 +172,15 @@ tests:
       checks:
         DirectoryFilesystemQuotaCheck:
           test_id: "DIR01-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
         DirectoryUsageAccountingCheck:
           test_id: "DIR01-02"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
         DirectoryNfsAvailabilityCheck:
           test_id: "DIR02-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
 
     # ─── High-speed storage: SDS controller ──────────────────────────
@@ -188,22 +188,22 @@ tests:
       checks:
         HssStorageProvisioningCheck:
           test_id: "HSS01-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: []
           step: provision_storage
         HssQosThroughputCheck:
           test_id: "HSS02-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           step: qos_throughput
         HssNonDisruptiveUpgradeCheck:
           test_id: "HSS05-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: []
           step: non_disruptive_upgrade
         HssRdmaMemoryProtectionCheck:
           test_id: "HSS06-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           step: rdma_memory_protection
 
@@ -212,42 +212,42 @@ tests:
       checks:
         HssParallelFsProvisioningCheck:
           test_id: "HSS07-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           step: provision_parallel_fs
         HssMultipleFilesystemsCheck:
           test_id: "HSS09-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: []
           step: multiple_filesystems
         HssLiveExpansionCheck:
           test_id: "HSS10-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: []
           step: live_expansion
         HssQuotaEnforcementCheck:
           test_id: "HSS12-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           step: quota_enforcement
         HssRootSquashCheck:
           test_id: "HSS13-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: []
           step: root_squash
         HssFlockMountCheck:
           test_id: "HSS14-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           step: flock_mount
         HssChangelogAuditCheck:
           test_id: "HSS15-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           step: changelog_audit
         HssMultipathCheck:
           test_id: "HSS18-01"
-          labels: ["min_req", "storage"]
+          labels: ["min_req", "offtake", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           step: multipath
 
@@ -314,17 +314,17 @@ tests:
       checks:
         K8sCsiHelmInstallCheck:
           test_id: "K8S23-02"
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           installation: "{{ steps.install_csi | default({}) | tojson }}"
         K8sCsiKustomizeInstallCheck:
           test_id: "K8S23-03"
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           installation: "{{ steps.install_csi | default({}) | tojson }}"
         K8sCsiSnapshotRestoreCheck:
           test_id: "K8S23-08"
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops", "storage"]
           requires: [kubernetes]
           required: true
           storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
@@ -333,7 +333,7 @@ tests:
           wait_timeout_s: 180
         K8sCsiStorageTypesCheck:
           test_id: "K8S23-04"
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops", "storage"]
           requires: [kubernetes]
           # K8S23 requires block, shared filesystem, and NFS capabilities.
           # Missing class configuration fails before any probe resources are created.
@@ -347,7 +347,7 @@ tests:
           namespace_prefix: "isvtest-csi-types"
         K8sCsiStorageQuotaApiCheck:
           test_id: "K8S23-07"
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops", "storage"]
           requires: [kubernetes]
           # Uses the block StorageClass by default; skips entirely when unset.
           # per_sc_quota must exceed pvc_request so the usage PVC fits, and
@@ -362,7 +362,7 @@ tests:
           namespace_prefix: "isvtest-csi-quota"
         K8sCsiTenantScopedCredentialsCheck:
           test_id: "K8S23-06"
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops", "storage"]
           requires: [kubernetes]
           # Pure read-only check: verifies CSI credentials are tenant-scoped
           # by construction (Secret namespaces, labels/annotations, RBAC,
@@ -375,7 +375,7 @@ tests:
             - "shared-across-clusters=true"
         K8sCsiProvisioningModesCheck:
           test_id: "K8S23-05"
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops", "storage"]
           requires: [kubernetes]
           # Exercises dynamic and static CSI provisioning end-to-end with a
           # BusyBox mount + canary-file write/read. Skipped entirely when
@@ -422,7 +422,7 @@ tests:
           min_controller_replicas: 1
         K8sCsiConcurrentPvcCheck:
           test_id: "HSS03-08"
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           pvc_count: 2
@@ -432,7 +432,7 @@ tests:
         K8sCsiPvcExpandCheck:
           test_id: "K8S23-09"
           required: true
-          labels: ["kubernetes", "min_req", "storage"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops", "storage"]
           requires: [kubernetes]
           storage_class: "{{ steps.setup_cluster.csi.block_storage_class | default('', true) }}"
           initial_size: "1Gi"
@@ -442,7 +442,7 @@ tests:
           namespace_prefix: "isvtest-csi-expand"
         K8sNodeKernelModulesCheck:
           test_id: "HSS11-04"
-          labels: ["kubernetes", "storage"]
+          labels: ["kubernetes", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           kernel_modules: []
           node_selector: {}
@@ -451,7 +451,7 @@ tests:
           namespace_prefix: "isvtest-kmod"
         K8sNfsMountOptionsCheck:
           test_id: "HSS11-01"
-          labels: ["kubernetes", "storage"]
+          labels: ["kubernetes", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           # Env overrides: K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
@@ -472,7 +472,7 @@ tests:
         # Shared-filesystem POSIX-semantics checks (multi-pod, RWX PVC).
         K8sFileLockingCheck:
           test_id: "HSS14-02"
-          labels: ["kubernetes", "storage"]
+          labels: ["kubernetes", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
@@ -484,7 +484,7 @@ tests:
           namespace_prefix: "isvtest-fs-lock"
         K8sCrossNodeWriteVisibilityCheck:
           test_id: "HSS17-01"
-          labels: ["kubernetes", "storage"]
+          labels: ["kubernetes", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
@@ -496,7 +496,7 @@ tests:
           namespace_prefix: "isvtest-fs-vis"
         K8sCrossNodeAttrConsistencyCheck:
           test_id: "HSS17-02"
-          labels: ["kubernetes", "storage"]
+          labels: ["kubernetes", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
@@ -509,7 +509,7 @@ tests:
           namespace_prefix: "isvtest-fs-attr"
         K8sLargeDirListingFilesCheck:
           test_id: "HSS07-02"
-          labels: ["kubernetes", "storage"]
+          labels: ["kubernetes", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
@@ -522,7 +522,7 @@ tests:
           timeout: 3600
         K8sLargeDirListingDirsCheck:
           test_id: "HSS07-02"
-          labels: ["kubernetes", "storage"]
+          labels: ["kubernetes", "offtake", "platform_kubernetes", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
@@ -535,7 +535,7 @@ tests:
           timeout: 3600
         K8sPosixComplianceCheck:
           test_id: "DIR02-02"
-          labels: ["kubernetes", "slow", "storage"]
+          labels: ["kubernetes", "offtake", "platform_kubernetes", "slow", "stage_4_hardening_scale", "storage"]
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"

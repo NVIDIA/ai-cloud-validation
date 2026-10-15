@@ -38,7 +38,7 @@ tests:
       checks:
         TelemetryDeliveryLatencyCheck:
           test_id: "OBS05-01"
-          labels: ["min_req", "observability"]
+          labels: ["min_req", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: telemetry_delivery_latency
           max_delivery_seconds: "{{max_delivery_seconds}}"
@@ -47,27 +47,27 @@ tests:
       checks:
         NorthSouthNetworkTelemetryCheck:
           test_id: "OBS06-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: north_south_network_telemetry
         EastWestNetworkTelemetryCheck:
           test_id: "OBS07-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: east_west_network_telemetry
         ManagementNetworkTelemetryCheck:
           test_id: "OBS08-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: management_network_telemetry
         NvswitchFabricTelemetryCheck:
           test_id: "OBS09-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: nvswitch_fabric_telemetry
         HostNicNetworkTelemetryCheck:
           test_id: "OBS10-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: host_nic_network_telemetry
 
@@ -75,7 +75,7 @@ tests:
       checks:
         VpcFlowLogsCheck:
           test_id: "OBS19-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: vpc_flow_logs
 
@@ -83,7 +83,7 @@ tests:
       checks:
         HostSyslogCheck:
           test_id: "OBS18-01"
-          labels: ["bare_metal", "min_req", "observability"]
+          labels: ["bare_metal", "min_req", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: host_syslogs
 
@@ -91,7 +91,7 @@ tests:
       checks:
         BmcSelLogsCheck:
           test_id: "OBS17-01"
-          labels: ["min_req", "observability"]
+          labels: ["min_req", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: bmc_sel_logs
 
@@ -99,7 +99,7 @@ tests:
       checks:
         BmcGpuTelemetryCheck:
           test_id: "TELEM04-01"
-          labels: ["gpu", "min_req", "observability"]
+          labels: ["gpu", "min_req", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: bmc_gpu_telemetry
 
@@ -107,7 +107,7 @@ tests:
       checks:
         StorageCapacityTelemetryCheck:
           test_id: "TELEM05-01"
-          labels: ["min_req", "observability", "storage"]
+          labels: ["min_req", "observability", "platform_core", "stage_4_hardening_scale", "storage"]
           # Probes the volumes attached to a running instance, exactly like its
           # StoragePerformanceTelemetryCheck twin (same script, different
           # --aspect). Without one it reports "no volumes attached", so it can
@@ -119,7 +119,7 @@ tests:
       checks:
         StoragePerformanceTelemetryCheck:
           test_id: "TELEM06-01"
-          labels: ["min_req", "observability", "storage"]
+          labels: ["min_req", "observability", "platform_core", "stage_4_hardening_scale", "storage"]
           requires: [vm, bare_metal]
           step: storage_performance_telemetry
 
@@ -127,7 +127,7 @@ tests:
       checks:
         GpuNvlinkTelemetryCheck:
           test_id: "TELEM07-01"
-          labels: ["min_req", "observability", "gpu", "network"]
+          labels: ["gpu", "min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: gpu_nvlink_telemetry
 
@@ -135,7 +135,7 @@ tests:
       checks:
         SwitchNvlinkTelemetryCheck:
           test_id: "TELEM08-01"
-          labels: ["min_req", "observability", "network"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: switch_nvlink_telemetry
 
@@ -143,12 +143,12 @@ tests:
       checks:
         FabricManagerLogsCheck:
           test_id: "OBS11-01"
-          labels: ["min_req", "observability", "network"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: fabric_manager_logs
         UfmEventLogsCheck:
           test_id: "OBS13-01"
-          labels: ["min_req", "observability", "network"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: ufm_event_logs
 
@@ -156,7 +156,7 @@ tests:
       checks:
         SubnetManagerLogsCheck:
           test_id: "OBS12-01"
-          labels: ["min_req", "observability", "network"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: subnet_manager_logs
 
@@ -164,17 +164,17 @@ tests:
       checks:
         GeneralSwitchLogsCheck:
           test_id: "OBS14-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: general_switch_logs
         SwitchSyslogCheck:
           test_id: "OBS15-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: switch_syslogs
         SwitchKernelLogsCheck:
           test_id: "OBS16-01"
-          labels: ["min_req", "network", "observability"]
+          labels: ["min_req", "network", "observability", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: switch_kernel_logs
 

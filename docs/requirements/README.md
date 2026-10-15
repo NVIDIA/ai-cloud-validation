@@ -135,15 +135,34 @@ actor without reconciling the test plan.
 The end goal is to run **subsets** of tests - an arbitrary tag, or *every test
 belonging to a given requirements document*. We keep the data flexible for this:
 
-- A test may carry many `labels` in `test-plan.yaml` (e.g. `min_req`); this list
+- A test may carry many `labels` in `test-plan.yaml` (e.g. `offtake`); this list
   is open-ended and multi-valued.
 - **Requirement-document membership is derivable from the index**: a test
   "belongs to" document *X* if any of its `requirements[].source == X` in
   `test-requirements-matrix.yaml`. So "run all offtake tests" = select tests
   with an `offtake`-source requirement; "run all NSRG/reference tests" = `reference`.
 - Therefore membership is **derived, not duplicated** by default. Materialized
-  convenience labels (e.g. a generated `doc:offtake` tag) may be produced later
-  from the index, but the index stays the source of truth.
+  convenience labels may be produced from the index, but the index stays the
+  source of truth.
+
+### Materialized labels
+
+Three label families are materialized on every test in `test-plan.yaml` and on
+every suite check mapped to that test (plan and suite labels must stay in sync;
+see sec. 7). Each test carries exactly one stage label and one platform label.
+
+| Family | Labels | Meaning |
+| ------ | ------ | ------- |
+| Offtake | `offtake` | The test maps to at least one `offtake`-source requirement (full or partial coverage) that is present in the *NVIDIA Requirements for AI Clouds* v2.4 (`docs/references/requirements-for-ai-clouds-v2.4.md`). Requirements removed in v2.4 do not confer the label. |
+| Stage | `stage_1_proof_of_life`, `stage_2_lifecycle_ops`, `stage_3_gpu_workloads`, `stage_4_hardening_scale` | The partner onboarding stage. Stages 1-3 are required; stage 4 is negotiable. |
+| Platform | `platform_core`, `platform_vmaas`, `platform_bmaas`, `platform_kubernetes`, `platform_slurm` | The onboarding lane. `platform_core` covers tests every partner runs regardless of platform. |
+
+`offtake` replaces `min_req`, which was applied by hand and drifted from the
+requirement mappings. `min_req` is deprecated and kept only until callers move
+to `--label offtake`; do not add it to new tests.
+
+Select a subset at run time by combining labels, for example
+`isvctl test run --provider aws --suite vm --label offtake --label stage_1_proof_of_life`.
 
 ## 6. Onboarding a new requirements document (runbook)
 

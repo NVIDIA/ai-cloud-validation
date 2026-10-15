@@ -52,7 +52,7 @@ tests:
       checks:
         IamUserCreatedCheck:
           test_id: "IAM01-01"
-          labels: ["iam", "min_req"]
+          labels: ["iam", "min_req", "platform_core", "stage_1_proof_of_life"]
           requires: []
           description: "Check the IAM user is created and its access key is returned"
           compose:
@@ -65,7 +65,7 @@ tests:
       checks:
         IamUserAuthenticatedCheck:
           test_id: "IAM01-01"
-          labels: ["iam", "min_req"]
+          labels: ["iam", "min_req", "platform_core", "stage_1_proof_of_life"]
           requires: []
           description: "Check the created user can log in with the credentials it was issued"
           compose:
@@ -74,7 +74,7 @@ tests:
                 required_tests: ["identity"]
         IamUserApiAccessCheck:
           test_id: "IAM03-01"
-          labels: ["iam"]
+          labels: ["iam", "platform_core", "stage_4_hardening_scale"]
           requires: []
           description: "Check the logged-in user can reach its authorized resources"
           compose:
@@ -86,7 +86,7 @@ tests:
       checks:
         IamUserDeletedCheck:
           test_id: "IAM02-01"
-          labels: ["iam"]
+          labels: ["iam", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           description: "Check the IAM user and its credentials are deleted"
           compose:

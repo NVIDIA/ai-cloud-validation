@@ -53,7 +53,7 @@ tests:
       checks:
         BmcManagementNetworkCheck:
           test_id: "SEC12-01"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: bmc_management_network
 
@@ -61,7 +61,7 @@ tests:
       checks:
         BmcTenantIsolationCheck:
           test_id: "SEC12-02"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: bmc_tenant_isolation
 
@@ -69,7 +69,7 @@ tests:
       checks:
         BmcProtocolSecurityCheck:
           test_id: "CNP10-01"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: bmc_protocol_security
 
@@ -77,7 +77,7 @@ tests:
       checks:
         BmcBastionAccessCheck:
           test_id: "SEC12-03"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: bmc_bastion_access
 
@@ -85,7 +85,7 @@ tests:
       checks:
         ApiEndpointIsolationCheck:
           test_id: "SEC14-01"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: api_endpoint_isolation
 
@@ -93,7 +93,7 @@ tests:
       checks:
         MutualTlsCheck:
           test_id: "SEC13-01"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: mutual_tls_test
 
@@ -101,7 +101,7 @@ tests:
       checks:
         InsecureProtocolsCheck:
           test_id: "SEC13-02"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: insecure_protocols_test
 
@@ -109,7 +109,7 @@ tests:
       checks:
         MfaEnforcedCheck:
           test_id: "SEC07-01"
-          labels: ["iam", "min_req", "security"]
+          labels: ["iam", "min_req", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: mfa_enforcement
 
@@ -117,7 +117,7 @@ tests:
       checks:
         CertRotationCycleCheck:
           test_id: "SEC09-01"
-          labels: ["min_req", "security"]
+          labels: ["min_req", "offtake", "platform_kubernetes", "security", "stage_4_hardening_scale"]
           requires: []
           step: cert_rotation_test
 
@@ -125,7 +125,7 @@ tests:
       checks:
         KmsEncryptionOptionCheck:
           test_id: "SEC09-02"
-          labels: ["min_req", "security"]
+          labels: ["min_req", "offtake", "platform_kubernetes", "security", "stage_4_hardening_scale"]
           requires: []
           step: kms_encryption_options_test
 
@@ -133,7 +133,7 @@ tests:
       checks:
         CentralizedKmsCheck:
           test_id: "SEC09-03"
-          labels: ["min_req", "security"]
+          labels: ["min_req", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: centralized_kms_test
 
@@ -141,7 +141,7 @@ tests:
       checks:
         CustomerManagedKeyCheck:
           test_id: "SEC09-04"
-          labels: ["min_req", "security", "slow", "workload"]
+          labels: ["min_req", "offtake", "platform_core", "security", "slow", "stage_2_lifecycle_ops", "workload"]
           requires: []
           step: customer_managed_key_test
 
@@ -149,7 +149,7 @@ tests:
       checks:
         ServiceAccountCredentialCheck:
           test_id: "SEC03-01"
-          labels: ["iam", "min_req", "security"]
+          labels: ["iam", "min_req", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sa_credential_test
 
@@ -157,7 +157,7 @@ tests:
       checks:
         OidcUserAuthCheck:
           test_id: "SEC01-01"
-          labels: ["iam", "min_req", "security"]
+          labels: ["iam", "min_req", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: oidc_user_auth_test
 
@@ -165,7 +165,7 @@ tests:
       checks:
         ShortLivedCredentialsCheck:
           test_id: "SEC06-01"
-          labels: ["iam", "min_req", "security"]
+          labels: ["iam", "min_req", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: short_lived_credentials_test
 
@@ -173,7 +173,7 @@ tests:
       checks:
         LeastPrivilegePolicyCheck:
           test_id: "SEC04-01"
-          labels: ["iam", "min_req", "security"]
+          labels: ["iam", "min_req", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: least_privilege_test
 
@@ -181,7 +181,7 @@ tests:
       checks:
         MinimalRoleEnforcementCheck:
           test_id: "SEC04-02"
-          labels: ["iam", "min_req", "security"]
+          labels: ["iam", "min_req", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: least_privilege_test
 
@@ -189,7 +189,7 @@ tests:
       checks:
         AuditLogEntryCheck:
           test_id: "SEC08-01"
-          labels: ["min_req", "security"]
+          labels: ["min_req", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: audit_logging_test
 
@@ -197,7 +197,7 @@ tests:
       checks:
         AuditLogRetentionCheck:
           test_id: "SEC08-02"
-          labels: ["min_req", "security"]
+          labels: ["min_req", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: audit_logging_test
 
@@ -205,7 +205,7 @@ tests:
       checks:
         TenantIsolationCheck:
           test_id: "SEC11-01"
-          labels: ["iam", "min_req", "network", "security"]
+          labels: ["iam", "min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: [vm, bare_metal]
           step: tenant_isolation_test
 
@@ -215,7 +215,7 @@ tests:
       checks:
         CapacityReservationGroupingCheck:
           test_id: "CAP04-01"
-          labels: ["bare_metal", "capacity", "min_req", "security"]
+          labels: ["bare_metal", "capacity", "min_req", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: capacity_reservation_grouping
           min_resources: "{{min_resources}}"
@@ -227,7 +227,7 @@ tests:
       checks:
         CapacityTopologyBlockAtomicAllocationCheck:
           test_id: "CAP04-02"
-          labels: ["bare_metal", "capacity", "min_req", "security"]
+          labels: ["bare_metal", "capacity", "min_req", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           min_resources: 2
 

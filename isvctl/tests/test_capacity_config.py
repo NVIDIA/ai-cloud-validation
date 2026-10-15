@@ -23,7 +23,15 @@ def test_security_suite_defines_capacity_validations() -> None:
     assert grouping["checks"] == {
         "CapacityReservationGroupingCheck": {
             "test_id": "CAP04-01",
-            "labels": ["bare_metal", "capacity", "min_req", "security"],
+            "labels": [
+                "bare_metal",
+                "capacity",
+                "min_req",
+                "offtake",
+                "platform_core",
+                "security",
+                "stage_4_hardening_scale",
+            ],
             "requires": ["vm", "bare_metal"],
             "step": "capacity_reservation_grouping",
             "min_resources": "{{min_resources}}",
@@ -36,7 +44,15 @@ def test_security_suite_defines_capacity_validations() -> None:
     assert topology["checks"] == {
         "CapacityTopologyBlockAtomicAllocationCheck": {
             "test_id": "CAP04-02",
-            "labels": ["bare_metal", "capacity", "min_req", "security"],
+            "labels": [
+                "bare_metal",
+                "capacity",
+                "min_req",
+                "offtake",
+                "platform_core",
+                "security",
+                "stage_4_hardening_scale",
+            ],
             "requires": ["vm", "bare_metal"],
             "min_resources": 2,
         }

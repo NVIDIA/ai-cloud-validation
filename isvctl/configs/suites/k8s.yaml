@@ -78,7 +78,7 @@ tests:
           # Create (CPU pool): pool reaches desired replica count with its
           # specified CPU instance type.
           test_id: "K8S06-01"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "slow", "stage_1_proof_of_life"]
           step: create_test_node_pool
           description: "Check a CPU node pool reaches its requested node count and instance type"
           compose:
@@ -95,7 +95,7 @@ tests:
           # Create (GPU pool): a separate pool reaches its own node count with
           # its specified GPU instance type, coexisting with the CPU pool.
           test_id: "K8S06-01"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "slow", "stage_1_proof_of_life"]
           step: create_test_gpu_node_pool
           description: "Check a GPU node pool coexists with the CPU pool at its own node count and instance type"
           compose:
@@ -111,7 +111,7 @@ tests:
       - K8sNodePoolScaledCheck:
           # Update (scale): same pool converges to the new count.
           test_id: "K8S06-02"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "slow", "stage_2_lifecycle_ops"]
           step: update_test_node_pool
           description: "Check a node pool converges to a new node count after being scaled"
           compose:
@@ -129,7 +129,7 @@ tests:
           # delete step. Selector comes from its create step; the label/taint/
           # instance-type assertions are omitted (no nodes to check).
           test_id: "K8S06-03"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "slow", "stage_1_proof_of_life"]
           step: delete_test_node_pool
           description: "Check the node pool deletion succeeds and drains the pool to zero nodes"
           compose:
@@ -144,19 +144,19 @@ tests:
     # Upgrade operations are opt-in provider steps; absent steps skip these checks.
     k8s_upgrades:
       - K8sManagedUpgradePolicyCheck:
-          labels: ["kubernetes", "min_req", "k8s_upgrades"]
+          labels: ["k8s_upgrades", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
           test_id: K8S08-01
           step: describe_managed_upgrade_policy
           phase: test
       - K8sControlPlaneUpgradeCheck:
-          labels: ["kubernetes", "min_req", "slow", "k8s_upgrades"]
+          labels: ["k8s_upgrades", "kubernetes", "min_req", "offtake", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           test_id: K8S09-01
           step: control_plane_upgrade_test
           phase: test
           max_probe_gap_seconds: 5
           request_timeout_seconds: 2
       - K8sNodePoolUpgradeCheck:
-          labels: ["kubernetes", "min_req", "slow", "k8s_upgrades"]
+          labels: ["k8s_upgrades", "kubernetes", "min_req", "offtake", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           test_id: K8S10-01
           step: node_pool_upgrade_test
           phase: test
@@ -170,17 +170,17 @@ tests:
       checks:
         K8sLoadBalancerCheck:
           test_id: "K8S29-01"
-          labels: ["kubernetes", "min_req", "slow", "network"]
+          labels: ["kubernetes", "min_req", "network", "offtake", "platform_kubernetes", "slow", "stage_2_lifecycle_ops"]
           step: k8s_load_balancer_test
           phase: test
         K8sDnsForwardingCheck:
           test_id: "K8S30-01"
-          labels: ["kubernetes", "min_req", "slow", "network"]
+          labels: ["kubernetes", "min_req", "network", "offtake", "platform_kubernetes", "slow", "stage_2_lifecycle_ops"]
           step: k8s_dns_forwarding_test
           phase: test
         K8sCidrRangesCheck:
           test_id: "K8S31-01"
-          labels: ["kubernetes", "min_req", "slow", "network"]
+          labels: ["kubernetes", "min_req", "network", "offtake", "platform_kubernetes", "slow", "stage_2_lifecycle_ops"]
           step: k8s_cidr_ranges_test
           phase: test
 
@@ -190,7 +190,7 @@ tests:
       checks:
         K8sMultiClusterSameVpcCheck:
           test_id: "K8S26-01"
-          labels: ["kubernetes", "min_req", "network"]
+          labels: ["kubernetes", "min_req", "network", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops"]
           step: create_test_shared_vpc_cluster
 
     # Control-plane size pinning (K8S27-01). Only runs for providers that
@@ -205,7 +205,7 @@ tests:
       checks:
         K8sControlPlaneSizePinnedCheck:
           test_id: "K8S27-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
           step: pin_control_plane
           # The pin is a setup-phase act; hold the check back to the test phase
           # so the endpoint count it reads is a later sample than the one the
@@ -220,7 +220,7 @@ tests:
       checks:
         K8sSupportedMinorVersionsCheck:
           test_id: "K8S02-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
           step: list_k8s_versions
           phase: test
           upstream_cycles: "{{ steps.fetch_upstream_k8s_versions.cycles_json | default('', true) }}"
@@ -231,7 +231,7 @@ tests:
           availability_grace_days: 42
         K8sAutomatedControlPlanePatchingCheck:
           test_id: "K8S02-02"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
           step: describe_control_plane_patching
           phase: test
           upstream_cycles: "{{ steps.fetch_upstream_k8s_versions.cycles_json | default('', true) }}"
@@ -249,7 +249,7 @@ tests:
           names: []
         K8sNodeReadyCheck:
           test_id: "K8S05-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_1_proof_of_life"]
           require_all_ready: true
         K8sNvidiaSmiCheck:
           test_id: "N/A"
@@ -278,15 +278,15 @@ tests:
           expected_total: "{{ steps.setup.kubernetes.total_gpus | default(16, true) }}"
         K8sGpuOperatorNamespaceCheck:
           test_id: "K8S25-01"
-          labels: ["kubernetes", "min_req", "gpu"]
+          labels: ["gpu", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_3_gpu_workloads"]
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
         K8sGpuOperatorPodsCheck:
           test_id: "K8S25-01"
-          labels: ["kubernetes", "min_req", "gpu"]
+          labels: ["gpu", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_3_gpu_workloads"]
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
         K8sGpuOperatorOverrideCheck:
           test_id: "K8S25-02"
-          labels: ["kubernetes", "min_req", "gpu"]
+          labels: ["gpu", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('nvidia-gpu-operator') }}"
           driver_version: "{{ steps.setup.kubernetes.driver_version | default('580.82.07') }}"
         K8sGpuLabelsCheck:
@@ -313,11 +313,11 @@ tests:
             "nvidia.com/mig.strategy": "single"
         K8sDualStackNodeCheck:
           test_id: "K8S22-01"
-          labels: ["kubernetes", "min_req", "network"]
+          labels: ["kubernetes", "min_req", "network", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops"]
           require_dual_stack: "auto" # true | false | "auto"
         K8sClusterAutoscalerCheck:
           test_id: "K8S36-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "platform_kubernetes", "stage_4_hardening_scale"]
           require_autoscaler: false
           namespace: "{{ steps.setup.kubernetes.cluster_autoscaler_namespace | default('kube-system', true) }}"
           deployment_names:
@@ -328,7 +328,7 @@ tests:
             - "k8s-app=cluster-autoscaler"
         K8sNetworkPolicyCheck:
           test_id: "K8S22-01"
-          labels: ["kubernetes", "min_req", "network"]
+          labels: ["kubernetes", "min_req", "network", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops"]
           image: "registry.k8s.io/e2e-test-images/agnhost:2.47"
           probe_port: 8080
           probe_timeout_s: 10
@@ -337,14 +337,14 @@ tests:
           test_egress: true
         K8sCrdWebhookCheck:
           test_id: "K8S21-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "platform_kubernetes", "stage_4_hardening_scale"]
           image: "registry.k8s.io/e2e-test-images/agnhost:2.47"
           namespace_prefix: "isvtest-crd-webhook"
           wait_timeout: 180
           poll_interval: 2
         K8sDraCheck:
           test_id: "K8S24-01"
-          labels: ["kubernetes", "gpu", "min_req"]
+          labels: ["gpu", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_3_gpu_workloads"]
           device_class: "gpu.nvidia.com"
           image: "ubuntu:22.04"
           wait_timeout: 300
@@ -353,18 +353,18 @@ tests:
       checks:
         K8sServiceAccountIamCheck:
           test_id: "K8S16-01"
-          labels: ["kubernetes", "min_req", "iam"]
+          labels: ["iam", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops"]
           step: service_account_iam_test
           phase: test
         K8sOidcIssuerCheck:
           test_id: "K8S17-02"
-          labels: ["kubernetes", "min_req", "iam"]
+          labels: ["iam", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_2_lifecycle_ops"]
 
     k8s_conformance:
       checks:
         K8sCncfConformanceCheck:
           test_id: "K8S01-01"
-          labels: ["kubernetes", "min_req", "slow"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "slow", "stage_2_lifecycle_ops"]
           # Valid `mode` values (see docs/guides/configuration.md#kubernetes-conformance-modes):
           #   - "certified-conformance": full [Conformance] suite, serial. Required
           #     for CNCF certification; expect multi-hour runtime.
@@ -382,12 +382,12 @@ tests:
       checks:
         K8sNcclWorkload:
           test_id: "K8S33-01"
-          labels: ["gpu", "kubernetes", "min_req", "slow", "workload"]
+          labels: ["gpu", "kubernetes", "min_req", "platform_kubernetes", "slow", "stage_3_gpu_workloads", "workload"]
           min_bus_bw_gbps: 100
           timeout: 600
         K8sNcclMultiNodeWorkload:
           test_id: "K8S33-01"
-          labels: ["gpu", "kubernetes", "min_req", "slow", "workload"]
+          labels: ["gpu", "kubernetes", "min_req", "platform_kubernetes", "slow", "stage_3_gpu_workloads", "workload"]
           nodes: "{{ steps.setup.kubernetes.gpu_node_count | default(2, true) }}"
           min_bus_bw_gbps: 100
           quick_mode: false
@@ -401,11 +401,11 @@ tests:
           timeout: 300
         K8sNimInferenceWorkload:
           test_id: "K8S40-01"
-          labels: ["kubernetes", "gpu", "workload", "slow"]
+          labels: ["gpu", "kubernetes", "platform_kubernetes", "slow", "stage_3_gpu_workloads", "workload"]
           timeout: 1500
         K8sNimHelmWorkload-1b:
           test_id: "K8S32-01"
-          labels: ["kubernetes", "gpu", "workload", "slow"]
+          labels: ["gpu", "kubernetes", "platform_kubernetes", "slow", "stage_3_gpu_workloads", "workload"]
           model: "meta/llama-3.2-1b-instruct"
           model_tag: "latest"
           gpu_count: 1
@@ -414,7 +414,7 @@ tests:
           genai_perf_concurrency: 4
         K8sNimHelmWorkload-3b:
           test_id: "K8S32-01"
-          labels: ["kubernetes", "gpu", "workload", "slow"]
+          labels: ["gpu", "kubernetes", "platform_kubernetes", "slow", "stage_3_gpu_workloads", "workload"]
           model: "meta/llama-3.2-3b-instruct"
           model_tag: "latest"
           gpu_count: "{{ steps.setup.kubernetes.gpu_per_node | default(4, true) }}"
@@ -426,10 +426,10 @@ tests:
       checks:
         K8sApiServerMetricsCheck:
           test_id: "K8S07-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
         K8sControlPlaneLogsCheck:
           test_id: "K8S20-01"
-          labels: ["kubernetes", "min_req"]
+          labels: ["kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
           # mode=auto resolves each component independently: kubectl when a
           # control-plane pod exists in `namespace`, else `commands[component]`.
           # This covers hybrid clusters (some components as static pods, others
@@ -461,7 +461,7 @@ tests:
       checks:
         K8sApiNetworkAclCheck:
           test_id: "K8S15-01"
-          labels: ["kubernetes", "min_req", "network", "security"]
+          labels: ["kubernetes", "min_req", "network", "offtake", "platform_kubernetes", "security", "stage_2_lifecycle_ops"]
           # Probe-based, provider-agnostic: verifies the reviewed cluster's
           # Kubernetes API endpoint refuses connections from a source that
           # should be blocked. By default the validation uses the configured
@@ -497,14 +497,14 @@ tests:
       checks:
         GpuResetCheck:
           test_id: "BFX01-01"
-          labels: ["kubernetes", "breakfix", "min_req", "gpu"]
+          labels: ["breakfix", "gpu", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
 
     cordon_node:
       step: cordon_node
       checks:
         CordonNodeCheck:
           test_id: "BFX01-04"
-          labels: ["kubernetes", "breakfix", "min_req"]
+          labels: ["breakfix", "kubernetes", "min_req", "offtake", "platform_kubernetes", "stage_4_hardening_scale"]
 
   exclude:
     labels: []

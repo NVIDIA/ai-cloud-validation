@@ -86,7 +86,7 @@ tests:
         # asserts. Same requirement, different evidence path.
         VpcReadFromInventoryCheck:
           test_id: "SDN01-02"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: get_vpc
           description: "Check the platform reports the identity of a single VPC"
@@ -114,7 +114,7 @@ tests:
         # bind to the same vpc_crud step and assert their slice of its output.
         VpcCreatedCheck:
           test_id: "SDN01-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: vpc_crud
           description: "Check a VPC can be created"
@@ -123,7 +123,7 @@ tests:
                 operations: ["create_vpc"]
         VpcReadCheck:
           test_id: "SDN01-02"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: vpc_crud
           description: "Check a VPC can be retrieved after it is created"
@@ -132,7 +132,7 @@ tests:
                 operations: ["read_vpc"]
         VpcUpdatedCheck:
           test_id: "SDN01-03"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: vpc_crud
           description: "Check a VPC's tags and DNS settings can be updated"
@@ -141,7 +141,7 @@ tests:
                 operations: ["update_tags", "update_dns"]
         VpcDeletedCheck:
           test_id: "SDN01-04"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: vpc_crud
           description: "Check a VPC can be deleted"
@@ -159,12 +159,12 @@ tests:
         VpcIsolationCheck:
           # SDN04-03 (E/W isolation) is exercised by the same check but is not separately attributable under a single test_id.
           test_id: "SDN04-02"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: vpc_isolation
         SecurityGroupCreatedCheck:
           test_id: "SDN02-01"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sg_crud
           description: "Check a security group can be created"
@@ -173,7 +173,7 @@ tests:
                 operations: ["create_vpc", "create_sg"]
         SecurityGroupReadCheck:
           test_id: "SDN02-02"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sg_crud
           description: "Check a security group can be retrieved after it is created"
@@ -182,7 +182,7 @@ tests:
                 operations: ["read_sg"]
         SecurityGroupUpdatedCheck:
           test_id: "SDN02-03"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sg_crud
           description: "Check a security group's rules can be added, modified, and removed"
@@ -191,7 +191,7 @@ tests:
                 operations: ["update_sg_add_rule", "update_sg_modify_rule", "update_sg_remove_rule"]
         SecurityGroupDeletedCheck:
           test_id: "SDN02-04"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sg_crud
           description: "Check a security group can be deleted and stays deleted"
@@ -217,22 +217,22 @@ tests:
           step: traffic_validation
         FiveTupleFilteringCheck:
           test_id: "SEC15-01"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: five_tuple_filtering
         VpcIpConfigCheck:
           test_id: "IPAM02-01"
-          labels: ["network"]
+          labels: ["network", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: vpc_ip_config
         DhcpIpManagementCheck:
           test_id: "IPAM01-01"
-          labels: ["network", "ssh"]
+          labels: ["network", "platform_core", "ssh", "stage_2_lifecycle_ops"]
           requires: [vm, bare_metal]
           step: dhcp_ip_test
         SegmentBoundaryDefaultDenyCheck:
           test_id: "SEC30-01"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "platform_core", "security", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: segment_boundary
 
@@ -240,27 +240,27 @@ tests:
       checks:
         SgWorkloadScopingCheck:
           test_id: "SDN02-05"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sg_workload_scoping
         SgNodeScopingCheck:
           test_id: "SDN02-06"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sg_node_scoping
         SgSubnetScopingCheck:
           test_id: "SDN02-07"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sg_subnet_scoping
         SgServiceScopingCheck:
           test_id: "SDN02-09"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_2_lifecycle_ops"]
           requires: []
           step: sg_service_scoping
         SgPortSecurityPolicyCheck:
           test_id: "SDN02-10"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: sg_port_security_policy
 
@@ -268,7 +268,7 @@ tests:
       checks:
         SgPolicyPropagationTimingCheck:
           test_id: "SDN02-08"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: sg_policy_propagation
           max_propagation_seconds: 10
@@ -277,17 +277,17 @@ tests:
       checks:
         SdnHardwareFaultLoggingCheck:
           test_id: "SDN09-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: sdn_hardware_fault_logging
         SdnLatencyPerfLoggingCheck:
           test_id: "SDN09-02"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_4_hardening_scale"]
           requires: []
           step: sdn_latency_perf_logging
         SdnFilterAuditTrailCheck:
           test_id: "SDN09-03"
-          labels: ["min_req", "network", "security"]
+          labels: ["min_req", "network", "offtake", "platform_core", "security", "stage_4_hardening_scale"]
           requires: []
           step: sdn_filter_audit_trail
 
@@ -295,38 +295,38 @@ tests:
       checks:
         ByoipCheck:
           test_id: "NET03-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: byoip_test
         StablePrivateIpCheck:
           test_id: "SDN11-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "platform_core", "stage_2_lifecycle_ops"]
           requires: [vm, bare_metal]
           step: stable_ip_test
         StableEgressIpCheck:
           test_id: "DMS05-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: stable_egress_ip_test
         FloatingIpCheck:
           test_id: "SDN05-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: [vm, bare_metal]
           step: floating_ip_test
           max_switch_seconds: 10
         LocalizedDnsCheck:
           test_id: "SDN06-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: dns_test
         VpcPeeringCheck:
           test_id: "SDN07-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: []
           step: peering_test
         StorageL3RoutingCheck:
           test_id: "SDN08-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: storage_l3_routing
 
@@ -336,27 +336,27 @@ tests:
       checks:
         BackendSwitchFabricCheck:
           test_id: "NET01-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: [vm, bare_metal]
           step: backend_switch_fabric
         NvlinkDomainCheck:
           test_id: "NET02-02"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "offtake", "platform_core", "stage_2_lifecycle_ops"]
           requires: [vm, bare_metal]
           step: nvlink_domain
         ImexDomainConnectivityCheck:
           test_id: "SDN21-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: imex_domain
         ImexServicePresenceCheck:
           test_id: "SDN17-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: imex_service
         ImexServiceResilienceCheck:
           test_id: "SDN18-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: imex_resilience
           # Enforced here as well as in the producer, so a run that observes
@@ -364,7 +364,7 @@ tests:
           recovery_timeout_seconds: 60
         ImexNodeDepartureCheck:
           test_id: "SDN19-01"
-          labels: ["min_req", "network"]
+          labels: ["min_req", "network", "platform_core", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: imex_departure
           # Enforced here as well as in the producer, so a run that observes
@@ -376,7 +376,7 @@ tests:
         # a certification run - the suite excludes no labels by default.
         ImexRebootRejoinCheck:
           test_id: "SDN20-01"
-          labels: ["min_req", "network", "slow"]
+          labels: ["min_req", "network", "platform_core", "slow", "stage_4_hardening_scale"]
           requires: [vm, bare_metal]
           step: imex_reboot
           # Enforced here as well as in the producer, so a run that rejoins
@@ -392,7 +392,7 @@ tests:
         # every provider with a cluster gets it without wiring anything.
         ImexComputeDomainCapabilityCheck:
           test_id: "SDN17-02"
-          labels: ["kubernetes", "min_req", "network"]
+          labels: ["kubernetes", "min_req", "network", "platform_kubernetes", "stage_4_hardening_scale"]
           requires: [kubernetes]
         # Destructive: allocates a compute domain, deletes one of the driver's
         # daemons inside it, and releases the domain afterwards. Labelled slow
@@ -401,7 +401,7 @@ tests:
         # are cluster API operations, none of them a provider's to perform.
         ImexDaemonRecoveryCheck:
           test_id: "SDN18-02"
-          labels: ["kubernetes", "min_req", "network", "slow"]
+          labels: ["kubernetes", "min_req", "network", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
         # Destructive in the other direction: takes a node out of the domain on
         # purpose and asserts the surviving members notice, rather than that the
@@ -410,7 +410,7 @@ tests:
         # reports are both cluster API operations.
         ImexDomainDepartureCheck:
           test_id: "SDN19-02"
-          labels: ["kubernetes", "min_req", "network", "slow"]
+          labels: ["kubernetes", "min_req", "network", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
 
     # Network Operator via Kubernetes Launch Kit (SDN29), which requires its
@@ -422,63 +422,63 @@ tests:
       checks:
         NetworkOperatorDeployment:
           test_id: "SDN29-01"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
         # Launch Kit runs only the configured fabric; the other fabric's checks skip.
         EastWestNetworkICMPPing-ethernet:
           test_id: "SDN29-02"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: ethernet
         EastWestNetworkICMPPing-infiniband:
           test_id: "SDN29-02"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: infiniband
         EastWestNetworkRDMAPing-ethernet:
           test_id: "SDN29-03"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: ethernet
         EastWestNetworkRDMAPing-infiniband:
           test_id: "SDN29-03"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: infiniband
         EastWestNetworkIBWriteBandwidth-ethernet:
           test_id: "SDN29-04"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: ethernet
         EastWestNetworkIBWriteBandwidth-infiniband:
           test_id: "SDN29-04"
-          labels: ["kubernetes", "network", "network_operator", "slow"]
+          labels: ["kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: infiniband
         EastWestNetworkDMABufBandwidth-ethernet:
           test_id: "SDN29-05"
-          labels: ["kubernetes", "network", "network_operator", "slow", "gpu"]
+          labels: ["gpu", "kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
           fabric: ethernet
         EastWestNetworkDMABufBandwidth-infiniband:
           test_id: "SDN29-05"
-          labels: ["kubernetes", "network", "network_operator", "slow", "gpu"]
+          labels: ["gpu", "kubernetes", "network", "network_operator", "platform_kubernetes", "slow", "stage_4_hardening_scale"]
           requires: [kubernetes]
           user_config: "{{ k8s_launch_kit.user_config }}"
           deployment_files: "{{ k8s_launch_kit.deployment_files }}"
