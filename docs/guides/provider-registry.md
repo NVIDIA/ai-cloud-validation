@@ -8,7 +8,7 @@ who maintains it.
 
 By default, new providers are not accepted under `isvctl/configs/providers/`:
 publish yours in your own repository and contribute only its registry entry
-here.
+and the matching CODEOWNERS line here.
 
 ```text
 partner repo (config/, scripts/)  <-- pinned by --  isvctl/configs/providers-registry/<name>.yaml
