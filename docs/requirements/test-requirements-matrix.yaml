@@ -2111,9 +2111,16 @@ mappings:
     requirements:
       - req_id: K8S28
         source: offtake
-        coverage: full
-    annotations: 'Former reference requirement K8S37 was consolidated into the canonical offtake K8S28 requirement.'
+        coverage: partial
+    annotations: 'Former reference requirement K8S37 was consolidated into the canonical offtake K8S28 requirement. Covers the performance and SLO targets on a job of at least 4 nodes; K8S28-02 covers the 5,000-node target.'
     notes: 'Legacy test IDs: K8S-XX-09, K8S37-01.'
+  - test_id: K8S28-02
+    requirements:
+      - req_id: K8S28
+        source: offtake
+        coverage: partial
+    annotations: 'Provider policy attestation of its maximum supported cluster size and its commitment to the 5,000-node target; together with K8S28-01 covers K8S28.'
+    notes: ''
   - test_id: K8S26-01
     requirements:
       - req_id: K8S26
