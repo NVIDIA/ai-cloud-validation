@@ -4,10 +4,6 @@
 
 Validation and management tools for NVIDIA ISV Lab environments.
 
-> [!WARNING]
-> **Experimental Preview Release**
-> This is an experimental/preview release of ai-cloud-validation. Use at your own risk in production environments. The software is provided "as is" without warranties of any kind. Features, APIs, and configurations may change without notice in future releases. For production deployments, thoroughly test in non-critical environments first.
-
 ## What Is This?
 
 The AI Cloud Validation suite is a test framework for validating that developers and compute providers get the most from their NVIDIA hardware across a range of common compute offerings.
@@ -33,7 +29,7 @@ Install:
 ```bash
 git clone https://github.com/NVIDIA/ai-cloud-validation.git
 cd ai-cloud-validation
-git checkout v0.11.0
+git checkout v1.0.0
 uv sync
 ```
 
@@ -132,9 +128,7 @@ the saved value. See the [isvctl README](isvctl/README.md#configuration).
 
 ## Roadmap
 
-This project is an experimental (pre-1.0) preview and is evolving quickly. Track direction via [GitHub Milestones](https://github.com/NVIDIA/ai-cloud-validation/milestones) and open a [Discussion](https://github.com/NVIDIA/ai-cloud-validation/discussions) to help shape priorities.
-
-[PLACEHOLDER: maintainers to confirm the current roadmap items.]
+Track direction via [GitHub Milestones](https://github.com/NVIDIA/ai-cloud-validation/milestones) and open a [Discussion](https://github.com/NVIDIA/ai-cloud-validation/discussions) to help shape priorities.
 
 ## Getting Help
 
@@ -142,7 +136,7 @@ This project is an experimental (pre-1.0) preview and is evolving quickly. Track
 - **Bug reports & feature requests:** [GitHub Issues](https://github.com/NVIDIA/ai-cloud-validation/issues) (use the issue templates)
 - **Security vulnerabilities:** see [Security](#security) — do **not** open a public issue
 
-Maintainers watch Issues and Discussions on a best-effort basis. [PLACEHOLDER: team to confirm response expectation.]
+Maintainers watch Issues and Discussions on a best-effort basis.
 
 ## Security
 

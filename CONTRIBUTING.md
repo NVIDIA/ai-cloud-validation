@@ -51,8 +51,8 @@ When reporting issues:
 
 - Browse [`good first issue`](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) for beginner-friendly tasks, or [`help wanted`](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) for slightly larger ones.
 - **Claiming an issue:** comment on it to let others know you're taking it, so effort isn't duplicated.
-- Not sure where to start? Adding a provider stub via the [my-isv scaffold](isvctl/configs/providers/my-isv/scripts/README.md) with `make demo-test` is a self-contained first contribution that needs no real cloud hardware.
-- Maintaining a provider in your own repository? Register it in the [Provider Registry](docs/guides/provider-registry.md) instead of contributing its code here.
+- **New providers live in their own repository.** By default, this repository does not accept new provider `config/` or `scripts/` trees under `isvctl/configs/providers/`. Scaffold one with `isvctl provider scaffold <name>`, publish it in your own repository, and open a PR here that adds only its [Provider Registry](docs/guides/provider-registry.md) entry and the matching CODEOWNERS line.
+- Improvements to the existing [my-isv scaffold](isvctl/configs/providers/my-isv/scripts/README.md) or the `aws` reference provider are welcome; `make demo-test` exercises the scaffold with no real cloud hardware.
 
 ## About This Codebase
 
@@ -294,12 +294,11 @@ By making a contribution to this project, I certify that:
 
 ### Versioning Policy
 
-The project follows [semver](https://semver.org/) but is still pre-1.0
-(experimental), and that frames how we bump:
+The project follows [semver](https://semver.org/):
 
-- **Major** (`X.Y.Z` -> `(X+1).0.0`) - reserved for graduation out of the
-  experimental `0.x` line. Do not bump until the project is no longer
-  declared experimental.
+- **Major** (`X.Y.Z` -> `(X+1).0.0`) - backward-incompatible changes to the
+  CLI, the config schema, or the step JSON contract between scripts and
+  validations.
 - **Minor** (`X.Y.Z` -> `X.(Y+1).0`) - milestone releases: a coherent set of
   new features, a new domain coming online, or a behavior change worth
   flagging to downstream consumers.
