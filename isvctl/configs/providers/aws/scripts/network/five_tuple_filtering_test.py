@@ -340,8 +340,15 @@ def build_topology(ec2: Any, iam: Any, cidr: str, suffix: str, resources: dict[s
     )["GroupId"]
     resources["sg_ids"].append(target_sg)
 
-    role_name, profile_name = create_ssm_instance_profile(iam, "Temporary role for five-tuple filtering probes")
-    resources["role_name"], resources["profile_name"] = role_name, profile_name
+    # Recorded before creating: the helper makes several IAM calls, and one
+    # failing after CreateRole still leaves a role for cleanup to remove.
+    resources["role_name"], resources["profile_name"] = f"isv-ssm-role-{suffix}", f"isv-ssm-profile-{suffix}"
+    _, profile_name = create_ssm_instance_profile(
+        iam,
+        "Temporary role for five-tuple filtering probes",
+        role_name=resources["role_name"],
+        profile_name=resources["profile_name"],
+    )
 
     ami = _get_al2023_ami(ec2)
 
