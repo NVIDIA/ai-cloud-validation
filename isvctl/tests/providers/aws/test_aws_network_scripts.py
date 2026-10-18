@@ -4807,3 +4807,55 @@ def test_segment_boundary_cleanup_removes_everything_after_partial_build(
 
     assert aws.live == set(), f"untracked after failing {fail_on}: {sorted(aws.live)}"
     assert remaining == []
+
+
+@pytest.mark.parametrize(
+    "fail_on",
+    [
+        None,
+        ("create_vpc", 1),
+        ("create_tags", 1),
+        ("create_internet_gateway", 1),
+        ("attach_internet_gateway", 1),
+        ("create_subnet", 1),
+        ("create_route_table", 1),
+        ("create_route", 1),
+        ("associate_route_table", 1),
+        ("create_security_group", 1),
+        ("revoke_security_group_egress", 1),
+        ("authorize_security_group_egress", 1),
+        ("create_security_group", 2),
+        ("create_role", 1),
+        ("attach_role_policy", 1),
+        ("create_instance_profile", 1),
+        ("add_role_to_instance_profile", 1),
+        ("run_instances", 1),
+        ("run_instances", 2),
+    ],
+)
+def test_five_tuple_cleanup_removes_everything_after_partial_build(
+    fail_on: tuple[str, int] | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whichever build call fails, every resource created before it is recorded and torn down."""
+    module = _load_network_script("five_tuple_filtering_test.py")
+    monkeypatch.setattr(module.create_ssm_instance_profile.__globals__["time"], "sleep", lambda _seconds: None)
+    aws = FakeSegmentBoundaryAws(fail_on)
+    resources: dict[str, Any] = {
+        "vpc_id": None,
+        "igw_id": None,
+        "rtb_id": None,
+        "subnet_ids": [],
+        "sg_ids": [],
+        "instance_ids": [],
+        "role_name": None,
+        "profile_name": None,
+    }
+
+    try:
+        module.build_topology(aws, aws, "10.85.0.0/16", "abcd1234", resources)
+    except Exception:
+        assert fail_on is not None
+    remaining = module.cleanup(aws, aws, resources)
+
+    assert aws.live == set(), f"untracked after failing {fail_on}: {sorted(aws.live)}"
+    assert remaining == []
