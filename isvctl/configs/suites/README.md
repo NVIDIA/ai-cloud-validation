@@ -458,6 +458,78 @@ Validations use `sinfo`/`srun` directly: partitions, GPU allocation, job schedul
 }
 ```
 
+## DPU host-management denial (SEC47-02)
+
+The security suite's `DpuHostManagementBlockedCheck` consumes evidence from the
+`dpu_host_management` step with `--capability bare_metal`. It checks prohibited
+host-side management paths when a DPU enforces tenant isolation. A security-mode
+query is not sufficient evidence.
+
+In the provider config, enumerate the expected probes independently of their
+results. Use a distinct ID for every host/DPU/path combination; the empty default
+fails if a provider wires a step without configuring its expected coverage:
+
+```yaml
+tests:
+  validations:
+    dpu_host_management:
+      checks:
+        DpuHostManagementBlockedCheck:
+          required_probes: ["host0/dpu0/device_configuration", "host0/dpu0/firmware_update"]
+```
+
+The provider script must emit one record per probe under `probes`, for example:
+
+```json
+{
+  "success": true,
+  "platform": "security",
+  "test_name": "dpu_host_management",
+  "probes": {
+    "host0/dpu0/device_configuration": {
+      "executed": true,
+      "execution_context": "host",
+      "effective_uid": 0,
+      "outcome": "denied",
+      "denial_evidence": "Observed DPU policy response: host management access denied"
+    },
+    "host0/dpu0/firmware_update": {
+      "executed": true,
+      "execution_context": "host",
+      "effective_uid": 0,
+      "outcome": "denied",
+      "denial_evidence": "Observed DPU policy response: firmware update prohibited from host"
+    }
+  }
+}
+```
+
+`success` describes evidence collection, not whether the management operation
+succeeded. Record an allowed operation as `outcome: allowed`. Record execution
+failures as `outcome: error` with an `error` message. Missing probes, per-probe
+skips, non-host execution, non-root execution, and any outcome other than `denied`
+fail validation. Additional reported probes are checked as well. A nonzero exit
+code, missing executable, timeout, invalid syntax, or unreachable device must
+never be classified as a policy denial.
+
+The collector must determine the effective UID in the actual host context;
+UID 0 inside a container/user namespace does not establish host privileges.
+Choose approved probes and disposable targets with the operator because an
+unexpectedly allowed operation may modify device state. The validator only reads
+JSON; it does not execute management operations or independently attest the
+collector's execution context.
+
+The [my-isv template](../providers/my-isv/scripts/security/dpu_host_management_test.py)
+fails as unimplemented by default and emits synthetic evidence only with
+`ISVCTL_DEMO_MODE=1`. For a local demonstration:
+
+```bash
+ISVCTL_DEMO_MODE=1 uv run isvctl test run --provider my-isv --suite security --capability bare_metal --label dpu --no-upload
+```
+
+SEC47-02 retains the identifier requested in issue #717. SEC47 is not currently
+in the v2.4 offtake requirement source, so this check carries no `offtake` label.
+
 ## Related Documentation
 
 - [my-isv Scaffold](../providers/my-isv/scripts/README.md) - Copy-and-fill-in scripts for your own platform

@@ -4942,6 +4942,22 @@ domains:
                 status: published
       - name: "Hardware Security & Compliance"
         capabilities:
+          - description: DPU Host Management Isolation
+            tests:
+              - summary: Verify host-side DPU management operations are denied to privileged tenants
+                labels:
+                  - bare_metal
+                  - dpu
+                  - security
+                priority: P0
+                milestone: M6
+                notes: "Requires per-path host-root execution and explicit policy-denial evidence; security mode alone is insufficient. SEC47 is the requirement identifier from issue #717, not a v2.4 offtake mapping."
+                github_issues:
+                  - "#717"
+                req_id: SEC47
+                test_id: SEC47-02
+                actor: tenant
+                status: pending
           - description: Data Sanitization
             tests:
               - summary: Verify memory sanitization between tenants
