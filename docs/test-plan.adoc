@@ -5112,7 +5112,7 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | approved
 |
 
-.25+| Security & Identity
+.26+| Security & Identity
 .12+| Network Security
 .4+| BMC Security
 .4+|
@@ -5424,7 +5424,24 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/300[#300]
 | published
 |
 
-.6+| Hardware Security & Compliance
+.7+| Hardware Security & Compliance
+| DPU Host Management Isolation
+|
+| [[SEC47-02]]SEC47-02
+| SEC47
+| https://github.com/NVIDIA/ai-cloud-validation/issues/717[#717]
+| bare_metal, dpu, security
+| tenant
+| Requires per-path host-root execution and explicit policy-denial evidence; security mode alone is insufficient. SEC47 is the requirement identifier from issue #717, not a v2.4 offtake mapping.
+| P0
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/717[#717]
+|
+| M6
+|
+| Verify host-side DPU management operations are denied to privileged tenants
+| pending
+|
+
 .3+| Data Sanitization
 .3+|
 | [[SEC21-04]]SEC21-04

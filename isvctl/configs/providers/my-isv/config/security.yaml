@@ -25,6 +25,7 @@
 #   SEC12-02: BMC tenant isolation (BmcTenantIsolationCheck)
 #   SEC12-03: BMC bastion access (BmcBastionAccessCheck)
 #   CNP10-01: BMC protocol security (BmcProtocolSecurityCheck)
+#   SEC47-02: Privileged host DPU management denial (DpuHostManagementBlockedCheck)
 #   SEC14-01: API endpoint isolation (ApiEndpointIsolationCheck)
 #   SEC13-02: Insecure protocols disabled (InsecureProtocolsCheck)
 #   SEC07-01: MFA enforcement (MfaEnforcedCheck)
@@ -83,6 +84,11 @@ commands:
         phase: test
         command: "python ../scripts/security/bmc_bastion_access_test.py"
         args: ["--region", "{{region}}"]
+        timeout: 60
+
+      - name: dpu_host_management
+        phase: test
+        command: "python ../scripts/security/dpu_host_management_test.py"
         timeout: 60
 
       - name: api_endpoint_isolation
@@ -227,3 +233,10 @@ tests:
     requested_compute: 2
     requested_network: 1
     requested_storage: 0
+
+  # Example inventory; replace with every prohibited path on every target.
+  validations:
+    dpu_host_management:
+      checks:
+        DpuHostManagementBlockedCheck:
+          required_probes: ["demo-host/demo-dpu/device_configuration", "demo-host/demo-dpu/firmware_update"]

@@ -81,6 +81,16 @@ tests:
           requires: []
           step: bmc_bastion_access
 
+    dpu_host_management:
+      checks:
+        DpuHostManagementBlockedCheck:
+          test_id: "SEC47-02"
+          labels: ["bare_metal", "dpu", "security"]
+          requires: [bare_metal]
+          step: dpu_host_management
+          # Providers must enumerate the expected host/DPU/path probe IDs.
+          required_probes: []
+
     api_security:
       checks:
         ApiEndpointIsolationCheck:

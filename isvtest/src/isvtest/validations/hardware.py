@@ -20,11 +20,96 @@ Validations for NICo bare metal hardware lifecycle:
 - Hardware serial-number inventory (chassis, baseboard, NIC, CPU, GPU)
 - DPU health checks (agent heartbeat, probes, capabilities)
 - DPU network readiness (interfaces, BGP, extension services)
+- DPU host-side management denial evidence
 """
 
 from typing import Any, ClassVar
 
 from isvtest.core.validation import BaseValidation
+
+
+class DpuHostManagementBlockedCheck(BaseValidation):
+    """Verify privileged host-side DPU management probes were denied (SEC47-02).
+
+    ``required_probes`` is a non-empty list of unique probe IDs configured by the
+    operator, independently of the collected results. Use IDs scoped to a host,
+    DPU, and management path when testing multiple targets.
+
+    ``step_output`` must contain ``success: true`` and a ``probes`` mapping keyed
+    by probe ID. Each record must contain ``executed: true``,
+    ``execution_context: host``, integer ``effective_uid: 0``, ``outcome: denied``,
+    and non-empty ``denial_evidence`` describing the observed policy rejection.
+    A nonzero exit code, timeout, missing tool, or reported security mode alone
+    is not denial evidence. Probe-level errors and skips cannot pass.
+
+    Providers collect the evidence; this validation never executes management
+    operations. Every required probe must be present, and additional reported
+    probes are checked too.
+    """
+
+    description: ClassVar[str] = "Check DPU management paths deny operations from privileged tenants on the host"
+
+    def run(self) -> None:
+        """Require explicit host-root execution and policy denial for every probe."""
+        required = self.config.get("required_probes")
+        if (
+            not isinstance(required, list)
+            or not required
+            or any(not isinstance(name, str) or not name.strip() or name != name.strip() for name in required)
+            or len(set(required)) != len(required)
+        ):
+            self.set_failed("required_probes must be a non-empty list of unique, non-blank probe IDs")
+            return
+
+        output = self.config.get("step_output")
+        if not isinstance(output, dict) or output.get("success") is not True:
+            self.set_failed("DPU management probe step did not report success=true")
+            return
+        if output.get("skipped") or output.get("error"):
+            self.set_failed("DPU management probe step reported a skip or error")
+            return
+        probes = output.get("probes")
+        if not isinstance(probes, dict) or not probes:
+            self.set_failed("DPU management probe output must contain a non-empty probes mapping")
+            return
+        if any(not isinstance(name, str) or not name.strip() or name != name.strip() for name in probes):
+            self.set_failed("DPU management probe IDs must be non-blank strings without surrounding whitespace")
+            return
+
+        failures = 0
+        for name in dict.fromkeys([*required, *probes]):
+            probe = probes.get(name)
+            reason = self._probe_failure(probe)
+            self.report_subtest(
+                name, passed=reason is None, message=f"{name}: {reason or 'host-root operation denied'}"
+            )
+            failures += reason is not None
+
+        if failures:
+            self.set_failed(f"DPU host management denial unproven for {failures} probe(s)")
+        else:
+            self.set_passed(f"All {len(probes)} DPU management probes executed as host root and were denied")
+
+    @staticmethod
+    def _probe_failure(probe: Any) -> str | None:
+        """Explain absent, incomplete, or contradictory probe evidence."""
+        if not isinstance(probe, dict):
+            return "missing or invalid probe record"
+        if probe.get("executed") is not True:
+            return "probe was not executed"
+        if probe.get("skipped") or probe.get("error"):
+            return "probe reported a skip or execution error"
+        if probe.get("execution_context") != "host":
+            return "probe did not run in the host context"
+        uid = probe.get("effective_uid")
+        if type(uid) is not int or uid != 0:
+            return "probe did not run with effective host UID 0"
+        if probe.get("outcome") != "denied":
+            return "operation was not explicitly denied"
+        evidence = probe.get("denial_evidence")
+        if not isinstance(evidence, str) or not evidence.strip():
+            return "missing observed policy-denial evidence"
+        return None
 
 
 def _machine_label(machine: dict[str, Any]) -> str:
