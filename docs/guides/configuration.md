@@ -638,29 +638,6 @@ the step executor runs schema checks automatically.
 | `TrafficFlowCheck` | Check traffic flow |
 | `DhcpIpManagementCheck` | Check DHCP/IP management via SSH |
 
-#### Single-site subnet validation
-
-The network suite grades `subnet_config` output twice: `SubnetConfigCheck` checks
-creation, availability, and routing with at least two subnets; `SubnetMultiAzCheck`
-retains the four-subnet, multi-AZ requirement. Both use the same collection step.
-To run a single-site environment, deselect only the multi-AZ check:
-
-```bash
-isvctl test run -f provider-network.yaml --exclude-label multi_az
-```
-
-Alternatively, add `SubnetMultiAzCheck` to `tests.exclude.tests` in your provider
-configuration. The baseline accepts an absent or unsuccessful `az_distribution`
-result, but all baseline operations must still pass. An explicit legacy
-`require_multi_az: true` on `SubnetConfigCheck` continues to enforce multi-AZ;
-remove that override to use the baseline. `SubnetMultiAzCheck` always requires it.
-
-The AWS reference collector accepts `--az-count 1` to place its temporary subnets
-in one AZ. It reports baseline success independently of `az_distribution.passed`,
-so a single-AZ run can pass the baseline and fail the multi-AZ validator. Providers
-must follow this contract rather than fail collection solely for using one AZ.
-The my-isv template demonstrates the contract only in `ISVCTL_DEMO_MODE=1`.
-
 ### Security (`validations/security.py`)
 
 | Validation | Description |

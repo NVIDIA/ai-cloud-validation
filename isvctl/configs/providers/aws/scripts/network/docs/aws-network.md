@@ -174,12 +174,23 @@ Both validators consume the same collection step:
 - The multi-AZ check additionally requires at least two availability zones.
 - The canonical suite requires two subnets for the baseline and four for multi-AZ.
 
-Use `--exclude-label multi_az` for a single-site environment. The collector accepts
+Use `--exclude-label multi_az` for a single-site environment:
+
+```bash
+isvctl test run -f isvctl/configs/providers/aws/config/network.yaml --exclude-label multi_az
+```
+
+Alternatively, add `SubnetMultiAzCheck` to `tests.exclude.tests` in your provider
+configuration. The collector accepts
 `--az-count 1` to place all temporary subnets in one AZ; its default is up to three
 available AZs. Baseline success is independent of `tests.az_distribution.passed`,
 so the baseline validator can pass while the multi-AZ validator fails.
+The baseline also accepts absent AZ-distribution evidence, but all baseline
+operations must still pass.
 
 `require_multi_az: true` remains a strict legacy opt-in on `SubnetConfigCheck`.
+Remove that override to use the single-AZ baseline. `SubnetMultiAzCheck` always
+requires multi-AZ evidence.
 Prefer selecting `SubnetMultiAzCheck` explicitly for separate reporting.
 
 ### 3. VPC Isolation Check
