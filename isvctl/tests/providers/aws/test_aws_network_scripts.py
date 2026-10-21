@@ -32,7 +32,7 @@ from types import ModuleType
 from typing import Any, ClassVar
 
 import pytest
-from botocore.exceptions import ClientError, WaiterError
+from botocore.exceptions import ClientError, EndpointConnectionError, WaiterError
 from isvtest.validations import SubnetConfigCheck, SubnetMultiAzCheck
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[3]
@@ -4904,6 +4904,42 @@ def test_subnet_baseline_failures_cleanup(
     assert json.loads(capsys.readouterr().out)["success"] is False
     assert set(ec2.deleted_subnets) == set(ec2.subnets)
     assert ec2.deleted_vpcs == ["vpc-test"]
+
+
+@pytest.mark.parametrize(("operation", "created_count"), [("create_subnet", 1), ("create_tags", 2)])
+def test_subnet_botocore_failure_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    operation: str,
+    created_count: int,
+) -> None:
+    """SDK failures after a successful subnet must preserve every known resource for cleanup."""
+    module = _load_network_script("subnet_test.py")
+    ec2 = FakeSubnetEc2(1)
+    original = getattr(ec2, operation)
+    subnet_calls = 0
+
+    def fail_second_subnet(**kwargs: Any) -> Any:
+        """Fail the second subnet operation while allowing VPC tagging to complete."""
+        nonlocal subnet_calls
+        if operation == "create_subnet" or kwargs["Resources"][0].startswith("subnet-"):
+            subnet_calls += 1
+            if subnet_calls == 2:
+                raise EndpointConnectionError(endpoint_url="https://ec2.example.invalid")
+        return original(**kwargs)
+
+    monkeypatch.setattr(ec2, operation, fail_second_subnet)
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **kw: ec2)
+    monkeypatch.setattr(sys, "argv", ["subnet_test.py"])
+    assert module.main() == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["success"] is False
+    assert len(ec2.subnets) == created_count
+    assert set(ec2.deleted_subnets) == set(ec2.subnets)
+    assert ec2.deleted_vpcs == ["vpc-test"]
+    assert output["tests"]["create_subnets"]["passed"] is False
+    assert len(output["tests"]["create_subnets"]["subnets"]) == created_count
+    assert "Could not connect to the endpoint URL" in output["tests"]["create_subnets"]["error"]
 
 
 def test_subnet_vpc_waiter_failure_cleanup(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

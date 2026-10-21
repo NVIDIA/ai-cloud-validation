@@ -43,7 +43,7 @@ from typing import Any
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from common.errors import handle_aws_errors
 from common.vpc import cleanup_vpc_resources, create_test_vpc
 
@@ -88,7 +88,7 @@ def test_create_subnets(ec2: Any, vpc_id: str, cidr_base: str, azs: list[str], c
         result["count"] = len(result["subnets"])
         result["passed"] = result["count"] == count
         result["message"] = f"Created {result['count']} subnets"
-    except ClientError as e:
+    except (BotoCoreError, ClientError) as e:
         result["error"] = str(e)
 
     return result
