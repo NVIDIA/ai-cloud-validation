@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test subnet configuration across availability zones.
+"""Test baseline subnet configuration and report multi-AZ distribution separately.
 
 Usage:
     python subnet_test.py --region us-west-2 --cidr 10.98.0.0/16 --subnet-count 4
@@ -75,20 +75,14 @@ def test_create_subnets(ec2: Any, vpc_id: str, cidr_base: str, azs: list[str], c
             )
             subnet_id = subnet["Subnet"]["SubnetId"]
 
+            # Record ownership before tagging so partial failures can be cleaned up.
+            result["subnets"].append({"subnet_id": subnet_id, "cidr": subnet_cidr, "az": az})
             ec2.create_tags(
                 Resources=[subnet_id],
                 Tags=[
                     {"Key": "Name", "Value": f"isv-subnet-test-{i}"},
                     {"Key": "CreatedBy", "Value": "isvtest"},
                 ],
-            )
-
-            result["subnets"].append(
-                {
-                    "subnet_id": subnet_id,
-                    "cidr": subnet_cidr,
-                    "az": az,
-                }
             )
 
         result["count"] = len(result["subnets"])
@@ -104,7 +98,7 @@ def test_az_distribution(subnets: list[dict[str, Any]], min_azs: int = 2) -> dic
     """Test that subnets are distributed across AZs."""
     result = {"passed": False}
 
-    azs = list(set(s["az"] for s in subnets))
+    azs = sorted({s["az"] for s in subnets})
     result["azs"] = azs
     result["az_count"] = len(azs)
 
@@ -170,13 +164,17 @@ def main() -> int:
     validates AZ distribution, availability, and route table existence.
 
     Returns:
-        0 on success (all tests pass), 1 on failure
+        0 when baseline operations pass, 1 on baseline failure. AZ distribution
+        is reported separately for SubnetMultiAzCheck.
     """
     parser = argparse.ArgumentParser(description="Test subnet configuration")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     parser.add_argument("--cidr", default="10.98.0.0/16", help="CIDR for test VPC")
     parser.add_argument("--subnet-count", type=int, default=4, help="Number of subnets to create")
+    parser.add_argument("--az-count", type=int, default=3, help="Maximum AZs to use; 1 for a single-site test")
     args = parser.parse_args()
+    if args.az_count < 1 or args.subnet_count < 1:
+        parser.error("--az-count and --subnet-count must be positive")
 
     ec2 = boto3.client("ec2", region_name=args.region)
 
@@ -195,12 +193,15 @@ def main() -> int:
 
     try:
         # Get AZs
-        azs = get_availability_zones(ec2, 3)
+        azs = get_availability_zones(ec2, args.az_count)
+        if not azs:
+            raise ValueError("No available availability zones")
 
         # Test 1: Create VPC
         vpc_result = create_test_vpc(ec2, args.cidr, vpc_name)
         result["tests"]["create_vpc"] = vpc_result
 
+        vpc_id = vpc_result.get("vpc_id")  # Retain ownership even if tagging or waiting fails.
         if not vpc_result["passed"]:
             print(json.dumps(result, indent=2))
             return 1
@@ -227,8 +228,10 @@ def main() -> int:
             rt_result = test_route_table_exists(ec2, vpc_id)
             result["tests"]["route_table_exists"] = rt_result
 
-        # Check overall success
-        all_passed = all(t.get("passed", False) for t in result["tests"].values())
+        # A single-AZ result must reach the baseline validator. The separately
+        # selectable multi-AZ validator grades az_distribution from this output.
+        baseline_tests = ("create_vpc", "create_subnets", "subnets_available", "route_table_exists")
+        all_passed = all(result["tests"].get(name, {}).get("passed", False) for name in baseline_tests)
         result["success"] = all_passed
         result["status"] = "passed" if all_passed else "failed"
 

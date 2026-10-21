@@ -154,8 +154,13 @@ tests:
           labels: ["network"]
           requires: []
           step: subnet_config
+          min_subnets: 2
+        SubnetMultiAzCheck:
+          test_id: "N/A"
+          labels: ["network", "multi_az"]
+          requires: []
+          step: subnet_config
           min_subnets: 4
-          require_multi_az: true
         VpcIsolationCheck:
           # SDN04-03 (E/W isolation) is exercised by the same check but is not separately attributable under a single test_id.
           test_id: "SDN04-02"

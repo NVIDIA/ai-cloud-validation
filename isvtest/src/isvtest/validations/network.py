@@ -117,58 +117,59 @@ class VpcCrudCheck(BaseValidation):
 
 
 class SubnetConfigCheck(BaseValidation):
-    """Validate subnet configuration across availability zones.
+    """Validate subnet creation, availability, and routing in one or more AZs.
 
     Config:
-        step_output: The step output to check
+        step_output: Provider results with a subnets list and tests mapping
         min_subnets: Minimum number of subnets required (default: 2)
-        require_multi_az: Require subnets across multiple AZs (default: True)
+        require_multi_az: Legacy opt-in to the multi-AZ requirement (default: False).
+            Prefer the independently selectable SubnetMultiAzCheck.
 
-    Step output:
-        tests: dict with create_vpc, create_subnets, az_distribution,
-               subnets_available, route_table_exists
-        subnets: list of subnet info
+    Required tests: create_vpc, create_subnets, subnets_available, route_table_exists.
+    The baseline does not require az_distribution, which may be absent or failed
+    in a single-site environment. Multi-AZ checks additionally require a passing
+    az_distribution result with az_count >= 2.
     """
 
-    description: ClassVar[str] = "Check subnet configuration"
+    description: ClassVar[str] = "Check baseline subnet configuration in one or more availability zones"
+    require_multi_az: ClassVar[bool] = False
 
     def run(self) -> None:
+        """Check the baseline operations and, when requested, AZ distribution."""
         step_output = self.config.get("step_output", {})
-        tests = step_output.get("tests", {})
         subnets = step_output.get("subnets", [])
-
         min_subnets = self.config.get("min_subnets", 2)
-        require_multi_az = self.config.get("require_multi_az", True)
+        require_multi_az = self.require_multi_az or self.config.get("require_multi_az", False)
 
-        if not tests:
-            self.set_failed("No 'tests' in step output")
+        if not isinstance(subnets, list) or len(subnets) < min_subnets:
+            self.set_failed(f"A list of at least {min_subnets} subnets is required")
             return
 
-        # Check subnet count
-        if len(subnets) < min_subnets:
-            self.set_failed(f"Only {len(subnets)} subnets, minimum {min_subnets} required")
-            return
-
-        # Check AZ distribution
+        required_tests = ["create_vpc", "create_subnets", "subnets_available", "route_table_exists"]
         if require_multi_az:
-            az_result = tests.get("az_distribution", {})
-            az_count = az_result.get("az_count", 0)
-            if az_count < 2:
-                self.set_failed(f"Subnets in only {az_count} AZ(s), multi-AZ required")
-                return
-
-        required_tests = [
-            "create_vpc",
-            "create_subnets",
-            "az_distribution",
-            "subnets_available",
-            "route_table_exists",
-        ]
+            required_tests.append("az_distribution")
         if not check_required_tests(self, required_tests, "Failed tests"):
             return
 
-        azs = tests.get("az_distribution", {}).get("azs", [])
-        self.set_passed(f"{len(subnets)} subnets across {len(azs)} AZs")
+        if require_multi_az:
+            az_count = step_output["tests"]["az_distribution"].get("az_count", 0)
+            if type(az_count) is not int or az_count < 2:
+                self.set_failed(f"Subnets in only {az_count!r} AZ(s), at least two AZs required")
+                return
+            self.set_passed(f"{len(subnets)} subnets across {az_count} AZs")
+        else:
+            self.set_passed(f"{len(subnets)} subnets: creation, availability, and routing passed")
+
+
+class SubnetMultiAzCheck(SubnetConfigCheck):
+    """Validate baseline subnet configuration plus distribution across at least two AZs.
+
+    Uses the same provider step as SubnetConfigCheck. The multi-AZ requirement
+    cannot be disabled with require_multi_az=False; select the baseline instead.
+    """
+
+    description: ClassVar[str] = "Check subnet configuration across multiple availability zones"
+    require_multi_az: ClassVar[bool] = True
 
 
 class VpcIsolationCheck(BaseValidation):
