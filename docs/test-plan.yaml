@@ -3563,10 +3563,10 @@ domains:
                 dependencies:
                   - LimitedEnv
                 milestone: M0
-                req_id: K8S32
-                test_id: K8S32-01
+                req_id: K8S42
+                test_id: K8S42-01
                 actor: tenant
-                legacy_ids: [K8S-XX-04]
+                legacy_ids: [K8S-XX-04, K8S32-01]
                 status: published
                 labels:
                   - gpu
