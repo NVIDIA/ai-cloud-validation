@@ -32,7 +32,7 @@ from types import ModuleType
 from typing import Any, ClassVar
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, WaiterError
 from isvtest.validations import SubnetConfigCheck, SubnetMultiAzCheck
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[3]
@@ -4904,6 +4904,28 @@ def test_subnet_baseline_failures_cleanup(
     assert json.loads(capsys.readouterr().out)["success"] is False
     assert set(ec2.deleted_subnets) == set(ec2.subnets)
     assert ec2.deleted_vpcs == ["vpc-test"]
+
+
+def test_subnet_vpc_waiter_failure_cleanup(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """A failed VPC waiter must retain ownership so the collector deletes the VPC."""
+    module = _load_network_script("subnet_test.py")
+    ec2 = FakeSubnetEc2(1)
+
+    def fail_wait(**kwargs: Any) -> None:
+        """Simulate a VPC that never becomes available."""
+        raise WaiterError(name="VpcAvailable", reason="Max attempts exceeded", last_response={})
+
+    monkeypatch.setattr(ec2, "wait", fail_wait)
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **kw: ec2)
+    monkeypatch.setattr(sys, "argv", ["subnet_test.py"])
+    assert module.main() == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["success"] is False
+    assert ec2.deleted_vpcs == ["vpc-test"]
+    assert ec2.subnets == {}
+    assert output["tests"]["create_vpc"]["passed"] is False
+    assert output["tests"]["create_vpc"]["vpc_id"] == "vpc-test"
+    assert "Max attempts exceeded" in output["tests"]["create_vpc"]["error"]
 
 
 @pytest.mark.parametrize(("az_count", "subnet_count", "expected_azs"), [(1, 4, 1), (2, 4, 2), (2, 1, 1)])
