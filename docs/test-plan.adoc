@@ -5112,8 +5112,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | approved
 |
 
-.25+| Security & Identity
-.12+| Network Security
+.26+| Security & Identity
+.13+| Network Security
 .4+| BMC Security
 .4+|
 | [[SEC12-01]]SEC12-01
@@ -5272,8 +5272,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
 | published
 |
 
-.2+| Tenancy Isolation
-.2+|
+.3+| Tenancy Isolation
+.3+|
 | [[SEC11-01]]SEC11-01
 | SEC11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
@@ -5301,6 +5301,21 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/718[#718]
 |
 |
 | Verify traffic across the tenant-to-provider boundary is default-deny, with an explicitly allowed positive-control flow succeeding
+| pending
+|
+
+| [[SEC30-03]]SEC30-03
+| SEC30
+| https://github.com/NVIDIA/ai-cloud-validation/issues/720[#720]
+| network, security
+| operator
+| Sample-based approval check; does not establish coverage of every rule.
+| P0
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/720[#720]
+|
+|
+|
+| Verify one sampled effective allow rule has owner attribution and a matching approved record covering its traffic scope
 | pending
 |
 

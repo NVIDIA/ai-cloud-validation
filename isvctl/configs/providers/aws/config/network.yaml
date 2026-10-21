@@ -263,6 +263,20 @@ commands:
         timeout: 900
         output_schema: traffic_flow
 
+      # SEC30-03: read an existing rule and an independent approval export.
+      - name: allow_rule_approval
+        phase: test
+        command: "python3 ../scripts/network/allow_rule_approval_test.py"
+        args:
+          - "--region"
+          - "{{region}}"
+          - "--rule-id"
+          - "{{allow_rule_id}}"
+          - "--approval-file"
+          - "{{allow_rule_approval_file}}"
+        timeout: 60
+        output_schema: allow_rule_approval
+
       # Test 6b: Default-deny across a tenant-to-provider boundary (SEC30-01, ~5 min)
       - name: segment_boundary
         phase: test
@@ -510,6 +524,8 @@ tests:
   description: "Comprehensive AWS VPC and network validation tests"
 
   settings:
+    allow_rule_id: ""
+    allow_rule_approval_file: ""
     region: "us-west-2"
     storage_l3_routing_cidr: "{{env.AWS_STORAGE_L3_ROUTING_CIDR | default('', true)}}"
     imex_node_ids: "{{env.AWS_IMEX_NODE_IDS | default('', true)}}"

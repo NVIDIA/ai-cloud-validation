@@ -127,6 +127,12 @@ commands:
         timeout: 60
         output_schema: traffic_flow
 
+      - name: allow_rule_approval
+        phase: test
+        command: "python ../scripts/network/allow_rule_approval_test.py"
+        timeout: 60
+        output_schema: allow_rule_approval
+
       - name: segment_boundary
         phase: test
         command: "python ../scripts/network/segment_boundary_test.py"

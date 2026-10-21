@@ -29,6 +29,7 @@ import shlex
 import time
 import uuid
 from abc import abstractmethod
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
@@ -268,6 +269,112 @@ def _flow_label(flow: dict[str, Any]) -> str:
     protocol = str(flow.get("protocol", "?"))
     port = flow.get("port")
     return f"{protocol}/{port}" if port is not None else protocol
+
+
+class AllowRuleApprovalCheck(BaseValidation):
+    """Check one sampled effective allow rule against an approval export (SEC30-03).
+
+    The provider supplies ``observed_at``, ``effective_rule`` and ``approval`` in
+    step_output. Rule and approval must agree on rule_id, policy_id, owner, and
+    the entire normalized scope. Exact scope matching is intentionally conservative:
+    broader approvals must be resolved to the approved rule by the provider.
+    An audit event or an owner tag alone is not an approval. The collector is
+    responsible for obtaining the record from a trusted approval system.
+    This sample does not establish approval of every rule in the environment.
+    """
+
+    description: ClassVar[str] = "Check effective allow rule ownership and explicit approval"
+
+    def run(self) -> None:
+        """Fail closed on missing, mismatched, unapproved, or expired evidence."""
+        output = self.config.get("step_output")
+        try:
+            if not isinstance(output, dict) or output.get("success") is not True:
+                raise ValueError("Allow-rule evidence collection did not succeed")
+            rule = output.get("effective_rule")
+            approval = output.get("approval")
+            if not isinstance(rule, dict) or not isinstance(approval, dict):
+                raise ValueError("effective_rule and approval must both be objects")
+            if rule.get("effective") is not True or rule.get("action") != "allow":
+                raise ValueError("The sampled rule must be an effective allow rule")
+            for field in ("rule_id", "policy_id", "owner"):
+                if not self._text(rule.get(field)) or approval.get(field) != rule[field]:
+                    raise ValueError(f"Missing or mismatched {field} attribution")
+            for field in ("record_id", "approver", "source"):
+                if not self._text(approval.get(field)):
+                    raise ValueError(f"Approval requires a non-empty {field}")
+            if approval.get("status") != "approved":
+                raise ValueError("The matching record is not explicitly approved")
+            observed = self._timestamp(output.get("observed_at"))
+            approved = self._timestamp(approval.get("approved_at"))
+            if approved > observed:
+                raise ValueError("Approval postdates the rule observation")
+            if "expires_at" in approval and self._timestamp(approval["expires_at"]) <= observed:
+                raise ValueError("Approval has expired at the rule observation")
+            scope = self._scope(rule.get("scope"))
+            if self._scope(approval.get("scope")) != scope:
+                raise ValueError("Approved traffic scope does not match the effective rule")
+        except ValueError as exc:
+            self.set_failed(str(exc))
+            return
+        self.set_passed("Sampled effective allow rule has owner attribution and a matching approved record")
+
+    @staticmethod
+    def _text(value: Any) -> bool:
+        """Require real non-empty identifiers, not truthy containers or numbers."""
+        return isinstance(value, str) and bool(value.strip())
+
+    @staticmethod
+    def _timestamp(value: Any) -> datetime:
+        """Require an ISO-8601 timestamp with an explicit timezone."""
+        if not isinstance(value, str):
+            raise ValueError("Evidence requires timezone-aware observation and approval timestamps")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("Invalid evidence timestamp") from exc
+        if parsed.tzinfo is None:
+            raise ValueError("Evidence timestamps must include a timezone")
+        return parsed
+
+    @classmethod
+    def _scope(cls, scope: Any) -> dict[str, Any]:
+        """Validate all match dimensions before comparing normalized scopes exactly."""
+        if not isinstance(scope, dict):
+            raise ValueError("Traffic scope must be an object")
+        fields = {"direction", "source", "destination", "protocol"}
+        if scope.get("direction") not in ("ingress", "egress"):
+            raise ValueError("Traffic scope requires ingress or egress direction")
+        if not all(cls._text(scope.get(key)) for key in ("source", "destination", "protocol")):
+            raise ValueError("Traffic scope requires source, destination, and protocol")
+        protocol = scope["protocol"]
+        if protocol in ("tcp", "udp"):
+            fields.add("port_range")
+            ports = scope.get("port_range")
+            if (
+                not isinstance(ports, list)
+                or len(ports) != 2
+                or any(type(port) is not int for port in ports)
+                or not 0 <= ports[0] <= ports[1] <= 65535
+            ):
+                raise ValueError("TCP/UDP scope requires a valid inclusive port_range")
+        elif protocol in ("icmp", "icmpv6"):
+            fields.update(("icmp_type", "icmp_code"))
+            for key in ("icmp_type", "icmp_code"):
+                if type(scope.get(key)) is not int or not -1 <= scope[key] <= 255:
+                    raise ValueError("ICMP scope requires valid type and code (-1 means all)")
+            if scope["icmp_type"] == -1 and scope["icmp_code"] != -1:
+                raise ValueError("All ICMP types require all codes")
+        elif protocol != "all" and not (
+            protocol.isascii()
+            and protocol.isdecimal()
+            and 0 <= int(protocol) <= 255
+            and int(protocol) not in (1, 6, 17, 58)
+        ):
+            raise ValueError("Unsupported or non-normalized protocol")
+        if set(scope) != fields:
+            raise ValueError("Traffic scope has missing or unsupported match dimensions")
+        return scope
 
 
 class SgCrudCheck(BaseValidation):

@@ -624,6 +624,7 @@ the step executor runs schema checks automatically.
 | `VpcCrudCheck` | Check VPC CRUD operations |
 | `SubnetConfigCheck` | Check baseline subnet configuration (single AZ supported) |
 | `SubnetMultiAzCheck` | Check subnet configuration across at least two AZs |
+| `AllowRuleApprovalCheck` | Check sampled effective allow rule ownership and approval |
 | `VpcIsolationCheck` | Check VPC isolation |
 | `VpcIpConfigCheck` | Check VPC IP configuration |
 | `VpcPeeringCheck` | Check VPC peering |

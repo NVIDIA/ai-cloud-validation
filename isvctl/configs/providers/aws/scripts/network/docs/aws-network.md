@@ -346,6 +346,79 @@ Tests cross-VPC connectivity via VPC peering:
 - Verify connectivity between peered VPCs
 - Clean up peering connection and VPCs
 
+### Allow-rule approval (SEC30-03)
+
+**Script**: `allow_rule_approval_test.py`
+**Validation**: `AllowRuleApprovalCheck`
+
+This read-only check samples **one** effective allow rule. It does not certify
+that every rule in an account is approved. Run it for each rule in the required
+inventory when assessing the full SEC30 requirement. It checks approval records,
+not packet delivery or the separate configuration-change audit trail.
+
+The AWS collector reads a security-group rule by ID, requires its group to be on
+an `in-use` network interface, and reads the owner from the rule's `Owner` tag.
+An owner tag or CloudTrail mutation event is not an approval. Supply a separate
+JSON export from your trusted change-management system; the collector never
+creates approval records. Protect that export's provenance and access: this check
+validates its contents, not the source system's authenticity or approver authority.
+
+Configure `tests.settings.allow_rule_id` and
+`tests.settings.allow_rule_approval_file` (an absolute path accessible where the
+collector runs) in an override YAML. Missing inputs fail with a configuration
+error. For a standalone read, use:
+
+```bash
+python3 isvctl/configs/providers/aws/scripts/network/allow_rule_approval_test.py \
+  --region us-east-2 --rule-id sgr-0123456789abcdef0 --approval-file /path/to/approval.json
+```
+
+The export must contain:
+
+```json
+{
+  "record_id": "CHANGE-123",
+  "source": "https://changes.example/CHANGE-123",
+  "status": "approved",
+  "approver": "network-reviewer",
+  "approved_at": "2026-10-20T12:00:00Z",
+  "rule_id": "sgr-0123456789abcdef0",
+  "policy_id": "aws:us-east-2:123456789012:security-group/sg-0123456789abcdef0",
+  "owner": "network-team",
+  "scope": {
+    "direction": "ingress",
+    "source": "cidr:192.0.2.0/24",
+    "destination": "aws:us-east-2:123456789012:security-group/sg-0123456789abcdef0",
+    "protocol": "tcp",
+    "port_range": [443, 443]
+  }
+}
+```
+
+An optional `expires_at` must be later than the observation. Both it and
+`approved_at` must include a timezone; approvals after the observation fail.
+Unapproved/revoked records, missing ownership, mismatched rule or policy IDs, and
+changed traffic scope fail. The read-only collector may succeed in collecting a
+pending record; only the validator grades approval.
+
+The provider-neutral step output includes `success`, `platform: network`,
+`test_name: allow_rule_approval`, `observed_at`, `effective_rule`, and `approval`.
+`effective_rule` contains `rule_id`, `policy_id`, `owner`, `action: allow`,
+`effective: true`, and `scope`. A bare-metal provider can emit the same contract
+from its deployed firewall policy and independent approval system. The my-isv
+script is a scaffold; its successful records are synthetic and only emitted with
+`ISVCTL_DEMO_MODE=1`.
+
+Scopes must match **exactly**, including direction, source, destination, and
+protocol. Selectors are normalized provider identifiers (AWS CIDRs use `cidr:`;
+security groups use the account-and-region-qualified identifier above). TCP/UDP
+requires an inclusive integer `port_range`; ICMP/ICMPv6 requires `icmp_type` and
+`icmp_code` (`-1` means all). `all` and other decimal IP protocol numbers carry no
+port fields. Unknown dimensions fail instead of being ignored. A broader policy
+approval must be resolved to an explicit approved rule by the trusted provider
+adapter; the validator does not guess scope containment. AWS prefix-list rules
+fail because their mutable membership needs additional approval evidence.
+
 ## Prerequisites
 
 ### AWS Credentials
