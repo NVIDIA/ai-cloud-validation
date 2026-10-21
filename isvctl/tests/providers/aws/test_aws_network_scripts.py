@@ -33,6 +33,7 @@ from typing import Any, ClassVar
 
 import pytest
 from botocore.exceptions import ClientError
+from isvtest.validations import SubnetConfigCheck, SubnetMultiAzCheck
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 AWS_NETWORK_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "network"
@@ -4873,8 +4874,6 @@ def test_subnet_baseline_and_multi_az_contract(
     expected_zones: int,
 ) -> None:
     """Single-AZ collection succeeds so each validator can grade its own requirement."""
-    from isvtest.validations import SubnetConfigCheck, SubnetMultiAzCheck
-
     module = _load_network_script("subnet_test.py")
     ec2 = FakeSubnetEc2(available_zones)
     monkeypatch.setattr(module.boto3, "client", lambda *a, **kw: ec2)
