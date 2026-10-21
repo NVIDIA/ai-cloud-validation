@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from common.errors import delete_with_retry
 
@@ -71,7 +71,7 @@ def create_test_vpc(
         result["passed"] = True
         result["cidr"] = cidr
         result["message"] = f"Created VPC {vpc_id}"
-    except ClientError as e:
+    except (BotoCoreError, ClientError) as e:
         result["error"] = str(e)
 
     return result

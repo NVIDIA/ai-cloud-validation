@@ -622,7 +622,8 @@ the step executor runs schema checks automatically.
 | `BackendSwitchFabricCheck` | Check backend switch fabric IDs |
 | `NetworkProvisionedCheck` | Check network was provisioned |
 | `VpcCrudCheck` | Check VPC CRUD operations |
-| `SubnetConfigCheck` | Check subnet configuration |
+| `SubnetConfigCheck` | Check baseline subnet configuration (single AZ supported) |
+| `SubnetMultiAzCheck` | Check subnet configuration across at least two AZs |
 | `VpcIsolationCheck` | Check VPC isolation |
 | `VpcIpConfigCheck` | Check VPC IP configuration |
 | `VpcPeeringCheck` | Check VPC peering |

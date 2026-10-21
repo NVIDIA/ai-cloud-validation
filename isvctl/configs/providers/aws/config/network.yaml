@@ -20,7 +20,7 @@
 #
 # Comprehensive network testing with 15 test suites:
 #   1. VPC CRUD - Create, Read, Update, Delete VPC lifecycle
-#   2. Subnet Configuration - Multi-AZ subnet distribution
+#   2. Subnet Configuration - Baseline and separate multi-AZ validation
 #   3. VPC Isolation - Security boundaries between VPCs
 #  4a. Security Group CRUD - Create, Read, Update, Delete SG lifecycle
 #  4b. Security Blocking - SG/NACL blocking rules (negative tests)

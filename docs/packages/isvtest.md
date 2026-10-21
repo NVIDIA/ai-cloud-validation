@@ -102,7 +102,8 @@ VPC, subnet, security group, DNS, and connectivity checks.
 | `BackendSwitchFabricCheck` | network | Check backend switch fabric IDs |
 | `NetworkProvisionedCheck` | network | Check network was provisioned |
 | `VpcCrudCheck` | network | Check VPC CRUD operations |
-| `SubnetConfigCheck` | network | Check subnet configuration |
+| `SubnetConfigCheck` | network | Check baseline subnet configuration (single AZ supported) |
+| `SubnetMultiAzCheck` | network, multi_az | Check subnet configuration across at least two AZs |
 | `VpcIsolationCheck` | network, security | Check VPC isolation |
 | `VpcIpConfigCheck` | network | Check VPC IP configuration |
 | `VpcPeeringCheck` | network | Check VPC peering |

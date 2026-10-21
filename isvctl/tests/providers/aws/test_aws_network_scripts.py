@@ -32,7 +32,8 @@ from types import ModuleType
 from typing import Any, ClassVar
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError, WaiterError
+from isvtest.validations import SubnetConfigCheck, SubnetMultiAzCheck
 
 ISVCTL_ROOT = Path(__file__).resolve().parents[3]
 AWS_NETWORK_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "network"
@@ -4807,3 +4808,197 @@ def test_segment_boundary_cleanup_removes_everything_after_partial_build(
 
     assert aws.live == set(), f"untracked after failing {fail_on}: {sorted(aws.live)}"
     assert remaining == []
+
+
+class FakeSubnetEc2:
+    """Small EC2 model exercising the real subnet script's create and cleanup paths."""
+
+    def __init__(self, az_count: int, fail_tag: str = "", no_routes: bool = False) -> None:
+        """Configure available zones and optional baseline-operation failures."""
+        self.az_count = az_count
+        self.fail_tag = fail_tag
+        self.no_routes = no_routes
+        self.subnets: dict[str, dict[str, Any]] = {}
+        self.deleted_subnets: list[str] = []
+        self.deleted_vpcs: list[str] = []
+
+    def describe_availability_zones(self, **kwargs: Any) -> dict[str, Any]:
+        """Report the platform's available zones."""
+        return {"AvailabilityZones": [{"ZoneName": f"zone-{i}"} for i in range(self.az_count)]}
+
+    def create_vpc(self, **kwargs: Any) -> dict[str, Any]:
+        """Create a disposable network."""
+        return {"Vpc": {"VpcId": "vpc-test"}}
+
+    def create_tags(self, Resources: list[str], **kwargs: Any) -> None:
+        """Inject a partial-creation failure after the resource already exists."""
+        if self.fail_tag and Resources[0].startswith(self.fail_tag):
+            raise _client_error("CreateTags")
+
+    def get_waiter(self, name: str) -> FakeSubnetEc2:
+        """Return an immediately completed availability waiter."""
+        return self
+
+    def wait(self, **kwargs: Any) -> None:
+        """The fake resources become available immediately."""
+
+    def create_subnet(self, VpcId: str, CidrBlock: str, AvailabilityZone: str) -> dict[str, Any]:
+        """Track subnet placement for the real distribution helper."""
+        subnet_id = f"subnet-{len(self.subnets)}"
+        self.subnets[subnet_id] = {"SubnetId": subnet_id, "State": "available", "AvailabilityZone": AvailabilityZone}
+        return {"Subnet": self.subnets[subnet_id]}
+
+    def describe_subnets(self, SubnetIds: list[str]) -> dict[str, Any]:
+        """Return the actual requested subnet inventory."""
+        return {"Subnets": [self.subnets[s] for s in SubnetIds]}
+
+    def describe_route_tables(self, **kwargs: Any) -> dict[str, Any]:
+        """Optionally report a missing baseline route table."""
+        return {"RouteTables": [] if self.no_routes else [{"RouteTableId": "rtb-test"}]}
+
+    def delete_subnet(self, SubnetId: str) -> None:
+        """Record cleanup of only test-owned resources."""
+        self.deleted_subnets.append(SubnetId)
+
+    def delete_vpc(self, VpcId: str) -> None:
+        """Record network cleanup."""
+        self.deleted_vpcs.append(VpcId)
+
+
+@pytest.mark.parametrize(("available_zones", "requested_zones", "expected_zones"), [(1, 3, 1), (3, 1, 1), (3, 2, 2)])
+def test_subnet_baseline_and_multi_az_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    available_zones: int,
+    requested_zones: int,
+    expected_zones: int,
+) -> None:
+    """Single-AZ collection succeeds so each validator can grade its own requirement."""
+    module = _load_network_script("subnet_test.py")
+    ec2 = FakeSubnetEc2(available_zones)
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **kw: ec2)
+    monkeypatch.setattr(sys, "argv", ["subnet_test.py", "--az-count", str(requested_zones)])
+    assert module.main() == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["success"] is True
+    assert output["tests"]["az_distribution"]["az_count"] == expected_zones
+    assert SubnetConfigCheck(config={"step_output": output}).execute()["passed"] is True
+    assert SubnetMultiAzCheck(config={"step_output": output}).execute()["passed"] is (expected_zones >= 2)
+    assert set(ec2.deleted_subnets) == set(ec2.subnets)
+    assert ec2.deleted_vpcs == ["vpc-test"]
+
+
+@pytest.mark.parametrize(("fail_tag", "no_routes"), [("vpc", False), ("subnet", False), ("", True)])
+def test_subnet_baseline_failures_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    fail_tag: str,
+    no_routes: bool,
+) -> None:
+    """Baseline failures still fail and partial resources remain in the cleanup inventory."""
+    module = _load_network_script("subnet_test.py")
+    ec2 = FakeSubnetEc2(1, fail_tag=fail_tag, no_routes=no_routes)
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **kw: ec2)
+    monkeypatch.setattr(sys, "argv", ["subnet_test.py"])
+    assert module.main() == 1
+    assert json.loads(capsys.readouterr().out)["success"] is False
+    assert set(ec2.deleted_subnets) == set(ec2.subnets)
+    assert ec2.deleted_vpcs == ["vpc-test"]
+
+
+@pytest.mark.parametrize(("operation", "created_count"), [("create_subnet", 1), ("create_tags", 2)])
+def test_subnet_botocore_failure_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    operation: str,
+    created_count: int,
+) -> None:
+    """SDK failures after a successful subnet must preserve every known resource for cleanup."""
+    module = _load_network_script("subnet_test.py")
+    ec2 = FakeSubnetEc2(1)
+    original = getattr(ec2, operation)
+    subnet_calls = 0
+
+    def fail_second_subnet(**kwargs: Any) -> Any:
+        """Fail the second subnet operation while allowing VPC tagging to complete."""
+        nonlocal subnet_calls
+        if operation == "create_subnet" or kwargs["Resources"][0].startswith("subnet-"):
+            subnet_calls += 1
+            if subnet_calls == 2:
+                raise EndpointConnectionError(endpoint_url="https://ec2.example.invalid")
+        return original(**kwargs)
+
+    monkeypatch.setattr(ec2, operation, fail_second_subnet)
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **kw: ec2)
+    monkeypatch.setattr(sys, "argv", ["subnet_test.py"])
+    assert module.main() == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["success"] is False
+    assert len(ec2.subnets) == created_count
+    assert set(ec2.deleted_subnets) == set(ec2.subnets)
+    assert ec2.deleted_vpcs == ["vpc-test"]
+    assert output["tests"]["create_subnets"]["passed"] is False
+    assert len(output["tests"]["create_subnets"]["subnets"]) == created_count
+    assert "Could not connect to the endpoint URL" in output["tests"]["create_subnets"]["error"]
+
+
+def test_subnet_vpc_waiter_failure_cleanup(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """A failed VPC waiter must retain ownership so the collector deletes the VPC."""
+    module = _load_network_script("subnet_test.py")
+    ec2 = FakeSubnetEc2(1)
+
+    def fail_wait(**kwargs: Any) -> None:
+        """Simulate a VPC that never becomes available."""
+        raise WaiterError(name="VpcAvailable", reason="Max attempts exceeded", last_response={})
+
+    monkeypatch.setattr(ec2, "wait", fail_wait)
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **kw: ec2)
+    monkeypatch.setattr(sys, "argv", ["subnet_test.py"])
+    assert module.main() == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["success"] is False
+    assert ec2.deleted_vpcs == ["vpc-test"]
+    assert ec2.subnets == {}
+    assert output["tests"]["create_vpc"]["passed"] is False
+    assert output["tests"]["create_vpc"]["vpc_id"] == "vpc-test"
+    assert "Max attempts exceeded" in output["tests"]["create_vpc"]["error"]
+
+
+@pytest.mark.parametrize(("az_count", "subnet_count", "expected_azs"), [(1, 4, 1), (2, 4, 2), (2, 1, 1)])
+def test_subnet_template_reports_observed_demo_zones(az_count: int, subnet_count: int, expected_azs: int) -> None:
+    """Demo placement counts only zones actually represented by created subnets."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(MY_ISV_NETWORK_SCRIPTS / "subnet_test.py"),
+            "--region",
+            "test",
+            "--az-count",
+            str(az_count),
+            "--subnet-count",
+            str(subnet_count),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "ISVCTL_DEMO_MODE": "1"},
+    )
+    output = json.loads(result.stdout)
+    distribution = output["tests"]["az_distribution"]
+    assert output["success"] is True
+    assert distribution["az_count"] == expected_azs
+    assert distribution["passed"] is (expected_azs >= 2)
+    assert set(distribution["azs"]) == {s["az"] for s in output["subnets"]}
+
+
+def test_subnet_no_available_zones(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """Unavailable topology fails collection before allocating resources."""
+    module = _load_network_script("subnet_test.py")
+    ec2 = FakeSubnetEc2(0)
+    monkeypatch.setattr(module.boto3, "client", lambda *a, **kw: ec2)
+    monkeypatch.setattr(sys, "argv", ["subnet_test.py"])
+    assert module.main() == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["success"] is False
+    assert "No available availability zones" in output["error"]
+    assert not ec2.subnets and not ec2.deleted_vpcs

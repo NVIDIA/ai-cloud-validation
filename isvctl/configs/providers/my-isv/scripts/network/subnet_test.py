@@ -23,7 +23,7 @@ This script is called during the "test" phase. It is SELF-CONTAINED:
   4. Clean up all resources
   5. Print a JSON object to stdout
 
-Required JSON output fields (read by SubnetConfigCheck):
+Required JSON output fields (read by SubnetConfigCheck and SubnetMultiAzCheck):
   {
     "success": true,                        # boolean - did all checks pass?
     "platform": "network",                  # string  - always "network"
@@ -48,7 +48,9 @@ Required JSON output fields (read by SubnetConfigCheck):
     }
   }
 
-On failure, set "success": false and include an "error" field.
+Set "success": false on baseline operation failures. Report AZ distribution
+separately: a single-site run can have success=true and az_distribution.passed=false.
+SubnetConfigCheck grades the baseline; SubnetMultiAzCheck requires at least two AZs.
 
 Usage:
     python subnet_test.py --region <region> --cidr 10.98.0.0/16 --subnet-count 4
@@ -72,7 +74,10 @@ def main() -> int:
     parser.add_argument("--region", required=True, help="Cloud region")
     parser.add_argument("--cidr", default="10.98.0.0/16", help="CIDR block for test VPC")
     parser.add_argument("--subnet-count", type=int, default=4, help="Number of subnets to create")
+    parser.add_argument("--az-count", type=int, default=2, help="Maximum AZs to use; 1 for a single-site test")
     args = parser.parse_args()
+    if args.az_count < 1 or args.subnet_count < 1:
+        parser.error("--az-count and --subnet-count must be positive")
 
     result: dict[str, Any] = {
         "success": False,
@@ -93,7 +98,7 @@ def main() -> int:
     # ║                                                                  ║
     # ║    result["tests"]["create_vpc"] = {"passed": True}              ║
     # ║                                                                  ║
-    # ║    azs = client.availability_zones()                             ║
+    # ║    azs = client.availability_zones()[:args.az_count]            ║
     # ║    for i in range(args.subnet_count):                            ║
     # ║        az = azs[i % len(azs)]                                    ║
     # ║        subnet = client.create_subnet(vpc.id, az, sub_cidr)       ║
@@ -103,8 +108,10 @@ def main() -> int:
     # ║            "az": az,                                             ║
     # ║        })                                                        ║
     # ║    result["tests"]["create_subnets"] = {"passed": True}          ║
+    # ║    used_azs = sorted({s["az"] for s in result["subnets"]})      ║
     # ║    result["tests"]["az_distribution"] = {                        ║
-    # ║        "passed": True, "az_count": len(set(azs)), "azs": azs,    ║
+    # ║        "passed": len(used_azs) >= 2,                           ║
+    # ║        "az_count": len(used_azs), "azs": used_azs,              ║
     # ║    }                                                             ║
     # ║                                                                  ║
     # ║    # Verify route tables                                         ║
@@ -119,7 +126,7 @@ def main() -> int:
     # ╚══════════════════════════════════════════════════════════════════╝
 
     if DEMO_MODE:
-        azs = [f"{args.region}a", f"{args.region}b"]
+        azs = [f"{args.region}-az-{i}" for i in range(min(args.az_count, args.subnet_count))]
         result["network_id"] = "dummy-vpc-subnet"
         for i in range(args.subnet_count):
             result["subnets"].append(
@@ -132,7 +139,7 @@ def main() -> int:
         result["tests"] = {
             "create_vpc": {"passed": True},
             "create_subnets": {"passed": True, "count": len(result["subnets"])},
-            "az_distribution": {"passed": True, "az_count": len(set(azs)), "azs": azs},
+            "az_distribution": {"passed": len(azs) >= 2, "az_count": len(azs), "azs": azs},
             "subnets_available": {"passed": True},
             "route_table_exists": {"passed": True},
         }
