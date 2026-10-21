@@ -244,7 +244,7 @@ This document lists requirements derived from the *NCP Software Reference Guide*
 | K8S38 | Managed Kubernetes Control Plane | A tenant shall be able to exercise the complete managed Kubernetes control plane lifecycle through the tenant-facing API/CLI. The tenant initiates create, read, update, and delete operations, including requesting a supported control plane version update; the platform operator executes the managed operation and exposes status until the requested version and terminal state are reached. Application continuity during the update is covered separately by K8S09. | NSRG: Container-as-a-Service: Kubernetes | `K8S38-01` |  |
 | K8S39 | Managed Kubernetes Control Plane | Be able to run k8s workloads | NSRG: Container-as-a-Service: Kubernetes | `K8S39-01` |  |
 | K8S40 | Managed Kubernetes Control Plane | K8s Nim Inference | NSRG: K8s-Native ML/AI Frameworks (Dynamo/NIM) | `K8S40-01` |  |
-| K8S32 | Managed Kubernetes Control Plane | K8s Nim Helm | NSRG: K8s-Native ML/AI Frameworks | `K8S32-01` |  |
+| K8S42 | Managed Kubernetes Control Plane | K8s Nim Helm | NSRG: K8s-Native ML/AI Frameworks | `K8S42-01` |  |
 | K8S33 | Managed Kubernetes Control Plane | K8s Nccl | NSRG: Kubernetes Architecture for ML/AI / Performance Requirements | `K8S33-01` |  |
 | K8S34 | Managed Kubernetes Control Plane | validate adherence to upstream proxy requirements (service to pod load balancing, acces to internal services) | NSRG: Container-as-a-Service: Kubernetes | `K8S34-01` |  |
 | K8S35 | Managed Kubernetes Control Plane | Verify that pod-to-pod L3 traffic flow logs are available and queryable | NSRG: Container-as-a-Service: Kubernetes / Telemetry | `K8S35-01` |  |
