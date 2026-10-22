@@ -4825,6 +4825,19 @@ domains:
                 github_issues:
                   - "#718"
                 status: pending
+              - summary: Verify one sampled effective allow rule has owner attribution and a matching approved record covering its traffic scope
+                req_id: SEC30
+                test_id: SEC30-03
+                actor: operator
+                labels:
+                  - network
+                  - security
+                priority: P0
+                milestone: ""
+                notes: "Sample-based approval check; does not establish coverage of every rule."
+                github_issues:
+                  - "#720"
+                status: pending
       - name: Authentication
         capabilities:
           - description: User Authentication

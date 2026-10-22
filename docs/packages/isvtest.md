@@ -104,6 +104,7 @@ VPC, subnet, security group, DNS, and connectivity checks.
 | `VpcCrudCheck` | network | Check VPC CRUD operations |
 | `SubnetConfigCheck` | network | Check baseline subnet configuration (single AZ supported) |
 | `SubnetMultiAzCheck` | network, multi_az | Check subnet configuration across at least two AZs |
+| `AllowRuleApprovalCheck` | network, security | Check sampled effective allow rule ownership and approval |
 | `VpcIsolationCheck` | network, security | Check VPC isolation |
 | `VpcIpConfigCheck` | network | Check VPC IP configuration |
 | `VpcPeeringCheck` | network | Check VPC peering |

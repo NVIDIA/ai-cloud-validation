@@ -235,6 +235,11 @@ tests:
           labels: ["network", "ssh"]
           requires: [vm, bare_metal]
           step: dhcp_ip_test
+        AllowRuleApprovalCheck:
+          test_id: "SEC30-03"
+          labels: ["network", "security"]
+          requires: []
+          step: allow_rule_approval
         SegmentBoundaryDefaultDenyCheck:
           test_id: "SEC30-01"
           labels: ["network", "security"]
