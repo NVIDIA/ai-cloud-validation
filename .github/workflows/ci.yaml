@@ -37,8 +37,13 @@ jobs:
       - name: Fix git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Install patched uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.13.4"
+
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --locked
 
       - name: Run pre-commit
         run: make pre-commit
@@ -57,8 +62,13 @@ jobs:
       - name: Fix git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Install patched uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.13.4"
+
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --locked
 
       - name: Run tests
         run: make test
@@ -77,8 +87,13 @@ jobs:
       - name: Fix git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Install patched uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.13.4"
+
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --locked
 
       - name: Run demo test
         run: make demo-test

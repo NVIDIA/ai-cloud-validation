@@ -35,6 +35,7 @@ members = ["isvctl", "isvtest", "isvreporter"]
 
 # Pin transitive deps with known HIGH CVEs until upstream minimums catch up (Trivy / uv.lock).
 [tool.uv]
+required-version = ">=0.13.4"
 override-dependencies = [
     "cryptography>=46.0.5",
     "pyasn1>=0.6.3",
