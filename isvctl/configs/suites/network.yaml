@@ -246,6 +246,14 @@ tests:
           requires: [vm, bare_metal]
           step: segment_boundary
 
+    intra_tenant_boundary:
+      checks:
+        SegmentBoundaryDefaultDenyCheck-intra-tenant:
+          test_id: "SEC30-02"
+          labels: ["network", "security"]
+          requires: [vm, bare_metal]
+          step: intra_tenant_boundary
+
     sg_scoping:
       checks:
         SgWorkloadScopingCheck:

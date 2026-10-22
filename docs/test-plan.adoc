@@ -5112,8 +5112,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/366[#366]
 | approved
 |
 
-.26+| Security & Identity
-.13+| Network Security
+.27+| Security & Identity
+.14+| Network Security
 .4+| BMC Security
 .4+|
 | [[SEC12-01]]SEC12-01
@@ -5272,8 +5272,8 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/288[#288]
 | published
 |
 
-.3+| Tenancy Isolation
-.3+|
+.4+| Tenancy Isolation
+.4+|
 | [[SEC11-01]]SEC11-01
 | SEC11
 | https://github.com/NVIDIA/ai-cloud-validation/issues/305[#305]
@@ -5301,6 +5301,21 @@ a| https://github.com/NVIDIA/ai-cloud-validation/issues/718[#718]
 |
 |
 | Verify traffic across the tenant-to-provider boundary is default-deny, with an explicitly allowed positive-control flow succeeding
+| pending
+|
+
+| [[SEC30-02]]SEC30-02
+| SEC30
+| https://github.com/NVIDIA/ai-cloud-validation/issues/719[#719]
+| network, security
+| tenant
+| Sampled flows across an intra-tenant boundary; separate from inter-tenant isolation.
+| P0
+a| https://github.com/NVIDIA/ai-cloud-validation/issues/719[#719]
+|
+|
+|
+| Verify unauthorized traffic between segments within one tenant is blocked while an explicitly allowed positive-control flow succeeds
 | pending
 |
 

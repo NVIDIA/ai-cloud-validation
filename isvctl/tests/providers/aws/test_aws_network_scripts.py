@@ -4636,7 +4636,7 @@ def test_segment_boundary_main_fails_step_when_resources_remain(monkeypatch: pyt
     clients = {"ec2": ec2, "iam": FakeSegmentBoundaryIam(), "ssm": object()}
 
     def _build(
-        _ec2: Any, _iam: Any, _cidr: str, _suffix: str, resources: dict[str, Any], _port: Any
+        _ec2: Any, _iam: Any, _cidr: str, _suffix: str, resources: dict[str, Any], _port: Any, _boundary: str
     ) -> tuple[str, str]:
         resources.update(_segment_resources())
         return "i-src", "i-tgt"
@@ -4782,8 +4782,9 @@ class FakeSegmentBoundaryAws:
         ("run_instances", 2),
     ],
 )
+@pytest.mark.parametrize("boundary", ["tenant-provider", "intra-tenant"])
 def test_segment_boundary_cleanup_removes_everything_after_partial_build(
-    fail_on: tuple[str, int] | None, monkeypatch: pytest.MonkeyPatch
+    fail_on: tuple[str, int] | None, monkeypatch: pytest.MonkeyPatch, boundary: str
 ) -> None:
     """Whichever build call fails, every resource created before it is recorded and torn down."""
     module = _load_network_script("segment_boundary_test.py")
@@ -4801,7 +4802,7 @@ def test_segment_boundary_cleanup_removes_everything_after_partial_build(
     }
 
     try:
-        module.build_boundary(aws, aws, "10.86.0.0/16", "abcd1234", resources, None)
+        module.build_boundary(aws, aws, "10.86.0.0/16", "abcd1234", resources, None, boundary)
     except Exception:
         assert fail_on is not None
     remaining = module.cleanup(aws, aws, resources)
@@ -5002,3 +5003,38 @@ def test_subnet_no_available_zones(monkeypatch: pytest.MonkeyPatch, capsys: pyte
     assert output["success"] is False
     assert "No available availability zones" in output["error"]
     assert not ec2.subnets and not ec2.deleted_vpcs
+
+
+@pytest.mark.parametrize("also_allow_port", [None, 8080])
+def test_intra_tenant_aws_topology(monkeypatch: pytest.MonkeyPatch, also_allow_port: int | None) -> None:
+    """Both segments share a VPC, with distinct SGs and one explicit allowed flow."""
+    module = _load_network_script("segment_boundary_test.py")
+    monkeypatch.setattr(module.create_ssm_instance_profile.__globals__["time"], "sleep", lambda _seconds: None)
+    aws = FakeSegmentBoundaryAws()
+    calls: dict[str, list[dict[str, Any]]] = {}
+    for name in ("create_subnet", "create_security_group", "authorize_security_group_ingress", "run_instances"):
+        original = getattr(aws, name)
+
+        def record(*, _name: str = name, _original: Any = original, **kwargs: Any) -> Any:
+            """Record topology requests and retain the stateful resource fake."""
+            calls.setdefault(_name, []).append(kwargs)
+            return _original(**kwargs)
+
+        monkeypatch.setattr(aws, name, record)
+    resources = _segment_resources()
+    resources.update(vpc_id=None, igw_id=None, rtb_id=None, subnet_ids=[], sg_ids=[], instance_ids=[])
+    module.build_boundary(aws, aws, "10.87.0.0/16", "abcd1234", resources, also_allow_port, "intra-tenant")
+    assert aws.seen["create_vpc"] == 1
+    assert {c["VpcId"] for c in calls["create_subnet"]} == {resources["vpc_id"]}
+    assert {c["CidrBlock"] for c in calls["create_subnet"]} == {"10.87.1.0/24", "10.87.2.0/24"}
+    assert {c["VpcId"] for c in calls["create_security_group"]} == {resources["vpc_id"]}
+    source, target = calls["run_instances"]
+    assert source["SubnetId"] != target["SubnetId"]
+    assert source["SecurityGroupIds"] != target["SecurityGroupIds"]
+    assert target["TagSpecifications"][0]["Tags"][0]["Value"] == "isv-segment-tenant-target"
+    (ingress,) = calls["authorize_security_group_ingress"]
+    assert ingress["GroupId"] == target["SecurityGroupIds"][0]
+    assert [p["FromPort"] for p in ingress["IpPermissions"]] == ([22] if also_allow_port is None else [22, 8080])
+    assert all(p["IpRanges"][0]["CidrIp"] == "10.87.1.0/24" for p in ingress["IpPermissions"])
+    assert module.cleanup(aws, aws, resources) == []
+    assert not aws.live

@@ -289,6 +289,14 @@ commands:
         timeout: 900
         output_schema: segment_boundary
 
+      # SEC30-02: independent probes between segments belonging to one tenant.
+      - name: intra_tenant_boundary
+        phase: test
+        command: "python3 ../scripts/network/segment_boundary_test.py"
+        args: ["--region", "{{region}}", "--cidr", "10.87.0.0/16", "--boundary", "intra-tenant"]
+        timeout: 900
+        output_schema: segment_boundary
+
       # Test 7: VPC IP Configuration (DDI) (~10s)
       - name: vpc_ip_config
         phase: test

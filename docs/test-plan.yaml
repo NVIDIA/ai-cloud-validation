@@ -4825,6 +4825,19 @@ domains:
                 github_issues:
                   - "#718"
                 status: pending
+              - summary: Verify unauthorized traffic between segments within one tenant is blocked while an explicitly allowed positive-control flow succeeds
+                req_id: SEC30
+                test_id: SEC30-02
+                actor: tenant
+                labels:
+                  - network
+                  - security
+                priority: P0
+                milestone: ""
+                notes: "Sampled flows across an intra-tenant boundary; separate from inter-tenant isolation."
+                github_issues:
+                  - "#719"
+                status: pending
               - summary: Verify one sampled effective allow rule has owner attribution and a matching approved record covering its traffic scope
                 req_id: SEC30
                 test_id: SEC30-03

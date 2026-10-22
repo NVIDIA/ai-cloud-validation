@@ -14,12 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Default-deny across a tenant-to-provider boundary test (SEC30-01) - TEMPLATE.
+"""Segment boundary default-deny test (SEC30-01 and SEC30-02) - TEMPLATE.
 
 This script is called during the "test" phase. It is SELF-CONTAINED:
-  1. Place a source in a tenant segment and a target in a provider segment,
-     with a network path between them (so a block is policy, not routing)
-  2. Allow exactly one flow from the tenant source to the provider target
+  1. For --boundary tenant-provider, place the source in a tenant segment and
+     the target in a provider segment. For --boundary intra-tenant, place both
+     endpoints in distinct segments belonging to the SAME tenant. Provide a
+     network path between them (so a block is policy, not routing)
+  2. Allow exactly one flow from the source to the target
      (the positive control) and leave everything else at the default policy
   3. Probe the positive control first, then each prohibited flow
   4. Tear down what you created and print a JSON object to stdout
@@ -55,10 +57,11 @@ DEMO_MODE = os.environ.get("ISVCTL_DEMO_MODE") == "1"
 
 
 def main() -> int:
-    """Probe the tenant-to-provider boundary and emit structured JSON result."""
+    """Probe the selected boundary and emit structured JSON result."""
     parser = argparse.ArgumentParser(description="Segment boundary default-deny test (template)")
     parser.add_argument("--region", required=True, help="Cloud region")
     parser.add_argument("--cidr", required=True, help="CIDR for the test network")
+    parser.add_argument("--boundary", choices=("tenant-provider", "intra-tenant"), default="tenant-provider")
     args = parser.parse_args()
 
     result: dict[str, Any] = {
@@ -68,7 +71,8 @@ def main() -> int:
         "region": args.region,
     }
 
-    # TODO: Replace with your platform's tenant/provider segment setup and probes.
+    # TODO: Select the topology using args.boundary and run fresh probes for it.
+    # Never reuse tenant/provider or inter-tenant evidence for intra-tenant isolation.
 
     if DEMO_MODE:
         result["positive_control"] = {"protocol": "tcp", "port": 22, "result": "connected"}
@@ -79,7 +83,7 @@ def main() -> int:
         ]
         result["success"] = True
     else:
-        result["error"] = "Not implemented - replace with your platform's segment boundary probes"
+        result["error"] = f"Not implemented - replace with your platform's {args.boundary} segment probes"
 
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
