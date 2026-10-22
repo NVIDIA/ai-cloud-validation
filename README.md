@@ -23,17 +23,6 @@ The fastest way to try running parts of the validation suite is against an exist
 ### Prerequisites
 
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) >= 0.13.4 (Python package manager)
-- An updated operating system CA store on every local, remote, and CI host
-  ([eMudhra incident and patched versions](https://emudhra.we-have-a-problem.com/)).
-  The reporter and other `urllib`/`ssl` clients use the host trust store; updating
-  `certifi` alone does not protect those connections. Update any custom bundles
-  configured through `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, or
-  `AWS_CA_BUNDLE` too. If using pip, upgrade it to >= 26.2.2 separately.
-
-After upgrading uv, run `uv sync --locked` in existing checkouts to install the
-patched `certifi` bundle used by Requests, Kubernetes, and the default boto3
-HTTPS transport. Rebuild CI images and update remote hosts before running tests
-or uploading results.
 
 Install:
 
