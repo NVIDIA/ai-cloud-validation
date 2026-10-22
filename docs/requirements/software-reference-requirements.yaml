@@ -730,12 +730,12 @@ requirements:
     reference_mapping: 'NSRG: K8s-Native ML/AI Frameworks (Dynamo/NIM)'
     covers_test: K8S40-01
     status: ''
-  - req_id: K8S32
+  - req_id: K8S42
     domain: Workload Orchestration
     component: Managed Kubernetes Control Plane
     description: K8s Nim Helm
     reference_mapping: 'NSRG: K8s-Native ML/AI Frameworks'
-    covers_test: K8S32-01
+    covers_test: K8S42-01
     status: ''
   - req_id: K8S33
     domain: Workload Orchestration

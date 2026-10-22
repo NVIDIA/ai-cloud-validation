@@ -9,7 +9,7 @@ reconciles all of these different goals.
 | File | Role |
 | ---- | ---- |
 | `../test-plan.yaml` | **Primary source of truth** for tests (lives one level up). |
-| `offtake-requirements.yaml` | **Source of record** for offtake requirements (curated in-repo copy of the public "NVIDIA Requirements Guide for AI Clouds"). |
+| `offtake-requirements.yaml` | **Source of record** for offtake requirements (curated in-repo copy of `docs/references/requirements-for-ai-clouds-v2.4.md`). |
 | `offtake-requirements.md` | Generated, publishable rendering of the offtake YAML (`make plan`). |
 | `software-reference-requirements.yaml` | **Source of record** for the NSRG-derived reference requirements. |
 | `software-reference-requirements.md` | Generated rendering of the reference YAML (`make plan`); one contributing requirements doc among several. |
@@ -64,17 +64,20 @@ prefix, check the registry below and add to it.
 **Collision policy (shared prefixes).** When a new reference requirement shares a
 prefix with offtake, **continue offtake's number space** rather than inventing a
 distinguished prefix - edge overlap is a *feature* (two groups independently
-validating the same idea). Concretely we did `SDN`+10, `K8S`+28, `BFX`+3 (offtake
-maxes `SDN10`/`K8S28`/`BFX03`). Selectivity is allowed per case. Accepted cost:
+validating the same idea). Concretely we did `SDN`+10, `K8S`+32, `BFX`+3 (offtake
+maxes `SDN10`/`K8S32`/`BFX03`). Selectivity is allowed per case. Accepted cost:
 this couples us to offtake's current max, so a future offtake addition could
 collide - `reqtrace validate` is the backstop, and the map remains the lineage
-record.
+record. v2.4 claimed `K8S32` (API Priority and Fairness). The reference
+requirement previously numbered `K8S32` (K8s Nim Helm) moved to `K8S42`, and
+test `K8S32-01` is now `K8S42-01` (`legacy_ids` keeps `K8S32-01`).
 
 ### Prefix registry
 
 | Prefix | Owner | Concern |
 | ------ | ----- | ------- |
-| `CNP` `BOOT` `SDN` `K8S` `SEC` `BFX` `DIR` `HSS` `DMS` `STG` `NET` `CAP` `BM` | offtake | offtake requirement domains (see offtake doc) |
+| `CNP` `BOOT` `SDN` `K8S` `SEC` `BFX` `DIR` `HSS` `DMS` `STG` `NET` `CAP` `BM` | offtake | offtake functional requirement domains (see offtake doc) |
+| `OST` `OIE` `OSB` `OSH` `OCR` `OFM` `OAL` `OVP` `OMA` `OCA` `OSL` `ODR` `OPO` | offtake | v2.4 operational requirement domains |
 | `IMG` | reference | image registry / golden images |
 | `AUTH` | reference | key & secret mgmt |
 | `IAM` | reference | identity & access mgmt |
@@ -91,7 +94,7 @@ record.
 | `LB` | reference | load balancing |
 | `STOR` `DATASVC` | reference | SDS / object / block / cache / vector / SQL / backup / model registry |
 | `SLURM` | reference | Slurm control plane |
-| `K8S` (29+) | reference | managed Kubernetes (continues offtake `K8S`) |
+| `K8S` (33+) | reference | managed Kubernetes (continues offtake `K8S`; former `K8S32` is `K8S42`) |
 | `POWER` | reference | power policy mgmt |
 | `APIGW` `AICP` `WEBUI` | reference | AI platform & user access |
 | `OBS` `TELEM` | reference | observability collectors / data lakes |
@@ -153,7 +156,7 @@ sync; see sec. 7).
 
 | Family | Labels | Meaning |
 | ------ | ------ | ------- |
-| Offtake | `offtake` | The test maps to at least one `offtake`-source requirement (full or partial coverage) that is present in the *NVIDIA Requirements for AI Clouds* v2.4 (`docs/references/requirements-for-ai-clouds-v2.4.md`). Requirements removed in v2.4 do not confer the label. |
+| Offtake | `offtake` | The test maps to at least one `offtake`-source requirement (full or partial coverage) that is present in the *NVIDIA Requirements for AI Clouds* v2.4 (`docs/references/requirements-for-ai-clouds-v2.4.md`). Requirements removed in v2.4 (`HSS04`, `HSS05`, `HSS06`, `HSS12`, `HSS14`, `HSS19`, `K8S21`) stay in the offtake listing with `status: removed` so existing test mappings still resolve, and do not confer the label. |
 
 `offtake` replaces the former hand-applied `min_req` label, which drifted from
 the requirement mappings and has been removed. Use `--label offtake` to select

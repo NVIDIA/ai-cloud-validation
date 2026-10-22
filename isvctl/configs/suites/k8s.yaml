@@ -404,7 +404,7 @@ tests:
           labels: ["kubernetes", "gpu", "workload", "slow"]
           timeout: 1500
         K8sNimHelmWorkload-1b:
-          test_id: "K8S32-01"
+          test_id: "K8S42-01"
           labels: ["kubernetes", "gpu", "workload", "slow"]
           model: "meta/llama-3.2-1b-instruct"
           model_tag: "latest"
@@ -413,7 +413,7 @@ tests:
           genai_perf_requests: 100
           genai_perf_concurrency: 4
         K8sNimHelmWorkload-3b:
-          test_id: "K8S32-01"
+          test_id: "K8S42-01"
           labels: ["kubernetes", "gpu", "workload", "slow"]
           model: "meta/llama-3.2-3b-instruct"
           model_tag: "latest"
