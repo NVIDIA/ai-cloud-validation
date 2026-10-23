@@ -2717,3 +2717,74 @@ class TestK8sCsiDriverHealthCheck:
         ctrl = outcomes["controller-deployment-healthy[efs.csi.aws.com]"]
         assert ctrl["passed"] is False
         assert "Conflicting" in ctrl["message"]
+
+
+class TestProbePodImageResolution:
+    """The probe pod's image must be fully qualified and reach every container.
+
+    An unqualified ``busybox:1.36`` is rejected outright by CRI-O's short-name policy,
+    and any container left on the manifest's ``placeholder`` literal strands the pod in
+    Pending on an unpullable ref -- which surfaces as an unrelated bind timeout much
+    later. Every module that renders the shared mount-pod manifest must fill every image.
+    """
+
+    @staticmethod
+    def _render(image: str | None = None) -> dict:
+        from isvtest.core.k8s import render_k8s_manifest
+        from isvtest.validations.k8s_storage import (
+            _MOUNT_POD_MANIFEST,
+            _set_fs_pod_fields,
+            get_k8s_storage_probe_image,
+        )
+
+        def mutate(doc: dict) -> dict:
+            return _set_fs_pod_fields(
+                doc,
+                namespace="ns",
+                name="probe",
+                pvc_name="pvc",
+                image=image or get_k8s_storage_probe_image(),
+            )
+
+        return yaml.safe_load(render_k8s_manifest(_MOUNT_POD_MANIFEST, mutate))
+
+    def test_default_image_is_fully_qualified(self) -> None:
+        from isvtest.validations.k8s_storage import _DEFAULT_IMAGE
+
+        assert "/" in _DEFAULT_IMAGE.split(":")[0], (
+            f"{_DEFAULT_IMAGE!r} is a short name; CRI-O rejects it with "
+            '"short-name mode is enforcing ... returns ambiguous list"'
+        )
+
+    def test_image_override_reaches_every_container(self) -> None:
+        spec = self._render(image="registry.example.com/mirror/busybox:1.36")["spec"]
+        images = {c["image"] for c in spec["containers"]} | {c["image"] for c in (spec.get("initContainers") or [])}
+        assert images == {"registry.example.com/mirror/busybox:1.36"}
+
+    @staticmethod
+    def _all_images(spec: dict) -> set[str]:
+        return {c["image"] for c in (spec.get("containers") or []) + (spec.get("initContainers") or [])}
+
+    def test_nfs_renderer_leaves_no_placeholder_image(self) -> None:
+        """k8s_nfs renders the same manifest through its own mutator; it must fill every image too."""
+        from isvtest.core.k8s import render_k8s_manifest
+        from isvtest.validations.k8s_nfs import _set_fs_pod_fields as nfs_set_fields
+        from isvtest.validations.k8s_storage import _MOUNT_POD_MANIFEST
+
+        def mutate(doc: dict) -> dict:
+            return nfs_set_fields(doc, namespace="ns", name="probe", pvc_name="pvc", image="example.com/img:1")
+
+        spec = yaml.safe_load(render_k8s_manifest(_MOUNT_POD_MANIFEST, mutate))["spec"]
+        assert "placeholder" not in self._all_images(spec)
+
+    def test_provisioning_modes_mount_pod_honours_the_image_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """K8S_STORAGE_PROBE_IMAGE must reach this check's mount pod like every other one."""
+        monkeypatch.setenv("K8S_STORAGE_PROBE_IMAGE", "registry.example.com/mirror/busybox:1.36")
+        check = K8sCsiProvisioningModesCheck(config={})
+        check._namespace = "ns"
+        applied: list[str] = []
+        monkeypatch.setattr(check, "_run_kubectl_apply", lambda manifest: (applied.append(manifest), (0, ""))[1])
+        check._apply_mount_pod("probe", "pvc")
+        assert applied, "no manifest was applied"
+        spec = yaml.safe_load(applied[0])["spec"]
+        assert self._all_images(spec) == {"registry.example.com/mirror/busybox:1.36"}

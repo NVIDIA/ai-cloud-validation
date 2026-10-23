@@ -1,0 +1,286 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# nvstorage-scale overlay: a metadata sweep (mdtest via elbencho: create / stat / delete)
+# instead of the IO sweep. Load after the base config:
+#
+#   uv run isvctl test run --capability kubernetes \
+#       -f isvctl/configs/providers/nvstorage-scale/config/storage.yaml -f isvctl/configs/providers/nvstorage-scale/config/overlays/mdtest.yaml
+#
+# (--provider/--suite cannot be combined with -f, so an overlay names the base file.)
+#
+# Commands are relative to the first config file's directory, not this overlay. The step
+# list is redeclared in full because the merge REPLACES lists; there is no verify or
+# targets step (upstream ships no mdtest summarizer, and the target layout is IO-only).
+#
+# HSS02-01 on mdtest: operations per second are judged as iops_meets_min, and
+# bandwidth_meets_min is reported SKIPPED -- mdtest does not measure bandwidth. So this
+# variant can FAIL HSS02-01 (too few ops/s) but reports it skipped, not passed, when healthy.
+
+version: "1.0"
+
+commands:
+  storage:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: gen_env
+        phase: setup
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/gen_env_sh.py"
+        args: ["--out", "{{ env.SST_RESULTS_DIR }}/env.acv-mdtest.sh"]
+        timeout: 60
+        env:
+          SST_SUBSTRATE: "kubectl"
+          # Namespace, node selector and claims come from the caller's SST_* environment,
+          # exactly as for config/storage.yaml.
+          SST_KUBECTL_ELBENCHO_IMAGE: "docker.io/breuner/elbencho:v3.2-1"
+          SST_KUBECTL_IMAGE_PULL_POLICY: "IfNotPresent"
+          # Smoke shape. See the sizing warning above before raising BRANCH_FACTOR.
+          SST_MDTEST_BRANCH_FACTOR: "2"
+          SST_MDTEST_ITEMS_PER_DIR: "10"
+          SST_MDTEST_ITERATIONS: "1"
+
+      # PRE-FLIGHT -- upstream's own validate_env.sh, before anything is dispatched.
+      #
+      # On kubectl it checks launcher prerequisites, the kube context, the
+      # namespace/PV/PVC identity BY UID (so a recreated claim reusing a name is caught),
+      # the worker node selector, and a real PVC read/write from the elbencho image.
+      #
+      # It runs AFTER gen_env and BEFORE submit_sweep, and it installs the composed env.sh
+      # itself. That ordering is load-bearing: validate_env.sh sources the checkout's
+      # env.sh, so run without installing it would validate the PREVIOUS run's
+      # configuration and pass confidently on settings this run never uses. install_env_sh
+      # is deterministic in config_hash, so submit then writes byte-identical content.
+      #
+      # Worth the ~1 minute: every check here otherwise fails AFTER a submit, as a cluster
+      # diagnostics bundle. A TEST_DIRS path missing from the PVC was reported as
+      # STORAGE_SCALE_TEST_DIAGNOSTIC_REASON=API_UNAVAILABLE -- pointing at
+      # the Kubernetes API when the real problem was a directory.
+      - name: preflight
+        phase: setup
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/preflight.py"
+        args:
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--env-sh"
+          - "{{ steps.gen_env.env_sh_path }}"
+          - "--config-hash"
+          - "{{ steps.gen_env.config_hash }}"
+        timeout: 1200
+
+      - name: submit_sweep
+        phase: setup
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/submit_sweep.py"
+        args:
+          - "--workload"
+          - "mdtest"
+          - "--env-sh"
+          - "{{ steps.gen_env.env_sh_path }}"
+          - "--config-hash"
+          - "{{ steps.gen_env.config_hash }}"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          - "--results-dir"
+          - "{{ env.SST_RESULTS_DIR }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--nodes"
+          - "1"
+          # mdtest-only, and REQUIRED: upstream rejects a submission without it
+          # (nv-mdtest-elbencho.sh:133).
+          - "--tasks"
+          - "1"
+        timeout: 1200 # > the driver's --submit-timeout (900), so the step reports its own timeout
+
+      - name: poll_sweep
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/poll_sweep.py"
+        args:
+          - "--workload"
+          - "mdtest"
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--substrate"
+          - "{{ steps.submit_sweep.substrate }}"
+          - "--coordinator-jobid"
+          - "{{ steps.submit_sweep.coordinator_jobid }}"
+          # REQUIRED on kubectl; without it the step falls back to local per-cell
+          # sentinels, which stay PENDING until collect runs, and --wait blocks for its
+          # full deadline on a sweep that already succeeded.
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--wait"
+          - "3600"
+          - "--interval"
+          - "30"
+        timeout: 4200 # --wait 3600 + a final --status of up to --native-timeout 300, + margin
+        # NOT because a failed poll is acceptable -- it is not, and
+        # qos_throughput receives this step's output and refuses a QoS verdict when poll
+        # failed or read stale progress, so a failed poll still turns the run red.
+        #
+        # This is here because the orchestrator BREAKS the phase on a failing step that
+        # lacks it (step_executor.py:305), and the very next step is `collect` -- which is
+        # the only thing that releases the PVC Lease and deletes the owned Job/DaemonSet,
+        # and which the teardown phase deliberately does not duplicate. Without this flag
+        # every failure mode of a sweep (FAILED, CANCELLED, abandoned, lost access, lock
+        # contention at the deadline) skips cleanup at exactly the moment it is needed,
+        # and the next run against this PVC contends on a Lease nothing will ever release.
+        # `collect` already carries continue_on_failure so one bad cell cannot discard good
+        # data; that guard was being defeated by the step in front of it.
+        continue_on_failure: true
+
+      # CANCEL (skip: true) -- see config/storage.yaml for the full rationale.
+      # It sits BEFORE collect for the same reason: cancel retains collection data but does
+      # NOT release the PVC Lease, so a cancellation with no collect after it leaks.
+      - name: cancel
+        phase: test
+        requires: [kubernetes]
+        skip: true
+        command: "python3 ../scripts/storage/cancel_sweep.py"
+        args:
+          - "--workload"
+          - "mdtest"
+          - "--sweep-dir={{ steps.submit_sweep.sweep_dir | default('') }}"
+          - "--substrate={{ steps.submit_sweep.substrate | default('kubectl') }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--expect-cancelled"
+          - "--allow-noop"
+        timeout: 1800
+        continue_on_failure: true
+
+      - name: collect
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/collect_sweep.py"
+        args:
+          - "--workload"
+          - "mdtest"
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--substrate"
+          - "{{ steps.submit_sweep.substrate }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+        timeout: 1800
+        continue_on_failure: true
+
+      # RESUME (skip: true) -- retry the non-SUCCESS cells of a collected attempt.
+      #
+      # ORDER MATTERS, and the driver enforces it: kubectl resume is COLLECTION-GATED.
+      # Unless the attempt is COLLECTED, `kubectl_resume_collected_sweep`
+      # (_nv-elbencho-kubectl-functions.sh:6176) refuses with INVALID_LIFECYCLE_OPERATION.
+      # So this sits AFTER collect, never instead of it -- collect is also what releases the
+      # PVC Lease, so resuming first would contend with the attempt being replaced.
+      #
+      # Resume creates a NEW attempt rather than re-entering the old one. The step asserts
+      # the attempt id actually changed: a driver that exits 0 with an unchanged id has
+      # dispatched nothing, and calling that success would hide a no-op behind a green step.
+      # After a resume the new attempt is asynchronous like any submission -- poll again.
+      #
+      # Off by default because retrying a benchmark is an operator decision: the failed
+      # cells may be the result you wanted to see.
+      - name: resume
+        phase: test
+        requires: [kubernetes]
+        skip: true
+        command: "python3 ../scripts/storage/resume_sweep.py"
+        args:
+          - "--workload"
+          - "mdtest"
+          - "--sweep-dir={{ steps.submit_sweep.sweep_dir | default('') }}"
+          - "--substrate={{ steps.submit_sweep.substrate | default('kubectl') }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          # Nothing to retry is a normal outcome when every cell succeeded.
+          - "--allow-noop"
+        timeout: 1800
+        continue_on_failure: true
+
+      # NO verify step here, and that is a constraint rather than an omission.
+      #
+      # The io config runs `verify_sweep.py`, which rebuilds the expected cell matrix from
+      # env_used.yaml and diffs it against the benchmark output files -- the only check in
+      # the provider that reads the configuration back instead of reasoning forward from
+      # what was produced. It wraps `utils/summarize-elbencho.py`, and that tool rejects an
+      # mdtest snapshot outright ("looks like mdtest-elbencho, not nv-elbencho IO sweep",
+      # `_validate_io_sweep_env`) and skips the directory. Upstream ships no mdtest
+      # equivalent, so there is nothing to call.
+      #
+      # mdtest completeness therefore rests on the execution sentinels that `collect`
+      # already checks: every execution that was reified reached SUCCESS. A configured
+      # cell that was never reified at all would not be caught. If upstream grows an
+      # mdtest summarizer, add the step here -- tools/test_steps.sh fails when it does.
+
+      - name: metrics
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/metrics.py"
+        args:
+          - "--workload"
+          - "mdtest"
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          # Minimums come from tests.settings below (ops/s, per cluster). Passing an io
+          # threshold (--min-write-gb-s) here is a hard error, not a no-op: an ignored
+          # threshold would leave `asserted: true` with nothing evaluated.
+          - "--min-create-ops-s={{ min_create_ops_s }}"
+          - "--min-stat-ops-s={{ min_stat_ops_s }}"
+          - "--min-delete-ops-s={{ min_delete_ops_s }}"
+        timeout: 2400
+        # A missed floor makes this step exit non-zero. Without this, the phase would stop here,
+        # qos_throughput would never run, and HSS02-01 would read SKIPPED instead of FAILED.
+        continue_on_failure: true
+
+      # The HSS02-01 verdict and gate; see config/storage.yaml and qos_throughput.py.
+      - name: qos_throughput
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/qos_throughput.py"
+        args:
+          - "--workload"
+          - "mdtest"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          - "--preflight"
+          - "{{ steps.preflight | default({}) | tojson }}"
+          - "--poll-sweep"
+          - "{{ steps.poll_sweep | default({}) | tojson }}"
+          - "--collect"
+          - "{{ steps.collect | default({}) | tojson }}"
+          - "--metrics"
+          - "{{ steps.metrics | default({}) | tojson }}"
+          - "--cancel"
+          - "{{ steps.cancel | default({}) | tojson }}"
+          - "--resume"
+          - "{{ steps.resume | default({}) | tojson }}"
+        timeout: 60
+
+tests:
+  description: "storage-scale-test metadata sweep on existing claims: HSS02-01 (operations only)"
+  settings:
+    # Same method as the IO floors in config/storage.yaml: a Kubernetes test cluster,
+    # 3 runs (single- and multi-claim), observed create 1607-1742, stat 1547-1713, delete
+    # 2807-3033 ops/s; each floor ~50% of the minimum. Tied to this matrix shape.
+    min_create_ops_s: "800"
+    min_stat_ops_s: "750"
+    min_delete_ops_s: "1400"

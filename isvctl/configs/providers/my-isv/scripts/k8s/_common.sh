@@ -132,16 +132,25 @@ if [ -z "$CSI_BLOCK_SC" ] || [ -z "$CSI_SHARED_FS_SC" ] || [ -z "$CSI_NFS_SC" ];
                 *" $sc_prov "*) ;;
                 *) continue ;;
             esac
+            # OCI File Storage is NFSv3 under the hood, so it belongs with the NFS
+            # classes even though its provisioner says "fss" rather than "nfs".
             case "$sc_prov" in
-                *nfs*) [ -z "$NFS_LIKE_SC" ] && NFS_LIKE_SC="$sc_name" ;;
+                *nfs*|*fss*) [ -z "$NFS_LIKE_SC" ] && NFS_LIKE_SC="$sc_name" ;;
             esac
             case "$sc_prov" in
-                *nfs*|*efs*|*cephfs*|*filestore*|*azurefile*)
+                *nfs*|*efs*|*cephfs*|*filestore*|*azurefile*|*fss*|*lustre*|*gpfs*|*weka*|*beegfs*)
                     [ -z "$SHARED_LIKE_SC" ] && SHARED_LIKE_SC="$sc_name" ;;
+                *block*|*ebs*|*disk*|*pd.csi*|*cinder*)
+                    # Prefer a provisioner that names itself block over the catch-all
+                    # below: the fallback cannot tell a block device from an unknown
+                    # shared filesystem, and picking wrong points every block probe at
+                    # a parallel filesystem that will not bind ReadWriteOnce.
+                    BLOCK_PREFERRED_SC="${BLOCK_PREFERRED_SC:-$sc_name}" ;;
                 *)
                     [ -z "$BLOCK_LIKE_SC" ] && BLOCK_LIKE_SC="$sc_name" ;;
             esac
         done <<< "$SC_LINES"
+        [ -n "${BLOCK_PREFERRED_SC:-}" ] && BLOCK_LIKE_SC="$BLOCK_PREFERRED_SC"
         [ -z "$CSI_BLOCK_SC" ] && CSI_BLOCK_SC="$BLOCK_LIKE_SC"
         [ -z "$CSI_SHARED_FS_SC" ] && CSI_SHARED_FS_SC="$SHARED_LIKE_SC"
         [ -z "$CSI_NFS_SC" ] && CSI_NFS_SC="$NFS_LIKE_SC"

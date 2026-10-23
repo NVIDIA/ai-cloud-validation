@@ -1,0 +1,256 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# nvstorage-scale overlay: the same IO sweep on a Slurm cluster. Load after the base config:
+#
+#   uv run isvctl test run --capability slurm \
+#       -f isvctl/configs/providers/nvstorage-scale/config/storage.yaml -f isvctl/configs/providers/nvstorage-scale/config/overlays/slurm.yaml
+#
+# (--provider/--suite cannot be combined with -f, so an overlay names the base file.)
+#
+# Commands are relative to the first config file's directory, not this overlay. The step
+# list is redeclared in full because the merge REPLACES lists.
+#
+# NOT RUN in this change: no Slurm cluster was available. The bandwidth minimums below were
+# baselined on a Slurm dev cluster (see the metrics step). That run recorded no
+# IOPS, so the IOPS minimums are deliberately empty, and qos_throughput fails HSS02-01 with
+# "no iops minimum configured" until they are set -- an unset minimum is not a met one.
+
+version: "1.0"
+
+commands:
+  storage:
+    # REQUIRED. `phases` defaults to ["setup", "teardown"] (schema.py:159) -- omit it and every
+    # `phase: test` step aborts the run with "has phase 'test' not in phases list".
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # 1/4 -- translate SST_* into an env.sh overlay. Pure, offline, no cluster.
+      - name: gen_env
+        phase: setup
+        requires: [slurm]
+        command: "python3 ../scripts/storage/gen_env_sh.py"
+        args: ["--out", "{{ env.SST_RESULTS_DIR }}/env.acv.sh"]
+        timeout: 60
+        env:
+          SST_SUBSTRATE: "slurm"
+          # Everything below is literal configuration. Edit here, not in env.sh.
+          SST_PARTITION: "all"
+          SST_RUN_TIME: "0-04:00:00"
+          SST_IO_SIZES: "1M"
+          SST_THREADS: "1,4"
+          SST_DURATION: "15"
+
+      # 2/4 -- install the overlay and start the sweep, then let go of it.
+      # Fast by design: it waits only for executions/.coordinator.jobid, which the
+      # coordinator writes as soon as sbatch returns.
+      - name: submit_sweep
+        phase: setup
+        requires: [slurm]
+        command: "python3 ../scripts/storage/submit_sweep.py"
+        args:
+          - "--env-sh"
+          - "{{ steps.gen_env.env_sh_path }}"
+          - "--config-hash"
+          - "{{ steps.gen_env.config_hash }}"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          - "--results-dir"
+          - "{{ env.SST_RESULTS_DIR }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--nodes"
+          - "1,2"
+          # Batch mode (upstream PR #7). Uncomment --batch to prepare a multi-group
+          # batch and seal it in one step instead of dispatching a single sweep; add
+          # one --batch-group per extra group. The flags above become group 1.
+          # Each --batch-group value is ONE shell-quoted string of driver flags.
+          # --batch exports batch_results_dir, which is the handle the later steps
+          # take in place of sweep_dir -- a batch root is itself a results dir.
+          # - "--batch"
+          # - "--batch-group"
+          # - "--nodes 2 --write-no-read"
+          # - "--batch-group"
+          # - "--nodes 1,2 --bio"
+        timeout: 1200 # > the driver's --submit-timeout (900), so the step reports its own timeout
+
+      # 3/4 -- progress report. Reads only durable files, so it is safe to re-run at will.
+      # It blocks for up to --wait seconds for the sweep to land; passing --allow-incomplete
+      # would instead let an unfinished sweep through (not done here).
+      - name: poll_sweep
+        phase: test
+        requires: [slurm]
+        command: "python3 ../scripts/storage/poll_sweep.py"
+        args:
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--substrate"
+          - "{{ steps.submit_sweep.substrate }}"
+          - "--coordinator-jobid"
+          - "{{ steps.submit_sweep.coordinator_jobid }}"
+          # BLOCK until the sweep is terminal. Without this the step polls once, reports
+          # "running", passes, and `collect` then parses an unfinished sweep -- yielding
+          # complete=false and results_csv_count=0.
+          #
+          # This is the one place the pipeline is deliberately synchronous, and it does not
+          # undo the async design: the sweep is already detached and survives this process
+          # dying. Waiting here is what a single end-to-end `isvctl test run` needs. For the
+          # detach-and-come-back-later workflow, run poll/collect/metrics as separate
+          # invocations against the sweep_dir instead.
+          - "--wait"
+          - "3600"
+          - "--interval"
+          - "30"
+        timeout: 4200 # --wait 3600 + a final --status of up to --native-timeout 300, + margin
+        # The orchestrator BREAKS the phase on a failing step that lacks this
+        # (step_executor.py:305), and the next step is `collect`. A sweep that failed is
+        # precisely the one whose partial results are worth keeping, so a failed poll must
+        # not skip the step that publishes them. The run still goes red: `collect` and
+        # `metrics` both assert on what they find. (On kubectl this matters more again --
+        # there `collect` also releases the PVC Lease -- but the data argument alone is
+        # enough here.)
+        continue_on_failure: true
+
+      # 4/4 -- roll the sweep up into something a validation can assert on.
+      # continue_on_failure is deliberate: a sweep with one FAILED cell must still publish
+      # the cells that finished, or one bad cell discards the whole run's data.
+      - name: collect
+        phase: test
+        requires: [slurm]
+        command: "python3 ../scripts/storage/collect_sweep.py"
+        args:
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--substrate"
+          - "{{ steps.submit_sweep.substrate }}"
+        timeout: 1800
+        continue_on_failure: true
+
+      # 5/5 -- headline numbers, and the only step that actually asserts anything.
+      # The thresholds are FLOORS and are ACV's own. They are deliberately NOT the
+      # FS_MAX_* values in env.sh: those are run-SIZING inputs feeding
+      # compute_target_file_count_per_thread (lib/_elbencho_functions.sh:940), not
+      # acceptance criteria -- asserting against them would be circular, since raising one
+      # changes the file count and therefore the benchmark being measured.
+      # Units are GB/s (decimal bytes) throughout. Note env.sh mixes GB/s and Gbps (bits)
+      # in adjacent lines; do not copy a number across without converting.
+      - name: metrics
+        phase: test
+        requires: [slurm]
+        command: "python3 ../scripts/storage/metrics.py"
+        args:
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          # Sets `platform` in this step's output; `env:` is per-step so this step
+          # inherits no SST_SUBSTRATE and would otherwise report "unknown".
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          # Floors, in GB/s (decimal bytes). These are ACV-owned acceptance criteria, NOT the
+          # FS_MAX_* sizing knobs -- see the note above the step.
+          #
+          # Measured on a Slurm dev cluster at --nodes 1,2, SST_DURATION=15:
+          # write 2.66-2.72 GB/s, read 8.01-8.28 GB/s aggregate. These floors sit at roughly
+          # a third of that, so ordinary variance does not produce a false red, while a real
+          # regression or a degraded filesystem still trips them. Re-baseline per cluster.
+          #
+          # Leaving them out is not neutral: qos_throughput refuses a verdict unless
+          # thresholds were applied, so a run that measures without comparing fails on purpose.
+          - "--min-write-gb-s={{ min_write_gb_s }}"
+          - "--min-read-gb-s={{ min_read_gb_s }}"
+          - "--min-write-iops={{ min_write_iops }}"
+          - "--min-read-iops={{ min_read_iops }}"
+        timeout: 2400
+        # A missed floor makes this step exit non-zero. Without this, the phase would stop here,
+        # qos_throughput would never run, and HSS02-01 would read SKIPPED instead of FAILED.
+        continue_on_failure: true
+
+      # RECOVERY (skip: true) -- flip to false before a run that should resume its own sweep.
+      # Not after the fact with `--phase test`: step outputs do not persist across isvctl runs.
+      # For a sweep from an earlier run, call the driver: `nv-elbencho-sweep.sh --resume <dir>`.
+      # Only meaningful when poll_sweep reported `state: abandoned`. Detached like submit,
+      # because --resume ends in the same blocking dispatch call a fresh run does.
+      # It waits for the coordinator id to CHANGE: the prior attempt's id is still on disk,
+      # so waiting for "an id" would return the stale one and report success immediately.
+      # Exit 1 from --resume is ambiguous -- refusal (coordinator still live) and genuine
+      # failure both exit 1 -- so the step distinguishes them by matching the refusal text.
+      - name: resume
+        phase: test
+        requires: [slurm]
+        skip: true
+        command: "python3 ../scripts/storage/resume_sweep.py"
+        args:
+          - "--sweep-dir={{ steps.submit_sweep.sweep_dir | default('') }}"
+          - "--substrate={{ steps.submit_sweep.substrate | default('slurm') }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--allow-noop"
+        timeout: 900
+        continue_on_failure: true
+
+      # TEARDOWN (skip: true) -- deletes real data on a shared filesystem. Left off by
+      # default on purpose: opting in should be a decision, not a default.
+      # Without it, sweep data accumulates under TEST_DIRS. On one dev cluster a 60s sweep at
+      # 2 nodes x 4 threads filled a 100 GB scratch filesystem in ~30s, failing the NEXT run
+      # for a reason unrelated to whatever was being tested.
+      # SST_TEST_DATA_PATH must be a STRICT subdirectory of SST_TEST_ROOT; the step refuses
+      # the root itself, anything outside it, '..', '/' and relative paths. Start with
+      # --dry-run on a new cluster.
+
+      # The HSS02-01 verdict and gate; see config/storage.yaml and qos_throughput.py.
+      - name: qos_throughput
+        phase: test
+        requires: [slurm]
+        command: "python3 ../scripts/storage/qos_throughput.py"
+        args:
+          - "--workload"
+          - "io"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          - "--poll-sweep"
+          - "{{ steps.poll_sweep | default({}) | tojson }}"
+          - "--collect"
+          - "{{ steps.collect | default({}) | tojson }}"
+          - "--metrics"
+          - "{{ steps.metrics | default({}) | tojson }}"
+          - "--resume"
+          - "{{ steps.resume | default({}) | tojson }}"
+        timeout: 60
+      - name: cleanup
+        phase: teardown
+        requires: [slurm]
+        skip: true
+        command: "python3 ../scripts/storage/delete_data.py"
+        args:
+          - "--path"
+          - "{{ env.SST_TEST_DATA_PATH }}"
+          - "--test-root"
+          - "{{ env.SST_TEST_ROOT }}"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--results-dir"
+          - "{{ env.SST_RESULTS_DIR }}"
+        timeout: 3600
+        continue_on_failure: true
+
+tests:
+  description: "storage-scale-test IO sweep on Slurm: HSS02-01 QoS throughput"
+  settings:
+    min_write_gb_s: "0.9"
+    min_read_gb_s: "2.7"
+    min_write_iops: ""
+    min_read_iops: ""
