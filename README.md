@@ -22,7 +22,7 @@ The fastest way to try running parts of the validation suite is against an exist
 
 ### Prerequisites
 
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python package manager)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) >= 0.13.4 (Python package manager)
 
 Install:
 
