@@ -194,7 +194,9 @@ tests:
         HssQosThroughputCheck:
           test_id: "HSS02-01"
           labels: ["offtake", "storage"]
-          requires: [vm, bare_metal]
+          # Any client environment: the check reads only step output, and the requirement
+          # is on the storage, not on how the measuring client was launched.
+          requires: [vm, bare_metal, kubernetes, slurm]
           step: qos_throughput
         HssNonDisruptiveUpgradeCheck:
           test_id: "HSS05-01"

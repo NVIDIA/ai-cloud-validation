@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# nvstorage-scale overlay: one IO sweep spread across SEVERAL claims at once, weighted, and a
+# demand that the spread really happened. Load after the base config, with >= 2 claims:
+#
+#   export SST_TEST_DIRS="ns/claim-a:scale-test:2,ns/claim-b:scale-test:1"
+#   uv run isvctl test run --capability kubernetes \
+#       -f isvctl/configs/providers/nvstorage-scale/config/storage.yaml -f isvctl/configs/providers/nvstorage-scale/config/overlays/multiclaim.yaml
+#
+# (--provider/--suite cannot be combined with -f, so an overlay names the base file.)
+#
+# Multi-claim targets are storage-scale-test v2.0.0's headline kubectl feature: each
+# TEST_DIRS key names a claim and its weight is how many target slots that claim gets.
+# The targets step compares those weights with the slots elbencho actually wrote to, and
+# qos_throughput refuses a verdict unless at least `min_claims` claims were configured AND
+# exercised. Run this with one claim and HSS02-01 fails, which is the point: a multi-claim
+# run that passes on a single claim has tested nothing about multi-claim.
+#
+# Only a setting changes, so the base config's steps apply unchanged.
+
+version: "1.0"
+
+tests:
+  description: "storage-scale-test IO sweep across >= 2 weighted claims: HSS02-01 QoS throughput"
+  settings:
+    min_claims: "2"

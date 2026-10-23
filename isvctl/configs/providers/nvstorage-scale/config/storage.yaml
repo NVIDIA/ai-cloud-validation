@@ -1,0 +1,417 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# nvstorage-scale storage validation: run a storage-scale-test elbencho sweep against
+# existing, Bound PVCs on Kubernetes and judge it with the storage suite's HSS02-01
+# (HssQosThroughputCheck: provisioned throughput meets the minimum bandwidth and IOPS).
+#
+#   uv run isvctl test run --provider nvstorage-scale --suite storage --capability kubernetes
+#
+# Variants load as a second -f after this file (commands stay relative to THIS file's
+# directory; --provider/--suite cannot be combined with -f):
+#   uv run isvctl test run --capability kubernetes -f config/storage.yaml -f <overlay>
+#   -f config/overlays/multiclaim.yaml   one sweep across >= 2 weighted claims
+#   -f config/overlays/mdtest.yaml       metadata (create/stat/delete) instead of IO
+#   -f config/overlays/slurm.yaml        the same IO sweep on a Slurm cluster
+#
+# --capability is required: in the default core context HSS02-01 is skipped, and every
+# step here declares `requires: [kubernetes]`, so nothing runs.
+#
+# Like every provider, this file defines no checks: the suite owns them. storage-scale-test
+# measures; the qos_throughput step turns the measurement into the suite's HSS02-01 shape.
+# See ../README.md for the SST_* inputs.
+
+import:
+  - ../../../suites/storage.yaml
+
+version: "1.0"
+
+commands:
+  # Kubernetes substrate. Cluster-specific inputs come from YOUR environment, not this file:
+  #   SST_TEST_DIRS              "[namespace/]claim:path:weight[,...]"  (required)
+  #   SST_KUBECTL_NAMESPACE      namespace for keys that do not name one  (optional)
+  #   SST_KUBECTL_NODE_SELECTOR  e.g. "node-role=storage-test"  (optional; empty = any node)
+  # See ../README.md.
+  #
+  # What to know about this shape:
+  #   * storage-scale-test NEVER provisions storage. Each SST_TEST_DIRS key names a claim
+  #     that must already exist and be Bound (RWX, Filesystem mode); the driver finds its PV,
+  #     only reads them, and pins both UIDs so a recreated claim that reuses the name cannot
+  #     be written to by mistake. Create the PVC out of band. (KUBECTL_PV / KUBECTL_PVC were
+  #     removed in storage-scale-test v2.0.0 and are now a hard error.)
+  #   * --run-to-completion is REQUIRED, not optional, for this shape. Upstream PR #8 made
+  #     ELBENCHO_FILES_PER_NODE with the `worker-directories` layout refuse a duration-based
+  #     run; the alternatives are buffered IO or multiple TEST_DIRS roots. Drop the flag and
+  #     the driver exits with that refusal.
+  #   * The sweep runs on whatever the node selector matches. Confirm the node count and
+  #     arch first -- `--nodes` above the number of matching Ready nodes never schedules.
+  storage:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      - name: gen_env
+        phase: setup
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/gen_env_sh.py"
+        args: ["--out", "{{ env.SST_RESULTS_DIR }}/env.acv.sh"]
+        timeout: 60
+        env:
+          SST_SUBSTRATE: "kubectl"
+          # Namespace, node selector and claims are deliberately absent: they are per
+          # cluster and come from the caller's SST_* environment (see the note above).
+          SST_KUBECTL_ELBENCHO_IMAGE: "docker.io/breuner/elbencho:v3.2-1"
+          SST_KUBECTL_IMAGE_PULL_POLICY: "IfNotPresent"
+          # Smoke shape: one io size, one thread count, 2 files/node, 60s ceiling.
+          SST_IO_SIZES: "1M"
+          SST_THREADS: "1"
+          SST_FILES_PER_NODE: "2"
+          SST_FILE_LAYOUT: "worker-directories"
+          SST_DURATION: "60"
+
+      # PRE-FLIGHT -- upstream's own validate_env.sh, before anything is dispatched.
+      #
+      # On kubectl it checks launcher prerequisites, the kube context, the
+      # namespace/PV/PVC identity BY UID (so a recreated claim reusing a name is caught),
+      # the worker node selector, and a real PVC read/write from the elbencho image.
+      #
+      # It runs AFTER gen_env and BEFORE submit_sweep, and it installs the composed env.sh
+      # itself. That ordering is load-bearing: validate_env.sh sources the checkout's
+      # env.sh, so run without installing it would validate the PREVIOUS run's
+      # configuration and pass confidently on settings this run never uses. install_env_sh
+      # is deterministic in config_hash, so submit then writes byte-identical content.
+      #
+      # Worth the ~1 minute: every check here otherwise fails AFTER a submit, as a cluster
+      # diagnostics bundle. A TEST_DIRS path missing from the PVC was reported as
+      # STORAGE_SCALE_TEST_DIAGNOSTIC_REASON=API_UNAVAILABLE -- pointing at
+      # the Kubernetes API when the real problem was a directory.
+      - name: preflight
+        phase: setup
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/preflight.py"
+        args:
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--env-sh"
+          - "{{ steps.gen_env.env_sh_path }}"
+          - "--config-hash"
+          - "{{ steps.gen_env.config_hash }}"
+        timeout: 1200
+
+      - name: submit_sweep
+        phase: setup
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/submit_sweep.py"
+        args:
+          - "--env-sh"
+          - "{{ steps.gen_env.env_sh_path }}"
+          - "--config-hash"
+          - "{{ steps.gen_env.config_hash }}"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          - "--results-dir"
+          - "{{ env.SST_RESULTS_DIR }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--nodes"
+          - "1"
+          # REQUIRED for files-per-node + worker-directories; see the note above.
+          - "--run-to-completion"
+        timeout: 1200 # > the driver's --submit-timeout (900), so the step reports its own timeout
+
+      - name: poll_sweep
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/poll_sweep.py"
+        args:
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--substrate"
+          - "{{ steps.submit_sweep.substrate }}"
+          - "--coordinator-jobid"
+          - "{{ steps.submit_sweep.coordinator_jobid }}"
+          # REQUIRED on kubectl: poll_sweep shells the driver's --status for the
+          # authoritative state. Omit it and the step falls back to local per-cell
+          # sentinels, which stay PENDING until collect runs -- so --wait below blocks
+          # for its full hour on a sweep that already succeeded.
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          - "--wait"
+          - "3600"
+          - "--interval"
+          - "30"
+        timeout: 4200 # --wait 3600 + a final --status of up to --native-timeout 300, + margin
+        # NOT because a failed poll is acceptable -- it is not, and
+        # qos_throughput receives this step's output and refuses a QoS verdict when poll
+        # failed or read stale progress, so a failed poll still turns the run red.
+        #
+        # This is here because the orchestrator BREAKS the phase on a failing step that
+        # lacks it (step_executor.py:305), and the very next step is `collect` -- which is
+        # the only thing that releases the PVC Lease and deletes the owned Job/DaemonSet,
+        # and which the teardown phase deliberately does not duplicate. Without this flag
+        # every failure mode of a sweep (FAILED, CANCELLED, abandoned, lost access, lock
+        # contention at the deadline) skips cleanup at exactly the moment it is needed,
+        # and the next run against this PVC contends on a Lease nothing will ever release.
+        # `collect` already carries continue_on_failure so one bad cell cannot discard good
+        # data; that guard was being defeated by the step in front of it.
+        continue_on_failure: true
+
+      # CANCEL (skip: true) -- stop a running sweep and publish the cancellation.
+      #
+      # ORDER MATTERS: this sits BEFORE collect, deliberately. Cancel stops the Job but
+      # retains collection data; --collect is what releases the PVC Lease and deletes the
+      # owned resources. Placed after collect (where it first landed) a cancellation would
+      # have no collect to follow it, so the step added to make a leak visible would
+      # guarantee one -- and in an ordinary run it would always no-op, because poll has
+      # already driven the sweep terminal and collect has already released it.
+      # Off by default because cancelling is an operator decision, not something a routine
+      # run should do. Flip it to false BEFORE a run that should cancel its own sweep. It
+      # cannot be applied afterwards with `--phase test`: step outputs do not persist across
+      # isvctl invocations, so a later run has no sweep_dir. To stop a sweep from an earlier
+      # run, call the driver directly: `nv-elbencho-sweep.sh --cancel <sweep_dir>`, then
+      # `--collect <sweep_dir>`.
+      #
+      # Two things to know before using it:
+      #   * Cancellation is two-phase. The local attempt goes
+      #     SUBMITTED -> CANCEL_REQUESTED -> TERMINAL, and a client that exits mid-way
+      #     leaves it in CANCEL_REQUESTED. Repeating --cancel resumes the exact deletion
+      #     (KUBERNETES_ELBENCHO_LIFECYCLE.md T-08), which is what --retries does.
+      #   * Cancel does NOT release the cluster. It stops the Job and retains collection
+      #     data; the PVC Lease and owned resources are released by --collect. So run
+      #     collect AFTER cancelling, or the next sweep contends for the PVC.
+      - name: cancel
+        phase: test
+        requires: [kubernetes]
+        skip: true
+        command: "python3 ../scripts/storage/cancel_sweep.py"
+        args:
+          - "--sweep-dir={{ steps.submit_sweep.sweep_dir | default('') }}"
+          - "--substrate={{ steps.submit_sweep.substrate | default('kubectl') }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          # The cancellation was intended, so reaching CANCELLED is a pass. Drop this and
+          # the step reports the outcome without calling a cancelled sweep successful.
+          - "--expect-cancelled"
+          # Nothing to cancel (already terminal) is not an error when cancelling is a
+          # best-effort cleanup.
+          - "--allow-noop"
+        timeout: 1800
+        continue_on_failure: true
+
+      - name: collect
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/collect_sweep.py"
+        args:
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--substrate"
+          - "{{ steps.submit_sweep.substrate }}"
+          # REQUIRED on kubectl (collect_sweep.py:113): results live on the PVC until the
+          # driver publishes them, so collect must shell the driver to fetch them.
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+        timeout: 1800
+        continue_on_failure: true
+
+      # RESUME (skip: true) -- retry the non-SUCCESS cells of a collected attempt.
+      #
+      # ORDER MATTERS, and the driver enforces it: kubectl resume is COLLECTION-GATED.
+      # Unless the attempt is COLLECTED, `kubectl_resume_collected_sweep`
+      # (_nv-elbencho-kubectl-functions.sh:6176) refuses with INVALID_LIFECYCLE_OPERATION.
+      # So this sits AFTER collect, never instead of it -- collect is also what releases the
+      # PVC Lease, so resuming first would contend with the attempt being replaced.
+      #
+      # Resume creates a NEW attempt rather than re-entering the old one. The step asserts
+      # the attempt id actually changed: a driver that exits 0 with an unchanged id has
+      # dispatched nothing, and calling that success would hide a no-op behind a green step.
+      # After a resume the new attempt is asynchronous like any submission -- poll again.
+      #
+      # Off by default because retrying a benchmark is an operator decision: the failed
+      # cells may be the result you wanted to see.
+      - name: resume
+        phase: test
+        requires: [kubernetes]
+        skip: true
+        command: "python3 ../scripts/storage/resume_sweep.py"
+        args:
+          - "--workload"
+          - "io"
+          - "--sweep-dir={{ steps.submit_sweep.sweep_dir | default('') }}"
+          - "--substrate={{ steps.submit_sweep.substrate | default('kubectl') }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          # Nothing to retry is a normal outcome when every cell succeeded.
+          - "--allow-noop"
+        timeout: 1800
+        continue_on_failure: true
+
+      # VERIFY -- the only step that reads the CONFIGURATION back.
+      #
+      # Everything above reasons forward from what the sweep produced: poll reads execution
+      # sentinels, collect counts published CSVs, metrics parses the rows that exist. A
+      # sweep that reified fewer executions than it was configured for passes all three,
+      # because every artefact that exists is healthy -- there are just fewer of them.
+      #
+      # summarize-elbencho.py rebuilds the expected cell matrix from this sweep's own
+      # env_used.yaml and diffs it against the .out files on disk. It runs AFTER collect
+      # because on kubectl those files live on the PVC until the driver publishes them.
+      #
+      # It ALWAYS exits 0 -- a directory it cannot read is a stderr warning and a skip --
+      # so the step requires a summary block naming the directory and treats its absence
+      # as failure. See verify_sweep.py's module docstring.
+      - name: verify
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/verify_sweep.py"
+        args:
+          - "--workload"
+          - "io"
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+        timeout: 600
+        continue_on_failure: true
+
+      # TARGETS: which claims did elbencho actually write to, and with what weight?
+      #
+      # verify proves every configured CELL ran. It cannot see WHERE: a two-claim sweep
+      # that put every target on one claim passes it, because every cell that exists is
+      # healthy. This step compares the claim weights env_used.yaml configured against the
+      # distinct target slots in the .out files' COMMAND LINEs. It only reports;
+      # qos_throughput does the judging. After collect, because on kubectl
+      # the .out files live on the PVC until the driver publishes them.
+      - name: targets
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/targets_sweep.py"
+        args:
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+        timeout: 120
+        continue_on_failure: true
+
+      - name: metrics
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/metrics.py"
+        args:
+          - "--sweep-dir"
+          - "{{ steps.submit_sweep.sweep_dir }}"
+          - "--scale-test-base"
+          - "{{ env.SCALE_TEST_BASE }}"
+          # Records the substrate in this step's output. ACV `env:` is per-step, so this
+          # step inherits no SST_SUBSTRATE; without the flag the payload reads "unknown".
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          # Minimums come from tests.settings below; qos_throughput reports them as HSS02-01.
+          - "--min-write-gb-s={{ min_write_gb_s }}"
+          - "--min-read-gb-s={{ min_read_gb_s }}"
+          - "--min-write-iops={{ min_write_iops }}"
+          - "--min-read-iops={{ min_read_iops }}"
+        timeout: 2400
+        # A missed floor makes this step exit non-zero. Without this, the phase would stop here,
+        # qos_throughput would never run, and HSS02-01 would read SKIPPED instead of FAILED.
+        continue_on_failure: true
+
+      # QOS_THROUGHPUT -- the verdict, judged by the storage suite's HssQosThroughputCheck
+      # (HSS02-01: provisioned throughput meets the minimum bandwidth and IOPS).
+      #
+      # metrics owns the thresholds; this step folds its verdicts into the HSS02-01 shape.
+      # It is also the gate. Every test-phase step above runs with continue_on_failure so
+      # collect always releases the Lease, and the orchestrator does not fail a run for such
+      # a step -- so each step's output is handed in here, and a sweep that failed any
+      # invariant (lost cluster, half the matrix, an unwritten claim, a stuck cancel) gets
+      # no QoS verdict. See qos_throughput.py.
+      #
+      # Deliberately NOT continue_on_failure: it is the last step, and its own failure must
+      # fail the run even with HSS02-01 excluded.
+      - name: qos_throughput
+        phase: test
+        requires: [kubernetes]
+        command: "python3 ../scripts/storage/qos_throughput.py"
+        args:
+          - "--workload"
+          - "io"
+          - "--substrate"
+          - "{{ steps.gen_env.substrate }}"
+          - "--min-claims={{ min_claims }}"
+          - "--preflight"
+          - "{{ steps.preflight | default({}) | tojson }}"
+          - "--poll-sweep"
+          - "{{ steps.poll_sweep | default({}) | tojson }}"
+          - "--collect"
+          - "{{ steps.collect | default({}) | tojson }}"
+          - "--verify"
+          - "{{ steps.verify | default({}) | tojson }}"
+          - "--targets"
+          - "{{ steps.targets | default({}) | tojson }}"
+          - "--metrics"
+          - "{{ steps.metrics | default({}) | tojson }}"
+          # default({}): a step that left no output renders `{}`. The gate reports a required
+          # step that did so as "did not report"; an opt-in step (cancel/resume) as not run.
+          - "--cancel"
+          - "{{ steps.cancel | default({}) | tojson }}"
+          - "--resume"
+          - "{{ steps.resume | default({}) | tojson }}"
+        timeout: 60
+
+tests:
+  cluster_name: "nvstorage-scale-storage-validation"
+  description: "storage-scale-test sweep on existing claims: HSS02-01 QoS throughput"
+
+  settings:
+    # Fewest claims the sweep must be spread across. overlays/multiclaim.yaml raises it.
+    min_claims: "1"
+    # HSS02-01 minimums, enforced by the metrics step and reported by qos_throughput.
+    # Per-cluster: re-baseline on yours (override these in a config of your own). Defaults
+    # were measured on a Kubernetes test cluster against one RWX Lustre-backed claim,
+    # 5 runs over 8 days, single- and multi-claim: WRITE 0.189-0.194 GB/s / 176-186 IOPS,
+    # READ 0.242-0.251 GB/s / 226-233 IOPS (2.6%/3.7% spread). Each floor sits at ~50% of
+    # the observed minimum: below normal variance, above a halving of throughput. They are
+    # tied to THIS matrix shape (1 node, 2 files/node, 1M blocks); change the matrix and
+    # re-measure rather than scaling them.
+    min_write_gb_s: "0.10"
+    min_read_gb_s: "0.12"
+    min_write_iops: "90"
+    min_read_iops: "115"
+
+  exclude:
+    # SAFETY: every storage-suite check with no step binding is a LIVE probe that runs
+    # straight against the cluster -- CSI installs, PVC provisioning, expansion, snapshot
+    # restore. This provider only reads claims that already exist; on a cluster whose
+    # shared-filesystem class is a parallel filesystem, those probes would provision full-size
+    # Retain filesystems. They are excluded here, and isvctl/tests/providers/nvstorage_scale/
+    # fails if the suite gains a live check this list does not exclude.
+    tests:
+      - K8sCsiHelmInstallCheck
+      - K8sCsiKustomizeInstallCheck
+      - K8sCsiSnapshotRestoreCheck
+      - K8sCsiStorageTypesCheck
+      - K8sCsiStorageQuotaApiCheck
+      - K8sCsiTenantScopedCredentialsCheck
+      - K8sCsiProvisioningModesCheck
+      - K8sCsiDriverHealthCheck
+      - K8sCsiConcurrentPvcCheck
+      - K8sCsiPvcExpandCheck
+      - K8sNodeKernelModulesCheck
+      - K8sNfsMountOptionsCheck
+      - K8sFileLockingCheck
+      - K8sCrossNodeWriteVisibilityCheck
+      - K8sCrossNodeAttrConsistencyCheck
+      - K8sLargeDirListingFilesCheck
+      - K8sLargeDirListingDirsCheck
+      - K8sPosixComplianceCheck
