@@ -102,6 +102,12 @@ def _resolve_stub_path(yaml_path: Path, command: str) -> Path | None:
     ``command`` looks like ``"python3 ../scripts/iam/create_user.py"`` or
     ``"my-isv/scripts/k8s/setup.sh"``. Returns ``None`` when the command
     doesn't reference a Python stub we can statically analyse.
+
+    Paths are resolved config-relative first, then repo-root-relative. The
+    orchestrator accepts both -- ``step_executor._resolve_python_script_path``
+    rewrites a repo-root-relative script that is missing from the step cwd --
+    so a resolver that only knew the config-relative form would report path
+    drift for a step that runs fine.
     """
     tokens = shlex.split(command)
     script = next(
@@ -110,7 +116,11 @@ def _resolve_stub_path(yaml_path: Path, command: str) -> Path | None:
     )
     if script is None:
         return None
-    return (yaml_path.parent / script).resolve()
+    config_relative = (yaml_path.parent / script).resolve()
+    if config_relative.exists():
+        return config_relative
+    repo_relative = (REPO_ROOT / script).resolve()
+    return repo_relative if repo_relative.exists() else config_relative
 
 
 def _iter_steps(config: dict) -> Iterator[dict]:

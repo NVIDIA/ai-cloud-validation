@@ -38,6 +38,25 @@ from isvtest.validations.k8s_network_policy import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _pin_kubectl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep these tests off whatever kubectl the developer's shell points at.
+
+    The checks resolve ``self._kubectl_parts = get_kubectl_command()``, which reads the
+    ambient ``KUBECTL``. The per-test patches cover ``run_command`` and this module's
+    ``subprocess.run`` but not that lookup, so an exported ``KUBECTL`` leaked a real CLI
+    into the probe loops. With a credential-proxy kubectl -- the exact value a live-run setup
+    tells you to export -- and ``time.sleep`` patched out, the enforcement-probe
+    loop span on live cluster calls and never terminated, hanging ``make test`` forever.
+    """
+    monkeypatch.setenv("KUBECTL", "kubectl")
+    # Pinning the env var alone is not enough: plain ``kubectl`` still resolves the
+    # developer's current context. Patch the two resolvers the check calls so no real
+    # binary is reachable from a unit test.
+    monkeypatch.setattr("isvtest.validations.k8s_network_policy.get_kubectl_command", lambda: ["kubectl"])
+    monkeypatch.setattr("isvtest.validations.k8s_network_policy.get_kubectl_base_shell", lambda: "kubectl")
+
+
 def _ok(stdout: str = "", stderr: str = "") -> CommandResult:
     """Return a successful ``CommandResult`` with the given stdout/stderr."""
     return CommandResult(exit_code=0, stdout=stdout, stderr=stderr, duration=0.0)

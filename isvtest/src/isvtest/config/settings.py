@@ -405,4 +405,16 @@ def get_k8s_network_policy_image() -> str:
     return os.getenv("K8S_NETPOL_IMAGE", "registry.k8s.io/e2e-test-images/agnhost:2.47")
 
 
+def get_k8s_storage_probe_image() -> str:
+    """Get container image for the storage probe / PVC consumer pods.
+
+    The image must provide ``flock``, ``stat``, ``ls``, ``mkdir``, ``awk`` and
+    ``seq``. Override for air-gapped clusters that mirror to a private registry.
+
+    Returns:
+        Container image URL (default: docker.io/library/busybox:1.36)
+    """
+    return os.getenv("K8S_STORAGE_PROBE_IMAGE", "docker.io/library/busybox:1.36")
+
+
 settings = Settings()

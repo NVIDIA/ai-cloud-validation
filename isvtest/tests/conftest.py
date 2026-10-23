@@ -33,3 +33,21 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         # Only mark tests that are in isvtest/tests/ (not in src/isvtest/tests/)
         if "/tests/" in path_str and "/src/isvtest/tests/" not in path_str:
             item.add_marker(pytest.mark.unit)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_kubectl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep unit tests off whatever cluster the developer's shell points at.
+
+    Several checks resolve their CLI through ``get_kubectl_command()`` /
+    ``get_kubectl_base_shell()``, which read the ambient ``KUBECTL``. Tests that
+    mock ``run_command`` still inherit that value, so an exported ``KUBECTL`` --
+    exactly what a live-run setup tells you to export -- leaked into
+    unit tests two different ways: assertions on a built command string saw the
+    operator's flags, and probe loops reached a real cluster. With ``time.sleep``
+    mocked out, the latter span on live calls and hung ``make test`` indefinitely.
+
+    Pinning the variable makes the unit suite independent of the shell it runs in.
+    A test that wants a specific CLI can still monkeypatch it afterwards.
+    """
+    monkeypatch.setenv("KUBECTL", "kubectl")

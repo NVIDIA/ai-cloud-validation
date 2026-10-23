@@ -446,7 +446,7 @@ tests:
           requires: [kubernetes]
           kernel_modules: []
           node_selector: {}
-          image: "busybox:1.36"
+          image: "docker.io/library/busybox:1.36"
           bind_timeout_s: 60
           namespace_prefix: "isvtest-kmod"
         K8sNfsMountOptionsCheck:
@@ -456,7 +456,7 @@ tests:
           # Env overrides: K8S_CSI_SHARED_FS_SC, K8S_CSI_NFS_SC.
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
-          image: "busybox:1.36"
+          image: "docker.io/library/busybox:1.36"
           node_selector: {}
           pvc_size: "1Gi"
           bind_timeout_s: 180
@@ -476,7 +476,7 @@ tests:
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
-          image: "busybox:1.36"
+          image: "docker.io/library/busybox:1.36"
           node_selector: {}
           pvc_size: "1Gi"
           bind_timeout_s: 120
@@ -488,7 +488,7 @@ tests:
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
-          image: "busybox:1.36"
+          image: "docker.io/library/busybox:1.36"
           node_selector: {}
           pvc_size: "1Gi"
           bind_timeout_s: 120
@@ -500,7 +500,7 @@ tests:
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
-          image: "busybox:1.36"
+          image: "docker.io/library/busybox:1.36"
           node_selector: {}
           pvc_size: "1Gi"
           bind_timeout_s: 120
@@ -513,7 +513,7 @@ tests:
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
-          image: "busybox:1.36"
+          image: "docker.io/library/busybox:1.36"
           node_selector: {}
           files_count: 10000
           pvc_size: "10Gi"
@@ -526,7 +526,7 @@ tests:
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
-          image: "busybox:1.36"
+          image: "docker.io/library/busybox:1.36"
           node_selector: {}
           dirs_count: 500
           pvc_size: "10Gi"
@@ -539,7 +539,7 @@ tests:
           requires: [kubernetes]
           shared_fs_storage_class: "{{ steps.setup_cluster.csi.shared_fs_storage_class | default('', true) }}"
           nfs_storage_class: "{{ steps.setup_cluster.csi.nfs_storage_class | default('', true) }}"
-          image: "gcc:12"
+          image: "docker.io/library/gcc:12"
           node_selector: {}
           pvc_size: "5Gi"
           bind_timeout_s: 120

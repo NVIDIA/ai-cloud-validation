@@ -54,6 +54,7 @@ from isvtest.config.settings import (
     get_k8s_csi_block_storage_class,
     get_k8s_csi_nfs_storage_class,
     get_k8s_csi_shared_fs_storage_class,
+    get_k8s_storage_probe_image,
 )
 from isvtest.core.k8s import (
     KubectlParseError,
@@ -74,7 +75,7 @@ _MOUNT_POD_MANIFEST = _MANIFEST_DIR / "storage_mount_pod.yaml"
 
 # BusyBox provides flock/stat/ls/mkdir/awk/seq; override via the ``image``
 # config key for air-gapped clusters that mirror to a private registry.
-_DEFAULT_IMAGE = "busybox:1.36"
+_DEFAULT_IMAGE = "docker.io/library/busybox:1.36"
 _DIAGNOSTIC_COMMAND_TIMEOUT = 30
 _DIAGNOSTIC_TOTAL_TIMEOUT = 30
 
@@ -146,6 +147,7 @@ def _apply_mount_pod_manifest(
     pod_name: str,
     pvc_name: str,
     timeout: float,
+    image: str | None = None,
 ) -> tuple[int, str]:
     """Render the BusyBox mount-pod manifest for ``pvc_name`` and ``kubectl apply`` it.
 
@@ -156,7 +158,13 @@ def _apply_mount_pod_manifest(
     """
 
     def _mutate(doc: dict[str, Any]) -> dict[str, Any]:
-        return _set_fs_pod_fields(doc, namespace=namespace, name=pod_name, pvc_name=pvc_name)
+        return _set_fs_pod_fields(
+            doc,
+            namespace=namespace,
+            name=pod_name,
+            pvc_name=pvc_name,
+            image=image or get_k8s_storage_probe_image(),
+        )
 
     return _apply_manifest(kubectl_parts, render_k8s_manifest(_MOUNT_POD_MANIFEST, _mutate), timeout)
 
@@ -1975,7 +1983,15 @@ class K8sCsiProvisioningModesCheck(BaseValidation):
         """Render the BusyBox mount pod and apply it."""
 
         def _mutate(doc: dict[str, Any]) -> dict[str, Any]:
-            return _set_fs_pod_fields(doc, namespace=self._namespace, name=pod_name, pvc_name=pvc_name)
+            # Honour K8S_STORAGE_PROBE_IMAGE like every other mount pod; the
+            # default alone would pull from docker.io on an air-gapped cluster.
+            return _set_fs_pod_fields(
+                doc,
+                namespace=self._namespace,
+                name=pod_name,
+                pvc_name=pvc_name,
+                image=get_k8s_storage_probe_image(),
+            )
 
         return self._run_kubectl_apply(render_k8s_manifest(_MOUNT_POD_MANIFEST, _mutate))
 
