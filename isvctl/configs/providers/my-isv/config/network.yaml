@@ -140,6 +140,14 @@ commands:
         timeout: 60
         output_schema: segment_boundary
 
+      # SEC30-02: independent probes between segments belonging to one tenant.
+      - name: intra_tenant_boundary
+        phase: test
+        command: "python ../scripts/network/segment_boundary_test.py"
+        args: ["--region", "{{region}}", "--cidr", "10.87.0.0/16", "--boundary", "intra-tenant"]
+        timeout: 60
+        output_schema: segment_boundary
+
       - name: vpc_ip_config
         phase: test
         command: "python ../scripts/network/vpc_ip_config_test.py"

@@ -200,7 +200,7 @@ class VpcIsolationCheck(BaseValidation):
 
 
 class SegmentBoundaryDefaultDenyCheck(BaseValidation):
-    """Validate default-deny across the tenant-to-provider boundary (SEC30-01).
+    """Validate default-deny across a segment boundary (SEC30-01 and SEC30-02).
 
     A blocked probe only shows default-deny if the same source could reach the
     same target at all, so an explicitly allowed positive-control flow must
@@ -217,7 +217,7 @@ class SegmentBoundaryDefaultDenyCheck(BaseValidation):
         result values: connected | refused | timeout | error
     """
 
-    description: ClassVar[str] = "Check default-deny across the tenant-to-provider boundary"
+    description: ClassVar[str] = "Check default-deny across a segment boundary"
 
     def run(self) -> None:
         """Check the positive control connects and every prohibited flow is dropped."""

@@ -1522,7 +1522,7 @@ OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "test_name": {"type": "string", "description": "Always 'segment_boundary'"},
             "positive_control": {
                 **BOUNDARY_FLOW_SCHEMA,
-                "description": "The one explicitly allowed tenant-to-provider flow; must connect",
+                "description": "The explicitly allowed flow across the tested segment boundary; must connect",
             },
             "prohibited_flows": {
                 "type": "array",

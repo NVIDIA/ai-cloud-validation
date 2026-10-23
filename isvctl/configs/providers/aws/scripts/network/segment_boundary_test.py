@@ -14,11 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Probe default-deny across a tenant-to-provider segment boundary (SEC30-01).
+"""Probe default-deny across a segment boundary (SEC30-01 and SEC30-02).
 
-Builds one VPC with a tenant subnet and a provider subnet. The subnets share
+Builds one VPC with two subnets. In tenant-provider mode they model a tenant
+source and provider target (SEC30-01). In intra-tenant mode both subnets belong
+to the same tenant, represented by the VPC in the current AWS account (SEC30-02).
+Each invocation creates its own fixture and collects independent evidence. The subnets share
 the VPC's local route, so any blocked probe is blocked by policy, not by a
-missing route. The provider target's security group allows exactly one flow
+missing route. The target's security group allows exactly one flow
 (TCP 22 from the tenant subnet, answered by sshd) as the positive control and
 nothing else. A tenant source then probes, over SSM, the positive control
 first and a set of prohibited flows after it.
@@ -29,6 +32,7 @@ host. That distinction is what lets ``timeout`` stand for "denied by policy".
 
 Usage:
     python segment_boundary_test.py --region us-west-2 --cidr 10.86.0.0/16
+    python segment_boundary_test.py --region us-west-2 --boundary intra-tenant --cidr 10.87.0.0/16
     python segment_boundary_test.py --region us-west-2 --also-allow-port 8080  # expected to fail SEC30-01
 
 Output JSON:
@@ -169,9 +173,16 @@ def cleanup(ec2: Any, iam: Any, resources: dict[str, Any]) -> list[str]:
 
 
 def build_boundary(
-    ec2: Any, iam: Any, cidr: str, suffix: str, resources: dict[str, Any], also_allow_port: int | None
+    ec2: Any,
+    iam: Any,
+    cidr: str,
+    suffix: str,
+    resources: dict[str, Any],
+    also_allow_port: int | None,
+    boundary: str = "tenant-provider",
 ) -> tuple[str, str]:
-    """Create the tenant/provider topology; return (source_id, target_id)."""
+    """Create two routed segments with a default-deny target; return their instance IDs."""
+    target_role = "tenant-target" if boundary == "intra-tenant" else "provider-target"
     vpc = create_test_vpc(ec2, cidr, f"isv-segment-boundary-{suffix}", enable_dns=True)
     resources["vpc_id"] = vpc.get("vpc_id")
     if not vpc["passed"]:
@@ -188,13 +199,11 @@ def build_boundary(
         "ZoneName"
     ]
     prefix = cidr.split(".0.0/")[0]
-    tenant_cidr, provider_cidr = f"{prefix}.1.0/24", f"{prefix}.2.0/24"
+    tenant_cidr, target_cidr = f"{prefix}.1.0/24", f"{prefix}.2.0/24"
     tenant_subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock=tenant_cidr, AvailabilityZone=az)["Subnet"]["SubnetId"]
     resources["subnet_ids"].append(tenant_subnet)
-    provider_subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock=provider_cidr, AvailabilityZone=az)["Subnet"][
-        "SubnetId"
-    ]
-    resources["subnet_ids"].append(provider_subnet)
+    target_subnet = ec2.create_subnet(VpcId=vpc_id, CidrBlock=target_cidr, AvailabilityZone=az)["Subnet"]["SubnetId"]
+    resources["subnet_ids"].append(target_subnet)
 
     # Only the tenant source needs a route out, to reach the SSM endpoints.
     ec2.modify_subnet_attribute(SubnetId=tenant_subnet, MapPublicIpOnLaunch={"Value": True})
@@ -210,13 +219,13 @@ def build_boundary(
         TagSpecifications=_tag_spec("security-group", f"isv-segment-tenant-{suffix}"),
     )["GroupId"]
     resources["sg_ids"].append(tenant_sg)
-    provider_sg = ec2.create_security_group(
-        GroupName=f"isv-segment-provider-{suffix}",
-        Description="Provider target (default-deny plus one allowed flow)",
+    target_sg = ec2.create_security_group(
+        GroupName=f"isv-segment-{target_role}-{suffix}",
+        Description=f"{target_role} (default-deny plus one allowed flow)",
         VpcId=vpc_id,
-        TagSpecifications=_tag_spec("security-group", f"isv-segment-provider-{suffix}"),
+        TagSpecifications=_tag_spec("security-group", f"isv-segment-{target_role}-{suffix}"),
     )["GroupId"]
-    resources["sg_ids"].append(provider_sg)
+    resources["sg_ids"].append(target_sg)
     permissions = [
         {
             "IpProtocol": POSITIVE_CONTROL["protocol"],
@@ -234,7 +243,7 @@ def build_boundary(
                 "IpRanges": [{"CidrIp": tenant_cidr, "Description": "Deliberate misconfiguration"}],
             }
         )
-    ec2.authorize_security_group_ingress(GroupId=provider_sg, IpPermissions=permissions)
+    ec2.authorize_security_group_ingress(GroupId=target_sg, IpPermissions=permissions)
 
     # Recorded before creating: the helper makes several IAM calls, and one
     # failing after CreateRole still leaves a role for cleanup to remove.
@@ -260,9 +269,9 @@ def build_boundary(
     resources["instance_ids"].append(source_id)
     target_id = ec2.run_instances(
         **launch,
-        SubnetId=provider_subnet,
-        SecurityGroupIds=[provider_sg],
-        TagSpecifications=_tag_spec("instance", "isv-segment-provider-target"),
+        SubnetId=target_subnet,
+        SecurityGroupIds=[target_sg],
+        TagSpecifications=_tag_spec("instance", f"isv-segment-{target_role}"),
     )["Instances"][0]["InstanceId"]
     resources["instance_ids"].append(target_id)
     return source_id, target_id
@@ -271,7 +280,7 @@ def build_boundary(
 @handle_aws_errors
 def main() -> int:
     """Build the boundary, probe it, tear it down, and emit the JSON contract."""
-    parser = argparse.ArgumentParser(description="Probe default-deny across a tenant-to-provider boundary")
+    parser = argparse.ArgumentParser(description="Probe default-deny across a segment boundary")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-west-2"))
     parser.add_argument("--cidr", default="10.86.0.0/16", help="CIDR for the test VPC (/16)")
     parser.add_argument(
@@ -279,6 +288,7 @@ def main() -> int:
         type=int,
         help="Deliberately break the boundary by also allowing this TCP port, to demonstrate a failing run",
     )
+    parser.add_argument("--boundary", choices=("tenant-provider", "intra-tenant"), default="tenant-provider")
     args = parser.parse_args()
 
     ec2 = boto3.client("ec2", region_name=args.region)
@@ -299,7 +309,7 @@ def main() -> int:
 
     try:
         source_id, target_id = build_boundary(
-            ec2, iam, args.cidr, uuid.uuid4().hex[:8], resources, args.also_allow_port
+            ec2, iam, args.cidr, uuid.uuid4().hex[:8], resources, args.also_allow_port, args.boundary
         )
         ec2.get_waiter("instance_running").wait(InstanceIds=resources["instance_ids"])
         target_ip = ec2.describe_instances(InstanceIds=[target_id])["Reservations"][0]["Instances"][0][

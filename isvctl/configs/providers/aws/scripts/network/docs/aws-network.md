@@ -346,6 +346,40 @@ Tests cross-VPC connectivity via VPC peering:
 - Verify connectivity between peered VPCs
 - Clean up peering connection and VPCs
 
+### Intra-tenant segment isolation (SEC30-02)
+
+`intra_tenant_boundary` runs `segment_boundary_test.py --boundary intra-tenant`
+separately from the SEC30-01 tenant-to-provider step. Both endpoints belong to
+one tenant: a disposable VPC in the current AWS account contains two distinct
+subnets and security groups. The VPC local route connects the segments; the
+target security group admits TCP/22 only from the source subnet.
+
+The source probes the target's private IP using SSM. TCP/22 must connect before
+ICMP, TCP/443, and TCP/8080 timeouts count as denied. A refusal means the packet
+reached the target and fails validation, as does a probe error. The shared
+`SegmentBoundaryDefaultDenyCheck` consumes this step's output under its own
+SEC30-02 result; inter-tenant or tenant-to-provider results cannot satisfy it.
+
+To collect evidence for this fixture alone:
+
+```bash
+uv run python isvctl/configs/providers/aws/scripts/network/segment_boundary_test.py \
+  --region us-east-2 --cidr 10.87.0.0/16 --boundary intra-tenant
+```
+
+Add `--also-allow-port 8080` for a deliberate policy violation: SEC30-02 should
+fail on the admitted prohibited flow. The script's exit status reports collection
+and cleanup success; feed its JSON to the validator for the policy verdict.
+The script creates two `t3.micro` instances, networking, and an SSM IAM profile,
+then cleans them up in `finally`, reporting any surviving resources as failure.
+It requires EC2, IAM, and SSM permissions and incurs temporary AWS usage charges.
+
+This samples one direction and three prohibited flows in a disposable fixture;
+it does not establish isolation for every segment or policy in a deployed tenant.
+Other providers must collect fresh evidence from two segments of the same tenant,
+including a working explicitly allowed flow. The my-isv template returns synthetic
+success only with `ISVCTL_DEMO_MODE=1` and fails until implemented otherwise.
+
 ### Allow-rule approval (SEC30-03)
 
 **Script**: `allow_rule_approval_test.py`
