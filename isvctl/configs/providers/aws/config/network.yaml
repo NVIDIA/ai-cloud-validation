@@ -264,16 +264,19 @@ commands:
         output_schema: traffic_flow
 
       # SEC30-03: read an existing rule and an independent approval export.
+      # Both inputs are unset by default, so the flags are single tokens: a bare
+      # "--flag" whose value renders empty is dropped, and argparse then rejects
+      # the dangling flag before the script can report its documented
+      # configuration error. That error must not end the phase either.
       - name: allow_rule_approval
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/network/allow_rule_approval_test.py"
         args:
           - "--region"
           - "{{region}}"
-          - "--rule-id"
-          - "{{allow_rule_id}}"
-          - "--approval-file"
-          - "{{allow_rule_approval_file}}"
+          - "--rule-id={{allow_rule_id}}"
+          - "--approval-file={{allow_rule_approval_file}}"
         timeout: 60
         output_schema: allow_rule_approval
 
