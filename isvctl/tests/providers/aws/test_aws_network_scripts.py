@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from contextlib import redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,7 +36,13 @@ import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError, WaiterError
 from isvtest.validations import SubnetConfigCheck, SubnetMultiAzCheck
 
+from isvctl.config.merger import merge_yaml_files
+from isvctl.config.schema import RunConfig
+from isvctl.orchestrator.context import Context
+from isvctl.orchestrator.step_executor import MissingStepRefError, StepExecutor
+
 ISVCTL_ROOT = Path(__file__).resolve().parents[3]
+AWS_NETWORK_CONFIG = ISVCTL_ROOT / "configs" / "providers" / "aws" / "config" / "network.yaml"
 AWS_NETWORK_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "aws" / "scripts" / "network"
 MY_ISV_NETWORK_SCRIPTS = ISVCTL_ROOT / "configs" / "providers" / "my-isv" / "scripts" / "network"
 STABLE_EGRESS_TEST_NAMES = {"create_instance", "probe_egress_ip", "egress_ip_stable"}
@@ -5038,3 +5045,71 @@ def test_intra_tenant_aws_topology(monkeypatch: pytest.MonkeyPatch, also_allow_p
     assert all(p["IpRanges"][0]["CidrIp"] == "10.87.1.0/24" for p in ingress["IpPermissions"])
     assert module.cleanup(aws, aws, resources) == []
     assert not aws.live
+
+
+@pytest.fixture
+def network_argv() -> Callable[[str], list[str]]:
+    """Render one AWS network step's argv against the config's default settings."""
+    config = RunConfig.model_validate(merge_yaml_files([AWS_NETWORK_CONFIG]))
+    steps = {step.name: step for step in config.commands["network"].steps}
+
+    def render(step_name: str) -> list[str]:
+        return StepExecutor()._render_args(steps[step_name].args, Context(config))
+
+    return render
+
+
+def test_network_config_renders_no_dangling_value_flags() -> None:
+    """An unset setting must render as an empty value, never as a bare flag.
+
+    ``_render_args`` drops a template that renders empty, so a separate
+    ``"--flag"`` token followed by ``"{{setting}}"`` leaves argparse reading the
+    next flag as its value. The script then exits 2 with a usage message and no
+    JSON contract, and the orchestrator stops the rest of the phase.
+    """
+    config = RunConfig.model_validate(merge_yaml_files([AWS_NETWORK_CONFIG]))
+    dangling = []
+    for step in config.commands["network"].steps:
+        if not step.args:
+            continue
+        try:
+            rendered = StepExecutor()._render_args(step.args, Context(config))
+        except MissingStepRefError:
+            continue  # consumes a setup step's output, not an unconfigured setting
+        for index, token in enumerate(rendered):
+            if not token.startswith("--") or "=" in token:
+                continue
+            following = rendered[index + 1] if index + 1 < len(rendered) else None
+            if following is not None and not following.startswith("--"):
+                continue
+            position = step.args.index(token)
+            if position + 1 < len(step.args) and "{{" in step.args[position + 1]:
+                dangling.append(f"{step.name}:{token}")
+    assert dangling == []
+
+
+@pytest.mark.parametrize(
+    "step_name,script_name",
+    [
+        ("imex_domain", "imex_domain_test.py"),
+        ("imex_service", "imex_service_test.py"),
+        ("imex_resilience", "imex_resilience_test.py"),
+        ("imex_departure", "imex_departure_test.py"),
+        ("imex_reboot", "imex_reboot_test.py"),
+    ],
+)
+def test_unconfigured_imex_steps_skip_instead_of_crashing(
+    network_argv: Callable[[str], list[str]], step_name: str, script_name: str
+) -> None:
+    """A run with no IMEX cluster must reach each script's documented skip path."""
+    completed = subprocess.run(
+        [sys.executable, str(AWS_NETWORK_SCRIPTS / script_name), *network_argv(step_name)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    output = json.loads(completed.stdout)
+    assert output["skipped"] is True
+    assert output["success"] is True

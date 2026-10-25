@@ -437,10 +437,8 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--node-ids"
-          - "{{imex_node_ids | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--node-ids={{imex_node_ids | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         # Headroom over the script's own 90s sweep deadline (plus one in-flight
         # per-node SSH timeout), so the script always emits its JSON contract
         # rather than being killed here with no output on a large or
@@ -457,10 +455,8 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--node-ids"
-          - "{{imex_node_ids | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--node-ids={{imex_node_ids | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         timeout: 300
         output_schema: imex_service
 
@@ -474,10 +470,8 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--node-ids"
-          - "{{imex_resilience_node | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--node-ids={{imex_resilience_node | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         timeout: 300
         output_schema: imex_resilience
 
@@ -491,12 +485,9 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--target-node"
-          - "{{imex_departure_target | default('', true)}}"
-          - "--observer-node"
-          - "{{imex_departure_observer | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--target-node={{imex_departure_target | default('', true)}}"
+          - "--observer-node={{imex_departure_observer | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         timeout: 300
         output_schema: imex_departure
 
@@ -511,10 +502,8 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--node-ids"
-          - "{{imex_reboot_node | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--node-ids={{imex_reboot_node | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         timeout: 1200
         output_schema: imex_reboot
 
