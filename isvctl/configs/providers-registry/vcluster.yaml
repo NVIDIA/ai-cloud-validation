@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+schema_version: 1
+name: vcluster
+vendor: vCluster Labs
+description: "vCluster: a Kubernetes cluster per tenant, each with its own isolated Virtual Control Plane, on an existing GPU cluster; validated with the Shared Nodes tenancy model."
+repo_url: https://github.com/loft-sh/ai-cloud-validation-provider
+path: vcluster
+commit: ae03efd10426f7365dbb889aa940f230e87399d8
+tested_with: "1.0.0"
+suites: [k8s, control-plane]
+maintainers:
+  - github: saiyam1814
+documentation_url: https://github.com/loft-sh/ai-cloud-validation-provider/blob/main/vcluster/README.md#reproducing
+# status is one of:
+#   supported   maintained; its maintainers, not NVIDIA, state that `commit` passed the declared suites against `tested_with`
+#   deprecated  no longer maintained or validated; hidden from `isvctl provider list` unless --all
+#   demo        scripts only return dummy results; runs in demo mode and is never uploaded
+status: supported
