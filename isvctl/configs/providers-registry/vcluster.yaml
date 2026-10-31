@@ -4,10 +4,10 @@
 schema_version: 1
 name: vcluster
 vendor: vCluster Labs
-description: "vCluster: a Kubernetes cluster per tenant, each with its own isolated Virtual Control Plane, on an existing GPU cluster; validated with the Shared Nodes tenancy model."
+description: "vCluster: an isolated Kubernetes cluster per tenant, with its own Virtual Control Plane and dedicated GPU nodes; validated with the Private Nodes tenancy model."
 repo_url: https://github.com/loft-sh/ai-cloud-validation-provider
 path: vcluster
-commit: ae03efd10426f7365dbb889aa940f230e87399d8
+commit: d43d8d557d8a61095af7cdd3a45ab93caf965be5
 tested_with: "1.0.0"
 suites: [k8s, control-plane]
 maintainers:
