@@ -28,7 +28,7 @@ jobs:
     name: Pre-commit Checks
     runs-on: linux-amd64-cpu4
     container:
-      image: ghcr.io/nvidia/dsx-cds-tools:latest
+      image: ghcr.io/dsx-ai-factory/dsx-cds-tools:0.2.1@sha256:be182a91313a66ec2186b7c62c6204e6604038eacd929da227ff08a5fdf34da3
 
     steps:
       - name: Checkout code
@@ -48,7 +48,7 @@ jobs:
     runs-on: linux-amd64-cpu4
     needs: pre-commit
     container:
-      image: ghcr.io/nvidia/dsx-cds-tools:latest
+      image: ghcr.io/dsx-ai-factory/dsx-cds-tools:0.2.1@sha256:be182a91313a66ec2186b7c62c6204e6604038eacd929da227ff08a5fdf34da3
 
     steps:
       - name: Checkout code
@@ -68,7 +68,7 @@ jobs:
     runs-on: linux-amd64-cpu4
     needs: pre-commit
     container:
-      image: ghcr.io/nvidia/dsx-cds-tools:latest
+      image: ghcr.io/dsx-ai-factory/dsx-cds-tools:0.2.1@sha256:be182a91313a66ec2186b7c62c6204e6604038eacd929da227ff08a5fdf34da3
 
     steps:
       - name: Checkout code
