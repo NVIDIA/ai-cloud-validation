@@ -10,3 +10,4 @@
 # (the last matching rule wins, so each line must repeat the team).
 isvctl/configs/providers-registry/example.yaml @abegnoche @NVIDIA/ncp-isv-lab-maintainer
 isvctl/configs/providers-registry/showcase.yaml @abegnoche @NVIDIA/ncp-isv-lab-maintainer
+isvctl/configs/providers-registry/vcluster.yaml @saiyam1814 @NVIDIA/ncp-isv-lab-maintainer
