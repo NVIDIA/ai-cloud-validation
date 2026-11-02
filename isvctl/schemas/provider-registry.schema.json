@@ -44,15 +44,15 @@
       "type": "string",
       "pattern": "^https://\\S+$"
     },
-    "path": {
-      "description": "Directory inside the repository that holds the provider's config/ and scripts/, for a repository with several providers (e.g. `acme-gpu`). Omit it when they are at the repository root. Relative, without `.` or `..` segments.",
-      "type": "string",
-      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$"
-    },
     "commit": {
       "description": "Full 40-character commit SHA that was validated; `isvctl provider fetch` checks out exactly this commit.",
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
+    },
+    "path": {
+      "description": "Directory inside the repository that holds the provider's config/ and scripts/, for a repository with several providers (e.g. `acme-gpu`). Omit it when they are at the repository root. Relative, without `.` or `..` segments.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$"
     },
     "tested_with": {
       "description": "isvctl release (X.Y.Z or X.Y.Z-rcN, without a leading v) this commit was validated against.",

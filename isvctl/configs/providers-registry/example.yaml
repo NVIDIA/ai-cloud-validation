@@ -18,8 +18,8 @@ name: example
 vendor: NVIDIA
 description: Living example of an externally maintained provider; an unimplemented scaffold that passes only in demo mode.
 repo_url: https://github.com/abegnoche/external-provider-example
-path: example
 commit: d82f503a9b7e83c213953b24850ff595864875ce
+path: example
 tested_with: "1.0.0"
 suites: [bare_metal, control-plane, iam, image-registry, network, observability, security, vm]
 maintainers:
