@@ -18,8 +18,8 @@ name: acme
 vendor: Acme Cloud Inc.
 description: Acme Cloud GPU instances and networking.
 repo_url: https://github.com/acme/external-provider-acme
-path: acme-gpu  # optional: the provider's directory in the repository
 commit: 0123456789abcdef0123456789abcdef01234567
+path: acme-gpu  # optional: the provider's directory in the repository
 tested_with: "0.13.0"
 suites: [vm, network]
 maintainers:

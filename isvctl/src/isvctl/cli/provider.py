@@ -278,8 +278,8 @@ name: {provider_name}  # must match the file name
 vendor: "<legal entity that maintains this provider>"
 description: "<one sentence describing the provider>"
 repo_url: "<https clone URL of this repository>"
-# path: {provider_name}  # only if config/ and scripts/ are in this directory, not at the repository root
 commit: "<validated commit, from git rev-parse HEAD>"
+# path: {provider_name}  # only if config/ and scripts/ are in this directory, not at the repository root
 tested_with: "{__version__}"  # ai-cloud-validation release you validated against, without a leading v
 suites: [{", ".join(suites)}]  # keep only the suites you implement
 maintainers:
