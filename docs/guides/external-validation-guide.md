@@ -24,7 +24,7 @@ Config (YAML) --> Script (any language) --> JSON output --> Validations (asserti
 
 ```bash
 # From source
-git clone git@github.com:NVIDIA/ai-cloud-validation.git
+git clone git@github.com:dsx-ai-factory/ai-cloud-validation.git
 cd ai-cloud-validation
 git checkout v1.0.0
 uv sync

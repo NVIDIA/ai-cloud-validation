@@ -9,7 +9,7 @@ This guide covers running AI Cloud Validation suite locally for development and 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and setup
-git clone https://github.com/NVIDIA/ai-cloud-validation.git
+git clone https://github.com/dsx-ai-factory/ai-cloud-validation.git
 cd ai-cloud-validation
 uv sync
 ```

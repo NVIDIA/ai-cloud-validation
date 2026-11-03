@@ -160,7 +160,7 @@ Where possible, NVIDIA provides testing capabilities.
 NVIDIA has created the [AI Cloud Ready test suite](https://github.com/NVIDIA/ISV-NCP-Validation-Suite).
 This suite is continually evolving, but one of its main goals is to test as many of the requirements found in this document as possible.
 Refer to the AI Cloud Ready documentation for details on how to run the tests.
-Tests are added regularly, so review the [Requirements Test Matrix](https://github.com/NVIDIA/ai-cloud-validation/blob/main/docs/requirements/test-requirements-matrix.adoc) to find which tests validate which requirements.
+Tests are added regularly, so review the [Requirements Test Matrix](https://github.com/dsx-ai-factory/ai-cloud-validation/blob/main/docs/requirements/test-requirements-matrix.adoc) to find which tests validate which requirements.
 
 #### Exemplar Performance
 

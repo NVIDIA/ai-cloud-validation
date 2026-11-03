@@ -48,8 +48,8 @@ def test_fmt_gh_issues_renders_plain_links() -> None:
     """Issue references render as plain GitHub links (no Asciidoctor icon macros)."""
     out = adoc.fmt_gh_issues_adoc(["#40", "#41"])
     assert out == (
-        "https://github.com/NVIDIA/ai-cloud-validation/issues/40[#40] +\n"
-        "https://github.com/NVIDIA/ai-cloud-validation/issues/41[#41]"
+        "https://github.com/dsx-ai-factory/ai-cloud-validation/issues/40[#40] +\n"
+        "https://github.com/dsx-ai-factory/ai-cloud-validation/issues/41[#41]"
     )
     assert "icon:" not in out
 

@@ -11,7 +11,7 @@ This guide covers installation and basic usage of NVIDIA AI Cloud Validation sui
 Clone the repository, select an explicit release, and install dependencies:
 
 ```bash
-git clone https://github.com/NVIDIA/ai-cloud-validation.git
+git clone https://github.com/dsx-ai-factory/ai-cloud-validation.git
 cd ai-cloud-validation
 git checkout v1.0.0
 uv sync
