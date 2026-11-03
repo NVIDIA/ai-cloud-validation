@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/NVIDIA/ai-cloud-validation/schemas/provider-registry.schema.json",
+  "$id": "https://github.com/dsx-ai-factory/ai-cloud-validation/schemas/provider-registry.schema.json",
   "title": "Provider Registry Entry",
   "description": "One externally maintained provider, stored as isvctl/configs/providers-registry/<name>.yaml. The provider's config/ and scripts/ live in the partner's own repository, at its root or under `path`; one repository can hold several providers, each with its own entry. This entry pins the exact commit that was validated. The loader additionally checks that `name` equals the filename stem and that every entry in `suites` exists under isvctl/configs/suites/.",
   "type": "object",

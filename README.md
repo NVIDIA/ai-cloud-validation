@@ -14,7 +14,7 @@ This validation suite is meant to be run against an existing cloud system, speci
 
 ## Get Involved
 
-Contributions of all sizes are welcome — bug reports, docs, new provider stubs, and tests. New here? Start with a [`good first issue`](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22), then read the [Contributing Guide](CONTRIBUTING.md).
+Contributions of all sizes are welcome — bug reports, docs, new provider stubs, and tests. New here? Start with a [`good first issue`](https://github.com/dsx-ai-factory/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22), then read the [Contributing Guide](CONTRIBUTING.md).
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ The fastest way to try running parts of the validation suite is against an exist
 Install:
 
 ```bash
-git clone https://github.com/NVIDIA/ai-cloud-validation.git
+git clone https://github.com/dsx-ai-factory/ai-cloud-validation.git
 cd ai-cloud-validation
 git checkout v1.0.0
 uv sync
@@ -128,12 +128,12 @@ the saved value. See the [isvctl README](isvctl/README.md#configuration).
 
 ## Roadmap
 
-Track direction via [GitHub Milestones](https://github.com/NVIDIA/ai-cloud-validation/milestones) and open a [Discussion](https://github.com/NVIDIA/ai-cloud-validation/discussions) to help shape priorities.
+Track direction via [GitHub Milestones](https://github.com/dsx-ai-factory/ai-cloud-validation/milestones) and open a [Discussion](https://github.com/dsx-ai-factory/ai-cloud-validation/discussions) to help shape priorities.
 
 ## Getting Help
 
-- **Questions & ideas:** [GitHub Discussions](https://github.com/NVIDIA/ai-cloud-validation/discussions)
-- **Bug reports & feature requests:** [GitHub Issues](https://github.com/NVIDIA/ai-cloud-validation/issues) (use the issue templates)
+- **Questions & ideas:** [GitHub Discussions](https://github.com/dsx-ai-factory/ai-cloud-validation/discussions)
+- **Bug reports & feature requests:** [GitHub Issues](https://github.com/dsx-ai-factory/ai-cloud-validation/issues) (use the issue templates)
 - **Security vulnerabilities:** see [Security](#security) — do **not** open a public issue
 
 Maintainers watch Issues and Discussions on a best-effort basis.

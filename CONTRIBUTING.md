@@ -25,7 +25,7 @@ Thank you for your interest in contributing! This project is a **Python monorepo
 
 - Read the `README.md` to understand the project.
 - Check existing issues to avoid duplicates.
-- Browse [Discussions](https://github.com/NVIDIA/ai-cloud-validation/discussions) for questions.
+- Browse [Discussions](https://github.com/dsx-ai-factory/ai-cloud-validation/discussions) for questions.
 - Review the [security policy](SECURITY.md) for security-related contributions.
 
 Ways to contribute:
@@ -49,7 +49,7 @@ When reporting issues:
 
 ## Find Something to Work On
 
-- Browse [`good first issue`](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) for beginner-friendly tasks, or [`help wanted`](https://github.com/NVIDIA/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) for slightly larger ones.
+- Browse [`good first issue`](https://github.com/dsx-ai-factory/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) for beginner-friendly tasks, or [`help wanted`](https://github.com/dsx-ai-factory/ai-cloud-validation/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) for slightly larger ones.
 - **Claiming an issue:** comment on it to let others know you're taking it, so effort isn't duplicated.
 - **New providers live in their own repository.** By default, this repository does not accept new provider `config/` or `scripts/` trees under `isvctl/configs/providers/`. Scaffold one with `isvctl provider scaffold <name>`, publish it in your own repository, and open a PR here that adds only its [Provider Registry](docs/guides/provider-registry.md) entry and the matching CODEOWNERS line.
 - Improvements to the existing [my-isv scaffold](isvctl/configs/providers/my-isv/scripts/README.md) or the `aws` reference provider are welcome; `make demo-test` exercises the scaffold with no real cloud hardware.
@@ -81,7 +81,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 ### Clone and Setup
 
 ```bash
-git clone https://github.com/NVIDIA/ai-cloud-validation.git
+git clone https://github.com/dsx-ai-factory/ai-cloud-validation.git
 cd ai-cloud-validation
 uv sync
 uvx pre-commit install
@@ -167,7 +167,7 @@ See the [Local Development Guide](docs/guides/local-development.md) for MicroK8s
 
 ## Pull Request Process
 
-1. **Fork** the [upstream repository](https://github.com/NVIDIA/ai-cloud-validation) and create a branch from `main`.
+1. **Fork** the [upstream repository](https://github.com/dsx-ai-factory/ai-cloud-validation) and create a branch from `main`.
 2. **Make your changes** following the coding guidelines above.
 3. **Run the full check suite** before opening the PR:
 

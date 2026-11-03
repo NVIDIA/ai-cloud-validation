@@ -78,7 +78,7 @@ any version section that already has content.
      (`chore: update package versions to X.Y.Z`).
    - Each commit subject ends with the PR number in parentheses, e.g.
      `(#425)`. Fetch the PR for richer context from
-     `https://github.com/NVIDIA/ai-cloud-validation/pull/<N>` (use the
+     `https://github.com/dsx-ai-factory/ai-cloud-validation/pull/<N>` (use the
      `gh pr view <N>` CLI if available, otherwise an HTTP fetch). If the PR
      is inaccessible, fall back to reading the commit itself with
      `git show <hash>`.
@@ -113,7 +113,7 @@ description (a second sentence only if genuinely needed) indented two
 spaces under the title:
 
 ```md
-- **Concise title summarizing the change** ([#N](https://github.com/NVIDIA/ai-cloud-validation/pull/N))
+- **Concise title summarizing the change** ([#N](https://github.com/dsx-ai-factory/ai-cloud-validation/pull/N))
   One sentence explaining what changed and why (add a second only if
   genuinely needed). Describe the user-visible behavior — not the
   implementation — and reference the relevant validation ID, CLI flag,
@@ -124,7 +124,7 @@ For **Internal**, use a terse one-line form with a linked PR ref (no
 bold title, no description paragraph):
 
 ```md
-- Brief description ([#N](https://github.com/NVIDIA/ai-cloud-validation/pull/N)).
+- Brief description ([#N](https://github.com/dsx-ai-factory/ai-cloud-validation/pull/N)).
 ```
 
 ### Roll-up entries
@@ -134,7 +134,7 @@ refactor or a multi-PR feature series), collapse them into a single
 bullet with all PR refs inline and one shared description:
 
 ```md
-- **Common theme across the series** ([#A](https://github.com/NVIDIA/ai-cloud-validation/pull/A), [#B](https://github.com/NVIDIA/ai-cloud-validation/pull/B), [#C](https://github.com/NVIDIA/ai-cloud-validation/pull/C))
+- **Common theme across the series** ([#A](https://github.com/dsx-ai-factory/ai-cloud-validation/pull/A), [#B](https://github.com/dsx-ai-factory/ai-cloud-validation/pull/B), [#C](https://github.com/dsx-ai-factory/ai-cloud-validation/pull/C))
   One description that covers the whole series. Prefer this over three
   near-identical separate bullets.
 ```

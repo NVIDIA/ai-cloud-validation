@@ -33,7 +33,7 @@ from typing import Any
 
 import yaml
 
-GH_REPO = "NVIDIA/ai-cloud-validation"
+GH_REPO = "dsx-ai-factory/ai-cloud-validation"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Constraint shared by `labels` and `dependencies` entries: identifier-like only.
