@@ -4,10 +4,10 @@
 # Rules are evaluated from top to bottom, with later rules taking precedence.
 
 # Default owners for everything in the repo
-* @NVIDIA/ncp-isv-lab-maintainer
+* @dsx-ai-factory/ncp-isv-lab-maintainer
 
 # Provider registry entries: the partner maintainers plus the default owners
 # (the last matching rule wins, so each line must repeat the team).
-isvctl/configs/providers-registry/example.yaml @abegnoche @NVIDIA/ncp-isv-lab-maintainer
-isvctl/configs/providers-registry/showcase.yaml @abegnoche @NVIDIA/ncp-isv-lab-maintainer
-isvctl/configs/providers-registry/vcluster.yaml @saiyam1814 @NVIDIA/ncp-isv-lab-maintainer
+isvctl/configs/providers-registry/example.yaml @abegnoche @dsx-ai-factory/ncp-isv-lab-maintainer
+isvctl/configs/providers-registry/showcase.yaml @abegnoche @dsx-ai-factory/ncp-isv-lab-maintainer
+isvctl/configs/providers-registry/vcluster.yaml @saiyam1814 @dsx-ai-factory/ncp-isv-lab-maintainer
