@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Origin of the vendored material in this skill.
+#
+# Only `references/requirements-for-ai-clouds-v2.4.md` and the diagrams that it
+# links are tracked here. They are a published NVIDIA source of record that the
+# kit re-ships verbatim, so the upstream commit is the only proof that our copy
+# still says what upstream says.
+#
+# Everything else in this skill is maintained with the kit. The kit owns the
+# scripts, so only the vendored document records a source commit.
+#
+# The commit identifies the exact content. A retrieval timestamp is deliberately
+# absent: it can disagree with the commit and proves nothing the commit does not
+# already prove.
+#
+# Refreshing the file is a change to the kit, not an operator action. Replace
+# the file and update its commit here in the same change.
+
+vendored:
+  - file: references/requirements-for-ai-clouds-v2.4.md
+    repo: https://github.com/NVIDIA/ai-cloud-validation
+    branch: main
+    commit: b395fe3ad7372dcbd75d397d59942994ed0288ab
+    path: docs/references/requirements-for-ai-clouds-v2.4.md
+    license: Apache-2.0
+    title: NVIDIA Requirements for AI Clouds
+    version: 2.4
+    requirements: 186
+    changed: none
+    note: >-
+      Copied from docs/references/ of this repository, the published source
+      of record. The kit ships it as "the requirements".
+      Of the 186 requirements, 64 sit in the operational chapter, which asks
+      for ticketing, escalation and on-call practice rather than for anything
+      an API creates. Those are loaded and reported, and no analysis is
+      demanded of them.
+      NET04, NET05 and NET06 each link to a diagram under `./images/`. The
+      diagrams ship beside the document, so each link resolves. No script
+      reads them.
+  - file: references/images/nrac-corpnet-connectivity.png
+    repo: https://github.com/NVIDIA/ai-cloud-validation
+    commit: b395fe3ad7372dcbd75d397d59942994ed0288ab
+    path: docs/references/images/nrac-corpnet-connectivity.png
+    license: Apache-2.0
+    changed: none
+  - file: references/images/nrac-storage-connectivity.png
+    repo: https://github.com/NVIDIA/ai-cloud-validation
+    commit: b395fe3ad7372dcbd75d397d59942994ed0288ab
+    path: docs/references/images/nrac-storage-connectivity.png
+    license: Apache-2.0
+    changed: none
+  - file: references/images/nrac-internet-access.png
+    repo: https://github.com/NVIDIA/ai-cloud-validation
+    commit: b395fe3ad7372dcbd75d397d59942994ed0288ab
+    path: docs/references/images/nrac-internet-access.png
+    license: Apache-2.0
+    changed: none

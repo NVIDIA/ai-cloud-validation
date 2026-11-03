@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Live — the whole lifecycle, against the NCP.
+#
+# The only mode that proves the NCP accepted anything. It is also the only one
+# that creates real resources, so it is never entered without an explicit human
+# action, and never as a fallback from another mode.
+api_version: terraform.ncp/v1
+mode: live
+
+needs_account: true
+needs_cassettes: false
+
+proves: the NCP accepted the configuration, and the resource exists
+does_not_prove: that the same call works for an account with different quota or permissions
+
+preconditions:
+  credentials: supplied by the operator, never by the kit
+  permission: partial is expected — narrow the run rather than failing it
+  sweeper: exists and is committed, because this creates resources
+
+# Terraform's own view of a resource is what is under test, so it cannot also be
+# the evidence. Each check is one call to the operation the module plan names.
+verifies: true
+cleans_up: true
+
+rules:
+  - rule: live is never a fallback
+    why: >-
+      No missing input, no absent recording and no failed offline run may cause
+      a live call. Entering this mode is something a person does on purpose.
+  - rule: what the run could not cover is reported, not omitted
+    why: >-
+      An account rarely holds every permission the plan needs. A run over part of
+      the plan must not read like a run over all of it.

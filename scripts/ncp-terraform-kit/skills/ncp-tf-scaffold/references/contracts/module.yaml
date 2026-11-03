@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Live Tier 1b — one layer module, applied with its own variables.
+#
+# Tier 1 drives a minimal root module so a failure indicts the provider alone.
+# That isolation is exactly why it cannot test the module: a defect in a
+# module's variables, outputs or internal wiring would first appear in Tier 2,
+# where a failure cannot say whether the module or the composition broke.
+api_version: terraform.ncp/v1
+contract: module
+
+applies: the generated layer module
+proves: the module's variables are accepted, and its outputs resolve
+needs_account: true
+
+subject: one layer from module_plan
+
+lifecycle:
+  - init
+  - validate
+  - plan_create
+  - apply_create
+  - refresh
+  - plan_no_change
+  - destroy
+
+# No independent NCP check here, deliberately. The resource contract already
+# proves that this provider's create and delete reach the NCP, for every
+# resource type this module holds. What is left to prove is a Terraform-level
+# claim -- a variable plumbed through, an output that resolves, resources wired
+# to each other inside the layer -- and Terraform asserts all of it. A resource
+# this tier leaks is the sweeper's to find, by the run id in the name.
+verification: {}
+
+assertions:
+  variables_accepted: []
+  outputs_resolve: []
+  plan: []
+
+cleanup:
+  required: true
+  timeout: 45m
+
+judged:
+  - field: variables
+    question: which values exercise the module's own wiring rather than one resource
+    constrained_by: the module's declared variables and their types
+    why: values that reach only one resource test that resource, and report the module as covered
+    shape: a map of the module's declared variable names to values
+    example:
+      name_prefix: tfkit
+      node_count: 2
+  - field: outputs
+    question: which outputs a consumer depends on
+    why: an output nobody consumes proves nothing about the layer boundary
+    shape: a map of output name to an empty value of that output's type, which fixes the emptiness the test compares against
+    example:
+      subnet_id: ''
+      firewall_ids: []
+
+# The top-level fields a case of this contract holds. A refresh carries a judged
+# value only into a field that this list still holds. A person writes
+# `differs_from_resource_case`, and `instantiate` does not.
+case_fields: [api_version, kind, contract, derived_from, module, resources, naming, variables, outputs, lifecycle, assertions, judged, review, verification, cleanup, differs_from_resource_case]
+
+narrowing:
+  - when: the layer's verdict is not_buildable
+    drop: [the case]
+    why: there is no module to apply
+  - when: the layer's verdict is partial
+    keep: every resource that the plan lists for the layer
+    why: a partial layer ships its supported subset, and the README section that the render writes for the module states the gap

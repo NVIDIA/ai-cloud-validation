@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Live Tier 2 — the blueprint, applied once, composing every buildable layer.
+#
+# The tier that finds boundary defects no single-layer test can find. It runs
+# after Tier 1b, because a failure in a module makes a composition failure
+# unreadable.
+api_version: terraform.ncp/v1
+contract: composition
+
+applies: the blueprint
+proves: each layer's outputs satisfy the next layer's inputs
+needs_account: true
+
+# Layer pairs, not resources. What is under test is the seam between two
+# layers, and a resource belongs to one layer only.
+subject: each ordered pair of buildable layers the blueprint wires together
+
+lifecycle:
+  - init
+  - validate
+  - plan_create
+  - apply_create
+  - refresh
+  - plan_no_change
+  - destroy
+
+# No independent NCP check here, deliberately. The resource contract already
+# proves that this provider's create and delete reach the NCP, for every
+# resource type this module holds. What is left to prove is a Terraform-level
+# claim -- a variable plumbed through, an output that resolves, resources wired
+# to each other across the layers -- and Terraform asserts all of it. A resource
+# this tier leaks is the sweeper's to find, by the run id in the name.
+verification: {}
+
+assertions:
+  layer_outputs_satisfy_next_inputs: []
+  blueprint_outputs_resolve: []
+
+cleanup:
+  required: true
+  timeout: 90m
+
+judged:
+  - field: layer_order
+    question: which layer must exist before which
+    constrained_by: the inputs each layer's module declares
+    why: a wrong order destroys a layer that another layer still uses, and the failure names the wrong layer
+    shape: a list of layer names, the one built first at the top
+    example:
+      - network
+      - cluster
+  - field: wiring
+    question: which output of one layer feeds which input of the next
+    why: a pair wired through a literal value rather than an output proves nothing about the seam
+    shape: a list of from/to pairs, each side `<layer>.<name>`
+    example:
+      - from: network.subnet_id
+        to: cluster.subnet_id
+
+advisory:
+  - field: variables
+    question: which values the blueprint's own inputs take in this test
+    constrained_by: the variables the blueprint declares
+    why: a blueprint that takes a project or a region has no value for it in a test file otherwise, and a live run applies the offline stand-in
+    shape: a map of the blueprint's declared variable names to values; `{name}` for a value only the account knows, which the run supplies as TFKIT_VAR_<NAME>
+    example:
+      project_id: "{project_id}"
+      region: us-central1
+
+# The top-level fields a case of this contract holds. A refresh carries a judged
+# value only into a field that this list still holds.
+case_fields: [api_version, kind, contract, derived_from, layers, layer_order, wiring, variables, naming, lifecycle, assertions, judged, review, verification, cleanup]
+
+narrowing:
+  - when: fewer than two layers are buildable
+    drop: [the case]
+    why: there is no seam to assert
