@@ -341,7 +341,8 @@ def _from_discovery(document: dict[str, Any]) -> Spec:
 
 def _returned(body: dict[str, Any]) -> Any:
     """The schema of the first success response that has one."""
-    for status, response in sorted((body.get("responses") or {}).items()):
+    # A YAML document may load `200` as a number beside `default`, so sort on text.
+    for status, response in sorted((body.get("responses") or {}).items(), key=lambda item: str(item[0])):
         if str(status).startswith("2") and isinstance(response, dict):
             for media in (response.get("content") or {}).values():
                 if isinstance(media, dict) and media.get("schema"):

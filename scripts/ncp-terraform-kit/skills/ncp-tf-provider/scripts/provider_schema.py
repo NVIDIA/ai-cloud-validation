@@ -507,19 +507,21 @@ def index_openapi(document: dict[str, Any], source: str = "") -> tuple[dict[str,
     for path, operations in (document.get("paths") or {}).items():
         if not isinstance(operations, dict):
             continue
-        shared = operations.get("parameters") or []
+        shared = _resolved_all(operations.get("parameters") or [], "parameters", document)
         for verb, operation in operations.items():
             http_method = verb.upper()
             if http_method not in {*MUTATING_HTTP, "GET"} or not isinstance(operation, dict):
                 continue
             identifier = operation.get("operationId") or f"{verb.lower()}{path}"
-            parameters = _with_shared(shared, operation.get("parameters") or [])
+            parameters = _with_shared(shared, _resolved_all(operation.get("parameters") or [], "parameters", document))
             responses = operation.get("responses") or {}
 
-            request_ref = _register_body(operation.get("requestBody"), identifier, schemas)
+            request_ref = _register_body(
+                _resolved(operation.get("requestBody"), "requestBodies", document), identifier, schemas
+            )
             response_ref = ""
             for code in ("200", "201", "202"):
-                body = _json_schema((responses.get(code) or {}).get("content"))
+                body = _json_schema((_resolved(responses.get(code), "responses", document) or {}).get("content"))
                 if body:
                     response_ref = _register(body, f"{identifier}Response", schemas)
                     break
@@ -557,6 +559,34 @@ def index_openapi(document: dict[str, Any], source: str = "") -> tuple[dict[str,
                 ),
             )
     return found, schemas
+
+
+#: How many `$ref` steps a parameter, request body or response may take before
+#: it reaches its object. A chain longer than this is a loop in the document.
+REF_STEPS = 10
+
+
+def _resolved(node: Any, section: str, document: dict[str, Any]) -> Any:
+    """`node`, or the object under `components.<section>` that its `$ref` names.
+
+    A parameter, a request body or a response may be written in place or by
+    `$ref`. A reference that does not resolve is refused: reading it as absent
+    would drop a required parameter or a whole body without a word.
+    """
+    for _ in range(REF_STEPS):
+        if not (isinstance(node, dict) and "$ref" in node):
+            return node
+        ref = str(node["$ref"])
+        prefix = f"#/components/{section}/"
+        named = ((document.get("components") or {}).get(section) or {}).get(ref[len(prefix) :])
+        if not ref.startswith(prefix) or named is None:
+            raise InputError(f"the $ref {ref!r} names no object under components.{section} of the document")
+        node = named
+    raise InputError(f"a $ref under components.{section} takes more than {REF_STEPS} steps")
+
+
+def _resolved_all(nodes: list[Any], section: str, document: dict[str, Any]) -> list[Any]:
+    return [_resolved(node, section, document) for node in nodes]
 
 
 def _with_shared(shared: list[Any], own: list[Any]) -> list[Any]:
@@ -1279,6 +1309,15 @@ def command_schema(args: argparse.Namespace) -> int:
         "max_depth": args.max_depth,
         "resources": [d.as_dict() for d in derived],
     }
+    if previous is not None and (args.section or args.resource):
+        # A narrowed run replaces only the resources that it derived. The file
+        # keeps every other resource as reviewed, `sensitive` flags included.
+        derived_types = {d.terraform_type for d in derived}
+        payload["resources"] += [
+            entry
+            for entry in previous.get("resources") or []
+            if isinstance(entry, dict) and str(entry.get("terraform_type")) not in derived_types
+        ]
     if previous is not None:
         kept, lost = reviewed.carry(previous, payload)
         for where in kept:

@@ -68,16 +68,20 @@ def with_required_items(
     for terraform_type in types:
         attributes = marked[terraform_type].get("block", {}).get("attributes", {})
         for path in paths[terraform_type]:
-            _mark(attributes, path)
+            _mark(attributes, path, path, terraform_type, fail)
     return marked
 
 
-def _mark(attributes: dict[str, Any], path: Path) -> None:
+def _mark(
+    attributes: dict[str, Any], path: Path, whole: Path, terraform_type: str, fail: Callable[[str], None]
+) -> None:
     head, *rest = path
     attribute = attributes.get(head)
     if attribute is None:
+        # Skipping it would let the module accept a value that the API refuses.
+        fail(f"{terraform_type}: the reviewed schema requires {'.'.join(whole)}, which the schema export does not hold")
         return
     if rest:
-        _mark(attribute.get("nested_type", {}).get("attributes", {}), tuple(rest))
+        _mark(attribute.get("nested_type", {}).get("attributes", {}), tuple(rest), whole, terraform_type, fail)
     elif attribute.get("optional"):
         attribute.update(required=True, optional=False, computed=False)

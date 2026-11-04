@@ -11,12 +11,13 @@ provider, layer modules, and a verification report. The provider and the modules
 tested offline, live in your account, and by replay of recorded exchanges.
 
 The kit is a set of skills for a coding agent (Codex or Claude Code). It is not a
-program that you run. You ask the agent for one step, and you review the file that
-the step writes.
+program that you run. You ask the agent for one step, and you review what the step
+writes.
 
 ## Terraform modules
 
-The kit generates one Terraform module for each of four layers:
+The kit plans four layers. It generates a Terraform module for each layer that the
+NCP's API supports, fully or in part (a `buildable` or `partial` layer):
 
 | Module | What it configures, for example |
 |---|---|
@@ -52,7 +53,8 @@ mkdir -p <your-repo>/.claude/skills
 cp -R skills/* <your-repo>/.claude/skills/
 ```
 
-To update the kit, copy the skills again. A copy replaces the earlier copy.
+To update the kit, first delete the `ncp-tf*` skill folders of the earlier copy, then
+copy the skills again. `cp -R` does not delete a file that the newer kit removed.
 
 The skills run their helper scripts with [uv](https://docs.astral.sh/uv/). Each
 script declares its own dependencies, so the install adds nothing else to your

@@ -37,7 +37,7 @@ specification.
 
 | | What it is | What you do with it |
 |---|---|---|
-| **Provider** | a Terraform provider carrying a resource type for everything the API can create, read, update and delete | write `resource "<ncp>_instance"` and `terraform apply` reaches the NCP, the same way it reaches any cloud |
+| **Provider** | a Terraform provider carrying a resource type for each type in the approved plan that you select | write `resource "<ncp>_instance"` and `terraform apply` reaches the NCP, the same way it reaches any cloud |
 | **Layer modules** | one module for each layer the API can support — `iam`, `network`, `cluster`, `compute` | configure a layer without knowing which resources sit under it |
 | **Blueprint** | one configuration that composes the layers in order | stand up a whole environment from a single root module |
 | **Tests** | a test for each of the three, run offline or against a live account | know the above works before anything depends on it |
@@ -47,8 +47,8 @@ named. The kit never invents a resource to fill a gap.
 
 ## How you use it
 
-Ask for one step, in plain language. Each step writes **one file**, you review
-that file, and the next step reads it.
+Ask for one step, in plain language. Each step writes **one output**, a file or
+a few files that belong together, you review it, and the next step reads it.
 
 There is no orchestrator, no run to start and none to resume. The files on disk
 are the whole handoff, so you can stop after any step, come back days later, and
@@ -105,9 +105,9 @@ judgement call.
 
 | Layers with resources | What to do |
 |---|---|
-| **0** | **Stop.** There is nothing to generate — no provider, no module, no test. Before you conclude the NCP supports nothing, check which specifications you supplied. A document missing from the input looks exactly like a capability missing from the API. |
+| **0** | **Stop**, unless `other` lists types: those still get the provider and its tests, and no module. With nothing in `other` either, there is nothing to generate — no provider, no module, no test. Before you conclude the NCP supports nothing, check which specifications you supplied. A document missing from the input looks exactly like a capability missing from the API. |
 | **1** | **Go.** One layer is enough for a provider, that layer's module, and tests for both. The blueprint composes layers, so it needs two to have a seam between them; that step stays out of reach until a second layer appears. |
-| **2 or more** | **Go**, with the blueprint available as well. |
+| **2 or more** | **Go.** You can also scaffold the blueprint's composition case (step 2c). The blueprint itself is not generated yet: see [Not built yet](#not-built-yet). |
 
 **`partial` is a go, not a hold.** A partial layer is one the API supports in
 part, with the gap stated, and it generates a module for the resources that do
@@ -301,7 +301,9 @@ wrong attribute fails the module while every resource passes. Module results
 come from `terraform test -json`, a separate input from the resource run.
 
 Until the layer modules exist, every module reads `unverified` because no module
-test has run — not because one failed, and the report says so.
+test has run — not because one failed, and the report says so. Run this step
+again after step 4, with each module's `terraform test -json`, and commit the
+report again.
 
 **The one thing you write by hand is why.** A resource that ran and did not pass
 must cite a *blocker*: a reason stated once, given an id, and reused by every
@@ -458,13 +460,14 @@ point, not an oversight.
 
 - **It never invents a resource.** A layer whose operations are missing is
   reported as not buildable, with the gap stated.
-- **No step contacts a live account.** The tests a step writes do, when you
-  choose to run them against one. Generating and running are separate acts,
-  and the second is yours.
+- **No step contacts a live account without your word.** The tests a step
+  writes do, when you choose to run them against one, and the recording step
+  (3d) sends live requests once you approve it. Generating and running are
+  separate acts, and the second is yours.
 - **It commits only when you ask.** You review, and you decide what to commit.
   Before a commit, the offline entry point (`run-tests.sh offline`) must exit 0
   in each directory that the change reaches.
-- **It stops at one artifact.** No step runs the next one for you.
+- **It stops after one step's output.** No step runs the next one for you.
 - **It reads only the specifications you supply.** Not the web, and not its own
   recollection of an API.
 

@@ -287,14 +287,14 @@ def _send(method: str, url: str, body: bytes | None, headers: dict[str, str], sh
         # url_problem refuses every scheme but https, and http to a loopback
         # host, before a request reaches this call.
         with _OPENER.open(request, timeout=TIMEOUT_SECONDS) as response:  # nosec B310
-            return response.status, response.headers.get("Content-Type", ""), response.read().decode()
+            return response.status, response.headers.get("Content-Type", ""), _text(response.read(), method, shown)
     except urllib.error.HTTPError as error:
         if 300 <= error.code < 400:
             raise CassetteError(
                 f"{method} {shown} answered {error.code}, a redirect, and nothing was "
                 "recorded: a redirect would send the credential to another address"
             ) from error
-        return error.code, error.headers.get("Content-Type", ""), error.read().decode()
+        return error.code, error.headers.get("Content-Type", ""), _text(error.read(), method, shown)
     except (urllib.error.URLError, TimeoutError) as error:
         raise CassetteError(f"{method} {shown} reached no API, and nothing was recorded: {error}") from error
 
@@ -433,6 +433,18 @@ def _tokenized(url: str, parameter: str) -> str:
         )
     parts[found[0]] = parts[found[0]].partition("=")[0] + "=" + DEDUP_TOKEN
     return head + mark + "&".join(parts)
+
+
+def _text(body: bytes, method: str, shown: str) -> str:
+    """The response body as text. The request was already sent, so a body that
+    is not UTF-8 is refused with what that means for the account."""
+    try:
+        return body.decode()
+    except UnicodeDecodeError as error:
+        raise CassetteError(
+            f"{method} {shown} answered a body that is not UTF-8, for example an HTML page from a proxy, "
+            "and nothing was recorded. The request was sent, so what it created may be in the account"
+        ) from error
 
 
 def _refuse_unrecordable(

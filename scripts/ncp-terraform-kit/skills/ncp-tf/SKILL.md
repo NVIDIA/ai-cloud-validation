@@ -67,8 +67,8 @@ verification report exist today. The blueprint step is designed and not built.
 an output location. Each is established by inspecting the repository and
 confirming with the operator. A repository may hold several NCPs.
 
-**One command, one artifact, one review.** Each skill produces one artifact and
-stops. A person reviews it before the next step runs. There is no orchestrator,
+**One command, one output, one review.** Each skill produces one output, a file
+or a few files that belong together, and stops. A person reviews it before the next step runs. There is no orchestrator,
 no run identity and no resume — the artifacts on disk are the whole handoff
 between steps.
 

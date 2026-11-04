@@ -66,6 +66,7 @@ import plan_decisions
 import plan_overrides
 import planned_objects
 import provenance
+import recorded_documents
 import replaced_types
 import requirement_types
 import requirements_catalog
@@ -463,21 +464,16 @@ def gate_spec_documents(ctx: Context) -> GateResult:
         )
         return result
 
-    by_name = {path.name: path for path in supplied}
-    recorded = {_document_file(entry): name for name, entry in declared.items() if isinstance(entry, dict)}
-    for name in sorted(set(by_name) - set(recorded)):
-        result.failures.append(f"spec_documents records no entry for {name}, which this analysis read")
+    by_path = {path.resolve(): path for path in supplied}
+    recorded: set[Path] = set()
     for name, entry in sorted(declared.items()):
         if not isinstance(entry, dict):
             result.failures.append(f"spec_documents.{name} is not a mapping")
             continue
-        path = by_name.get(_document_file(entry))
+        path = _declared_file(ctx, name, entry, by_path, result)
         if path is None:
-            result.failures.append(
-                f"spec_documents.{name}.file is {entry.get('file')!r}, which was "
-                f"not among the specifications this analysis read"
-            )
             continue
+        recorded.add(path)
         claimed = str(entry.get("digest") or "")
         if not claimed:
             result.failures.append(
@@ -487,12 +483,37 @@ def gate_spec_documents(ctx: Context) -> GateResult:
         actual = _file_digest(path)
         if claimed != actual:
             result.failures.append(f"spec_documents.{name}.digest is {claimed!r}; {path.name} on disk is {actual!r}")
+    for path in sorted(set(by_path) - recorded):
+        result.failures.append(f"spec_documents records no entry for {path}, which this analysis read")
     return result
 
 
-def _document_file(entry: dict[str, Any]) -> str:
-    """The file name an entry records, however much path it carries."""
-    return Path(str(entry.get("file") or "")).name
+def _declared_file(
+    ctx: Context, name: str, entry: dict[str, Any], by_path: dict[Path, Path], result: GateResult
+) -> Path | None:
+    """The supplied file that an entry names, by the rule the scaffold reads it.
+
+    A failure names the supplied files, so the agent can correct `file` and
+    run the gate again.
+    """
+    declared = str(entry.get("file") or "")
+    read = ", ".join(str(path) for path in sorted(by_path))
+    found = recorded_documents.locate(declared, ctx.coverage_path)
+    if found is None:
+        result.failures.append(
+            f"spec_documents.{name}.file is {declared!r}, which is not beside "
+            f"{ctx.coverage_path} nor above it, so the next step cannot find it. "
+            f"Set it to the repository-relative path of the document this analysis read: {read}"
+        )
+        return None
+    if found not in by_path:
+        result.failures.append(
+            f"spec_documents.{name}.file is {declared!r}, which the next step reads as "
+            f"{found}, not a document this analysis read. Set it to the "
+            f"repository-relative path of the document this analysis read: {read}"
+        )
+        return None
+    return found
 
 
 def _file_digest(path: Path) -> str:
@@ -613,6 +634,9 @@ def gate_module_plan(ctx: Context) -> GateResult:
     covered = _coverage_parts(ctx.coverage)
     owner: dict[str, str] = {}
     for name, layer in layers.items():
+        if not isinstance(layer, dict):
+            result.failures.append(f"{name}: the layer has no body; write its verdict and its resources")
+            continue
         verdict = layer.get("verdict")
         if name == "other":
             # No module is generated for `other`, so a verdict there would
@@ -811,6 +835,7 @@ def gate_plan_completeness(ctx: Context) -> GateResult:
     planned = {
         operation_refs.identity(ref, spec)
         for layer in ctx.module_plan.get("layers", {}).values()
+        if isinstance(layer, dict)
         for resource in layer.get("resources", []) or []
         for ref in (resource.get("operations") or {}).values()
     }
@@ -1067,6 +1092,7 @@ def _planned_resources(module_plan: dict[str, Any]) -> list[tuple[str, dict[str,
     return [
         (layer_name, resource)
         for layer_name, layer in (module_plan.get("layers") or {}).items()
+        if isinstance(layer, dict)
         for resource in (layer.get("resources") or [])
         if isinstance(resource, dict)
     ]
@@ -1124,7 +1150,7 @@ def _named_operations(coverage: dict[str, Any], module_plan: dict[str, Any]) -> 
     """
     named = {ref for mapping in coverage["mappings"] for _, ref in mapping_evidence(mapping)}
     for layer in module_plan.get("layers", {}).values():
-        for resource in layer.get("resources", []) or []:
+        for resource in (layer.get("resources", []) or []) if isinstance(layer, dict) else []:
             named.update((resource.get("operations") or {}).values())
             named.update(resource.get("scope_alternatives") or [])
     named.update(
@@ -1414,6 +1440,8 @@ def command_report(args: argparse.Namespace) -> int:
         lines.append("|---|---|---|---|---|")
         dependencies = 0
         for name, layer in ctx.module_plan.get("layers", {}).items():
+            if not isinstance(layer, dict):
+                continue
             note = layer.get("gap") or layer.get("reason") or ""
             resources = [r for r in layer.get("resources", []) or [] if isinstance(r, dict)]
             needed = sum(1 for r in resources if is_dependency_resource(r))
