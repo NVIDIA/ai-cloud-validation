@@ -31,11 +31,16 @@ import pytest
 from botocore.stub import Stubber
 from isvtest.validations import AllowRuleApprovalCheck
 
+from isvctl.config.merger import merge_yaml_files
 from isvctl.config.output_schemas import validate_output
+from isvctl.config.schema import RunConfig
+from isvctl.orchestrator.context import Context
+from isvctl.orchestrator.step_executor import StepExecutor
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "configs/providers/aws/scripts/network/allow_rule_approval_test.py"
 TEMPLATE = ROOT / "configs/providers/my-isv/scripts/network/allow_rule_approval_test.py"
+AWS_NETWORK_CONFIG = ROOT / "configs/providers/aws/config/network.yaml"
 RULE_ID = "sgr-0123456789abcdef0"
 GROUP_ID = "sg-0123456789abcdef0"
 POLICY = f"aws:us-east-2:123456789012:security-group/{GROUP_ID}"
@@ -177,6 +182,41 @@ def test_cli_missing_configuration_fails(
     output = json.loads(capsys.readouterr().out)
     assert output["success"] is False
     assert "--approval-file" in output["error"]
+
+
+def test_aws_config_keeps_empty_rule_and_approval_values(
+    collector: ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Unset inputs must reach the collector as empty values, not dangling flags."""
+    config = RunConfig.model_validate(merge_yaml_files([AWS_NETWORK_CONFIG]))
+    step = next(s for s in config.commands["network"].steps if s.name == "allow_rule_approval")
+
+    rendered = StepExecutor()._render_args(step.args, Context(config))
+
+    assert "--rule-id" not in rendered
+    assert "--rule-id=" in rendered
+    assert "--approval-file" not in rendered
+    assert "--approval-file=" in rendered
+
+    # argparse must reach the documented configuration error instead of exiting 2
+    # with a usage message and no JSON contract at all.
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), *rendered])
+    assert collector.main() == 1
+    output = json.loads(capsys.readouterr().out)
+    assert validate_output(output, "allow_rule_approval")[0]
+    assert "--approval-file" in output["error"]
+    assert AllowRuleApprovalCheck(config={"step_output": output}).execute()["passed"] is False
+
+
+def test_unconfigured_collection_keeps_remaining_network_steps() -> None:
+    """SEC30-03's configuration error must not drop the later steps in the phase."""
+    config = RunConfig.model_validate(merge_yaml_files([AWS_NETWORK_CONFIG]))
+    steps = [s for s in config.commands["network"].steps if s.phase == "test"]
+    names = [s.name for s in steps]
+    index = names.index("allow_rule_approval")
+
+    assert steps[index].continue_on_failure is True
+    assert names[index + 1 :], "later test steps are what the abort would have dropped"
 
 
 @pytest.mark.parametrize("demo", ["0", "1"])

@@ -264,16 +264,19 @@ commands:
         output_schema: traffic_flow
 
       # SEC30-03: read an existing rule and an independent approval export.
+      # Both inputs are unset by default, so the flags are single tokens: a bare
+      # "--flag" whose value renders empty is dropped, and argparse then rejects
+      # the dangling flag before the script can report its documented
+      # configuration error. That error must not end the phase either.
       - name: allow_rule_approval
         phase: test
+        continue_on_failure: true
         command: "python3 ../scripts/network/allow_rule_approval_test.py"
         args:
           - "--region"
           - "{{region}}"
-          - "--rule-id"
-          - "{{allow_rule_id}}"
-          - "--approval-file"
-          - "{{allow_rule_approval_file}}"
+          - "--rule-id={{allow_rule_id}}"
+          - "--approval-file={{allow_rule_approval_file}}"
         timeout: 60
         output_schema: allow_rule_approval
 
@@ -434,10 +437,8 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--node-ids"
-          - "{{imex_node_ids | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--node-ids={{imex_node_ids | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         # Headroom over the script's own 90s sweep deadline (plus one in-flight
         # per-node SSH timeout), so the script always emits its JSON contract
         # rather than being killed here with no output on a large or
@@ -454,10 +455,8 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--node-ids"
-          - "{{imex_node_ids | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--node-ids={{imex_node_ids | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         timeout: 300
         output_schema: imex_service
 
@@ -471,10 +470,8 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--node-ids"
-          - "{{imex_resilience_node | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--node-ids={{imex_resilience_node | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         timeout: 300
         output_schema: imex_resilience
 
@@ -488,12 +485,9 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--target-node"
-          - "{{imex_departure_target | default('', true)}}"
-          - "--observer-node"
-          - "{{imex_departure_observer | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--target-node={{imex_departure_target | default('', true)}}"
+          - "--observer-node={{imex_departure_observer | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         timeout: 300
         output_schema: imex_departure
 
@@ -508,10 +502,8 @@ commands:
         args:
           - "--region"
           - "{{region}}"
-          - "--node-ids"
-          - "{{imex_reboot_node | default('', true)}}"
-          - "--key-file"
-          - "{{imex_key_file | default('', true)}}"
+          - "--node-ids={{imex_reboot_node | default('', true)}}"
+          - "--key-file={{imex_key_file | default('', true)}}"
         timeout: 1200
         output_schema: imex_reboot
 
