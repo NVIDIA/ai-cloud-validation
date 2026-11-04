@@ -194,9 +194,8 @@ stated, and ask for each other one: [references/scope.md](references/scope.md).
 **The specifications come from the coverage, not from you.** The script reads
 each document that `coverage.yaml` records in `spec_documents`, so every case
 carries the request each operation must issue, which a replay run matches on.
-`--spec` overrides it when the documents have moved. A coverage that records
-none is refused: re-run the coverage step. A document whose digest differs is
-refused too: the cases would read another API than the analysis.
+`--spec` overrides it when the documents have moved. A coverage that records none is refused: re-run the coverage step. A document whose digest differs is refused too: the cases would read another API than the analysis.
+**A file that this kit refuses can be one that an earlier kit wrote**, such as an entry whose `file` names only `spec.json` while the document is at `<ncp>/spec/spec.json`. Do not stop at the refusal, and do not hide it behind `--spec`: the next step reads the file again and refuses it again. Show the operator the change on one line: the file, the field, its current value and the value this kit needs. Ask to update it, or to re-run the step that writes it, and continue after the answer.
 
 The script refuses rather than guesses. A layer or resource the module plan does
 not name, an operation the documents do not define, a composition with fewer

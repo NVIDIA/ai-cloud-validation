@@ -141,3 +141,4 @@ only thing the kit owns that an agent sees without being told where to look.
 |---|---|
 | `uv: command not found` | Install `uv`. Do not fall back to a bare `python3` and `pip install`; the scripts declare dependencies inline. |
 | A gate warns or fails | Read the message and fix the artifact. Never edit a flag, a threshold or the gate itself to quiet one — a gate is the only thing checking the work. |
+| A check refuses a file that an earlier version of the kit wrote | The format moved, not the work. Show the operator the change on one line: the file, the field, its current value and the value this kit needs. Ask to update it, or to re-run the step that writes it, and continue after the answer. Do not stop at the refusal, work around it, or edit the installed kit. |
