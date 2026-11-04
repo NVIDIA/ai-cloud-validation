@@ -294,14 +294,14 @@ tests:
           labels: ["kubernetes", "gpu"]
           label_selector: "nvidia.com/gpu.present=true"
         K8sPodHealthCheck:
-          test_id: "N/A"
+          test_id: "K8S39-01"
           labels: ["kubernetes"]
           ignore_phases: ["Pending"]
         K8sNoPendingPodsCheck:
           test_id: "N/A"
           labels: ["kubernetes"]
         K8sNoErrorPodsCheck:
-          test_id: "N/A"
+          test_id: "K8S39-01"
           labels: ["kubernetes"]
           error_states: ["Error", "CrashLoopBackOff"]
         K8sMigConfigCheck:
