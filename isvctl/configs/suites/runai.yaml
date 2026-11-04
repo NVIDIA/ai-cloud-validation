@@ -1,0 +1,104 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Run:AI Compatibility Kit Validation
+#
+# Runs the Run:AI compatibility kit - a prebuilt Docker image whose entrypoint
+# executes the Run:AI E2E compatibility suite against the Kubernetes cluster
+# the kubeconfig points at - and validates its verdict.
+#
+# The kit image is NOT built here (its build clones a private E2E repo); it
+# is published to NVIDIA NGC without guest access. The default image is
+# nvcr.io/nvidia/runai/runai-compatibility-kit:latest and pulling it
+# authenticates with NGC_API_KEY; set RUNAI_COMPAT_KIT_IMAGE to override,
+# e.g. to the kit Makefile's locally built runai/certification-kit:latest
+# (a local image needs no credentials). The kubeconfig comes from KUBECONFIG
+# or ~/.kube/config.
+#
+# The commands are provider-agnostic: they need only a docker CLI and a
+# kubeconfig on the machine running isvctl. When docker or the kubeconfig is
+# missing, the steps report skipped and the validation skips rather than fails.
+#
+# Steps:
+#   SETUP
+#     1. preflight_compatibility_kit - docker + kubeconfig present, image pullable
+#   TEST
+#     2. run_compatibility_kit - stage kubeconfig, run the kit, parse results
+#   TEARDOWN
+#     3. cleanup_compatibility_kit - remove leftover container/volume (best effort)
+#
+# The kit writes its full artifact package (Allure HTML report, CSV summary,
+# run log, submission zip) into the kit_results_dir on the host.
+#
+# Usage:
+#   uv run isvctl test run -f isvctl/configs/suites/runai.yaml
+#   RUNAI_COMPAT_KIT_IMAGE=runai/certification-kit:latest \
+#     uv run isvctl test run -f isvctl/configs/suites/runai.yaml
+
+version: "1.0"
+
+commands:
+  # Key must match tests.capability - the orchestrator resolves the command
+  # group for the declared capability.
+  kubernetes:
+    phases: ["setup", "test", "teardown"]
+    steps:
+      # Image and kubeconfig come from the environment (RUNAI_COMPAT_KIT_IMAGE,
+      # KUBECONFIG), not args: an empty templated arg value would be dropped
+      # and desync the flag list. Direct script runs may use --image/--kubeconfig.
+      - name: preflight_compatibility_kit
+        phase: setup
+        command: "python ../providers/shared/run_compatibility_kit.py"
+        args: ["--preflight"]
+        timeout: 1900
+        requires_available_validations: ["RunAICompatibilityCheck"]
+
+      - name: run_compatibility_kit
+        phase: test
+        command: "python ../providers/shared/run_compatibility_kit.py"
+        args: ["--results-dir", "{{kit_results_dir}}", "--timeout", "{{kit_timeout}}"]
+        # Step timeout leaves headroom over the script's own --timeout, which
+        # force-removes the container on expiry; an orchestrator kill would
+        # leave it running for the teardown sweep to catch.
+        timeout: 4500
+        requires_available_validations: ["RunAICompatibilityCheck"]
+
+      - name: cleanup_compatibility_kit
+        phase: teardown
+        command: "python ../providers/shared/run_compatibility_kit.py"
+        args: ["--cleanup"]
+        timeout: 120
+        continue_on_failure: true
+
+tests:
+  capability: kubernetes
+  cluster_name: "runai-compatibility"
+  description: "Run:AI compatibility kit validation"
+
+  settings:
+    show_skipped_tests: false
+    kit_results_dir: "runai-compatibility-results"
+    kit_timeout: "3600"
+
+  validations:
+    compatibility:
+      step: run_compatibility_kit
+      checks:
+        RunAICompatibilityCheck:
+          test_id: "N/A"
+          labels: ["runai", "kubernetes", "workload", "slow"]
+
+  exclude:
+    labels: []
