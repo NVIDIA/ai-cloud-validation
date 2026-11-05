@@ -28,7 +28,7 @@ from isvreporter.version import get_version
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import apply_user_config
-from isvctl.doctor.checks import check_configs, check_env, check_tools
+from isvctl.doctor.checks import check_configs, check_env, check_lab, check_tools
 from isvctl.doctor.report import render_json, render_rich
 from isvctl.doctor.result import CategoryReport, Status, worst
 
@@ -43,7 +43,7 @@ app = typer.Typer(
 
 # Categories the user can pass to --check. Keep in sync with the dispatch
 # table inside `doctor()`.
-_CATEGORY_NAMES: tuple[str, ...] = ("tools", "env", "config")
+_CATEGORY_NAMES: tuple[str, ...] = ("tools", "env", "config", "lab")
 
 
 def _parse_csv(value: str | None) -> list[str]:
@@ -83,6 +83,14 @@ def doctor(
             help=f"Comma-separated subset of categories to run ({', '.join(_CATEGORY_NAMES)}).",
         ),
     ] = None,
+    lab_id: Annotated[
+        int | None,
+        typer.Option(
+            "--lab-id",
+            help="Verify ISV_CLIENT_ID/ISV_CLIENT_SECRET and access to this lab on the ISV Lab Service "
+            "(read-only; no test run is created).",
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit the report as JSON to stdout."),
@@ -117,6 +125,7 @@ def doctor(
         isvctl doctor -f path/to/your-config.yaml
         isvctl doctor --provider aws -v
         isvctl doctor --check env --json
+        isvctl doctor --check lab --lab-id 37
     """
     # When invoked with a real subcommand, defer to it. (There are none today
     # but the callback shape leaves room for future grouping like `doctor
@@ -128,13 +137,17 @@ def doctor(
     apply_user_config(no_user_config)
 
     providers = _parse_csv(provider)
-    requested = _parse_csv(check) or list(_CATEGORY_NAMES)
+    requested = _parse_csv(check) or [c for c in _CATEGORY_NAMES if c != "lab" or lab_id is not None]
     unknown = [c for c in requested if c not in _CATEGORY_NAMES]
     if unknown:
         typer.echo(
             f"Error: unknown --check value(s): {', '.join(unknown)}. Valid: {', '.join(_CATEGORY_NAMES)}",
             err=True,
         )
+        raise typer.Exit(code=2)
+
+    if "lab" in requested and lab_id is None:
+        typer.echo("Error: --check lab requires --lab-id.", err=True)
         raise typer.Exit(code=2)
 
     reports: list[CategoryReport] = []
@@ -144,6 +157,8 @@ def doctor(
         reports.append(check_env(providers))
     if "config" in requested:
         reports.append(check_configs(config_files or None, providers))
+    if "lab" in requested and lab_id is not None:
+        reports.append(check_lab(lab_id))
 
     version = get_version("isvctl")
 
