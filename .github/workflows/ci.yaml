@@ -16,8 +16,8 @@ on:
 # Least privilege for every job that does not declare its own block. Without
 # this the token inherits the repository default, which is write. packages:read
 # is required because the container image below is private and the runner
-# authenticates to ghcr with this token. Jobs that need more (the security
-# scans) declare their own permissions, which replace these rather than add
+# authenticates to ghcr with this token. Jobs that need more (the CodeQL
+# scan) declare their own permissions, which replace these rather than add
 # to them.
 permissions:
   contents: read
@@ -87,47 +87,53 @@ jobs:
   # SECURITY STAGE
   # ============================================================================
 
+  # Same scan jobs as infra-controller's CI, using the shared dsx-github-actions.
   security-secret-scan:
-    name: Secret Scan (TruffleHog)
+    name: Secret Scan with TruffleHog
     runs-on: linux-amd64-cpu4
     timeout-minutes: 30
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: write
+    # PR comments are disabled below and this scan does not upload SARIF, so
+    # TruffleHog inherits the read-only workflow permission.
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           fetch-depth: 0 # Full history for secret scanning
 
       - name: Run TruffleHog Scan
         uses: dsx-ai-factory/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
+          # A head without a base scans all history up to this commit, so a later
+          # push cannot hide an earlier secret. This repository is small enough.
+          head: ${{ github.sha }}
           # Lob's key pattern is `test_` + 35 chars, so its verifier reports every
           # 40-character pytest function name as a verified secret. Nothing here uses
           # Lob (a postal mail API), so it can only produce false positives. Kept in
           # sync with TRUFFLEHOG_EXCLUDE_DETECTORS in the Makefile.
           extra-args: "--results=verified,unknown --only-verified --exclude-detectors=lob"
-          post-pr-comment: "true"
+          post-pr-comment: "false"
           fail-on-findings: "true"
 
   security-codeql-scan:
-    name: Security Analysis (CodeQL)
+    name: CodeQL Security Analysis
     runs-on: linux-amd64-cpu4
-    timeout-minutes: 30
+    timeout-minutes: 20
+    # upload-sarif and post-pr-comment are both false below, so CodeQL only
+    # needs to read the workflow metadata and the source it analyzes.
     permissions:
       actions: read
       contents: read
-      security-events: write
-      packages: read
-      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Run CodeQL Scan
-        uses: dsx-ai-factory/dsx-github-actions/.github/actions/codeql-scan@55d1e0af17fb4431edaca19fbd5c78fecd29d18a
+        # Bounded separately from the job so a hang fails this step by name.
+        timeout-minutes: 15
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
         with:
           languages: python
           build-mode: none
