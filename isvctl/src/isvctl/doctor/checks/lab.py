@@ -20,12 +20,14 @@ Verifies, without creating a test run, that the configured ``ISV_CLIENT_ID`` /
 (``GET /v1/labs/{lab_id}``, allowed with the upload scopes). Secrets and tokens are never recorded in results.
 """
 
+import json
 import os
 from http.client import HTTPException
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
+from urllib.request import Request
 
-from isvreporter.auth import TokenError, is_secure_url, request_jwt_token
+from isvreporter.auth import TokenError, is_secure_url, open_url, request_jwt_token
 from isvreporter.config import get_endpoint, get_ssa_issuer
 
 from isvctl.doctor.result import CategoryReport, CheckResult, Status
@@ -33,6 +35,8 @@ from isvctl.doctor.result import CategoryReport, CheckResult, Status
 _TIMEOUT_SECONDS = 10
 _CONFIG_ROW = "ISV Lab Service config"
 _TOKEN_ROW = "SSA token"
+
+_NOT_API_HINT = "set ISV_SERVICE_ENDPOINT to the ISV Lab Service API base URL, not a web or login page"
 
 # HTTP status from GET /v1/labs/{id} -> (message, remediation)
 _LAB_HTTP_HINTS: dict[int, tuple[str, str]] = {
@@ -87,20 +91,20 @@ def _lab_results(lab_id: int) -> list[CheckResult]:
         ]
     token_ok = _row(_TOKEN_ROW, Status.OK, "credentials accepted")
 
-    request = Request(f"{endpoint}/v1/labs/{lab_id}")
-    # Unredirected so a redirect never carries the bearer token to another host.
-    request.add_unredirected_header("Authorization", f"Bearer {token}")
+    request = Request(f"{endpoint}/v1/labs/{lab_id}", headers={"Authorization": f"Bearer {token}"})
     try:
-        with urlopen(request, timeout=_TIMEOUT_SECONDS):
-            pass
+        with open_url(request, timeout=_TIMEOUT_SECONDS) as response:
+            body = response.read()
     except HTTPError as exc:
+        detail = f"GET /v1/labs/{lab_id} -> {exc.code}"
+        if 300 <= exc.code < 400:
+            location = urlparse((exc.headers or {}).get("Location") or "").netloc
+            detail += f" (to {location})" if location else ""
+            return [token_ok, _row(lab_row, Status.FAIL, "redirected instead of answering", _NOT_API_HINT, detail)]
         message, remediation = _LAB_HTTP_HINTS.get(
             exc.code, (f"unexpected HTTP {exc.code}", "retry; check service status")
         )
-        return [
-            token_ok,
-            _row(lab_row, Status.FAIL, message, remediation, detail=f"GET /v1/labs/{lab_id} -> {exc.code}"),
-        ]
+        return [token_ok, _row(lab_row, Status.FAIL, message, remediation, detail)]
     except (OSError, HTTPException) as exc:
         return [
             token_ok,
@@ -112,7 +116,17 @@ def _lab_results(lab_id: int) -> list[CheckResult]:
                 detail=str(getattr(exc, "reason", exc)),
             ),
         ]
+    if not _is_json_object(body):
+        return [token_ok, _row(lab_row, Status.FAIL, "response is not ISV Lab Service JSON", _NOT_API_HINT)]
     return [token_ok, _row(lab_row, Status.OK, "exists and is accessible")]
+
+
+def _is_json_object(body: bytes) -> bool:
+    """Return True if ``body`` is a JSON object (an API answer, not e.g. an HTML page)."""
+    try:
+        return isinstance(json.loads(body), dict)
+    except ValueError:
+        return False
 
 
 def check_lab(lab_id: int) -> CategoryReport:

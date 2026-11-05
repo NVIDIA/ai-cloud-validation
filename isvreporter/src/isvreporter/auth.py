@@ -18,15 +18,47 @@
 import base64
 import json
 import sys
+from email.message import Message
 from http.client import HTTPException
+from typing import IO, Any
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 UPLOAD_SCOPES = "create-isv-lab-test-run update-isv-lab-test-run"
 
 # Plain http is only tolerated for local test servers; anything else would send credentials in cleartext.
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+class _RejectRedirects(HTTPRedirectHandler):
+    """Decline every redirect so urllib raises the 3xx as an ``HTTPError``."""
+
+    def redirect_request(
+        self, req: Request, fp: IO[bytes], code: int, msg: str, headers: Message, newurl: str
+    ) -> Request | None:
+        """Return None: never build a follow-up request."""
+        return None
+
+
+_NO_REDIRECT_OPENER = build_opener(_RejectRedirects)
+
+
+def open_url(request: Request, timeout: float) -> Any:
+    """Open ``request`` like ``urlopen`` but never follow redirects.
+
+    A credentialed ISV Lab Service call must not follow a redirect: keeping the
+    credentials would leak them to the target, and dropping them turns a wrong URL
+    (e.g. a login page) into a misleading 200 or 401. A 3xx raises ``HTTPError``.
+
+    Args:
+        request: Request to send
+        timeout: Socket timeout in seconds
+
+    Returns:
+        The response object (a context manager, as from ``urlopen``)
+    """
+    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
 def is_secure_url(url: str) -> bool:
@@ -74,7 +106,8 @@ def request_jwt_token(ssa_issuer: str, client_id: str, client_secret: str, timeo
 
     Raises:
         TokenError: If the issuer URL is not https (see ``is_secure_url``), is
-            unreachable, rejects the credentials, or returns an unexpected response
+            unreachable, redirects, rejects the credentials, or returns an
+            unexpected response
     """
     if not is_secure_url(ssa_issuer):
         raise TokenError("SSA issuer must be an https URL")
@@ -82,16 +115,15 @@ def request_jwt_token(ssa_issuer: str, client_id: str, client_secret: str, timeo
     request = Request(
         f"{ssa_issuer}/token",
         data=urlencode({"scope": UPLOAD_SCOPES, "grant_type": "client_credentials"}).encode(),
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        headers={"Content-Type": "application/x-www-form-urlencoded", "Authorization": f"Basic {basic}"},
         method="POST",
     )
-    # Unredirected: urllib copies ordinary headers onto redirects, which would hand the
-    # client credentials to whatever host the issuer redirects to.
-    request.add_unredirected_header("Authorization", f"Basic {basic}")
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with open_url(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode())
     except HTTPError as exc:
+        if 300 <= exc.code < 400:
+            raise TokenError(f"SSA issuer answered with a redirect (HTTP {exc.code})") from exc
         raise TokenError(f"HTTP {exc.code}", exc.code) from exc
     except OSError as exc:
         raise TokenError(f"cannot reach SSA issuer: {getattr(exc, 'reason', exc)}") from exc

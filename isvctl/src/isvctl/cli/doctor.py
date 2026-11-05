@@ -87,8 +87,10 @@ def doctor(
         int | None,
         typer.Option(
             "--lab-id",
+            min=1,
             help="Verify ISV_CLIENT_ID/ISV_CLIENT_SECRET and access to this lab on the ISV Lab Service "
-            "(read-only; no test run is created). Runs only this check unless --check is also given.",
+            "(read-only; no test run is created). On its own it runs only this check; with --check, "
+            "-f or --provider it runs alongside those.",
         ),
     ] = None,
     json_output: Annotated[
@@ -137,8 +139,10 @@ def doctor(
     apply_user_config(no_user_config)
 
     providers = _parse_csv(provider)
-    # A targeted check (--lab-id) narrows the run to that check; --check adds categories back.
-    requested = _parse_csv(check) or ([] if lab_id is not None else list(_CATEGORY_NAMES))
+    # `--lab-id` alone means "doctor this lab", so only the lab check runs. Any other
+    # target (-f, --provider) still gets the usual categories, so nothing is silently ignored.
+    lab_only = lab_id is not None and not (config_files or providers)
+    requested = _parse_csv(check) or ([] if lab_only else list(_CATEGORY_NAMES))
     unknown = [c for c in requested if c not in _CATEGORY_NAMES]
     if unknown:
         typer.echo(

@@ -95,7 +95,7 @@ isvctl doctor -f isvctl/configs/suites/k8s.yaml
 isvctl doctor --provider aws -f isvctl/configs/providers/aws/config/control-plane.yaml
 
 # Verify ISV_CLIENT_ID/ISV_CLIENT_SECRET and access to a lab (read-only, no test run created).
-# Runs only the lab check; add --check to include other categories.
+# On its own it runs only the lab check; with --check, -f or --provider it runs alongside those.
 isvctl doctor --lab-id 37
 
 # Also list skipped checks (unset optional variables, checks blocked by a failure)

@@ -18,7 +18,9 @@
 import io
 import json
 from collections.abc import Callable
+from email.message import Message
 from http.client import BadStatusLine
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import parse_qs
@@ -73,8 +75,8 @@ def _patch_urlopen(monkeypatch: pytest.MonkeyPatch, handler: Callable[[Request],
         seen.append(request)
         return handler(request)
 
-    monkeypatch.setattr(auth, "urlopen", fake)
-    monkeypatch.setattr(lab_checks, "urlopen", fake)
+    monkeypatch.setattr(auth, "open_url", fake)
+    monkeypatch.setattr(lab_checks, "open_url", fake)
     return seen
 
 
@@ -96,9 +98,6 @@ def test_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (token_req.get_header("Authorization") or "").startswith("Basic ")
     assert lab_req.full_url == "https://isv.example/v1/labs/37"
     assert lab_req.get_header("Authorization") == "Bearer t"
-    # Credentials must not be copied onto redirects (urllib only copies ``headers``).
-    assert "Authorization" not in token_req.headers
-    assert "Authorization" not in lab_req.headers
 
 
 @pytest.mark.parametrize("value", ["host.example", "http://host.example", "https://[::1"])
@@ -170,6 +169,31 @@ def test_lab_errors(monkeypatch: pytest.MonkeyPatch, code: int, text: str) -> No
     assert text in results[1].message
 
 
+def test_lab_redirect_is_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A redirect (e.g. to a login page) fails the lab row instead of being followed."""
+
+    def redirect(req: Request) -> io.BytesIO:
+        """Redirect the lab request to a login page."""
+        headers = Message()
+        headers["Location"] = "https://login.example/sso?next=x"
+        raise HTTPError(req.full_url, 302, "Found", headers, None)
+
+    _patch_urlopen(monkeypatch, _token_then(redirect))
+    result = lab_checks.check_lab(37).results[1]
+    assert result.status == Status.FAIL
+    assert "redirected" in result.message
+    assert result.detail == "GET /v1/labs/37 -> 302 (to login.example)"
+
+
+@pytest.mark.parametrize("body", [b"<html>app shell</html>", b"[]"], ids=["html", "json-list"])
+def test_lab_non_json_answer_is_fail(monkeypatch: pytest.MonkeyPatch, body: bytes) -> None:
+    """A 200 that is not a JSON object (e.g. a web app's HTML page) is not proof of access."""
+    _patch_urlopen(monkeypatch, _token_then(lambda req: io.BytesIO(body)))
+    result = lab_checks.check_lab(37).results[1]
+    assert result.status == Status.FAIL
+    assert "not ISV Lab Service JSON" in result.message
+
+
 @pytest.mark.parametrize("lab_handler", [_timeout, _bad_status_line], ids=["timeout", "bad-status-line"])
 def test_lab_unreachable(monkeypatch: pytest.MonkeyPatch, lab_handler: Callable[[Request], Any]) -> None:
     """Socket errors and malformed responses on the lab request fail the lab row."""
@@ -194,6 +218,27 @@ def test_lab_id_alone_runs_only_lab(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with_env = json.loads(runner.invoke(app, ["--lab-id", "37", "--check", "env", "--no-user-config", "--json"]).output)
     assert [c["name"] for c in with_env["categories"]] == ["env", "lab"]
+
+
+@pytest.mark.parametrize("extra", [["--provider", "aws"], ["-f", "CONFIG"]], ids=["provider", "config"])
+def test_lab_id_with_other_target_keeps_usual_checks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, extra: list[str]
+) -> None:
+    """`-f` / `--provider` alongside `--lab-id` are not silently ignored."""
+    config = tmp_path / "config.yaml"
+    config.write_text("tests: {}\n")
+    extra = [str(config) if arg == "CONFIG" else arg for arg in extra]
+    _patch_urlopen(monkeypatch, _token_then(lambda req: _json({})))
+
+    result = runner.invoke(app, ["--lab-id", "37", *extra, "--no-user-config", "--json"])
+    assert [c["name"] for c in json.loads(result.output)["categories"]] == ["tools", "env", "config", "lab"]
+
+
+@pytest.mark.parametrize("lab_id", ["0", "-1"])
+def test_lab_id_must_be_positive(lab_id: str) -> None:
+    """A non-positive lab ID is a usage error, not a 404 from the service."""
+    result = runner.invoke(app, ["--lab-id", lab_id, "--no-user-config"])
+    assert result.exit_code == 2
 
 
 def test_skipped_rows_hidden_unless_verbose(monkeypatch: pytest.MonkeyPatch) -> None:
