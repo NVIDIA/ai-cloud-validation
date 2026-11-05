@@ -157,7 +157,7 @@ For requirements without a clear test mechanism, compliance is checked through a
 #### AI Cloud Ready
 
 Where possible, NVIDIA provides testing capabilities.
-NVIDIA has created the [AI Cloud Ready test suite](https://github.com/NVIDIA/ISV-NCP-Validation-Suite).
+NVIDIA has created the [AI Cloud Ready test suite](https://github.com/dsx-ai-factory/ai-cloud-validation).
 This suite is continually evolving, but one of its main goals is to test as many of the requirements found in this document as possible.
 Refer to the AI Cloud Ready documentation for details on how to run the tests.
 Tests are added regularly, so review the [Requirements Test Matrix](https://github.com/dsx-ai-factory/ai-cloud-validation/blob/main/docs/requirements/test-requirements-matrix.adoc) to find which tests validate which requirements.
@@ -166,7 +166,7 @@ Tests are added regularly, so review the [Requirements Test Matrix](https://gith
 
 While some performance testing happens in AI Cloud Ready, the primary mechanism to validate real-world cluster performance is the NVIDIA Exemplar program.
 This program seeks to improve performance per total cost of ownership (TCO) with hardware and software recipes, references, tools, and capabilities.
-Run the latest publicly available benchmark test suite from the [NVIDIA Exemplar Performance repository](https://github.com/NVIDIA/exemplar-performance) and always pick the latest release version from that repository.
+Run the latest publicly available benchmark test suite from the [NVIDIA Exemplar Performance repository](https://github.com/dsx-ai-factory/exemplar-performance) and always pick the latest release version from that repository.
 The release must be completed on one uniform hardware cluster type.
 Run all the workloads for a given release and share the results in the following template.
 
@@ -869,10 +869,10 @@ Refer to [requirement level key words](https://datatracker.ietf.org/doc/rfc2119/
 
 The following reference documents provide additional information on implementing some of the requirements in this guide.
 
-1. Network topology discovery: [NVIDIA Topograph](https://github.com/NVIDIA/topograph).
+1. Network topology discovery: [NVIDIA Topograph](https://github.com/dsx-ai-factory/topograph).
    Aligning with this YAML format may be useful.
    Topograph currently provides in-cluster topology.
-2. Exemplar Cloud: [NVIDIA Exemplar Cloud](https://www.nvidia.com/en-us/data-center/ai-cloud-performance/) and the [DGXC benchmarking repository](https://github.com/NVIDIA/dgxc-benchmarking/tree/v26.02).
+2. Exemplar Cloud: [NVIDIA Exemplar Cloud](https://www.nvidia.com/en-us/data-center/ai-cloud-performance/) and the [DGXC benchmarking repository](https://github.com/dsx-ai-factory/exemplar-performance/tree/v26.02).
 3. Kubernetes security guidance: [Kubernetes Security Response Committee](https://github.com/kubernetes/committee-security-response).
 
 ### Other Feature Considerations (Not Minimum Requirements)
