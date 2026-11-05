@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/NVIDIA/ISV-NCP-Validation-Suite/schemas/storage-provider-manifest.schema.json",
+  "$id": "https://github.com/dsx-ai-factory/ai-cloud-validation/schemas/storage-provider-manifest.schema.json",
   "title": "Storage Provider Manifest",
   "description": "Manifest describing a provider's storage shims. The same YAML is consumed on disk (bare-metal) and inside a ConfigMap (K8s). It feeds StorageProviderApiCheck (shim contract) only; the CSI / NFS / POSIX filesystem checks get their StorageClass names and protocol expectations from their own config (suite/provider YAML or K8S_CSI_* env vars). The schema is informational and is NOT enforced at runtime by isvtest (the loader does targeted validation only). v1alpha2 mirrors the upstream StorageProvider package manifest: package-level namespace / vendor / default_capabilities, a per-provider provider block (name / description / type / protocols / version), and a hierarchical capabilities block using native | default | none. v1alpha1 remains valid as the original shim-only shape.",
   "type": "object",
