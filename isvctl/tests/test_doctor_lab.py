@@ -18,6 +18,7 @@
 import io
 import json
 from collections.abc import Callable
+from http.client import BadStatusLine
 from typing import Any
 from urllib.error import HTTPError
 from urllib.parse import parse_qs
@@ -100,13 +101,24 @@ def test_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Authorization" not in lab_req.headers
 
 
+@pytest.mark.parametrize("value", ["host.example", "http://host.example", "https://[::1"])
 @pytest.mark.parametrize("var", ["ISV_SSA_ISSUER", "ISV_SERVICE_ENDPOINT"])
-def test_invalid_url_is_config_fail_not_crash(monkeypatch: pytest.MonkeyPatch, var: str) -> None:
-    """A scheme-less URL fails the config row instead of raising."""
-    monkeypatch.setenv(var, "host.example")
+def test_non_https_url_is_config_fail(monkeypatch: pytest.MonkeyPatch, var: str, value: str) -> None:
+    """Scheme-less, plain-http and malformed URLs fail the config row before any request."""
+    monkeypatch.setenv(var, value)
+    seen = _patch_urlopen(monkeypatch, _reject_401)
     report = lab_checks.check_lab(37)
     assert [r.status for r in report.results] == [Status.FAIL, Status.SKIP, Status.SKIP]
-    assert f"not a URL: {var}" in report.results[0].message
+    assert f"not an https URL: {var}" in report.results[0].message
+    assert seen == []
+
+
+def test_loopback_http_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plain http to a loopback host is allowed for local test servers."""
+    monkeypatch.setenv("ISV_SSA_ISSUER", "http://127.0.0.1:8080")
+    monkeypatch.setenv("ISV_SERVICE_ENDPOINT", "http://localhost:8081")
+    _patch_urlopen(monkeypatch, _token_then(lambda req: _json({"data": {}})))
+    assert _statuses() == [Status.OK, Status.OK]
 
 
 def _timeout(req: Request) -> io.BytesIO:
@@ -114,10 +126,15 @@ def _timeout(req: Request) -> io.BytesIO:
     raise TimeoutError("timed out")
 
 
+def _bad_status_line(req: Request) -> io.BytesIO:
+    """Handler that simulates a malformed HTTP status line (not an OSError)."""
+    raise BadStatusLine("garbage")
+
+
 @pytest.mark.parametrize(
     "handler",
-    [_timeout, lambda req: _json([]), lambda req: _json({"access_token": 123})],
-    ids=["timeout", "non-object-json", "non-string-token"],
+    [_timeout, _bad_status_line, lambda req: _json([]), lambda req: _json({"access_token": 123})],
+    ids=["timeout", "bad-status-line", "non-object-json", "non-string-token"],
 )
 def test_token_failures_are_fail(monkeypatch: pytest.MonkeyPatch, handler: Callable[[Request], Any]) -> None:
     """Timeouts and malformed token responses fail the token row and skip the lab row."""
@@ -153,9 +170,10 @@ def test_lab_errors(monkeypatch: pytest.MonkeyPatch, code: int, text: str) -> No
     assert text in results[1].message
 
 
-def test_lab_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A socket error on the lab request fails the lab row."""
-    _patch_urlopen(monkeypatch, _token_then(_timeout))
+@pytest.mark.parametrize("lab_handler", [_timeout, _bad_status_line], ids=["timeout", "bad-status-line"])
+def test_lab_unreachable(monkeypatch: pytest.MonkeyPatch, lab_handler: Callable[[Request], Any]) -> None:
+    """Socket errors and malformed responses on the lab request fail the lab row."""
+    _patch_urlopen(monkeypatch, _token_then(lab_handler))
     assert _statuses() == [Status.OK, Status.FAIL]
 
 

@@ -18,11 +18,34 @@
 import base64
 import json
 import sys
+from http.client import HTTPException
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 UPLOAD_SCOPES = "create-isv-lab-test-run update-isv-lab-test-run"
+
+# Plain http is only tolerated for local test servers; anything else would send credentials in cleartext.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def is_secure_url(url: str) -> bool:
+    """Return True if ``url`` may carry credentials: https, or http to a loopback host.
+
+    Args:
+        url: Absolute URL to check
+
+    Returns:
+        True for ``https://host...`` or ``http://localhost|127.0.0.1|[::1]...``
+    """
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+    except ValueError:  # e.g. an unbalanced IPv6 bracket
+        return False
+    if not host:
+        return False
+    return parsed.scheme == "https" or (parsed.scheme == "http" and host in _LOOPBACK_HOSTS)
 
 
 class TokenError(Exception):
@@ -50,19 +73,18 @@ def request_jwt_token(ssa_issuer: str, client_id: str, client_secret: str, timeo
         JWT access token
 
     Raises:
-        TokenError: If the issuer URL is invalid, unreachable, rejects the
-            credentials, or returns an unexpected response
+        TokenError: If the issuer URL is not https (see ``is_secure_url``), is
+            unreachable, rejects the credentials, or returns an unexpected response
     """
+    if not is_secure_url(ssa_issuer):
+        raise TokenError("SSA issuer must be an https URL")
     basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-    try:
-        request = Request(
-            f"{ssa_issuer}/token",
-            data=urlencode({"scope": UPLOAD_SCOPES, "grant_type": "client_credentials"}).encode(),
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            method="POST",
-        )
-    except ValueError as exc:
-        raise TokenError("invalid SSA issuer URL") from exc
+    request = Request(
+        f"{ssa_issuer}/token",
+        data=urlencode({"scope": UPLOAD_SCOPES, "grant_type": "client_credentials"}).encode(),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
     # Unredirected: urllib copies ordinary headers onto redirects, which would hand the
     # client credentials to whatever host the issuer redirects to.
     request.add_unredirected_header("Authorization", f"Basic {basic}")
@@ -73,6 +95,8 @@ def request_jwt_token(ssa_issuer: str, client_id: str, client_secret: str, timeo
         raise TokenError(f"HTTP {exc.code}", exc.code) from exc
     except OSError as exc:
         raise TokenError(f"cannot reach SSA issuer: {getattr(exc, 'reason', exc)}") from exc
+    except HTTPException as exc:  # malformed status line, truncated body, ...
+        raise TokenError(f"malformed HTTP response from SSA issuer: {type(exc).__name__}") from exc
     except ValueError as exc:  # JSONDecodeError / UnicodeDecodeError
         raise TokenError("unexpected token response format") from exc
     token = payload.get("access_token") if isinstance(payload, dict) else None

@@ -18,6 +18,7 @@
 import base64
 import json
 import urllib.parse
+from http.client import BadStatusLine
 from io import BytesIO
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -25,7 +26,7 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from isvreporter.auth import get_jwt_token
+from isvreporter.auth import TokenError, get_jwt_token, is_secure_url, request_jwt_token
 
 
 def make_mock_response(payload: dict[str, Any]) -> MagicMock:
@@ -131,3 +132,47 @@ class TestGetJwtToken:
             assert "scope=create-isv-lab-test-run" in data
             assert "update-isv-lab-test-run" in data
             assert "grant_type=client_credentials" in data
+
+
+class TestRequestJwtToken:
+    """Tests for the raising core used by `isvctl doctor`."""
+
+    @pytest.mark.parametrize(
+        ("url", "ok"),
+        [
+            ("https://ssa.example", True),
+            ("http://localhost:8080", True),
+            ("http://127.0.0.1", True),
+            ("http://[::1]:9000", True),
+            ("http://ssa.example", False),
+            ("http://localhost.evil.example", False),
+            ("ssa.example", False),
+            ("https://", False),
+            ("https://[::1", False),
+        ],
+    )
+    def test_is_secure_url(self, url: str, ok: bool) -> None:
+        """Only https, or http to a loopback host, may carry credentials."""
+        assert is_secure_url(url) is ok
+
+    def test_plain_http_issuer_rejected_before_any_request(self) -> None:
+        """Basic credentials are never sent to a non-loopback http issuer."""
+        with patch("isvreporter.auth.urlopen") as mock_urlopen:
+            with pytest.raises(TokenError, match="https"):
+                request_jwt_token("http://ssa.example", "id", "secret")
+            mock_urlopen.assert_not_called()
+
+    def test_malformed_http_response_is_token_error(self) -> None:
+        """http.client errors (not OSError) are reported as TokenError."""
+        with patch("isvreporter.auth.urlopen", side_effect=BadStatusLine("garbage")):
+            with pytest.raises(TokenError, match="malformed HTTP response"):
+                request_jwt_token("https://ssa.example", "id", "secret")
+
+    def test_credentials_not_copied_on_redirect(self) -> None:
+        """Authorization is unredirected so urllib drops it when following a redirect."""
+        mock_response = make_mock_response({"access_token": "t"})
+        with patch("isvreporter.auth.urlopen", return_value=mock_response) as mock_urlopen:
+            request_jwt_token("https://ssa.example", "id", "secret")
+        request = mock_urlopen.call_args[0][0]
+        assert "Authorization" not in request.headers
+        assert request.get_header("Authorization", "").startswith("Basic ")

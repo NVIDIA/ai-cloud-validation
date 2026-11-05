@@ -21,11 +21,11 @@ Verifies, without creating a test run, that the configured ``ISV_CLIENT_ID`` /
 """
 
 import os
+from http.client import HTTPException
 from urllib.error import HTTPError
-from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from isvreporter.auth import TokenError, request_jwt_token
+from isvreporter.auth import TokenError, is_secure_url, request_jwt_token
 from isvreporter.config import get_endpoint, get_ssa_issuer
 
 from isvctl.doctor.result import CategoryReport, CheckResult, Status
@@ -50,12 +50,6 @@ def _row(
     return CheckResult(name=name, status=status, message=message, detail=detail, remediation=remediation, group=_GROUP)
 
 
-def _is_http_url(value: str) -> bool:
-    """Return True if ``value`` is an absolute http(s) URL with a host."""
-    parsed = urlparse(value)
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
-
-
 def _lab_results(lab_id: int) -> list[CheckResult]:
     """Return the config, token and lab-access rows, stopping at the first failing stage."""
     lab_row = f"Lab {lab_id}"
@@ -67,17 +61,19 @@ def _lab_results(lab_id: int) -> list[CheckResult]:
     urls = {"ISV_SERVICE_ENDPOINT": endpoint, "ISV_SSA_ISSUER": ssa_issuer}
     values = {**urls, "ISV_CLIENT_ID": client_id, "ISV_CLIENT_SECRET": client_secret}
     unset = [name for name, value in values.items() if not value]
-    not_urls = [name for name, value in urls.items() if value and not _is_http_url(value)]
+    not_urls = [name for name, value in urls.items() if value and not is_secure_url(value)]
     if unset or not_urls:
         problems = [
-            f"{label}: {', '.join(names)}" for label, names in (("unset", unset), ("not a URL", not_urls)) if names
+            f"{label}: {', '.join(names)}"
+            for label, names in (("unset", unset), ("not an https URL", not_urls))
+            if names
         ]
         return [
             _row(
                 _CONFIG_ROW,
                 Status.FAIL,
                 "; ".join(problems),
-                "set these variables; endpoints must be full http(s) URLs (see `isvctl config show`)",
+                "set these variables; endpoints must be https URLs (see `isvctl config show`)",
             ),
             _row(_TOKEN_ROW, Status.SKIP, "skipped until config is complete"),
             _row(lab_row, Status.SKIP, "skipped until config is complete"),
@@ -111,7 +107,7 @@ def _lab_results(lab_id: int) -> list[CheckResult]:
             token_ok,
             _row(lab_row, Status.FAIL, message, remediation, detail=f"GET /v1/labs/{lab_id} -> {exc.code}"),
         ]
-    except OSError as exc:
+    except (OSError, HTTPException) as exc:
         return [
             token_ok,
             _row(
