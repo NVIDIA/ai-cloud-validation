@@ -138,7 +138,12 @@ uvx pre-commit run -a
 
 ## Testing
 
-All CI checks must pass before a PR can be merged.
+All CI checks must pass before a PR can be merged. The [CI workflow](.github/workflows/ci.yaml)
+runs pre-commit, the unit and demo tests, and TruffleHog secret and CodeQL scans configured
+as in `infra-controller`; its `Pipeline Status` job fails if any of them fails and is the
+check required to merge. The separate [Security Suite](.github/workflows/security-suite.yml)
+runs NVIDIA's central Pulse secret scan and CodeQL analysis, reports to the Security tab,
+and is not required to merge.
 
 ### Unit Tests
 
