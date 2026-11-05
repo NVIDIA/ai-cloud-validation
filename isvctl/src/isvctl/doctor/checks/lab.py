@@ -47,20 +47,23 @@ class _TokenError(Exception):
 def _request_token(ssa_issuer: str, client_id: str, client_secret: str, scope: str) -> str:
     """Request a client_credentials token from SSA for ``scope``."""
     basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-    request = Request(
-        f"{ssa_issuer}/token",
-        data=urlencode({"scope": scope, "grant_type": "client_credentials"}).encode(),
-        headers={"Content-Type": "application/x-www-form-urlencoded", "Authorization": f"Basic {basic}"},
-        method="POST",
-    )
+    try:
+        request = Request(
+            f"{ssa_issuer}/token",
+            data=urlencode({"scope": scope, "grant_type": "client_credentials"}).encode(),
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Authorization": f"Basic {basic}"},
+            method="POST",
+        )
+    except ValueError as exc:
+        raise _TokenError("invalid ISV_SSA_ISSUER URL") from exc
     try:
         with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
             return str(json.loads(response.read().decode())["access_token"])
     except HTTPError as exc:
         raise _TokenError(f"HTTP {exc.code}", exc.code) from exc
-    except URLError as exc:
-        raise _TokenError(f"cannot reach SSA issuer: {exc.reason}") from exc
-    except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as exc:
+    except OSError as exc:
+        raise _TokenError(f"cannot reach SSA issuer: {getattr(exc, 'reason', exc)}") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError) as exc:
         raise _TokenError("unexpected token response format") from exc
 
 
@@ -129,7 +132,13 @@ def check_lab(lab_id: int) -> CategoryReport:
 
     results.append(CheckResult(name="SSA token", status=Status.OK, message="credentials accepted", group=_GROUP))
 
-    request = Request(f"{endpoint}/v1/labs/{lab_id}", headers={"Authorization": f"Bearer {token}"})
+    try:
+        request = Request(f"{endpoint}/v1/labs/{lab_id}", headers={"Authorization": f"Bearer {token}"})
+    except ValueError:
+        results.append(
+            _fail(f"Lab {lab_id}", "invalid ISV_SERVICE_ENDPOINT URL", "set ISV_SERVICE_ENDPOINT to a full URL")
+        )
+        return CategoryReport(name="lab", results=results)
     try:
         with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
             response.read()

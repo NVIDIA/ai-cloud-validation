@@ -19,6 +19,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 from urllib.error import HTTPError
+from urllib.parse import parse_qs
 from urllib.request import Request
 
 import pytest
@@ -73,12 +74,49 @@ def _statuses(lab_id: int = 37) -> list[Status]:
 
 
 def test_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[Request] = []
+
     def handler(req: Request) -> _Resp:
+        requests.append(req)
         return _Resp({"access_token": "t"} if req.full_url.endswith("/token") else {"data": {}})
 
     seen = _patch_urlopen(monkeypatch, handler)
     assert _statuses() == [Status.OK, Status.OK]
     assert seen[-1] == "https://isv.example/v1/labs/37"
+
+    token_req, lab_req = requests
+    assert token_req.data is not None
+    form = parse_qs(token_req.data.decode())
+    assert form["grant_type"] == ["client_credentials"]
+    assert form["scope"] == ["create-isv-lab-test-run update-isv-lab-test-run"]
+    assert (token_req.get_header("Authorization") or "").startswith("Basic ")
+    assert lab_req.get_header("Authorization") == "Bearer t"
+
+
+def test_invalid_ssa_issuer_url_is_fail_not_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ISV_SSA_ISSUER", "ssa.example")
+    assert _statuses() == [Status.FAIL, Status.SKIP]
+
+
+def test_invalid_endpoint_url_is_fail_not_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ISV_SERVICE_ENDPOINT", "isv.example")
+    _patch_urlopen(monkeypatch, lambda req: _Resp({"access_token": "t"}))
+    assert _statuses() == [Status.OK, Status.FAIL]
+
+
+def test_token_timeout_and_bad_json_are_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    def timeout(req: Request) -> _Resp:
+        raise TimeoutError("timed out")
+
+    _patch_urlopen(monkeypatch, timeout)
+    assert _statuses() == [Status.FAIL, Status.SKIP]
+
+    class _ListResp(_Resp):
+        def read(self) -> bytes:
+            return b"[]"
+
+    _patch_urlopen(monkeypatch, lambda req: _ListResp({}))
+    assert _statuses() == [Status.FAIL, Status.SKIP]
 
 
 def test_missing_config(monkeypatch: pytest.MonkeyPatch) -> None:
