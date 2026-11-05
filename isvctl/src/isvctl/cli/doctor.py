@@ -43,7 +43,7 @@ app = typer.Typer(
 
 # Categories the user can pass to --check. Keep in sync with the dispatch
 # table inside `doctor()`.
-_CATEGORY_NAMES: tuple[str, ...] = ("tools", "env", "config", "lab")
+_CATEGORY_NAMES: tuple[str, ...] = ("tools", "env", "config")
 
 
 def _parse_csv(value: str | None) -> list[str]:
@@ -125,7 +125,7 @@ def doctor(
         isvctl doctor -f path/to/your-config.yaml
         isvctl doctor --provider aws -v
         isvctl doctor --check env --json
-        isvctl doctor --check lab --lab-id 37
+        isvctl doctor --lab-id 37
     """
     # When invoked with a real subcommand, defer to it. (There are none today
     # but the callback shape leaves room for future grouping like `doctor
@@ -137,17 +137,13 @@ def doctor(
     apply_user_config(no_user_config)
 
     providers = _parse_csv(provider)
-    requested = _parse_csv(check) or [c for c in _CATEGORY_NAMES if c != "lab" or lab_id is not None]
+    requested = _parse_csv(check) or list(_CATEGORY_NAMES)
     unknown = [c for c in requested if c not in _CATEGORY_NAMES]
     if unknown:
         typer.echo(
             f"Error: unknown --check value(s): {', '.join(unknown)}. Valid: {', '.join(_CATEGORY_NAMES)}",
             err=True,
         )
-        raise typer.Exit(code=2)
-
-    if "lab" in requested and lab_id is None:
-        typer.echo("Error: --check lab requires --lab-id.", err=True)
         raise typer.Exit(code=2)
 
     reports: list[CategoryReport] = []
@@ -157,7 +153,7 @@ def doctor(
         reports.append(check_env(providers))
     if "config" in requested:
         reports.append(check_configs(config_files or None, providers))
-    if "lab" in requested and lab_id is not None:
+    if lab_id is not None:
         reports.append(check_lab(lab_id))
 
     version = get_version("isvctl")

@@ -114,11 +114,6 @@ def test_secret_never_in_output(monkeypatch: pytest.MonkeyPatch) -> None:
         raise _http_error(req.full_url, 401)
 
     _patch_urlopen(monkeypatch, handler)
-    result = runner.invoke(app, ["--check", "lab", "--lab-id", "37", "--no-user-config", "--json"])
+    result = runner.invoke(app, ["--check", "env", "--lab-id", "37", "--no-user-config", "--json"])
     assert result.exit_code == 1
     assert "s3cret" not in result.output
-
-
-def test_cli_check_lab_requires_lab_id() -> None:
-    result = runner.invoke(app, ["--check", "lab", "--no-user-config"])
-    assert result.exit_code == 2

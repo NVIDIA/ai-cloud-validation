@@ -95,7 +95,7 @@ isvctl doctor -f isvctl/configs/suites/k8s.yaml
 isvctl doctor --provider aws -f isvctl/configs/providers/aws/config/control-plane.yaml
 
 # Verify ISV_CLIENT_ID/ISV_CLIENT_SECRET and access to a lab (read-only, no test run created)
-isvctl doctor --check lab --lab-id 37
+isvctl doctor --lab-id 37
 
 # Machine-readable output; use --strict to treat warnings as failures
 isvctl doctor --json --strict
