@@ -259,7 +259,7 @@ def test_doctor_nico_provider_requires_api_base(
     monkeypatch.setenv("NICO_SITE_ID", "site-1")
     monkeypatch.setenv("NICO_BEARER_TOKEN", "nico-secret-token")
 
-    result = runner.invoke(app, ["--check", "env", "--provider", "nico"])
+    result = runner.invoke(app, ["--check", "env", "--provider", "nico", "-v"])
 
     assert result.exit_code == 1
     assert "NICO_API_BASE" in result.output

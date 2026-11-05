@@ -183,3 +183,28 @@ def test_secret_never_in_output(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, ["--check", "env", "--lab-id", "37", "--no-user-config", "--json"])
     assert result.exit_code == 1
     assert "s3cret" not in result.output
+
+
+def test_lab_id_alone_runs_only_lab(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--lab-id` narrows the run to the lab check; `--check` adds categories back."""
+    _patch_urlopen(monkeypatch, _token_then(lambda req: _json({})))
+
+    alone = json.loads(runner.invoke(app, ["--lab-id", "37", "--no-user-config", "--json"]).output)
+    assert [c["name"] for c in alone["categories"]] == ["lab"]
+
+    with_env = json.loads(runner.invoke(app, ["--lab-id", "37", "--check", "env", "--no-user-config", "--json"]).output)
+    assert [c["name"] for c in with_env["categories"]] == ["env", "lab"]
+
+
+def test_skipped_rows_hidden_unless_verbose(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rows blocked by an earlier failure only show with -v; the summary says how to list them."""
+    _patch_urlopen(monkeypatch, _reject_401)
+
+    quiet = runner.invoke(app, ["--lab-id", "37", "--no-user-config"], env={"COLUMNS": "200"}).output
+    assert "skipped: no token" not in quiet
+    assert "1 fail, 1 skip (-v to list skipped)" in quiet
+    assert "0 ok" not in quiet
+
+    verbose = runner.invoke(app, ["--lab-id", "37", "--no-user-config", "-v"], env={"COLUMNS": "200"}).output
+    assert "skipped: no token" in verbose
+    assert "-v to list skipped" not in verbose

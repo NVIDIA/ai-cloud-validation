@@ -88,7 +88,7 @@ def doctor(
         typer.Option(
             "--lab-id",
             help="Verify ISV_CLIENT_ID/ISV_CLIENT_SECRET and access to this lab on the ISV Lab Service "
-            "(read-only; no test run is created).",
+            "(read-only; no test run is created). Runs only this check unless --check is also given.",
         ),
     ] = None,
     json_output: Annotated[
@@ -97,7 +97,7 @@ def doctor(
     ] = False,
     verbose: Annotated[
         bool,
-        typer.Option("--verbose", "-v", help="Show detail lines (paths, versions) per check."),
+        typer.Option("--verbose", "-v", help="Show detail lines (paths, versions) and skipped checks."),
     ] = False,
     strict: Annotated[
         bool,
@@ -137,7 +137,8 @@ def doctor(
     apply_user_config(no_user_config)
 
     providers = _parse_csv(provider)
-    requested = _parse_csv(check) or list(_CATEGORY_NAMES)
+    # A targeted check (--lab-id) narrows the run to that check; --check adds categories back.
+    requested = _parse_csv(check) or ([] if lab_id is not None else list(_CATEGORY_NAMES))
     unknown = [c for c in requested if c not in _CATEGORY_NAMES]
     if unknown:
         typer.echo(

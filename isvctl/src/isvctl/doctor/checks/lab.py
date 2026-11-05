@@ -31,7 +31,6 @@ from isvreporter.config import get_endpoint, get_ssa_issuer
 from isvctl.doctor.result import CategoryReport, CheckResult, Status
 
 _TIMEOUT_SECONDS = 10
-_GROUP = "ISV Lab Service"
 _CONFIG_ROW = "ISV Lab Service config"
 _TOKEN_ROW = "SSA token"
 
@@ -46,8 +45,8 @@ _LAB_HTTP_HINTS: dict[int, tuple[str, str]] = {
 def _row(
     name: str, status: Status, message: str, remediation: str | None = None, detail: str | None = None
 ) -> CheckResult:
-    """Build a result row in the ISV Lab Service group."""
-    return CheckResult(name=name, status=status, message=message, detail=detail, remediation=remediation, group=_GROUP)
+    """Build a lab-category result row."""
+    return CheckResult(name=name, status=status, message=message, detail=detail, remediation=remediation)
 
 
 def _lab_results(lab_id: int) -> list[CheckResult]:
@@ -63,18 +62,13 @@ def _lab_results(lab_id: int) -> list[CheckResult]:
     unset = [name for name, value in values.items() if not value]
     not_urls = [name for name, value in urls.items() if value and not is_secure_url(value)]
     if unset or not_urls:
-        problems = [
-            f"{label}: {', '.join(names)}"
-            for label, names in (("unset", unset), ("not an https URL", not_urls))
-            if names
-        ]
+        problems = [f"unset: {', '.join(unset)}"] if unset else []
+        fixes = ["run `isvctl configure` or export them"] if unset else []
+        if not_urls:
+            problems.append(f"not an https URL: {', '.join(not_urls)}")
+            fixes.append("use https:// URLs")
         return [
-            _row(
-                _CONFIG_ROW,
-                Status.FAIL,
-                "; ".join(problems),
-                "set these variables; endpoints must be https URLs (see `isvctl config show`)",
-            ),
+            _row(_CONFIG_ROW, Status.FAIL, "; ".join(problems), "; ".join(fixes)),
             _row(_TOKEN_ROW, Status.SKIP, "skipped until config is complete"),
             _row(lab_row, Status.SKIP, "skipped until config is complete"),
         ]

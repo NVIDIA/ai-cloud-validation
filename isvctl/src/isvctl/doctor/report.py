@@ -79,10 +79,13 @@ def render_rich(
         out.print(header)
 
         # Group results by their `group` field, preserving insertion order so
-        # the env category prints "ISV Lab Service" before "NGC" etc.
+        # the env category prints "ISV Lab Service" before "NGC" etc. Skipped
+        # rows (unset optional vars, checks blocked by an earlier failure) carry
+        # nothing to act on, so they only show with --verbose.
         groups: dict[str | None, list[CheckResult]] = {}
         for r in report.results:
-            groups.setdefault(r.group, []).append(r)
+            if verbose or r.status != Status.SKIP:
+                groups.setdefault(r.group, []).append(r)
 
         for group_label, items in groups.items():
             if group_label:
@@ -107,13 +110,15 @@ def render_rich(
 
     counts = _aggregate_counts(reports)
 
-    summary_bits = (
-        f"[green]{counts[Status.OK]} ok[/green]",
-        f"[yellow]{counts[Status.WARN]} warn[/yellow]",
-        f"[red]{counts[Status.FAIL]} fail[/red]",
-        f"[dim]{counts[Status.SKIP]} skip[/dim]",
-    )
-    out.print("Summary: " + ", ".join(summary_bits))
+    summary_bits = [
+        f"[{_STYLES[status]}]{counts[status]} {label}[/{_STYLES[status]}]"
+        for status, label in ((Status.OK, "ok"), (Status.WARN, "warn"), (Status.FAIL, "fail"), (Status.SKIP, "skip"))
+        if counts[status]
+    ]
+    summary = "Summary: " + (", ".join(summary_bits) or "nothing checked")
+    if counts[Status.SKIP] and not verbose:
+        summary += " [dim](-v to list skipped)[/dim]"
+    out.print(summary)
 
     if overall == Status.FAIL:
         out.print("[red]Doctor found issues that will block isvctl runs.[/red]")
