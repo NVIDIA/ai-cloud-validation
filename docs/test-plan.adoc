@@ -3880,8 +3880,8 @@ a|
 | published
 |
 
-| [[K8S32-01]]K8S32-01
-| K8S32
+| [[K8S42-01]]K8S42-01
+| K8S42
 |
 | gpu, kubernetes, slow, workload
 | tenant

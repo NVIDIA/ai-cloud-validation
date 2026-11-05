@@ -65,8 +65,11 @@ def render_offtake(doc: dict[str, Any], src_name: str) -> str:
         f"# {doc.get('title', 'Offtake Requirements')}",
         "",
         f"> Structured source of record: `{src_name}` (version {doc.get('version', 'n/a')}).",
-        "> Curated, in-repo copy of the publicly-published *NVIDIA Requirements Guide",
-        "> for AI Clouds*. Edit the YAML, not this file.",
+        "> Curated, in-repo copy of the publicly-published *NVIDIA Requirements for",
+        "> AI Clouds*. Edit the YAML, not this file.",
+        "> This listing omits the guide's prose-only sections that requirements refer to; see",
+        "> [Service Levels](../references/requirements-for-ai-clouds-v2.4.md#service-levels) and",
+        "> [Telemetry Requirements](../references/requirements-for-ai-clouds-v2.4.md#telemetry-requirements).",
         "",
     ]
     section = subsection = None

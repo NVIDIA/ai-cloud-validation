@@ -1827,9 +1827,9 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
-  - test_id: K8S32-01
+  - test_id: K8S42-01
     requirements:
-      - req_id: K8S32
+      - req_id: K8S42
         source: reference
         coverage: full
     annotations: ''
