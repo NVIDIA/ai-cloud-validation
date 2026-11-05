@@ -17,6 +17,7 @@
 
 from isvctl.doctor.checks.config import check_configs
 from isvctl.doctor.checks.env import check_env
+from isvctl.doctor.checks.lab import check_lab
 from isvctl.doctor.checks.tools import check_tools
 
-__all__ = ["check_configs", "check_env", "check_tools"]
+__all__ = ["check_configs", "check_env", "check_lab", "check_tools"]

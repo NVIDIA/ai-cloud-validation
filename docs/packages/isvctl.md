@@ -94,6 +94,13 @@ isvctl doctor -f isvctl/configs/suites/k8s.yaml
 # Require provider-specific checks such as AWS tools and credentials
 isvctl doctor --provider aws -f isvctl/configs/providers/aws/config/control-plane.yaml
 
+# Verify ISV_CLIENT_ID/ISV_CLIENT_SECRET and access to a lab (read-only, no test run created).
+# On its own it runs only the lab check; with --check, -f or --provider it runs alongside those.
+isvctl doctor --lab-id 37
+
+# Also list skipped checks (unset optional variables, checks blocked by a failure)
+isvctl doctor -v
+
 # Machine-readable output; use --strict to treat warnings as failures
 isvctl doctor --json --strict
 ```

@@ -28,7 +28,7 @@ from isvreporter.version import get_version
 
 from isvctl.cli import setup_logging
 from isvctl.cli.common import apply_user_config
-from isvctl.doctor.checks import check_configs, check_env, check_tools
+from isvctl.doctor.checks import check_configs, check_env, check_lab, check_tools
 from isvctl.doctor.report import render_json, render_rich
 from isvctl.doctor.result import CategoryReport, Status, worst
 
@@ -83,13 +83,23 @@ def doctor(
             help=f"Comma-separated subset of categories to run ({', '.join(_CATEGORY_NAMES)}).",
         ),
     ] = None,
+    lab_id: Annotated[
+        int | None,
+        typer.Option(
+            "--lab-id",
+            min=1,
+            help="Verify ISV_CLIENT_ID/ISV_CLIENT_SECRET and access to this lab on the ISV Lab Service "
+            "(read-only; no test run is created). On its own it runs only this check; with --check, "
+            "-f or --provider it runs alongside those.",
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit the report as JSON to stdout."),
     ] = False,
     verbose: Annotated[
         bool,
-        typer.Option("--verbose", "-v", help="Show detail lines (paths, versions) per check."),
+        typer.Option("--verbose", "-v", help="Show detail lines (paths, versions) and skipped checks."),
     ] = False,
     strict: Annotated[
         bool,
@@ -117,6 +127,7 @@ def doctor(
         isvctl doctor -f path/to/your-config.yaml
         isvctl doctor --provider aws -v
         isvctl doctor --check env --json
+        isvctl doctor --lab-id 37
     """
     # When invoked with a real subcommand, defer to it. (There are none today
     # but the callback shape leaves room for future grouping like `doctor
@@ -128,7 +139,10 @@ def doctor(
     apply_user_config(no_user_config)
 
     providers = _parse_csv(provider)
-    requested = _parse_csv(check) or list(_CATEGORY_NAMES)
+    # `--lab-id` alone means "doctor this lab", so only the lab check runs. Any other
+    # target (-f, --provider) still gets the usual categories, so nothing is silently ignored.
+    lab_only = lab_id is not None and not (config_files or providers)
+    requested = _parse_csv(check) or ([] if lab_only else list(_CATEGORY_NAMES))
     unknown = [c for c in requested if c not in _CATEGORY_NAMES]
     if unknown:
         typer.echo(
@@ -144,6 +158,8 @@ def doctor(
         reports.append(check_env(providers))
     if "config" in requested:
         reports.append(check_configs(config_files or None, providers))
+    if lab_id is not None:
+        reports.append(check_lab(lab_id))
 
     version = get_version("isvctl")
 

@@ -17,7 +17,10 @@
 
 import base64
 import json
+import threading
 import urllib.parse
+from http.client import BadStatusLine
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from io import BytesIO
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -25,7 +28,7 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from isvreporter.auth import get_jwt_token
+from isvreporter.auth import TokenError, get_jwt_token, is_secure_url, request_jwt_token
 
 
 def make_mock_response(payload: dict[str, Any]) -> MagicMock:
@@ -44,7 +47,7 @@ class TestGetJwtToken:
         """Test successful JWT token retrieval."""
         mock_response = make_mock_response({"access_token": "test-jwt-token"})
 
-        with patch("isvreporter.auth.urlopen", return_value=mock_response) as mock_urlopen:
+        with patch("isvreporter.auth.open_url", return_value=mock_response) as mock_urlopen:
             token = get_jwt_token(
                 ssa_issuer="https://example.com",
                 client_id="test-client",
@@ -79,7 +82,7 @@ class TestGetJwtToken:
             fp=BytesIO(b""),
         )
 
-        with patch("isvreporter.auth.urlopen", side_effect=http_error):
+        with patch("isvreporter.auth.open_url", side_effect=http_error):
             with pytest.raises(SystemExit) as exc_info:
                 get_jwt_token(
                     ssa_issuer="https://example.com",
@@ -92,7 +95,7 @@ class TestGetJwtToken:
         """Test that URL errors cause sys.exit(1)."""
         url_error = URLError("Connection refused")
 
-        with patch("isvreporter.auth.urlopen", side_effect=url_error):
+        with patch("isvreporter.auth.open_url", side_effect=url_error):
             with pytest.raises(SystemExit) as exc_info:
                 get_jwt_token(
                     ssa_issuer="https://example.com",
@@ -105,7 +108,7 @@ class TestGetJwtToken:
         """Test that missing access_token in response causes sys.exit(1)."""
         mock_response = make_mock_response({"token": "wrong-key"})
 
-        with patch("isvreporter.auth.urlopen", return_value=mock_response):
+        with patch("isvreporter.auth.open_url", return_value=mock_response):
             with pytest.raises(SystemExit) as exc_info:
                 get_jwt_token(
                     ssa_issuer="https://example.com",
@@ -118,7 +121,7 @@ class TestGetJwtToken:
         """Test that request includes correct OAuth scope."""
         mock_response = make_mock_response({"access_token": "token"})
 
-        with patch("isvreporter.auth.urlopen", return_value=mock_response) as mock_urlopen:
+        with patch("isvreporter.auth.open_url", return_value=mock_response) as mock_urlopen:
             get_jwt_token(
                 ssa_issuer="https://example.com",
                 client_id="client",
@@ -131,3 +134,68 @@ class TestGetJwtToken:
             assert "scope=create-isv-lab-test-run" in data
             assert "update-isv-lab-test-run" in data
             assert "grant_type=client_credentials" in data
+
+
+class TestRequestJwtToken:
+    """Tests for the raising core used by `isvctl doctor`."""
+
+    @pytest.mark.parametrize(
+        ("url", "ok"),
+        [
+            ("https://ssa.example", True),
+            ("http://localhost:8080", True),
+            ("http://127.0.0.1", True),
+            ("http://[::1]:9000", True),
+            ("http://ssa.example", False),
+            ("http://localhost.evil.example", False),
+            ("ssa.example", False),
+            ("https://", False),
+            ("https://[::1", False),
+        ],
+    )
+    def test_is_secure_url(self, url: str, ok: bool) -> None:
+        """Only https, or http to a loopback host, may carry credentials."""
+        assert is_secure_url(url) is ok
+
+    def test_plain_http_issuer_rejected_before_any_request(self) -> None:
+        """Basic credentials are never sent to a non-loopback http issuer."""
+        with patch("isvreporter.auth.open_url") as mock_urlopen:
+            with pytest.raises(TokenError, match="https"):
+                request_jwt_token("http://ssa.example", "id", "secret")
+            mock_urlopen.assert_not_called()
+
+    def test_malformed_http_response_is_token_error(self) -> None:
+        """http.client errors (not OSError) are reported as TokenError."""
+        with patch("isvreporter.auth.open_url", side_effect=BadStatusLine("garbage")):
+            with pytest.raises(TokenError, match="malformed HTTP response"):
+                request_jwt_token("https://ssa.example", "id", "secret")
+
+    def test_redirect_is_not_followed(self) -> None:
+        """A redirecting issuer is an error; the redirect target is never contacted."""
+        hits: list[str] = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                """Record any request that reached the redirect target."""
+                hits.append(self.path)
+                self.send_response(200)
+                self.end_headers()
+
+            def do_POST(self) -> None:
+                """Redirect the token request elsewhere on this server."""
+                self.send_response(302)
+                self.send_header("Location", "/elsewhere")
+                self.end_headers()
+
+            def log_message(self, *args: object) -> None:
+                """Keep test output quiet."""
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with pytest.raises(TokenError, match="redirect"):
+                request_jwt_token(f"http://127.0.0.1:{server.server_port}", "id", "secret", timeout=5)
+        finally:
+            server.shutdown()
+            server.server_close()
+        assert hits == []
