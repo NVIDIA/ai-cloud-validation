@@ -29,11 +29,17 @@ class _FakeKubectl:
         if results is not None:
             self.results = results
         self.logs = "=== TestSet [TS1000]: Default Settings ===\nerror: creating k8s clients: no config"
+        self.namespace_rc = 0
+        self.existing: list[dict] = []
         self.calls: list[list[str]] = []
         self.applied = ""
 
     def __call__(self, args: list[str], *, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
         self.calls.append(args)
+        if args[:2] == ["get", "namespace"]:
+            return _done(self.namespace_rc, stderr='Error from server (NotFound): namespaces "gpu-ns" not found')
+        if args[:2] == ["get", "-f"]:
+            return _done(0, json.dumps({"kind": "List", "items": self.existing}) if self.existing else "")
         if args[0] == "apply":
             self.applied = stdin or ""
             return _done(self.apply_rc, stderr="" if self.apply_rc == 0 else "error: forbidden")
@@ -103,11 +109,43 @@ def test_cleans_up_before_and_after_the_run(tmp_path: Path, kubectl: _FakeKubect
     _run(tmp_path)
 
     verbs = [call[0] for call in kubectl.calls]
-    assert verbs[:3] == ["delete", "delete", "apply"]
+    assert verbs[:5] == ["get", "get", "delete", "delete", "apply"]
     assert verbs[-2:] == ["delete", "delete"]
     deleted_configmaps = [call for call in kubectl.calls if call[:2] == ["delete", "configmap"]]
     assert len(deleted_configmaps) == 2
     assert all(runner._RESULTS_CONFIGMAP in call for call in deleted_configmaps)
+
+
+def test_missing_namespace_touches_nothing(tmp_path: Path, kubectl: _FakeKubectl) -> None:
+    kubectl.namespace_rc = 1
+
+    output = _run(tmp_path)
+
+    assert output["error"].startswith("GPU Operator namespace 'gpu-ns' is not available (Error from server")
+    assert "K8S_GPU_OPERATOR_NAMESPACE" in output["error"]
+    assert [call[0] for call in kubectl.calls] == ["get"]
+
+
+def test_helm_owned_objects_are_left_alone(tmp_path: Path, kubectl: _FakeKubectl) -> None:
+    kubectl.existing = [
+        {"kind": "ClusterRole", "metadata": {"name": "gpu-operator-certification"}},
+        {
+            "kind": "Job",
+            "metadata": {
+                "name": "gpu-operator-certification",
+                "annotations": {
+                    "meta.helm.sh/release-name": "self-cert",
+                    "meta.helm.sh/release-namespace": "gpu-operator",
+                },
+            },
+        },
+    ]
+
+    output = _run(tmp_path)
+
+    assert "Helm release 'self-cert' owns the existing certification objects" in output["error"]
+    assert output["error"].endswith("helm -n gpu-operator uninstall self-cert")
+    assert [call[0] for call in kubectl.calls] == ["get", "get"]
 
 
 def test_stale_evidence_never_stands_in(tmp_path: Path, kubectl: _FakeKubectl) -> None:

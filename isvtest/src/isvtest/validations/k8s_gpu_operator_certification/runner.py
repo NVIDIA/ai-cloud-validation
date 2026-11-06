@@ -44,15 +44,17 @@ def run_test_set(
 
     ``env`` overrides keys of the manifest's config ConfigMap. The result
     carries ``artifacts`` and either ``result``, the test set's entry from
-    ``results.json``, or ``error`` when the run produced none. Every object the
+    ``results.json``, or ``error`` when     the run produced none. Every object the
     manifest creates, and the results ConfigMap, is deleted before and after
-    the run.
+    the run, unless the namespace is missing or a Helm release owns them.
     """
     artifacts_dir = Path(artifact_dir).expanduser().resolve() / test_set
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     for stale in ("results.json", "report.html", "job.log"):
         (artifacts_dir / stale).unlink(missing_ok=True)
     manifest = _render(test_set, namespace=namespace, image=image, env=env)
+    if error := _preflight(manifest, namespace):
+        return {"artifacts": {}, "error": error}
     # The binary cannot update an existing results ConfigMap, so a leftover one
     # would be read back as this run's results.
     _delete(manifest, namespace)
@@ -66,10 +68,9 @@ def _render(test_set: str, *, namespace: str, image: str, env: dict[str, str]) -
     """Return the manifest bound to this namespace, image, and test set."""
 
     def mutate(doc: dict[str, Any]) -> dict[str, Any]:
-        metadata = doc.get("metadata") or {}
-        if "namespace" in metadata:
-            metadata["namespace"] = namespace
         kind = doc.get("kind")
+        if kind not in ("ClusterRole", "ClusterRoleBinding"):
+            doc.setdefault("metadata", {})["namespace"] = namespace
         if kind == "ClusterRoleBinding":
             for subject in doc.get("subjects") or []:
                 subject["namespace"] = namespace
@@ -80,6 +81,33 @@ def _render(test_set: str, *, namespace: str, image: str, env: dict[str, str]) -
         return doc
 
     return render_k8s_manifest(_MANIFEST, mutate)
+
+
+def _preflight(manifest: str, namespace: str) -> str | None:
+    """Return why the manifest must not be applied, or ``None`` when it can be."""
+    found = _kubectl(["get", "namespace", namespace])
+    if found.returncode != 0:
+        return (
+            f"GPU Operator namespace {namespace!r} is not available ({_last_line(found)}); "
+            "set K8S_GPU_OPERATOR_NAMESPACE to the namespace the GPU Operator runs in"
+        )
+    existing = _kubectl(["get", "-f", "-", "--ignore-not-found", "-o", "json"], stdin=manifest)
+    if existing.returncode != 0:
+        return f"failed to look up existing certification objects: {_last_line(existing)}"
+    try:
+        listed = json.loads(existing.stdout) if existing.stdout.strip() else {}
+    except json.JSONDecodeError:
+        return "failed to look up existing certification objects: kubectl returned invalid JSON"
+    items = (listed.get("items") or []) if listed.get("kind") == "List" else [listed]
+    for item in items:
+        annotations = (item.get("metadata") or {}).get("annotations") or {}
+        if release := annotations.get("meta.helm.sh/release-name"):
+            release_namespace = annotations.get("meta.helm.sh/release-namespace") or namespace
+            return (
+                f"Helm release {release!r} owns the existing certification objects, which this check would "
+                f"replace and delete; remove it first: helm -n {release_namespace} uninstall {release}"
+            )
+    return None
 
 
 def _run(test_set: str, manifest: str, namespace: str, timeout: int, artifacts_dir: Path) -> dict[str, Any]:
