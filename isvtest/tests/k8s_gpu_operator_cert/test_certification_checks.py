@@ -64,12 +64,12 @@ def test_every_catalog_test_runs_a_distinct_test_set() -> None:
     assert sorted(cls.test_set for cls in classes) == [f"TS100{i}" for i in range(9)]
 
 
-def test_only_set_binary_inputs_override_the_manifest(run: _FakeRun) -> None:
+def test_wired_binary_inputs_are_passed_as_written(run: _FakeRun) -> None:
     config = {**_ENABLED, "target_driver_version": " 580.126.16 ", "target_driver_image": "", "unrelated": "x"}
 
     K8sGpuOperatorDriverUpdate(config=config).execute()
 
-    assert run.calls[0]["env"] == {"TARGET_DRIVER_VERSION": "580.126.16"}
+    assert run.calls[0]["env"] == {"TARGET_DRIVER_VERSION": "580.126.16", "TARGET_DRIVER_IMAGE": ""}
 
 
 def test_empty_namespace_falls_back_to_the_setting(run: _FakeRun, monkeypatch: pytest.MonkeyPatch) -> None:

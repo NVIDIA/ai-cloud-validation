@@ -69,6 +69,18 @@ def test_enabled_runs_each_test_set_in_its_own_job(monkeypatch: pytest.MonkeyPat
     assert {call["image"] for call in calls} == {
         "ghcr.io/nvidia/gpu-operator@sha256:4e6f7f29d8380abd794fbf296082144227d702cc877d8837c3b652a2787e5dc5"
     }
-    env = {call["test_set"]: call["env"] for call in calls}
-    assert env["TS1003"] == {"TARGET_DRIVER_VERSION": "580.126.16"}
-    assert env["TS1000"] == {}
+    timeout = {"TEST_TIMEOUT": "15m"}
+    workload = {**timeout, "TEST_WORKLOAD_IMAGE": "nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0-ubuntu22.04"}
+    rdma = {**timeout, "RDMA_BASE_IMAGE": "nvcr.io/nvidia/cuda:13.1.1-base-ubuntu24.04"}
+    driver = {"TARGET_DRIVER_REPOSITORY": "", "TARGET_DRIVER_IMAGE": "", "TARGET_DRIVER_VERSION": "580.126.16"}
+    assert {call["test_set"]: call["env"] for call in calls} == {
+        "TS1000": workload,
+        "TS1001": workload,
+        "TS1002": timeout,
+        "TS1003": {**workload, **driver},
+        "TS1004": workload,
+        "TS1005": workload,
+        "TS1006": rdma,
+        "TS1007": rdma,
+        "TS1008": workload,
+    }

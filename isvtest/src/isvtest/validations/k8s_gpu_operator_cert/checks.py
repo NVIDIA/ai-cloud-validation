@@ -53,7 +53,7 @@ class _CertificationTestSet(BaseValidation):
         if timeout is None:
             return
         namespace = str(self.config.get("namespace") or "").strip() or get_k8s_gpu_operator_namespace()
-        env = {key.upper(): value for key in _ENV_KEYS if (value := str(self.config.get(key) or "").strip())}
+        env = {key.upper(): str(self.config[key] or "").strip() for key in _ENV_KEYS if key in self.config}
 
         output = run_test_set(self.test_set, namespace=namespace, image=image, env=env, timeout=timeout)
         if "error" in output:
