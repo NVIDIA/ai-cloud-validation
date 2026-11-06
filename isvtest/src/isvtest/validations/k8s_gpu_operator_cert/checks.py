@@ -19,7 +19,7 @@ import pytest
 
 from isvtest.config.settings import get_k8s_gpu_operator_namespace
 from isvtest.core.validation import BaseValidation
-from isvtest.validations.k8s_gpu_operator_certification.runner import run_test_set
+from isvtest.validations.k8s_gpu_operator_cert.runner import run_test_set
 
 # Config keys passed to the binary as its upper-case environment variables.
 _ENV_KEYS = (

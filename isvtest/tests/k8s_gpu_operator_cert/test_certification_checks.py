@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from isvtest.validations.k8s_gpu_operator_certification import checks
-from isvtest.validations.k8s_gpu_operator_certification.checks import (
+from isvtest.validations.k8s_gpu_operator_cert import checks
+from isvtest.validations.k8s_gpu_operator_cert.checks import (
     K8sGpuOperatorDefaultSettings,
     K8sGpuOperatorDriverUpdate,
 )

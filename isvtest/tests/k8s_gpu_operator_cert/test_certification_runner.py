@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from isvtest.validations.k8s_gpu_operator_certification import runner
+from isvtest.validations.k8s_gpu_operator_cert import runner
 
 pytestmark = pytest.mark.unit
 

@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from isvtest.core.resolution import State
-from isvtest.validations.k8s_gpu_operator_certification import checks
+from isvtest.validations.k8s_gpu_operator_cert import checks
 
 from isvctl.config.merger import merge_yaml_files
 from isvctl.config.schema import RunConfig
