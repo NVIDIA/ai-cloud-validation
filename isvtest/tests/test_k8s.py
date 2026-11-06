@@ -562,6 +562,7 @@ class TestWaitForJobCompletion:
         polls = [0]
 
         def run_kubectl(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+            """Report the Job complete from the given poll on."""
             if args[:2] != ["get", "job"]:
                 return subprocess.CompletedProcess(args, 0, "", "")
             polls[0] += 1
@@ -570,6 +571,7 @@ class TestWaitForJobCompletion:
             return subprocess.CompletedProcess(args, 0, json.dumps({"status": {"conditions": conditions}}), "")
 
         def sleep(seconds: float) -> None:
+            """Advance the fake clock instead of sleeping."""
             clock[0] += seconds
 
         with (
@@ -581,6 +583,7 @@ class TestWaitForJobCompletion:
         return result, polls[0]
 
     def test_job_finishing_after_several_polls_completes(self) -> None:
+        """A Job that completes on the third poll is reported complete."""
         assert self._wait(complete_after_polls=3, timeout=60) == ((True, "Complete"), 3)
 
     def test_job_finishing_during_the_last_sleep_completes(self) -> None:
@@ -588,6 +591,7 @@ class TestWaitForJobCompletion:
         assert self._wait(complete_after_polls=4, timeout=25) == ((True, "Complete"), 4)
 
     def test_unfinished_job_times_out(self) -> None:
+        """A Job that never completes times out after a final poll at the deadline."""
         assert self._wait(complete_after_polls=None, timeout=25) == ((False, "Pending"), 4)
 
 

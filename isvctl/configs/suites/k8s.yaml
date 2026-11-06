@@ -57,13 +57,17 @@ tests:
 
   settings:
     show_deselected_tests: false
-    # gpu_operator_certification checks. Every value below is passed to the
-    # gpu-operator-certification binary as written.
+    # gpu_operator_certification checks. The binary inputs below override the
+    # manifest's ConfigMap defaults for the test sets wired to read them.
     gpu_operator_certification:
       enabled: false
       # GPU Operator main as of 2026-11-06: no release ships the certification
       # binary yet. ghcr.io/nvidia/gpu-operator:main-latest tracks main instead.
       image: "ghcr.io/nvidia/gpu-operator@sha256:4e6f7f29d8380abd794fbf296082144227d702cc877d8837c3b652a2787e5dc5"
+      # Wall-clock limit of each test set's Job, in seconds. It must cover
+      # test_timeout times the tests of a set; a Job stopped at this limit may
+      # leave the GPU Operator settings unrestored.
+      job_timeout: 3600
       # Timeout of each test inside the binary (Go duration).
       test_timeout: "15m"
       # GPU pod run by TS1000, TS1001, TS1003, TS1004, TS1005 and TS1008.
@@ -380,6 +384,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
         K8sGpuOperatorTimeSlicing:
@@ -388,6 +393,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
         K8sGpuOperatorDcgmStandalone:
@@ -396,6 +402,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
         K8sGpuOperatorDriverUpdate:
           test_id: "N/A"
@@ -403,6 +410,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
           target_driver_repository: "{{ gpu_operator_certification.target_driver_repository }}"
@@ -414,6 +422,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
         K8sGpuOperatorMigMixed:
@@ -422,6 +431,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
         K8sGpuOperatorGpuDirectRdma:
@@ -430,6 +440,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           rdma_base_image: "{{ gpu_operator_certification.rdma_base_image }}"
         K8sGpuOperatorGpuDirectRdmaDmaBuf:
@@ -438,6 +449,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           rdma_base_image: "{{ gpu_operator_certification.rdma_base_image }}"
         K8sGpuOperatorGdrCopy:
@@ -446,6 +458,7 @@ tests:
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
           namespace: "{{ steps.setup.kubernetes.gpu_operator_namespace | default('', true) }}"
+          timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
 

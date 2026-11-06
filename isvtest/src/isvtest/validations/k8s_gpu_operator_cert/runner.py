@@ -54,7 +54,9 @@ def run_test_set(
     ``error`` when the run produced none; the Job log, ``results.json``, and
     ``report.html`` are kept under ``artifact_dir/<test_set>``. Every object the
     manifest creates, and the results ConfigMap, is deleted before and after
-    the run, unless the namespace is missing or a Helm release owns them.
+    the run, unless the namespace is missing or a Helm release owns them. A
+    failed deletion is an error: before the run it stops the run, after it is
+    added to the run's own error.
     """
     artifacts_dir = Path(artifact_dir).expanduser().resolve() / test_set
     shutil.rmtree(artifacts_dir, ignore_errors=True)
@@ -64,17 +66,23 @@ def run_test_set(
         return {"error": error}
     # The binary cannot update an existing results ConfigMap, so a leftover one
     # would be read back as this run's results.
-    _delete(manifest, namespace)
+    if error := _delete(manifest, namespace):
+        return {"error": f"failed to remove leftover certification objects: {error}"}
     try:
-        return _run(test_set, manifest, namespace, timeout, artifacts_dir)
+        output = _run(test_set, manifest, namespace, timeout, artifacts_dir)
     finally:
-        _delete(manifest, namespace)
+        cleanup_error = _delete(manifest, namespace)
+    if cleanup_error:
+        cleanup = f"failed to remove the certification objects after the run: {cleanup_error}"
+        output = {"error": f"{output['error']}; {cleanup}" if "error" in output else cleanup}
+    return output
 
 
 def _render(test_set: str, *, namespace: str, image: str, env: dict[str, str]) -> str:
     """Return the manifest bound to this namespace, image, and test set."""
 
     def mutate(doc: dict[str, Any]) -> dict[str, Any]:
+        """Bind one manifest document to the namespace, image, and test set."""
         kind = doc.get("kind")
         if kind not in ("ClusterRole", "ClusterRoleBinding"):
             doc.setdefault("metadata", {})["namespace"] = namespace
@@ -136,6 +144,8 @@ def _run(test_set: str, manifest: str, namespace: str, timeout: int, artifacts_d
             "the GPU Operator settings may not have been restored"
         }
     if status == "Failed":
+        if logs.returncode != 0:
+            return {"error": f"certification Job failed; its log could not be read: {_last_line(logs)}"}
         return {"error": f"certification Job failed: {_last_line(logs)}"}
 
     stored = _kubectl(["get", "configmap", _RESULTS_CONFIGMAP, "-n", namespace, "-o", "json"])
@@ -161,15 +171,20 @@ def _run(test_set: str, manifest: str, namespace: str, timeout: int, artifacts_d
     return {"result": result}
 
 
-def _delete(manifest: str, namespace: str) -> None:
-    """Delete the manifest's objects, the Job's pod, and the results ConfigMap."""
+def _delete(manifest: str, namespace: str) -> str | None:
+    """Delete the manifest's objects, the Job's pod, and the results ConfigMap.
+
+    Both deletions are attempted; returns their failures, or ``None`` when both succeed.
+    """
+    errors = []
     for args, stdin in (
         (["delete", "-f", "-", "--ignore-not-found", "--cascade=foreground"], manifest),
         (["delete", "configmap", _RESULTS_CONFIGMAP, "-n", namespace, "--ignore-not-found"], None),
     ):
         result = _kubectl(args, stdin=stdin)
         if result.returncode != 0:
-            _logger.warning("kubectl %s failed: %s", " ".join(args[:2]), _last_line(result))
+            errors.append(f"kubectl {' '.join(args[:2])}: {_last_line(result)}")
+    return "; ".join(errors) or None
 
 
 def _kubectl(args: list[str], *, stdin: str | None = None) -> subprocess.CompletedProcess[str]:

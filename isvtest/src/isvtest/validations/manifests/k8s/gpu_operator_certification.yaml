@@ -16,7 +16,9 @@
 # Copied from NVIDIA/gpu-operator#3112 at d663e31ab70cea18f56427e7c607239ae6d2d9a2
 # (deployments/gpu-operator-certification/gpu-operator-certification.yaml);
 # only yamlfmt's comment spacing differs.
-# The runner sets the namespace, the Job image, and TEST_SETS on apply.
+# The runner sets the namespace, the Job image, and TEST_SETS on apply, and
+# overrides the ConfigMap data below with tests.settings.gpu_operator_certification
+# for the keys each check wires; the upstream values are kept for diffing.
 apiVersion: v1
 kind: ConfigMap
 metadata:

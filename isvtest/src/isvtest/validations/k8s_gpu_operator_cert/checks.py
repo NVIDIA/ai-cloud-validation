@@ -41,6 +41,7 @@ class _CertificationTestSet(BaseValidation):
     test_set: ClassVar[str] = ""
 
     def run(self) -> None:
+        """Run the test set when enabled and report its result."""
         if str(self.config.get("enabled", "")).strip().lower() != "true":
             pytest.skip(
                 "GPU Operator self-certification is opt-in: set tests.settings.gpu_operator_certification.enabled=true"

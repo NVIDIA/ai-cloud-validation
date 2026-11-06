@@ -24,27 +24,32 @@ class _FakeRun:
     """Stand in for the Job run; each test sets what it returned."""
 
     def __init__(self) -> None:
+        """Start with a passing result and no recorded calls."""
         self.output: dict[str, Any] = {"result": {"status": "passed", "tests": [{"name": "t"}]}}
         self.calls: list[dict[str, Any]] = []
 
     def __call__(self, test_set: str, **kwargs: Any) -> dict[str, Any]:
+        """Record the call and return the configured output."""
         self.calls.append({"test_set": test_set, **kwargs})
         return self.output
 
 
 @pytest.fixture(autouse=True)
 def run(monkeypatch: pytest.MonkeyPatch) -> _FakeRun:
+    """Replace the Job run with a fake for every test."""
     fake = _FakeRun()
     monkeypatch.setattr(checks, "run_test_set", fake)
     return fake
 
 
 def _result(status: str, tests: list[dict[str, Any]], error: str = "") -> dict[str, Any]:
+    """Build a run output holding one TS1000 result."""
     return {"result": {"id": "TS1000", "status": status, "error": error, "tests": tests}}
 
 
 @pytest.mark.parametrize("enabled", [False, "False", "", None])
 def test_disabled_skips_without_running(run: _FakeRun, enabled: Any) -> None:
+    """Anything but an explicit true skips before touching the cluster."""
     with pytest.raises(pytest.skip.Exception, match="opt-in"):
         K8sGpuOperatorDefaultSettings(config={**_ENABLED, "enabled": enabled}).execute()
     assert run.calls == []
@@ -52,6 +57,7 @@ def test_disabled_skips_without_running(run: _FakeRun, enabled: Any) -> None:
 
 @pytest.mark.parametrize("enabled", [True, "True", "true"])
 def test_enabled_runs_its_own_test_set(run: _FakeRun, enabled: Any) -> None:
+    """An enabled check runs only its own test set."""
     assert K8sGpuOperatorDriverUpdate(config={**_ENABLED, "enabled": enabled}).execute()["passed"]
     [call] = run.calls
     assert call["test_set"] == "TS1003"
@@ -60,11 +66,13 @@ def test_enabled_runs_its_own_test_set(run: _FakeRun, enabled: Any) -> None:
 
 
 def test_every_catalog_test_runs_a_distinct_test_set() -> None:
+    """The nine catalog checks cover TS1000 to TS1008 once each."""
     classes = [cls for cls in vars(checks).values() if isinstance(cls, type) and cls.__name__.startswith("K8sGpu")]
     assert sorted(cls.test_set for cls in classes) == [f"TS100{i}" for i in range(9)]
 
 
-def test_wired_binary_inputs_are_passed_as_written(run: _FakeRun) -> None:
+def test_wired_binary_inputs_are_forwarded(run: _FakeRun) -> None:
+    """Wired inputs reach the binary trimmed, empty ones included; other keys do not."""
     config = {**_ENABLED, "target_driver_version": " 580.126.16 ", "target_driver_image": "", "unrelated": "x"}
 
     K8sGpuOperatorDriverUpdate(config=config).execute()
@@ -73,6 +81,7 @@ def test_wired_binary_inputs_are_passed_as_written(run: _FakeRun) -> None:
 
 
 def test_empty_namespace_falls_back_to_the_setting(run: _FakeRun, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without a namespace from setup, the GPU Operator namespace setting is used."""
     monkeypatch.setenv("K8S_GPU_OPERATOR_NAMESPACE", "operator-ns")
 
     K8sGpuOperatorDefaultSettings(config={**_ENABLED, "namespace": ""}).execute()
@@ -82,11 +91,13 @@ def test_empty_namespace_falls_back_to_the_setting(run: _FakeRun, monkeypatch: p
 
 @pytest.mark.parametrize(("key", "value"), [("image", ""), ("timeout", "0")])
 def test_invalid_inputs_fail_without_running(run: _FakeRun, key: str, value: str) -> None:
+    """A missing image or a bad timeout fails before any Job is created."""
     assert not K8sGpuOperatorDefaultSettings(config={**_ENABLED, key: value}).execute()["passed"]
     assert run.calls == []
 
 
 def test_passed_set_reports_each_test_as_a_subtest(run: _FakeRun) -> None:
+    """Each test of a passed set becomes a subtest with its details and duration."""
     run.output = _result(
         "passed",
         [
@@ -108,6 +119,7 @@ def test_passed_set_reports_each_test_as_a_subtest(run: _FakeRun) -> None:
 
 
 def test_failed_set_fails_with_its_error(run: _FakeRun) -> None:
+    """A failed set fails the check with the binary's error."""
     run.output = _result(
         "failed",
         [
@@ -126,6 +138,7 @@ def test_failed_set_fails_with_its_error(run: _FakeRun) -> None:
 
 
 def test_skipped_set_skips_with_the_binary_reason(run: _FakeRun) -> None:
+    """A skipped set skips the check with the reason the binary gave."""
     run.output = _result(
         "skipped",
         [
@@ -139,6 +152,7 @@ def test_skipped_set_skips_with_the_binary_reason(run: _FakeRun) -> None:
 
 
 def test_run_error_fails_with_the_test_set(run: _FakeRun) -> None:
+    """A run that produced no result fails with the test set named."""
     run.output = {"error": "certification Job failed: boom"}
 
     result = K8sGpuOperatorDefaultSettings(config=_ENABLED).execute()
@@ -148,6 +162,7 @@ def test_run_error_fails_with_the_test_set(run: _FakeRun) -> None:
 
 @pytest.mark.parametrize(("status", "error"), [("passed", "passed without running"), ("weird", "unknown status")])
 def test_never_passes_without_a_known_result(run: _FakeRun, status: str, error: str) -> None:
+    """An empty pass or an unknown status fails rather than passes."""
     run.output = _result(status, [])
 
     result = K8sGpuOperatorDefaultSettings(config=_ENABLED).execute()

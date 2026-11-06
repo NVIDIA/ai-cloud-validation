@@ -940,7 +940,8 @@ def wait_for_job_completion(
             logger.info(f"Still waiting for job {job_name}... elapsed={elapsed}s, {pod_info}")
             last_print_time = current_time
 
-        time.sleep(poll_interval)
+        # Never sleep past the deadline, so the final poll lands on it
+        time.sleep(min(poll_interval, max(0.0, start_time + timeout - time.time())))
 
 
 def _format_job_pod_info(result: subprocess.CompletedProcess[Any]) -> tuple[str, str]:

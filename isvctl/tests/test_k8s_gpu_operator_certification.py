@@ -21,6 +21,7 @@ _GROUP = "gpu_operator_certification"
 
 
 def _run(settings: dict[str, Any] | None = None) -> OrchestratorResult:
+    """Run the k8s suite's certification group with these settings overrides."""
     merged = merge_yaml_files([_K8S_SUITE])
     merged["tests"]["settings"][_GROUP].update(settings or {})
     return Orchestrator(RunConfig.model_validate(merged), working_dir=_K8S_SUITE.parent).run(
@@ -31,6 +32,7 @@ def _run(settings: dict[str, Any] | None = None) -> OrchestratorResult:
 
 
 def _states(result: OrchestratorResult) -> dict[str, State]:
+    """Map each certification check to its final state."""
     return {v.entry.name: v.state for v in result.validations if _GROUP in v.entry.labels}
 
 
@@ -48,9 +50,11 @@ def test_default_settings_skip_every_test_set(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_enabled_runs_each_test_set_in_its_own_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enabled, each check runs its own test set with exactly the inputs wired to it."""
     calls: list[dict[str, Any]] = []
 
     def run_test_set(test_set: str, **kwargs: Any) -> dict[str, Any]:
+        """Record the call; TS1002 fails and every other set passes."""
         calls.append({"test_set": test_set, **kwargs})
         status = "failed" if test_set == "TS1002" else "passed"
         return {
@@ -69,6 +73,7 @@ def test_enabled_runs_each_test_set_in_its_own_job(monkeypatch: pytest.MonkeyPat
     assert {call["image"] for call in calls} == {
         "ghcr.io/nvidia/gpu-operator@sha256:4e6f7f29d8380abd794fbf296082144227d702cc877d8837c3b652a2787e5dc5"
     }
+    assert {call["timeout"] for call in calls} == {3600}
     timeout = {"TEST_TIMEOUT": "15m"}
     workload = {**timeout, "TEST_WORKLOAD_IMAGE": "nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0-ubuntu22.04"}
     rdma = {**timeout, "RDMA_BASE_IMAGE": "nvcr.io/nvidia/cuda:13.1.1-base-ubuntu24.04"}
