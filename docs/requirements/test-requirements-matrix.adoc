@@ -2712,6 +2712,285 @@ docs/requirements/test-requirements-matrix.yaml. Run `make plan` to regenerate.
 | full
 |
 
+| [[K8S43-01]]K8S43-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the default GPU Operator deployment runs GPU workloads
+| K8S43
+| reference
+| full
+|
+
+| K8S43-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the default GPU Operator deployment runs GPU workloads
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the default GPU Operator deployment runs GPU workloads
+| ENT-REQ-102
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the default GPU Operator deployment runs GPU workloads
+| ENT-REQ-103
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the default GPU Operator deployment runs GPU workloads
+| ENT-REQ-104
+| gpu-operator-prd
+| full
+|
+
+| K8S43-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the default GPU Operator deployment runs GPU workloads
+| ENT-REQ-106
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-01
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify the default GPU Operator deployment runs GPU workloads
+| ENT-REQ-108
+| gpu-operator-prd
+| partial
+|
+
+| [[K8S43-02]]K8S43-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPU sharing via time-slicing
+| K8S43
+| reference
+| full
+|
+
+| K8S43-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPU sharing via time-slicing
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-02
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPU sharing via time-slicing
+| ENT-REQ-105
+| gpu-operator-prd
+| partial
+|
+
+| [[K8S43-03]]K8S43-03
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify standalone DCGM serves GPU metrics
+| K8S43
+| reference
+| full
+|
+
+| K8S43-03
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify standalone DCGM serves GPU metrics
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-03
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify standalone DCGM serves GPU metrics
+| ENT-REQ-105
+| gpu-operator-prd
+| partial
+|
+
+| [[K8S43-04]]K8S43-04
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify a GPU driver update through the GPU Operator
+| K8S43
+| reference
+| full
+|
+
+| K8S43-04
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify a GPU driver update through the GPU Operator
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-04
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify a GPU driver update through the GPU Operator
+| ENT-REQ-105
+| gpu-operator-prd
+| partial
+|
+
+| [[K8S43-05]]K8S43-05
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify MIG mode with the single strategy
+| K8S43
+| reference
+| full
+|
+
+| K8S43-05
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify MIG mode with the single strategy
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-05
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify MIG mode with the single strategy
+| ENT-REQ-105
+| gpu-operator-prd
+| partial
+|
+
+| [[K8S43-06]]K8S43-06
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify MIG mode with the mixed strategy
+| K8S43
+| reference
+| full
+|
+
+| K8S43-06
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify MIG mode with the mixed strategy
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-06
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify MIG mode with the mixed strategy
+| ENT-REQ-105
+| gpu-operator-prd
+| partial
+|
+
+| [[K8S43-07]]K8S43-07
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPUDirect RDMA bandwidth between GPU nodes
+| K8S43
+| reference
+| full
+|
+
+| K8S43-07
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPUDirect RDMA bandwidth between GPU nodes
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-07
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPUDirect RDMA bandwidth between GPU nodes
+| ENT-REQ-105
+| gpu-operator-prd
+| partial
+|
+
+| [[K8S43-08]]K8S43-08
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPUDirect RDMA bandwidth over DMA-BUF between GPU nodes
+| K8S43
+| reference
+| full
+|
+
+| K8S43-08
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPUDirect RDMA bandwidth over DMA-BUF between GPU nodes
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-08
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GPUDirect RDMA bandwidth over DMA-BUF between GPU nodes
+| ENT-REQ-105
+| gpu-operator-prd
+| partial
+|
+
+| [[K8S43-09]]K8S43-09
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GDRCopy through the GPU Operator
+| K8S43
+| reference
+| full
+|
+
+| K8S43-09
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GDRCopy through the GPU Operator
+| ENT-REQ-101
+| gpu-operator-prd
+| partial
+|
+
+| K8S43-09
+| Workload Orchestration
+| Managed Kubernetes Control Plane
+| Verify GDRCopy through the GPU Operator
+| ENT-REQ-105
+| gpu-operator-prd
+| partial
+|
+
 | [[K8S02-01]]K8S02-01
 | Workload Orchestration
 | Managed Kubernetes Control Plane

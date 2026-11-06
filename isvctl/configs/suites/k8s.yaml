@@ -379,7 +379,7 @@ tests:
     gpu_operator_certification:
       checks:
         K8sGpuOperatorDefaultSettings:
-          test_id: "N/A"
+          test_id: "K8S43-01"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
@@ -388,7 +388,7 @@ tests:
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
         K8sGpuOperatorTimeSlicing:
-          test_id: "N/A"
+          test_id: "K8S43-02"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
@@ -397,7 +397,7 @@ tests:
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
         K8sGpuOperatorDcgmStandalone:
-          test_id: "N/A"
+          test_id: "K8S43-03"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
@@ -405,7 +405,7 @@ tests:
           timeout: "{{ gpu_operator_certification.job_timeout }}"
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
         K8sGpuOperatorDriverUpdate:
-          test_id: "N/A"
+          test_id: "K8S43-04"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
@@ -417,7 +417,7 @@ tests:
           target_driver_image: "{{ gpu_operator_certification.target_driver_image }}"
           target_driver_version: "{{ gpu_operator_certification.target_driver_version }}"
         K8sGpuOperatorMigSingle:
-          test_id: "N/A"
+          test_id: "K8S43-05"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
@@ -426,7 +426,7 @@ tests:
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
         K8sGpuOperatorMigMixed:
-          test_id: "N/A"
+          test_id: "K8S43-06"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
@@ -435,7 +435,7 @@ tests:
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           test_workload_image: "{{ gpu_operator_certification.test_workload_image }}"
         K8sGpuOperatorGpuDirectRdma:
-          test_id: "N/A"
+          test_id: "K8S43-07"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow", "network"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
@@ -444,7 +444,7 @@ tests:
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           rdma_base_image: "{{ gpu_operator_certification.rdma_base_image }}"
         K8sGpuOperatorGpuDirectRdmaDmaBuf:
-          test_id: "N/A"
+          test_id: "K8S43-08"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow", "network"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"
@@ -453,7 +453,7 @@ tests:
           test_timeout: "{{ gpu_operator_certification.test_timeout }}"
           rdma_base_image: "{{ gpu_operator_certification.rdma_base_image }}"
         K8sGpuOperatorGdrCopy:
-          test_id: "N/A"
+          test_id: "K8S43-09"
           labels: ["kubernetes", "gpu", "gpu_operator_certification", "slow"]
           enabled: "{{ gpu_operator_certification.enabled }}"
           image: "{{ gpu_operator_certification.image }}"

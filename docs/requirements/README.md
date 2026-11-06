@@ -17,6 +17,8 @@ reconciles all of these different goals.
 | `storage-acceptance-requirements.md` | Generated rendering of the storage YAML (`make plan`). |
 | `network-operator-readiness-requirements.yaml` | **Source of record** for the Enterprise RA Network Operator self-validation integration PRD. |
 | `network-operator-readiness-requirements.md` | Generated rendering of the Network Operator PRD YAML (`make plan`). |
+| `gpu-operator-readiness-requirements.yaml` | **Source of record** for the GPU Operator self-certification integration PRD. |
+| `gpu-operator-readiness-requirements.md` | Generated rendering of the GPU Operator PRD YAML (`make plan`). |
 | `test-requirements-matrix.yaml` | The **traceability matrix (index)**: which requirement(s) each test relates to, across documents (`source`). |
 | `test-requirements-matrix.adoc` | Generated and committed traceability matrix, viewable in github (or renderable to html) |
 | `../../scripts/reqtrace.py` | Integrity checks (`reqtrace validate`; `make reqcheck`). |
@@ -101,7 +103,8 @@ test `K8S32-01` is now `K8S42-01` (`legacy_ids` keeps `K8S32-01`).
 | `BFX` (04+) | reference | break-fix health (continues offtake `BFX`) |
 | `BENCH` | reference | exemplar benchmarking |
 | `N-*` | storage | Storage Acceptance test IDs |
-| `ENT-REQ-*` | network-operator-prd | Enterprise Network Operator self-validation integration |
+| `ENT-REQ-0*` | network-operator-prd | Enterprise Network Operator self-validation integration |
+| `ENT-REQ-1*` | gpu-operator-prd | GPU Operator self-certification integration |
 
 ## 3. `legacy_ids`
 

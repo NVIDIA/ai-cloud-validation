@@ -1960,6 +1960,135 @@ mappings:
         coverage: full
     annotations: ''
     notes: ''
+  - test_id: K8S43-01
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-102
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-103
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-104
+        source: gpu-operator-prd
+        coverage: full
+      - req_id: ENT-REQ-106
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-108
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'Group-wide requirements are mapped here once. ENT-REQ-103: only the inputs the binary accepts are exposed.'
+    notes: ''
+  - test_id: K8S43-02
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-105
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'ENT-REQ-105: the binary restores the settings after the test set; a Job stopped at job_timeout may not be restored.'
+    notes: ''
+  - test_id: K8S43-03
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-105
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'ENT-REQ-105: the binary restores the settings after the test set; a Job stopped at job_timeout may not be restored.'
+    notes: ''
+  - test_id: K8S43-04
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-105
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'ENT-REQ-105: the binary restores the settings after the test set; a Job stopped at job_timeout may not be restored.'
+    notes: ''
+  - test_id: K8S43-05
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-105
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'ENT-REQ-105: the binary restores the settings after the test set; a Job stopped at job_timeout may not be restored.'
+    notes: ''
+  - test_id: K8S43-06
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-105
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'ENT-REQ-105: the binary restores the settings after the test set; a Job stopped at job_timeout may not be restored.'
+    notes: ''
+  - test_id: K8S43-07
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-105
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'ENT-REQ-105: the binary restores the settings after the test set; a Job stopped at job_timeout may not be restored.'
+    notes: ''
+  - test_id: K8S43-08
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-105
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'ENT-REQ-105: the binary restores the settings after the test set; a Job stopped at job_timeout may not be restored.'
+    notes: ''
+  - test_id: K8S43-09
+    requirements:
+      - req_id: K8S43
+        source: reference
+        coverage: full
+      - req_id: ENT-REQ-101
+        source: gpu-operator-prd
+        coverage: partial
+      - req_id: ENT-REQ-105
+        source: gpu-operator-prd
+        coverage: partial
+    annotations: 'ENT-REQ-105: the binary restores the settings after the test set; a Job stopped at job_timeout may not be restored.'
+    notes: ''
   - test_id: K8S02-01
     requirements:
       - req_id: K8S02
