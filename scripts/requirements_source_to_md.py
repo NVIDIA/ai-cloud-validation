@@ -40,6 +40,7 @@ DEFAULT_SOURCES = [
     REQ_DIR / "software-reference-requirements.yaml",
     REQ_DIR / "storage-acceptance-requirements.yaml",
     REQ_DIR / "network-operator-readiness-requirements.yaml",
+    REQ_DIR / "gpu-operator-readiness-requirements.yaml",
 ]
 
 GENERATED_BANNER = "<!-- GENERATED FILE - DO NOT EDIT BY HAND. Source: {src}. Run `make plan`. -->"

@@ -245,6 +245,7 @@ This document lists requirements derived from the *NCP Software Reference Guide*
 | K8S39 | Managed Kubernetes Control Plane | Be able to run k8s workloads | NSRG: Container-as-a-Service: Kubernetes | `K8S39-01` |  |
 | K8S40 | Managed Kubernetes Control Plane | K8s Nim Inference | NSRG: K8s-Native ML/AI Frameworks (Dynamo/NIM) | `K8S40-01` |  |
 | K8S42 | Managed Kubernetes Control Plane | K8s Nim Helm | NSRG: K8s-Native ML/AI Frameworks | `K8S42-01` |  |
+| K8S43 | Managed Kubernetes Control Plane | GPU Operator self-certification |  | `K8S43-01` |  |
 | K8S33 | Managed Kubernetes Control Plane | K8s Nccl | NSRG: Kubernetes Architecture for ML/AI / Performance Requirements | `K8S33-01` |  |
 | K8S34 | Managed Kubernetes Control Plane | validate adherence to upstream proxy requirements (service to pod load balancing, acces to internal services) | NSRG: Container-as-a-Service: Kubernetes | `K8S34-01` |  |
 | K8S35 | Managed Kubernetes Control Plane | Verify that pod-to-pod L3 traffic flow logs are available and queryable | NSRG: Container-as-a-Service: Kubernetes / Telemetry | `K8S35-01` |  |

@@ -737,6 +737,13 @@ requirements:
     reference_mapping: 'NSRG: K8s-Native ML/AI Frameworks'
     covers_test: K8S42-01
     status: ''
+  - req_id: K8S43
+    domain: Workload Orchestration
+    component: Managed Kubernetes Control Plane
+    description: GPU Operator self-certification
+    reference_mapping: ''
+    covers_test: K8S43-01
+    status: ''
   - req_id: K8S33
     domain: Workload Orchestration
     component: Managed Kubernetes Control Plane

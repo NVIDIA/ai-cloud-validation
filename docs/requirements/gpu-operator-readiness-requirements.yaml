@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Enterprise RA GPU Operator self-certification integration requirements.
+# Structured from docs/references/GPU-Operator-Self-Certify-Integration-Solution-for-AI-Cloud-Validation-Suite-PRD.md.
+# Render the publishable Markdown view with `make plan`.
+
+source: gpu-operator-prd
+format: project-prd
+title: GPU Operator Self-Certify Integration Solution for AI Cloud Validation Suite PRD
+version: prd-snapshot-2026-11-06
+owner: NVIDIA GPU Operator team
+requirements:
+  - req_id: ENT-REQ-100
+    section: Ownership
+    area: Integration ownership
+    description: The GPU Operator team owns and maintains the integration solution, including updates and changes to the underlying tests.
+    status: active
+  - req_id: ENT-REQ-101
+    section: Framework Integration
+    area: Test exposure
+    description: Expose the GPU Operator self-certification tests GPUOP-00 to GPUOP-08 to the framework.
+    status: active
+  - req_id: ENT-REQ-102
+    section: Framework Integration
+    area: Selection and program profiles
+    description: Allow Enterprise to run all GPU Operator tests as one suite or as individual GPUOP tests, and allow NCP to exclude tests not required for the NeoCloud MVP, such as MIG and vGPU paths.
+    status: active
+  - req_id: ENT-REQ-103
+    section: Framework Integration
+    area: Runtime parameters
+    description: Expose parameters for namespace, timeout, GPU count, GPU driver version and update policy, MIG strategy, RDMA resource names, DMA-BUF mode, GDRCopy enablement, and other GPU Operator test inputs.
+    status: active
+  - req_id: ENT-REQ-104
+    section: Evidence
+    area: Logs and artifacts
+    description: Preserve the logs and artifacts needed for partner validation evidence.
+    status: active
+  - req_id: ENT-REQ-105
+    section: Lifecycle Safety
+    area: State restoration
+    description: For tests that modify GPU Operator or cluster state, including the GPU driver version and update policy, MIG strategy, and RDMA, capture the pre-test configuration and restore the original GPU Operator state after the test completes or fails.
+    status: active
+  - req_id: ENT-REQ-106
+    section: Catalog and Documentation
+    area: Catalog metadata
+    description: Add AI Cloud Validation catalog entries for all GPUOP tests with owner, labels, dependencies, and descriptions, including the required YAML updates, while following repository contribution standards.
+    status: active
+  - req_id: ENT-REQ-107
+    section: Catalog and Documentation
+    area: Prerequisites
+    description: Document the required cluster prerequisites for each GPUOP test.
+    status: active
+  - req_id: ENT-REQ-108
+    section: Reporting
+    area: ISV-NCP report
+    description: Integrate results into the ISV-NCP report and catalog.
+    status: active

@@ -3823,6 +3823,163 @@ domains:
                 milestone: M5
                 github_issues:
                   - "#220"
+          - description: GPU Operator self-certification
+            tests:
+              - summary: Verify the default GPU Operator deployment runs GPU workloads
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-01
+                actor: operator
+                status: pending
+                notes: GPUOP-00, test set TS1000
+              - summary: Verify GPU sharing via time-slicing
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-02
+                actor: operator
+                status: pending
+                notes: GPUOP-01, test set TS1001
+              - summary: Verify standalone DCGM serves GPU metrics
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-03
+                actor: operator
+                status: pending
+                notes: GPUOP-02, test set TS1002
+              - summary: Verify a GPU driver update through the GPU Operator
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-04
+                actor: operator
+                status: pending
+                notes: GPUOP-03, test set TS1003
+              - summary: Verify MIG mode with the single strategy
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-05
+                actor: operator
+                status: pending
+                notes: GPUOP-04, test set TS1004
+              - summary: Verify MIG mode with the mixed strategy
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-06
+                actor: operator
+                status: pending
+                notes: GPUOP-05, test set TS1005
+              - summary: Verify GPUDirect RDMA bandwidth between GPU nodes
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - network
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-07
+                actor: operator
+                status: pending
+                notes: GPUOP-06, test set TS1006
+              - summary: Verify GPUDirect RDMA bandwidth over DMA-BUF between GPU nodes
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - network
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-08
+                actor: operator
+                status: pending
+                notes: GPUOP-07, test set TS1007
+              - summary: Verify GDRCopy through the GPU Operator
+                labels:
+                  - gpu
+                  - gpu_operator_certification
+                  - kubernetes
+                  - slow
+                priority: P0
+                dependencies:
+                  - LimitedEnv
+                milestone: ""
+                github_issues:
+                  - "#758"
+                req_id: K8S43
+                test_id: K8S43-09
+                actor: operator
+                status: pending
+                notes: GPUOP-08, test set TS1008
           - description: "K8s Versioning & Compliance"
             tests:
               - summary: Verify support for the three most recent minor releases (N-2)
