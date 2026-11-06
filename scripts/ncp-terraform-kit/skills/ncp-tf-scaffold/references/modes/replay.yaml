@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Replay — the whole lifecycle, against what the API really returned once.
+#
+# Needs no account now. It needs an account to have existed once, when someone
+# recorded the exchange, which is what makes this stronger than a fixture
+# somebody wrote.
+api_version: terraform.ncp/v1
+mode: replay
+
+needs_account: false
+needs_cassettes: true
+
+proves: >-
+  the provider issues the right request, parses what the API really returned,
+  and drives the whole lifecycle on that
+does_not_prove: that the API still behaves that way
+
+# Replaying is itself a request assertion: the matcher compares the method, the
+# URL and the body, and the run fails when nothing matches. Two things it does
+# not compare, so the case carries them.
+matcher_compares: [method, url, body]
+case_asserts: [headers]
+# A request with no body — a read, a delete — is matched on method and URL
+# alone, because that is all there is to compare.
+# A query parameter recorded as `{dedup_token}` is a de-duplication token: the
+# provider makes a new one for each request, so replay requires the parameter
+# and accepts any value in it.
+
+# One recording per operation, named for the operation it replays. Every case
+# carries that name, whether or not the recording exists, which is what lets the
+# cases be written first and recorded afterwards. The name is stated once in the
+# case builder, so the recording step and this mode cannot disagree about it.
+
+preconditions:
+  network: none
+  credentials: none
+  endpoint: none
+  cassettes: one per operation, recorded before this runs
+
+verifies: false # a recording cannot confirm a resource exists now
+cleans_up: false # nothing was created
+
+rules:
+  - rule: a missing cassette skips its step, and the skip is reported
+    why: >-
+      The step stays in the case, because the API offers the operation and a
+      later recording must revive it without the case being written again. What
+      is absent is the recording, and a skip is never a pass.
+  - rule: an absent recording is never permission to record
+    why: >-
+      A replay library may treat an absent cassette as permission to record, and
+      the run then reaches the live API without saying so. The absence is decided
+      by the runner, never by the library.
+  - rule: replay is unavailable until something is recorded
+    why: >-
+      A recording needs an account once, and is taken against the API directly
+      rather than through the provider. Saying that plainly keeps the absence
+      where it belongs: the cases are written and correct, and only the
+      transport is missing.
+  - rule: recording never happens inside a test run
+    why: >-
+      Recording is a live action a person takes once. A run that can record is a
+      run that can create resources nobody expected.

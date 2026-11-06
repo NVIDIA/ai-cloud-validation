@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Offline — nothing reaches the API, and nothing has been recorded from it.
+#
+# The mode for someone building the provider and the modules with no account at
+# all. Most of the work is reachable this way, and it stays reachable: an
+# offline run never becomes a live one because a recording was missing.
+api_version: terraform.ncp/v1
+mode: offline
+
+needs_account: false
+needs_cassettes: false
+
+proves: >-
+  the configuration and the contract hold — it formats, it initialises, it
+  validates, the provider's schema loads, the plan names the addresses the case
+  expects, a module's inputs and outputs line up, and nothing reaches the
+  network or reads a credential
+does_not_prove: that any NCP would accept the request
+
+# It stops before apply, because applying is the thing that needs an API. The
+# case still states the steps past this point; the run does not reach them, and
+# rendering reads this field to decide where to stop. Cutting the case instead
+# meant a case written to plan had to be written again to apply.
+stops_before: apply_create
+
+preconditions:
+  network: none
+  credentials: none
+  endpoint: none # no NCP address is needed, read, or asked for
+  terraform_binary: supplied by path, never downloaded
+
+# Nothing is created, so nothing is verified against the API and nothing is
+# removed. The case carries both anyway: they are what a wider run of the same
+# case needs, and this run simply does not reach them.
+verifies: false
+cleans_up: false

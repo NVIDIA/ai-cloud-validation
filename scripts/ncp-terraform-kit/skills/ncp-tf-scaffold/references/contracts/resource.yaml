@@ -1,0 +1,116 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Live Tier 1 — one resource, driven through its whole life.
+#
+# The largest contract. The module and composition contracts are narrower forms
+# of the same vocabulary, so read this one first.
+api_version: terraform.ncp/v1
+contract: resource
+
+applies: a minimal root module holding one resource
+proves: the NCP accepted the configuration, and the resource exists
+needs_account: true
+
+# A minimal root module on purpose. A failure here indicts the provider and
+# nothing else, which is why this tier cannot also test the layer module.
+subject: one resource from module_plan
+
+# The framework executes this order; the kit supplies the assertions. Steps that
+# need an operation the resource does not have are dropped by the narrowing
+# rules below, and the case records that it dropped them.
+lifecycle:
+  - init
+  - validate
+  - plan_create
+  - apply_create
+  - refresh
+  - plan_no_change
+  - apply_update
+  - plan_no_change
+  - destroy
+
+# Terraform's own view of a resource is what is under test, so it cannot also be
+# the evidence. Each check is one call to the NCP's own API -- through the read
+# operation module_plan names, never through the provider -- and each says what
+# that call must come back with.
+verification:
+  create:
+    check: independent_ncp_check
+    through: read
+    expect: present
+  update:
+    check: independent_ncp_check
+    through: read
+    expect: reflects fixture.update
+  destroy:
+    check: independent_ncp_check
+    through: read
+    expect: absent
+
+assertions:
+  terraform_state: []
+  terraform_outputs: []
+  plan: []
+
+cleanup:
+  required: true
+  timeout: 30m
+
+# What a script cannot choose. Everything else in a case is a function of
+# module_plan and the specification, so reviewing it is reviewing the script.
+judged:
+  - field: fixture.create
+    question: which values create this resource — which machine type, which CIDR, which size
+    constrained_by: the `schema` named beside this field, in the pinned specification. The case does not copy it -- what a document states about a body is too much to carry and too easy to carry in part, and a part read as the whole is worse than the trip to read it
+    why: a create the API refuses never reaches the test, and one built from defaults alone tests the defaults
+    shape: a map of Terraform argument names to values, as the resource block writes them. An argument is the document's own field name in lowercase with underscores between words -- `includedPermissions` is written `included_permissions` -- because that is all Terraform accepts, and a fixture in the document's spelling configures nothing. The resource's name -- when this map holds `{run_id}` in any value, the test sends it as written, name included, and `check` holds each name to the kit's prefix, the run id and the API's limit. When it holds none, `naming.name_pattern` fills the field that `naming.name_field` names
+  - field: fixture.update
+    question: which new value changes each field in update_fields.change
+    why: an update that alters a field the API ignores proves nothing, and passes, and one that leaves a field out never tests the call that changes it
+    shape: the same map, holding every argument in update_fields.change and no argument the update cannot change
+  - field: proved_by
+    question: which fixture values exercise each requirement in `resource.requirements`
+    why: a case that sets no value for a requirement tests the API's default, and its pass reads as proof of a requirement that the test never touched. Owed only by a case that cites a requirement
+    shape: a map from each requirement id in `resource.requirements` to the list of fixture paths that set the values which exercise it, written with dots as the fixture nests them. `check` refuses a cited requirement with no path, and a path that the fixture does not set. When no value of the fixture exercises a requirement, add one that does. When no value of this resource can, the plan ties the resource to the wrong requirement, so propose the correction of the plan to the operator
+    example: "K8S06: [fixture.create.machine_type]"
+  - field: readiness
+    question: which state means usable, not merely created
+    constrained_by: the status or state enum the read operation returns, where the specification declares one
+    why: a resource that exists and is not yet usable fails the next step, not this one
+    shape: one line naming the field the read returns and the value that means usable; where the read returns no such field, say what the test may depend on instead
+    example: status == READY
+  - field: verification.destroy.expect
+    question: what the read comes back with once the resource is destroyed
+    constrained_by: what the delete operation's own description says it does, in the pinned specification
+    why: an API that soft-deletes still answers the read, so a case that expects absence fails on a destroy that worked -- and one that expects a marker the API does not set passes on a destroy that did not
+    shape: one line -- `absent`, or the field and value the read returns instead
+    example: absent
+
+# Generated with a value, and still worth a look. `judged` is for what no script
+# can choose; this is for what a script chooses correctly almost every time. The
+# entry reaches the reviewer the same way, and `check` does not demand an answer
+# because one is already there.
+advisory:
+  - field: naming.name_pattern
+    question: does this API accept the name the convention built
+    constrained_by: the identifier rules the specification states for this resource -- length, and which characters the name may hold
+    why: the convention joins its three parts with a hyphen, and some identifiers forbid one. A name the API refuses fails every step of the case before anything is under test
+    shape: the kit's prefix, the run id and a discriminator, joined by a separator this API permits. The prefix and the id may not change -- they are all the sweeper reads
+    example: tfkit_{run_id}_role, where a hyphen is not allowed
+
+# The top-level fields a case of this contract holds. A refresh carries a judged
+# value only into a field that this list still holds, and lists the rest as
+# lost. `dependencies` and `peer` are a person's, and `instantiate` writes
+# neither of them.
+case_fields: [api_version, kind, contract, derived_from, resource, naming, fixture, proved_by, lifecycle, assertions, judged, review, readiness, verification, cleanup, expected_requests, narrowed, derived_dependencies, update_fields, dependencies, peer, not_exercised]
+
+narrowing:
+  - when: the resource has no update operation
+    drop: [apply_update, plan_no_change]
+    also_drop: [verification.update, fixture.update]
+    why: an update step with no operation behind it asserts nothing and fails for the wrong reason
+  - when: the resource has no delete operation
+    drop: [destroy]
+    require: cleanup.manual
+    why: nothing will remove it, so the run must say so rather than leak silently
