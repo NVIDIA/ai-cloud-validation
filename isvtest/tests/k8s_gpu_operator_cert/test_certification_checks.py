@@ -24,7 +24,7 @@ class _FakeRun:
     """Stand in for the Job run; each test sets what it returned."""
 
     def __init__(self) -> None:
-        self.output: dict[str, Any] = {"artifacts": {}, "result": {"status": "passed", "tests": [{"name": "t"}]}}
+        self.output: dict[str, Any] = {"result": {"status": "passed", "tests": [{"name": "t"}]}}
         self.calls: list[dict[str, Any]] = []
 
     def __call__(self, test_set: str, **kwargs: Any) -> dict[str, Any]:
@@ -40,7 +40,7 @@ def run(monkeypatch: pytest.MonkeyPatch) -> _FakeRun:
 
 
 def _result(status: str, tests: list[dict[str, Any]], error: str = "") -> dict[str, Any]:
-    return {"artifacts": {}, "result": {"id": "TS1000", "status": status, "error": error, "tests": tests}}
+    return {"result": {"id": "TS1000", "status": status, "error": error, "tests": tests}}
 
 
 @pytest.mark.parametrize("enabled", [False, "False", "", None])
@@ -139,7 +139,7 @@ def test_skipped_set_skips_with_the_binary_reason(run: _FakeRun) -> None:
 
 
 def test_run_error_fails_with_the_test_set(run: _FakeRun) -> None:
-    run.output = {"artifacts": {}, "error": "certification Job failed: boom"}
+    run.output = {"error": "certification Job failed: boom"}
 
     result = K8sGpuOperatorDefaultSettings(config=_ENABLED).execute()
 

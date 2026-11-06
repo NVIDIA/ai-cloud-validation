@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from isvtest.core import k8s
 from isvtest.validations.k8s_gpu_operator_cert import runner
 
 pytestmark = pytest.mark.unit
@@ -22,19 +23,17 @@ _TS1000 = {"id": "TS1000", "status": "passed", "tests": [{"name": "operand-verif
 class _FakeKubectl:
     """Answer the runner's kubectl calls the way a cluster running the Job would."""
 
-    def __init__(self, *, apply_rc: int = 0, job_status: str | None = "Complete", results: dict | None = None):
-        self.apply_rc = apply_rc
-        self.job_status = job_status
+    def __init__(self) -> None:
+        self.apply_rc = 0
+        self.job_status: str | None = "Complete"
         self.results = {"results.json": json.dumps({"testSets": [_TS1000]}), "report.html": "<html/>"}
-        if results is not None:
-            self.results = results
         self.logs = "=== TestSet [TS1000]: Default Settings ===\nerror: creating k8s clients: no config"
         self.namespace_rc = 0
         self.existing: list[dict] = []
         self.calls: list[list[str]] = []
         self.applied = ""
 
-    def __call__(self, args: list[str], *, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    def __call__(self, args: list[str], *, stdin: str | None = None, **_: object) -> subprocess.CompletedProcess[str]:
         self.calls.append(args)
         if args[:2] == ["get", "namespace"]:
             return _done(self.namespace_rc, stderr='Error from server (NotFound): namespaces "gpu-ns" not found')
@@ -62,7 +61,8 @@ def _done(returncode: int, stdout: str = "", stderr: str = "") -> subprocess.Com
 @pytest.fixture
 def kubectl(monkeypatch: pytest.MonkeyPatch) -> _FakeKubectl:
     fake = _FakeKubectl()
-    monkeypatch.setattr(runner, "_kubectl", fake)
+    monkeypatch.setattr(runner, "run_kubectl", fake)
+    monkeypatch.setattr(k8s, "run_kubectl", fake)
     monkeypatch.setattr(runner, "_POLL_SECONDS", 0)
     return fake
 
@@ -98,11 +98,10 @@ def test_returns_the_test_set_and_keeps_evidence(tmp_path: Path, kubectl: _FakeK
     output = _run(tmp_path)
 
     assert output["result"] == _TS1000
-    artifacts = output["artifacts"]
-    assert json.loads(Path(artifacts["results_json"]).read_text())["testSets"] == [_TS1000]
-    assert Path(artifacts["report_html"]).read_text() == "<html/>"
-    assert "Default Settings" in Path(artifacts["job_log"]).read_text()
-    assert Path(artifacts["results_json"]).parent == tmp_path / "TS1000"
+    evidence = tmp_path / "TS1000"
+    assert json.loads((evidence / "results.json").read_text())["testSets"] == [_TS1000]
+    assert (evidence / "report.html").read_text() == "<html/>"
+    assert "Default Settings" in (evidence / "job.log").read_text()
 
 
 def test_cleans_up_before_and_after_the_run(tmp_path: Path, kubectl: _FakeKubectl) -> None:
@@ -166,7 +165,7 @@ def test_failed_job_reports_its_last_log_line(tmp_path: Path, kubectl: _FakeKube
     output = _run(tmp_path)
 
     assert output["error"] == "certification Job failed: error: creating k8s clients: no config"
-    assert "job_log" in output["artifacts"]
+    assert (tmp_path / "TS1000" / "job.log").exists()
 
 
 def test_unfinished_job_is_stopped(tmp_path: Path, kubectl: _FakeKubectl) -> None:

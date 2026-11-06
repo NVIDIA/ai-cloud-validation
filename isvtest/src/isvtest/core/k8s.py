@@ -575,6 +575,7 @@ def run_kubectl(
     capture_output: bool = True,
     text: bool = True,
     check: bool = False,
+    stdin: str | None = None,
 ) -> subprocess.CompletedProcess[Any]:
     """Run kubectl command with appropriate provider.
 
@@ -584,6 +585,7 @@ def run_kubectl(
         capture_output: Whether to capture stdout/stderr
         text: Whether to return output as text
         check: Whether to raise exception on non-zero exit
+        stdin: Optional input text, e.g. a manifest for ``apply -f -``
 
     Returns:
         CompletedProcess instance with command results
@@ -599,6 +601,7 @@ def run_kubectl(
     try:
         return subprocess.run(
             full_cmd,
+            input=stdin,
             capture_output=capture_output,
             text=text,
             timeout=timeout,
@@ -879,6 +882,7 @@ def wait_for_job_completion(
     job_name: str,
     namespace: str,
     timeout: int = 600,
+    poll_interval: float = 0.5,
 ) -> tuple[bool, str]:
     """Wait for a job to complete (reach either Complete or Failed status).
 
@@ -889,6 +893,7 @@ def wait_for_job_completion(
         job_name: Name of the job.
         namespace: Kubernetes namespace.
         timeout: Maximum time to wait in seconds.
+        poll_interval: Seconds between polls; raise it for long-running Jobs.
 
     Returns:
         A tuple of (completed, status) where:
@@ -907,7 +912,7 @@ def wait_for_job_completion(
     last_status = "Unknown"
     last_print_time = start_time
 
-    while time.time() - start_time < timeout:
+    while True:
         # Check job conditions for Complete or Failed status
         result = run_kubectl(["get", "job", job_name, "-n", namespace, "-o", "json"])
         job_payload = kubectl_payload_or_none(result) if result.returncode == 0 else None
@@ -917,6 +922,10 @@ def wait_for_job_completion(
                 return True, terminal
             has_conditions = bool((job_payload.get("status") or {}).get("conditions"))
             last_status = "Running" if has_conditions else "Pending"
+
+        # Checked after the poll so a Job finishing during the last sleep is still seen
+        if time.time() - start_time >= timeout:
+            return False, last_status
 
         # Get pod status for better visibility
         pod_status_result = run_kubectl(["get", "pods", "-l", f"job-name={job_name}", "-n", namespace, "-o", "json"])
@@ -931,10 +940,7 @@ def wait_for_job_completion(
             logger.info(f"Still waiting for job {job_name}... elapsed={elapsed}s, {pod_info}")
             last_print_time = current_time
 
-        time.sleep(0.5)
-
-    # Timeout reached
-    return False, last_status
+        time.sleep(poll_interval)
 
 
 def _format_job_pod_info(result: subprocess.CompletedProcess[Any]) -> tuple[str, str]:

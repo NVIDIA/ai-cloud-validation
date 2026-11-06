@@ -54,7 +54,6 @@ def test_enabled_runs_each_test_set_in_its_own_job(monkeypatch: pytest.MonkeyPat
         calls.append({"test_set": test_set, **kwargs})
         status = "failed" if test_set == "TS1002" else "passed"
         return {
-            "artifacts": {},
             "result": {"id": test_set, "status": status, "tests": [{"name": "t", "status": status}]},
         }
 
@@ -67,7 +66,9 @@ def test_enabled_runs_each_test_set_in_its_own_job(monkeypatch: pytest.MonkeyPat
     assert states.pop("K8sGpuOperatorDcgmStandalone") is State.FAILED
     assert set(states.values()) == {State.PASSED}
     assert [call["test_set"] for call in calls] == [f"TS100{i}" for i in range(9)]
-    assert {call["image"] for call in calls} == {"ghcr.io/nvidia/gpu-operator:main-latest"}
+    assert {call["image"] for call in calls} == {
+        "ghcr.io/nvidia/gpu-operator@sha256:4e6f7f29d8380abd794fbf296082144227d702cc877d8837c3b652a2787e5dc5"
+    }
     env = {call["test_set"]: call["env"] for call in calls}
     assert env["TS1003"] == {"TARGET_DRIVER_VERSION": "580.126.16"}
     assert env["TS1000"] == {}

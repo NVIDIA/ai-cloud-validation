@@ -61,7 +61,9 @@ tests:
     # manifest's defaults; TS1003 skips without the target_driver_* values.
     gpu_operator_certification:
       enabled: false
-      image: "ghcr.io/nvidia/gpu-operator:main-latest"
+      # GPU Operator main as of 2026-11-06: no release ships the certification
+      # binary yet. ghcr.io/nvidia/gpu-operator:main-latest tracks main instead.
+      image: "ghcr.io/nvidia/gpu-operator@sha256:4e6f7f29d8380abd794fbf296082144227d702cc877d8837c3b652a2787e5dc5"
       test_timeout: ""
       test_workload_image: ""
       target_driver_repository: ""

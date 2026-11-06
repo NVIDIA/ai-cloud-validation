@@ -14,12 +14,19 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import Any
 
-from isvtest.core.k8s import get_kubectl_command, job_terminal_status, render_k8s_manifest
+from isvtest.core.k8s import (
+    KubectlParseError,
+    command_detail,
+    parse_kubectl_json,
+    render_k8s_manifest,
+    run_kubectl,
+    wait_for_job_completion,
+)
 
 DEFAULT_ARTIFACT_DIR = Path("_output") / "gpu-operator-certification"
 _MANIFEST = Path(__file__).resolve().parents[1] / "manifests" / "k8s" / "gpu_operator_certification.yaml"
@@ -43,18 +50,18 @@ def run_test_set(
     """Run ``test_set`` alone in the certification Job and return its result.
 
     ``env`` overrides keys of the manifest's config ConfigMap. The result
-    carries ``artifacts`` and either ``result``, the test set's entry from
-    ``results.json``, or ``error`` when     the run produced none. Every object the
+    carries either ``result``, the test set's entry from ``results.json``, or
+    ``error`` when the run produced none; the Job log, ``results.json``, and
+    ``report.html`` are kept under ``artifact_dir/<test_set>``. Every object the
     manifest creates, and the results ConfigMap, is deleted before and after
     the run, unless the namespace is missing or a Helm release owns them.
     """
     artifacts_dir = Path(artifact_dir).expanduser().resolve() / test_set
+    shutil.rmtree(artifacts_dir, ignore_errors=True)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    for stale in ("results.json", "report.html", "job.log"):
-        (artifacts_dir / stale).unlink(missing_ok=True)
     manifest = _render(test_set, namespace=namespace, image=image, env=env)
     if error := _preflight(manifest, namespace):
-        return {"artifacts": {}, "error": error}
+        return {"error": error}
     # The binary cannot update an existing results ConfigMap, so a leftover one
     # would be read back as this run's results.
     _delete(manifest, namespace)
@@ -95,9 +102,10 @@ def _preflight(manifest: str, namespace: str) -> str | None:
     if existing.returncode != 0:
         return f"failed to look up existing certification objects: {_last_line(existing)}"
     try:
-        listed = json.loads(existing.stdout) if existing.stdout.strip() else {}
-    except json.JSONDecodeError:
-        return "failed to look up existing certification objects: kubectl returned invalid JSON"
+        # Empty output means nothing exists; invalid output must fail closed.
+        listed = parse_kubectl_json(existing, "existing certification objects") if existing.stdout.strip() else {}
+    except KubectlParseError as exc:
+        return str(exc)
     items = (listed.get("items") or []) if listed.get("kind") == "List" else [listed]
     for item in items:
         annotations = (item.get("metadata") or {}).get("annotations") or {}
@@ -112,63 +120,45 @@ def _preflight(manifest: str, namespace: str) -> str | None:
 
 def _run(test_set: str, manifest: str, namespace: str, timeout: int, artifacts_dir: Path) -> dict[str, Any]:
     """Apply the manifest, wait for the Job, and read back its results."""
-    artifacts: dict[str, str] = {}
     applied = _kubectl(["apply", "-f", "-"], stdin=manifest)
     if applied.returncode != 0:
-        return {"artifacts": artifacts, "error": f"failed to apply the certification manifest: {_last_line(applied)}"}
+        return {"error": f"failed to apply the certification manifest: {_last_line(applied)}"}
 
     _logger.info("Waiting up to %ss for GPU Operator certification %s", timeout, test_set)
-    status = _wait_for_job(namespace, timeout)
+    finished, status = wait_for_job_completion(_JOB_NAME, namespace, timeout, poll_interval=_POLL_SECONDS)
     logs = _kubectl(["logs", f"job/{_JOB_NAME}", "-n", namespace])
+    job_log = artifacts_dir / "job.log"
     if logs.stdout:
-        artifacts["job_log"] = _write(artifacts_dir / "job.log", logs.stdout)
-    if status is None:
+        job_log.write_text(logs.stdout, encoding="utf-8")
+    if not finished:
         return {
-            "artifacts": artifacts,
             "error": f"certification Job did not finish within {timeout}s and was stopped; "
-            "the GPU Operator settings may not have been restored",
+            "the GPU Operator settings may not have been restored"
         }
     if status == "Failed":
-        return {"artifacts": artifacts, "error": f"certification Job failed: {_last_line(logs)}"}
+        return {"error": f"certification Job failed: {_last_line(logs)}"}
 
     stored = _kubectl(["get", "configmap", _RESULTS_CONFIGMAP, "-n", namespace, "-o", "json"])
     if stored.returncode != 0:
-        return {"artifacts": artifacts, "error": f"certification Job stored no results: {_last_line(stored)}"}
+        return {"error": f"certification Job stored no results: {_last_line(stored)}"}
     try:
-        data = json.loads(stored.stdout).get("data") or {}
-    except (json.JSONDecodeError, AttributeError):
-        return {"artifacts": artifacts, "error": "results ConfigMap is not a JSON object"}
-    for key, name in (("results.json", "results_json"), ("report.html", "report_html")):
+        data = parse_kubectl_json(stored, "results ConfigMap").get("data") or {}
+    except KubectlParseError as exc:
+        return {"error": str(exc)}
+    for key in ("results.json", "report.html"):
         if data.get(key):
-            artifacts[name] = _write(artifacts_dir / key, data[key])
+            (artifacts_dir / key).write_text(data[key], encoding="utf-8")
 
     try:
         suite = json.loads(data.get("results.json") or "")
     except json.JSONDecodeError as exc:
-        return {"artifacts": artifacts, "error": f"results.json is not valid JSON: {exc}"}
+        return {"error": f"results.json is not valid JSON: {exc}"}
     test_sets = suite.get("testSets") if isinstance(suite, dict) else None
     result = next((ts for ts in test_sets or [] if isinstance(ts, dict) and ts.get("id") == test_set), None)
     if result is None:
-        log = artifacts.get("job_log", "the Job log")
-        return {"artifacts": artifacts, "error": f"results.json has no {test_set} result; see {log}"}
-    return {"artifacts": artifacts, "result": result}
-
-
-def _wait_for_job(namespace: str, timeout: int) -> str | None:
-    """Return ``Complete`` or ``Failed`` once the Job finishes, or ``None`` at the deadline."""
-    deadline = time.monotonic() + timeout
-    while True:
-        result = _kubectl(["get", "job", _JOB_NAME, "-n", namespace, "-o", "json"])
-        if result.returncode == 0:
-            try:
-                status = job_terminal_status(json.loads(result.stdout))
-            except json.JSONDecodeError:
-                status = None
-            if status is not None:
-                return status
-        if time.monotonic() >= deadline:
-            return None
-        time.sleep(_POLL_SECONDS)
+        log = job_log if job_log.exists() else "the Job log"
+        return {"error": f"results.json has no {test_set} result; see {log}"}
+    return {"result": result}
 
 
 def _delete(manifest: str, namespace: str) -> None:
@@ -183,26 +173,10 @@ def _delete(manifest: str, namespace: str) -> None:
 
 
 def _kubectl(args: list[str], *, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
-    """Run kubectl and return its result, reporting a timeout as exit code 124."""
-    command = [*get_kubectl_command(), *args]
-    try:
-        return subprocess.run(
-            command, input=stdin, capture_output=True, text=True, timeout=_KUBECTL_TIMEOUT, check=False
-        )
-    except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(command, 124, "", f"timed out after {_KUBECTL_TIMEOUT}s")
-
-
-def _write(path: Path, text: str) -> str:
-    """Write retained evidence and return its path."""
-    path.write_text(text, encoding="utf-8")
-    return str(path)
+    """Run kubectl with the runner's timeout; a timeout reports exit code 124."""
+    return run_kubectl(args, timeout=_KUBECTL_TIMEOUT, stdin=stdin)
 
 
 def _last_line(result: subprocess.CompletedProcess[str]) -> str:
-    """Return the last non-empty output line, preferring stderr."""
-    for output in (result.stderr, result.stdout):
-        lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
-        if lines:
-            return lines[-1]
-    return f"exit code {result.returncode}"
+    """Return the last line of kubectl's most informative output."""
+    return command_detail(result).splitlines()[-1]
